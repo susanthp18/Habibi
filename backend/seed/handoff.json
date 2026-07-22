@@ -1,0 +1,188 @@
+{
+  "activeCall": {
+    "customerName": "Priya Menon",
+    "accountId": "HDFC-RL-8842-1207",
+    "phone": "+91 98••••3421",
+    "channel": "Voice · Twilio",
+    "agentName": "You (Aarav K.)",
+    "transferredFrom": "Bot · Kaia v2.4",
+    "escalationReason": "Dispute — payment not reflected",
+    "startedAt": 1784644386244
+  },
+  "customerContext": {
+    "risk": "High",
+    "outstanding": 48720,
+    "currency": "₹",
+    "lastPromise": {
+      "amount": 15000,
+      "date": "12 Jul 2026",
+      "status": "broken"
+    },
+    "nextEmi": {
+      "amount": 12180,
+      "dueDate": "05 Aug 2026",
+      "daysOverdue": 16
+    },
+    "openDisputes": 1,
+    "dnd": {
+      "allowed": true,
+      "window": "09:00 – 19:00 IST",
+      "channels": [
+        "Voice",
+        "WhatsApp"
+      ]
+    },
+    "tenureMonths": 34,
+    "product": "Personal Loan · 5Y"
+  },
+  "transcriptScript": [
+    {
+      "id": "t1",
+      "speaker": "system",
+      "text": "Call transferred from bot — reason: dispute",
+      "at": 0
+    },
+    {
+      "id": "t2",
+      "speaker": "agent",
+      "text": "Hi Priya, this is Aarav from HDFC Collections. This call is recorded for quality. How can I help you today?",
+      "at": 2
+    },
+    {
+      "id": "t3",
+      "speaker": "customer",
+      "text": "Yes hi. I paid 15,000 rupees on the 12th but your system is still showing it as unpaid. I've been going in circles with the bot.",
+      "at": 8,
+      "sentimentDelta": -0.35
+    },
+    {
+      "id": "t4",
+      "speaker": "agent",
+      "text": "I understand, that's frustrating. Let me pull up your account — can you confirm the last 4 digits of your registered mobile?",
+      "at": 18
+    },
+    {
+      "id": "t5",
+      "speaker": "customer",
+      "text": "3421.",
+      "at": 25,
+      "sentimentDelta": 0.05
+    },
+    {
+      "id": "t6",
+      "speaker": "system",
+      "text": "Identity verified · OTP not required (voice-match confidence 94%)",
+      "at": 27
+    },
+    {
+      "id": "t7",
+      "speaker": "agent",
+      "text": "Thanks. I can see a payment attempt on the 12th but it looks like it failed at the gateway — no debit on your side. Do you have a UTR or bank reference?",
+      "at": 33
+    },
+    {
+      "id": "t8",
+      "speaker": "customer",
+      "text": "Wait, so I was not actually charged? Let me check my statement… hmm, yeah nothing on my side either.",
+      "at": 45,
+      "sentimentDelta": 0.2
+    },
+    {
+      "id": "t9",
+      "speaker": "agent",
+      "text": "Right — good news, no money was lost. I can raise a formal dispute closure note and, if you'd like, set up a fresh payment right now for 15,000 or your full overdue of 12,180.",
+      "at": 55,
+      "sentimentDelta": 0.15
+    },
+    {
+      "id": "t10",
+      "speaker": "customer",
+      "text": "Okay yes let's do the 12,180 today, and I'll clear the rest by month end.",
+      "at": 68,
+      "sentimentDelta": 0.3
+    },
+    {
+      "id": "t11",
+      "speaker": "agent",
+      "text": "Perfect. I'm capturing a Promise-to-Pay: 12,180 now, remainder by 31 July. You'll get an SMS link in a minute.",
+      "at": 78,
+      "sentimentDelta": 0.1
+    },
+    {
+      "id": "t12",
+      "speaker": "customer",
+      "text": "Great, thank you for actually helping.",
+      "at": 88,
+      "sentimentDelta": 0.25
+    }
+  ],
+  "suggestions": [
+    {
+      "id": "s1",
+      "title": "Acknowledge & de-escalate",
+      "body": "I understand this has been frustrating — let me pull up your account right away and get this sorted.",
+      "source": "Playbook · Dispute intake",
+      "showAfter": 10
+    },
+    {
+      "id": "s2",
+      "title": "Explain failed-gateway status",
+      "body": "Our records show a gateway failure on 12 Jul — no amount was actually debited from your account. Could you share a UTR if you have one?",
+      "source": "RAG · Payment reconciliation policy",
+      "showAfter": 30
+    },
+    {
+      "id": "s3",
+      "title": "Offer PTP + waiver check",
+      "body": "You're eligible for a one-time late-fee waiver of ₹450 if we clear the overdue EMI today. Shall I apply it?",
+      "source": "RAG · Late-fee waiver matrix",
+      "showAfter": 55
+    },
+    {
+      "id": "s4",
+      "title": "Capture Promise-to-Pay",
+      "body": "I'll record a Promise-to-Pay: ₹12,180 today + ₹36,540 by 31 Jul. You'll receive a secure payment link on WhatsApp.",
+      "source": "Playbook · PTP capture",
+      "showAfter": 70
+    }
+  ],
+  "complianceItems": [
+    {
+      "id": "c1",
+      "label": "Recording disclosure read",
+      "required": true,
+      "autoAt": 3
+    },
+    {
+      "id": "c2",
+      "label": "Identity verified",
+      "required": true,
+      "autoAt": 28
+    },
+    {
+      "id": "c3",
+      "label": "Mini-Miranda / debt-collection notice",
+      "required": true
+    },
+    {
+      "id": "c4",
+      "label": "DND & consent window checked",
+      "required": true,
+      "autoAt": 1
+    },
+    {
+      "id": "c5",
+      "label": "Data-use consent (payment link)",
+      "required": false
+    }
+  ],
+  "dispositions": [
+    "PTP captured",
+    "Payment taken",
+    "Dispute — under review",
+    "Info provided",
+    "Callback scheduled",
+    "Escalated to supervisor",
+    "Unresolved — retry"
+  ]
+}

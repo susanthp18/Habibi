@@ -1,0 +1,1527 @@
+[
+  {
+    "id": "LD-1001",
+    "customerId": "vikram-rao",
+    "customerName": "Vikram Rao",
+    "accountId": "AC-77410",
+    "accountTail": "7410",
+    "offer": {
+      "productId": "topup-loan",
+      "label": "Top-up Loan",
+      "indicativeAmount": 150000,
+      "indicativeROI": "10.75% p.a."
+    },
+    "stage": "interested",
+    "capturedAt": "2026-07-21T04:30:00.000Z",
+    "sourceCallId": "CALL-1000",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.72,
+    "transcriptSnippet": "Yeh EMI to theek hai, lekin agar 1 lakh aur mil sakta hai top-up mein toh mujhe interest hoga.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Top-up Loan"
+      }
+    ],
+    "owner": "Unassigned",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "high",
+    "estimatedValue": 150000,
+    "events": [
+      {
+        "at": "2026-07-21T04:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      }
+    ]
+  },
+  {
+    "id": "LD-1002",
+    "customerId": "anita-desai",
+    "customerName": "Anita Desai",
+    "accountId": "AC-88214",
+    "accountTail": "8214",
+    "offer": {
+      "productId": "debt-consolidation",
+      "label": "Debt Consolidation",
+      "indicativeAmount": 450000,
+      "indicativeROI": "11.5% p.a."
+    },
+    "stage": "interested",
+    "capturedAt": "2026-07-21T05:30:00.000Z",
+    "sourceCallId": "CALL-1007",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.66,
+    "transcriptSnippet": "I have three cards outstanding — can we combine into one lower EMI? That would really help.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": false,
+        "detail": "1× 30-DPD event 4 months ago"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Debt Consolidation"
+      }
+    ],
+    "owner": "Priya Nair",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "high",
+    "estimatedValue": 450000,
+    "events": [
+      {
+        "at": "2026-07-21T05:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      }
+    ]
+  },
+  {
+    "id": "LD-1003",
+    "customerId": "rohit-shah",
+    "customerName": "Rohit Shah",
+    "accountId": "AC-55129",
+    "accountTail": "5129",
+    "offer": {
+      "productId": "cc-limit-upgrade",
+      "label": "Credit Card Limit Upgrade",
+      "indicativeAmount": 200000,
+      "indicativeROI": "36% APR (revolving)"
+    },
+    "stage": "interested",
+    "capturedAt": "2026-07-20T06:30:00.000Z",
+    "sourceCallId": "CALL-1014",
+    "source": "bot_chat",
+    "sentimentAtCapture": "neutral",
+    "sentimentScore": 0.45,
+    "transcriptSnippet": "My limit is only 80k, please increase it to 2 lakhs — I've been paying full every month.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Credit Card Limit Upgrade"
+      }
+    ],
+    "owner": "Sara Khan",
+    "team": "Cards Sales",
+    "followUps": [],
+    "priority": "normal",
+    "estimatedValue": 200000,
+    "events": [
+      {
+        "at": "2026-07-20T06:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from chat"
+      }
+    ]
+  },
+  {
+    "id": "LD-1004",
+    "customerId": "kavya-menon",
+    "customerName": "Kavya Menon",
+    "accountId": "AC-66321",
+    "accountTail": "6321",
+    "offer": {
+      "productId": "personal-loan",
+      "label": "Personal Loan",
+      "indicativeAmount": 300000,
+      "indicativeROI": "12.5% p.a."
+    },
+    "stage": "interested",
+    "capturedAt": "2026-07-20T07:30:00.000Z",
+    "sourceCallId": "CALL-1021",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.78,
+    "transcriptSnippet": "Actually I need around 3 lakhs for my sister's wedding — what's the pre-approved offer?",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Personal Loan"
+      }
+    ],
+    "owner": "Unassigned",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "high",
+    "estimatedValue": 300000,
+    "events": [
+      {
+        "at": "2026-07-20T07:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      }
+    ]
+  },
+  {
+    "id": "LD-1005",
+    "customerId": "irfan-siddiqui",
+    "customerName": "Irfan Siddiqui",
+    "accountId": "AC-91002",
+    "accountTail": "1002",
+    "offer": {
+      "productId": "gold-loan",
+      "label": "Gold Loan",
+      "indicativeAmount": 80000,
+      "indicativeROI": "9.5% p.a."
+    },
+    "stage": "interested",
+    "capturedAt": "2026-07-19T08:30:00.000Z",
+    "sourceCallId": "CALL-1028",
+    "source": "bot_chat",
+    "sentimentAtCapture": "neutral",
+    "sentimentScore": 0.5,
+    "transcriptSnippet": "Mere paas thoda gold hai, uspe loan ho jayega? Interest kitna hoga?",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Gold Loan"
+      }
+    ],
+    "owner": "Arjun Mehta",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "normal",
+    "estimatedValue": 80000,
+    "events": [
+      {
+        "at": "2026-07-19T08:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from chat"
+      }
+    ]
+  },
+  {
+    "id": "LD-1006",
+    "customerId": "sneha-kapoor",
+    "customerName": "Sneha Kapoor",
+    "accountId": "AC-42188",
+    "accountTail": "2188",
+    "offer": {
+      "productId": "bundled-insurance",
+      "label": "Bundled Insurance",
+      "indicativeAmount": 12000,
+      "indicativeROI": "N/A (premium)"
+    },
+    "stage": "interested",
+    "capturedAt": "2026-07-19T09:30:00.000Z",
+    "sourceCallId": "CALL-1035",
+    "source": "bot_voice",
+    "sentimentAtCapture": "neutral",
+    "sentimentScore": 0.55,
+    "transcriptSnippet": "Is there any insurance I should add on this loan? Peace of mind types.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Bundled Insurance"
+      }
+    ],
+    "owner": "Unassigned",
+    "team": "Insurance",
+    "followUps": [],
+    "priority": "low",
+    "estimatedValue": 12000,
+    "events": [
+      {
+        "at": "2026-07-19T09:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      }
+    ]
+  },
+  {
+    "id": "LD-1007",
+    "customerId": "manish-agarwal",
+    "customerName": "Manish Agarwal",
+    "accountId": "AC-78033",
+    "accountTail": "8033",
+    "offer": {
+      "productId": "topup-loan",
+      "label": "Top-up Loan",
+      "indicativeAmount": 100000,
+      "indicativeROI": "10.75% p.a."
+    },
+    "stage": "interested",
+    "capturedAt": "2026-07-18T04:30:00.000Z",
+    "source": "agent",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.7,
+    "transcriptSnippet": "Yeh EMI to theek hai, lekin agar 1 lakh aur mil sakta hai top-up mein toh mujhe interest hoga.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Top-up Loan"
+      }
+    ],
+    "owner": "Meera Iyer",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "normal",
+    "estimatedValue": 100000,
+    "events": [
+      {
+        "at": "2026-07-18T04:30:00.000Z",
+        "kind": "created",
+        "by": "Meera Iyer",
+        "note": "Lead captured from agent"
+      }
+    ]
+  },
+  {
+    "id": "LD-1008",
+    "customerId": "deepa-iyer",
+    "customerName": "Deepa Iyer",
+    "accountId": "AC-33417",
+    "accountTail": "3417",
+    "offer": {
+      "productId": "debt-consolidation",
+      "label": "Debt Consolidation",
+      "indicativeAmount": 600000,
+      "indicativeROI": "11.5% p.a."
+    },
+    "stage": "contacted",
+    "capturedAt": "2026-07-18T05:30:00.000Z",
+    "sourceCallId": "CALL-1049",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.68,
+    "transcriptSnippet": "I have three cards outstanding — can we combine into one lower EMI? That would really help.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Debt Consolidation"
+      }
+    ],
+    "owner": "Priya Nair",
+    "team": "Retail Sales",
+    "nextFollowUpAt": "2026-07-22T05:30:00.000Z",
+    "followUps": [
+      {
+        "at": "2026-07-22T05:30:00.000Z",
+        "channel": "voice",
+        "note": "Confirm income docs and pull latest bureau.",
+        "done": false
+      }
+    ],
+    "priority": "high",
+    "estimatedValue": 600000,
+    "events": [
+      {
+        "at": "2026-07-18T05:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      },
+      {
+        "at": "2026-07-19T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Priya Nair",
+        "note": "Moved to contacted"
+      }
+    ]
+  },
+  {
+    "id": "LD-1009",
+    "customerId": "vikram-rao",
+    "customerName": "Vikram Rao",
+    "accountId": "AC-77410",
+    "accountTail": "7410",
+    "offer": {
+      "productId": "cc-limit-upgrade",
+      "label": "Credit Card Limit Upgrade",
+      "indicativeAmount": 100000,
+      "indicativeROI": "36% APR (revolving)"
+    },
+    "stage": "contacted",
+    "capturedAt": "2026-07-17T04:30:00.000Z",
+    "source": "agent",
+    "sentimentAtCapture": "neutral",
+    "sentimentScore": 0.5,
+    "transcriptSnippet": "My limit is only 80k, please increase it to 2 lakhs — I've been paying full every month.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Credit Card Limit Upgrade"
+      }
+    ],
+    "owner": "Sara Khan",
+    "team": "Cards Sales",
+    "nextFollowUpAt": "2026-07-23T05:30:00.000Z",
+    "followUps": [
+      {
+        "at": "2026-07-23T05:30:00.000Z",
+        "channel": "whatsapp",
+        "note": "Send limit-upgrade brochure.",
+        "done": false
+      }
+    ],
+    "priority": "normal",
+    "estimatedValue": 100000,
+    "events": [
+      {
+        "at": "2026-07-17T04:30:00.000Z",
+        "kind": "created",
+        "by": "Sara Khan",
+        "note": "Lead captured from agent"
+      },
+      {
+        "at": "2026-07-18T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Sara Khan",
+        "note": "Moved to contacted"
+      }
+    ]
+  },
+  {
+    "id": "LD-1010",
+    "customerId": "rohit-shah",
+    "customerName": "Rohit Shah",
+    "accountId": "AC-55129",
+    "accountTail": "5129",
+    "offer": {
+      "productId": "personal-loan",
+      "label": "Personal Loan",
+      "indicativeAmount": 250000,
+      "indicativeROI": "12.5% p.a."
+    },
+    "stage": "contacted",
+    "capturedAt": "2026-07-17T06:30:00.000Z",
+    "sourceCallId": "CALL-1014",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.74,
+    "transcriptSnippet": "Actually I need around 3 lakhs for my sister's wedding — what's the pre-approved offer?",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Personal Loan"
+      }
+    ],
+    "owner": "Rahul Verma",
+    "team": "Retail Sales",
+    "nextFollowUpAt": "2026-07-21T05:30:00.000Z",
+    "followUps": [
+      {
+        "at": "2026-07-21T05:30:00.000Z",
+        "channel": "voice",
+        "note": "Callback at 4pm as customer requested.",
+        "done": false
+      }
+    ],
+    "priority": "high",
+    "estimatedValue": 250000,
+    "events": [
+      {
+        "at": "2026-07-17T06:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      },
+      {
+        "at": "2026-07-18T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Rahul Verma",
+        "note": "Moved to contacted"
+      }
+    ]
+  },
+  {
+    "id": "LD-1011",
+    "customerId": "irfan-siddiqui",
+    "customerName": "Irfan Siddiqui",
+    "accountId": "AC-91002",
+    "accountTail": "1002",
+    "offer": {
+      "productId": "topup-loan",
+      "label": "Top-up Loan",
+      "indicativeAmount": 200000,
+      "indicativeROI": "10.75% p.a."
+    },
+    "stage": "contacted",
+    "capturedAt": "2026-07-16T08:30:00.000Z",
+    "sourceCallId": "CALL-1028",
+    "source": "bot_chat",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.62,
+    "transcriptSnippet": "Yeh EMI to theek hai, lekin agar 1 lakh aur mil sakta hai top-up mein toh mujhe interest hoga.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": false,
+        "detail": "1× 30-DPD event 4 months ago"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Top-up Loan"
+      }
+    ],
+    "owner": "Arjun Mehta",
+    "team": "Retail Sales",
+    "nextFollowUpAt": "2026-07-24T05:30:00.000Z",
+    "followUps": [
+      {
+        "at": "2026-07-24T05:30:00.000Z",
+        "channel": "voice",
+        "note": "Discuss offer details and share document checklist.",
+        "done": false
+      }
+    ],
+    "priority": "normal",
+    "estimatedValue": 200000,
+    "events": [
+      {
+        "at": "2026-07-16T08:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from chat"
+      },
+      {
+        "at": "2026-07-17T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Arjun Mehta",
+        "note": "Moved to contacted"
+      }
+    ]
+  },
+  {
+    "id": "LD-1012",
+    "customerId": "anita-desai",
+    "customerName": "Anita Desai",
+    "accountId": "AC-88214",
+    "accountTail": "8214",
+    "offer": {
+      "productId": "debt-consolidation",
+      "label": "Debt Consolidation",
+      "indicativeAmount": 550000,
+      "indicativeROI": "11.5% p.a."
+    },
+    "stage": "qualified",
+    "capturedAt": "2026-07-15T05:30:00.000Z",
+    "sourceCallId": "CALL-1007",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.8,
+    "transcriptSnippet": "I have three cards outstanding — can we combine into one lower EMI? That would really help.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Debt Consolidation"
+      }
+    ],
+    "owner": "Priya Nair",
+    "team": "Retail Sales",
+    "nextFollowUpAt": "2026-07-22T05:30:00.000Z",
+    "followUps": [
+      {
+        "at": "2026-07-22T05:30:00.000Z",
+        "channel": "voice",
+        "note": "Present final offer and rate.",
+        "done": false
+      }
+    ],
+    "priority": "high",
+    "estimatedValue": 550000,
+    "events": [
+      {
+        "at": "2026-07-15T05:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      },
+      {
+        "at": "2026-07-16T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Priya Nair",
+        "note": "Moved to qualified"
+      }
+    ]
+  },
+  {
+    "id": "LD-1013",
+    "customerId": "sneha-kapoor",
+    "customerName": "Sneha Kapoor",
+    "accountId": "AC-42188",
+    "accountTail": "2188",
+    "offer": {
+      "productId": "cc-limit-upgrade",
+      "label": "Credit Card Limit Upgrade",
+      "indicativeAmount": 150000,
+      "indicativeROI": "36% APR (revolving)"
+    },
+    "stage": "qualified",
+    "capturedAt": "2026-07-14T09:30:00.000Z",
+    "sourceCallId": "CALL-1035",
+    "source": "bot_chat",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.72,
+    "transcriptSnippet": "My limit is only 80k, please increase it to 2 lakhs — I've been paying full every month.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Credit Card Limit Upgrade"
+      }
+    ],
+    "owner": "Sara Khan",
+    "team": "Cards Sales",
+    "nextFollowUpAt": "2026-07-23T05:30:00.000Z",
+    "followUps": [
+      {
+        "at": "2026-07-23T05:30:00.000Z",
+        "channel": "email",
+        "note": "Discuss offer details and share document checklist.",
+        "done": false
+      }
+    ],
+    "priority": "normal",
+    "estimatedValue": 150000,
+    "events": [
+      {
+        "at": "2026-07-14T09:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from chat"
+      },
+      {
+        "at": "2026-07-15T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Sara Khan",
+        "note": "Moved to qualified"
+      }
+    ]
+  },
+  {
+    "id": "LD-1014",
+    "customerId": "kavya-menon",
+    "customerName": "Kavya Menon",
+    "accountId": "AC-66321",
+    "accountTail": "6321",
+    "offer": {
+      "productId": "gold-loan",
+      "label": "Gold Loan",
+      "indicativeAmount": 120000,
+      "indicativeROI": "9.5% p.a."
+    },
+    "stage": "qualified",
+    "capturedAt": "2026-07-13T07:30:00.000Z",
+    "source": "agent",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.75,
+    "transcriptSnippet": "Mere paas thoda gold hai, uspe loan ho jayega? Interest kitna hoga?",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Gold Loan"
+      }
+    ],
+    "owner": "Meera Iyer",
+    "team": "Retail Sales",
+    "nextFollowUpAt": "2026-07-21T05:30:00.000Z",
+    "followUps": [
+      {
+        "at": "2026-07-21T05:30:00.000Z",
+        "channel": "voice",
+        "note": "Branch valuation appointment today at 3pm.",
+        "done": false
+      }
+    ],
+    "priority": "high",
+    "estimatedValue": 120000,
+    "events": [
+      {
+        "at": "2026-07-13T07:30:00.000Z",
+        "kind": "created",
+        "by": "Meera Iyer",
+        "note": "Lead captured from agent"
+      },
+      {
+        "at": "2026-07-14T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Meera Iyer",
+        "note": "Moved to qualified"
+      }
+    ]
+  },
+  {
+    "id": "LD-1015",
+    "customerId": "manish-agarwal",
+    "customerName": "Manish Agarwal",
+    "accountId": "AC-78033",
+    "accountTail": "8033",
+    "offer": {
+      "productId": "personal-loan",
+      "label": "Personal Loan",
+      "indicativeAmount": 400000,
+      "indicativeROI": "12.5% p.a."
+    },
+    "stage": "won",
+    "capturedAt": "2026-07-18T04:30:00.000Z",
+    "sourceCallId": "CALL-1042",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.82,
+    "transcriptSnippet": "Actually I need around 3 lakhs for my sister's wedding — what's the pre-approved offer?",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Personal Loan"
+      }
+    ],
+    "owner": "Rahul Verma",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "high",
+    "estimatedValue": 400000,
+    "closedAt": "2026-07-20T09:30:00.000Z",
+    "wonAmount": 350000,
+    "events": [
+      {
+        "at": "2026-07-18T04:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      },
+      {
+        "at": "2026-07-19T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Rahul Verma",
+        "note": "Moved to won"
+      },
+      {
+        "at": "2026-07-20T09:30:00.000Z",
+        "kind": "won",
+        "by": "Rahul Verma",
+        "note": "Disbursed ₹3.50 L"
+      }
+    ]
+  },
+  {
+    "id": "LD-1016",
+    "customerId": "deepa-iyer",
+    "customerName": "Deepa Iyer",
+    "accountId": "AC-33417",
+    "accountTail": "3417",
+    "offer": {
+      "productId": "cc-limit-upgrade",
+      "label": "Credit Card Limit Upgrade",
+      "indicativeAmount": 100000,
+      "indicativeROI": "36% APR (revolving)"
+    },
+    "stage": "won",
+    "capturedAt": "2026-07-16T05:30:00.000Z",
+    "sourceCallId": "CALL-1049",
+    "source": "bot_chat",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.78,
+    "transcriptSnippet": "My limit is only 80k, please increase it to 2 lakhs — I've been paying full every month.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Credit Card Limit Upgrade"
+      }
+    ],
+    "owner": "Sara Khan",
+    "team": "Cards Sales",
+    "followUps": [],
+    "priority": "normal",
+    "estimatedValue": 100000,
+    "closedAt": "2026-07-18T09:30:00.000Z",
+    "wonAmount": 100000,
+    "events": [
+      {
+        "at": "2026-07-16T05:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from chat"
+      },
+      {
+        "at": "2026-07-17T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Sara Khan",
+        "note": "Moved to won"
+      },
+      {
+        "at": "2026-07-18T09:30:00.000Z",
+        "kind": "won",
+        "by": "Sara Khan",
+        "note": "Disbursed ₹1.00 L"
+      }
+    ]
+  },
+  {
+    "id": "LD-1017",
+    "customerId": "vikram-rao",
+    "customerName": "Vikram Rao",
+    "accountId": "AC-77410",
+    "accountTail": "7410",
+    "offer": {
+      "productId": "bundled-insurance",
+      "label": "Bundled Insurance",
+      "indicativeAmount": 15000,
+      "indicativeROI": "N/A (premium)"
+    },
+    "stage": "won",
+    "capturedAt": "2026-07-12T04:30:00.000Z",
+    "source": "agent",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.7,
+    "transcriptSnippet": "Is there any insurance I should add on this loan? Peace of mind types.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Bundled Insurance"
+      }
+    ],
+    "owner": "Meera Iyer",
+    "team": "Insurance",
+    "followUps": [],
+    "priority": "low",
+    "estimatedValue": 15000,
+    "closedAt": "2026-07-14T09:30:00.000Z",
+    "wonAmount": 15000,
+    "events": [
+      {
+        "at": "2026-07-12T04:30:00.000Z",
+        "kind": "created",
+        "by": "Meera Iyer",
+        "note": "Lead captured from agent"
+      },
+      {
+        "at": "2026-07-13T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Meera Iyer",
+        "note": "Moved to won"
+      },
+      {
+        "at": "2026-07-14T09:30:00.000Z",
+        "kind": "won",
+        "by": "Meera Iyer",
+        "note": "Disbursed ₹15.0k"
+      }
+    ]
+  },
+  {
+    "id": "LD-1018",
+    "customerId": "rohit-shah",
+    "customerName": "Rohit Shah",
+    "accountId": "AC-55129",
+    "accountTail": "5129",
+    "offer": {
+      "productId": "topup-loan",
+      "label": "Top-up Loan",
+      "indicativeAmount": 250000,
+      "indicativeROI": "10.75% p.a."
+    },
+    "stage": "won",
+    "capturedAt": "2026-07-09T06:30:00.000Z",
+    "sourceCallId": "CALL-1014",
+    "source": "bot_voice",
+    "sentimentAtCapture": "positive",
+    "sentimentScore": 0.85,
+    "transcriptSnippet": "Yeh EMI to theek hai, lekin agar 1 lakh aur mil sakta hai top-up mein toh mujhe interest hoga.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Top-up Loan"
+      }
+    ],
+    "owner": "Priya Nair",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "high",
+    "estimatedValue": 250000,
+    "closedAt": "2026-07-11T09:30:00.000Z",
+    "wonAmount": 250000,
+    "events": [
+      {
+        "at": "2026-07-09T06:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      },
+      {
+        "at": "2026-07-10T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Priya Nair",
+        "note": "Moved to won"
+      },
+      {
+        "at": "2026-07-11T09:30:00.000Z",
+        "kind": "won",
+        "by": "Priya Nair",
+        "note": "Disbursed ₹2.50 L"
+      }
+    ]
+  },
+  {
+    "id": "LD-1019",
+    "customerId": "irfan-siddiqui",
+    "customerName": "Irfan Siddiqui",
+    "accountId": "AC-91002",
+    "accountTail": "1002",
+    "offer": {
+      "productId": "debt-consolidation",
+      "label": "Debt Consolidation",
+      "indicativeAmount": 500000,
+      "indicativeROI": "11.5% p.a."
+    },
+    "stage": "lost",
+    "capturedAt": "2026-07-15T08:30:00.000Z",
+    "sourceCallId": "CALL-1028",
+    "source": "bot_voice",
+    "sentimentAtCapture": "negative",
+    "sentimentScore": 0.28,
+    "transcriptSnippet": "I have three cards outstanding — can we combine into one lower EMI? That would really help.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": false,
+        "detail": "Bureau 692 — below threshold"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": false,
+        "detail": "Last slip 5 months old"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Debt Consolidation"
+      }
+    ],
+    "owner": "Priya Nair",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "normal",
+    "estimatedValue": 500000,
+    "closedAt": "2026-07-17T09:30:00.000Z",
+    "lossReason": "Rate not competitive vs competitor bank",
+    "events": [
+      {
+        "at": "2026-07-15T08:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      },
+      {
+        "at": "2026-07-16T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Priya Nair",
+        "note": "Moved to lost"
+      },
+      {
+        "at": "2026-07-17T09:30:00.000Z",
+        "kind": "lost",
+        "by": "Priya Nair",
+        "note": "Rate not competitive vs competitor bank"
+      }
+    ]
+  },
+  {
+    "id": "LD-1020",
+    "customerId": "anita-desai",
+    "customerName": "Anita Desai",
+    "accountId": "AC-88214",
+    "accountTail": "8214",
+    "offer": {
+      "productId": "personal-loan",
+      "label": "Personal Loan",
+      "indicativeAmount": 200000,
+      "indicativeROI": "12.5% p.a."
+    },
+    "stage": "lost",
+    "capturedAt": "2026-07-11T05:30:00.000Z",
+    "sourceCallId": "CALL-1007",
+    "source": "bot_chat",
+    "sentimentAtCapture": "neutral",
+    "sentimentScore": 0.35,
+    "transcriptSnippet": "Actually I need around 3 lakhs for my sister's wedding — what's the pre-approved offer?",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": false,
+        "detail": "Bureau 692 — below threshold"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": false,
+        "detail": "Last slip 5 months old"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Personal Loan"
+      }
+    ],
+    "owner": "Arjun Mehta",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "low",
+    "estimatedValue": 200000,
+    "closedAt": "2026-07-13T09:30:00.000Z",
+    "lossReason": "Ineligible — bureau score below policy",
+    "events": [
+      {
+        "at": "2026-07-11T05:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from chat"
+      },
+      {
+        "at": "2026-07-12T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Arjun Mehta",
+        "note": "Moved to lost"
+      },
+      {
+        "at": "2026-07-13T09:30:00.000Z",
+        "kind": "lost",
+        "by": "Arjun Mehta",
+        "note": "Ineligible — bureau score below policy"
+      }
+    ]
+  },
+  {
+    "id": "LD-1021",
+    "customerId": "kavya-menon",
+    "customerName": "Kavya Menon",
+    "accountId": "AC-66321",
+    "accountTail": "6321",
+    "offer": {
+      "productId": "cc-limit-upgrade",
+      "label": "Credit Card Limit Upgrade",
+      "indicativeAmount": 150000,
+      "indicativeROI": "36% APR (revolving)"
+    },
+    "stage": "lost",
+    "capturedAt": "2026-07-07T07:30:00.000Z",
+    "source": "agent",
+    "sentimentAtCapture": "neutral",
+    "sentimentScore": 0.4,
+    "transcriptSnippet": "My limit is only 80k, please increase it to 2 lakhs — I've been paying full every month.",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": false,
+        "detail": "1× 30-DPD event 4 months ago"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Credit Card Limit Upgrade"
+      }
+    ],
+    "owner": "Sara Khan",
+    "team": "Cards Sales",
+    "followUps": [],
+    "priority": "normal",
+    "estimatedValue": 150000,
+    "closedAt": "2026-07-09T09:30:00.000Z",
+    "lossReason": "Customer withdrew request",
+    "events": [
+      {
+        "at": "2026-07-07T07:30:00.000Z",
+        "kind": "created",
+        "by": "Sara Khan",
+        "note": "Lead captured from agent"
+      },
+      {
+        "at": "2026-07-08T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Sara Khan",
+        "note": "Moved to lost"
+      },
+      {
+        "at": "2026-07-09T09:30:00.000Z",
+        "kind": "lost",
+        "by": "Sara Khan",
+        "note": "Customer withdrew request"
+      }
+    ]
+  },
+  {
+    "id": "LD-1022",
+    "customerId": "sneha-kapoor",
+    "customerName": "Sneha Kapoor",
+    "accountId": "AC-42188",
+    "accountTail": "2188",
+    "offer": {
+      "productId": "gold-loan",
+      "label": "Gold Loan",
+      "indicativeAmount": 60000,
+      "indicativeROI": "9.5% p.a."
+    },
+    "stage": "lost",
+    "capturedAt": "2026-07-03T09:30:00.000Z",
+    "sourceCallId": "CALL-1035",
+    "source": "bot_voice",
+    "sentimentAtCapture": "neutral",
+    "sentimentScore": 0.42,
+    "transcriptSnippet": "Mere paas thoda gold hai, uspe loan ho jayega? Interest kitna hoga?",
+    "eligibilityFlags": [
+      {
+        "label": "KYC current",
+        "ok": true,
+        "detail": "Aadhaar & PAN verified · 2024"
+      },
+      {
+        "label": "Bureau score ≥ 720",
+        "ok": true,
+        "detail": "Latest bureau: 748 (CIBIL)"
+      },
+      {
+        "label": "DPD-clean 12 months",
+        "ok": true,
+        "detail": "No 30+ DPD in last 12 cycles"
+      },
+      {
+        "label": "Income proof on file",
+        "ok": true,
+        "detail": "Latest 3 salary slips uploaded"
+      },
+      {
+        "label": "Existing product eligibility",
+        "ok": true,
+        "detail": "Eligible for Gold Loan"
+      }
+    ],
+    "owner": "Meera Iyer",
+    "team": "Retail Sales",
+    "followUps": [],
+    "priority": "low",
+    "estimatedValue": 60000,
+    "closedAt": "2026-07-05T09:30:00.000Z",
+    "lossReason": "Customer got funds elsewhere",
+    "events": [
+      {
+        "at": "2026-07-03T09:30:00.000Z",
+        "kind": "created",
+        "by": "System",
+        "note": "Lead captured from voice call"
+      },
+      {
+        "at": "2026-07-04T06:30:00.000Z",
+        "kind": "stage_moved",
+        "by": "Meera Iyer",
+        "note": "Moved to lost"
+      },
+      {
+        "at": "2026-07-05T09:30:00.000Z",
+        "kind": "lost",
+        "by": "Meera Iyer",
+        "note": "Customer got funds elsewhere"
+      }
+    ]
+  }
+]

@@ -1,0 +1,26 @@
+# Local tooling / agent dirs
+.claude/
+.agents/
+
+# Large installers / binaries
+Claude Setup.exe
+*.exe
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Env files (also covered by subdir gitignores; belt-and-suspenders)
+**/.env
+**/.env.local
+!**/.env.example
+
+# Python
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# Node / build output
+**/node_modules/
+**/dist/
+**/.output/

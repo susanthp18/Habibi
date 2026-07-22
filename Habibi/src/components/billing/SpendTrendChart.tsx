@@ -1,0 +1,113 @@
+import { useMemo, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { SERVICES, type DayPoint, inrCompact } from "@/data/billing-seed";
+
+export function SpendTrendChart({ data }: { data: DayPoint[] }) {
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+
+  const rows = useMemo(
+    () =>
+      data.map((d) => {
+        const row: Record<string, string | number> = { date: d.date };
+        let total = 0;
+        for (const s of SERVICES) {
+          const v = d.values[s.id] ?? 0;
+          row[s.id] = v;
+          total += v;
+        }
+        row.total = total;
+        return row;
+      }),
+    [data],
+  );
+
+  const fmtDay = (d: string) => {
+    const dt = new Date(d);
+    return dt.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
+  };
+
+  return (
+    <div className="flex h-full min-h-[280px] flex-col rounded-lg border border-[var(--border-token)] bg-surface-card p-4">
+      <div className="mb-2 flex items-start justify-between">
+        <div>
+          <h3 className="text-[13px] font-semibold text-brand-navy">Spend trend</h3>
+          <p className="text-[11px] text-text-secondary">Daily cost stacked by service</p>
+        </div>
+        <div className="text-right">
+          <div className="text-[10.5px] text-text-muted">Period total</div>
+          <div className="text-[13px] font-semibold text-brand-navy">
+            {inrCompact(rows.reduce((s, r) => s + (r.total as number), 0))}
+          </div>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1">
+        <ResponsiveContainer width="100%" height="100%" minHeight={220}>
+          <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-token)" vertical={false} />
+            <XAxis
+              dataKey="date"
+              tickFormatter={fmtDay}
+              tick={{ fontSize: 10, fill: "var(--text-muted)" }}
+              tickLine={false}
+              axisLine={false}
+              minTickGap={24}
+            />
+            <YAxis
+              tick={{ fontSize: 10, fill: "var(--text-muted)" }}
+              tickFormatter={(v: number) => inrCompact(v)}
+              tickLine={false}
+              axisLine={false}
+              width={55}
+            />
+            <Tooltip
+              contentStyle={{
+                fontSize: 11,
+                borderRadius: 8,
+                border: "1px solid var(--border-token)",
+                background: "var(--surface-card)",
+              }}
+              labelFormatter={fmtDay}
+              formatter={(v: number, name) => [inrCompact(v), name as string]}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 10 }}
+              onClick={(o) => {
+                const dk = (o as { dataKey?: unknown }).dataKey;
+                if (typeof dk !== "string") return;
+                setHidden((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(dk)) next.delete(dk);
+                  else next.add(dk);
+                  return next;
+                });
+              }}
+            />
+            {SERVICES.map((s) => (
+              <Area
+                key={s.id}
+                type="monotone"
+                dataKey={s.id}
+                name={s.name}
+                stackId="1"
+                stroke={s.color}
+                fill={s.color}
+                fillOpacity={hidden.has(s.id) ? 0 : 0.45}
+                strokeWidth={hidden.has(s.id) ? 0 : 1.2}
+                hide={hidden.has(s.id)}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}

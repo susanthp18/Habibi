@@ -1,0 +1,2066 @@
+[
+  {
+    "id": "vikram-rao",
+    "name": "Vikram Rao",
+    "accountId": "AC-77410",
+    "risk": "critical",
+    "outstanding": 8640,
+    "minimumDue": 1240,
+    "lastContact": "2026-07-21T02:45:00.000Z",
+    "assignedTo": "Priya Nair",
+    "contact": {
+      "phonePrimary": "+91 98•••• ••42",
+      "phoneAlt": "+91 80•••• ••11",
+      "email": "v.rao@mail.co.in",
+      "address": "Flat 12B, Whitefield, Bengaluru 560066",
+      "timezone": "Asia/Kolkata (IST)",
+      "language": "English + Hindi",
+      "preferredWindow": "10:00–19:00 IST",
+      "dnd": false
+    },
+    "account": {
+      "product": "Credit Card",
+      "openedOn": "2024-07-31T04:45:00.000Z",
+      "apr": 36.9,
+      "sanctionedAmount": 150000,
+      "bucket": "61-90",
+      "dpd": 74,
+      "riskScore": 512
+    },
+    "consent": [
+      {
+        "channel": "call",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2024-07-31T04:45:00.000Z"
+      },
+      {
+        "channel": "whatsapp",
+        "optedIn": true,
+        "source": "bot-captured",
+        "capturedAt": "2026-03-23T04:45:00.000Z"
+      },
+      {
+        "channel": "sms",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2024-07-31T04:45:00.000Z"
+      },
+      {
+        "channel": "email",
+        "optedIn": false,
+        "source": "self-serve",
+        "capturedAt": "2026-04-22T04:45:00.000Z"
+      }
+    ],
+    "ledger": [
+      {
+        "id": "L1-adj1",
+        "date": "2026-07-09T04:45:00.000Z",
+        "description": "Interest capitalization",
+        "type": "adjustment",
+        "amount": 66,
+        "balance": 4466
+      },
+      {
+        "id": "L1-w1",
+        "date": "2026-06-23T04:45:00.000Z",
+        "description": "Goodwill fee waiver (agent: Priya Nair)",
+        "type": "waiver",
+        "amount": -110,
+        "balance": 4400
+      },
+      {
+        "id": "L1-c5",
+        "date": "2026-06-21T04:45:00.000Z",
+        "description": "EMI installment #6",
+        "type": "charge",
+        "amount": 2200,
+        "invoiceId": "INV-1-1005",
+        "balance": 4510
+      },
+      {
+        "id": "L1-f1",
+        "date": "2026-06-16T04:45:00.000Z",
+        "description": "Late payment fee",
+        "type": "fee",
+        "amount": 110,
+        "balance": 2310
+      },
+      {
+        "id": "L1-c4",
+        "date": "2026-05-22T04:45:00.000Z",
+        "description": "EMI installment #5",
+        "type": "charge",
+        "amount": 2200,
+        "invoiceId": "INV-1-1004",
+        "balance": 2200
+      },
+      {
+        "id": "L1-p3",
+        "date": "2026-04-25T04:45:00.000Z",
+        "description": "UPI payment — reference 1333",
+        "type": "payment",
+        "amount": -2200,
+        "balance": 0
+      },
+      {
+        "id": "L1-c3",
+        "date": "2026-04-22T04:45:00.000Z",
+        "description": "EMI installment #4",
+        "type": "charge",
+        "amount": 2200,
+        "invoiceId": "INV-1-1003",
+        "balance": 2200
+      },
+      {
+        "id": "L1-p2",
+        "date": "2026-03-26T04:45:00.000Z",
+        "description": "UPI payment — reference 1222",
+        "type": "payment",
+        "amount": -2200,
+        "balance": 0
+      },
+      {
+        "id": "L1-c2",
+        "date": "2026-03-23T04:45:00.000Z",
+        "description": "EMI installment #3",
+        "type": "charge",
+        "amount": 2200,
+        "invoiceId": "INV-1-1002",
+        "balance": 2200
+      },
+      {
+        "id": "L1-p1",
+        "date": "2026-02-24T04:45:00.000Z",
+        "description": "UPI payment — reference 1111",
+        "type": "payment",
+        "amount": -2200,
+        "balance": 0
+      },
+      {
+        "id": "L1-c1",
+        "date": "2026-02-21T04:45:00.000Z",
+        "description": "EMI installment #2",
+        "type": "charge",
+        "amount": 2200,
+        "invoiceId": "INV-1-1001",
+        "balance": 2200
+      },
+      {
+        "id": "L1-p0",
+        "date": "2026-01-25T04:45:00.000Z",
+        "description": "UPI payment — reference 1000",
+        "type": "payment",
+        "amount": -2200,
+        "balance": 0
+      },
+      {
+        "id": "L1-c0",
+        "date": "2026-01-22T04:45:00.000Z",
+        "description": "EMI installment #1",
+        "type": "charge",
+        "amount": 2200,
+        "invoiceId": "INV-1-1000",
+        "balance": 2200
+      }
+    ],
+    "emi": [
+      {
+        "id": "E1-0",
+        "index": 1,
+        "dueDate": "2026-12-18T03:45:00.000Z",
+        "amount": 2200,
+        "paidOn": "2026-12-20T05:45:00.000Z",
+        "paidAmount": 2200,
+        "status": "paid",
+        "balanceCarried": 24200
+      },
+      {
+        "id": "E1-1",
+        "index": 2,
+        "dueDate": "2026-11-18T03:45:00.000Z",
+        "amount": 2200,
+        "paidOn": "2026-11-20T05:45:00.000Z",
+        "paidAmount": 2200,
+        "status": "paid",
+        "balanceCarried": 22000
+      },
+      {
+        "id": "E1-2",
+        "index": 3,
+        "dueDate": "2026-10-19T03:45:00.000Z",
+        "amount": 2200,
+        "paidOn": "2026-10-21T05:45:00.000Z",
+        "paidAmount": 2200,
+        "status": "paid",
+        "balanceCarried": 19800
+      },
+      {
+        "id": "E1-3",
+        "index": 4,
+        "dueDate": "2026-09-19T03:45:00.000Z",
+        "amount": 2200,
+        "paidOn": "2026-09-21T05:45:00.000Z",
+        "paidAmount": 2200,
+        "status": "paid",
+        "balanceCarried": 17600
+      },
+      {
+        "id": "E1-4",
+        "index": 5,
+        "dueDate": "2026-08-20T03:45:00.000Z",
+        "amount": 2200,
+        "paidOn": "2026-08-25T05:45:00.000Z",
+        "paidAmount": 880,
+        "status": "partial",
+        "balanceCarried": 16720
+      },
+      {
+        "id": "E1-5",
+        "index": 6,
+        "dueDate": "2026-07-21T03:45:00.000Z",
+        "amount": 2200,
+        "status": "overdue",
+        "balanceCarried": 15400
+      },
+      {
+        "id": "E1-6",
+        "index": 7,
+        "dueDate": "2026-06-21T03:45:00.000Z",
+        "amount": 2200,
+        "status": "upcoming",
+        "balanceCarried": 13200
+      },
+      {
+        "id": "E1-7",
+        "index": 8,
+        "dueDate": "2026-05-22T03:45:00.000Z",
+        "amount": 2200,
+        "status": "upcoming",
+        "balanceCarried": 11000
+      },
+      {
+        "id": "E1-8",
+        "index": 9,
+        "dueDate": "2026-04-22T03:45:00.000Z",
+        "amount": 2200,
+        "status": "upcoming",
+        "balanceCarried": 8800
+      },
+      {
+        "id": "E1-9",
+        "index": 10,
+        "dueDate": "2026-03-23T03:45:00.000Z",
+        "amount": 2200,
+        "status": "upcoming",
+        "balanceCarried": 6600
+      },
+      {
+        "id": "E1-10",
+        "index": 11,
+        "dueDate": "2026-02-21T03:45:00.000Z",
+        "amount": 2200,
+        "status": "upcoming",
+        "balanceCarried": 4400
+      },
+      {
+        "id": "E1-11",
+        "index": 12,
+        "dueDate": "2026-01-22T03:45:00.000Z",
+        "amount": 2200,
+        "status": "upcoming",
+        "balanceCarried": 2200
+      }
+    ],
+    "interactions": [
+      {
+        "id": "i1",
+        "channel": "voice",
+        "handler": {
+          "kind": "human",
+          "name": "Priya Nair"
+        },
+        "startedAt": "2026-07-21T02:45:00.000Z",
+        "duration": "4m 51s",
+        "disposition": "PTP captured",
+        "sentiment": "positive",
+        "sentimentDelta": "up",
+        "summary": "Customer confirmed EMI 5 shortfall. Committed to pay ₹1,240 by Fri via UPI. Agreed to consolidation callback next week.",
+        "intents": {
+          "queryResolved": true,
+          "upsellPresented": true,
+          "ptpCaptured": true
+        }
+      },
+      {
+        "id": "i2",
+        "channel": "whatsapp",
+        "handler": {
+          "kind": "bot",
+          "name": "CollectionsBot v2.4"
+        },
+        "startedAt": "2026-07-19T08:45:00.000Z",
+        "duration": "3m 02s",
+        "disposition": "Bot contained",
+        "sentiment": "neutral",
+        "sentimentDelta": "flat",
+        "summary": "Bot answered outstanding-balance and next-EMI-date queries. No handoff required.",
+        "intents": {
+          "queryResolved": true
+        }
+      },
+      {
+        "id": "i3",
+        "channel": "voice",
+        "handler": {
+          "kind": "bot",
+          "name": "CollectionsBot v2.4"
+        },
+        "startedAt": "2026-07-16T05:45:00.000Z",
+        "duration": "5m 40s",
+        "disposition": "Escalated → human",
+        "sentiment": "negative",
+        "sentimentDelta": "down",
+        "summary": "Customer disputed late fee. Bot captured dispute D-4821 and routed to Priya Nair.",
+        "intents": {
+          "queryResolved": false
+        }
+      },
+      {
+        "id": "i4",
+        "channel": "chat",
+        "handler": {
+          "kind": "bot",
+          "name": "WebChatBot"
+        },
+        "startedAt": "2026-07-12T14:45:00.000Z",
+        "duration": "1m 22s",
+        "disposition": "Bot contained",
+        "sentiment": "neutral",
+        "sentimentDelta": "flat",
+        "summary": "FAQ about auto-debit schedule.",
+        "intents": {
+          "queryResolved": true
+        }
+      },
+      {
+        "id": "i5",
+        "channel": "voice",
+        "handler": {
+          "kind": "human",
+          "name": "Arjun Mehta"
+        },
+        "startedAt": "2026-06-30T09:45:00.000Z",
+        "duration": "6m 12s",
+        "disposition": "PTP captured (broken)",
+        "sentiment": "neutral",
+        "sentimentDelta": "flat",
+        "summary": "Customer committed to ₹2,200 by 10th. Promise later broken.",
+        "intents": {
+          "ptpCaptured": true
+        }
+      }
+    ],
+    "promises": [
+      {
+        "id": "p1",
+        "amount": 1240,
+        "promisedDate": "2026-07-24T04:45:00.000Z",
+        "createdAt": "2026-07-21T04:45:00.000Z",
+        "channel": "voice",
+        "handler": "Priya Nair",
+        "status": "upcoming",
+        "reminderStatus": "queued"
+      },
+      {
+        "id": "p2",
+        "amount": 2200,
+        "promisedDate": "2026-07-10T04:45:00.000Z",
+        "createdAt": "2026-06-30T04:45:00.000Z",
+        "channel": "voice",
+        "handler": "Arjun Mehta",
+        "status": "broken",
+        "reminderStatus": "sent"
+      },
+      {
+        "id": "p3",
+        "amount": 1500,
+        "promisedDate": "2026-06-06T04:45:00.000Z",
+        "createdAt": "2026-05-22T04:45:00.000Z",
+        "channel": "whatsapp",
+        "handler": "CollectionsBot",
+        "status": "kept",
+        "reminderStatus": "acknowledged"
+      },
+      {
+        "id": "p4",
+        "amount": 800,
+        "promisedDate": "2026-05-07T04:45:00.000Z",
+        "createdAt": "2026-04-22T04:45:00.000Z",
+        "channel": "voice",
+        "handler": "Sara Khan",
+        "status": "partial",
+        "reminderStatus": "sent"
+      }
+    ],
+    "disputes": [
+      {
+        "id": "D-4821",
+        "type": "Late fee waiver",
+        "amount": 110,
+        "transcriptSnippet": "\"…I paid on time, why is there a late fee? Please waive this off.\"",
+        "status": "under_review",
+        "slaLabel": "1h 12m left",
+        "filedAt": "2026-07-16T04:45:00.000Z",
+        "assignee": "Priya Nair"
+      }
+    ],
+    "documents": [
+      {
+        "id": "doc1",
+        "type": "6-month account statement",
+        "requestedVia": "voice",
+        "requestedAt": "2026-07-19T04:45:00.000Z",
+        "deliveryChannel": "email",
+        "status": "sent"
+      },
+      {
+        "id": "doc2",
+        "type": "No-dues certificate",
+        "requestedVia": "whatsapp",
+        "requestedAt": "2026-06-21T04:45:00.000Z",
+        "deliveryChannel": "whatsapp",
+        "status": "sent"
+      }
+    ],
+    "notes": [
+      {
+        "id": "n1",
+        "author": "Priya Nair",
+        "at": "2026-07-21T03:45:00.000Z",
+        "text": "Customer prefers WhatsApp for reminders. Salary credit on 5th — align reminders accordingly.",
+        "pinned": true
+      },
+      {
+        "id": "n2",
+        "author": "Arjun Mehta",
+        "at": "2026-06-30T04:45:00.000Z",
+        "text": "Discussed debt consolidation. Interested but wants to see numbers first — send offer sheet."
+      }
+    ]
+  },
+  {
+    "id": "anita-desai",
+    "name": "Anita Desai",
+    "accountId": "AC-88214",
+    "risk": "critical",
+    "outstanding": 12480,
+    "minimumDue": 2100,
+    "lastContact": "2026-07-19T08:45:00.000Z",
+    "assignedTo": "Meera Iyer",
+    "contact": {
+      "phonePrimary": "+91 99•••• ••07",
+      "email": "anita.d@mail.co.in",
+      "address": "22 Palm Grove, Andheri West, Mumbai 400058",
+      "timezone": "Asia/Kolkata (IST)",
+      "language": "English",
+      "preferredWindow": "11:00–18:00 IST",
+      "dnd": false
+    },
+    "account": {
+      "product": "Personal Loan",
+      "openedOn": "2024-02-02T04:45:00.000Z",
+      "apr": 14.5,
+      "sanctionedAmount": 300000,
+      "bucket": "91+",
+      "dpd": 92,
+      "riskScore": 468
+    },
+    "consent": [
+      {
+        "channel": "call",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2024-02-02T04:45:00.000Z"
+      },
+      {
+        "channel": "whatsapp",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2024-02-02T04:45:00.000Z"
+      },
+      {
+        "channel": "sms",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2024-02-02T04:45:00.000Z"
+      },
+      {
+        "channel": "email",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2024-02-02T04:45:00.000Z"
+      }
+    ],
+    "ledger": [
+      {
+        "id": "L2-adj1",
+        "date": "2026-07-09T04:45:00.000Z",
+        "description": "Interest capitalization",
+        "type": "adjustment",
+        "amount": 102,
+        "balance": 6902
+      },
+      {
+        "id": "L2-w1",
+        "date": "2026-06-23T04:45:00.000Z",
+        "description": "Goodwill fee waiver (agent: Priya Nair)",
+        "type": "waiver",
+        "amount": -170,
+        "balance": 6800
+      },
+      {
+        "id": "L2-c5",
+        "date": "2026-06-21T04:45:00.000Z",
+        "description": "EMI installment #6",
+        "type": "charge",
+        "amount": 3400,
+        "invoiceId": "INV-2-1005",
+        "balance": 6970
+      },
+      {
+        "id": "L2-f1",
+        "date": "2026-06-16T04:45:00.000Z",
+        "description": "Late payment fee",
+        "type": "fee",
+        "amount": 170,
+        "balance": 3570
+      },
+      {
+        "id": "L2-c4",
+        "date": "2026-05-22T04:45:00.000Z",
+        "description": "EMI installment #5",
+        "type": "charge",
+        "amount": 3400,
+        "invoiceId": "INV-2-1004",
+        "balance": 3400
+      },
+      {
+        "id": "L2-p3",
+        "date": "2026-04-25T04:45:00.000Z",
+        "description": "UPI payment — reference 2333",
+        "type": "payment",
+        "amount": -3400,
+        "balance": 0
+      },
+      {
+        "id": "L2-c3",
+        "date": "2026-04-22T04:45:00.000Z",
+        "description": "EMI installment #4",
+        "type": "charge",
+        "amount": 3400,
+        "invoiceId": "INV-2-1003",
+        "balance": 3400
+      },
+      {
+        "id": "L2-p2",
+        "date": "2026-03-26T04:45:00.000Z",
+        "description": "UPI payment — reference 2222",
+        "type": "payment",
+        "amount": -3400,
+        "balance": 0
+      },
+      {
+        "id": "L2-c2",
+        "date": "2026-03-23T04:45:00.000Z",
+        "description": "EMI installment #3",
+        "type": "charge",
+        "amount": 3400,
+        "invoiceId": "INV-2-1002",
+        "balance": 3400
+      },
+      {
+        "id": "L2-p1",
+        "date": "2026-02-24T04:45:00.000Z",
+        "description": "UPI payment — reference 2111",
+        "type": "payment",
+        "amount": -3400,
+        "balance": 0
+      },
+      {
+        "id": "L2-c1",
+        "date": "2026-02-21T04:45:00.000Z",
+        "description": "EMI installment #2",
+        "type": "charge",
+        "amount": 3400,
+        "invoiceId": "INV-2-1001",
+        "balance": 3400
+      },
+      {
+        "id": "L2-p0",
+        "date": "2026-01-25T04:45:00.000Z",
+        "description": "UPI payment — reference 2000",
+        "type": "payment",
+        "amount": -3400,
+        "balance": 0
+      },
+      {
+        "id": "L2-c0",
+        "date": "2026-01-22T04:45:00.000Z",
+        "description": "EMI installment #1",
+        "type": "charge",
+        "amount": 3400,
+        "invoiceId": "INV-2-1000",
+        "balance": 3400
+      }
+    ],
+    "emi": [
+      {
+        "id": "E2-0",
+        "index": 1,
+        "dueDate": "2026-12-18T03:45:00.000Z",
+        "amount": 3400,
+        "paidOn": "2026-12-20T05:45:00.000Z",
+        "paidAmount": 3400,
+        "status": "paid",
+        "balanceCarried": 37400
+      },
+      {
+        "id": "E2-1",
+        "index": 2,
+        "dueDate": "2026-11-18T03:45:00.000Z",
+        "amount": 3400,
+        "paidOn": "2026-11-20T05:45:00.000Z",
+        "paidAmount": 3400,
+        "status": "paid",
+        "balanceCarried": 34000
+      },
+      {
+        "id": "E2-2",
+        "index": 3,
+        "dueDate": "2026-10-19T03:45:00.000Z",
+        "amount": 3400,
+        "paidOn": "2026-10-21T05:45:00.000Z",
+        "paidAmount": 3400,
+        "status": "paid",
+        "balanceCarried": 30600
+      },
+      {
+        "id": "E2-3",
+        "index": 4,
+        "dueDate": "2026-09-19T03:45:00.000Z",
+        "amount": 3400,
+        "paidOn": "2026-09-21T05:45:00.000Z",
+        "paidAmount": 3400,
+        "status": "paid",
+        "balanceCarried": 27200
+      },
+      {
+        "id": "E2-4",
+        "index": 5,
+        "dueDate": "2026-08-20T03:45:00.000Z",
+        "amount": 3400,
+        "paidOn": "2026-08-25T05:45:00.000Z",
+        "paidAmount": 1360,
+        "status": "partial",
+        "balanceCarried": 25840
+      },
+      {
+        "id": "E2-5",
+        "index": 6,
+        "dueDate": "2026-07-21T03:45:00.000Z",
+        "amount": 3400,
+        "status": "overdue",
+        "balanceCarried": 23800
+      },
+      {
+        "id": "E2-6",
+        "index": 7,
+        "dueDate": "2026-06-21T03:45:00.000Z",
+        "amount": 3400,
+        "status": "upcoming",
+        "balanceCarried": 20400
+      },
+      {
+        "id": "E2-7",
+        "index": 8,
+        "dueDate": "2026-05-22T03:45:00.000Z",
+        "amount": 3400,
+        "status": "upcoming",
+        "balanceCarried": 17000
+      },
+      {
+        "id": "E2-8",
+        "index": 9,
+        "dueDate": "2026-04-22T03:45:00.000Z",
+        "amount": 3400,
+        "status": "upcoming",
+        "balanceCarried": 13600
+      },
+      {
+        "id": "E2-9",
+        "index": 10,
+        "dueDate": "2026-03-23T03:45:00.000Z",
+        "amount": 3400,
+        "status": "upcoming",
+        "balanceCarried": 10200
+      },
+      {
+        "id": "E2-10",
+        "index": 11,
+        "dueDate": "2026-02-21T03:45:00.000Z",
+        "amount": 3400,
+        "status": "upcoming",
+        "balanceCarried": 6800
+      },
+      {
+        "id": "E2-11",
+        "index": 12,
+        "dueDate": "2026-01-22T03:45:00.000Z",
+        "amount": 3400,
+        "status": "upcoming",
+        "balanceCarried": 3400
+      }
+    ],
+    "interactions": [
+      {
+        "id": "ai1",
+        "channel": "voice",
+        "handler": {
+          "kind": "bot",
+          "name": "CollectionsBot v2.4"
+        },
+        "startedAt": "2026-07-19T08:45:00.000Z",
+        "duration": "6m 20s",
+        "disposition": "Escalated → human",
+        "sentiment": "negative",
+        "sentimentDelta": "down",
+        "summary": "Customer expressed hardship (job loss). Bot escalated to Meera Iyer for restructuring conversation.",
+        "intents": {
+          "queryResolved": false
+        }
+      },
+      {
+        "id": "ai2",
+        "channel": "voice",
+        "handler": {
+          "kind": "human",
+          "name": "Meera Iyer"
+        },
+        "startedAt": "2026-07-19T09:45:00.000Z",
+        "duration": "12m 04s",
+        "disposition": "Restructuring proposed",
+        "sentiment": "neutral",
+        "sentimentDelta": "up",
+        "summary": "Discussed 6-month step-up plan. Customer to review and revert by 20th.",
+        "intents": {
+          "queryResolved": true,
+          "upsellPresented": false,
+          "ptpCaptured": true
+        }
+      },
+      {
+        "id": "ai3",
+        "channel": "whatsapp",
+        "handler": {
+          "kind": "bot",
+          "name": "CollectionsBot"
+        },
+        "startedAt": "2026-07-12T04:45:00.000Z",
+        "duration": "0m 55s",
+        "disposition": "Bot contained",
+        "sentiment": "neutral",
+        "sentimentDelta": "flat",
+        "summary": "Sent 6-month statement per customer request.",
+        "intents": {
+          "queryResolved": true
+        }
+      }
+    ],
+    "promises": [
+      {
+        "id": "ap1",
+        "amount": 5000,
+        "promisedDate": "2026-07-30T04:45:00.000Z",
+        "createdAt": "2026-07-19T04:45:00.000Z",
+        "channel": "voice",
+        "handler": "Meera Iyer",
+        "status": "upcoming",
+        "reminderStatus": "queued"
+      },
+      {
+        "id": "ap2",
+        "amount": 3400,
+        "promisedDate": "2026-06-21T04:45:00.000Z",
+        "createdAt": "2026-06-11T04:45:00.000Z",
+        "channel": "voice",
+        "handler": "Meera Iyer",
+        "status": "broken",
+        "reminderStatus": "sent"
+      }
+    ],
+    "disputes": [],
+    "documents": [
+      {
+        "id": "adoc1",
+        "type": "6-month account statement",
+        "requestedVia": "whatsapp",
+        "requestedAt": "2026-07-12T04:45:00.000Z",
+        "deliveryChannel": "whatsapp",
+        "status": "sent"
+      },
+      {
+        "id": "adoc2",
+        "type": "Restructuring quote",
+        "requestedVia": "voice",
+        "requestedAt": "2026-07-19T04:45:00.000Z",
+        "deliveryChannel": "email",
+        "status": "generating"
+      }
+    ],
+    "notes": [
+      {
+        "id": "an1",
+        "author": "Meera Iyer",
+        "at": "2026-07-19T04:45:00.000Z",
+        "text": "Job loss (Jun). Wife earning. Requested 3-month EMI break — awaiting credit review.",
+        "pinned": true
+      }
+    ]
+  },
+  {
+    "id": "neha-kapoor",
+    "name": "Neha Kapoor",
+    "accountId": "AC-90112",
+    "risk": "high",
+    "outstanding": 5210,
+    "minimumDue": 620,
+    "lastContact": "2026-07-20T10:45:00.000Z",
+    "assignedTo": "Priya Nair",
+    "contact": {
+      "phonePrimary": "+91 91•••• ••55",
+      "email": "neha.k@mail.co.in",
+      "address": "Sector 45, Gurugram 122003",
+      "timezone": "Asia/Kolkata (IST)",
+      "language": "English + Hindi",
+      "preferredWindow": "18:00–21:00 IST",
+      "dnd": false
+    },
+    "account": {
+      "product": "Credit Card",
+      "openedOn": "2025-05-27T04:45:00.000Z",
+      "apr": 42.5,
+      "sanctionedAmount": 80000,
+      "bucket": "31-60",
+      "dpd": 61,
+      "riskScore": 604
+    },
+    "consent": [
+      {
+        "channel": "call",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-05-27T04:45:00.000Z"
+      },
+      {
+        "channel": "whatsapp",
+        "optedIn": true,
+        "source": "bot-captured",
+        "capturedAt": "2026-01-02T04:45:00.000Z"
+      },
+      {
+        "channel": "sms",
+        "optedIn": false,
+        "source": "self-serve",
+        "capturedAt": "2026-05-22T04:45:00.000Z"
+      },
+      {
+        "channel": "email",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-05-27T04:45:00.000Z"
+      }
+    ],
+    "ledger": [
+      {
+        "id": "L3-adj1",
+        "date": "2026-07-09T04:45:00.000Z",
+        "description": "Interest capitalization",
+        "type": "adjustment",
+        "amount": 48,
+        "balance": 3248
+      },
+      {
+        "id": "L3-w1",
+        "date": "2026-06-23T04:45:00.000Z",
+        "description": "Goodwill fee waiver (agent: Priya Nair)",
+        "type": "waiver",
+        "amount": -80,
+        "balance": 3200
+      },
+      {
+        "id": "L3-c5",
+        "date": "2026-06-21T04:45:00.000Z",
+        "description": "EMI installment #6",
+        "type": "charge",
+        "amount": 1600,
+        "invoiceId": "INV-3-1005",
+        "balance": 3280
+      },
+      {
+        "id": "L3-f1",
+        "date": "2026-06-16T04:45:00.000Z",
+        "description": "Late payment fee",
+        "type": "fee",
+        "amount": 80,
+        "balance": 1680
+      },
+      {
+        "id": "L3-c4",
+        "date": "2026-05-22T04:45:00.000Z",
+        "description": "EMI installment #5",
+        "type": "charge",
+        "amount": 1600,
+        "invoiceId": "INV-3-1004",
+        "balance": 1600
+      },
+      {
+        "id": "L3-p3",
+        "date": "2026-04-25T04:45:00.000Z",
+        "description": "UPI payment — reference 3333",
+        "type": "payment",
+        "amount": -1600,
+        "balance": 0
+      },
+      {
+        "id": "L3-c3",
+        "date": "2026-04-22T04:45:00.000Z",
+        "description": "EMI installment #4",
+        "type": "charge",
+        "amount": 1600,
+        "invoiceId": "INV-3-1003",
+        "balance": 1600
+      },
+      {
+        "id": "L3-p2",
+        "date": "2026-03-26T04:45:00.000Z",
+        "description": "UPI payment — reference 3222",
+        "type": "payment",
+        "amount": -1600,
+        "balance": 0
+      },
+      {
+        "id": "L3-c2",
+        "date": "2026-03-23T04:45:00.000Z",
+        "description": "EMI installment #3",
+        "type": "charge",
+        "amount": 1600,
+        "invoiceId": "INV-3-1002",
+        "balance": 1600
+      },
+      {
+        "id": "L3-p1",
+        "date": "2026-02-24T04:45:00.000Z",
+        "description": "UPI payment — reference 3111",
+        "type": "payment",
+        "amount": -1600,
+        "balance": 0
+      },
+      {
+        "id": "L3-c1",
+        "date": "2026-02-21T04:45:00.000Z",
+        "description": "EMI installment #2",
+        "type": "charge",
+        "amount": 1600,
+        "invoiceId": "INV-3-1001",
+        "balance": 1600
+      },
+      {
+        "id": "L3-p0",
+        "date": "2026-01-25T04:45:00.000Z",
+        "description": "UPI payment — reference 3000",
+        "type": "payment",
+        "amount": -1600,
+        "balance": 0
+      },
+      {
+        "id": "L3-c0",
+        "date": "2026-01-22T04:45:00.000Z",
+        "description": "EMI installment #1",
+        "type": "charge",
+        "amount": 1600,
+        "invoiceId": "INV-3-1000",
+        "balance": 1600
+      }
+    ],
+    "emi": [
+      {
+        "id": "E3-0",
+        "index": 1,
+        "dueDate": "2026-12-18T03:45:00.000Z",
+        "amount": 1600,
+        "paidOn": "2026-12-20T05:45:00.000Z",
+        "paidAmount": 1600,
+        "status": "paid",
+        "balanceCarried": 17600
+      },
+      {
+        "id": "E3-1",
+        "index": 2,
+        "dueDate": "2026-11-18T03:45:00.000Z",
+        "amount": 1600,
+        "paidOn": "2026-11-20T05:45:00.000Z",
+        "paidAmount": 1600,
+        "status": "paid",
+        "balanceCarried": 16000
+      },
+      {
+        "id": "E3-2",
+        "index": 3,
+        "dueDate": "2026-10-19T03:45:00.000Z",
+        "amount": 1600,
+        "paidOn": "2026-10-21T05:45:00.000Z",
+        "paidAmount": 1600,
+        "status": "paid",
+        "balanceCarried": 14400
+      },
+      {
+        "id": "E3-3",
+        "index": 4,
+        "dueDate": "2026-09-19T03:45:00.000Z",
+        "amount": 1600,
+        "paidOn": "2026-09-21T05:45:00.000Z",
+        "paidAmount": 1600,
+        "status": "paid",
+        "balanceCarried": 12800
+      },
+      {
+        "id": "E3-4",
+        "index": 5,
+        "dueDate": "2026-08-20T03:45:00.000Z",
+        "amount": 1600,
+        "paidOn": "2026-08-25T05:45:00.000Z",
+        "paidAmount": 640,
+        "status": "partial",
+        "balanceCarried": 12160
+      },
+      {
+        "id": "E3-5",
+        "index": 6,
+        "dueDate": "2026-07-21T03:45:00.000Z",
+        "amount": 1600,
+        "status": "overdue",
+        "balanceCarried": 11200
+      },
+      {
+        "id": "E3-6",
+        "index": 7,
+        "dueDate": "2026-06-21T03:45:00.000Z",
+        "amount": 1600,
+        "status": "upcoming",
+        "balanceCarried": 9600
+      },
+      {
+        "id": "E3-7",
+        "index": 8,
+        "dueDate": "2026-05-22T03:45:00.000Z",
+        "amount": 1600,
+        "status": "upcoming",
+        "balanceCarried": 8000
+      },
+      {
+        "id": "E3-8",
+        "index": 9,
+        "dueDate": "2026-04-22T03:45:00.000Z",
+        "amount": 1600,
+        "status": "upcoming",
+        "balanceCarried": 6400
+      },
+      {
+        "id": "E3-9",
+        "index": 10,
+        "dueDate": "2026-03-23T03:45:00.000Z",
+        "amount": 1600,
+        "status": "upcoming",
+        "balanceCarried": 4800
+      },
+      {
+        "id": "E3-10",
+        "index": 11,
+        "dueDate": "2026-02-21T03:45:00.000Z",
+        "amount": 1600,
+        "status": "upcoming",
+        "balanceCarried": 3200
+      },
+      {
+        "id": "E3-11",
+        "index": 12,
+        "dueDate": "2026-01-22T03:45:00.000Z",
+        "amount": 1600,
+        "status": "upcoming",
+        "balanceCarried": 1600
+      }
+    ],
+    "interactions": [
+      {
+        "id": "ni1",
+        "channel": "whatsapp",
+        "handler": {
+          "kind": "bot",
+          "name": "CollectionsBot"
+        },
+        "startedAt": "2026-07-20T10:45:00.000Z",
+        "duration": "2m 10s",
+        "disposition": "PTP captured (bot)",
+        "sentiment": "positive",
+        "sentimentDelta": "up",
+        "summary": "Customer promised ₹620 by 25th via UPI. Bot upsold consolidation — not interested.",
+        "intents": {
+          "queryResolved": true,
+          "upsellPresented": true,
+          "ptpCaptured": true
+        }
+      }
+    ],
+    "promises": [
+      {
+        "id": "np1",
+        "amount": 620,
+        "promisedDate": "2026-07-25T04:45:00.000Z",
+        "createdAt": "2026-07-20T04:45:00.000Z",
+        "channel": "whatsapp",
+        "handler": "CollectionsBot",
+        "status": "upcoming",
+        "reminderStatus": "queued"
+      }
+    ],
+    "disputes": [],
+    "documents": [],
+    "notes": []
+  },
+  {
+    "id": "james-patel",
+    "name": "James Patel",
+    "accountId": "AC-66803",
+    "risk": "high",
+    "outstanding": 22100,
+    "minimumDue": 4200,
+    "lastContact": "2026-07-18T07:45:00.000Z",
+    "assignedTo": "David Chen",
+    "contact": {
+      "phonePrimary": "+91 97•••• ••88",
+      "email": "j.patel@mail.co.in",
+      "address": "56 Rosewood Ave, Pune 411045",
+      "timezone": "Asia/Kolkata (IST)",
+      "language": "English",
+      "preferredWindow": "09:00–13:00 IST",
+      "dnd": false
+    },
+    "account": {
+      "product": "Auto Loan",
+      "openedOn": "2023-08-06T04:45:00.000Z",
+      "apr": 10.9,
+      "sanctionedAmount": 850000,
+      "bucket": "31-60",
+      "dpd": 58,
+      "riskScore": 588
+    },
+    "consent": [
+      {
+        "channel": "call",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2023-08-06T04:45:00.000Z"
+      },
+      {
+        "channel": "whatsapp",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2023-08-06T04:45:00.000Z"
+      },
+      {
+        "channel": "sms",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2023-08-06T04:45:00.000Z"
+      },
+      {
+        "channel": "email",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2023-08-06T04:45:00.000Z"
+      }
+    ],
+    "ledger": [
+      {
+        "id": "L4-adj1",
+        "date": "2026-07-09T04:45:00.000Z",
+        "description": "Interest capitalization",
+        "type": "adjustment",
+        "amount": 255,
+        "balance": 17255
+      },
+      {
+        "id": "L4-w1",
+        "date": "2026-06-23T04:45:00.000Z",
+        "description": "Goodwill fee waiver (agent: Priya Nair)",
+        "type": "waiver",
+        "amount": -425,
+        "balance": 17000
+      },
+      {
+        "id": "L4-c5",
+        "date": "2026-06-21T04:45:00.000Z",
+        "description": "EMI installment #6",
+        "type": "charge",
+        "amount": 8500,
+        "invoiceId": "INV-4-1005",
+        "balance": 17425
+      },
+      {
+        "id": "L4-f1",
+        "date": "2026-06-16T04:45:00.000Z",
+        "description": "Late payment fee",
+        "type": "fee",
+        "amount": 425,
+        "balance": 8925
+      },
+      {
+        "id": "L4-c4",
+        "date": "2026-05-22T04:45:00.000Z",
+        "description": "EMI installment #5",
+        "type": "charge",
+        "amount": 8500,
+        "invoiceId": "INV-4-1004",
+        "balance": 8500
+      },
+      {
+        "id": "L4-p3",
+        "date": "2026-04-25T04:45:00.000Z",
+        "description": "UPI payment — reference 4333",
+        "type": "payment",
+        "amount": -8500,
+        "balance": 0
+      },
+      {
+        "id": "L4-c3",
+        "date": "2026-04-22T04:45:00.000Z",
+        "description": "EMI installment #4",
+        "type": "charge",
+        "amount": 8500,
+        "invoiceId": "INV-4-1003",
+        "balance": 8500
+      },
+      {
+        "id": "L4-p2",
+        "date": "2026-03-26T04:45:00.000Z",
+        "description": "UPI payment — reference 4222",
+        "type": "payment",
+        "amount": -8500,
+        "balance": 0
+      },
+      {
+        "id": "L4-c2",
+        "date": "2026-03-23T04:45:00.000Z",
+        "description": "EMI installment #3",
+        "type": "charge",
+        "amount": 8500,
+        "invoiceId": "INV-4-1002",
+        "balance": 8500
+      },
+      {
+        "id": "L4-p1",
+        "date": "2026-02-24T04:45:00.000Z",
+        "description": "UPI payment — reference 4111",
+        "type": "payment",
+        "amount": -8500,
+        "balance": 0
+      },
+      {
+        "id": "L4-c1",
+        "date": "2026-02-21T04:45:00.000Z",
+        "description": "EMI installment #2",
+        "type": "charge",
+        "amount": 8500,
+        "invoiceId": "INV-4-1001",
+        "balance": 8500
+      },
+      {
+        "id": "L4-p0",
+        "date": "2026-01-25T04:45:00.000Z",
+        "description": "UPI payment — reference 4000",
+        "type": "payment",
+        "amount": -8500,
+        "balance": 0
+      },
+      {
+        "id": "L4-c0",
+        "date": "2026-01-22T04:45:00.000Z",
+        "description": "EMI installment #1",
+        "type": "charge",
+        "amount": 8500,
+        "invoiceId": "INV-4-1000",
+        "balance": 8500
+      }
+    ],
+    "emi": [
+      {
+        "id": "E4-0",
+        "index": 1,
+        "dueDate": "2026-12-18T03:45:00.000Z",
+        "amount": 8500,
+        "paidOn": "2026-12-20T05:45:00.000Z",
+        "paidAmount": 8500,
+        "status": "paid",
+        "balanceCarried": 93500
+      },
+      {
+        "id": "E4-1",
+        "index": 2,
+        "dueDate": "2026-11-18T03:45:00.000Z",
+        "amount": 8500,
+        "paidOn": "2026-11-20T05:45:00.000Z",
+        "paidAmount": 8500,
+        "status": "paid",
+        "balanceCarried": 85000
+      },
+      {
+        "id": "E4-2",
+        "index": 3,
+        "dueDate": "2026-10-19T03:45:00.000Z",
+        "amount": 8500,
+        "paidOn": "2026-10-21T05:45:00.000Z",
+        "paidAmount": 8500,
+        "status": "paid",
+        "balanceCarried": 76500
+      },
+      {
+        "id": "E4-3",
+        "index": 4,
+        "dueDate": "2026-09-19T03:45:00.000Z",
+        "amount": 8500,
+        "paidOn": "2026-09-21T05:45:00.000Z",
+        "paidAmount": 8500,
+        "status": "paid",
+        "balanceCarried": 68000
+      },
+      {
+        "id": "E4-4",
+        "index": 5,
+        "dueDate": "2026-08-20T03:45:00.000Z",
+        "amount": 8500,
+        "paidOn": "2026-08-25T05:45:00.000Z",
+        "paidAmount": 3400,
+        "status": "partial",
+        "balanceCarried": 64600
+      },
+      {
+        "id": "E4-5",
+        "index": 6,
+        "dueDate": "2026-07-21T03:45:00.000Z",
+        "amount": 8500,
+        "status": "overdue",
+        "balanceCarried": 59500
+      },
+      {
+        "id": "E4-6",
+        "index": 7,
+        "dueDate": "2026-06-21T03:45:00.000Z",
+        "amount": 8500,
+        "status": "upcoming",
+        "balanceCarried": 51000
+      },
+      {
+        "id": "E4-7",
+        "index": 8,
+        "dueDate": "2026-05-22T03:45:00.000Z",
+        "amount": 8500,
+        "status": "upcoming",
+        "balanceCarried": 42500
+      },
+      {
+        "id": "E4-8",
+        "index": 9,
+        "dueDate": "2026-04-22T03:45:00.000Z",
+        "amount": 8500,
+        "status": "upcoming",
+        "balanceCarried": 34000
+      },
+      {
+        "id": "E4-9",
+        "index": 10,
+        "dueDate": "2026-03-23T03:45:00.000Z",
+        "amount": 8500,
+        "status": "upcoming",
+        "balanceCarried": 25500
+      },
+      {
+        "id": "E4-10",
+        "index": 11,
+        "dueDate": "2026-02-21T03:45:00.000Z",
+        "amount": 8500,
+        "status": "upcoming",
+        "balanceCarried": 17000
+      },
+      {
+        "id": "E4-11",
+        "index": 12,
+        "dueDate": "2026-01-22T03:45:00.000Z",
+        "amount": 8500,
+        "status": "upcoming",
+        "balanceCarried": 8500
+      }
+    ],
+    "interactions": [
+      {
+        "id": "ji1",
+        "channel": "voice",
+        "handler": {
+          "kind": "human",
+          "name": "David Chen"
+        },
+        "startedAt": "2026-07-18T07:45:00.000Z",
+        "duration": "8m 44s",
+        "disposition": "Payment plan proposed",
+        "sentiment": "neutral",
+        "sentimentDelta": "flat",
+        "summary": "Customer travelling this week. Will confirm 2-installment plan on return.",
+        "intents": {
+          "queryResolved": true,
+          "ptpCaptured": false
+        }
+      }
+    ],
+    "promises": [
+      {
+        "id": "jp1",
+        "amount": 10000,
+        "promisedDate": "2026-08-02T04:45:00.000Z",
+        "createdAt": "2026-07-18T04:45:00.000Z",
+        "channel": "voice",
+        "handler": "David Chen",
+        "status": "upcoming",
+        "reminderStatus": "queued"
+      }
+    ],
+    "disputes": [
+      {
+        "id": "D-4805",
+        "type": "Incorrect EMI",
+        "amount": 7200,
+        "transcriptSnippet": "\"…the EMI got debited twice in October — please refund the extra one.\"",
+        "status": "awaiting_customer",
+        "slaLabel": "6h 40m left",
+        "filedAt": "2026-07-02T04:45:00.000Z",
+        "assignee": "David Chen"
+      }
+    ],
+    "documents": [
+      {
+        "id": "jdoc1",
+        "type": "Payment schedule",
+        "requestedVia": "voice",
+        "requestedAt": "2026-07-18T04:45:00.000Z",
+        "deliveryChannel": "email",
+        "status": "sent"
+      }
+    ],
+    "notes": []
+  },
+  {
+    "id": "farah-ahmed",
+    "name": "Farah Ahmed",
+    "accountId": "AC-71992",
+    "risk": "high",
+    "outstanding": 3980,
+    "minimumDue": 480,
+    "lastContact": "2026-07-21T11:45:00.000Z",
+    "assignedTo": "Sara Khan",
+    "contact": {
+      "phonePrimary": "+91 90•••• ••14",
+      "email": "farah.a@mail.co.in",
+      "address": "Jubilee Hills, Hyderabad 500033",
+      "timezone": "Asia/Kolkata (IST)",
+      "language": "English + Urdu",
+      "preferredWindow": "10:00–17:00 IST",
+      "dnd": true
+    },
+    "account": {
+      "product": "Credit Card",
+      "openedOn": "2025-10-14T04:45:00.000Z",
+      "apr": 39.9,
+      "sanctionedAmount": 60000,
+      "bucket": "31-60",
+      "dpd": 45,
+      "riskScore": 621
+    },
+    "consent": [
+      {
+        "channel": "call",
+        "optedIn": false,
+        "source": "self-serve",
+        "capturedAt": "2026-07-11T04:45:00.000Z"
+      },
+      {
+        "channel": "whatsapp",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-10-14T04:45:00.000Z"
+      },
+      {
+        "channel": "sms",
+        "optedIn": false,
+        "source": "self-serve",
+        "capturedAt": "2026-07-11T04:45:00.000Z"
+      },
+      {
+        "channel": "email",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-10-14T04:45:00.000Z"
+      }
+    ],
+    "ledger": [
+      {
+        "id": "L5-adj1",
+        "date": "2026-07-09T04:45:00.000Z",
+        "description": "Interest capitalization",
+        "type": "adjustment",
+        "amount": 42,
+        "balance": 2842
+      },
+      {
+        "id": "L5-w1",
+        "date": "2026-06-23T04:45:00.000Z",
+        "description": "Goodwill fee waiver (agent: Priya Nair)",
+        "type": "waiver",
+        "amount": -70,
+        "balance": 2800
+      },
+      {
+        "id": "L5-c5",
+        "date": "2026-06-21T04:45:00.000Z",
+        "description": "EMI installment #6",
+        "type": "charge",
+        "amount": 1400,
+        "invoiceId": "INV-5-1005",
+        "balance": 2870
+      },
+      {
+        "id": "L5-f1",
+        "date": "2026-06-16T04:45:00.000Z",
+        "description": "Late payment fee",
+        "type": "fee",
+        "amount": 70,
+        "balance": 1470
+      },
+      {
+        "id": "L5-c4",
+        "date": "2026-05-22T04:45:00.000Z",
+        "description": "EMI installment #5",
+        "type": "charge",
+        "amount": 1400,
+        "invoiceId": "INV-5-1004",
+        "balance": 1400
+      },
+      {
+        "id": "L5-p3",
+        "date": "2026-04-25T04:45:00.000Z",
+        "description": "UPI payment — reference 5333",
+        "type": "payment",
+        "amount": -1400,
+        "balance": 0
+      },
+      {
+        "id": "L5-c3",
+        "date": "2026-04-22T04:45:00.000Z",
+        "description": "EMI installment #4",
+        "type": "charge",
+        "amount": 1400,
+        "invoiceId": "INV-5-1003",
+        "balance": 1400
+      },
+      {
+        "id": "L5-p2",
+        "date": "2026-03-26T04:45:00.000Z",
+        "description": "UPI payment — reference 5222",
+        "type": "payment",
+        "amount": -1400,
+        "balance": 0
+      },
+      {
+        "id": "L5-c2",
+        "date": "2026-03-23T04:45:00.000Z",
+        "description": "EMI installment #3",
+        "type": "charge",
+        "amount": 1400,
+        "invoiceId": "INV-5-1002",
+        "balance": 1400
+      },
+      {
+        "id": "L5-p1",
+        "date": "2026-02-24T04:45:00.000Z",
+        "description": "UPI payment — reference 5111",
+        "type": "payment",
+        "amount": -1400,
+        "balance": 0
+      },
+      {
+        "id": "L5-c1",
+        "date": "2026-02-21T04:45:00.000Z",
+        "description": "EMI installment #2",
+        "type": "charge",
+        "amount": 1400,
+        "invoiceId": "INV-5-1001",
+        "balance": 1400
+      },
+      {
+        "id": "L5-p0",
+        "date": "2026-01-25T04:45:00.000Z",
+        "description": "UPI payment — reference 5000",
+        "type": "payment",
+        "amount": -1400,
+        "balance": 0
+      },
+      {
+        "id": "L5-c0",
+        "date": "2026-01-22T04:45:00.000Z",
+        "description": "EMI installment #1",
+        "type": "charge",
+        "amount": 1400,
+        "invoiceId": "INV-5-1000",
+        "balance": 1400
+      }
+    ],
+    "emi": [
+      {
+        "id": "E5-0",
+        "index": 1,
+        "dueDate": "2026-12-18T03:45:00.000Z",
+        "amount": 1400,
+        "paidOn": "2026-12-20T05:45:00.000Z",
+        "paidAmount": 1400,
+        "status": "paid",
+        "balanceCarried": 15400
+      },
+      {
+        "id": "E5-1",
+        "index": 2,
+        "dueDate": "2026-11-18T03:45:00.000Z",
+        "amount": 1400,
+        "paidOn": "2026-11-20T05:45:00.000Z",
+        "paidAmount": 1400,
+        "status": "paid",
+        "balanceCarried": 14000
+      },
+      {
+        "id": "E5-2",
+        "index": 3,
+        "dueDate": "2026-10-19T03:45:00.000Z",
+        "amount": 1400,
+        "paidOn": "2026-10-21T05:45:00.000Z",
+        "paidAmount": 1400,
+        "status": "paid",
+        "balanceCarried": 12600
+      },
+      {
+        "id": "E5-3",
+        "index": 4,
+        "dueDate": "2026-09-19T03:45:00.000Z",
+        "amount": 1400,
+        "paidOn": "2026-09-21T05:45:00.000Z",
+        "paidAmount": 1400,
+        "status": "paid",
+        "balanceCarried": 11200
+      },
+      {
+        "id": "E5-4",
+        "index": 5,
+        "dueDate": "2026-08-20T03:45:00.000Z",
+        "amount": 1400,
+        "paidOn": "2026-08-25T05:45:00.000Z",
+        "paidAmount": 560,
+        "status": "partial",
+        "balanceCarried": 10640
+      },
+      {
+        "id": "E5-5",
+        "index": 6,
+        "dueDate": "2026-07-21T03:45:00.000Z",
+        "amount": 1400,
+        "status": "overdue",
+        "balanceCarried": 9800
+      },
+      {
+        "id": "E5-6",
+        "index": 7,
+        "dueDate": "2026-06-21T03:45:00.000Z",
+        "amount": 1400,
+        "status": "upcoming",
+        "balanceCarried": 8400
+      },
+      {
+        "id": "E5-7",
+        "index": 8,
+        "dueDate": "2026-05-22T03:45:00.000Z",
+        "amount": 1400,
+        "status": "upcoming",
+        "balanceCarried": 7000
+      },
+      {
+        "id": "E5-8",
+        "index": 9,
+        "dueDate": "2026-04-22T03:45:00.000Z",
+        "amount": 1400,
+        "status": "upcoming",
+        "balanceCarried": 5600
+      },
+      {
+        "id": "E5-9",
+        "index": 10,
+        "dueDate": "2026-03-23T03:45:00.000Z",
+        "amount": 1400,
+        "status": "upcoming",
+        "balanceCarried": 4200
+      },
+      {
+        "id": "E5-10",
+        "index": 11,
+        "dueDate": "2026-02-21T03:45:00.000Z",
+        "amount": 1400,
+        "status": "upcoming",
+        "balanceCarried": 2800
+      },
+      {
+        "id": "E5-11",
+        "index": 12,
+        "dueDate": "2026-01-22T03:45:00.000Z",
+        "amount": 1400,
+        "status": "upcoming",
+        "balanceCarried": 1400
+      }
+    ],
+    "interactions": [
+      {
+        "id": "fi1",
+        "channel": "whatsapp",
+        "handler": {
+          "kind": "bot",
+          "name": "CollectionsBot"
+        },
+        "startedAt": "2026-07-21T11:45:00.000Z",
+        "duration": "1m 45s",
+        "disposition": "Bot contained",
+        "sentiment": "positive",
+        "sentimentDelta": "up",
+        "summary": "Sent payment link. Customer completed ₹480 payment on link.",
+        "intents": {
+          "queryResolved": true
+        }
+      }
+    ],
+    "promises": [
+      {
+        "id": "fp1",
+        "amount": 480,
+        "promisedDate": "2026-07-21T04:45:00.000Z",
+        "createdAt": "2026-07-21T04:45:00.000Z",
+        "channel": "whatsapp",
+        "handler": "CollectionsBot",
+        "status": "kept",
+        "reminderStatus": "acknowledged"
+      }
+    ],
+    "disputes": [],
+    "documents": [],
+    "notes": [
+      {
+        "id": "fn1",
+        "author": "Sara Khan",
+        "at": "2026-07-11T04:45:00.000Z",
+        "text": "Customer opted out of calls after complaint. WhatsApp-only.",
+        "pinned": true
+      }
+    ]
+  },
+  {
+    "id": "rahul-sinha",
+    "name": "Rahul Sinha",
+    "accountId": "AC-58004",
+    "risk": "medium",
+    "outstanding": 15300,
+    "minimumDue": 2800,
+    "lastContact": "2026-07-17T04:45:00.000Z",
+    "assignedTo": "Rohan Verma",
+    "contact": {
+      "phonePrimary": "+91 88•••• ••31",
+      "email": "rahul.s@mail.co.in",
+      "address": "Salt Lake, Kolkata 700091",
+      "timezone": "Asia/Kolkata (IST)",
+      "language": "English + Bengali",
+      "preferredWindow": "10:00–19:00 IST",
+      "dnd": false
+    },
+    "account": {
+      "product": "Personal Loan",
+      "openedOn": "2025-01-27T04:45:00.000Z",
+      "apr": 16.2,
+      "sanctionedAmount": 250000,
+      "bucket": "0-30",
+      "dpd": 38,
+      "riskScore": 671
+    },
+    "consent": [
+      {
+        "channel": "call",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-01-27T04:45:00.000Z"
+      },
+      {
+        "channel": "whatsapp",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-01-27T04:45:00.000Z"
+      },
+      {
+        "channel": "sms",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-01-27T04:45:00.000Z"
+      },
+      {
+        "channel": "email",
+        "optedIn": true,
+        "source": "self-serve",
+        "capturedAt": "2025-01-27T04:45:00.000Z"
+      }
+    ],
+    "ledger": [
+      {
+        "id": "L6-adj1",
+        "date": "2026-07-09T04:45:00.000Z",
+        "description": "Interest capitalization",
+        "type": "adjustment",
+        "amount": 114,
+        "balance": 7714
+      },
+      {
+        "id": "L6-w1",
+        "date": "2026-06-23T04:45:00.000Z",
+        "description": "Goodwill fee waiver (agent: Priya Nair)",
+        "type": "waiver",
+        "amount": -190,
+        "balance": 7600
+      },
+      {
+        "id": "L6-c5",
+        "date": "2026-06-21T04:45:00.000Z",
+        "description": "EMI installment #6",
+        "type": "charge",
+        "amount": 3800,
+        "invoiceId": "INV-6-1005",
+        "balance": 7790
+      },
+      {
+        "id": "L6-f1",
+        "date": "2026-06-16T04:45:00.000Z",
+        "description": "Late payment fee",
+        "type": "fee",
+        "amount": 190,
+        "balance": 3990
+      },
+      {
+        "id": "L6-c4",
+        "date": "2026-05-22T04:45:00.000Z",
+        "description": "EMI installment #5",
+        "type": "charge",
+        "amount": 3800,
+        "invoiceId": "INV-6-1004",
+        "balance": 3800
+      },
+      {
+        "id": "L6-p3",
+        "date": "2026-04-25T04:45:00.000Z",
+        "description": "UPI payment — reference 6333",
+        "type": "payment",
+        "amount": -3800,
+        "balance": 0
+      },
+      {
+        "id": "L6-c3",
+        "date": "2026-04-22T04:45:00.000Z",
+        "description": "EMI installment #4",
+        "type": "charge",
+        "amount": 3800,
+        "invoiceId": "INV-6-1003",
+        "balance": 3800
+      },
+      {
+        "id": "L6-p2",
+        "date": "2026-03-26T04:45:00.000Z",
+        "description": "UPI payment — reference 6222",
+        "type": "payment",
+        "amount": -3800,
+        "balance": 0
+      },
+      {
+        "id": "L6-c2",
+        "date": "2026-03-23T04:45:00.000Z",
+        "description": "EMI installment #3",
+        "type": "charge",
+        "amount": 3800,
+        "invoiceId": "INV-6-1002",
+        "balance": 3800
+      },
+      {
+        "id": "L6-p1",
+        "date": "2026-02-24T04:45:00.000Z",
+        "description": "UPI payment — reference 6111",
+        "type": "payment",
+        "amount": -3800,
+        "balance": 0
+      },
+      {
+        "id": "L6-c1",
+        "date": "2026-02-21T04:45:00.000Z",
+        "description": "EMI installment #2",
+        "type": "charge",
+        "amount": 3800,
+        "invoiceId": "INV-6-1001",
+        "balance": 3800
+      },
+      {
+        "id": "L6-p0",
+        "date": "2026-01-25T04:45:00.000Z",
+        "description": "UPI payment — reference 6000",
+        "type": "payment",
+        "amount": -3800,
+        "balance": 0
+      },
+      {
+        "id": "L6-c0",
+        "date": "2026-01-22T04:45:00.000Z",
+        "description": "EMI installment #1",
+        "type": "charge",
+        "amount": 3800,
+        "invoiceId": "INV-6-1000",
+        "balance": 3800
+      }
+    ],
+    "emi": [
+      {
+        "id": "E6-0",
+        "index": 1,
+        "dueDate": "2026-12-18T03:45:00.000Z",
+        "amount": 3800,
+        "paidOn": "2026-12-20T05:45:00.000Z",
+        "paidAmount": 3800,
+        "status": "paid",
+        "balanceCarried": 41800
+      },
+      {
+        "id": "E6-1",
+        "index": 2,
+        "dueDate": "2026-11-18T03:45:00.000Z",
+        "amount": 3800,
+        "paidOn": "2026-11-20T05:45:00.000Z",
+        "paidAmount": 3800,
+        "status": "paid",
+        "balanceCarried": 38000
+      },
+      {
+        "id": "E6-2",
+        "index": 3,
+        "dueDate": "2026-10-19T03:45:00.000Z",
+        "amount": 3800,
+        "paidOn": "2026-10-21T05:45:00.000Z",
+        "paidAmount": 3800,
+        "status": "paid",
+        "balanceCarried": 34200
+      },
+      {
+        "id": "E6-3",
+        "index": 4,
+        "dueDate": "2026-09-19T03:45:00.000Z",
+        "amount": 3800,
+        "paidOn": "2026-09-21T05:45:00.000Z",
+        "paidAmount": 3800,
+        "status": "paid",
+        "balanceCarried": 30400
+      },
+      {
+        "id": "E6-4",
+        "index": 5,
+        "dueDate": "2026-08-20T03:45:00.000Z",
+        "amount": 3800,
+        "paidOn": "2026-08-25T05:45:00.000Z",
+        "paidAmount": 1520,
+        "status": "partial",
+        "balanceCarried": 28880
+      },
+      {
+        "id": "E6-5",
+        "index": 6,
+        "dueDate": "2026-07-21T03:45:00.000Z",
+        "amount": 3800,
+        "status": "overdue",
+        "balanceCarried": 26600
+      },
+      {
+        "id": "E6-6",
+        "index": 7,
+        "dueDate": "2026-06-21T03:45:00.000Z",
+        "amount": 3800,
+        "status": "upcoming",
+        "balanceCarried": 22800
+      },
+      {
+        "id": "E6-7",
+        "index": 8,
+        "dueDate": "2026-05-22T03:45:00.000Z",
+        "amount": 3800,
+        "status": "upcoming",
+        "balanceCarried": 19000
+      },
+      {
+        "id": "E6-8",
+        "index": 9,
+        "dueDate": "2026-04-22T03:45:00.000Z",
+        "amount": 3800,
+        "status": "upcoming",
+        "balanceCarried": 15200
+      },
+      {
+        "id": "E6-9",
+        "index": 10,
+        "dueDate": "2026-03-23T03:45:00.000Z",
+        "amount": 3800,
+        "status": "upcoming",
+        "balanceCarried": 11400
+      },
+      {
+        "id": "E6-10",
+        "index": 11,
+        "dueDate": "2026-02-21T03:45:00.000Z",
+        "amount": 3800,
+        "status": "upcoming",
+        "balanceCarried": 7600
+      },
+      {
+        "id": "E6-11",
+        "index": 12,
+        "dueDate": "2026-01-22T03:45:00.000Z",
+        "amount": 3800,
+        "status": "upcoming",
+        "balanceCarried": 3800
+      }
+    ],
+    "interactions": [],
+    "promises": [],
+    "disputes": [],
+    "documents": [],
+    "notes": []
+  }
+]

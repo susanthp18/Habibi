@@ -1,0 +1,640 @@
+{
+  "heroKpis": [
+    {
+      "label": "Avg Handle Time (AHT)",
+      "value": "4m 12s",
+      "raw": 252,
+      "delta": -18.4,
+      "deltaGood": "down",
+      "sub": "vs prior period · target ≤ 5m",
+      "spark": [
+        245,
+        266,
+        262,
+        292,
+        283,
+        273,
+        246,
+        249,
+        237,
+        217,
+        230,
+        241,
+        238,
+        248
+      ]
+    },
+    {
+      "label": "Upsell Conversion Rate",
+      "value": "14.6%",
+      "raw": 14.6,
+      "unit": "%",
+      "delta": 3.2,
+      "deltaGood": "up",
+      "sub": "eligibility-gated offers accepted",
+      "spark": [
+        11,
+        12,
+        14,
+        13,
+        14,
+        13,
+        13,
+        9,
+        7,
+        9,
+        9,
+        10,
+        11,
+        11
+      ]
+    }
+  ],
+  "kpis": [
+    {
+      "key": "recovered",
+      "label": "Total Dues Recovered",
+      "value": "$2.48M",
+      "delta": 12.1,
+      "deltaGood": "up",
+      "spark": [
+        87,
+        103,
+        95,
+        96,
+        110,
+        92,
+        88,
+        70,
+        66,
+        64,
+        64,
+        78,
+        75,
+        96
+      ],
+      "tone": "success"
+    },
+    {
+      "key": "recoveryRate",
+      "label": "Recovery Rate",
+      "value": "68.4%",
+      "delta": 2.7,
+      "deltaGood": "up",
+      "spark": [
+        66,
+        70,
+        69,
+        70,
+        71,
+        68,
+        69,
+        65,
+        63,
+        59,
+        59,
+        59,
+        63,
+        64
+      ]
+    },
+    {
+      "key": "containment",
+      "label": "Bot Containment",
+      "value": "71.2%",
+      "delta": 5.9,
+      "deltaGood": "up",
+      "spark": [
+        67,
+        68,
+        72,
+        76,
+        70,
+        74,
+        66,
+        62,
+        58,
+        56,
+        62,
+        59,
+        64,
+        66
+      ],
+      "tone": "brand"
+    },
+    {
+      "key": "ptp",
+      "label": "Promise-Kept Rate",
+      "value": "61.8%",
+      "delta": -1.4,
+      "deltaGood": "up",
+      "spark": [
+        61,
+        62,
+        65,
+        65,
+        65,
+        65,
+        62,
+        59,
+        60,
+        55,
+        57,
+        57,
+        63,
+        62
+      ],
+      "tone": "warning"
+    },
+    {
+      "key": "csat",
+      "label": "Avg Sentiment / CSAT",
+      "value": "0.62",
+      "delta": 0.08,
+      "deltaGood": "up",
+      "spark": [
+        57,
+        60,
+        61,
+        61,
+        65,
+        61,
+        57,
+        53,
+        50,
+        44,
+        49,
+        48,
+        55,
+        53
+      ]
+    },
+    {
+      "key": "calls",
+      "label": "Calls Handled",
+      "value": "8,412",
+      "delta": 6.3,
+      "deltaGood": "up",
+      "spark": [
+        264,
+        277,
+        295,
+        291,
+        287,
+        278,
+        271,
+        235,
+        238,
+        211,
+        223,
+        227,
+        256,
+        262
+      ]
+    }
+  ],
+  "recoveryTrend": [
+    {
+      "date": "2026-06-22",
+      "value": 57295
+    },
+    {
+      "date": "2026-06-23",
+      "value": 73624
+    },
+    {
+      "date": "2026-06-24",
+      "value": 74646
+    },
+    {
+      "date": "2026-06-25",
+      "value": 74869
+    },
+    {
+      "date": "2026-06-26",
+      "value": 76191
+    },
+    {
+      "date": "2026-06-27",
+      "value": 83727
+    },
+    {
+      "date": "2026-06-28",
+      "value": 82397
+    },
+    {
+      "date": "2026-06-29",
+      "value": 86602
+    },
+    {
+      "date": "2026-06-30",
+      "value": 88976
+    },
+    {
+      "date": "2026-07-01",
+      "value": 82639
+    },
+    {
+      "date": "2026-07-02",
+      "value": 81136
+    },
+    {
+      "date": "2026-07-03",
+      "value": 82926
+    },
+    {
+      "date": "2026-07-04",
+      "value": 77633
+    },
+    {
+      "date": "2026-07-05",
+      "value": 71171
+    },
+    {
+      "date": "2026-07-06",
+      "value": 72249
+    },
+    {
+      "date": "2026-07-07",
+      "value": 68340
+    },
+    {
+      "date": "2026-07-08",
+      "value": 82411
+    },
+    {
+      "date": "2026-07-09",
+      "value": 65068
+    },
+    {
+      "date": "2026-07-10",
+      "value": 82401
+    },
+    {
+      "date": "2026-07-11",
+      "value": 81526
+    },
+    {
+      "date": "2026-07-12",
+      "value": 73630
+    },
+    {
+      "date": "2026-07-13",
+      "value": 89749
+    },
+    {
+      "date": "2026-07-14",
+      "value": 84152
+    },
+    {
+      "date": "2026-07-15",
+      "value": 87192
+    },
+    {
+      "date": "2026-07-16",
+      "value": 100473
+    },
+    {
+      "date": "2026-07-17",
+      "value": 91803
+    },
+    {
+      "date": "2026-07-18",
+      "value": 100847
+    },
+    {
+      "date": "2026-07-19",
+      "value": 94550
+    },
+    {
+      "date": "2026-07-20",
+      "value": 103608
+    },
+    {
+      "date": "2026-07-21",
+      "value": 88982
+    }
+  ],
+  "callVolumeStacked": [
+    {
+      "date": "2026-06-22",
+      "voice": 205,
+      "whatsapp": 122,
+      "chat": 66
+    },
+    {
+      "date": "2026-06-23",
+      "voice": 237,
+      "whatsapp": 138,
+      "chat": 73
+    },
+    {
+      "date": "2026-06-24",
+      "voice": 268,
+      "whatsapp": 135,
+      "chat": 72
+    },
+    {
+      "date": "2026-06-25",
+      "voice": 284,
+      "whatsapp": 166,
+      "chat": 78
+    },
+    {
+      "date": "2026-06-26",
+      "voice": 259,
+      "whatsapp": 143,
+      "chat": 77
+    },
+    {
+      "date": "2026-06-27",
+      "voice": 292,
+      "whatsapp": 153,
+      "chat": 79
+    },
+    {
+      "date": "2026-06-28",
+      "voice": 275,
+      "whatsapp": 157,
+      "chat": 81
+    },
+    {
+      "date": "2026-06-29",
+      "voice": 249,
+      "whatsapp": 134,
+      "chat": 79
+    },
+    {
+      "date": "2026-06-30",
+      "voice": 241,
+      "whatsapp": 121,
+      "chat": 67
+    },
+    {
+      "date": "2026-07-01",
+      "voice": 230,
+      "whatsapp": 127,
+      "chat": 74
+    },
+    {
+      "date": "2026-07-02",
+      "voice": 191,
+      "whatsapp": 105,
+      "chat": 54
+    },
+    {
+      "date": "2026-07-03",
+      "voice": 200,
+      "whatsapp": 108,
+      "chat": 53
+    },
+    {
+      "date": "2026-07-04",
+      "voice": 185,
+      "whatsapp": 88,
+      "chat": 61
+    },
+    {
+      "date": "2026-07-05",
+      "voice": 184,
+      "whatsapp": 113,
+      "chat": 47
+    },
+    {
+      "date": "2026-07-06",
+      "voice": 158,
+      "whatsapp": 98,
+      "chat": 40
+    },
+    {
+      "date": "2026-07-07",
+      "voice": 162,
+      "whatsapp": 96,
+      "chat": 42
+    },
+    {
+      "date": "2026-07-08",
+      "voice": 176,
+      "whatsapp": 87,
+      "chat": 46
+    },
+    {
+      "date": "2026-07-09",
+      "voice": 196,
+      "whatsapp": 115,
+      "chat": 54
+    },
+    {
+      "date": "2026-07-10",
+      "voice": 201,
+      "whatsapp": 116,
+      "chat": 62
+    },
+    {
+      "date": "2026-07-11",
+      "voice": 240,
+      "whatsapp": 127,
+      "chat": 67
+    },
+    {
+      "date": "2026-07-12",
+      "voice": 247,
+      "whatsapp": 124,
+      "chat": 73
+    },
+    {
+      "date": "2026-07-13",
+      "voice": 272,
+      "whatsapp": 160,
+      "chat": 76
+    },
+    {
+      "date": "2026-07-14",
+      "voice": 258,
+      "whatsapp": 152,
+      "chat": 77
+    },
+    {
+      "date": "2026-07-15",
+      "voice": 268,
+      "whatsapp": 158,
+      "chat": 84
+    },
+    {
+      "date": "2026-07-16",
+      "voice": 266,
+      "whatsapp": 132,
+      "chat": 70
+    },
+    {
+      "date": "2026-07-17",
+      "voice": 288,
+      "whatsapp": 149,
+      "chat": 84
+    },
+    {
+      "date": "2026-07-18",
+      "voice": 279,
+      "whatsapp": 161,
+      "chat": 91
+    },
+    {
+      "date": "2026-07-19",
+      "voice": 251,
+      "whatsapp": 149,
+      "chat": 80
+    },
+    {
+      "date": "2026-07-20",
+      "voice": 235,
+      "whatsapp": 120,
+      "chat": 73
+    },
+    {
+      "date": "2026-07-21",
+      "voice": 225,
+      "whatsapp": 109,
+      "chat": 72
+    }
+  ],
+  "sentimentDistribution": {
+    "positive": 58,
+    "neutral": 27,
+    "negative": 15
+  },
+  "botVsHuman": [
+    {
+      "name": "Contained by bot",
+      "value": 5987,
+      "color": "var(--brand-primary)"
+    },
+    {
+      "name": "Escalated to human",
+      "value": 1638,
+      "color": "var(--warning)"
+    },
+    {
+      "name": "Direct to human",
+      "value": 787,
+      "color": "var(--brand-navy)"
+    }
+  ],
+  "leaderboard": [
+    {
+      "rank": 1,
+      "name": "Priya Nair",
+      "team": "Card Collections",
+      "calls": 214,
+      "aht": "3m 41s",
+      "upsell": 22.4,
+      "csat": 0.83
+    },
+    {
+      "rank": 2,
+      "name": "Arjun Mehta",
+      "team": "Personal Loans",
+      "calls": 198,
+      "aht": "3m 58s",
+      "upsell": 19.7,
+      "csat": 0.79
+    },
+    {
+      "rank": 3,
+      "name": "Sara Khan",
+      "team": "Card Collections",
+      "calls": 187,
+      "aht": "4m 04s",
+      "upsell": 18.9,
+      "csat": 0.81
+    },
+    {
+      "rank": 4,
+      "name": "David Chen",
+      "team": "Auto Loans",
+      "calls": 176,
+      "aht": "4m 12s",
+      "upsell": 16.2,
+      "csat": 0.76
+    },
+    {
+      "rank": 5,
+      "name": "Meera Iyer",
+      "team": "Personal Loans",
+      "calls": 168,
+      "aht": "4m 22s",
+      "upsell": 15.8,
+      "csat": 0.74
+    },
+    {
+      "rank": 6,
+      "name": "Rohan Verma",
+      "team": "Card Collections",
+      "calls": 161,
+      "aht": "4m 31s",
+      "upsell": 14.4,
+      "csat": 0.72
+    }
+  ],
+  "atRiskAccounts": [
+    {
+      "id": "a1",
+      "name": "Anita Desai",
+      "account": "AC-88214",
+      "outstanding": 12480,
+      "daysPastDue": 92,
+      "risk": "critical",
+      "lastContact": "2d ago",
+      "product": "Personal Loan"
+    },
+    {
+      "id": "a2",
+      "name": "Vikram Rao",
+      "account": "AC-77410",
+      "outstanding": 8640,
+      "daysPastDue": 74,
+      "risk": "critical",
+      "lastContact": "6h ago",
+      "product": "Card"
+    },
+    {
+      "id": "a3",
+      "name": "Neha Kapoor",
+      "account": "AC-90112",
+      "outstanding": 5210,
+      "daysPastDue": 61,
+      "risk": "high",
+      "lastContact": "1d ago",
+      "product": "Card"
+    },
+    {
+      "id": "a4",
+      "name": "James Patel",
+      "account": "AC-66803",
+      "outstanding": 22100,
+      "daysPastDue": 58,
+      "risk": "high",
+      "lastContact": "3d ago",
+      "product": "Auto Loan"
+    },
+    {
+      "id": "a5",
+      "name": "Farah Ahmed",
+      "account": "AC-71992",
+      "outstanding": 3980,
+      "daysPastDue": 45,
+      "risk": "high",
+      "lastContact": "5h ago",
+      "product": "Card"
+    },
+    {
+      "id": "a6",
+      "name": "Rahul Sinha",
+      "account": "AC-58004",
+      "outstanding": 15300,
+      "daysPastDue": 38,
+      "risk": "medium",
+      "lastContact": "4d ago",
+      "product": "Personal Loan"
+    }
+  ]
+}

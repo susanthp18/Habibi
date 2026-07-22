@@ -1,0 +1,493 @@
+// Integrations & API Connections — synthetic connector registry
+
+export type Env = "sandbox" | "production";
+export type HealthStatus = "healthy" | "degraded" | "down" | "unconfigured";
+export type Category = "Voice AI" | "Messaging" | "Telephony" | "Core Banking" | "Orchestrator";
+
+export type ProviderField = {
+  key: string;
+  label: string;
+  secret?: boolean;
+  placeholder?: string;
+};
+
+export type ProviderId =
+  | "azure_openai" | "openai" | "deepgram" | "elevenlabs"
+  | "twilio" | "whatsapp" | "cbs" | "pipecat";
+
+export type UsageStat = { label: string; value: string };
+
+export type Provider = {
+  id: ProviderId;
+  name: string;
+  vendor: string;
+  category: Category;
+  capability: string;
+  description: string;
+  docsUrl: string;
+  brandInitial: string;
+  brandColor: string; // tw class
+  capabilities: string[];
+  fields: ProviderField[];
+  perEnv: Record<Env, {
+    values: Record<string, string>;
+    region: string;
+    health: HealthStatus;
+    latencyMs: number;
+    enabled: boolean;
+    usageStats: UsageStat[];
+    costMonth: string;
+    unitLabel: string; // "tokens", "minutes", "chars", "messages"…
+  }>;
+};
+
+const seedUsage = (id: ProviderId, days = 14) => {
+  const pts: number[] = [];
+  let v = 40;
+  for (let i = 0; i < days; i++) {
+    const drift = Math.sin(i * 0.7 + id.length) * 12 + (Math.random() - 0.5) * 18;
+    v = Math.max(6, Math.min(120, v + drift));
+    pts.push(Math.round(v));
+  }
+  return pts;
+};
+
+export const PROVIDERS: Provider[] = [
+  {
+    id: "azure_openai",
+    name: "Azure OpenAI",
+    vendor: "Microsoft Azure",
+    category: "Voice AI",
+    capability: "LLM — reasoning core",
+    description: "GPT-4o Realtime deployment powering the collections bot's reasoning, RAG synthesis, and tool-calling loop through Pipecat.",
+    docsUrl: "https://learn.microsoft.com/azure/ai-services/openai/",
+    brandInitial: "Az",
+    brandColor: "bg-blue-100 text-blue-700",
+    capabilities: ["streaming", "tool-calling", "JSON mode", "PII masking"],
+    fields: [
+      { key: "endpoint", label: "Endpoint", placeholder: "https://hdfc-coll.openai.azure.com" },
+      { key: "apiKey", label: "API key", secret: true, placeholder: "sk-********" },
+      { key: "deployment", label: "Deployment name", placeholder: "gpt-4o-realtime" },
+      { key: "apiVersion", label: "API version", placeholder: "2024-10-01-preview" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { endpoint: "https://hdfc-coll-sbx.openai.azure.com", apiKey: "sk-sbx-9f21c3a8b74e2d1f7c6b4a2c", deployment: "gpt-4o-realtime", apiVersion: "2024-10-01-preview" },
+        region: "eastus", health: "healthy", latencyMs: 189, enabled: true,
+        usageStats: [{ label: "Prompt tokens", value: "1.42 M" }, { label: "Completion tokens", value: "612 K" }, { label: "Avg latency", value: "189 ms" }],
+        costMonth: "$243.10", unitLabel: "tokens",
+      },
+      production: {
+        values: { endpoint: "https://hdfc-coll.openai.azure.com", apiKey: "sk-prd-8b3e2a1c9f4d7e6b5a2c1d0e", deployment: "gpt-4o-realtime", apiVersion: "2024-10-01-preview" },
+        region: "centralindia", health: "healthy", latencyMs: 142, enabled: true,
+        usageStats: [{ label: "Prompt tokens", value: "38.9 M" }, { label: "Completion tokens", value: "14.2 M" }, { label: "Avg latency", value: "142 ms" }],
+        costMonth: "$6,412.55", unitLabel: "tokens",
+      },
+    },
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    vendor: "OpenAI",
+    category: "Voice AI",
+    capability: "LLM · fallback",
+    description: "Secondary GPT-4o endpoint used when the Azure deployment is throttled or fails a health check.",
+    docsUrl: "https://platform.openai.com/docs",
+    brandInitial: "Oa",
+    brandColor: "bg-emerald-100 text-emerald-700",
+    capabilities: ["streaming", "tool-calling", "fallback"],
+    fields: [
+      { key: "apiKey", label: "API key", secret: true, placeholder: "sk-********" },
+      { key: "org", label: "Organization ID", placeholder: "org_..." },
+      { key: "model", label: "Model", placeholder: "gpt-4o" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { apiKey: "sk-sbx-openai-2c9b6f4a1d8e5b7c3a2f9d0e", org: "org_hdfc_sbx", model: "gpt-4o-mini" },
+        region: "global", health: "healthy", latencyMs: 220, enabled: true,
+        usageStats: [{ label: "Requests", value: "8,412" }, { label: "Avg tokens/req", value: "1,240" }, { label: "Errors", value: "0.2%" }],
+        costMonth: "$88.30", unitLabel: "tokens",
+      },
+      production: {
+        values: { apiKey: "sk-prd-openai-4d7b3a1c9f2e6b5a2c1d0e8f", org: "org_hdfc_prd", model: "gpt-4o" },
+        region: "global", health: "degraded", latencyMs: 480, enabled: true,
+        usageStats: [{ label: "Requests", value: "42,120" }, { label: "Avg tokens/req", value: "2,190" }, { label: "Errors", value: "1.4%" }],
+        costMonth: "$1,204.00", unitLabel: "tokens",
+      },
+    },
+  },
+  {
+    id: "deepgram",
+    name: "Deepgram",
+    vendor: "Deepgram",
+    category: "Voice AI",
+    capability: "STT — streaming ASR",
+    description: "Nova-2 real-time transcription feeding audio frames from Pipecat's Twilio transport into the LLM.",
+    docsUrl: "https://developers.deepgram.com/",
+    brandInitial: "Dg",
+    brandColor: "bg-violet-100 text-violet-700",
+    capabilities: ["streaming", "diarization", "hi-IN + en-IN", "punctuation"],
+    fields: [
+      { key: "apiKey", label: "API key", secret: true, placeholder: "dg-********" },
+      { key: "model", label: "Model", placeholder: "nova-2" },
+      { key: "language", label: "Language", placeholder: "en-IN" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { apiKey: "dg-sbx-4a8c2b6d9f1e3a5c7b8d0e2f", model: "nova-2", language: "en-IN" },
+        region: "asia-south-1", health: "healthy", latencyMs: 82, enabled: true,
+        usageStats: [{ label: "Minutes streamed", value: "3,420" }, { label: "WER (est.)", value: "6.1%" }, { label: "Concurrent streams", value: "12" }],
+        costMonth: "$41.04", unitLabel: "minutes",
+      },
+      production: {
+        values: { apiKey: "dg-prd-9c1a4b7e2d8f6a3c5b9d0e2f", model: "nova-2", language: "en-IN" },
+        region: "asia-south-1", health: "healthy", latencyMs: 68, enabled: true,
+        usageStats: [{ label: "Minutes streamed", value: "72,180" }, { label: "WER (est.)", value: "5.4%" }, { label: "Concurrent streams", value: "184" }],
+        costMonth: "$866.16", unitLabel: "minutes",
+      },
+    },
+  },
+  {
+    id: "elevenlabs",
+    name: "ElevenLabs",
+    vendor: "ElevenLabs",
+    category: "Voice AI",
+    capability: "TTS — outbound voice",
+    description: "Multilingual v2 voices synthesizing bot responses with the persona-selected voice profile.",
+    docsUrl: "https://elevenlabs.io/docs",
+    brandInitial: "El",
+    brandColor: "bg-rose-100 text-rose-700",
+    capabilities: ["streaming", "20+ voices", "SSML", "voice-cloning"],
+    fields: [
+      { key: "apiKey", label: "API key", secret: true, placeholder: "xi-********" },
+      { key: "voiceId", label: "Default voice ID", placeholder: "21m00Tcm4TlvDq8ikWAM" },
+      { key: "model", label: "Model", placeholder: "eleven_multilingual_v2" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { apiKey: "xi-sbx-3f7a2b9c4d1e6f8a5b0c2d1e", voiceId: "21m00Tcm4TlvDq8ikWAM", model: "eleven_multilingual_v2" },
+        region: "global", health: "healthy", latencyMs: 310, enabled: true,
+        usageStats: [{ label: "Characters", value: "412 K" }, { label: "Voices used", value: "4" }, { label: "Avg latency", value: "310 ms" }],
+        costMonth: "$74.16", unitLabel: "chars",
+      },
+      production: {
+        values: { apiKey: "xi-prd-8b2c1a4e7d9f3a6c5b0d2e1f", voiceId: "21m00Tcm4TlvDq8ikWAM", model: "eleven_multilingual_v2" },
+        region: "global", health: "healthy", latencyMs: 264, enabled: true,
+        usageStats: [{ label: "Characters", value: "9.8 M" }, { label: "Voices used", value: "6" }, { label: "Avg latency", value: "264 ms" }],
+        costMonth: "$1,764.00", unitLabel: "chars",
+      },
+    },
+  },
+  {
+    id: "twilio",
+    name: "Twilio",
+    vendor: "Twilio",
+    category: "Telephony",
+    capability: "PSTN + SIP transport",
+    description: "Programmable Voice as the media transport for Pipecat — receives inbound PSTN calls and streams audio to the pipeline.",
+    docsUrl: "https://www.twilio.com/docs/voice",
+    brandInitial: "Tw",
+    brandColor: "bg-red-100 text-red-700",
+    capabilities: ["SIP", "Media Streams", "PSTN", "recording"],
+    fields: [
+      { key: "accountSid", label: "Account SID", placeholder: "AC********" },
+      { key: "authToken", label: "Auth token", secret: true, placeholder: "********" },
+      { key: "phoneNumber", label: "Phone number", placeholder: "+91 22 61 000 000" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { accountSid: "AC_sbx_1a2b3c4d5e6f7a8b9c0d1e2f", authToken: "sbx-auth-9c8b7a6d5e4f3a2b1c0d9e8f", phoneNumber: "+91 22 68 888 000" },
+        region: "in1", health: "healthy", latencyMs: 42, enabled: true,
+        usageStats: [{ label: "Inbound minutes", value: "2,110" }, { label: "Active numbers", value: "1" }, { label: "MOS score", value: "4.3" }],
+        costMonth: "$63.30", unitLabel: "minutes",
+      },
+      production: {
+        values: { accountSid: "AC_prd_9f8e7d6c5b4a3f2e1d0c9b8a", authToken: "prd-auth-2a3b4c5d6e7f8a9b0c1d2e3f", phoneNumber: "+91 22 61 999 111" },
+        region: "in1", health: "healthy", latencyMs: 38, enabled: true,
+        usageStats: [{ label: "Inbound minutes", value: "58,410" }, { label: "Active numbers", value: "4" }, { label: "MOS score", value: "4.4" }],
+        costMonth: "$1,752.30", unitLabel: "minutes",
+      },
+    },
+  },
+  {
+    id: "whatsapp",
+    name: "WhatsApp Business",
+    vendor: "Meta",
+    category: "Messaging",
+    capability: "Outbound + inbound chat",
+    description: "Secondary channel — template messages for callbacks/PTP reminders and inbound webhook into the same conversation store.",
+    docsUrl: "https://developers.facebook.com/docs/whatsapp",
+    brandInitial: "Wa",
+    brandColor: "bg-green-100 text-green-700",
+    capabilities: ["templates", "media", "webhooks", "opt-in"],
+    fields: [
+      { key: "phoneNumberId", label: "Phone number ID", placeholder: "1091234567890" },
+      { key: "wabaId", label: "WABA ID", placeholder: "1029384756" },
+      { key: "accessToken", label: "System-user token", secret: true, placeholder: "EAAG********" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { phoneNumberId: "1099887766554433", wabaId: "1029384756", accessToken: "EAAG-sbx-token-2a3b4c5d6e7f" },
+        region: "global", health: "unconfigured", latencyMs: 0, enabled: false,
+        usageStats: [{ label: "Templates sent", value: "0" }, { label: "Sessions", value: "0" }],
+        costMonth: "$0.00", unitLabel: "messages",
+      },
+      production: {
+        values: { phoneNumberId: "1088776655443322", wabaId: "9182736450", accessToken: "EAAG-prd-token-9f8e7d6c5b4a" },
+        region: "global", health: "healthy", latencyMs: 305, enabled: true,
+        usageStats: [{ label: "Templates sent", value: "12,410" }, { label: "Sessions", value: "3,890" }, { label: "Delivered", value: "97.2%" }],
+        costMonth: "$412.68", unitLabel: "messages",
+      },
+    },
+  },
+  {
+    id: "cbs",
+    name: "HDFC Core Banking",
+    vendor: "In-house (Finacle)",
+    category: "Core Banking",
+    capability: "Ledger + EMI lookup",
+    description: "Read-only mTLS bridge into the core banking system for balance, EMI schedule and payment history lookups requested by the bot.",
+    docsUrl: "https://internal.hdfc/api/cbs/v2",
+    brandInitial: "Cb",
+    brandColor: "bg-amber-100 text-amber-700",
+    capabilities: ["mTLS", "read-only", "sub-100 ms", "field-level PII redaction"],
+    fields: [
+      { key: "baseUrl", label: "Base URL", placeholder: "https://cbs-gw.hdfc.internal/v2" },
+      { key: "clientId", label: "Client ID", placeholder: "coll-ai-svc" },
+      { key: "clientSecret", label: "Client secret", secret: true, placeholder: "********" },
+      { key: "certRef", label: "mTLS cert ref", placeholder: "vault://cbs/client-cert" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { baseUrl: "https://cbs-uat.hdfc.internal/v2", clientId: "coll-ai-uat", clientSecret: "uat-secret-8f7e6d5c4b3a2f1e0d9c8b7a", certRef: "vault://cbs/uat-client-cert" },
+        region: "internal", health: "healthy", latencyMs: 58, enabled: true,
+        usageStats: [{ label: "Lookups", value: "18,240" }, { label: "Cache hit", value: "62%" }, { label: "5xx", value: "0.05%" }],
+        costMonth: "—", unitLabel: "calls",
+      },
+      production: {
+        values: { baseUrl: "https://cbs-gw.hdfc.internal/v2", clientId: "coll-ai-svc", clientSecret: "prd-secret-1a2b3c4d5e6f7a8b9c0d1e2f", certRef: "vault://cbs/prod-client-cert" },
+        region: "internal", health: "healthy", latencyMs: 47, enabled: true,
+        usageStats: [{ label: "Lookups", value: "412,180" }, { label: "Cache hit", value: "71%" }, { label: "5xx", value: "0.02%" }],
+        costMonth: "—", unitLabel: "calls",
+      },
+    },
+  },
+  {
+    id: "pipecat",
+    name: "Pipecat Orchestrator",
+    vendor: "Pipecat (self-hosted)",
+    category: "Orchestrator",
+    capability: "Voice AI pipeline runtime",
+    description: "The Pipecat worker glues Twilio ↔ Deepgram ↔ Azure OpenAI ↔ ElevenLabs together. This connector holds its base URL and the HMAC secret used to sign webhooks into this CRM.",
+    docsUrl: "https://docs.pipecat.ai/",
+    brandInitial: "Pc",
+    brandColor: "bg-brand-tint text-brand-primary-dark",
+    capabilities: ["FastAPI", "WebRTC/SIP", "HMAC webhooks", "auto-restart on key rotate"],
+    fields: [
+      { key: "baseUrl", label: "Base URL", placeholder: "https://pipecat.hdfc.internal" },
+      { key: "webhookSecret", label: "Webhook HMAC secret", secret: true, placeholder: "whsec_********" },
+      { key: "workerPool", label: "Worker pool", placeholder: "coll-ai-workers-01" },
+    ],
+    perEnv: {
+      sandbox: {
+        values: { baseUrl: "https://pipecat-sbx.hdfc.internal", webhookSecret: "whsec_sbx_4a2b1c9d7e6f8a3b5c2d1e0f", workerPool: "coll-ai-workers-sbx" },
+        region: "in-mum-1", health: "healthy", latencyMs: 12, enabled: true,
+        usageStats: [{ label: "Sessions today", value: "184" }, { label: "Active workers", value: "3" }, { label: "P95 turn latency", value: "1.42 s" }],
+        costMonth: "—", unitLabel: "sessions",
+      },
+      production: {
+        values: { baseUrl: "https://pipecat.hdfc.internal", webhookSecret: "whsec_prd_9c8b7a6d5e4f3a2b1c0d9e8f", workerPool: "coll-ai-workers-01" },
+        region: "in-mum-1", health: "healthy", latencyMs: 9, enabled: true,
+        usageStats: [{ label: "Sessions today", value: "4,120" }, { label: "Active workers", value: "24" }, { label: "P95 turn latency", value: "1.28 s" }],
+        costMonth: "—", unitLabel: "sessions",
+      },
+    },
+  },
+];
+
+// Pre-generated usage series per (id, env), stable within a session.
+const USAGE_CACHE: Record<string, number[]> = {};
+export function usageSeries(id: ProviderId, env: Env) {
+  const k = `${id}:${env}`;
+  if (!USAGE_CACHE[k]) USAGE_CACHE[k] = seedUsage(id).map(v => Math.round(v * (env === "production" ? 3.2 : 1)));
+  return USAGE_CACHE[k];
+}
+
+export type TestLogEntry = {
+  id: string;
+  at: string;
+  providerId: ProviderId;
+  env: Env;
+  ok: boolean;
+  latencyMs: number;
+  message: string;
+  payload?: string;
+};
+
+const rid = () => Math.random().toString(36).slice(2, 9);
+
+export function runMockHealthCheck(provider: Provider, env: Env): Promise<TestLogEntry> {
+  return new Promise(resolve => {
+    const cfg = provider.perEnv[env];
+    const delay = 400 + Math.random() * 700;
+    setTimeout(() => {
+      const ok = cfg.health !== "down" && cfg.health !== "unconfigured" && Math.random() > 0.05;
+      const latency = Math.round((cfg.latencyMs || 200) * (0.85 + Math.random() * 0.3));
+      const fixture = TEST_FIXTURES[provider.id];
+      resolve({
+        id: rid(),
+        at: new Date().toISOString(),
+        providerId: provider.id,
+        env,
+        ok,
+        latencyMs: latency,
+        message: ok ? fixture.okMessage : fixture.failMessage,
+        payload: ok ? fixture.okPayload : fixture.failPayload,
+      });
+    }, delay);
+  });
+}
+
+const TEST_FIXTURES: Record<ProviderId, { okMessage: string; failMessage: string; okPayload: string; failPayload: string }> = {
+  azure_openai: {
+    okMessage: "Chat completion returned in 189 ms",
+    failMessage: "Deployment throttled (429)",
+    okPayload: '{"choices":[{"message":{"role":"assistant","content":"pong"}}],"usage":{"total_tokens":8}}',
+    failPayload: '{"error":{"code":"429","message":"Requests to the ChatCompletions_Create Operation have exceeded rate limit"}}',
+  },
+  openai: {
+    okMessage: "Fallback GPT-4o responded",
+    failMessage: "Organization key invalid",
+    okPayload: '{"model":"gpt-4o","choices":[{"message":{"content":"pong"}}]}',
+    failPayload: '{"error":{"type":"invalid_request_error","message":"Incorrect API key"}}',
+  },
+  deepgram: {
+    okMessage: "Sample audio transcribed (nova-2)",
+    failMessage: "Websocket handshake refused",
+    okPayload: '{"channel":{"alternatives":[{"transcript":"hello I need help with my loan","confidence":0.97}]}}',
+    failPayload: '{"err_code":"REMOTE_DISCONNECT"}',
+  },
+  elevenlabs: {
+    okMessage: "TTS synthesized 42-char sample in 310 ms",
+    failMessage: "Quota exceeded",
+    okPayload: '{"audio":"<base64 · 32 kB>","voice":"Rachel","chars":42}',
+    failPayload: '{"detail":{"status":"quota_exceeded"}}',
+  },
+  twilio: {
+    okMessage: "Lookup on +91 98 100 12345 succeeded",
+    failMessage: "Auth failed",
+    okPayload: '{"phone_number":"+919810012345","carrier":{"name":"Airtel","type":"mobile"}}',
+    failPayload: '{"code":20003,"message":"Authenticate"}',
+  },
+  whatsapp: {
+    okMessage: "Template ptp_reminder_v3 delivered to test number",
+    failMessage: "Access token expired",
+    okPayload: '{"messages":[{"id":"wamid.HBgLMTEy..","status":"accepted"}]}',
+    failPayload: '{"error":{"code":190,"message":"Access token has expired"}}',
+  },
+  cbs: {
+    okMessage: "GET /accounts/••••4823 returned in 58 ms",
+    failMessage: "mTLS handshake failed",
+    okPayload: '{"account":"XXXX4823","balance":42350.00,"emi_due":8500,"next_due":"2026-08-05"}',
+    failPayload: '{"error":"tls: bad certificate"}',
+  },
+  pipecat: {
+    okMessage: "Pipeline echo round-trip in 12 ms",
+    failMessage: "Worker pool unreachable",
+    okPayload: '{"worker":"coll-ai-workers-01","state":"idle","turn_latency_p95_ms":1280}',
+    failPayload: '{"error":"connection refused","host":"pipecat.hdfc.internal:8443"}',
+  },
+};
+
+export function pipecatSnippet(p: Provider, env: Env): string {
+  const v = p.perEnv[env].values;
+  const secret = (k: string) => `os.environ["${p.id.toUpperCase()}_${k.toUpperCase()}"]  # ${v[k]?.slice(0, 8)}…`;
+  switch (p.id) {
+    case "deepgram":
+      return `from pipecat.services.deepgram import DeepgramSTTService
+
+stt = DeepgramSTTService(
+    api_key=${secret("apiKey")},
+    model="${v.model}",
+    language="${v.language}",
+    interim_results=True,
+)`;
+    case "azure_openai":
+      return `from pipecat.services.azure import AzureLLMService
+
+llm = AzureLLMService(
+    api_key=${secret("apiKey")},
+    endpoint="${v.endpoint}",
+    api_version="${v.apiVersion}",
+    model="${v.deployment}",
+)`;
+    case "openai":
+      return `from pipecat.services.openai import OpenAILLMService
+
+fallback_llm = OpenAILLMService(
+    api_key=${secret("apiKey")},
+    model="${v.model}",
+    organization="${v.org}",
+)`;
+    case "elevenlabs":
+      return `from pipecat.services.elevenlabs import ElevenLabsTTSService
+
+tts = ElevenLabsTTSService(
+    api_key=${secret("apiKey")},
+    voice_id="${v.voiceId}",
+    model="${v.model}",
+)`;
+    case "twilio":
+      return `from pipecat.transports.services.daily import TwilioFrameSerializer
+from pipecat.transports.network.fastapi_websocket import FastAPIWebsocketTransport
+
+# Twilio Media Streams webhook mounts this transport
+transport = FastAPIWebsocketTransport(
+    serializer=TwilioFrameSerializer(
+        account_sid="${v.accountSid}",
+        auth_token=${secret("authToken")},
+        stream_sid=stream_sid,
+    ),
+)`;
+    case "whatsapp":
+      return `# Secondary channel — WhatsApp events fan into the same conversation store
+WHATSAPP = dict(
+    phone_number_id="${v.phoneNumberId}",
+    waba_id="${v.wabaId}",
+    access_token=${secret("accessToken")},
+)`;
+    case "cbs":
+      return `# Read-only mTLS bridge to HDFC Finacle core
+import httpx
+
+cbs = httpx.AsyncClient(
+    base_url="${v.baseUrl}",
+    cert=("${v.certRef}/cert.pem", "${v.certRef}/key.pem"),
+    headers={"x-client-id": "${v.clientId}"},
+    timeout=2.0,
+)`;
+    case "pipecat":
+      return `# This CRM's inbound webhook receiver, called by Pipecat after each turn
+POST ${v.baseUrl}/webhooks/turn
+x-signature: hmac-sha256(${secret("webhookSecret")}, body)
+
+Pipeline([
+    transport.input(),   # Twilio
+    stt,                 # Deepgram
+    llm,                 # Azure OpenAI (fallback → OpenAI)
+    tts,                 # ElevenLabs
+    transport.output(),
+]).run(worker_pool="${v.workerPool}")`;
+  }
+}
+
+export const CATEGORY_LIST: (Category | "All")[] = ["All", "Voice AI", "Messaging", "Telephony", "Core Banking", "Orchestrator"];
+
+export function healthTone(h: HealthStatus) {
+  switch (h) {
+    case "healthy": return { dot: "bg-emerald-500", text: "text-emerald-700", label: "Healthy" };
+    case "degraded": return { dot: "bg-amber-500", text: "text-amber-700", label: "Degraded" };
+    case "down": return { dot: "bg-red-500", text: "text-red-700", label: "Down" };
+    case "unconfigured": return { dot: "bg-slate-400", text: "text-text-muted", label: "Not configured" };
+  }
+}
