@@ -130,7 +130,9 @@ function DocumentsPage() {
     try {
       await markGenerating(d);
       invalidate();
-      const shouldFail = d.id.endsWith("7") && d.status !== "failed" && Math.random() < 0.15;
+      // Simulated failure is demo theater — only in mock mode. In live mode this
+      // would persist a real "failed" status to the DB via markFailed, so gate it off.
+      const shouldFail = USE_MOCK && d.id.endsWith("7") && d.status !== "failed" && Math.random() < 0.15;
       await new Promise((r) => setTimeout(r, 1600));
       if (shouldFail) {
         await markFailed(d, "Delivery gateway rejected · retrying available");
