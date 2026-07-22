@@ -96,6 +96,12 @@ def upgrade() -> None:
     )
     op.execute("UPDATE violations SET at_sec = 0 WHERE at_sec IS NULL")
 
+    # Match the canonical schema (sql/07_compliance_qa.sql): NOT NULL DEFAULT 0,
+    # so migrated databases don't diverge from fresh installs.
+    op.alter_column(
+        "violations", "at_sec", nullable=False, server_default="0"
+    )
+
     op.execute(
         """
         ALTER TABLE violations

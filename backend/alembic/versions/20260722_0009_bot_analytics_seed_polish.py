@@ -20,6 +20,7 @@ Create Date: 2026-07-22
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 
 revision: str = "20260722_0009"
@@ -27,61 +28,86 @@ down_revision: Union[str, Sequence[str], None] = "20260722_0008"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+# Scope every data UPDATE to the demo tenant so this migration can never
+# overwrite another tenant's genuine reason / primary_intent values.
+# interaction_handoffs has no tenant_id, so it's scoped via its interactions join.
+TENANT_ID = "hdfc.retail"
+
 
 def upgrade() -> None:
     # 1. Diversify escalation (handoff) reasons across the real taxonomy.
     #    Signal-driven where possible, else spread deterministically by hash.
     op.execute(
-        """
-        UPDATE interaction_handoffs h
-        SET reason = sub.new_reason
-        FROM (
-          SELECT h2.id,
-            CASE
-              WHEN i.avg_sentiment IS NOT NULL AND i.avg_sentiment < -0.30
-                THEN 'sentiment_drop'
-              WHEN lower(coalesce(i.disposition, '')) ~ 'dispute|legal'
-                THEN 'dispute'
-              ELSE (ARRAY[
-                'customer_requested','compliance','hardship',
-                'high_value','verification_failed','routing_rule'
-              ])[(abs(hashtext(h2.id)) % 6) + 1]
-            END AS new_reason
-          FROM interaction_handoffs h2
-          JOIN interactions i ON i.id = h2.interaction_id
-        ) sub
-        WHERE h.id = sub.id
-        """
+        sa.text(
+            """
+            UPDATE interaction_handoffs h
+            SET reason = sub.new_reason
+            FROM (
+              SELECT h2.id,
+                CASE
+                  WHEN i.avg_sentiment IS NOT NULL AND i.avg_sentiment < -0.30
+                    THEN 'sentiment_drop'
+                  WHEN lower(coalesce(i.disposition, '')) ~ 'dispute|legal'
+                    THEN 'dispute'
+                  ELSE (ARRAY[
+                    'customer_requested','compliance','hardship',
+                    'high_value','verification_failed','routing_rule'
+                  ])[(abs(hashtext(h2.id)) % 6) + 1]
+                END AS new_reason
+              FROM interaction_handoffs h2
+              JOIN interactions i ON i.id = h2.interaction_id
+              WHERE i.tenant_id = :tenant
+            ) sub
+            WHERE h.id = sub.id
+            """
+        ).bindparams(tenant=TENANT_ID)
     )
 
     # 2a. Non-customer intents (QA-review / empathy-coach) → always a real
     #     customer intent (these leaked in from interaction tags).
     op.execute(
-        """
-        UPDATE interactions i
-        SET primary_intent = (ARRAY[
-          'balance','emi','payment-confirm','statement','late-fee',
-          'callback','topup','dnd','upi','dispute'
-        ])[(abs(hashtext(i.id)) % 10) + 1]
-        WHERE i.primary_intent IN ('QA-review', 'empathy-coach')
-        """
+        sa.text(
+            """
+            UPDATE interactions i
+            SET primary_intent = (ARRAY[
+              'balance','emi','payment-confirm','statement','late-fee',
+              'callback','topup','dnd','upi','dispute'
+            ])[(abs(hashtext(i.id)) % 10) + 1]
+            WHERE i.tenant_id = :tenant
+              AND i.primary_intent IN ('QA-review', 'empathy-coach')
+            """
+        ).bindparams(tenant=TENANT_ID)
     )
 
     # 2b. Null / empty intents → backfill ~85%, leave ~15% uncaptured so the
     #     funnel's "intent captured" stage keeps a real drop.
     op.execute(
-        """
-        UPDATE interactions i
-        SET primary_intent = (ARRAY[
-          'balance','emi','payment-confirm','statement','late-fee',
-          'callback','topup','dnd','upi','dispute'
-        ])[(abs(hashtext(i.id)) % 10) + 1]
-        WHERE (i.primary_intent IS NULL OR trim(i.primary_intent) = '')
-          AND (abs(hashtext(i.id)) % 20) >= 3
-        """
+        sa.text(
+            """
+            UPDATE interactions i
+            SET primary_intent = (ARRAY[
+              'balance','emi','payment-confirm','statement','late-fee',
+              'callback','topup','dnd','upi','dispute'
+            ])[(abs(hashtext(i.id)) % 10) + 1]
+            WHERE i.tenant_id = :tenant
+              AND (i.primary_intent IS NULL OR trim(i.primary_intent) = '')
+              AND (abs(hashtext(i.id)) % 20) >= 3
+            """
+        ).bindparams(tenant=TENANT_ID)
     )
 
 
 def downgrade() -> None:
-    # Restore the original uniform handoff reason. Intent backfill is one-way.
-    op.execute("UPDATE interaction_handoffs SET reason = 'routing_rule'")
+    # Restore the original uniform handoff reason (demo tenant only). Intent
+    # backfill is one-way.
+    op.execute(
+        sa.text(
+            """
+            UPDATE interaction_handoffs h
+            SET reason = 'routing_rule'
+            FROM interactions i
+            WHERE i.id = h.interaction_id
+              AND i.tenant_id = :tenant
+            """
+        ).bindparams(tenant=TENANT_ID)
+    )
