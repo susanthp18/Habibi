@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS qa_rubric_criteria (
   id TEXT PRIMARY KEY,
   section_id TEXT NOT NULL REFERENCES qa_rubric_sections(id) ON DELETE CASCADE,
   label TEXT NOT NULL,
+  description TEXT,
   weight numeric(7,4) NOT NULL,
   critical_fail boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -68,9 +69,10 @@ CREATE TABLE IF NOT EXISTS qa_scorecards (
   subject_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   subject_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
   reviewer_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  status TEXT NOT NULL DEFAULT 'draft',
+  status TEXT NOT NULL DEFAULT 'unscored',
   total_score numeric(6,2),
   band TEXT,
+  scored_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -83,6 +85,7 @@ CREATE TABLE IF NOT EXISTS qa_scorecard_entries (
   ai_suggested_score numeric(6,2),
   final_score numeric(6,2),
   note TEXT,
+  accepted boolean,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

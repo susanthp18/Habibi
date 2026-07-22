@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Search, Bot, User, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { computeTotal, defaultRubric, type Scorecard } from "@/data/qa-seed";
+import { computeTotal, type Rubric, type Scorecard } from "@/data/qa-seed";
 import { ScoreBand } from "./ScoreBand";
 
 type Status = "all" | "unscored" | "ai_draft" | "final";
@@ -10,10 +10,12 @@ export function ScoringQueue({
   scorecards,
   activeId,
   onSelect,
+  rubric,
 }: {
   scorecards: Scorecard[];
   activeId: string | null;
   onSelect: (id: string) => void;
+  rubric: Rubric;
 }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<Status>("all");
@@ -75,7 +77,7 @@ export function ScoringQueue({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {filtered.map((s) => {
-          const total = computeTotal(s, defaultRubric);
+          const total = computeTotal(s, rubric);
           const HandlerIcon = s.handledBy.kind === "bot" ? Bot : s.handledBy.kind === "handoff" ? Users2 : User;
           return (
             <button

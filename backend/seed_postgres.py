@@ -671,15 +671,107 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         upsert(conn, "identity_verifications", {"id": f"verify-{call_id}", "interaction_id": call_id, "customer_id": customer_id, "method": "phone_match", "status": "verified", "attempt_count": 1, "verified_at": call.get("startedAt"), "failure_reason": None})
         if channel(call.get("channel")) in {"whatsapp", "sms", "email", "chat"}:
             conversation_id = f"CV-{call_id}"
-            upsert(conn, "conversations", {"id": conversation_id, "interaction_id": call_id, "customer_id": customer_id, "assigned_user_id": handler_user_id, "status": "mine" if handler_kind == "human" else "bot", "channel": channel(call.get("channel"))})
+            # Stored statuses are viewer-neutral. "Mine" is derived in the API as
+            # assigned_user_id === current actor (GET /me) — never stored as 'mine'.
+            if handler_kind == "human":
+                conv_status = "assigned"
+                conv_assignee = handler_user_id
+            elif avg_sentiment is not None and float(avg_sentiment) < -0.25:
+                conv_status = "escalated"
+                conv_assignee = None
+            elif call.get("flags") or (call.get("disposition") or "").lower() in {
+                "dispute",
+                "callback",
+                "escalate",
+                "needs_human",
+            }:
+                conv_status = "needs_human"
+                conv_assignee = None
+            else:
+                conv_status = "bot"
+                conv_assignee = None
+            upsert(
+                conn,
+                "conversations",
+                {
+                    "id": conversation_id,
+                    "interaction_id": call_id,
+                    "customer_id": customer_id,
+                    "assigned_user_id": conv_assignee,
+                    "status": conv_status,
+                    "channel": channel(call.get("channel")),
+                },
+            )
             for idx, turn in enumerate(call.get("transcript", [])):
-                upsert(conn, "messages", {"id": f"MSG-{call_id}-{idx}", "conversation_id": conversation_id, "sender": turn.get("speaker") if turn.get("speaker") in {"customer", "human", "bot", "system"} else "bot", "body": turn.get("text") or "", "delivery_status": "delivered", "provider_ref": None, "sent_at": call.get("startedAt")})
+                raw_speaker = turn.get("speaker") or "bot"
+                # Legacy transcript seeds used "human"; Inbox vocabulary is "agent".
+                if raw_speaker == "human":
+                    sender = "agent"
+                elif raw_speaker in {"customer", "bot", "agent", "system"}:
+                    sender = raw_speaker
+                else:
+                    sender = "bot"
+                upsert(
+                    conn,
+                    "messages",
+                    {
+                        "id": f"MSG-{call_id}-{idx}",
+                        "conversation_id": conversation_id,
+                        "sender": sender,
+                        "body": turn.get("text") or "",
+                        "delivery_status": "delivered",
+                        "provider_ref": None,
+                        "sent_at": call.get("startedAt"),
+                    },
+                )
         if avg_sentiment is not None and float(avg_sentiment) < -0.25:
             upsert(conn, "live_alerts", {"id": f"alert-{call_id}", "interaction_id": call_id, "kind": "sentiment_drop", "severity": "high", "reason": "Negative sentiment detected", "acknowledged_by_user_id": "priya-nair", "acknowledged_at": call.get("startedAt")})
         upsert(conn, "retrieval_logs", {"id": f"retrieval-{call_id}", "interaction_id": call_id, "sandbox_run_id": None, "query": call.get("summary") or call_id, "top_chunks": [{"id": "chunk-rbi-disclosures-1", "score": 0.82}], "latency_ms": call.get("latencyMs"), "selected_answer_source": "kb-rbi-disclosures"})
         upsert(conn, "routing_rule_executions", {"id": f"routing-{call_id}", "rule_id": "route-sentiment-drop", "interaction_id": call_id, "sandbox_run_id": None, "context": {"avgSentiment": avg_sentiment}, "result": "matched" if avg_sentiment is not None and float(avg_sentiment) < -0.25 else "skipped", "action_taken": "handoff" if handler_kind == "human" else None, "evaluated_at": call.get("startedAt")})
 
-    upsert(conn, "canned_responses", {"id": "canned-payment-link", "tenant_id": TENANT_ID, "team_id": "card-collections", "label": "Payment link", "body": "I can send a secure payment link to your registered mobile number.", "channel": "whatsapp", "enabled": True, "created_by_user_id": "priya-nair"})
+    for canned in (
+        {
+            "id": "canned-greeting",
+            "label": "Greeting",
+            "body": "Hi, this is Priya from HDFC Collections. How can I help you today?",
+            "channel": "whatsapp",
+        },
+        {
+            "id": "canned-verify",
+            "label": "Verify identity",
+            "body": "For your security, can you confirm your registered date of birth and the last 4 digits of your account?",
+            "channel": "whatsapp",
+        },
+        {
+            "id": "canned-payment-link",
+            "label": "Payment link",
+            "body": "I'm sending you a secure payment link now. It's valid for the next 30 minutes.",
+            "channel": "whatsapp",
+        },
+        {
+            "id": "canned-late-fee",
+            "label": "Late-fee waiver policy",
+            "body": "As a first-time waiver, we can apply a one-time reversal of ₹500 on the late fee. Would you like me to raise the request?",
+            "channel": "whatsapp",
+        },
+        {
+            "id": "canned-escalation",
+            "label": "Escalation notice",
+            "body": "I understand your concern. I'm escalating this to my supervisor and someone will reach out within 24 hours.",
+            "channel": "whatsapp",
+        },
+    ):
+        upsert(
+            conn,
+            "canned_responses",
+            {
+                **canned,
+                "tenant_id": TENANT_ID,
+                "team_id": "card-collections",
+                "enabled": True,
+                "created_by_user_id": "priya-nair",
+            },
+        )
     first_call = ctx["calls"][0]["id"]
     upsert(conn, "ai_response_suggestions", {"id": "suggestion-payment-link", "conversation_id": None, "interaction_id": first_call, "transcript_turn_id": None, "suggestion_text": "Offer a partial payment and schedule a reminder.", "source": "kb", "accepted": False, "accepted_by_user_id": None, "accepted_at": None})
     upsert(conn, "supervisor_actions", {"id": "sup-action-1", "interaction_id": first_call, "supervisor_user_id": "priya-nair", "action": "listen_in", "target_user_id": None, "target_bot_id": "kaia-v2-4", "note": "Sample supervision event"})
@@ -757,17 +849,99 @@ def seed_collections_and_sales(conn: psycopg.Connection, ctx: dict[str, Any]) ->
 
 
 def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
-    upsert(conn, "qa_rubrics", {"id": "qa-rubric-v1", "name": "Collections QA", "version": "1.0", "enabled": True})
-    upsert(conn, "qa_rubric_sections", {"id": "qa-sec-compliance", "rubric_id": "qa-rubric-v1", "name": "Compliance", "weight": 0.5})
-    upsert(conn, "qa_rubric_sections", {"id": "qa-sec-resolution", "rubric_id": "qa-rubric-v1", "name": "Resolution", "weight": 0.5})
-    upsert(conn, "qa_rubric_criteria", {"id": "qa-crit-disclosure", "section_id": "qa-sec-compliance", "label": "Required disclosure read", "weight": 0.6, "critical_fail": True})
-    upsert(conn, "qa_rubric_criteria", {"id": "qa-crit-empathy", "section_id": "qa-sec-resolution", "label": "Empathy and resolution", "weight": 0.4, "critical_fail": False})
+    # Full screen rubric — IDs must match Habibi/src/data/qa-seed.ts defaultRubric.
+    upsert(conn, "qa_rubrics", {"id": "rubric-v1", "name": "Collections Interaction Rubric", "version": "v1.0", "enabled": True})
+    rubric_sections = [
+        ("empathy", "Empathy & Tone", 20, [
+            ("emp-acknowledge", "Acknowledged customer situation", "Reflected feeling before pushing agenda.", 50, False),
+            ("emp-tone", "Calm, respectful tone maintained", "No sarcasm, no raised voice, no interruption.", 50, False),
+        ]),
+        ("resolution", "Resolution & Accuracy", 30, [
+            ("res-identify", "Correctly identified customer need", "Root need captured within 2 turns.", 30, False),
+            ("res-answer", "Accurate answer / next-step", "Dues, EMI, dispute path stated correctly.", 40, False),
+            ("res-close", "Confirmed resolution before closing", "Summarised action + expectation.", 30, False),
+        ]),
+        ("compliance", "Compliance", 25, [
+            ("cmp-recording", "Recording notice given", "Within first 20 seconds.", 25, True),
+            ("cmp-miranda", "Mini-Miranda debt disclosure", "Read verbatim before dues discussion.", 30, True),
+            ("cmp-dnd", "DND / opt-out honoured", "No contact outside allowed window; opt-out respected.", 25, True),
+            ("cmp-language", "No prohibited language", "No threats, no third-party disclosure.", 20, True),
+        ]),
+        ("script", "Script Adherence", 15, [
+            ("scr-verify", "Identity verification followed", "DOB / OTP as per SOP.", 50, False),
+            ("scr-closing", "Approved closing script used", "Includes ticket ID + next step.", 50, False),
+        ]),
+        ("upsell", "Upsell & Value", 10, [
+            ("ups-eligibility", "Checked eligibility before pitch", "Only pitched if flags green.", 50, False),
+            ("ups-pitch", "Contextual, non-pushy pitch", "Tied to customer's stated need.", 50, False),
+        ]),
+    ]
+    all_criteria: list[str] = []
+    for section_id, label, weight, criteria in rubric_sections:
+        upsert(conn, "qa_rubric_sections", {"id": section_id, "rubric_id": "rubric-v1", "name": label, "weight": weight})
+        for cid, clabel, desc, cweight, critical in criteria:
+            upsert(
+                conn,
+                "qa_rubric_criteria",
+                {
+                    "id": cid,
+                    "section_id": section_id,
+                    "label": clabel,
+                    "description": desc,
+                    "weight": cweight,
+                    "critical_fail": critical,
+                },
+            )
+            all_criteria.append(cid)
 
-    for idx, call in enumerate(ctx["calls"][:8], start=1):
-        bot_id = slug((call.get("handledBy") or {}).get("bot") or "Kaia v2.4")
-        upsert(conn, "qa_scorecards", {"id": f"qa-{call['id']}", "interaction_id": call["id"], "rubric_id": "qa-rubric-v1", "subject_user_id": None, "subject_bot_id": bot_id if bot_id in ctx["bots"] else "kaia-v2-4", "reviewer_user_id": "priya-nair", "status": "completed", "total_score": 86 - idx, "band": "pass"})
-        upsert(conn, "qa_scorecard_entries", {"id": f"qa-{call['id']}-disclosure", "scorecard_id": f"qa-{call['id']}", "criterion_id": "qa-crit-disclosure", "ai_suggested_score": 90, "final_score": 88, "note": "Disclosure checked"})
-        upsert(conn, "qa_scorecard_entries", {"id": f"qa-{call['id']}-empathy", "scorecard_id": f"qa-{call['id']}", "criterion_id": "qa-crit-empathy", "ai_suggested_score": 84, "final_score": 82, "note": "Handled professionally"})
+    for idx, call in enumerate(ctx["calls"][:24], start=1):
+        status = "unscored" if idx <= 6 else "ai_draft" if idx <= 16 else "final"
+        handler = call.get("handledBy") or {}
+        bot_name = handler.get("bot") or "Kaia v2.4"
+        agent_name = handler.get("agent")
+        bot_id = slug(bot_name)
+        subject_bot = bot_id if handler.get("kind") == "bot" and bot_id in ctx["bots"] else (None if handler.get("kind") == "human" else "kaia-v2-4")
+        subject_user = None
+        if handler.get("kind") == "human":
+            # Prefer a real roster user; fall back to priya-nair.
+            subject_user = "priya-nair"
+            for uid, uname in [("priya-nair", "Priya Nair"), ("sara-khan", "Sara Khan"), ("arjun-mehta", "Arjun Mehta")]:
+                if agent_name and uname.lower() in str(agent_name).lower():
+                    subject_user = uid
+                    break
+        scorecard_id = f"qa-{call['id']}"
+        upsert(
+            conn,
+            "qa_scorecards",
+            {
+                "id": scorecard_id,
+                "interaction_id": call["id"],
+                "rubric_id": "rubric-v1",
+                "subject_user_id": subject_user,
+                "subject_bot_id": subject_bot if subject_user is None else None,
+                "reviewer_user_id": "priya-nair" if status != "unscored" else None,
+                "status": status,
+                "total_score": None,
+                "band": None,
+                "scored_at": "2026-07-21T12:00:00Z" if status == "final" else None,
+            },
+        )
+        for crit in all_criteria:
+            ai = 3 + (abs(hash(f"{scorecard_id}-{crit}-ai")) % 3)
+            final = 0 if status == "unscored" else (ai if status == "ai_draft" else max(0, min(5, ai + (abs(hash(f"{scorecard_id}-{crit}-f")) % 3) - 1)))
+            upsert(
+                conn,
+                "qa_scorecard_entries",
+                {
+                    "id": f"{scorecard_id}-{crit}",
+                    "scorecard_id": scorecard_id,
+                    "criterion_id": crit,
+                    "ai_suggested_score": ai,
+                    "final_score": final,
+                    "note": "Coach reviewed — see comments." if status == "final" and abs(hash(f"{scorecard_id}-{crit}-n")) % 4 == 0 else None,
+                    "accepted": (final == ai) if status == "final" else None,
+                },
+            )
         if idx <= 3:
             upsert(
                 conn,
@@ -788,8 +962,8 @@ def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) 
             )
     first_call = ctx["calls"][0]
     upsert(conn, "coaching_actions", {"id": "coach-1", "subject_user_id": None, "subject_bot_id": "kaia-v2-4", "scorecard_id": f"qa-{first_call['id']}", "interaction_id": first_call["id"], "action": "Review disclosure phrasing", "status": "open", "due_at": "2026-07-25T10:00:00Z"})
-    upsert(conn, "calibration_sessions", {"id": "calibration-1", "interaction_id": first_call["id"], "rubric_id": "qa-rubric-v1", "status": "open"})
-    upsert(conn, "calibration_reviewer_scores", {"id": "calibration-1-priya", "session_id": "calibration-1", "reviewer_user_id": "priya-nair", "scores": {"qa-crit-disclosure": 88}, "notes": "Aligned", "variance_from_target": 2.0})
+    upsert(conn, "calibration_sessions", {"id": "calibration-1", "interaction_id": first_call["id"], "rubric_id": "rubric-v1", "status": "open"})
+    upsert(conn, "calibration_reviewer_scores", {"id": "calibration-1-priya", "session_id": "calibration-1", "reviewer_user_id": "priya-nair", "scores": {"cmp-recording": 4}, "notes": "Aligned", "variance_from_target": 2.0})
 
     for pii_type in ["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom"]:
         upsert(conn, "redaction_rule_configs", {"id": f"redact-{pii_type}", "tenant_id": TENANT_ID, "pii_type": pii_type, "replacement": f"[{pii_type.upper()}]", "enabled": True})

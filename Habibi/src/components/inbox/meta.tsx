@@ -36,7 +36,7 @@ export const sentimentColor: Record<Sentiment, string> = {
 };
 
 export const statusMeta: Record<
-  ThreadStatus,
+  ThreadStatus | "mine",
   { label: string; className: string }
 > = {
   bot: { label: "Bot", className: "bg-brand-tint text-brand-primary-dark" },
@@ -45,8 +45,17 @@ export const statusMeta: Record<
     className: "bg-warning-bg text-warning",
   },
   escalated: { label: "Escalated", className: "bg-danger-bg text-danger" },
+  assigned: {
+    label: "Assigned",
+    className: "bg-surface-sunken text-text-secondary",
+  },
   mine: { label: "Mine", className: "bg-success-bg text-success" },
 };
+
+/** Chip key for a row — Mine is derived, never stored. */
+export function chipStatus(thread: { status: ThreadStatus; isMine: boolean }): ThreadStatus | "mine" {
+  return thread.isMine ? "mine" : thread.status;
+}
 
 export function initials(name: string) {
   return name

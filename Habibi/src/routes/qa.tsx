@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ClipboardCheck, Scale, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,12 @@ import { CoachingBoard } from "@/components/qa/CoachingBoard";
 import { NewCoachingSheet } from "@/components/qa/NewCoachingSheet";
 import { RubricBuilderSheet } from "@/components/qa/RubricBuilderSheet";
 import {
-  scorecards as seedScorecards,
+  finalizeScorecard,
+  saveScorecard,
+  useRubric,
+  useScorecards,
+} from "@/api/qa";
+import {
   initialCoaching,
   initialCalibrations,
   defaultRubric,
@@ -42,31 +48,95 @@ export const Route = createFileRoute("/qa")({
 });
 
 function QaPage() {
-  const [rubric, setRubric] = useState<Rubric>(defaultRubric);
-  const [scorecards, setScorecards] = useState<Scorecard[]>(seedScorecards);
+  const queryClient = useQueryClient();
+  const { data: remoteRubric } = useRubric();
+  const { data: remoteScorecards } = useScorecards();
+
+  // Local rubric edits (builder sheet) — live GET /rubric is the base.
+  const [rubricOverride, setRubricOverride] = useState<Rubric | null>(null);
+  const rubric = rubricOverride ?? remoteRubric ?? defaultRubric;
+
+  // In-progress criterion edits until Save draft / Publish.
+  const [draftEntries, setDraftEntries] = useState<Record<string, ScorecardEntry[]>>({});
+
+  // Fast-follow tabs — still seed-backed until coaching/calibration endpoints land.
   const [coaching, setCoaching] = useState<CoachingAction[]>(initialCoaching);
   const [calibrations, setCalibrations] = useState<CalibrationSession[]>(initialCalibrations);
 
+  const scorecards = useMemo(() => {
+    const base = remoteScorecards ?? [];
+    return base.map((s) => (draftEntries[s.id] ? { ...s, entries: draftEntries[s.id]! } : s));
+  }, [remoteScorecards, draftEntries]);
+
   const [tab, setTab] = useState<Tab>("queue");
-  const [activeScoreId, setActiveScoreId] = useState<string | null>(scorecards.find((s) => s.status !== "final")?.id ?? scorecards[0]?.id ?? null);
+  const [activeScoreId, setActiveScoreId] = useState<string | null>(null);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [rubricOpen, setRubricOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   const [coachPreset, setCoachPreset] = useState<{ agent?: string; scorecardId?: string; callId?: string }>({});
 
-  const activeScore = useMemo(() => scorecards.find((s) => s.id === activeScoreId) ?? null, [scorecards, activeScoreId]);
+  useEffect(() => {
+    if (activeScoreId) return;
+    const first = scorecards.find((s) => s.status !== "final") ?? scorecards[0];
+    if (first) setActiveScoreId(first.id);
+  }, [scorecards, activeScoreId]);
+
+  const activeScore = useMemo(
+    () => scorecards.find((s) => s.id === activeScoreId) ?? null,
+    [scorecards, activeScoreId],
+  );
   const stats = useMemo(() => agentStats(scorecards, rubric, coaching), [scorecards, rubric, coaching]);
-  const activeStat = useMemo(() => stats.find((s) => s.agentId === (activeAgent ?? stats[0]?.agentId)) ?? null, [stats, activeAgent]);
+  const activeStat = useMemo(
+    () => stats.find((s) => s.agentId === (activeAgent ?? stats[0]?.agentId)) ?? null,
+    [stats, activeAgent],
+  );
+
+  const invalidateScorecards = () => queryClient.invalidateQueries({ queryKey: ["scorecards"] });
+
+  const saveMutation = useMutation({
+    mutationFn: async ({ sc, entries }: { sc: Scorecard; entries: ScorecardEntry[] }) => {
+      await saveScorecard(sc, entries);
+    },
+    onSuccess: (_data, vars) => {
+      setDraftEntries((prev) => {
+        const next = { ...prev };
+        delete next[vars.sc.id];
+        return next;
+      });
+      invalidateScorecards();
+      toast.success("Draft saved");
+    },
+    onError: (err: Error) => toast.error("Could not save draft", { description: err.message }),
+  });
+
+  const publishMutation = useMutation({
+    mutationFn: async ({ sc, entries }: { sc: Scorecard; entries: ScorecardEntry[] }) => {
+      await finalizeScorecard(sc, entries);
+    },
+    onSuccess: (_data, vars) => {
+      setDraftEntries((prev) => {
+        const next = { ...prev };
+        delete next[vars.sc.id];
+        return next;
+      });
+      invalidateScorecards();
+      toast.success("Scorecard published", { description: "Sent to agent + logged to audit trail." });
+    },
+    onError: (err: Error) => toast.error("Could not publish", { description: err.message }),
+  });
 
   const updateEntries = (id: string, entries: ScorecardEntry[]) => {
-    setScorecards((prev) => prev.map((s) => (s.id === id ? { ...s, entries, status: s.status === "unscored" ? "ai_draft" : s.status } : s)));
+    setDraftEntries((prev) => ({ ...prev, [id]: entries }));
   };
   const saveDraft = (id: string) => {
-    setScorecards((prev) => prev.map((s) => (s.id === id ? { ...s, status: s.status === "final" ? "final" : "ai_draft" } : s)));
+    const sc = scorecards.find((s) => s.id === id);
+    if (!sc) return;
+    saveMutation.mutate({ sc, entries: draftEntries[id] ?? sc.entries });
   };
   const publishScore = (id: string) => {
-    setScorecards((prev) => prev.map((s) => (s.id === id ? { ...s, status: "final", reviewer: "You", scoredAt: new Date().toISOString() } : s)));
-    toast.success("Scorecard published", { description: "Sent to agent + logged to audit trail." });
+    const sc = scorecards.find((s) => s.id === id);
+    if (!sc) return;
+    publishMutation.mutate({ sc, entries: draftEntries[id] ?? sc.entries });
   };
 
   const openCoachFromScorecard = (s: Scorecard) => {
@@ -132,7 +202,7 @@ function QaPage() {
           </p>
         </header>
 
-        <QaStatsStrip scorecards={scorecards} coaching={coaching} calibrations={calibrations} />
+        <QaStatsStrip scorecards={scorecards} coaching={coaching} calibrations={calibrations} rubric={rubric} />
 
         <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5">
           <div className="flex gap-1">
@@ -166,9 +236,10 @@ function QaPage() {
         <div className="min-h-0 flex-1 overflow-hidden bg-surface-app">
           {tab === "queue" && (
             <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)]">
-              <ScoringQueue scorecards={scorecards} activeId={activeScoreId} onSelect={setActiveScoreId} />
+              <ScoringQueue scorecards={scorecards} activeId={activeScoreId} onSelect={setActiveScoreId} rubric={rubric} />
               <ScoringCanvas
                 scorecard={activeScore}
+                rubric={rubric}
                 onChangeEntries={updateEntries}
                 onPublish={publishScore}
                 onSaveDraft={saveDraft}
@@ -205,7 +276,12 @@ function QaPage() {
         </div>
       </div>
 
-      <RubricBuilderSheet open={rubricOpen} onClose={() => setRubricOpen(false)} rubric={rubric} onSave={setRubric} />
+      <RubricBuilderSheet
+        open={rubricOpen}
+        onClose={() => setRubricOpen(false)}
+        rubric={rubric}
+        onSave={(next) => setRubricOverride(next)}
+      />
       <NewCoachingSheet
         open={coachOpen}
         onClose={() => setCoachOpen(false)}

@@ -191,8 +191,46 @@ client-side via `computeKpis(dailySeries)`.
 - Reconcile check: `sum(dailySeries.sessions)` == `count(*)` on interactions in
   the same window (verified for 30d).
 
-## Remaining after Bot Analytics
+## Done: QA Scorecards (core MVP) ✅
 
-Tier-1 screen wiring is complete for the Phase 3B list in this guide. Next work
-is whatever the product roadmap lists after Conversation & Bot Analytics
-(typically Tier-2 screens or Phase 4 bot emission).
+Biggest screen — wired **scorecard core** only (queue + per-criterion scoring).
+Coaching + calibration tabs stay seed-backed until their endpoints land.
+
+Same five moves, but the Phase 3A write path was a stub (`total_score`/`band`
+only) so PATCH was substantially widened — not just a GET. Central gotcha:
+criterion IDs must match the screen rubric, so Alembic `20260722_0010` seeds
+the full `defaultRubric` tree (`rubric-v1` / `emp-acknowledge` / …) and rebuilds
+entries on the 0–5 scale. Frontend seam: `Habibi/src/api/qa.ts`
+(`useScorecards`, `useRubric`, `saveScorecard`, `finalizeScorecard`). Reviewer
+from `currentActor()` — never a hardcoded "You".
+
+**Closed for real (not flagged):**
+- `GET /rubric` + `GET /scorecards` → screen shapes; entries padded to all 13
+  criteria; `handledBy.kind` includes `handoff` when an interaction handoff exists.
+- `PATCH /scorecards/{id}` accepts `entries[]` + status (`unscored|ai_draft|final`);
+  upserts `qa_scorecard_entries`, recomputes `total_score`/`band` (critical-fail
+  cap at 40), `exclude_unset`, subject/reviewer FK → 404, finalize writes
+  `scorecard_finalized` activity + `scored_at`.
+- Columns `description` / `accepted` / `scored_at` added rather than dropped.
+- Local draft overlay in `qa.tsx` until Save draft / Publish; coaching +
+  calibration remain isolated seed `useState` blocks.
+
+## Remaining after QA core
+
+Fast-follows on the same page: coaching actions + calibration sessions (their
+DB tables already exist). Then Phase 4 bot emission / Tier-2 screens per the
+product roadmap.
+
+## Done: Conversation Inbox ✅
+
+Tier-3 screen. Pre-A vocabulary migration first (`20260722_0011`: stored status
+`mine` → `assigned` + `assigned_user_id`; message sender `human` → `agent`).
+`GET /conversations` returns the screen `Thread` shape (messages, derived
+SLA/unread/`isMine`, context rail). Writes: `POST .../takeover`,
+`POST .../messages`, `GET /canned-responses`. Take-over writes
+`activity_events` (`conversation_takeover`). Frontend seam:
+`Habibi/src/api/inbox.ts`. Mine filter derived via `GET /me` / `ACTOR_USER_ID`
+— never a stored `mine` status.
+
+**Deferred by design (see `conversation_inbox_plan.md`):** WhatsApp Meta I/O
+(Phase B), Azure RAG (Phase C), shared realtime with Handoff/Floor (Phase D).

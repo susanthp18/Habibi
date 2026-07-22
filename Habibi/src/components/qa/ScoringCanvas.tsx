@@ -1,29 +1,50 @@
 import { useMemo, useState } from "react";
 import { Send, Save, UserPlus, FileText } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { computeTotal, defaultRubric, findCall, type Scorecard, type ScorecardEntry } from "@/data/qa-seed";
+import { useCalls } from "@/api/audit";
+import { allCriteria, computeTotal, type Rubric, type Scorecard, type ScorecardEntry } from "@/data/qa-seed";
 import { formatDateTime, formatDuration } from "@/data/audit-seed";
 import { ScoreBand } from "./ScoreBand";
 import { RubricScorer } from "./RubricScorer";
 
 export function ScoringCanvas({
   scorecard,
+  rubric,
   onChangeEntries,
   onPublish,
   onSaveDraft,
   onAssignCoaching,
 }: {
   scorecard: Scorecard | null;
+  rubric: Rubric;
   onChangeEntries: (id: string, entries: ScorecardEntry[]) => void;
   onPublish: (id: string) => void;
   onSaveDraft: (id: string) => void;
   onAssignCoaching: (scorecard: Scorecard) => void;
 }) {
   const [tab, setTab] = useState<"rubric" | "transcript">("rubric");
+  const { data: calls } = useCalls();
 
-  const call = useMemo(() => (scorecard ? findCall(scorecard.callId) : undefined), [scorecard]);
-  const total = useMemo(() => (scorecard ? computeTotal(scorecard, defaultRubric) : 0), [scorecard]);
+  const call = useMemo(
+    () => (scorecard ? calls?.find((c) => c.id === scorecard.callId) : undefined),
+    [scorecard, calls],
+  );
+  const total = useMemo(
+    () => (scorecard ? computeTotal(scorecard, rubric) : 0),
+    [scorecard, rubric],
+  );
+  // Publish is gated on every rubric criterion being scored (score > 0), so a
+  // reviewer can't finalize a partial card into a misleadingly low total.
+  const { scoredCount, totalCriteria } = useMemo(() => {
+    const criteria = allCriteria(rubric);
+    const scored = scorecard
+      ? criteria.filter(
+          (c) => (scorecard.entries.find((e) => e.criterionId === c.id)?.score ?? 0) > 0,
+        ).length
+      : 0;
+    return { scoredCount: scored, totalCriteria: criteria.length };
+  }, [scorecard, rubric]);
+  const allScored = totalCriteria > 0 && scoredCount === totalCriteria;
 
   if (!scorecard) {
     return (
@@ -71,7 +92,7 @@ export function ScoringCanvas({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {tab === "rubric" ? (
           <RubricScorer
-            rubric={defaultRubric}
+            rubric={rubric}
             entries={scorecard.entries}
             onChange={(next) => onChangeEntries(scorecard.id, next)}
           />
@@ -104,7 +125,7 @@ export function ScoringCanvas({
       <div className="shrink-0 border-t border-[var(--border-token)] bg-surface-card px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => { onSaveDraft(scorecard.id); toast.success("Draft saved"); }}
+            onClick={() => onSaveDraft(scorecard.id)}
             className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-3 py-1.5 text-[12px] text-text-primary hover:bg-surface-sunken"
           >
             <Save className="h-3.5 w-3.5" /> Save draft
@@ -116,10 +137,19 @@ export function ScoringCanvas({
             <UserPlus className="h-3.5 w-3.5" /> Attach coaching
           </button>
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-[11px] text-text-muted">Total {total.toFixed(1)}/100</span>
+            <span className="text-[11px] text-text-muted">
+              {allScored ? `Total ${total.toFixed(1)}/100` : `${scoredCount}/${totalCriteria} criteria scored`}
+            </span>
             <button
               onClick={() => onPublish(scorecard.id)}
-              className="inline-flex items-center gap-1 rounded-md bg-brand-primary px-3 py-1.5 text-[12px] font-medium text-white hover:bg-brand-primary-dark"
+              disabled={!allScored}
+              title={allScored ? undefined : "Score every criterion before publishing"}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium text-white",
+                allScored
+                  ? "bg-brand-primary hover:bg-brand-primary-dark"
+                  : "cursor-not-allowed bg-brand-primary/40",
+              )}
             >
               <Send className="h-3.5 w-3.5" /> Publish score
             </button>

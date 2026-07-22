@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell/AppShell";
 import { ConversationList } from "@/components/inbox/ConversationList";
@@ -6,11 +7,10 @@ import { ChatThread } from "@/components/inbox/ChatThread";
 import { Composer } from "@/components/inbox/Composer";
 import { ContextRail } from "@/components/inbox/ContextRail";
 import {
-  threads as seedThreads,
-  type Message,
-  type SystemEvent,
-  type Thread,
-} from "@/data/inbox-seed";
+  sendConversationMessage,
+  takeoverConversation,
+  useConversations,
+} from "@/api/inbox";
 
 export const Route = createFileRoute("/inbox")({
   head: () => ({
@@ -26,89 +26,90 @@ export const Route = createFileRoute("/inbox")({
   component: InboxPage,
 });
 
-function nowLabel() {
-  const d = new Date();
-  const h = d.getHours();
-  const m = d.getMinutes().toString().padStart(2, "0");
-  const ampm = h >= 12 ? "PM" : "AM";
-  const hh = ((h + 11) % 12) + 1;
-  return `${hh}:${m} ${ampm}`;
-}
-
 function InboxPage() {
-  const [threads, setThreads] = useState<Thread[]>(seedThreads);
-  const [activeId, setActiveId] = useState<string>(seedThreads[0].id);
+  const queryClient = useQueryClient();
+  const { data: threads = [], isLoading, isError, error } = useConversations();
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
-  const [takenOver, setTakenOver] = useState<Record<string, boolean>>({});
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (!activeId && threads.length > 0) {
+      setActiveId(threads[0].id);
+    }
+  }, [threads, activeId]);
 
   const active = useMemo(
-    () => threads.find((t) => t.id === activeId) ?? threads[0],
+    () => threads.find((t) => t.id === activeId) ?? threads[0] ?? null,
     [threads, activeId],
   );
 
-  const handleTakeOver = () => {
-    setTakenOver((prev) => ({ ...prev, [active.id]: true }));
-    const sysEvent: SystemEvent = {
-      id: `sys-${Date.now()}`,
-      kind: "system",
-      text: "You took over from bot",
-      time: nowLabel(),
-    };
-    setThreads((prev) =>
-      prev.map((t) =>
-        t.id === active.id
-          ? { ...t, status: "mine", messages: [...t.messages, sysEvent] }
-          : t,
-      ),
-    );
+  const invalidate = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["conversations"] });
   };
 
-  const handleSend = (text: string) => {
-    const msg: Message = {
-      id: `m-${Date.now()}`,
-      sender: "agent",
-      text,
-      time: nowLabel(),
-      delivery: "sent",
-    };
-    setThreads((prev) =>
-      prev.map((t) =>
-        t.id === active.id
-          ? {
-              ...t,
-              messages: [...t.messages, msg],
-              lastPreview: text,
-              lastFrom: "agent",
-              lastTime: msg.time,
-              unread: 0,
-            }
-          : t,
-      ),
-    );
+  const handleTakeOver = async () => {
+    if (!active || pending) return;
+    setPending(true);
+    try {
+      await takeoverConversation(active.id);
+      await invalidate();
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleSend = async (text: string) => {
+    if (!active || pending) return;
+    setPending(true);
+    try {
+      await sendConversationMessage(active.id, text);
+      await invalidate();
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
     <AppShell>
       <div className="flex h-full min-h-0 w-full overflow-hidden">
-        <ConversationList
-          threads={threads}
-          activeId={active.id}
-          onSelect={setActiveId}
-        />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <ChatThread
-            thread={active}
-            onToggleRail={() => setRailOpen((o) => !o)}
-            tookOver={!!takenOver[active.id]}
-          />
-          <Composer
-            thread={active}
-            tookOver={!!takenOver[active.id]}
-            onTakeOver={handleTakeOver}
-            onSend={handleSend}
-          />
-        </div>
-        {railOpen && <ContextRail thread={active} />}
+        {isLoading && (
+          <div className="grid flex-1 place-items-center text-[13px] text-text-secondary">
+            Loading conversations…
+          </div>
+        )}
+        {isError && (
+          <div className="grid flex-1 place-items-center text-[13px] text-danger">
+            Failed to load inbox: {(error as Error)?.message ?? "unknown error"}
+          </div>
+        )}
+        {!isLoading && !isError && active && (
+          <>
+            <ConversationList
+              threads={threads}
+              activeId={active.id}
+              onSelect={setActiveId}
+            />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <ChatThread
+                thread={active}
+                onToggleRail={() => setRailOpen((o) => !o)}
+              />
+              <Composer
+                thread={active}
+                onTakeOver={handleTakeOver}
+                onSend={handleSend}
+                busy={pending}
+              />
+            </div>
+            {railOpen && <ContextRail thread={active} />}
+          </>
+        )}
+        {!isLoading && !isError && !active && (
+          <div className="grid flex-1 place-items-center text-[13px] text-text-secondary">
+            No conversations yet.
+          </div>
+        )}
       </div>
     </AppShell>
   );

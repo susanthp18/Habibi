@@ -13,11 +13,9 @@ function isMessage(item: ThreadItem): item is Extract<ThreadItem, { sender: unkn
 export function ChatThread({
   thread,
   onToggleRail,
-  tookOver,
 }: {
   thread: Thread;
   onToggleRail: () => void;
-  tookOver: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const chan = channelMeta[thread.channel];
@@ -28,7 +26,7 @@ export function ChatThread({
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread.id, thread.messages.length]);
 
-  const botHandling = thread.status === "bot" && !tookOver;
+  const botHandling = thread.status === "bot" && !thread.isMine;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface-app">
@@ -66,9 +64,13 @@ export function ChatThread({
               <span className="pulse-dot h-2 w-2 rounded-full bg-success" />
               Bot is handling
             </span>
-          ) : (
+          ) : thread.isMine ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-tint px-2.5 py-1 text-[11.5px] font-semibold text-brand-primary-dark">
               You've taken over
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-bg px-2.5 py-1 text-[11.5px] font-semibold text-warning">
+              Awaiting agent
             </span>
           )}
           <button
