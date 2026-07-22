@@ -1,10 +1,10 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
-import { turnsHistogram } from "@/data/bot-analytics-seed";
+import type { TurnsBucket } from "@/data/bot-analytics-seed";
 
 const COLORS = ["#10b981", "#22c55e", "#f59e0b", "#f97316", "#dc2626"];
 
-export function TurnsHistogram() {
-  const data = turnsHistogram.map((b) => ({ label: b.label, count: b.count }));
+export function TurnsHistogram({ buckets }: { buckets: TurnsBucket[] }) {
+  const data = buckets.map((b) => ({ label: b.label, count: b.count }));
   const total = data.reduce((a, b) => a + b.count, 0);
   return (
     <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">

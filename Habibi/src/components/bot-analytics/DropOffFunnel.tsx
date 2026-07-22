@@ -1,7 +1,7 @@
-import { funnelStages } from "@/data/bot-analytics-seed";
+type FunnelStage = { id: string; label: string; count: number };
 
-export function DropOffFunnel() {
-  const max = funnelStages[0]?.count ?? 1;
+export function DropOffFunnel({ stages }: { stages: FunnelStage[] }) {
+  const max = stages[0]?.count ?? 1;
   return (
     <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
       <div className="border-b border-[var(--border-token)] px-3 py-2">
@@ -9,8 +9,8 @@ export function DropOffFunnel() {
         <div className="text-[11px] text-text-muted">Where sessions leak between stages</div>
       </div>
       <div className="space-y-1.5 p-3">
-        {funnelStages.map((s, i) => {
-          const prev = funnelStages[i - 1];
+        {stages.map((s, i) => {
+          const prev = stages[i - 1];
           const drop = prev ? prev.count - s.count : 0;
           const dropPct = prev ? (drop / prev.count) * 100 : 0;
           return (

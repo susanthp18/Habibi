@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import db
 from schemas import (
+    BotAnalyticsResponse,
     CallResponse,
     CallbackCreateRequest,
     CallbackListResponse,
@@ -50,6 +51,8 @@ from schemas import (
     MeResponse,
     StaffResponse,
     TeamResponse,
+    ViolationListResponse,
+    ViolationNoteCreateRequest,
     ViolationPatchRequest,
 )
 
@@ -101,6 +104,15 @@ def get_customer(customer_id: str):
 @app.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all"):
     return db.get_dashboard(range, segment, team)
+
+
+@app.get("/bot-analytics", response_model=BotAnalyticsResponse)
+def get_bot_analytics(range: str = "30d", channel: str = "all"):
+    """Live aggregates from interactions — not the stub analytics_* tables."""
+    try:
+        return db.bot_analytics(range, channel)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/calls", response_model=list[CallResponse])
@@ -283,9 +295,20 @@ def opt_out(customer_id: str, payload: OptOutCreateRequest):
     return _handle_write(db.opt_out, customer_id, payload.model_dump(exclude_unset=True))
 
 
-@app.patch("/violations/{violation_id}")
+@app.get("/violations", response_model=list[ViolationListResponse])
+def list_violations():
+    return db.list_violations()
+
+
+@app.patch("/violations/{violation_id}", response_model=ViolationListResponse)
 def patch_violation(violation_id: str, payload: ViolationPatchRequest):
-    return _handle_write(db.patch_violation, violation_id, payload.model_dump(exclude_none=True))
+    # exclude_unset (not exclude_none) so explicit null clears assignee.
+    return _handle_write(db.patch_violation, violation_id, payload.model_dump(exclude_unset=True))
+
+
+@app.post("/violations/{violation_id}/notes")
+def add_violation_note(violation_id: str, payload: ViolationNoteCreateRequest):
+    return _handle_write(db.add_violation_note, violation_id, payload.model_dump())
 
 
 @app.post("/scorecards")

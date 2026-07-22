@@ -16,9 +16,11 @@ CREATE TABLE IF NOT EXISTS violations (
   actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human','bot')),
   actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   actor_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
-  status TEXT NOT NULL DEFAULT 'open',
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','in_review','acknowledged','resolved')),
   assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   description TEXT,
+  at_sec INTEGER NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK (

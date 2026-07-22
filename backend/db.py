@@ -3352,26 +3352,728 @@ def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return customer
 
 
+def _violation_status_screen(status: str | None) -> str:
+    if status in {"open", "in_review", "acknowledged", "resolved"}:
+        return status
+    if status in {"reviewed", "review"}:
+        return "acknowledged"
+    return "open"
+
+
+_RULE_ID_SCREEN = {
+    "rule-recording": "r-rec",
+    "rule-mini-miranda": "r-mm",
+    "rule-identity": "r-verify",
+    "rule-payment": "r-disp",
+}
+
+
+def _violation_rule_screen(rule_id: str | None) -> str:
+    if not rule_id:
+        return "r-rec"
+    return _RULE_ID_SCREEN.get(rule_id, rule_id)
+
+
+def _violation_severity_screen(severity: str | None) -> str:
+    if severity in {"critical", "high", "medium", "low"}:
+        return severity
+    return "medium"
+
+
+def _speaker_screen(speaker: str | None) -> str:
+    if speaker in {"bot", "agent", "customer", "system"}:
+        return speaker
+    if speaker == "human":
+        return "agent"
+    return "system"
+
+
+def _transcript_turn(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "t": int(row["at_sec"] or 0),
+        "speaker": _speaker_screen(row["speaker"]),
+        "text": row["text"] or "",
+    }
+
+
+def _violation_notes_grouped(conn: Any, violation_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """Structured notes from activity_events (note_added / violation_note)."""
+    if not violation_ids:
+        return {}
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT ae.entity_id, ae.at, ae.label AS text, u.name AS author
+                FROM activity_events ae
+                LEFT JOIN users u ON u.id = ae.actor_user_id
+                WHERE ae.entity_type = 'violation'
+                  AND ae.entity_id = ANY(:ids)
+                  AND ae.kind IN ('note_added', 'violation_note')
+                ORDER BY ae.at
+                """
+            ),
+            {"ids": violation_ids},
+        )
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        grouped.setdefault(r["entity_id"], []).append(
+            {
+                "at": r["at"],
+                "author": r["author"] or "System",
+                "text": r["text"] or "",
+            }
+        )
+    return grouped
+
+
+def _transcripts_by_interaction(conn: Any, interaction_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not interaction_ids:
+        return {}
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, interaction_id, turn_index, speaker, at_sec, text
+                FROM interaction_transcript
+                WHERE interaction_id = ANY(:ids)
+                ORDER BY interaction_id, turn_index
+                """
+            ),
+            {"ids": interaction_ids},
+        )
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        grouped.setdefault(r["interaction_id"], []).append(r)
+    return grouped
+
+
+def _build_violation_evidence(
+    turns: list[dict[str, Any]],
+    at_sec: int,
+    description: str | None,
+) -> dict[str, Any]:
+    """Offending turn + neighbours. Falls back to snippet-only when no transcript."""
+    snippet = (description or "").strip() or "No transcript evidence available."
+    if not turns:
+        return {
+            "snippet": snippet,
+            "preceding": None,
+            "offending": {
+                "id": "synthetic-offending",
+                "t": at_sec,
+                "speaker": "system",
+                "text": snippet,
+            },
+            "following": None,
+        }
+
+    # Prefer the turn closest to at_sec; tie-break toward agent/bot speech.
+    best_idx = 0
+    best_dist = abs(int(turns[0]["at_sec"] or 0) - at_sec)
+    for i, t in enumerate(turns):
+        dist = abs(int(t["at_sec"] or 0) - at_sec)
+        speaker = _speaker_screen(t["speaker"])
+        better = dist < best_dist or (
+            dist == best_dist and speaker in {"bot", "agent"} and _speaker_screen(turns[best_idx]["speaker"]) not in {"bot", "agent"}
+        )
+        if better:
+            best_idx = i
+            best_dist = dist
+
+    offending = _transcript_turn(turns[best_idx])
+    if not snippet or snippet == "No transcript evidence available.":
+        snippet = offending["text"]
+    preceding = _transcript_turn(turns[best_idx - 1]) if best_idx > 0 else None
+    following = _transcript_turn(turns[best_idx + 1]) if best_idx + 1 < len(turns) else None
+    return {
+        "snippet": snippet,
+        "preceding": preceding,
+        "offending": offending,
+        "following": following,
+    }
+
+
+def _violation_rows_to_screen(
+    conn: Any,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    ids = [r["id"] for r in rows]
+    interaction_ids = [r["interaction_id"] for r in rows if r.get("interaction_id")]
+    notes = _violation_notes_grouped(conn, ids)
+    transcripts = _transcripts_by_interaction(conn, interaction_ids)
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        at_sec = int(r["at_sec"] or 0)
+        call_id = r["interaction_id"] or ""
+        actor_kind = "bot" if r["actor_kind"] == "bot" else "human"
+        actor_name = r["actor_bot_name"] if actor_kind == "bot" else r["actor_user_name"]
+        if not actor_name:
+            actor_name = "Kaia v2.4" if actor_kind == "bot" else "Unknown agent"
+        evidence = _build_violation_evidence(
+            transcripts.get(call_id) or [],
+            at_sec,
+            r.get("description"),
+        )
+        result.append(
+            {
+                "id": r["id"],
+                "callId": call_id,
+                "customerName": r["customer_name"],
+                "ruleId": _violation_rule_screen(r["rule_id"]),
+                "severity": _violation_severity_screen(r["rule_severity"]),
+                "occurredAt": r["occurred_at"] or r["created_at"],
+                "atSec": at_sec,
+                "actor": {"kind": actor_kind, "name": actor_name},
+                "evidence": evidence,
+                "status": _violation_status_screen(r["status"]),
+                "assignee": r["assignee"] or None,
+                "notes": notes.get(r["id"]) or [],
+            }
+        )
+    return result
+
+
+_VIOLATION_LIST_SQL = """
+    SELECT v.id, v.interaction_id, v.customer_id, c.name AS customer_name,
+           v.rule_id, cr.severity AS rule_severity, v.actor_kind,
+           v.status, v.description, v.at_sec, v.created_at,
+           COALESCE(i.started_at, v.created_at) AS occurred_at,
+           u.name AS assignee,
+           au.name AS actor_user_name,
+           b.name AS actor_bot_name
+    FROM violations v
+    JOIN customers c ON c.id = v.customer_id
+    JOIN compliance_rules cr ON cr.id = v.rule_id
+    LEFT JOIN users u ON u.id = v.assignee_user_id
+    LEFT JOIN users au ON au.id = v.actor_user_id
+    LEFT JOIN bots b ON b.id = v.actor_bot_id
+    LEFT JOIN interactions i ON i.id = v.interaction_id
+"""
+
+
+def list_violations() -> list[dict[str, Any]]:
+    """Compliance Risk feed — screen Violation shape."""
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    _VIOLATION_LIST_SQL
+                    + """
+                    ORDER BY
+                      CASE cr.severity
+                        WHEN 'critical' THEN 4
+                        WHEN 'high' THEN 3
+                        WHEN 'medium' THEN 2
+                        ELSE 1
+                      END DESC,
+                      COALESCE(i.started_at, v.created_at) DESC
+                    """
+                )
+            )
+        )
+        return _violation_rows_to_screen(conn, rows)
+
+
+def _violation_by_id(conn: Any, violation_id: str) -> dict[str, Any]:
+    row = _one(
+        conn.execute(
+            text(_VIOLATION_LIST_SQL + " WHERE v.id = :id"),
+            {"id": violation_id},
+        )
+    )
+    if row is None:
+        raise KeyError("violation_not_found")
+    items = _violation_rows_to_screen(conn, [row])
+    return items[0]
+
+
 def patch_violation(violation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Payload arrives with exclude_unset: a present key is intentional,
+    so an explicit None clears assignee. Notes are NOT written here —
+    use add_violation_note → activity_events."""
     with engine.begin() as conn:
         row = _one(conn.execute(text("SELECT customer_id FROM violations WHERE id = :id"), {"id": violation_id}))
         if row is None:
             raise KeyError("violation_not_found")
-        updates = []
-        params = {"id": violation_id}
-        if payload.get("status"):
+
+        if "status" in payload and payload["status"] is not None:
+            status = payload["status"]
+            if status not in {"open", "in_review", "acknowledged", "resolved"}:
+                raise ValueError(f"invalid_status: {status}")
+
+        if "assigneeUserId" in payload and payload["assigneeUserId"] is not None:
+            assignee = payload["assigneeUserId"]
+            if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee}).fetchone():
+                raise KeyError(f"user_not_found: {assignee}")
+
+        updates: list[str] = []
+        params: dict[str, Any] = {"id": violation_id}
+        if "status" in payload:
             updates.append("status = :status")
             params["status"] = payload["status"]
-        if payload.get("assigneeUserId"):
+        if "assigneeUserId" in payload:
             updates.append("assignee_user_id = :assignee_user_id")
             params["assignee_user_id"] = payload["assigneeUserId"]
-        if payload.get("notes"):
-            updates.append("description = COALESCE(description, '') || E'\\n' || :notes")
-            params["notes"] = payload["notes"]
         if updates:
+            updates.append("updated_at = now()")
             conn.execute(text(f"UPDATE violations SET {', '.join(updates)} WHERE id = :id"), params)
-        _activity(conn, "violation", violation_id, "violation_updated", "Violation updated", payload.get("status"), row["customer_id"])
-        return {"id": violation_id, "status": payload.get("status")}
+
+        status = payload.get("status")
+        if "assigneeUserId" in payload and payload["assigneeUserId"] is None:
+            label, note = "Violation unassigned", None
+        elif payload.get("assigneeUserId"):
+            label = "Violation assigned"
+            note = _user_name(conn, payload["assigneeUserId"])
+        elif status == "acknowledged":
+            label, note = "Violation acknowledged", status
+        elif status == "resolved":
+            label, note = "Violation resolved", status
+        elif status == "in_review":
+            label, note = "Violation in review", status
+        elif status:
+            label, note = "Violation updated", status
+        else:
+            label, note = "Violation updated", None
+        _activity(conn, "violation", violation_id, "violation_updated", label, note, row["customer_id"])
+        return _violation_by_id(conn, violation_id)
+
+
+def add_violation_note(violation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Free-text note on a violation. activity_events is the notes store."""
+    with engine.begin() as conn:
+        row = _one(conn.execute(text("SELECT customer_id FROM violations WHERE id = :id"), {"id": violation_id}))
+        if row is None:
+            raise KeyError("violation_not_found")
+        text_value = (payload.get("text") or "").strip()
+        if not text_value:
+            raise ValueError("note text is required")
+        _activity(conn, "violation", violation_id, "note_added", text_value, None, row["customer_id"])
+        return {"id": violation_id, "text": text_value}
+
+
+# ---------------------------------------------------------------------------
+# Bot Analytics — live aggregates from interactions (+ children).
+# Do NOT read intent_aggregates / analytics_daily / escalation_reasons stubs.
+# ---------------------------------------------------------------------------
+
+_BOT_ANALYTICS_RANGE_DAYS = {"7d": 7, "30d": 30, "90d": 90}
+
+_BOT_ANALYTICS_CHANNELS = frozenset({"voice", "whatsapp", "sms"})
+
+_HANDOFF_REASON_LABELS = {
+    "sentiment_drop": "Sentiment drop (negative)",
+    "verification_failed": "Verification failed",
+    "compliance": "Compliance flag",
+    "customer_requested": "User asked for human",
+    "hardship": "Hardship / sensitive",
+    "dispute": "Sensitive topic (dispute/legal)",
+    "high_value": "High-value account",
+    "routing_rule": "Routing rule / queue",
+}
+
+_INTENT_LABELS = {
+    "balance": "Balance / Dues query",
+    "emi": "EMI schedule",
+    "payment-confirm": "Payment confirmation",
+    "statement": "Statement request",
+    "late-fee": "Late fee / waiver",
+    "dispute": "Dispute raise",
+    "callback": "Callback / reschedule",
+    "topup": "Top-up / upsell interest",
+    "dnd": "DND / opt-out",
+    "language": "Language switch",
+    "escalate-human": "Ask for human",
+    "other": "Other / unrecognised",
+    "upi": "UPI payment",
+    "PTP": "Promise to pay",
+    "QA-review": "QA review",
+    "empathy-coach": "Empathy coach",
+}
+
+_TURN_BUCKETS: list[tuple[str, int, int]] = [
+    ("1–2", 1, 2),
+    ("3–4", 3, 4),
+    ("5–7", 5, 7),
+    ("8–12", 8, 12),
+    ("13+", 13, 99),
+]
+
+# Abandoned = explicit status or contact-failure dispositions (seed has no status='abandoned').
+_ABANDONED_PRED = """(
+  i.status = 'abandoned'
+  OR lower(coalesce(i.disposition, '')) ~ '(no answer|voicemail|dnd|abandon|not contacted)'
+)"""
+
+_RESOLVED_DISP_PRED = """(
+  lower(coalesce(i.disposition, '')) ~ '(resolved|payment made|ptp)'
+)"""
+
+
+def _bot_analytics_window(range_key: str, channel: str) -> tuple[int, str, dict[str, Any]]:
+    days = _BOT_ANALYTICS_RANGE_DAYS.get(range_key, 30)
+    params: dict[str, Any] = {"days": days}
+    clauses = ["i.started_at >= (now() - make_interval(days => :days))"]
+    if channel and channel != "all":
+        if channel not in _BOT_ANALYTICS_CHANNELS:
+            raise ValueError(f"invalid_channel: {channel}")
+        clauses.append("i.channel = :channel")
+        params["channel"] = channel
+    return days, " AND ".join(clauses), params
+
+
+def _intent_label(intent_id: str) -> str:
+    if intent_id in _INTENT_LABELS:
+        return _INTENT_LABELS[intent_id]
+    return intent_id.replace("-", " ").replace("_", " ").strip().title() or "Other / unrecognised"
+
+
+def _suggested_fix_screen(raw: str | None) -> str:
+    v = (raw or "kb").strip().lower()
+    if v in {"prompt"}:
+        return "prompt"
+    if v in {"both"}:
+        return "both"
+    # faq / kb / doc / anything else → kb work
+    return "kb"
+
+
+def _trend_delta(current: int, prior: int) -> float:
+    if prior <= 0:
+        return 100.0 if current > 0 else 0.0
+    return round(((current - prior) / prior) * 100.0, 1)
+
+
+def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any]:
+    """Conversation & Bot Analytics — screen shape, aggregated live from interactions."""
+    if range_key not in _BOT_ANALYTICS_RANGE_DAYS:
+        raise ValueError(f"invalid_range: {range_key}")
+    days, where_sql, params = _bot_analytics_window(range_key, channel)
+
+    with engine.connect() as conn:
+        daily_rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    WITH base AS (
+                      SELECT
+                        i.id,
+                        (i.started_at AT TIME ZONE 'UTC')::date AS d,
+                        i.handler_kind,
+                        i.query_resolved,
+                        i.latency_ms,
+                        i.avg_sentiment,
+                        EXISTS (
+                          SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = i.id
+                        ) AS escalated,
+                        {_ABANDONED_PRED} AS abandoned,
+                        (
+                          SELECT count(*)::int
+                          FROM interaction_transcript t
+                          WHERE t.interaction_id = i.id
+                        ) AS turns
+                      FROM interactions i
+                      WHERE {where_sql}
+                    )
+                    SELECT
+                      to_char(d, 'YYYY-MM-DD') AS date,
+                      count(*)::int AS sessions,
+                      count(*) FILTER (
+                        WHERE handler_kind = 'bot' AND query_resolved
+                      )::int AS contained,
+                      count(*) FILTER (WHERE escalated)::int AS escalated,
+                      count(*) FILTER (WHERE abandoned)::int AS abandoned,
+                      coalesce(avg(turns), 0)::float AS avg_turns,
+                      coalesce(
+                        percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms),
+                        0
+                      )::float AS latency_p50,
+                      coalesce(
+                        percentile_cont(0.9) WITHIN GROUP (ORDER BY latency_ms),
+                        0
+                      )::float AS latency_p90,
+                      coalesce(
+                        percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms),
+                        0
+                      )::float AS latency_p99,
+                      coalesce(avg(avg_sentiment), 0)::float AS sentiment
+                    FROM base
+                    GROUP BY d
+                    ORDER BY d
+                    """
+                ),
+                params,
+            )
+        )
+
+        intent_rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    WITH base AS (
+                      SELECT
+                        i.id,
+                        coalesce(nullif(trim(i.primary_intent), ''), 'other') AS intent_id,
+                        i.handler_kind,
+                        i.query_resolved,
+                        i.latency_ms,
+                        i.sentiment_label,
+                        EXISTS (
+                          SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = i.id
+                        ) AS escalated,
+                        {_ABANDONED_PRED} AS abandoned,
+                        (
+                          SELECT count(*)::int
+                          FROM interaction_transcript t
+                          WHERE t.interaction_id = i.id
+                        ) AS turns
+                      FROM interactions i
+                      WHERE {where_sql}
+                    )
+                    SELECT
+                      intent_id,
+                      count(*)::int AS sessions,
+                      count(*) FILTER (
+                        WHERE handler_kind = 'bot' AND query_resolved
+                      )::int AS contained,
+                      count(*) FILTER (WHERE escalated)::int AS escalated,
+                      count(*) FILTER (WHERE abandoned)::int AS abandoned,
+                      coalesce(avg(turns), 0)::float AS avg_turns,
+                      coalesce(avg(latency_ms), 0)::float AS avg_latency_ms,
+                      count(*) FILTER (WHERE sentiment_label = 'positive')::int AS positive,
+                      count(*) FILTER (
+                        WHERE sentiment_label = 'neutral' OR sentiment_label IS NULL
+                      )::int AS neutral,
+                      count(*) FILTER (WHERE sentiment_label = 'negative')::int AS negative
+                    FROM base
+                    GROUP BY intent_id
+                    ORDER BY sessions DESC, intent_id
+                    """
+                ),
+                params,
+            )
+        )
+
+        esc_current = {
+            r["reason"]: int(r["count"])
+            for r in _rows(
+                conn.execute(
+                    text(
+                        f"""
+                        SELECT h.reason, count(*)::int AS count
+                        FROM interaction_handoffs h
+                        JOIN interactions i ON i.id = h.interaction_id
+                        WHERE {where_sql}
+                        GROUP BY h.reason
+                        """
+                    ),
+                    params,
+                )
+            )
+        }
+        prior_params = {**params, "prior_days": days * 2}
+        esc_prior = {
+            r["reason"]: int(r["count"])
+            for r in _rows(
+                conn.execute(
+                    text(
+                        f"""
+                        SELECT h.reason, count(*)::int AS count
+                        FROM interaction_handoffs h
+                        JOIN interactions i ON i.id = h.interaction_id
+                        WHERE i.started_at >= (now() - make_interval(days => :prior_days))
+                          AND i.started_at < (now() - make_interval(days => :days))
+                          {"AND i.channel = :channel" if "channel" in params else ""}
+                        GROUP BY h.reason
+                        """
+                    ),
+                    prior_params,
+                )
+            )
+        }
+
+        unanswered_rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT
+                      uq.id,
+                      uq.question,
+                      uq.hit_count,
+                      uq.last_seen_at,
+                      coalesce(uq.top_intent, 'other') AS top_intent,
+                      uq.suggested_fix_type,
+                      EXISTS (
+                        SELECT 1
+                        FROM analytics_kb_gap_links g
+                        WHERE g.unanswered_question_id = uq.id
+                          AND g.kb_document_id IS NOT NULL
+                      ) AS has_kb_doc
+                    FROM unanswered_questions uq
+                    WHERE uq.tenant_id = :tenant_id
+                    ORDER BY uq.hit_count DESC, uq.id
+                    """
+                ),
+                {"tenant_id": TENANT_ID},
+            )
+        )
+
+        turn_rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT
+                      (
+                        SELECT count(*)::int
+                        FROM interaction_transcript t
+                        WHERE t.interaction_id = i.id
+                      ) AS turns
+                    FROM interactions i
+                    WHERE {where_sql}
+                    """
+                ),
+                params,
+            )
+        )
+
+        # Funnel stages are cumulative subsets (landed ⊇ verified ⊇ intent ⊇
+        # answered ⊇ confirmed), so counts decrease monotonically. Each stage
+        # ANDs all prior predicates; "answered" is the union of the two resolve
+        # signals so "confirmed" (disposition-resolved) is always a subset of it.
+        _v_pred = (
+            "EXISTS (SELECT 1 FROM identity_verifications v "
+            "WHERE v.interaction_id = i.id AND v.status = 'verified')"
+        )
+        _intent_pred = "i.primary_intent IS NOT NULL AND trim(i.primary_intent) <> ''"
+        _answered_pred = f"(i.query_resolved OR {_RESOLVED_DISP_PRED})"
+        funnel = _one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT
+                      count(*)::int AS landed,
+                      count(*) FILTER (WHERE {_v_pred})::int AS verified,
+                      count(*) FILTER (
+                        WHERE {_v_pred} AND {_intent_pred}
+                      )::int AS intent_captured,
+                      count(*) FILTER (
+                        WHERE {_v_pred} AND {_intent_pred} AND {_answered_pred}
+                      )::int AS answered,
+                      count(*) FILTER (
+                        WHERE {_v_pred} AND {_intent_pred} AND {_answered_pred}
+                          AND {_RESOLVED_DISP_PRED}
+                      )::int AS confirmed
+                    FROM interactions i
+                    WHERE {where_sql}
+                    """
+                ),
+                params,
+            )
+        ) or {}
+
+    daily_series = [
+        {
+            "date": r["date"],
+            "sessions": int(r["sessions"] or 0),
+            "contained": int(r["contained"] or 0),
+            "escalated": int(r["escalated"] or 0),
+            "abandoned": int(r["abandoned"] or 0),
+            "avgTurns": round(float(r["avg_turns"] or 0), 2),
+            "latencyP50": round(float(r["latency_p50"] or 0), 1),
+            "latencyP90": round(float(r["latency_p90"] or 0), 1),
+            "latencyP99": round(float(r["latency_p99"] or 0), 1),
+            "sentiment": round(float(r["sentiment"] or 0), 3),
+        }
+        for r in daily_rows
+    ]
+
+    intent_aggs = [
+        {
+            "id": r["intent_id"],
+            "label": _intent_label(r["intent_id"]),
+            "sessions": int(r["sessions"] or 0),
+            "contained": int(r["contained"] or 0),
+            "escalated": int(r["escalated"] or 0),
+            "abandoned": int(r["abandoned"] or 0),
+            "avgTurns": round(float(r["avg_turns"] or 0), 2),
+            "avgLatencyMs": round(float(r["avg_latency_ms"] or 0), 1),
+            "sentiment": {
+                "positive": int(r["positive"] or 0),
+                "neutral": int(r["neutral"] or 0),
+                "negative": int(r["negative"] or 0),
+            },
+        }
+        for r in intent_rows
+    ]
+
+    reasons = sorted(set(esc_current) | set(esc_prior), key=lambda k: (-esc_current.get(k, 0), k))
+    escalation_reasons = [
+        {
+            "id": reason,
+            "label": _HANDOFF_REASON_LABELS.get(reason, reason.replace("_", " ").title()),
+            "count": esc_current.get(reason, 0),
+            "trendDelta": _trend_delta(esc_current.get(reason, 0), esc_prior.get(reason, 0)),
+        }
+        for reason in reasons
+        if esc_current.get(reason, 0) > 0 or esc_prior.get(reason, 0) > 0
+    ]
+    # Prefer current-period reasons first; drop pure-prior zeros already filtered.
+    escalation_reasons = [r for r in escalation_reasons if r["count"] > 0]
+
+    unanswered = []
+    for r in unanswered_rows:
+        last = r["last_seen_at"]
+        if hasattr(last, "date"):
+            last_seen = last.date().isoformat()
+        elif last:
+            last_seen = str(last)[:10]
+        else:
+            last_seen = ""
+        unanswered.append(
+            {
+                "id": r["id"],
+                "text": r["question"],
+                "hits": int(r["hit_count"] or 0),
+                "lastSeen": last_seen,
+                "topIntent": r["top_intent"] or "other",
+                "hasKbDoc": bool(r["has_kb_doc"]),
+                "suggestedFix": _suggested_fix_screen(r["suggested_fix_type"]),
+            }
+        )
+
+    bucket_counts = {label: 0 for label, _mn, _mx in _TURN_BUCKETS}
+    for r in turn_rows:
+        turns = int(r["turns"] or 0)
+        if turns <= 0:
+            continue
+        for label, mn, mx in _TURN_BUCKETS:
+            if mn <= turns <= mx:
+                bucket_counts[label] += 1
+                break
+    turns_histogram = [
+        {"label": label, "min": mn, "max": mx, "count": bucket_counts[label]}
+        for label, mn, mx in _TURN_BUCKETS
+    ]
+
+    funnel_stages = [
+        {"id": "landed", "label": "Session landed", "count": int(funnel.get("landed") or 0)},
+        {"id": "verified", "label": "Verified identity", "count": int(funnel.get("verified") or 0)},
+        {"id": "intent", "label": "Intent captured", "count": int(funnel.get("intent_captured") or 0)},
+        {"id": "answered", "label": "Answer delivered", "count": int(funnel.get("answered") or 0)},
+        {"id": "confirmed", "label": "Confirmed resolution", "count": int(funnel.get("confirmed") or 0)},
+    ]
+
+    return {
+        "dailySeries": daily_series,
+        "intentAggs": intent_aggs,
+        "escalationReasons": escalation_reasons,
+        "unansweredQuestions": unanswered,
+        "turnsHistogram": turns_histogram,
+        "funnelStages": funnel_stages,
+    }
 
 
 def create_scorecard(payload: dict[str, Any]) -> dict[str, Any]:

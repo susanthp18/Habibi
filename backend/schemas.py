@@ -724,10 +724,162 @@ class ConsentListResponse(BaseModel):
     audit: list[ConsentAuditEntryResponse] = []
 
 
+class ViolationTranscriptTurnResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    t: int
+    speaker: Literal["bot", "agent", "customer", "system"]
+    text: str
+
+
+class ViolationNoteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    at: str
+    author: str
+    text: str
+
+
+class ViolationEvidenceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snippet: str
+    preceding: ViolationTranscriptTurnResponse | None = None
+    offending: ViolationTranscriptTurnResponse
+    following: ViolationTranscriptTurnResponse | None = None
+
+
+class ViolationActorResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["bot", "human"]
+    name: str
+
+
+class ViolationListResponse(BaseModel):
+    """Compliance Risk screen shape — richer than the thin PATCH stub."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    callId: str
+    customerName: str
+    ruleId: str
+    severity: Literal["critical", "high", "medium", "low"]
+    occurredAt: str
+    atSec: int
+    actor: ViolationActorResponse
+    evidence: ViolationEvidenceResponse
+    status: Literal["open", "in_review", "acknowledged", "resolved"]
+    assignee: str | None = None
+    notes: list[ViolationNoteResponse] = []
+
+
 class ViolationPatchRequest(BaseModel):
-    status: str | None = None
+    """Compliance Risk PATCH. Sent with exclude_unset so explicit null clears assignee.
+
+    Free-text notes go through POST /violations/{id}/notes → activity_events,
+    not the description column.
+    """
+
+    status: Literal["open", "in_review", "acknowledged", "resolved"] | None = None
     assigneeUserId: str | None = None
-    notes: str | None = None
+
+
+class ViolationNoteCreateRequest(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class BotAnalyticsDailyPointResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: str
+    sessions: int
+    contained: int
+    escalated: int
+    abandoned: int
+    avgTurns: float
+    latencyP50: float
+    latencyP90: float
+    latencyP99: float
+    sentiment: float
+
+
+class BotAnalyticsIntentSentimentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    positive: int
+    neutral: int
+    negative: int
+
+
+class BotAnalyticsIntentAggResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    sessions: int
+    contained: int
+    escalated: int
+    abandoned: int
+    avgTurns: float
+    avgLatencyMs: float
+    sentiment: BotAnalyticsIntentSentimentResponse
+
+
+class BotAnalyticsEscalationReasonResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    count: int
+    trendDelta: float
+
+
+class BotAnalyticsUnansweredQuestionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    text: str
+    hits: int
+    lastSeen: str
+    topIntent: str
+    hasKbDoc: bool
+    suggestedFix: Literal["kb", "prompt", "both"]
+
+
+class BotAnalyticsTurnsBucketResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    min: int
+    max: int
+    count: int
+
+
+class BotAnalyticsFunnelStageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    count: int
+
+
+class BotAnalyticsResponse(BaseModel):
+    """Conversation & Bot Analytics screen shape — live aggregates from interactions.
+
+    KPIs are not included; the frontend derive them via computeKpis(dailySeries).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    dailySeries: list[BotAnalyticsDailyPointResponse]
+    intentAggs: list[BotAnalyticsIntentAggResponse]
+    escalationReasons: list[BotAnalyticsEscalationReasonResponse]
+    unansweredQuestions: list[BotAnalyticsUnansweredQuestionResponse]
+    turnsHistogram: list[BotAnalyticsTurnsBucketResponse]
+    funnelStages: list[BotAnalyticsFunnelStageResponse]
 
 
 class ScorecardCreateRequest(BaseModel):

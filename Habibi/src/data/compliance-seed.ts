@@ -362,3 +362,49 @@ export function formatAt(sec: number): string {
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+// ---------- mock mutators (USE_MOCK branch) ----------
+
+function findViolation(id: string): Violation | undefined {
+  return violations.find((v) => v.id === id);
+}
+
+export function assignViolation(id: string, assignee: string, note?: string, author = "You") {
+  const v = findViolation(id);
+  if (!v) return;
+  v.status = "in_review";
+  v.assignee = assignee;
+  if (note?.trim()) {
+    v.notes.push({ at: new Date().toISOString(), author, text: note.trim() });
+  }
+}
+
+export function acknowledgeViolation(id: string, note?: string, author = "You") {
+  const v = findViolation(id);
+  if (!v) return;
+  v.status = "acknowledged";
+  if (note?.trim()) {
+    v.notes.push({ at: new Date().toISOString(), author, text: note.trim() });
+  }
+}
+
+export function resolveViolation(id: string, note?: string, author = "You") {
+  const v = findViolation(id);
+  if (!v) return;
+  v.status = "resolved";
+  if (note?.trim()) {
+    v.notes.push({ at: new Date().toISOString(), author, text: note.trim() });
+  }
+}
+
+export function setViolationStatus(id: string, status: ViolationStatus) {
+  const v = findViolation(id);
+  if (!v) return;
+  v.status = status;
+}
+
+export function addViolationNote(id: string, text: string, author = "You") {
+  const v = findViolation(id);
+  if (!v || !text.trim()) return;
+  v.notes.push({ at: new Date().toISOString(), author, text: text.trim() });
+}

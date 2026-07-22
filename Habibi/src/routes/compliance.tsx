@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Lock, Download } from "lucide-react";
 import { AppShell } from "@/components/shell/AppShell";
@@ -10,12 +11,20 @@ import { RuleBreakdown } from "@/components/compliance/RuleBreakdown";
 import { ViolationFeed } from "@/components/compliance/ViolationFeed";
 import { ViolationSheet } from "@/components/compliance/ViolationSheet";
 import {
-  violations as seedViolations,
   defaultCompFilters,
   filterViolations,
   type ComplianceFilterState,
   type Violation,
 } from "@/data/compliance-seed";
+import {
+  acknowledgeViolation,
+  assignViolation,
+  resolveViolation,
+  useViolations,
+} from "@/api/compliance";
+import { currentActor } from "@/api/me";
+import { humanNames, useStaff } from "@/api/staff";
+import { USE_MOCK } from "@/api/config";
 
 export const Route = createFileRoute("/compliance")({
   head: () => ({
@@ -23,52 +32,93 @@ export const Route = createFileRoute("/compliance")({
       { title: "Compliance Risk — Collections Agent" },
       {
         name: "description",
-        content: "QA workspace surfacing every call where a mandatory disclosure was missed or prohibited language was used, with severity-ranked evidence and resolution workflow.",
+        content:
+          "QA workspace surfacing every call where a mandatory disclosure was missed or prohibited language was used, with severity-ranked evidence and resolution workflow.",
       },
       { property: "og:title", content: "Compliance Risk Dashboard" },
-      { property: "og:description", content: "Rule-hit feed, trend chart, and resolve/acknowledge workflow for BFSI collections compliance." },
+      {
+        property: "og:description",
+        content: "Rule-hit feed, trend chart, and resolve/acknowledge workflow for BFSI collections compliance.",
+      },
     ],
   }),
   component: CompliancePage,
 });
 
 function CompliancePage() {
-  const [items, setItems] = useState<Violation[]>(seedViolations);
+  const queryClient = useQueryClient();
+  const { data: items = [] } = useViolations();
+  const { data: staff = [] } = useStaff();
   const [filters, setFilters] = useState<ComplianceFilterState>(defaultCompFilters);
   const [openId, setOpenId] = useState<string | null>(null);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["violations"] });
+  };
+
+  const assignees = useMemo(() => {
+    if (!USE_MOCK) return humanNames(staff);
+    // Mock: prefer real staff names; fall back to names already on seed rows.
+    const fromStaff = humanNames(staff);
+    if (fromStaff.length) return fromStaff;
+    return Array.from(new Set(items.map((v) => v.assignee).filter(Boolean) as string[])).sort();
+  }, [items, staff]);
 
   const filtered = useMemo(() => filterViolations(items, filters), [items, filters]);
   const openItem = useMemo(() => items.find((v) => v.id === openId) ?? null, [items, openId]);
 
   const setRule = (ruleId: "all" | string) => setFilters({ ...filters, ruleId });
 
-  const nowIso = () => new Date().toISOString();
+  const assignMutation = useMutation({
+    mutationFn: (v: { item: Violation; assignee: string; note: string }) =>
+      assignViolation(v.item, v.assignee, v.note),
+    onSuccess: (_d, vars) => {
+      invalidate();
+      toast.success("Assigned for review", { description: `${vars.item.id} → ${vars.assignee}` });
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Assign failed"),
+  });
 
-  const applyPatch = (id: string, patch: Partial<Violation>, noteAuthor: string, noteText: string) => {
-    setItems((prev) =>
-      prev.map((v) =>
-        v.id === id
-          ? {
-              ...v,
-              ...patch,
-              notes: noteText ? [...v.notes, { at: nowIso(), author: noteAuthor, text: noteText }] : v.notes,
-            }
-          : v,
-      ),
-    );
+  const acknowledgeMutation = useMutation({
+    mutationFn: (v: { item: Violation; note: string }) => acknowledgeViolation(v.item, v.note),
+    onSuccess: (_d, vars) => {
+      invalidate();
+      toast.success("Acknowledged", { description: vars.item.id });
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Acknowledge failed"),
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: (v: { item: Violation; note: string }) => resolveViolation(v.item, v.note),
+    onSuccess: (_d, vars) => {
+      invalidate();
+      toast.success("Marked resolved", { description: vars.item.id });
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Resolve failed"),
+  });
+
+  const onAssign = async (id: string, assignee?: string, note = "Assigned for review.") => {
+    const item = items.find((v) => v.id === id);
+    if (!item) return;
+    let target = assignee;
+    if (!target) {
+      // Quick-assign from the feed card → acting user (never a hardcoded roster name).
+      const me = await currentActor();
+      target = me.name;
+    }
+    assignMutation.mutate({ item, assignee: target, note });
   };
 
-  const onAssign = (id: string, assignee = "Compliance Ops", note = "Assigned for review.") => {
-    applyPatch(id, { status: "in_review", assignee }, "You", note);
-    toast.success("Assigned for review", { description: `${id} → ${assignee}` });
-  };
   const onAcknowledge = (id: string, note = "Acknowledged.") => {
-    applyPatch(id, { status: "acknowledged" }, "You", note);
-    toast.success("Acknowledged", { description: id });
+    const item = items.find((v) => v.id === id);
+    if (!item) return;
+    acknowledgeMutation.mutate({ item, note });
   };
-  const onResolve = (id: string, note = "Resolved.") => {
-    applyPatch(id, { status: "resolved" }, "You", note);
-    toast.success("Marked resolved", { description: id });
+
+  const onResolve = (id: string, note: string) => {
+    const item = items.find((v) => v.id === id);
+    if (!item) return;
+    resolveMutation.mutate({ item, note });
   };
 
   const handleExport = () => {
@@ -108,9 +158,9 @@ function CompliancePage() {
               <ViolationFeed
                 items={filtered}
                 onOpen={setOpenId}
-                onAssign={(id) => onAssign(id)}
+                onAssign={(id) => void onAssign(id)}
                 onAcknowledge={(id) => onAcknowledge(id)}
-                onResolve={(id) => onResolve(id)}
+                onResolve={(id) => onResolve(id, "Resolved after review.")}
               />
             </div>
             <aside className="space-y-4 xl:sticky xl:top-0 xl:self-start">
@@ -126,6 +176,7 @@ function CompliancePage() {
         onAssign={onAssign}
         onAcknowledge={onAcknowledge}
         onResolve={onResolve}
+        assignees={assignees}
       />
     </AppShell>
   );
