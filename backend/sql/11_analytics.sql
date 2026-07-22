@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS unanswered_questions (
   hit_count INTEGER NOT NULL DEFAULT 0,
   last_seen_at timestamptz,
   suggested_fix_type TEXT,
+  top_intent TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

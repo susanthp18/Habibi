@@ -2,23 +2,23 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { BookOpen, Bot, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { unansweredQuestions, INTENTS } from "@/data/bot-analytics-seed";
+import { INTENTS, type UnansweredQuestion } from "@/data/bot-analytics-seed";
 
 type SortKey = "hits" | "lastSeen";
 
-export function UnansweredTable() {
+export function UnansweredTable({ questions }: { questions: UnansweredQuestion[] }) {
   const [sort, setSort] = useState<SortKey>("hits");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
 
   const rows = useMemo(() => {
-    const arr = [...unansweredQuestions];
+    const arr = [...questions];
     arr.sort((a, b) => {
       const va = sort === "hits" ? a.hits : Date.parse(a.lastSeen);
       const vb = sort === "hits" ? b.hits : Date.parse(b.lastSeen);
       return dir === "desc" ? vb - va : va - vb;
     });
     return arr;
-  }, [sort, dir]);
+  }, [questions, sort, dir]);
 
   const toggle = (k: SortKey) => {
     if (sort === k) setDir(dir === "desc" ? "asc" : "desc");
@@ -106,6 +106,13 @@ export function UnansweredTable() {
                 </td>
               </tr>
             ))}
+            {!rows.length && (
+              <tr>
+                <td colSpan={6} className="px-3 py-6 text-center text-text-muted">
+                  No unanswered questions recorded.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

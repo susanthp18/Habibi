@@ -10,10 +10,10 @@ import { SentimentByIntentHeatmap } from "@/components/bot-analytics/SentimentBy
 import { UnansweredTable } from "@/components/bot-analytics/UnansweredTable";
 import { LatencyChart } from "@/components/bot-analytics/LatencyChart";
 import { TurnsHistogram } from "@/components/bot-analytics/TurnsHistogram";
+import { useBotAnalytics } from "@/api/bot-analytics";
+import { USE_MOCK } from "@/api/config";
 import {
-  filterByRange,
   computeKpis,
-  intentAggs,
   type ChannelKey,
   type RangeKey,
 } from "@/data/bot-analytics-seed";
@@ -35,38 +35,37 @@ function BotAnalyticsPage() {
   const [channel, setChannel] = useState<ChannelKey>("all");
   const [activeIntent, setActiveIntent] = useState<string | null>(null);
 
-  const points = useMemo(() => filterByRange(range), [range]);
-  const kpis = useMemo(() => computeKpis(points), [points]);
-  // channel filter is UI-only for PoC — apply a symbolic scale
-  const scaledKpis = useMemo(() => {
-    if (channel === "all") return kpis;
+  const { data } = useBotAnalytics(range, channel);
+  const points = data?.dailySeries ?? [];
+  const intentAggs = data?.intentAggs ?? [];
+  const kpis = useMemo(() => {
+    const base = computeKpis(points);
+    // Mock-only: historic PoC scaled KPI sessions by channel. Live pushes channel to SQL.
+    if (!USE_MOCK || channel === "all") return base;
     const factor = channel === "voice" ? 0.72 : channel === "whatsapp" ? 0.2 : 0.08;
-    return {
-      ...kpis,
-      sessions: Math.round(kpis.sessions * factor),
-    };
-  }, [kpis, channel]);
+    return { ...base, sessions: Math.round(base.sessions * factor) };
+  }, [points, channel]);
 
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
         <BotAnalyticsHeader range={range} channel={channel} onRange={setRange} onChannel={setChannel} />
-        <HeroStrip kpis={scaledKpis} />
+        <HeroStrip kpis={kpis} />
 
         <div className="min-h-0 flex-1 overflow-y-auto bg-surface-app px-5 py-4">
           <div className="grid gap-4">
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
               <IntentDistribution intents={intentAggs} activeId={activeIntent} onSelect={setActiveIntent} />
-              <DropOffFunnel />
+              <DropOffFunnel stages={data?.funnelStages ?? []} />
             </div>
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-              <EscalationReasons />
+              <EscalationReasons reasons={data?.escalationReasons ?? []} />
               <SentimentByIntentHeatmap intents={intentAggs} activeId={activeIntent} />
             </div>
-            <UnansweredTable />
+            <UnansweredTable questions={data?.unansweredQuestions ?? []} />
             <div className="grid gap-4 xl:grid-cols-2">
               <LatencyChart points={points} />
-              <TurnsHistogram />
+              <TurnsHistogram buckets={data?.turnsHistogram ?? []} />
             </div>
           </div>
         </div>

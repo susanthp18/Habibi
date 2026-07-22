@@ -1,11 +1,11 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
-import { escalationReasons } from "@/data/bot-analytics-seed";
+import type { EscalationReason } from "@/data/bot-analytics-seed";
 
 const COLORS = ["#2563eb", "#0ea5e9", "#06b6d4", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"];
 
-export function EscalationReasons() {
-  const total = escalationReasons.reduce((a, r) => a + r.count, 0);
+export function EscalationReasons({ reasons }: { reasons: EscalationReason[] }) {
+  const total = reasons.reduce((a, r) => a + r.count, 0);
   return (
     <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
       <div className="border-b border-[var(--border-token)] px-3 py-2">
@@ -16,8 +16,8 @@ export function EscalationReasons() {
         <div className="h-44">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={escalationReasons} dataKey="count" nameKey="label" innerRadius="55%" outerRadius="90%" paddingAngle={2}>
-                {escalationReasons.map((_, i) => (
+              <Pie data={reasons} dataKey="count" nameKey="label" innerRadius="55%" outerRadius="90%" paddingAngle={2}>
+                {reasons.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
@@ -26,8 +26,8 @@ export function EscalationReasons() {
           </ResponsiveContainer>
         </div>
         <ul className="space-y-1 text-[12px]">
-          {escalationReasons.map((r, i) => {
-            const pct = (r.count / total) * 100;
+          {reasons.map((r, i) => {
+            const pct = total ? (r.count / total) * 100 : 0;
             const Trend = r.trendDelta > 1 ? ArrowUp : r.trendDelta < -1 ? ArrowDown : Minus;
             const bad = r.trendDelta > 1;
             return (
@@ -43,6 +43,9 @@ export function EscalationReasons() {
               </li>
             );
           })}
+          {!reasons.length && (
+            <li className="text-text-muted">No escalations in this range.</li>
+          )}
         </ul>
       </div>
     </div>

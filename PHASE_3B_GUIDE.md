@@ -150,12 +150,49 @@ Writes reuse / widen `POST/PATCH /document-requests` and
 - `_doc_channel` preserves `sms` (was collapsing non-whatsapp to email).
 - Smoke leftover `DOC-70D46A45CC` removed.
 
-## Remaining Tier 1 after Documents
+## Done: Compliance ✅
 
-Compliance, Bot Analytics — same five moves.
+Same five moves. `GET /violations` returns the screen `Violation` shape
+(customer/assignee/rule JOINs, transcript evidence ± neighbours, structured
+`notes[]` from `activity_events`). Writes reuse / harden `PATCH /violations/{id}`
+and add `POST /violations/{id}/notes`. Frontend seam: `Habibi/src/api/compliance.ts`.
+Assignees via `/staff`; note author via `currentActor()` — no hardcoded
+"Compliance Ops" / "You".
 
-## Next screen: Compliance
+**Closed for real (not flagged):**
+- `at_sec` column + screen rule IDs (`r-rec`, …) (Alembic `20260722_0007`);
+  legacy `rule-recording` etc. remapped; smoke `reviewed` → `acknowledged`.
+- PATCH uses `exclude_unset`; status widened to `open | in_review | acknowledged |
+  resolved`; unknown assignee → 404; explicit null unassigns.
+- Notes no longer append to `description` — first-class `note_added` activity rows
+  (same pattern as Disputes).
+- PATCH returns the full list serializer, not `{id, status}`.
+- Evidence derived from `interaction_transcript` neighbours around `at_sec`.
 
-- Wire `GET` list to the compliance screen shape and reuse existing violation
-  writes.
-- Same five moves.
+## Done: Bot Analytics ✅
+
+Read-only Tier-1 screen (no writes / `/me` / `/staff`). Same schema + accessor +
+route + seam + rewire pattern, adapted: one `BotAnalyticsResponse` object, not a
+list. **Live aggregates from `interactions` (+ handoffs / transcript /
+`unanswered_questions`)** — do not read the stub `analytics_daily` /
+`intent_aggregates` / `escalation_reasons` tables. Frontend seam:
+`Habibi/src/api/bot-analytics.ts` (`useBotAnalytics(range, channel)`). KPIs stay
+client-side via `computeKpis(dailySeries)`.
+
+**Closed for real (not flagged):**
+- `GET /bot-analytics?range=30d&channel=all` → screen shape (`dailySeries`,
+  `intentAggs`, `escalationReasons`, `unansweredQuestions`, `turnsHistogram`,
+  `funnelStages`); channel filter pushed to SQL (`WHERE channel = :channel`).
+- Latency percentiles via `percentile_cont(0.5/0.9/0.99)` in SQL.
+- Escalation `trendDelta` vs the prior equal-length window.
+- `unanswered_questions.top_intent` + seeded gap rows (Alembic `20260722_0008`)
+  so the RAG-miss table isn't a single smoke row; `hasKbDoc` from
+  `analytics_kb_gap_links`.
+- Reconcile check: `sum(dailySeries.sessions)` == `count(*)` on interactions in
+  the same window (verified for 30d).
+
+## Remaining after Bot Analytics
+
+Tier-1 screen wiring is complete for the Phase 3B list in this guide. Next work
+is whatever the product roadmap lists after Conversation & Bot Analytics
+(typically Tier-2 screens or Phase 4 bot emission).

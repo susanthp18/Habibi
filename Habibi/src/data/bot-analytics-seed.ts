@@ -171,9 +171,9 @@ export const turnsHistogram: TurnsBucket[] = [
 
 // ----- helpers -----
 
-export function filterByRange(range: RangeKey): DailyPoint[] {
+export function filterByRange(range: RangeKey, series: DailyPoint[] = dailySeries): DailyPoint[] {
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-  return dailySeries.slice(-days);
+  return series.slice(-days);
 }
 
 export interface Kpis {

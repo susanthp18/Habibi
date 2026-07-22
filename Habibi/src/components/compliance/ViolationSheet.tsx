@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,23 +14,30 @@ import {
   formatAt,
 } from "@/data/compliance-seed";
 
-const REVIEWERS = ["Meera Joshi", "Rohit Verma", "Sara Khan", "Compliance Ops"];
-
 export function ViolationSheet({
   v,
   onClose,
   onAssign,
   onAcknowledge,
   onResolve,
+  assignees,
 }: {
   v: Violation | null;
   onClose: () => void;
   onAssign: (id: string, assignee: string, note: string) => void;
   onAcknowledge: (id: string, note: string) => void;
   onResolve: (id: string, note: string) => void;
+  /** Live: real people from /staff. Mock: derived from seed + staff roster. */
+  assignees: string[];
 }) {
-  const [assignee, setAssignee] = useState(REVIEWERS[0]!);
+  const [assignee, setAssignee] = useState(assignees[0] ?? "");
   const [note, setNote] = useState("");
+
+  useEffect(() => {
+    if (assignees.length && !assignees.includes(assignee)) {
+      setAssignee(assignees[0]!);
+    }
+  }, [assignees, assignee]);
 
   if (!v) return null;
   const rule = RULES_BY_ID[v.ruleId];
@@ -125,11 +132,21 @@ export function ViolationSheet({
                 <select
                   value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
+                  disabled={!assignees.length}
                   className="h-8 flex-1 min-w-[160px] rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
                 >
-                  {REVIEWERS.map((r) => <option key={r} value={r}>{r}</option>)}
+                  {!assignees.length && <option value="">Loading reviewers…</option>}
+                  {assignees.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
                 </select>
-                <Button size="sm" variant="outline" className="h-8" onClick={() => handle(() => onAssign(v.id, assignee, note || `Assigned to ${assignee}.`))}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  disabled={!assignee}
+                  onClick={() => handle(() => onAssign(v.id, assignee, note || `Assigned to ${assignee}.`))}
+                >
                   Assign for review
                 </Button>
               </div>

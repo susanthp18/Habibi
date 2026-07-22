@@ -146,6 +146,39 @@ def synthetic_account_id(customer_id: str) -> str:
     return f"AC-{stable_number(customer_id, 20000, 98999)}"
 
 
+# Customer-intent taxonomy for Bot Analytics. Mirrors the migration 0009
+# backfill and Habibi/src/data/bot-analytics-seed.ts / db._INTENT_LABELS.
+_CUSTOMER_INTENTS = [
+    "balance", "emi", "payment-confirm", "statement", "late-fee",
+    "callback", "topup", "dnd", "upi", "dispute",
+]
+_NON_CUSTOMER_INTENTS = {"QA-review", "empathy-coach"}
+_HANDOFF_REASONS = [
+    "customer_requested", "compliance", "hardship",
+    "high_value", "verification_failed", "routing_rule",
+]
+
+
+def seed_primary_intent(call: dict[str, Any], call_id: str) -> str | None:
+    """First tag if it's a real customer intent, else a deterministic backfill.
+    ~15% stay null so the analytics funnel keeps a real "intent captured" drop."""
+    tag = (call.get("tags") or [None])[0]
+    if tag and tag not in _NON_CUSTOMER_INTENTS:
+        return tag
+    if stable_number(call_id, 0, 19) < 3:
+        return None
+    return _CUSTOMER_INTENTS[stable_number(call_id, 0, len(_CUSTOMER_INTENTS) - 1)]
+
+
+def seed_handoff_reason(call: dict[str, Any], call_id: str, avg_sentiment: Any) -> str:
+    """Diversify escalation reason by signal, else a deterministic spread."""
+    if avg_sentiment is not None and float(avg_sentiment) < -0.30:
+        return "sentiment_drop"
+    if "dispute" in (call.get("disposition") or "").lower():
+        return "dispute"
+    return _HANDOFF_REASONS[stable_number(call_id, 0, len(_HANDOFF_REASONS) - 1)]
+
+
 def product_for_account(account_id: str | None) -> str:
     value = account_id or ""
     if "-PL-" in value:
@@ -549,6 +582,23 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     for rule_id, label in disclosure_rules.values():
         upsert(conn, "compliance_rules", {"id": rule_id, "code": rule_id.upper().replace("-", "_"), "label": label, "severity": "high", "enabled": True})
 
+    # Screen rule IDs (Compliance Risk) — keep legacy disclosure rules above for interaction_disclosures FKs.
+    screen_rules = [
+        ("r-rec", "RBI-DISC-01", "Missed call recording notice", "high"),
+        ("r-mm", "RBI-DISC-02", "Missed Mini-Miranda disclosure", "critical"),
+        ("r-dnd-disc", "RBI-DISC-03", "Missed DND / opt-out reminder", "medium"),
+        ("r-disp", "RBI-DISC-04", "Missed right-to-dispute notice", "medium"),
+        ("r-threat", "PROH-LANG-01", "Threatening language", "critical"),
+        ("r-abuse", "PROH-LANG-02", "Abusive / disrespectful tone", "high"),
+        ("r-false", "PROH-LANG-03", "False legal claim", "critical"),
+        ("r-guarantee", "PROH-LANG-04", "Guarantee-of-outcome claim", "medium"),
+        ("r-dnd-win", "CONSENT-01", "Contact outside DND window", "high"),
+        ("r-verify", "VERIFY-01", "Skipped identity verification", "high"),
+        ("r-distress", "SENT-01", "Customer distress not addressed", "medium"),
+    ]
+    for rule_id, code, label, severity in screen_rules:
+        upsert(conn, "compliance_rules", {"id": rule_id, "code": code, "label": label, "severity": severity, "enabled": True})
+
     for call in ctx["calls"]:
         call_id = call["id"]
         customer_id = call["customerId"]
@@ -581,7 +631,7 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "direction": call.get("direction") if call.get("direction") in {"inbound", "outbound"} else "outbound",
                 "status": "completed",
                 "disposition": call.get("disposition"),
-                "primary_intent": (call.get("tags") or [None])[0],
+                "primary_intent": seed_primary_intent(call, call_id),
                 "query_resolved": "resolved" in (call.get("disposition") or "").lower(),
                 "upsell_presented": any("upsell" in str(tag).lower() for tag in call.get("tags", [])),
                 "ptp_captured": "ptp" in (call.get("disposition") or "").lower(),
@@ -603,7 +653,7 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         upsert(conn, "interaction_participants", {"id": f"{call_id}-handler", "interaction_id": call_id, "participant_kind": handler_kind, "user_id": handler_user_id, "bot_id": handler_bot_id, "role": "primary", "joined_at": call.get("startedAt"), "left_at": None})
 
         if handler_kind == "human":
-            upsert(conn, "interaction_handoffs", {"id": f"handoff-{call_id}", "interaction_id": call_id, "from_kind": "bot", "from_user_id": None, "from_bot_id": "kaia-v2-4", "to_kind": "human", "to_user_id": handler_user_id, "to_bot_id": None, "to_team_id": "card-collections", "reason": "routing_rule", "queue": "Card Collections", "requested_at": call.get("startedAt"), "accepted_at": call.get("startedAt"), "completed_at": None})
+            upsert(conn, "interaction_handoffs", {"id": f"handoff-{call_id}", "interaction_id": call_id, "from_kind": "bot", "from_user_id": None, "from_bot_id": "kaia-v2-4", "to_kind": "human", "to_user_id": handler_user_id, "to_bot_id": None, "to_team_id": "card-collections", "reason": seed_handoff_reason(call, call_id, avg_sentiment), "queue": "Card Collections", "requested_at": call.get("startedAt"), "accepted_at": call.get("startedAt"), "completed_at": None})
 
         for idx, turn in enumerate(call.get("transcript", [])):
             upsert(conn, "interaction_transcript", {"id": f"{call_id}-{turn.get('id') or idx}", "interaction_id": call_id, "turn_index": idx, "speaker": turn.get("speaker") or "bot", "at_sec": turn.get("t") or 0, "text": turn.get("text") or "", "sentiment_delta": None})
@@ -719,7 +769,23 @@ def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) 
         upsert(conn, "qa_scorecard_entries", {"id": f"qa-{call['id']}-disclosure", "scorecard_id": f"qa-{call['id']}", "criterion_id": "qa-crit-disclosure", "ai_suggested_score": 90, "final_score": 88, "note": "Disclosure checked"})
         upsert(conn, "qa_scorecard_entries", {"id": f"qa-{call['id']}-empathy", "scorecard_id": f"qa-{call['id']}", "criterion_id": "qa-crit-empathy", "ai_suggested_score": 84, "final_score": 82, "note": "Handled professionally"})
         if idx <= 3:
-            upsert(conn, "violations", {"id": f"V-{idx:05d}", "interaction_id": call["id"], "customer_id": call["customerId"], "rule_id": "rule-recording", "actor_kind": "bot", "actor_user_id": None, "actor_bot_id": "kaia-v2-4", "status": "open", "assignee_user_id": "priya-nair", "description": "Sample disclosure review finding"})
+            upsert(
+                conn,
+                "violations",
+                {
+                    "id": f"V-{idx:05d}",
+                    "interaction_id": call["id"],
+                    "customer_id": call["customerId"],
+                    "rule_id": "r-rec",
+                    "actor_kind": "bot",
+                    "actor_user_id": None,
+                    "actor_bot_id": "kaia-v2-4",
+                    "status": "open",
+                    "assignee_user_id": "priya-nair",
+                    "description": "Disclosure \"Missed call recording notice\" was not read to the customer during the call.",
+                    "at_sec": 0,
+                },
+            )
     first_call = ctx["calls"][0]
     upsert(conn, "coaching_actions", {"id": "coach-1", "subject_user_id": None, "subject_bot_id": "kaia-v2-4", "scorecard_id": f"qa-{first_call['id']}", "interaction_id": first_call["id"], "action": "Review disclosure phrasing", "status": "open", "due_at": "2026-07-25T10:00:00Z"})
     upsert(conn, "calibration_sessions", {"id": "calibration-1", "interaction_id": first_call["id"], "rubric_id": "qa-rubric-v1", "status": "open"})
@@ -761,8 +827,48 @@ def seed_admin_analytics_crosscutting(conn: psycopg.Connection, ctx: dict[str, A
     upsert(conn, "analytics_daily", {"id": "analytics-2026-07-21", "tenant_id": TENANT_ID, "metric_date": "2026-07-21", "resolved_calls": 28, "escalations": 6, "ptp_count": 12, "avg_sentiment": 0.08})
     upsert(conn, "intent_aggregates", {"id": "intent-payment-2026-07-21", "tenant_id": TENANT_ID, "metric_date": "2026-07-21", "intent": "payment", "sessions": 18, "containment_rate": 0.72, "escalation_rate": 0.18, "abandonment_rate": 0.03, "avg_turns": 5.4, "avg_latency_ms": 870, "avg_sentiment": 0.11})
     upsert(conn, "escalation_reasons", {"id": "esc-sentiment-drop", "tenant_id": TENANT_ID, "reason": "sentiment_drop", "count": 6, "trend": -0.04})
-    upsert(conn, "unanswered_questions", {"id": "uq-settlement-letter", "tenant_id": TENANT_ID, "question": "Can I get a settlement letter?", "hit_count": 9, "last_seen_at": "2026-07-21T11:00:00Z", "suggested_fix_type": "faq"})
-    upsert(conn, "analytics_kb_gap_links", {"id": "gap-settlement-letter", "unanswered_question_id": "uq-settlement-letter", "kb_document_id": "kb-rbi-disclosures", "faq_pair_id": "faq-payment-link", "prompt_version_id": "prompt-v2-4", "routing_rule_id": None})
+
+    # Unanswered / RAG-miss gaps for Bot Analytics (live read — not the stub aggregate tables).
+    unanswered_gaps = [
+        ("uq-settlement-letter", "Can I get a settlement letter?", 9, "2026-07-21T11:00:00Z", "statement", "kb", True),
+        ("uq-instalments-cibil", "Can I pay in three instalments after due date without CIBIL hit?", 84, "2026-07-21T09:00:00Z", "late-fee", "kb", False),
+        ("uq-min-pay-interest", "What's the interest rate if I only pay minimum?", 71, "2026-07-21T10:30:00Z", "emi", "prompt", True),
+        ("uq-noc-closure", "How do I get a NOC after full closure?", 63, "2026-07-20T14:00:00Z", "statement", "kb", False),
+        ("uq-waiver-job-loss", "Can waiver be given if job loss proof provided?", 58, "2026-07-21T08:15:00Z", "late-fee", "both", False),
+        ("uq-foreclosure-charges", "Explain foreclosure charges for personal loan", 52, "2026-07-19T16:40:00Z", "emi", "prompt", True),
+        ("uq-emi-debit-date", "How to change EMI debit date?", 47, "2026-07-20T11:20:00Z", "emi", "kb", False),
+        ("uq-moratorium-medical", "Is there a moratorium option for medical emergency?", 41, "2026-07-18T12:00:00Z", "late-fee", "kb", False),
+        ("uq-late-fee-variance", "Why was late fee ₹599 vs standard ₹450?", 39, "2026-07-21T07:45:00Z", "dispute", "prompt", True),
+        ("uq-overdue-to-emi", "Can I convert overdue balance to EMI?", 34, "2026-07-19T09:30:00Z", "topup", "both", False),
+    ]
+    for qid, question, hits, last_seen, top_intent, fix, has_kb in unanswered_gaps:
+        upsert(
+            conn,
+            "unanswered_questions",
+            {
+                "id": qid,
+                "tenant_id": TENANT_ID,
+                "question": question,
+                "hit_count": hits,
+                "last_seen_at": last_seen,
+                "suggested_fix_type": fix,
+                "top_intent": top_intent,
+            },
+        )
+        if has_kb:
+            link_id = "gap-settlement-letter" if qid == "uq-settlement-letter" else f"gap-{qid}"
+            upsert(
+                conn,
+                "analytics_kb_gap_links",
+                {
+                    "id": link_id,
+                    "unanswered_question_id": qid,
+                    "kb_document_id": "kb-rbi-disclosures",
+                    "faq_pair_id": "faq-payment-link",
+                    "prompt_version_id": "prompt-v2-4",
+                    "routing_rule_id": None,
+                },
+            )
 
     upsert(conn, "export_jobs", {"id": "EX-0001", "actor_user_id": "priya-nair", "format": "zip", "scope": {"from": "2026-07-01", "to": "2026-07-21"}, "watermark": "HDFC Retail", "status": "completed", "storage_ref": f"minio://export-bundles/{TENANT_ID}/EX-0001.zip"})
     first_redaction = conn.execute("SELECT id FROM redaction_records ORDER BY id LIMIT 1").fetchone()
