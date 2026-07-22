@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  status TEXT NOT NULL CHECK (status IN ('bot','needs_human','escalated','mine')),
+  status TEXT NOT NULL CHECK (status IN ('bot','needs_human','escalated','assigned')),
   channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -168,7 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_conversations_customer_id ON conversations(custom
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  sender TEXT NOT NULL CHECK (sender IN ('customer','human','bot','system')),
+  sender TEXT NOT NULL CHECK (sender IN ('customer','bot','agent','system')),
   body TEXT NOT NULL,
   delivery_status TEXT,
   provider_ref TEXT,

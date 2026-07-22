@@ -9,26 +9,29 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { cannedResponses, type Thread } from "@/data/inbox-seed";
+import type { Thread } from "@/data/inbox-seed";
+import { useCannedResponses } from "@/api/inbox";
 
 export function Composer({
   thread,
-  tookOver,
   onTakeOver,
   onSend,
+  busy = false,
 }: {
   thread: Thread;
-  tookOver: boolean;
   onTakeOver: () => void;
   onSend: (text: string) => void;
+  busy?: boolean;
 }) {
   const [text, setText] = useState("");
   const [cannedOpen, setCannedOpen] = useState(false);
-  const botHandling = thread.status === "bot" && !tookOver;
-  const disabled = botHandling;
+  const { data: cannedResponses = [] } = useCannedResponses();
+  // Bot owns the thread until current agent takes over (isMine).
+  const botHandling = thread.status === "bot" && !thread.isMine;
+  const disabled = botHandling || busy;
 
   const submit = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || disabled) return;
     onSend(text.trim());
     setText("");
   };
@@ -85,12 +88,13 @@ export function Composer({
 
       {/* Composer body */}
       <div className="relative flex items-end gap-2 px-4 py-3">
-        {disabled && (
+        {botHandling && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
             <button
               type="button"
               onClick={onTakeOver}
-              className="pointer-events-auto inline-flex items-center gap-2 rounded-md bg-brand-primary px-4 py-2 text-[13px] font-semibold text-white shadow-pop transition-transform hover:bg-brand-primary-hover active:scale-[0.98]"
+              disabled={busy}
+              className="pointer-events-auto inline-flex items-center gap-2 rounded-md bg-brand-primary px-4 py-2 text-[13px] font-semibold text-white shadow-pop transition-transform hover:bg-brand-primary-hover active:scale-[0.98] disabled:opacity-60"
             >
               Take over from bot
             </button>
@@ -127,7 +131,8 @@ export function Composer({
           }}
           placeholder="Reply on WhatsApp…"
           rows={1}
-          className="min-h-[40px] max-h-40 flex-1 resize-none rounded-md border border-[var(--border-token)] bg-surface-sunken px-3 py-2 text-[13.5px] placeholder:text-text-muted focus:border-brand-primary focus:bg-white focus:outline-none"
+          disabled={disabled}
+          className="min-h-[40px] max-h-40 flex-1 resize-none rounded-md border border-[var(--border-token)] bg-surface-sunken px-3 py-2 text-[13.5px] placeholder:text-text-muted focus:border-brand-primary focus:bg-white focus:outline-none disabled:opacity-60"
         />
         <button
           type="button"
@@ -140,7 +145,7 @@ export function Composer({
         <button
           type="button"
           onClick={submit}
-          disabled={!text.trim()}
+          disabled={!text.trim() || disabled}
           className="inline-flex h-9 items-center gap-1.5 rounded-md bg-brand-primary px-3 text-[13px] font-semibold text-white transition-colors hover:bg-brand-primary-hover disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
         >
           Send

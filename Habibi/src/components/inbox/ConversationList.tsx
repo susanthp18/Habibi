@@ -1,10 +1,10 @@
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadStatus } from "@/data/inbox-seed";
-import { Avatar, channelMeta, slaColor, statusMeta } from "./meta";
+import { Avatar, channelMeta, chipStatus, slaColor, statusMeta } from "./meta";
 import { useMemo, useState } from "react";
 
-type Filter = "all" | ThreadStatus;
+type Filter = "all" | ThreadStatus | "mine";
 
 const filters: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },
@@ -32,16 +32,24 @@ export function ConversationList({
       bot: 0,
       needs_human: 0,
       escalated: 0,
+      assigned: 0,
       mine: 0,
     };
-    for (const t of threads) c[t.status] += 1;
+    for (const t of threads) {
+      c[t.status] += 1;
+      if (t.isMine) c.mine += 1;
+    }
     return c;
   }, [threads]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
     return threads.filter((t) => {
-      if (filter !== "all" && t.status !== filter) return false;
+      if (filter === "mine") {
+        if (!t.isMine) return false;
+      } else if (filter !== "all" && t.status !== filter) {
+        return false;
+      }
       if (!term) return true;
       return (
         t.customer.toLowerCase().includes(term) ||
@@ -101,6 +109,7 @@ export function ConversationList({
           {filtered.map((t, i) => {
             const isActive = t.id === activeId;
             const ChanIcon = channelMeta[t.channel].icon;
+            const chip = chipStatus(t);
             return (
               <li key={t.id}>
                 <button
@@ -141,10 +150,10 @@ export function ConversationList({
                       <span
                         className={cn(
                           "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                          statusMeta[t.status].className,
+                          statusMeta[chip].className,
                         )}
                       >
-                        {statusMeta[t.status].label}
+                        {statusMeta[chip].label}
                       </span>
                       <span className="font-mono text-[10px] text-text-muted">
                         {t.accountId}

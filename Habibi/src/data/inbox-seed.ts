@@ -1,6 +1,7 @@
 export type Channel = "whatsapp" | "sms" | "email";
 export type Sender = "customer" | "bot" | "agent";
-export type ThreadStatus = "bot" | "needs_human" | "escalated" | "mine";
+/** Stored conversation status — "mine" is derived (assignedUserId === me). */
+export type ThreadStatus = "bot" | "needs_human" | "escalated" | "assigned";
 export type SlaLevel = "ok" | "warn" | "breach";
 export type Sentiment = "positive" | "neutral" | "negative";
 export type DeliveryStatus = "sent" | "delivered" | "read";
@@ -51,6 +52,9 @@ export interface Thread {
   accountId: string;
   channel: Channel;
   status: ThreadStatus;
+  /** Owning agent; Mine filter = assignedUserId === current user. */
+  assignedUserId: string | null;
+  isMine: boolean;
   sla: SlaLevel;
   unread: number;
   lastTime: string;
@@ -97,6 +101,8 @@ export const threads: Thread[] = [
     accountId: "AC-889123",
     channel: "whatsapp",
     status: "needs_human",
+    assignedUserId: null,
+    isMine: false,
     sla: "warn",
     unread: 2,
     lastTime: "3:41 PM",
@@ -140,6 +146,8 @@ export const threads: Thread[] = [
     accountId: "AC-772044",
     channel: "whatsapp",
     status: "bot",
+    assignedUserId: null,
+    isMine: false,
     sla: "ok",
     unread: 0,
     lastTime: "3:29 PM",
@@ -178,6 +186,8 @@ export const threads: Thread[] = [
     accountId: "AC-654321",
     channel: "email",
     status: "escalated",
+    assignedUserId: null,
+    isMine: false,
     sla: "breach",
     unread: 5,
     lastTime: "2:58 PM",
@@ -217,7 +227,9 @@ export const threads: Thread[] = [
     customer: "Meera Iyer",
     accountId: "AC-441120",
     channel: "whatsapp",
-    status: "mine",
+    status: "assigned",
+    assignedUserId: "priya-nair",
+    isMine: true,
     sla: "ok",
     unread: 0,
     lastTime: "1:14 PM",
@@ -259,6 +271,8 @@ export const threads: Thread[] = [
     accountId: "AC-556677",
     channel: "whatsapp",
     status: "bot",
+    assignedUserId: null,
+    isMine: false,
     sla: "ok",
     unread: 0,
     lastTime: "12:48 PM",
@@ -293,6 +307,8 @@ export const threads: Thread[] = [
     accountId: "AC-880013",
     channel: "email",
     status: "needs_human",
+    assignedUserId: null,
+    isMine: false,
     sla: "warn",
     unread: 1,
     lastTime: "11:32 AM",
@@ -326,6 +342,8 @@ export const threads: Thread[] = [
     accountId: "AC-119988",
     channel: "sms",
     status: "needs_human",
+    assignedUserId: null,
+    isMine: false,
     sla: "breach",
     unread: 1,
     lastTime: "10:04 AM",
@@ -358,6 +376,8 @@ export const threads: Thread[] = [
     accountId: "AC-224466",
     channel: "whatsapp",
     status: "bot",
+    assignedUserId: null,
+    isMine: false,
     sla: "warn",
     unread: 0,
     lastTime: "9:47 AM",
@@ -392,6 +412,8 @@ export const threads: Thread[] = [
     accountId: "AC-330012",
     channel: "whatsapp",
     status: "bot",
+    assignedUserId: null,
+    isMine: false,
     sla: "ok",
     unread: 0,
     lastTime: "Yesterday",
@@ -424,6 +446,8 @@ export const threads: Thread[] = [
     accountId: "AC-771122",
     channel: "sms",
     status: "escalated",
+    assignedUserId: null,
+    isMine: false,
     sla: "breach",
     unread: 3,
     lastTime: "Yesterday",

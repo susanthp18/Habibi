@@ -4076,42 +4076,602 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
     }
 
 
+# ---------------------------------------------------------------------------
+# QA Scorecards — rubric-driven scoring queue (scorecard core MVP).
+# Coaching / calibration stay seed-backed until their endpoints land.
+# ---------------------------------------------------------------------------
+
+_QA_DEFAULT_RUBRIC_ID = "rubric-v1"
+_QA_STATUSES = frozenset({"unscored", "ai_draft", "final"})
+
+
+def _qa_status_screen(status: str | None) -> str:
+    raw = (status or "").strip().lower()
+    if raw in {"final", "completed", "reviewed"}:
+        return "final"
+    if raw in {"ai_draft", "draft", "in_review"}:
+        return "ai_draft"
+    return "unscored"
+
+
+def _qa_band_for(total: float) -> str:
+    if total >= 85:
+        return "green"
+    if total >= 70:
+        return "amber"
+    return "red"
+
+
+def _qa_score_float(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _load_rubric_tree(conn: Any, rubric_id: str = _QA_DEFAULT_RUBRIC_ID) -> dict[str, Any] | None:
+    rubric = _one(
+        conn.execute(
+            text("SELECT id, name, version FROM qa_rubrics WHERE id = :id AND enabled = true"),
+            {"id": rubric_id},
+        )
+    )
+    if rubric is None:
+        rubric = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, name, version
+                    FROM qa_rubrics
+                    WHERE enabled = true
+                    ORDER BY updated_at DESC, id
+                    LIMIT 1
+                    """
+                )
+            )
+        )
+    if rubric is None:
+        return None
+    sections = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, name AS label, weight
+                FROM qa_rubric_sections
+                WHERE rubric_id = :rubric_id
+                ORDER BY weight DESC, id
+                """
+            ),
+            {"rubric_id": rubric["id"]},
+        )
+    )
+    section_ids = [s["id"] for s in sections]
+    criteria_by_section: dict[str, list[dict[str, Any]]] = {sid: [] for sid in section_ids}
+    if section_ids:
+        criteria = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, section_id, label, coalesce(description, '') AS description,
+                           weight, critical_fail
+                    FROM qa_rubric_criteria
+                    WHERE section_id = ANY(:ids)
+                    ORDER BY weight DESC, id
+                    """
+                ),
+                {"ids": section_ids},
+            )
+        )
+        for c in criteria:
+            criteria_by_section.setdefault(c["section_id"], []).append(
+                {
+                    "id": c["id"],
+                    "label": c["label"],
+                    "description": c["description"] or "",
+                    "weight": _qa_score_float(c["weight"]),
+                    "critical": bool(c["critical_fail"]) or None,
+                }
+            )
+    return {
+        "id": rubric["id"],
+        "name": rubric["name"],
+        "version": rubric["version"],
+        "sections": [
+            {
+                "id": s["id"],
+                "label": s["label"],
+                "weight": _qa_score_float(s["weight"]),
+                "criteria": [
+                    {k: v for k, v in crit.items() if not (k == "critical" and v is None)}
+                    for crit in criteria_by_section.get(s["id"], [])
+                ],
+            }
+            for s in sections
+        ],
+    }
+
+
+def get_rubric(rubric_id: str | None = None) -> dict[str, Any]:
+    with engine.connect() as conn:
+        tree = _load_rubric_tree(conn, rubric_id or _QA_DEFAULT_RUBRIC_ID)
+        if tree is None:
+            raise KeyError("rubric_not_found")
+        return tree
+
+
+def _qa_all_criteria(rubric: dict[str, Any]) -> list[dict[str, Any]]:
+    return [c for s in rubric["sections"] for c in s["criteria"]]
+
+
+def _qa_section_total(section: dict[str, Any], entries_by_id: dict[str, dict[str, Any]]) -> float:
+    weight_sum = sum(_qa_score_float(c["weight"]) for c in section["criteria"]) or 1.0
+    acc = 0.0
+    for c in section["criteria"]:
+        entry = entries_by_id.get(c["id"]) or {}
+        score = _qa_score_float(entry.get("score"))
+        acc += (score / 5.0) * (_qa_score_float(c["weight"]) / weight_sum)
+    return acc * 100.0
+
+
+def _qa_compute_total(rubric: dict[str, Any], entries: list[dict[str, Any]]) -> float:
+    by_id = {e["criterionId"]: e for e in entries}
+    has_critical_zero = any(
+        c.get("critical") and _qa_score_float((by_id.get(c["id"]) or {}).get("score")) == 0
+        for s in rubric["sections"]
+        for c in s["criteria"]
+    )
+    weight_sum = sum(_qa_score_float(s["weight"]) for s in rubric["sections"]) or 1.0
+    total = sum(
+        (_qa_section_total(s, by_id) * _qa_score_float(s["weight"])) / weight_sum
+        for s in rubric["sections"]
+    )
+    return min(total, 40.0) if has_critical_zero else total
+
+
+def _qa_entries_grouped(conn: Any, scorecard_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not scorecard_ids:
+        return {}
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT scorecard_id, criterion_id, ai_suggested_score, final_score, note, accepted
+                FROM qa_scorecard_entries
+                WHERE scorecard_id = ANY(:ids)
+                ORDER BY criterion_id
+                """
+            ),
+            {"ids": scorecard_ids},
+        )
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        grouped.setdefault(r["scorecard_id"], []).append(
+            {
+                "criterionId": r["criterion_id"],
+                "aiSuggested": _qa_score_float(r["ai_suggested_score"]),
+                "score": _qa_score_float(r["final_score"]),
+                "note": r["note"] or None,
+                "accepted": r["accepted"],
+            }
+        )
+    return grouped
+
+
+def _qa_pad_entries(rubric: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id = {e["criterionId"]: e for e in entries}
+    padded: list[dict[str, Any]] = []
+    for c in _qa_all_criteria(rubric):
+        existing = by_id.get(c["id"])
+        if existing:
+            padded.append(
+                {
+                    "criterionId": existing["criterionId"],
+                    "aiSuggested": _qa_score_float(existing.get("aiSuggested")),
+                    "score": _qa_score_float(existing.get("score")),
+                    "note": existing.get("note") or None,
+                    "accepted": existing.get("accepted"),
+                }
+            )
+        else:
+            padded.append(
+                {
+                    "criterionId": c["id"],
+                    "aiSuggested": 0.0,
+                    "score": 0.0,
+                    "note": None,
+                    "accepted": None,
+                }
+            )
+    return padded
+
+
+def _qa_handled_by(handler_kind: str | None, handler_name: str | None, has_handoff: bool) -> dict[str, str]:
+    label = handler_name or ("Bot" if handler_kind == "bot" else "Agent")
+    if has_handoff:
+        return {"kind": "handoff", "label": label}
+    kind = "bot" if handler_kind == "bot" else "human"
+    return {"kind": kind, "label": label}
+
+
+def _qa_ensure_user(conn: Any, user_id: str | None) -> None:
+    if user_id is None:
+        return
+    if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": user_id}).fetchone():
+        raise KeyError("user_not_found")
+
+
+def _qa_ensure_bot(conn: Any, bot_id: str | None) -> None:
+    if bot_id is None:
+        return
+    if not conn.execute(text("SELECT 1 FROM bots WHERE id = :id"), {"id": bot_id}).fetchone():
+        raise KeyError("bot_not_found")
+
+
+def _qa_ensure_criterion(conn: Any, criterion_id: str) -> None:
+    if not conn.execute(text("SELECT 1 FROM qa_rubric_criteria WHERE id = :id"), {"id": criterion_id}).fetchone():
+        raise KeyError(f"criterion_not_found:{criterion_id}")
+
+
+def _qa_upsert_entries(conn: Any, scorecard_id: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Upsert per-criterion rows; returns the screen-shaped entries written."""
+    written: list[dict[str, Any]] = []
+    for raw in entries:
+        criterion_id = raw.get("criterionId")
+        if not criterion_id:
+            raise ValueError("entries require criterionId")
+        _qa_ensure_criterion(conn, criterion_id)
+        existing = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, ai_suggested_score, final_score, note, accepted
+                    FROM qa_scorecard_entries
+                    WHERE scorecard_id = :scorecard_id AND criterion_id = :criterion_id
+                    """
+                ),
+                {"scorecard_id": scorecard_id, "criterion_id": criterion_id},
+            )
+        )
+        ai = raw["aiSuggested"] if "aiSuggested" in raw and raw["aiSuggested"] is not None else (
+            _qa_score_float(existing["ai_suggested_score"]) if existing else 0.0
+        )
+        score = raw["score"] if "score" in raw and raw["score"] is not None else (
+            _qa_score_float(existing["final_score"]) if existing else 0.0
+        )
+        note = raw["note"] if "note" in raw else (existing["note"] if existing else None)
+        accepted = raw["accepted"] if "accepted" in raw else (existing["accepted"] if existing else None)
+        entry_id = existing["id"] if existing else f"{scorecard_id}-{criterion_id}"
+        conn.execute(
+            text(
+                """
+                INSERT INTO qa_scorecard_entries
+                  (id, scorecard_id, criterion_id, ai_suggested_score, final_score, note, accepted)
+                VALUES
+                  (:id, :scorecard_id, :criterion_id, :ai, :score, :note, :accepted)
+                ON CONFLICT (id) DO UPDATE
+                  SET ai_suggested_score = EXCLUDED.ai_suggested_score,
+                      final_score = EXCLUDED.final_score,
+                      note = EXCLUDED.note,
+                      accepted = EXCLUDED.accepted,
+                      updated_at = now()
+                """
+            ),
+            {
+                "id": entry_id,
+                "scorecard_id": scorecard_id,
+                "criterion_id": criterion_id,
+                "ai": ai,
+                "score": score,
+                "note": note,
+                "accepted": accepted,
+            },
+        )
+        written.append(
+            {
+                "criterionId": criterion_id,
+                "aiSuggested": _qa_score_float(ai),
+                "score": _qa_score_float(score),
+                "note": note,
+                "accepted": accepted,
+            }
+        )
+    return written
+
+
+_SCORECARD_LIST_SQL = """
+    SELECT qs.id, qs.interaction_id, qs.rubric_id, qs.status, qs.total_score, qs.band,
+           qs.scored_at, qs.created_at,
+           qs.subject_user_id, qs.subject_bot_id, qs.reviewer_user_id,
+           c.name AS customer_name,
+           coalesce(i.disposition, '') AS disposition,
+           i.handler_kind,
+           coalesce(hu.name, hb.name) AS handler_name,
+           su.name AS subject_user_name,
+           sb.name AS subject_bot_name,
+           ru.name AS reviewer_name,
+           EXISTS (
+             SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = qs.interaction_id
+           ) AS has_handoff
+    FROM qa_scorecards qs
+    JOIN interactions i ON i.id = qs.interaction_id
+    JOIN customers c ON c.id = i.customer_id
+    LEFT JOIN users hu ON hu.id = i.handler_user_id
+    LEFT JOIN bots hb ON hb.id = i.handler_bot_id
+    LEFT JOIN users su ON su.id = qs.subject_user_id
+    LEFT JOIN bots sb ON sb.id = qs.subject_bot_id
+    LEFT JOIN users ru ON ru.id = qs.reviewer_user_id
+"""
+
+
+def _scorecard_rows_to_screen(
+    conn: Any,
+    rows: list[dict[str, Any]],
+    rubric: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    rubric = rubric or _load_rubric_tree(conn, rows[0].get("rubric_id") or _QA_DEFAULT_RUBRIC_ID)
+    if rubric is None:
+        raise KeyError("rubric_not_found")
+    entries_by = _qa_entries_grouped(conn, [r["id"] for r in rows])
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        agent_id = r["subject_user_name"] or r["subject_bot_name"] or r["handler_name"] or "Unknown"
+        entries = _qa_pad_entries(rubric, entries_by.get(r["id"]) or [])
+        result.append(
+            {
+                "id": r["id"],
+                "callId": r["interaction_id"],
+                "customerName": r["customer_name"],
+                "disposition": r["disposition"] or "",
+                "handledBy": _qa_handled_by(r["handler_kind"], r["handler_name"], bool(r["has_handoff"])),
+                "agentId": agent_id,
+                "reviewer": r["reviewer_name"] or None,
+                "status": _qa_status_screen(r["status"]),
+                "entries": entries,
+                "scoredAt": r["scored_at"],
+                "createdAt": r["created_at"],
+            }
+        )
+    return result
+
+
+def list_scorecards() -> list[dict[str, Any]]:
+    """QA Scoring Queue — screen Scorecard shape."""
+    with engine.connect() as conn:
+        rubric = _load_rubric_tree(conn)
+        rows = _rows(
+            conn.execute(
+                text(
+                    _SCORECARD_LIST_SQL
+                    + """
+                    ORDER BY
+                      CASE qs.status
+                        WHEN 'unscored' THEN 0
+                        WHEN 'ai_draft' THEN 1
+                        WHEN 'draft' THEN 1
+                        WHEN 'final' THEN 2
+                        ELSE 3
+                      END,
+                      i.started_at DESC NULLS LAST,
+                      qs.created_at DESC
+                    """
+                )
+            )
+        )
+        return _scorecard_rows_to_screen(conn, rows, rubric)
+
+
+def _scorecard_by_id(conn: Any, scorecard_id: str) -> dict[str, Any]:
+    row = _one(
+        conn.execute(
+            text(_SCORECARD_LIST_SQL + " WHERE qs.id = :id"),
+            {"id": scorecard_id},
+        )
+    )
+    if row is None:
+        raise KeyError("scorecard_not_found")
+    return _scorecard_rows_to_screen(conn, [row])[0]
+
+
 def create_scorecard(payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
-        _ensure_interaction(conn, payload["interactionId"])
-        scorecard_id = _id("QA")
+        interaction = _ensure_interaction(conn, payload["interactionId"])
+        rubric_id = payload.get("rubricId") or _QA_DEFAULT_RUBRIC_ID
+        rubric = _load_rubric_tree(conn, rubric_id)
+        if rubric is None:
+            raise KeyError("rubric_not_found")
+        subject_user_id = payload.get("subjectUserId")
+        subject_bot_id = payload.get("subjectBotId")
+        if subject_user_id and subject_bot_id:
+            raise ValueError("set subjectUserId or subjectBotId, not both")
+        _qa_ensure_user(conn, subject_user_id)
+        _qa_ensure_bot(conn, subject_bot_id)
+        reviewer_user_id = payload.get("reviewerUserId")
+        _qa_ensure_user(conn, reviewer_user_id)
+        status = _qa_status_screen(payload.get("status") or "unscored")
+        if status not in _QA_STATUSES:
+            raise ValueError(f"invalid status: {status}")
+        scorecard_id = f"qa-{interaction['id']}"
+        if conn.execute(text("SELECT 1 FROM qa_scorecards WHERE id = :id"), {"id": scorecard_id}).fetchone():
+            scorecard_id = _id("QA")
+        entries_payload = payload.get("entries") or []
+        total = payload.get("totalScore")
+        band = payload.get("band")
         conn.execute(
             text(
                 """
                 INSERT INTO qa_scorecards
                   (id, interaction_id, rubric_id, subject_user_id, subject_bot_id, reviewer_user_id,
-                   status, total_score, band)
+                   status, total_score, band, scored_at)
                 VALUES
                   (:id, :interaction_id, :rubric_id, :subject_user_id, :subject_bot_id, :reviewer_user_id,
-                   'completed', :total_score, :band)
+                   :status, :total_score, :band, :scored_at)
                 """
             ),
-            {"id": scorecard_id, "interaction_id": payload["interactionId"], "rubric_id": payload.get("rubricId") or "qa-rubric-v1", "subject_user_id": payload.get("subjectUserId"), "subject_bot_id": payload.get("subjectBotId"), "reviewer_user_id": payload.get("reviewerUserId") or _actor_user_id(), "total_score": payload.get("totalScore"), "band": payload.get("band")},
+            {
+                "id": scorecard_id,
+                "interaction_id": payload["interactionId"],
+                "rubric_id": rubric["id"],
+                "subject_user_id": subject_user_id,
+                "subject_bot_id": subject_bot_id,
+                "reviewer_user_id": reviewer_user_id or (_actor_user_id() if status == "final" else None),
+                "status": status,
+                "total_score": total,
+                "band": band,
+                "scored_at": datetime.now(timezone.utc) if status == "final" else None,
+            },
         )
-        _activity(conn, "qa_scorecard", scorecard_id, "scorecard_created", "QA scorecard created")
-        return {"id": scorecard_id, "status": "completed"}
+        if entries_payload:
+            written = _qa_upsert_entries(conn, scorecard_id, entries_payload)
+            total = _qa_compute_total(rubric, written)
+            band = _qa_band_for(total)
+            conn.execute(
+                text(
+                    """
+                    UPDATE qa_scorecards
+                    SET total_score = :total, band = :band
+                    WHERE id = :id
+                    """
+                ),
+                {"id": scorecard_id, "total": total, "band": band},
+            )
+        _activity(
+            conn,
+            "qa_scorecard",
+            scorecard_id,
+            "scorecard_created",
+            "QA scorecard created",
+            customer_id=interaction["customer_id"],
+        )
+        return _scorecard_by_id(conn, scorecard_id)
 
 
 def patch_scorecard(scorecard_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Payload arrives with exclude_unset: a present key is intentional.
+
+    entries[] upserts qa_scorecard_entries and recomputes total_score/band.
+    status=final sets scored_at + reviewer and writes a finalize activity row.
+    """
     with engine.begin() as conn:
-        if not conn.execute(text("SELECT 1 FROM qa_scorecards WHERE id = :id"), {"id": scorecard_id}).fetchone():
+        existing = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT qs.id, qs.rubric_id, qs.status, qs.reviewer_user_id, i.customer_id
+                    FROM qa_scorecards qs
+                    JOIN interactions i ON i.id = qs.interaction_id
+                    WHERE qs.id = :id
+                    """
+                ),
+                {"id": scorecard_id},
+            )
+        )
+        if existing is None:
             raise KeyError("scorecard_not_found")
-        mapping = {"status": "status", "totalScore": "total_score", "band": "band"}
-        updates = []
-        params = {"id": scorecard_id}
-        for key, column in mapping.items():
-            if payload.get(key) is not None:
-                updates.append(f"{column} = :{column}")
-                params[column] = payload[key]
+        rubric = _load_rubric_tree(conn, existing["rubric_id"] or _QA_DEFAULT_RUBRIC_ID)
+        if rubric is None:
+            raise KeyError("rubric_not_found")
+
+        if "subjectUserId" in payload and "subjectBotId" in payload:
+            if payload["subjectUserId"] and payload["subjectBotId"]:
+                raise ValueError("set subjectUserId or subjectBotId, not both")
+        if "subjectUserId" in payload:
+            _qa_ensure_user(conn, payload["subjectUserId"])
+        if "subjectBotId" in payload:
+            _qa_ensure_bot(conn, payload["subjectBotId"])
+        if "reviewerUserId" in payload:
+            _qa_ensure_user(conn, payload["reviewerUserId"])
+
+        status = _qa_status_screen(existing["status"])
+        if "status" in payload and payload["status"] is not None:
+            status = _qa_status_screen(payload["status"])
+            if status not in _QA_STATUSES:
+                raise ValueError(f"invalid status: {status}")
+        elif "entries" in payload and payload["entries"] is not None and status == "unscored":
+            # Saving criterion edits from unscored promotes to AI draft.
+            status = "ai_draft"
+
+        entries_written: list[dict[str, Any]] | None = None
+        if "entries" in payload and payload["entries"] is not None:
+            entries_written = _qa_upsert_entries(conn, scorecard_id, payload["entries"])
+
+        updates: list[str] = []
+        params: dict[str, Any] = {"id": scorecard_id}
+
+        if status != _qa_status_screen(existing["status"]) or ("status" in payload and payload["status"] is not None):
+            updates.append("status = :status")
+            params["status"] = status
+
+        if "subjectUserId" in payload:
+            updates.append("subject_user_id = :subject_user_id")
+            params["subject_user_id"] = payload["subjectUserId"]
+            if payload["subjectUserId"]:
+                updates.append("subject_bot_id = NULL")
+        if "subjectBotId" in payload:
+            updates.append("subject_bot_id = :subject_bot_id")
+            params["subject_bot_id"] = payload["subjectBotId"]
+            if payload["subjectBotId"]:
+                updates.append("subject_user_id = NULL")
+
+        reviewer_user_id = existing["reviewer_user_id"]
+        if "reviewerUserId" in payload:
+            reviewer_user_id = payload["reviewerUserId"]
+            updates.append("reviewer_user_id = :reviewer_user_id")
+            params["reviewer_user_id"] = reviewer_user_id
+
+        if entries_written is not None:
+            # Merge with any criteria not in this patch so totals stay complete.
+            grouped = _qa_entries_grouped(conn, [scorecard_id]).get(scorecard_id) or []
+            padded = _qa_pad_entries(rubric, grouped)
+            total = _qa_compute_total(rubric, padded)
+            band = _qa_band_for(total) if status != "unscored" else None
+            updates.extend(["total_score = :total_score", "band = :band"])
+            params["total_score"] = total if status != "unscored" else None
+            params["band"] = band
+        else:
+            if "totalScore" in payload:
+                updates.append("total_score = :total_score")
+                params["total_score"] = payload["totalScore"]
+            if "band" in payload:
+                updates.append("band = :band")
+                params["band"] = payload["band"]
+
+        if status == "final":
+            if "reviewerUserId" not in payload:
+                reviewer_user_id = reviewer_user_id or _actor_user_id()
+                updates.append("reviewer_user_id = :reviewer_user_id")
+                params["reviewer_user_id"] = reviewer_user_id
+            updates.append("scored_at = coalesce(scored_at, now())")
+        elif "status" in payload and status != "final":
+            updates.append("scored_at = NULL")
+
         if updates:
             conn.execute(text(f"UPDATE qa_scorecards SET {', '.join(updates)} WHERE id = :id"), params)
-        _activity(conn, "qa_scorecard", scorecard_id, "scorecard_updated", "QA scorecard updated", payload.get("status"))
-        return {"id": scorecard_id, "status": payload.get("status")}
+
+        if status == "final" and _qa_status_screen(existing["status"]) != "final":
+            _activity(
+                conn,
+                "qa_scorecard",
+                scorecard_id,
+                "scorecard_finalized",
+                "QA scorecard published",
+                customer_id=existing["customer_id"],
+            )
+        else:
+            _activity(
+                conn,
+                "qa_scorecard",
+                scorecard_id,
+                "scorecard_updated",
+                "QA scorecard updated",
+                status,
+                customer_id=existing["customer_id"],
+            )
+        return _scorecard_by_id(conn, scorecard_id)
 
 
 def create_interaction(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
@@ -4194,3 +4754,646 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
         response = {"id": interaction_id, "spawned": spawned}
         _store_idempotent_response(conn, idempotency_key, endpoint, response)
         return response
+
+
+# ---------------------------------------------------------------------------
+# Conversation Inbox
+# ---------------------------------------------------------------------------
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _inbox_clock(value: Any) -> str:
+    """Display clock matching the Inbox seed style: '3:41 PM'."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+    if not isinstance(value, datetime):
+        return str(value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    local = value.astimezone(_IST)
+    hour = local.hour % 12 or 12
+    ampm = "AM" if local.hour < 12 else "PM"
+    return f"{hour}:{local.minute:02d} {ampm}"
+
+
+def _inbox_relative(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+    if not isinstance(value, datetime):
+        return str(value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - value.astimezone(timezone.utc)
+    mins = int(delta.total_seconds() // 60)
+    if mins < 1:
+        return "just now"
+    if mins < 60:
+        return f"{mins}m ago"
+    hours = mins // 60
+    if hours < 48:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
+
+
+def _inbox_sla(last_customer_at: Any, status: str) -> str:
+    """Derive SLA from age of last customer inbound. Seed rows often share one
+    sent_at, so fall back gently rather than marking everything breach."""
+    if status == "bot":
+        return "ok"
+    if last_customer_at is None:
+        return "ok"
+    if isinstance(last_customer_at, str):
+        try:
+            last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
+        except ValueError:
+            return "ok"
+    if not isinstance(last_customer_at, datetime):
+        return "ok"
+    if last_customer_at.tzinfo is None:
+        last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
+    age_h = (datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)).total_seconds() / 3600
+    if age_h < 4:
+        return "ok"
+    if age_h < 24:
+        return "warn"
+    return "breach"
+
+
+def _inbox_sentiment(label: str | None, avg: float | None) -> str:
+    if label in {"positive", "neutral", "negative"}:
+        return label
+    if avg is None:
+        return "neutral"
+    if avg > 0.15:
+        return "positive"
+    if avg < -0.15:
+        return "negative"
+    return "neutral"
+
+
+def _inbox_risk(risk: str | None) -> str:
+    if not risk:
+        return "Medium"
+    title = risk[:1].upper() + risk[1:].lower()
+    return title if title in {"High", "Medium", "Low"} else "Medium"
+
+
+def _inbox_promise_status(status: str | None) -> str:
+    mapping = {
+        "kept": "Kept",
+        "broken": "Broken",
+        "partial": "Partial",
+        "upcoming": "Pending",
+        "due_today": "Pending",
+        "pending": "Pending",
+    }
+    return mapping.get((status or "").lower(), "Pending")
+
+
+def _inbox_channel(channel: str | None) -> str:
+    if channel in {"whatsapp", "sms", "email"}:
+        return channel
+    return "whatsapp"
+
+
+def _inbox_delivery(status: str | None, sender: str) -> str | None:
+    if sender not in {"bot", "agent"}:
+        return None
+    if status in {"sent", "delivered", "read"}:
+        return status
+    return "delivered"
+
+
+def _inbox_contactable(dnd: bool, preferred_window: str | None) -> bool:
+    if dnd:
+        return False
+    # Evaluate against "now" in IST — same window helper as callbacks.
+    return not _outside_preferred_window(
+        datetime.now(_IST).isoformat(), preferred_window
+    )
+
+
+def _inbox_aging(dpd: int | None) -> str:
+    days = int(dpd or 0)
+    if days <= 0:
+        return "Current"
+    return f"{days} days overdue"
+
+
+def _conversation_messages(conn: Any, conversation_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not conversation_ids:
+        return {}
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, conversation_id, sender, body, delivery_status, sent_at, created_at
+                FROM messages
+                WHERE conversation_id = ANY(:ids)
+                ORDER BY COALESCE(sent_at, created_at), id
+                """
+            ),
+            {"ids": conversation_ids},
+        )
+    )
+    events = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, entity_id, at, label, kind
+                FROM activity_events
+                WHERE entity_type = 'conversation'
+                  AND entity_id = ANY(:ids)
+                  AND kind = 'conversation_takeover'
+                ORDER BY at, id
+                """
+            ),
+            {"ids": conversation_ids},
+        )
+    )
+
+    def _ts(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return datetime.min.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+    staged: dict[str, list[tuple[datetime, str, dict[str, Any]]]] = {
+        cid: [] for cid in conversation_ids
+    }
+    for r in rows:
+        clock = _inbox_clock(r["sent_at"] or r["created_at"])
+        sort_at = _ts(r["sent_at"] or r["created_at"])
+        if r["sender"] == "system":
+            item = {"id": r["id"], "kind": "system", "text": r["body"], "time": clock}
+        else:
+            sender = r["sender"] if r["sender"] in {"customer", "bot", "agent"} else "bot"
+            item = {
+                "id": r["id"],
+                "sender": sender,
+                "text": r["body"],
+                "time": clock,
+                "delivery": _inbox_delivery(r["delivery_status"], sender),
+            }
+        staged[r["conversation_id"]].append((sort_at, r["id"], item))
+
+    for ev in events:
+        cid = ev["entity_id"]
+        if cid not in staged:
+            continue
+        label = ev["label"] or ev["kind"]
+        if any(item.get("kind") == "system" and item.get("text") == label for _, _, item in staged[cid]):
+            continue
+        staged[cid].append(
+            (
+                _ts(ev["at"]),
+                ev["id"],
+                {
+                    "id": ev["id"],
+                    "kind": "system",
+                    "text": label,
+                    "time": _inbox_clock(ev["at"]),
+                },
+            )
+        )
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for cid, items in staged.items():
+        items.sort(key=lambda t: (t[0], t[1]))
+        grouped[cid] = [item for _, _, item in items]
+    return grouped
+
+
+def _conversation_suggestions(
+    conn: Any, conversation_ids: list[str], interaction_ids: list[str]
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    if not conversation_ids and not interaction_ids:
+        return {}, {}
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT conversation_id, interaction_id, suggestion_text
+                FROM ai_response_suggestions
+                WHERE conversation_id = ANY(:cids)
+                   OR interaction_id = ANY(:iids)
+                ORDER BY created_at DESC
+                """
+            ),
+            {"cids": conversation_ids or [""], "iids": interaction_ids or [""]},
+        )
+    )
+    by_conv: dict[str, list[str]] = {}
+    by_ix: dict[str, list[str]] = {}
+    for r in rows:
+        text_value = (r["suggestion_text"] or "").strip()
+        if not text_value:
+            continue
+        if r["conversation_id"]:
+            by_conv.setdefault(r["conversation_id"], []).append(text_value)
+        if r["interaction_id"]:
+            by_ix.setdefault(r["interaction_id"], []).append(text_value)
+    return by_conv, by_ix
+
+
+def _thread_context(conn: Any, customer_id: str, account_id: str | None, risk: str | None, dnd: bool, preferred_window: str | None, outstanding: float, dpd: int | None) -> dict[str, Any]:
+    promise = _one(
+        conn.execute(
+            text(
+                """
+                SELECT amount, promised_at, status
+                FROM promises
+                WHERE customer_id = :customer_id
+                ORDER BY promised_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+                """
+            ),
+            {"customer_id": customer_id},
+        )
+    )
+    disputes = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, type, transcript_snippet
+                FROM disputes
+                WHERE customer_id = :customer_id
+                  AND status NOT IN ('resolved', 'rejected')
+                ORDER BY created_at DESC
+                LIMIT 5
+                """
+            ),
+            {"customer_id": customer_id},
+        )
+    )
+    interactions = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, channel, summary, started_at, sentiment_label, avg_sentiment
+                FROM interactions
+                WHERE customer_id = :customer_id
+                ORDER BY started_at DESC NULLS LAST
+                LIMIT 3
+                """
+            ),
+            {"customer_id": customer_id},
+        )
+    )
+    emi = _one(
+        conn.execute(
+            text(
+                """
+                SELECT due_date, amount
+                FROM emi_installments
+                WHERE account_id = :account_id
+                ORDER BY due_date ASC NULLS LAST
+                LIMIT 1
+                """
+            ),
+            {"account_id": account_id},
+        )
+    ) if account_id else None
+
+    last_promise = None
+    if promise:
+        last_promise = {
+            "amount": float(promise["amount"] or 0),
+            "date": (promise["promised_at"] or "")[:10],
+            "status": _inbox_promise_status(promise["status"]),
+        }
+
+    next_emi_date = ""
+    next_emi_amount = 0.0
+    if emi:
+        next_emi_date = (emi["due_date"] or "")[:10] if isinstance(emi["due_date"], str) else (
+            emi["due_date"].isoformat()[:10] if emi["due_date"] else ""
+        )
+        next_emi_amount = float(emi["amount"] or 0)
+
+    return {
+        "riskLevel": _inbox_risk(risk),
+        "contactableNow": _inbox_contactable(bool(dnd), preferred_window),
+        "contactWindow": preferred_window or "10:00-19:00 IST",
+        "outstanding": float(outstanding or 0),
+        "outstandingAging": _inbox_aging(dpd),
+        "nextEmiDate": next_emi_date or "—",
+        "nextEmiAmount": next_emi_amount,
+        "lastPromise": last_promise,
+        "openDisputes": [
+            {
+                "id": d["id"],
+                "summary": (d["transcript_snippet"] or d["type"] or "Open dispute").strip()[:80],
+            }
+            for d in disputes
+        ],
+        "recentInteractions": [
+            {
+                "id": ix["id"],
+                "kind": "chat" if ix["channel"] in {"whatsapp", "sms", "email", "chat"} else "call",
+                "summary": (ix["summary"] or ix["channel"] or "Interaction").strip()[:80],
+                "when": _inbox_relative(ix["started_at"]),
+                "sentiment": _inbox_sentiment(ix["sentiment_label"], ix["avg_sentiment"]),
+            }
+            for ix in interactions
+        ],
+    }
+
+
+def _serialize_conversation(
+    conn: Any,
+    row: dict[str, Any],
+    messages: list[dict[str, Any]],
+    suggestions: list[str],
+    me_id: str,
+) -> dict[str, Any]:
+    last_msg = None
+    for item in reversed(messages):
+        if item.get("kind") != "system":
+            last_msg = item
+            break
+    last_from = (last_msg or {}).get("sender") or "bot"
+    if last_from not in {"customer", "bot", "agent"}:
+        last_from = "bot"
+    last_preview = (last_msg or {}).get("text") or ""
+    last_time = (last_msg or {}).get("time") or _inbox_clock(row["updated_at"] or row["created_at"])
+
+    # Unread ≈ trailing customer turns since last agent/bot reply when not mine.
+    unread = 0
+    if not (row["assigned_user_id"] == me_id):
+        for item in reversed(messages):
+            if item.get("kind") == "system":
+                continue
+            if item.get("sender") == "customer":
+                unread += 1
+            else:
+                break
+
+    last_customer_at = row.get("last_customer_at")
+    return {
+        "id": row["id"],
+        "customer": row["customer_name"],
+        "accountId": row["account_id"] or "",
+        "channel": _inbox_channel(row["channel"]),
+        "status": row["status"] if row["status"] in {"bot", "needs_human", "escalated", "assigned"} else "bot",
+        "assignedUserId": row["assigned_user_id"],
+        "isMine": row["assigned_user_id"] == me_id,
+        "sla": _inbox_sla(last_customer_at, row["status"]),
+        "unread": unread,
+        "lastTime": last_time,
+        "lastPreview": last_preview,
+        "lastFrom": last_from,
+        "sentiment": _inbox_sentiment(row["sentiment_label"], row["avg_sentiment"]),
+        "ragSuggestions": suggestions[:5],
+        "messages": messages,
+        "context": _thread_context(
+            conn,
+            row["customer_id"],
+            row["account_id"],
+            row["risk"],
+            bool(row["dnd"]),
+            row["preferred_window"],
+            float(row["outstanding"] or 0),
+            row["dpd"],
+        ),
+    }
+
+
+def _conversation_base_rows(conn: Any, conversation_id: str | None = None) -> list[dict[str, Any]]:
+    where = "WHERE cv.id = :conversation_id" if conversation_id else ""
+    params: dict[str, Any] = {"conversation_id": conversation_id} if conversation_id else {}
+    return _rows(
+        conn.execute(
+            text(
+                f"""
+                SELECT
+                  cv.id,
+                  cv.status,
+                  cv.channel,
+                  cv.assigned_user_id,
+                  cv.customer_id,
+                  cv.interaction_id,
+                  cv.created_at,
+                  cv.updated_at,
+                  c.name AS customer_name,
+                  c.risk,
+                  c.dnd,
+                  c.preferred_window,
+                  a.id AS account_id,
+                  a.outstanding,
+                  a.dpd,
+                  i.sentiment_label,
+                  i.avg_sentiment,
+                  (
+                    SELECT MAX(COALESCE(m.sent_at, m.created_at))
+                    FROM messages m
+                    WHERE m.conversation_id = cv.id AND m.sender = 'customer'
+                  ) AS last_customer_at
+                FROM conversations cv
+                JOIN customers c ON c.id = cv.customer_id
+                LEFT JOIN interactions i ON i.id = cv.interaction_id
+                LEFT JOIN LATERAL (
+                  SELECT *
+                  FROM accounts a
+                  WHERE a.customer_id = c.id
+                  ORDER BY
+                    CASE WHEN a.id LIKE 'AC-%%' THEN 0 ELSE 1 END,
+                    a.created_at,
+                    a.id
+                  LIMIT 1
+                ) a ON true
+                {where}
+                ORDER BY COALESCE(cv.updated_at, cv.created_at) DESC, cv.id
+                """
+            ),
+            params,
+        )
+    )
+
+
+def list_conversations() -> list[dict[str, Any]]:
+    """Conversation Inbox feed — full Thread shape for the screen."""
+    me_id = _actor_user_id()
+    with engine.connect() as conn:
+        rows = _conversation_base_rows(conn)
+        ids = [r["id"] for r in rows]
+        interaction_ids = [r["interaction_id"] for r in rows if r["interaction_id"]]
+        messages_by = _conversation_messages(conn, ids)
+        by_conv, by_ix = _conversation_suggestions(conn, ids, interaction_ids)
+        result = []
+        for r in rows:
+            suggestions = list(by_conv.get(r["id"]) or [])
+            if not suggestions and r["interaction_id"]:
+                suggestions = list(by_ix.get(r["interaction_id"]) or [])
+            if not suggestions:
+                suggestions = [
+                    "Payment link / settlement options",
+                    "How to raise a payment dispute",
+                    "Callback scheduling policy",
+                ]
+            result.append(
+                _serialize_conversation(conn, r, messages_by.get(r["id"]) or [], suggestions, me_id)
+            )
+        return result
+
+
+def get_conversation(conversation_id: str) -> dict[str, Any] | None:
+    me_id = _actor_user_id()
+    with engine.connect() as conn:
+        rows = _conversation_base_rows(conn, conversation_id)
+        if not rows:
+            return None
+        r = rows[0]
+        messages = (_conversation_messages(conn, [conversation_id])).get(conversation_id) or []
+        by_conv, by_ix = _conversation_suggestions(
+            conn, [conversation_id], [r["interaction_id"]] if r["interaction_id"] else []
+        )
+        suggestions = list(by_conv.get(conversation_id) or [])
+        if not suggestions and r["interaction_id"]:
+            suggestions = list(by_ix.get(r["interaction_id"]) or [])
+        if not suggestions:
+            suggestions = [
+                "Payment link / settlement options",
+                "How to raise a payment dispute",
+                "Callback scheduling policy",
+            ]
+        return _serialize_conversation(conn, r, messages, suggestions, me_id)
+
+
+def list_canned_responses() -> list[dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, label, body
+                    FROM canned_responses
+                    WHERE tenant_id = :tenant_id AND enabled = true
+                    ORDER BY label
+                    """
+                ),
+                {"tenant_id": TENANT_ID},
+            )
+        )
+        return [{"id": r["id"], "label": r["label"], "text": r["body"]} for r in rows]
+
+
+def takeover_conversation(conversation_id: str) -> dict[str, Any]:
+    me_id = _actor_user_id()
+    with engine.begin() as conn:
+        row = _one(
+            conn.execute(
+                text("SELECT id, customer_id, status, assigned_user_id FROM conversations WHERE id = :id"),
+                {"id": conversation_id},
+            )
+        )
+        if row is None:
+            raise KeyError("conversation_not_found")
+        conn.execute(
+            text(
+                """
+                UPDATE conversations
+                SET status = 'assigned',
+                    assigned_user_id = :user_id,
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": conversation_id, "user_id": me_id},
+        )
+        _activity(
+            conn,
+            "conversation",
+            conversation_id,
+            "conversation_takeover",
+            "You took over from bot",
+            None,
+            row["customer_id"],
+        )
+    result = get_conversation(conversation_id)
+    if result is None:
+        raise KeyError("conversation_not_found")
+    return result
+
+
+def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    text_value = (payload.get("text") or "").strip()
+    if not text_value:
+        raise ValueError("empty_message")
+    me_id = _actor_user_id()
+    with engine.begin() as conn:
+        row = _one(
+            conn.execute(
+                text("SELECT id, customer_id, status, assigned_user_id FROM conversations WHERE id = :id"),
+                {"id": conversation_id},
+            )
+        )
+        if row is None:
+            raise KeyError("conversation_not_found")
+        if row["status"] == "bot" and row["assigned_user_id"] != me_id:
+            raise ValueError("bot_still_handling")
+        msg_id = _id("MSG")
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            text(
+                """
+                INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
+                VALUES (:id, :conversation_id, 'agent', :body, 'sent', NULL, :sent_at)
+                """
+            ),
+            {
+                "id": msg_id,
+                "conversation_id": conversation_id,
+                "body": text_value,
+                "sent_at": now,
+            },
+        )
+        # Sending implies ownership if not already assigned to someone else.
+        if row["assigned_user_id"] is None or row["assigned_user_id"] == me_id:
+            conn.execute(
+                text(
+                    """
+                    UPDATE conversations
+                    SET status = 'assigned',
+                        assigned_user_id = :user_id,
+                        updated_at = now()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": conversation_id, "user_id": me_id},
+            )
+        else:
+            conn.execute(
+                text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
+                {"id": conversation_id},
+            )
+        _activity(
+            conn,
+            "conversation",
+            conversation_id,
+            "message_sent",
+            "Agent reply sent",
+            text_value[:120],
+            row["customer_id"],
+        )
+    result = get_conversation(conversation_id)
+    if result is None:
+        raise KeyError("conversation_not_found")
+    return result

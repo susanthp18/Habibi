@@ -882,20 +882,105 @@ class BotAnalyticsResponse(BaseModel):
     funnelStages: list[BotAnalyticsFunnelStageResponse]
 
 
+class ScorecardEntryPatchRequest(BaseModel):
+    criterionId: str
+    aiSuggested: float | None = None
+    score: float | None = None
+    note: str | None = None
+    accepted: bool | None = None
+
+
 class ScorecardCreateRequest(BaseModel):
     interactionId: str
-    rubricId: str = "qa-rubric-v1"
+    rubricId: str = "rubric-v1"
     subjectUserId: str | None = None
     subjectBotId: str | None = None
     reviewerUserId: str | None = None
+    status: Literal["unscored", "ai_draft", "final"] | None = None
+    entries: list[ScorecardEntryPatchRequest] = []
     totalScore: float | None = None
     band: str | None = None
 
 
 class ScorecardPatchRequest(BaseModel):
-    status: str | None = None
+    """QA scorecard PATCH. Sent with exclude_unset so present keys are intentional.
+
+    entries[] upserts qa_scorecard_entries; server recomputes total_score/band from
+    the rubric. Finalize writes activity_events and sets scored_at.
+    """
+
+    status: Literal["unscored", "ai_draft", "final"] | None = None
+    entries: list[ScorecardEntryPatchRequest] | None = None
+    reviewerUserId: str | None = None
+    subjectUserId: str | None = None
+    subjectBotId: str | None = None
     totalScore: float | None = None
     band: str | None = None
+
+
+class ScorecardHandledByResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["bot", "human", "handoff"]
+    label: str
+
+
+class ScorecardEntryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    criterionId: str
+    aiSuggested: float
+    score: float
+    note: str | None = None
+    accepted: bool | None = None
+
+
+class ScorecardListResponse(BaseModel):
+    """QA Scoring Queue row — mirrors Habibi Scorecard (qa-seed.ts)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    callId: str
+    customerName: str
+    disposition: str
+    handledBy: ScorecardHandledByResponse
+    agentId: str
+    reviewer: str | None = None
+    status: Literal["unscored", "ai_draft", "final"]
+    entries: list[ScorecardEntryResponse]
+    scoredAt: str | None = None
+    createdAt: str
+
+
+class RubricCriterionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    description: str
+    weight: float
+    critical: bool | None = None
+
+
+class RubricSectionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    weight: float
+    criteria: list[RubricCriterionResponse]
+
+
+class RubricResponse(BaseModel):
+    """Active QA rubric — mirrors Habibi defaultRubric."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    version: str
+    sections: list[RubricSectionResponse]
 
 
 class InteractionCreateRequest(BaseModel):
@@ -918,3 +1003,102 @@ class InteractionWrapUpRequest(BaseModel):
     promise: PromiseCreateRequest | None = None
     dispute: DisputeCreateRequest | None = None
     callback: CallbackCreateRequest | None = None
+
+
+# ---------------------------------------------------------------------------
+# Conversation Inbox (Phase 3B Tier 3)
+# ---------------------------------------------------------------------------
+
+
+class InboxMessageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    sender: Literal["customer", "bot", "agent"]
+    text: str
+    time: str
+    delivery: Literal["sent", "delivered", "read"] | None = None
+
+
+class InboxSystemEventResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: Literal["system"] = "system"
+    text: str
+    time: str
+
+
+class InboxPromiseResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: float
+    date: str
+    status: Literal["Kept", "Broken", "Pending", "Partial"]
+
+
+class InboxDisputeSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    summary: str
+
+
+class InboxInteractionSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: Literal["call", "chat"]
+    summary: str
+    when: str
+    sentiment: Literal["positive", "neutral", "negative"]
+
+
+class InboxThreadContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    riskLevel: Literal["High", "Medium", "Low"]
+    contactableNow: bool
+    contactWindow: str
+    outstanding: float
+    outstandingAging: str
+    nextEmiDate: str
+    nextEmiAmount: float
+    lastPromise: InboxPromiseResponse | None = None
+    openDisputes: list[InboxDisputeSummaryResponse] = []
+    recentInteractions: list[InboxInteractionSummaryResponse] = []
+
+
+class ConversationListResponse(BaseModel):
+    """Conversation Inbox screen Thread shape."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    customer: str
+    accountId: str
+    channel: Literal["whatsapp", "sms", "email"]
+    status: Literal["bot", "needs_human", "escalated", "assigned"]
+    assignedUserId: str | None = None
+    isMine: bool
+    sla: Literal["ok", "warn", "breach"]
+    unread: int
+    lastTime: str
+    lastPreview: str
+    lastFrom: Literal["customer", "bot", "agent"]
+    sentiment: Literal["positive", "neutral", "negative"]
+    ragSuggestions: list[str] = []
+    messages: list[InboxMessageResponse | InboxSystemEventResponse] = []
+    context: InboxThreadContextResponse
+
+
+class CannedResponseItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    text: str
+
+
+class ConversationMessageCreateRequest(BaseModel):
+    text: str = Field(min_length=1)

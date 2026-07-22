@@ -14,7 +14,12 @@ export function RubricScorer({
   readOnly?: boolean;
 }) {
   const update = (criterionId: string, patch: Partial<ScorecardEntry>) => {
-    onChange(entries.map((e) => (e.criterionId === criterionId ? { ...e, ...patch } : e)));
+    const exists = entries.some((e) => e.criterionId === criterionId);
+    if (exists) {
+      onChange(entries.map((e) => (e.criterionId === criterionId ? { ...e, ...patch } : e)));
+    } else {
+      onChange([...entries, { criterionId, aiSuggested: 0, score: 0, ...patch }]);
+    }
   };
 
   return (

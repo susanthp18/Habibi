@@ -16,8 +16,11 @@ from schemas import (
     CallbackCreateRequest,
     CallbackListResponse,
     CallbackPatchRequest,
+    CannedResponseItem,
     ConsentListResponse,
     ConsentPatchRequest,
+    ConversationListResponse,
+    ConversationMessageCreateRequest,
     CustomerNoteCreateRequest,
     CustomerResponse,
     DashboardResponse,
@@ -46,7 +49,9 @@ from schemas import (
     PromisePatchRequest,
     PromiseResponse,
     ReminderCreateRequest,
+    RubricResponse,
     ScorecardCreateRequest,
+    ScorecardListResponse,
     ScorecardPatchRequest,
     MeResponse,
     StaffResponse,
@@ -311,11 +316,58 @@ def add_violation_note(violation_id: str, payload: ViolationNoteCreateRequest):
     return _handle_write(db.add_violation_note, violation_id, payload.model_dump())
 
 
-@app.post("/scorecards")
+@app.get("/rubric", response_model=RubricResponse)
+def get_rubric():
+    """Active Collections Interaction Rubric (screen defaultRubric shape)."""
+    try:
+        return db.get_rubric()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/scorecards", response_model=list[ScorecardListResponse])
+def list_scorecards():
+    return db.list_scorecards()
+
+
+@app.post("/scorecards", response_model=ScorecardListResponse)
 def create_scorecard(payload: ScorecardCreateRequest):
-    return _handle_write(db.create_scorecard, payload.model_dump(exclude_none=True))
+    return _handle_write(db.create_scorecard, payload.model_dump(exclude_unset=True))
 
 
-@app.patch("/scorecards/{scorecard_id}")
+@app.patch("/scorecards/{scorecard_id}", response_model=ScorecardListResponse)
 def patch_scorecard(scorecard_id: str, payload: ScorecardPatchRequest):
-    return _handle_write(db.patch_scorecard, scorecard_id, payload.model_dump(exclude_none=True))
+    # exclude_unset (not exclude_none) so present keys are intentional.
+    return _handle_write(db.patch_scorecard, scorecard_id, payload.model_dump(exclude_unset=True))
+
+
+@app.get("/conversations", response_model=list[ConversationListResponse])
+def list_conversations():
+    return db.list_conversations()
+
+
+@app.get("/conversations/{conversation_id}", response_model=ConversationListResponse)
+def get_conversation(conversation_id: str):
+    conversation = db.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    return conversation
+
+
+@app.post("/conversations/{conversation_id}/takeover", response_model=ConversationListResponse)
+def takeover_conversation(conversation_id: str):
+    return _handle_write(db.takeover_conversation, conversation_id)
+
+
+@app.post("/conversations/{conversation_id}/messages", response_model=ConversationListResponse)
+def send_conversation_message(conversation_id: str, payload: ConversationMessageCreateRequest):
+    return _handle_write(
+        db.send_conversation_message,
+        conversation_id,
+        payload.model_dump(),
+    )
+
+
+@app.get("/canned-responses", response_model=list[CannedResponseItem])
+def list_canned_responses():
+    return db.list_canned_responses()
