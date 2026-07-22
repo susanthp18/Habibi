@@ -52,7 +52,7 @@ def upgrade() -> None:
                   ELSE (ARRAY[
                     'customer_requested','compliance','hardship',
                     'high_value','verification_failed','routing_rule'
-                  ])[(abs(hashtext(h2.id)) % 6) + 1]
+                  ])[(abs(hashtext(h2.id)::bigint) % 6) + 1]
                 END AS new_reason
               FROM interaction_handoffs h2
               JOIN interactions i ON i.id = h2.interaction_id
@@ -72,7 +72,7 @@ def upgrade() -> None:
             SET primary_intent = (ARRAY[
               'balance','emi','payment-confirm','statement','late-fee',
               'callback','topup','dnd','upi','dispute'
-            ])[(abs(hashtext(i.id)) % 10) + 1]
+            ])[(abs(hashtext(i.id)::bigint) % 10) + 1]
             WHERE i.tenant_id = :tenant
               AND i.primary_intent IN ('QA-review', 'empathy-coach')
             """
@@ -88,10 +88,10 @@ def upgrade() -> None:
             SET primary_intent = (ARRAY[
               'balance','emi','payment-confirm','statement','late-fee',
               'callback','topup','dnd','upi','dispute'
-            ])[(abs(hashtext(i.id)) % 10) + 1]
+            ])[(abs(hashtext(i.id)::bigint) % 10) + 1]
             WHERE i.tenant_id = :tenant
               AND (i.primary_intent IS NULL OR trim(i.primary_intent) = '')
-              AND (abs(hashtext(i.id)) % 20) >= 3
+              AND (abs(hashtext(i.id)::bigint) % 20) >= 3
             """
         ).bindparams(tenant=TENANT_ID)
     )
