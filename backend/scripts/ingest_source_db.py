@@ -59,9 +59,11 @@ def _upsert_faqs(
     vectors = azure_openai.embed_texts(texts)
 
     # Replace product FAQ set atomically for idempotent re-runs.
+    # product_key contains '_' (a LIKE wildcard), so escape metacharacters.
+    escaped = product.product_key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     conn.execute(
-        text("DELETE FROM faq_pairs WHERE id LIKE :prefix"),
-        {"prefix": f"faq-{product.product_key}-%"},
+        text(r"DELETE FROM faq_pairs WHERE id LIKE :prefix ESCAPE '\'"),
+        {"prefix": f"faq-{escaped}-%"},
     )
 
     for i, (draft, vec) in enumerate(zip(drafts, vectors, strict=True), start=1):

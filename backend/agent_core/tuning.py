@@ -200,8 +200,9 @@ def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     tts = t["tts"]
     mode = str(tts.get("text_aggregation_mode") or "SENTENCE").upper()
     tts["text_aggregation_mode"] = "TOKEN" if mode == "TOKEN" else "SENTENCE"
-    if tts.get("style_degree") is not None:
-        tts["style_degree"] = f"{_clamp_float(tts.get('style_degree'), 0.01, 2.0, 1.4):.2f}".rstrip("0").rstrip(".") or "1.4"
+    tts["style_degree"] = (
+        f"{_clamp_float(tts.get('style_degree'), 0.01, 2.0, 1.4):.2f}".rstrip("0").rstrip(".") or "1.4"
+    )
     tts["voice"] = str(tts.get("voice") or "en-IN-NeerjaNeural").strip()
     tts["rate"] = str(tts.get("rate") or "1.05")
     tts["pitch"] = str(tts.get("pitch") or "+2%")

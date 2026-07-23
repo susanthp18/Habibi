@@ -243,7 +243,7 @@ In the context of this section the following terms have the following meanings a
 * **\*Accident NCD** - Refers to the loss of percentage of No Claim Discount (NCD) entitlement as a result of claims arising from an accident as per NCD Table 2.
 * **\*Non-Reporting NCD** - Refers to the loss of percentage of No Claim Discount as a result of not reporting or late reporting of an accident as set out under the Policy as per NCD Table 3.
 
-### GENERAL CONDITONS
+### GENERAL CONDITIONS
 *(Applicable to the whole Policy)*
 
 The following conditions apply to any claim made under the Policy.

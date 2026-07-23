@@ -37,7 +37,8 @@ def evaluate_guardrails(
     # Hard enforce: never quote rates / APR (not prompt-only).
     if guardrails.get("neverQuoteRate"):
         if re.search(
-            r"\b(\d{1,2}(\.\d+)?\s*%|apr|interest\s+rate|roi\b|per\s+annum|p\.a\.)\b",
+            r"(?:\b\d{1,2}(?:\.\d+)?\s*%|\bapr\b|\binterest\s+rate\b|\broi\b|"
+            r"\bper\s+annum\b|\bp\.a\.)",
             bot_l,
         ):
             flags.append("rate-quoted")

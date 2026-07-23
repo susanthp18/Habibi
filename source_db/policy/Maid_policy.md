@@ -1,5 +1,5 @@
 # HDFC Assurance
-# Maid Protect320 Pro
+# Maid Protect360 Pro
 ## YOUR MAID PROTECT360 Pro POLICY
 
 Here is Your Maid Protect360 Pro Policy. Please examine this insurance Policy, to ensure that You understand the terms and conditions and that the cover You require is being provided.

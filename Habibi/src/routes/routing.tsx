@@ -76,18 +76,21 @@ function RoutingPage() {
       .catch((err: Error) => toast.error("Could not create rule", { description: err.message }));
   };
 
-  const handleSave = (r: Rule) => {
-    void saveRoutingRule(r)
+  const handleSave = (r: Rule): Promise<boolean> =>
+    saveRoutingRule(r)
       .then(() => {
         invalidate();
         toast.success("Rule saved.");
+        return true;
       })
-      .catch((err: Error) => toast.error("Could not save rule", { description: err.message }));
-  };
+      .catch((err: Error) => {
+        toast.error("Could not save rule", { description: err.message });
+        return false;
+      });
 
-  const handleSaveAndTest = (r: Rule) => {
-    handleSave(r);
-    setTab("sim");
+  const handleSaveAndTest = async (r: Rule) => {
+    // Only switch to Simulate once the rule is actually persisted/invalidated.
+    if (await handleSave(r)) setTab("sim");
   };
 
   const handleToggle = (id: string, v: boolean) => {

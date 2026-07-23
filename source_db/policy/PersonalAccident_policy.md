@@ -170,7 +170,7 @@ We will not pay for any Permanent Disablement that is not listed in the scale of
 We will pay You, up to the Benefit Limit as specified in the Policy Schedule, for the Medical Expense incurred as a result of an Injury, provided that all such fees or charges are necessarily and reasonably incurred for professional services from a Registered Medical Practitioner.
 This benefit extends to cover:
 1. The Chinese Physician / Chiropractor Treatment Expenses necessarily and reasonably incurred and supported by receipts from a licenced or registered Chinese Physician / Chiropractor up to 50% of the Benefit Limit as specified in the Policy Schedule.
-2. Medical Expenses incurred as a result of Infectious Disease suffered by You, provided that the claim is not made within the Waiting Period. Any Infectious Disease which is announced or notified as an epidemic or pandemic by the health authority of Singapore or the Government of the Republic of Singapore and a pandemic by the Whole Health Organisation (WHO). The cover for the epidemic or pandemic Infectious Disease shall cease from the date of such announcement or notification.
+2. Medical Expenses incurred as a result of Infectious Disease suffered by You, provided that the claim is not made within the Waiting Period. Any Infectious Disease which is announced or notified as an epidemic or pandemic by the health authority of Singapore or the Government of the Republic of Singapore and a pandemic by the World Health Organisation (WHO). The cover for the epidemic or pandemic Infectious Disease shall cease from the date of such announcement or notification.
 3. Ambulance charges incurred to transport You to a Hospital up to $200 per injury up to the Benefit Limit as specified in the Policy Schedule.
 
 If at the time any claim arises under this Policy there is any other insurance policy effected by or on behalf of You with other insurance company covering the same expenses, We shall only be liable for the remaining amount which You are not compensated for.
@@ -199,7 +199,7 @@ We will pay You a monthly benefit up to the maximum of the Benefit Limit as spec
 
 **Exclusions Applicable to Section 7**
 No benefit will be payable under Section 7:
-1. If You are not employed gainfully employed at the time of the Accident
+1. If You are not gainfully employed at the time of the Accident
 2. If You are unable to furnish proof of employment and income statement at the time of claim
 
 #### Section 8. Home Care

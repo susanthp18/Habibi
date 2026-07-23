@@ -130,6 +130,17 @@ _MAX_CALL_DURATION_SECS = 10 * 60
 # Worker-level silence backstop under the aggregator idle ladder.
 _WORKER_IDLE_TIMEOUT_SECS = 180
 
+# Strong refs for fire-and-forget tasks — the loop only holds a weak ref, so
+# without this a prewarm task can be GC'd mid-flight and silently cancelled.
+_BG_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn_bg(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+    return task
+
 
 async def run_bot(transport, runner_args) -> None:
     from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -297,7 +308,7 @@ async def run_bot(transport, runner_args) -> None:
         except Exception:
             logger.exception("filler TTS failed")
 
-    asyncio.create_task(prewarm_llm_connection())
+    _spawn_bg(prewarm_llm_connection())
 
     idle_timeout = user_idle_timeout(tuning)
     user_params_kwargs: dict = {
@@ -657,7 +668,7 @@ async def run_bot(transport, runner_args) -> None:
         nonlocal idle_strikes, duration_task
         idle_strikes = 0
         logger.info("Client connected · session={}", session.session_id)
-        asyncio.create_task(prewarm_llm_connection(force=True))
+        _spawn_bg(prewarm_llm_connection(force=True))
         duration_task = asyncio.create_task(_max_duration_watchdog())
 
         try:

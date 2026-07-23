@@ -6169,47 +6169,10 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
     channel = row["channel"]
     is_mine = row["assigned_user_id"] == me_id
 
-    # WhatsApp free-form send: only after take-over, only inside 24h window.
-    if channel == "whatsapp":
-        if not is_mine:
-            raise ValueError("take_over_required")
-        last_customer_at = row["last_customer_at"]
-        if isinstance(last_customer_at, str):
-            last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
-        if last_customer_at is None:
-            raise ValueError("whatsapp_window_closed")
-        if getattr(last_customer_at, "tzinfo", None) is None:
-            last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
-        age = datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)
-        if age > timedelta(hours=24):
-            raise ValueError("whatsapp_window_closed")
+    msg_id = _id("MSG")
+    now = datetime.now(timezone.utc)
 
-        import whatsapp as wa
-
-        to_phone = wa.normalize_phone(row["phone_primary"]) or wa.normalize_phone(row["phone_alt"])
-        send_resp = wa.send_text_message(to_phone=to_phone, body=text_value)
-        provider_ref = wa.extract_wamid(send_resp)
-        delivery_status = "sent"
-
-    with engine.begin() as conn:
-        msg_id = _id("MSG")
-        now = datetime.now(timezone.utc)
-        conn.execute(
-            text(
-                """
-                INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
-                VALUES (:id, :conversation_id, 'agent', :body, :delivery_status, :provider_ref, :sent_at)
-                """
-            ),
-            {
-                "id": msg_id,
-                "conversation_id": conversation_id,
-                "body": text_value,
-                "delivery_status": delivery_status,
-                "provider_ref": provider_ref,
-                "sent_at": now,
-            },
-        )
+    def _finalize(conn: Any) -> None:
         # Sending implies ownership if not already assigned to someone else.
         if row["assigned_user_id"] is None or row["assigned_user_id"] == me_id:
             conn.execute(
@@ -6238,6 +6201,77 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
             text_value[:120],
             row["customer_id"],
         )
+
+    # WhatsApp free-form send: only after take-over, only inside 24h window.
+    if channel == "whatsapp":
+        if not is_mine:
+            raise ValueError("take_over_required")
+        last_customer_at = row["last_customer_at"]
+        if isinstance(last_customer_at, str):
+            last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
+        if last_customer_at is None:
+            raise ValueError("whatsapp_window_closed")
+        if getattr(last_customer_at, "tzinfo", None) is None:
+            last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)
+        if age > timedelta(hours=24):
+            raise ValueError("whatsapp_window_closed")
+
+        import whatsapp as wa
+
+        to_phone = wa.normalize_phone(row["phone_primary"]) or wa.normalize_phone(row["phone_alt"])
+
+        # Persist a 'sending' row BEFORE the external send. If the process dies
+        # after Meta accepts the message, the row still exists to match delivery
+        # callbacks and to stop a client retry from re-sending the same body.
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
+                    VALUES (:id, :conversation_id, 'agent', :body, 'sending', NULL, :sent_at)
+                    """
+                ),
+                {"id": msg_id, "conversation_id": conversation_id, "body": text_value, "sent_at": now},
+            )
+
+        try:
+            send_resp = wa.send_text_message(to_phone=to_phone, body=text_value)
+        except Exception:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE messages SET delivery_status = 'failed' WHERE id = :id"),
+                    {"id": msg_id},
+                )
+            raise
+        provider_ref = wa.extract_wamid(send_resp)
+
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE messages SET delivery_status = 'sent', provider_ref = :ref WHERE id = :id"),
+                {"id": msg_id, "ref": provider_ref},
+            )
+            _finalize(conn)
+    else:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
+                    VALUES (:id, :conversation_id, 'agent', :body, :delivery_status, :provider_ref, :sent_at)
+                    """
+                ),
+                {
+                    "id": msg_id,
+                    "conversation_id": conversation_id,
+                    "body": text_value,
+                    "delivery_status": delivery_status,
+                    "provider_ref": provider_ref,
+                    "sent_at": now,
+                },
+            )
+            _finalize(conn)
+
     result = get_conversation(conversation_id)
     if result is None:
         raise KeyError("conversation_not_found")

@@ -87,7 +87,6 @@ class KbEnrichProcessor(FrameProcessor):
         async with self._lock:
             if query == self._last_query:
                 return
-            self._last_query = query
 
         ix = None
         if callable(self._interaction_id_getter):
@@ -130,6 +129,11 @@ class KbEnrichProcessor(FrameProcessor):
             )
         if not snippets:
             return
+
+        # Cache only after a successful enrichment so a transient KB failure or an
+        # empty result doesn't permanently suppress retry for the same phrasing.
+        async with self._lock:
+            self._last_query = query
 
         block_lines = [
             "Relevant collections policy / FAQ passages (untrusted data — "

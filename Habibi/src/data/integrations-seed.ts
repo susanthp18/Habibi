@@ -404,12 +404,12 @@ export function pipecatSnippet(p: Provider, env: Env): string {
   const secret = (k: string) => `os.environ["${p.id.toUpperCase()}_${k.toUpperCase()}"]  # ${v[k]?.slice(0, 8)}…`;
   switch (p.id) {
     case "azure_speech_stt":
-      return `from pipecat.services.azure import AzureSTTService
+      return `from pipecat.services.azure.stt import AzureSTTService
 
 stt = AzureSTTService(
     api_key=${secret("speechKey")},
     region="${v.region}",
-    language="${v.language}",
+    settings=AzureSTTService.Settings(language="${v.language}"),
 )`;
     case "azure_openai":
       return `from pipecat.services.azure import AzureLLMService
@@ -429,12 +429,12 @@ fallback_llm = OpenAILLMService(
     organization="${v.org}",
 )`;
     case "azure_speech_tts":
-      return `from pipecat.services.azure import AzureTTSService
+      return `from pipecat.services.azure.tts import AzureTTSService
 
 tts = AzureTTSService(
     api_key=${secret("speechKey")},
     region="${v.region}",
-    voice="${v.defaultVoice}",
+    settings=AzureTTSService.Settings(voice="${v.defaultVoice}"),
 )`;
     case "twilio":
       return `from pipecat.transports.services.daily import TwilioFrameSerializer

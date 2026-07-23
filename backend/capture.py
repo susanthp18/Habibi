@@ -540,22 +540,17 @@ def emit_commercial_event(
 ) -> str:
     """Append a commercial/capture event with payload jsonb (bot/system actor)."""
     event_id = _sid("ACT")
+    import db as _db  # lazy: capture is imported by db, avoid a circular import at load
+
     bot_id = actor_bot_id if actor_kind == "bot" else None
     user_id = actor_user_id if actor_kind == "human" else None
     if actor_kind == "bot" and not bot_id:
-        try:
-            import db as _db
-
-            bot_id = getattr(_db, "DEFAULT_BOT_ID", None)
-        except Exception:
-            bot_id = None
+        bot_id = getattr(_db, "DEFAULT_BOT_ID", None)
     if bot_id:
         exists = conn.execute(text("SELECT 1 FROM bots WHERE id = :id"), {"id": bot_id}).first()
         if exists is None:
             actor_kind = "system"
             bot_id = None
-
-    import db as _db
 
     conn.execute(
         text(

@@ -34,7 +34,8 @@ export async function startVoiceSandbox(input: {
   if (USE_MOCK) {
     return mockDelay({
       sessionId: `VS-MOCK-${Date.now().toString(36)}`,
-      webrtcUrl: "http://127.0.0.1:7860/api/offer",
+      // Use the Vite proxy path (/voice-rtc → runner) rather than hardcoding :7860.
+      webrtcUrl: "/voice-rtc/api/offer",
       sandboxRunId: null,
     });
   }

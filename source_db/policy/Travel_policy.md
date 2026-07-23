@@ -535,7 +535,7 @@ We will indemnify You up to the Benefit Limit against: -
 2.  The third party's costs and expenses recoverable against You in respect of their claim for such Bodily Injury, loss of or damage to property belonging to the third party; and
 3.  Your costs and expenses incurred in dealing with such claim in respect of such legal liability with Our prior consent.
 
-The total benefit payable under Section 29 shall not exceed the Benefit Limit.
+The total benefit payable under Section 30 shall not exceed the Benefit Limit.
 
 **Exclusions Applicable to Section 30**
 No claim will be payable under Section 30 for loss or damage or Bodily Injury arising directly or indirectly from, in respect of, or in consequence of:
@@ -702,7 +702,7 @@ This coverage is effective only if this Policy is purchased before You become aw
 Once You postpone the Trip and a claim is made under Section 41 for Travel Postponement due to COVID-19, the Policy will terminate immediately.
 
 **Exclusions Applicable to Section 41**
-No benefit will be payable under Benefit 41 for loss arising from the following:
+No benefit will be payable under Section 41 for loss arising from the following:
 1.  Loss that is covered by any other existing insurance scheme, government program or that it will be paid or refunded by a hotel, Common Carrier, travel agent or any other provider of travel and/or accommodation.
 2.  Your disinclination to travel, change of mind or fear of travelling.
 3.  Failure to notify the travel agent, tour operator or provider of transport or accommodation immediately after it is found necessary to cancel or curtail the travel arrangement.
@@ -770,7 +770,7 @@ This Section is not applicable to Insured Person(s) who are above the age of sev
 **Exclusions Applicable to Section 43b**
 No benefit will be payable under Section 43b:
 1.  For evacuation expenses incurred for services provided by another party for which You are not liable to pay, or any expenses already included in the cost of a scheduled Trip.
-2.  For expenses for a service not approved and arranged by Us or Our appointed assistance company comp except in the event that You or Your Travel Companions cannot notify Us or Our appointed assistance company during an emergency medical situation for reasons beyond Your control. Such expenses incurred shall be subjected to Our review and reimbursed up to the amount which Our appointed assistance company would have incurred for services provided under the same circumstances.
+2.  For expenses for a service not approved and arranged by Us or Our appointed assistance company except in the event that You or Your Travel Companions cannot notify Us or Our appointed assistance company during an emergency medical situation for reasons beyond Your control. Such expenses incurred shall be subjected to Our review and reimbursed up to the amount which Our appointed assistance company would have incurred for services provided under the same circumstances.
 3.  For any treatment performed or ordered by a person who is not a Registered Medical Practitioner.
 4.  For any surgery or medical treatment which, in the opinion of the Registered Medical Practitioner, can be reasonably delayed until Your return to Singapore or arrival in the country of final destination for travellers not returning to Singapore.
 5.  Terminal Illness regardless if Pre-Existing Medical Condition Section 43b, Emergency Medical Evacuation has been purchased.

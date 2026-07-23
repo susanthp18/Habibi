@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play, Square, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
@@ -63,6 +63,10 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
     setPlaying(false);
     setLoading(false);
   };
+
+  // Stop playback and revoke the blob URL if the tab unmounts mid-preview
+  // (PersonaSliders is conditionally rendered), matching VoicePanel's guard.
+  useEffect(() => () => stop(), []);
 
   const hearPreview = async () => {
     if (playing || loading) {

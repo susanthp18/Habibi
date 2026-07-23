@@ -110,6 +110,10 @@ export function useSandboxLiveCall(args: Args) {
   const [muted, setMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
   const [voiceLabel, setVoiceLabel] = useState<string | undefined>(undefined);
   const clientRef = useRef<{
     disconnect: () => Promise<void>;
@@ -353,7 +357,18 @@ export function useSandboxLiveCall(args: Args) {
     }
   }, [args.enabled, status, end]);
 
-  useEffect(() => () => stopBotAudio(), [stopBotAudio]);
+  // Unmount teardown: also disconnect the WebRTC client and stop the backend
+  // session so navigating away mid-call doesn't leak the peer connection or
+  // leave the voice session live until server-side idle/duration safeguards.
+  useEffect(
+    () => () => {
+      stopBotAudio();
+      void clientRef.current?.disconnect();
+      clientRef.current = null;
+      if (sessionIdRef.current) void stopVoiceSandbox(sessionIdRef.current);
+    },
+    [stopBotAudio],
+  );
 
   const chrome: LiveCallChrome = {
     status,

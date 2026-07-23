@@ -45,7 +45,12 @@ def main() -> None:
 
     logger.info("bot_worker started poll=%.1fs env=%s", args.poll, bot_jobs.bot_environment())
     while True:
-        did = bot_jobs.process_one(db.engine)
+        try:
+            did = bot_jobs.process_one(db.engine)
+        except Exception:
+            logger.exception("process_one crashed — backing off")
+            time.sleep(args.poll)
+            continue
         if not did:
             time.sleep(args.poll)
 

@@ -77,28 +77,31 @@ def enqueue_bot_turn(
 
     jid = _job_id()
     try:
-        conn.execute(
-            text(
-                """
-                INSERT INTO bot_turn_jobs (
-                  id, conversation_id, interaction_id, customer_id,
-                  trigger_message_id, trigger_provider_ref, channel, status
-                ) VALUES (
-                  :id, :conversation_id, :interaction_id, :customer_id,
-                  :trigger_message_id, :trigger_provider_ref, :channel, 'queued'
-                )
-                """
-            ),
-            {
-                "id": jid,
-                "conversation_id": conversation_id,
-                "interaction_id": interaction_id,
-                "customer_id": customer_id,
-                "trigger_message_id": trigger_message_id,
-                "trigger_provider_ref": trigger_provider_ref,
-                "channel": channel,
-            },
-        )
+        # Savepoint: a unique violation here otherwise aborts the shared ingest
+        # transaction, and the recovery SELECT below would fail on the same conn.
+        with conn.begin_nested():
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO bot_turn_jobs (
+                      id, conversation_id, interaction_id, customer_id,
+                      trigger_message_id, trigger_provider_ref, channel, status
+                    ) VALUES (
+                      :id, :conversation_id, :interaction_id, :customer_id,
+                      :trigger_message_id, :trigger_provider_ref, :channel, 'queued'
+                    )
+                    """
+                ),
+                {
+                    "id": jid,
+                    "conversation_id": conversation_id,
+                    "interaction_id": interaction_id,
+                    "customer_id": customer_id,
+                    "trigger_message_id": trigger_message_id,
+                    "trigger_provider_ref": trigger_provider_ref,
+                    "channel": channel,
+                },
+            )
     except Exception as exc:
         # Unique violation on trigger_provider_ref under concurrent Meta retries.
         if trigger_provider_ref and "uq_bot_turn_jobs_trigger_provider_ref" in str(exc):

@@ -74,7 +74,7 @@ export const Route = createFileRoute("/knowledge-base")({
   }),
   head: () => ({
     meta: [
-      { title: "Knowledge Base (RAG) Manager — BigBond AI" },
+      { title: "Knowledge Base (RAG) Manager — BigBound AI" },
       {
         name: "description",
         content:

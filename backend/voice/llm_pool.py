@@ -79,26 +79,35 @@ class KeepAliveAzureLLMService(AzureLLMService):
         return get_shared_client_sync()
 
 
+def _needs_max_completion_tokens(deployment: str) -> bool:
+    """gpt-5 / o-series deployments require ``max_completion_tokens``, not ``max_tokens``."""
+    d = (deployment or "").lower()
+    return d.startswith(("o1", "o3", "o4")) or "gpt-5" in d or "gpt5" in d
+
+
 async def _completion_ping(client: AsyncAzureOpenAI, deployment: str) -> None:
     # NB: use a small-but-nonzero output budget. max_(completion_)tokens=1 makes
     # gpt-5.x return 400 "could not finish the message" (the single token can't
     # complete a message), which made the prewarm fail with a scary traceback and
     # left the first real turn cold. 16 is enough to complete "ok".
+    # Pick the param by deployment family up front; only fall back on the API's
+    # rejection so a wording change can't silently leave prewarm cold.
+    msgs = [{"role": "user", "content": "Reply with: ok"}]
+    primary, fallback = (
+        ("max_completion_tokens", "max_tokens")
+        if _needs_max_completion_tokens(deployment)
+        else ("max_tokens", "max_completion_tokens")
+    )
     try:
         await client.chat.completions.create(
-            model=deployment,
-            messages=[{"role": "user", "content": "Reply with: ok"}],
-            max_tokens=16,
-            temperature=0,
+            model=deployment, messages=msgs, temperature=0, **{primary: 16}
         )
     except Exception as exc:
-        if "max_tokens" not in str(exc).lower() and "unsupported" not in str(exc).lower():
+        low = str(exc).lower()
+        if primary not in low and "unsupported" not in low:
             raise
         await client.chat.completions.create(
-            model=deployment,
-            messages=[{"role": "user", "content": "Reply with: ok"}],
-            max_completion_tokens=16,
-            temperature=0,
+            model=deployment, messages=msgs, temperature=0, **{fallback: 16}
         )
 
 

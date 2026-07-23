@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _SESSIONS_DIR = Path(__file__).resolve().parent / ".cache" / "voice_sandbox_sessions"
 _RUNNER_URL = (os.getenv("VOICE_RUNNER_URL") or "http://127.0.0.1:7860").rstrip("/")
 # Browser-facing offer URL (Vite proxies /voice-rtc → runner).
-_WEBRTC_PUBLIC = (os.getenv("VOICE_WEBRTC_PUBLIC_URL") or "/voice-rtc/api/offer").rstrip()
+_WEBRTC_PUBLIC = (os.getenv("VOICE_WEBRTC_PUBLIC_URL") or "/voice-rtc/api/offer").rstrip("/")
 _WEBRTC_OFFER = f"{_RUNNER_URL}/api/offer"
 
 

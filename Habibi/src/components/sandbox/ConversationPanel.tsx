@@ -81,6 +81,7 @@ export function ConversationPanel({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const wantRecordingRef = useRef(false);
   const lastSpokenBotId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -117,8 +118,15 @@ export function ConversationPanel({
       toast.error("Microphone not available in this browser");
       return;
     }
+    wantRecordingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // The user may have released during the async permission/getUserMedia gap;
+      // if so, don't start the recorder — just release the mic.
+      if (!wantRecordingRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
       const mimeType = pickMimeType();
       const recorder = mimeType
@@ -138,6 +146,7 @@ export function ConversationPanel({
   };
 
   const holdEnd = async () => {
+    wantRecordingRef.current = false;
     const recorder = mediaRecorderRef.current;
     if (!recorder || recorder.state === "inactive") {
       setRecording(false);

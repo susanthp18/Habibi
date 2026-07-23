@@ -318,7 +318,11 @@ def synthesize(
     if not audio:
         raise RuntimeError("azure_speech_tts_empty_audio")
 
-    path.write_bytes(audio)
+    # Atomic write: a crash mid-write must not leave a truncated MP3 that the
+    # cache-hit size gate above would then serve as valid audio.
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(audio)
+    os.replace(tmp, path)
     chars = len(text or "")
     logger.info(
         "azure_speech_tts voice=%s chars=%s latency_ms=%s cache=miss",

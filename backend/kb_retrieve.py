@@ -214,6 +214,8 @@ def retrieve(
                 FROM kb_chunks c
                 JOIN kb_documents d ON d.id = c.document_id
                 WHERE c.embedding IS NOT NULL
+                  AND d.enabled = true
+                  AND d.status = 'indexed'
                 """
         chunk_params: dict[str, Any] = {"q": q_lit, "overfetch": overfetch}
         if product_key_filter:

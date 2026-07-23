@@ -379,16 +379,31 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
 
     reuse_outbound_id: str | None = None
     reuse_body: str | None = None
-    if existing and (existing.get("delivery_status") or "") in {"sending", "failed"}:
-        # Prior attempt reserved a row but Graph never confirmed sent — reuse it
-        # (do not INSERT another row; UNIQUE(bot_turn_job_id) would fail).
+    prior_status = (existing.get("delivery_status") or "") if existing else ""
+    if existing and prior_status == "sending":
+        # Ambiguous: a prior attempt POSTed to Meta but crashed before recording
+        # the outcome. WhatsApp Cloud API has no client idempotency key, so
+        # re-sending could duplicate a message the customer already received.
+        # Fail safe — do not auto-resend; cancel for manual reconciliation.
+        with engine.begin() as conn:
+            bot_jobs.mark_cancelled(conn, job_id, "outbound_sending_unconfirmed")
+        logger.warning(
+            "bot_turn outbound stuck 'sending' — not auto-resending (possible duplicate) "
+            "job=%s message=%s",
+            job_id,
+            existing["id"],
+        )
+        return
+    if existing and prior_status == "failed":
+        # A failed send never reached Meta (the POST raised) — safe to reuse the
+        # reserved row (do not INSERT another; UNIQUE(bot_turn_job_id) would fail).
         reuse_outbound_id = existing["id"]
         reuse_body = (existing.get("body") or "").strip() or None
         logger.info(
             "bot_turn retrying outbound job=%s message=%s prior_status=%s",
             job_id,
             reuse_outbound_id,
-            existing.get("delivery_status"),
+            prior_status,
         )
 
     conv = _load_conversation(engine, conversation_id)

@@ -13,6 +13,8 @@ import wave
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
+
 from voice import persist
 from voice.session import VoiceSession
 
@@ -37,11 +39,12 @@ def _interleave_stereo(user_pcm: bytes, bot_pcm: bytes) -> bytes:
     n -= n % 2
     u = user_pcm.ljust(n, b"\x00")
     b = bot_pcm.ljust(n, b"\x00")
-    out = bytearray(n * 2)
-    for i in range(0, n, 2):
-        out[i * 2 : i * 2 + 2] = u[i : i + 2]
-        out[i * 2 + 2 : i * 2 + 4] = b[i : i + 2]
-    return bytes(out)
+    ua = np.frombuffer(u, dtype="<i2")
+    ba = np.frombuffer(b, dtype="<i2")
+    stereo = np.empty(ua.size * 2, dtype="<i2")
+    stereo[0::2] = ua
+    stereo[1::2] = ba
+    return stereo.tobytes()
 
 
 def upload_recording(
@@ -114,6 +117,12 @@ def attach_recording_handlers(
     async def _on_track(buffer, user_audio, bot_audio, sample_rate, num_channels):  # noqa: ANN001
         ix = session.interaction_id
         if not ix or (not user_audio and not bot_audio):
+            return
+        # One audio row per call: the buffer emits the full track once at stop, so
+        # guard against a duplicate row if the callback ever fires again (restart /
+        # non-zero buffer_size). The fixed {interaction_id}.wav key is overwritten
+        # in place; only the DB insert would otherwise duplicate.
+        if session.extra.get("audio_media_id"):
             return
         try:
             stereo = _interleave_stereo(user_audio or b"", bot_audio or b"")

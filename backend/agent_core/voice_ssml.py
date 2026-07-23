@@ -11,6 +11,14 @@ from typing import Any
 from azure_speech import build_ssml, resolve_azure_voice_name
 
 
+def _coalesce(*vals: Any) -> Any:
+    """First non-None value (0 is preserved, unlike ``or``). Last arg is the default."""
+    for v in vals:
+        if v is not None:
+            return v
+    return vals[-1]
+
+
 def voice_params_from_config(
     voice_config: dict[str, Any] | None = None,
     *,
@@ -32,10 +40,10 @@ def voice_params_from_config(
     return {
         "voiceId": voice_id,
         "voiceName": azure_name,
-        "speed": float(cfg.get("speed", pv.get("speed", 1.0))),
-        "pitch": int(cfg.get("pitch", pv.get("pitch", 0))),
-        "warmth": int(cfg.get("warmth", pv.get("warmth", 60))),
-        "pauseMs": int(cfg.get("pauseMs", pv.get("pauseMs", 300))),
+        "speed": float(_coalesce(cfg.get("speed"), pv.get("speed"), 1.0)),
+        "pitch": int(_coalesce(cfg.get("pitch"), pv.get("pitch"), 0)),
+        "warmth": int(_coalesce(cfg.get("warmth"), pv.get("warmth"), 60)),
+        "pauseMs": int(_coalesce(cfg.get("pauseMs"), pv.get("pauseMs"), 300)),
     }
 
 

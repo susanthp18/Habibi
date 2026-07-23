@@ -112,7 +112,11 @@ export function BudgetPanel({
                       variant="ghost"
                       className="h-6 w-6 text-rose-600 hover:text-rose-700"
                       disabled={saving}
-                      onClick={() => void onDeleteRule(b.id, r.id)}
+                      onClick={() => {
+                        if (window.confirm(`Delete rule "${r.action}"?`)) {
+                          void onDeleteRule(b.id, r.id);
+                        }
+                      }}
                       aria-label="Delete rule"
                     >
                       <Trash2 className="h-3 w-3" />

@@ -22,6 +22,31 @@ export function mockDelay<T>(value: T, ms = 250): Promise<T> {
   });
 }
 
+/**
+ * Extract an error message from a failed Response, reading the body only once.
+ * `res.json()` consumes the stream, so a later `res.text()` fallback would throw
+ * on a locked stream and lose a plain-text backend message — read text first,
+ * then try to parse it as JSON.
+ */
+async function errorDetail(res: Response): Promise<string> {
+  const fallback = `${res.status} ${res.statusText}`;
+  let raw: string;
+  try {
+    raw = await res.text();
+  } catch {
+    return fallback;
+  }
+  if (!raw) return fallback;
+  try {
+    const payload = JSON.parse(raw) as { detail?: unknown };
+    if (typeof payload.detail === "string") return payload.detail;
+    if (payload.detail != null) return JSON.stringify(payload.detail);
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
 /** Thin typed GET helper for the live API (Phase 2). */
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -47,19 +72,7 @@ async function apiSend<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
-    try {
-      const payload = (await res.json()) as { detail?: unknown };
-      if (typeof payload.detail === "string") detail = payload.detail;
-      else if (payload.detail != null) detail = JSON.stringify(payload.detail);
-    } catch {
-      try {
-        detail = await res.text();
-      } catch {
-        /* keep status text */
-      }
-    }
-    throw new Error(detail);
+    throw new Error(await errorDetail(res));
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -90,19 +103,7 @@ export async function apiPostBlob(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
-    try {
-      const payload = (await res.json()) as { detail?: unknown };
-      if (typeof payload.detail === "string") detail = payload.detail;
-      else if (payload.detail != null) detail = JSON.stringify(payload.detail);
-    } catch {
-      try {
-        detail = await res.text();
-      } catch {
-        /* keep status text */
-      }
-    }
-    throw new Error(detail);
+    throw new Error(await errorDetail(res));
   }
   return { blob: await res.blob(), headers: res.headers };
 }
@@ -115,19 +116,7 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
     body: form,
   });
   if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
-    try {
-      const payload = (await res.json()) as { detail?: unknown };
-      if (typeof payload.detail === "string") detail = payload.detail;
-      else if (payload.detail != null) detail = JSON.stringify(payload.detail);
-    } catch {
-      try {
-        detail = await res.text();
-      } catch {
-        /* keep status text */
-      }
-    }
-    throw new Error(detail);
+    throw new Error(await errorDetail(res));
   }
   return (await res.json()) as T;
 }

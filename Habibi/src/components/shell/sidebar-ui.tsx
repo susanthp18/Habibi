@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-const STORAGE_KEY = "bigbond.sidebar.collapsed";
+const STORAGE_KEY = "bigbound.sidebar.collapsed";
 
 type SidebarUiContextValue = {
   collapsed: boolean;

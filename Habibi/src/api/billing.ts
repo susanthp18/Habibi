@@ -4,7 +4,7 @@
 //   Budget rule mutations → POST/PATCH/DELETE /billing/budgets/.../rules
 // -----------------------------------------------------------------------------
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   AlertEvent,
@@ -71,6 +71,7 @@ export function useBilling(period: Period, tenantId: string, env: Env) {
     queryKey: ["billing", period, tenantId, env],
     queryFn: () => fetchBilling(period, tenantId, env),
     staleTime: 15_000,
+    placeholderData: keepPreviousData,
   });
 }
 

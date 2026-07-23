@@ -46,6 +46,22 @@ def get_chat_deployment() -> str:
     return _require("AZURE_OPENAI_CHAT_DEPLOYMENT")
 
 
+def _is_reasoning_deployment(deployment: str) -> bool:
+    """Heuristic: reasoning models (o-series / GPT-5) reject a custom ``temperature``.
+
+    Deployment names are user-defined, so match the common family substrings.
+    """
+    d = (deployment or "").lower()
+    return (
+        d.startswith(("o1", "o3", "o4"))
+        or "gpt-5" in d
+        or "gpt5" in d
+        or "-o1" in d
+        or "-o3" in d
+        or "-o4" in d
+    )
+
+
 def get_embedding_deployment() -> str:
     load_env()
     return _require("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
@@ -170,9 +186,11 @@ def chat_with_tools(
     kwargs: dict[str, Any] = {
         "model": deployment,
         "messages": messages,
-        "temperature": temperature,
         "max_completion_tokens": max_completion_tokens,
     }
+    # Reasoning deployments (o-series / GPT-5) only accept the default temperature.
+    if not _is_reasoning_deployment(deployment):
+        kwargs["temperature"] = temperature
     if tools:
         kwargs["tools"] = tools
         if tool_choice is not None:

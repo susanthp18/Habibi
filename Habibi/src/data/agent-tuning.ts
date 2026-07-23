@@ -204,9 +204,19 @@ export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): 
   vad.stop_secs = Math.min(2, Math.max(0.2, Number(vad.stop_secs) || 0.2));
   vad.min_volume = Math.min(1, Math.max(0.1, Number(vad.min_volume) || 0.6));
 
+  turn.stop_secs = Math.min(10, Math.max(0.2, Number(turn.stop_secs) || 3));
+  turn.pre_speech_ms = Math.min(2000, Math.max(0, Number(turn.pre_speech_ms) || 0));
+  turn.max_duration_secs = Math.min(30, Math.max(1, Number(turn.max_duration_secs) || 8));
+
   if (!["on", "min_words", "locked"].includes(interaction.barge_in)) interaction.barge_in = "on";
   interaction.min_words = Math.min(10, Math.max(1, Number(interaction.min_words) || 3));
   interaction.idle_timeout_secs = Math.min(30, Math.max(0, Number(interaction.idle_timeout_secs) || 0));
+  interaction.mute = (Array.isArray(interaction.mute) ? interaction.mute : []).filter((m) =>
+    ["until_first_bot_complete", "during_function_calls"].includes(m),
+  );
+  interaction.idle_ladder = (Array.isArray(interaction.idle_ladder) ? interaction.idle_ladder : []).filter(
+    (s) => ["nudge", "direct", "close"].includes(s),
+  );
 
   return { llm, tts, stt, vad, turn, interaction };
 }

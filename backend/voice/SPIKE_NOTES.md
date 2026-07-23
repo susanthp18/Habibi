@@ -40,8 +40,8 @@ closer (India / SE Asia region).
 
 ## Resource
 
-```
-AZURE_OPENAI_VOICE_ENDPOINT=https://bt-rmc-01c7b.openai.azure.com/
+```text
+AZURE_OPENAI_VOICE_ENDPOINT=https://<your-voice-resource>.openai.azure.com/
 AZURE_OPENAI_VOICE_DEPLOYMENT=gpt-4.1-mini
 region: East US 2
 ```

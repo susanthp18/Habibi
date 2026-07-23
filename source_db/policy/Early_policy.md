@@ -80,7 +80,7 @@ For the purpose of this Policy and notwithstanding any other definition, which m
     Furthermore, the diagnosis of Carcinoma in situ must always be positively diagnosed upon the basis of a microscopic examination of the fixed tissue, supported by a biopsy result. Clinical diagnosis does not meet this standard. Clinical diagnosis or Cervical Intraepithelial Neoplasia (CIN) classification which reports CIN I, CIN II, and CIN III (severe dysplasia without carcinoma in situ) does not meet the required definition and are specifically excluded. Carcinoma in situ of the biliary system or Carcinoma in situ of skin is also specifically excluded.
 
 **Early Prostate Cancer**
-Prostate Cancer that is histologically described using the TNM Classification as Tia or Tib or Prostate cancers described using another equivalent classification.
+Prostate Cancer that is histologically described using the TNM Classification as T1a or T1b or Prostate cancers described using another equivalent classification.
 
 **Early Thyroid Cancer**
 Thyroid Cancer that is histologically described using the TNM Classification as T1N0M0 as well as Papillary microcarcinoma of thyroid that is less than 1cm in diameter.
@@ -131,7 +131,7 @@ For the purpose of this Policy and notwithstanding any other definition, which m
         * Having any degree of malignant potential;
         * Having suspicious malignancy;
         * Neoplasm of uncertain or unknown behaviour; or
-        * All grades of dysplasia, sia, squamous intraepithelial lesions (HSIL and LSIL) and intra epithelial neoplasia;
+        * All grades of dysplasia, squamous intraepithelial lesions (HSIL and LSIL) and intra epithelial neoplasia;
     * Any non-melanoma skin carcinoma, skin confined primary cutaneous lymphoma and dermatofibrosarcoma protuberans unless there is evidence of metastases to lymph nodes or beyond;
     * Malignant melanoma that has not caused invasion beyond the epidermis;
     * All Prostate cancers histologically described as T1N0M0 (TNM Classification) or below; or Prostate cancers of another equivalent or lesser classification;
@@ -147,7 +147,7 @@ For the purpose of this Policy and notwithstanding any other definition, which m
     Death of heart muscle due to ischaemia, that is evident by at least three (3) of the following criteria proving the occurrence of a new heart attack:
     * History of typical chest pain;
     * New characteristic electrocardiographic changes; with the development of any of the following: ST elevation or depression, T wave inversion, pathological Q waves or left bundle branch block;
-    * Elevation of the cardiac biomarkers, inclusive of CKMB above the generally accepted normal laboratory levels or Cardiac Troponin T or I at $0.5na/ml$ and above;
+    * Elevation of the cardiac biomarkers, inclusive of CKMB above the generally accepted normal laboratory levels or Cardiac Troponin T or I at $0.5ng/ml$ and above;
     * Imaging evidence of new loss of viable myocardium or new regional wall motion abnormality. The imaging must be done by Cardiologist specified by the Company.
 
     For the above definition, the following are excluded:
@@ -155,7 +155,7 @@ For the purpose of this Policy and notwithstanding any other definition, which m
     * Heart attack of indeterminate age; and
     * A rise in cardiac biomarkers or Troponin T or I following an intra-arterial cardiac procedure including, but not limited to, coronary angiography and coronary angioplasty.
 
-    Explanatory note: $0.5ng/ml=0.5ug/L=500pg/m$
+    Explanatory note: $0.5ng/ml=0.5ug/L=500pg/ml$
 
 3.  **Stroke with Permanent Neurological Deficit**
     A cerebrovascular incident including infarction of brain tissue, cerebral and subarachnoid haemorrhage, intracerebral embolism and cerebral thrombosis resulting in Permanent Neurological Deficit. This diagnosis must be supported by all of the following conditions:

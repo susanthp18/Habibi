@@ -3,6 +3,11 @@
 > Status: **Done** (2026-07-22) — D1–D11 accepted as **(rec)**; implemented 5C→5B→5A→5D→5E→DEF-1→DEF-2  
 > Basis: codebase inspection after PS-0–PS-4 landed — **no invented tables/APIs**  
 > Companion: `PROMPT_STUDIO_plan.md` (locked decisions for PS-0–4 still apply)
+>
+> **Historical note:** the decision-confirmation gate in §3 and the "next step:
+> implement" language in §11 (and §§94–112, 383–387) are retained as the original
+> planning context. They are superseded by the **Done** status above — D1–D11 were
+> accepted and implemented; no further approval gate applies.
 
 ---
 

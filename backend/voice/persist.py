@@ -6,6 +6,7 @@ Uses db.engine / TENANT_ID / DEFAULT_BOT_ID only.
 
 from __future__ import annotations
 
+import json
 import logging
 import socket
 import uuid
@@ -98,7 +99,7 @@ def start_voice_call(
                 "direction": direction if direction in ("inbound", "outbound") else "inbound",
                 "deployment_id": deployment_id,
                 "started": started,
-                "payload": '{"source":"voice","transport":"%s"}' % transport,
+                "payload": json.dumps({"source": "voice", "transport": transport}),
             },
         )
         conn.execute(

@@ -18,7 +18,7 @@ import {
 export const Route = createFileRoute("/inbox")({
   head: () => ({
     meta: [
-      { title: "Conversation Inbox — BigBond AI" },
+      { title: "Conversation Inbox — BigBound AI" },
       {
         name: "description",
         content:
@@ -221,7 +221,7 @@ function InboxPage() {
         )}
         {!isLoading && !isError && displayThread && (
           <SplitPanes
-            storageKey={railOpen ? "bigbond.inbox.split.3" : "bigbond.inbox.split.2"}
+            storageKey={railOpen ? "bigbound.inbox.split.3" : "bigbound.inbox.split.2"}
             defaultWidths={railOpen ? [28, 47, 25] : [34, 66]}
             minWidthsPx={railOpen ? [220, 360, 240] : [220, 360]}
           >
