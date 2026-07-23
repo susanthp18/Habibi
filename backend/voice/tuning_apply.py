@@ -6,11 +6,27 @@ that imports Pipecat types for those knobs.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from loguru import logger
 
 from agent_core.tuning import live_delta_only, merge_tuning_delta, normalize_tuning
+
+
+def _is_reasoning_model(model: str) -> bool:
+    """gpt-5 / o-series deployments reject sampling params (temperature/top_p/
+    penalties) and require max_completion_tokens. Explicit config override wins
+    over the name heuristic, since deployment names are user-defined aliases.
+    """
+    raw = (os.getenv("AZURE_OPENAI_VOICE_REASONING_MODEL")
+           or os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    d = (model or "").lower()
+    return d.startswith(("o1", "o3", "o4")) or "gpt-5" in d or "gpt5" in d
 
 
 def _language(code: str):
@@ -151,15 +167,19 @@ def build_llm_settings_kwargs(
     llm = normalize_tuning(tuning)["llm"]
     kwargs: dict[str, Any] = {
         "model": model,
-        "temperature": float(llm["temperature"]),
         "system_instruction": system_instruction,
     }
-    if llm.get("top_p") is not None:
-        kwargs["top_p"] = float(llm["top_p"])
-    if llm.get("frequency_penalty") is not None:
-        kwargs["frequency_penalty"] = float(llm["frequency_penalty"])
-    if llm.get("presence_penalty") is not None:
-        kwargs["presence_penalty"] = float(llm["presence_penalty"])
+    # Reasoning deployments (o-series / GPT-5) reject temperature and the other
+    # sampling params — omit them so live turns don't 400. Matches the prewarm
+    # logic in llm_pool and azure_openai.
+    if not _is_reasoning_model(model):
+        kwargs["temperature"] = float(llm["temperature"])
+        if llm.get("top_p") is not None:
+            kwargs["top_p"] = float(llm["top_p"])
+        if llm.get("frequency_penalty") is not None:
+            kwargs["frequency_penalty"] = float(llm["frequency_penalty"])
+        if llm.get("presence_penalty") is not None:
+            kwargs["presence_penalty"] = float(llm["presence_penalty"])
     if llm.get("max_completion_tokens") is not None:
         kwargs["max_completion_tokens"] = int(llm["max_completion_tokens"])
     if llm.get("seed") is not None:

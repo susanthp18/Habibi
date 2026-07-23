@@ -25,8 +25,10 @@ export function MetricsTab({
     );
   }
 
+  // Only text-path turns carry a real latency; live bot outputs are recorded
+  // with latencyMs: 0, so exclude them or the average reads "0ms" during a call.
   const botLatencies = turns
-    .filter((t) => t.role === "bot" && typeof t.latencyMs === "number")
+    .filter((t) => t.role === "bot" && typeof t.latencyMs === "number" && t.latencyMs > 0)
     .map((t) => t.latencyMs as number);
 
   return (

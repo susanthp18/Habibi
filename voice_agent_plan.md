@@ -323,6 +323,15 @@ def build_tools(session: VoiceSession):
     return [create_promise_to_pay, ...]
 ```
 
+> **Design requirements (CodeRabbit review):**
+> - **Revalidate monetary writes inside the CRM transaction.** `session.outstanding`
+>   may be stale after a concurrent payment/promise. `crm.create_promise` must
+>   re-check the amount bound against current CRM state atomically, not trust the
+>   session snapshot.
+> - **Per-invocation idempotency for write tools.** Retries or duplicate model
+>   tool-calls can create duplicate promises/disputes. Carry a stable tool-call id
+>   into each CRM write and enforce it with a DB uniqueness constraint.
+
 Use `@tool_options(timeout_secs=…)` for slow tools; note the default is
 `cancel_on_interruption=True`, which is correct for reads and **wrong for
 writes** — a customer talking over the bot must not silently cancel a PTP that
@@ -465,6 +474,16 @@ Two properties to hold:
    never stutter speech.
 2. **Turn writes are idempotent.** `UNIQUE(interaction_id, turn_index)` already
    exists — use `ON CONFLICT DO NOTHING`.
+
+> **Design requirements (CodeRabbit review):**
+> - **Do not treat the in-memory `asyncio.Queue` as durable.** It loses queued
+>   transcript/metric events on process crash and can grow unbounded during a DB
+>   outage — which conflicts with the backfill guarantee. Back it with a durable
+>   outbox, or define bounded-queue overflow + replay semantics.
+> - **Make post-call finalization retry-safe.** `EndFrame` / post-call jobs can
+>   run more than once after retries or worker recovery. Use a terminal
+>   compare-and-set (`ending → ended`) and idempotent upserts for usage,
+>   summaries, media, and redaction so nothing is double-billed or overwritten.
 
 ---
 

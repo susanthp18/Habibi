@@ -66,19 +66,10 @@ def evaluate_guardrails(
         cust_l,
     ):
         flags.append("auto-escalate")
-    if guardrails.get("escalateAbuse") and any(
-        w in cust_l
-        for w in (
-            "idiot",
-            "stupid",
-            "shut up",
-            "stfu",
-            "harass",
-            "kill",
-            "fuck",
-            "asshole",
-            "bastard",
-        )
+    # Word-boundary match so partial hits (e.g. "kill" in "skill") don't escalate.
+    if guardrails.get("escalateAbuse") and re.search(
+        r"\b(idiot|stupid|shut\s+up|stfu|harass|kill|fuck|asshole|bastard)\b",
+        cust_l,
     ):
         flags.append("auto-escalate")
 

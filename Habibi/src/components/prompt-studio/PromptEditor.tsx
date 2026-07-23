@@ -63,7 +63,7 @@ export function PromptEditor({
             ) : accurate ? (
               <span>
                 {tokens.toLocaleString()} tokens
-                <span className="ml-1 text-text-muted/80">({estimate.encoding})</span>
+                <span className="ml-1 text-text-muted/80">({estimate?.encoding})</span>
               </span>
             ) : (
               <span>≈{tokens.toLocaleString()} tokens (est.)</span>

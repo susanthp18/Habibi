@@ -195,7 +195,7 @@ We will pay You the Benefit Limit as specified in the Policy Schedule if You suf
 *Applicable if the following section(s) are indicated as covered in the Policy Schedule*
 
 #### Section 7. Income Protector
-We will pay You a monthly benefit up to the maximum of the Benefit Limit as specified in the Policy Schedule, if You suffer Permanent Total Disablement as a result of an Injury and as a result of Your Permanent Total Disablement You are terminated of Your employment.
+We will pay You a monthly benefit up to the maximum of the Benefit Limit as specified in the Policy Schedule, if You suffer Permanent Total Disablement as a result of an Injury and Your employment is terminated because of that Permanent Total Disablement.
 
 **Exclusions Applicable to Section 7**
 No benefit will be payable under Section 7:
@@ -256,7 +256,7 @@ Unless otherwise expressly stated or extended in the Policy, this Policy does no
 18. (a) War, invasion, acts of foreign enemies, hostilities or warlike operations (whether war be declared or not), civil war, mutiny, rebellion, revolution, insurrection, conspiracy, civil commotion assuming the proportions of or amounting to an uprising, military or usurped power.
     (b) any Nuclear, Chemical, Biological Terrorism. "Nuclear, Chemical, Biological Terrorism" shall mean the use of any nuclear weapon or device or the emission, discharge, dispersal, release, or escape of any solid, liquid or gaseous Chemical agent and/or Biological agent during the period of this insurance by any person or group(s) of persons, whether acting alone or on behalf of or in connection with any organisation(s) or government(s), committed for political, religious or ideological purposes or reasons including the intention to influence any government and/or to put the public, or any section of the public, in fear.
 
-This endorsement also excludes loss, damage, cost or expense of whatsoever nature directly or indirectly caused by, resulting from or in connection with any action taken in controlling, preventing, suppressing or in any way relating to 17 (a) and/or 17 (b) above.
+This endorsement also excludes loss, damage, cost or expense of whatsoever nature directly or indirectly caused by, resulting from or in connection with any action taken in controlling, preventing, suppressing or in any way relating to 18 (a) and/or 18 (b) above.
 
 If We allege that by reason of these Exclusions any claim is not covered by this insurance, then the burden of proving that the claim is covered shall be upon You.
 

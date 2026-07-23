@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Sequence, Union
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260722_0028"
@@ -66,15 +67,18 @@ def upgrade() -> None:
         """
     )
     # Seed the product default onto rows that still have an empty blob.
-    payload = json.dumps(_DEFAULT_TUNING).replace("'", "''")
-    op.execute(
-        f"""
-        UPDATE bot_deployments
-        SET tuning = '{payload}'::jsonb,
-            updated_at = now()
-        WHERE tuning = '{{}}'::jsonb
-           OR tuning IS NULL
-        """
+    # Bind the JSON as a parameter (no fragile manual quote-escaping / SQL literal).
+    op.get_bind().execute(
+        sa.text(
+            """
+            UPDATE bot_deployments
+            SET tuning = CAST(:payload AS jsonb),
+                updated_at = now()
+            WHERE tuning = '{}'::jsonb
+               OR tuning IS NULL
+            """
+        ),
+        {"payload": json.dumps(_DEFAULT_TUNING)},
     )
 
 

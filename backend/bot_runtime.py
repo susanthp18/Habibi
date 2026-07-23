@@ -155,17 +155,21 @@ def _latest_customer_text(engine: Engine, conversation_id: str) -> tuple[str, st
 
 def _message_history(engine: Engine, conversation_id: str, limit: int) -> list[dict[str, str]]:
     with engine.connect() as conn:
+        # Fetch only the newest `limit` rows (avoids loading the whole thread each
+        # turn — O(n²) over a long WhatsApp conversation), then restore chrono order.
         rows = conn.execute(
             text(
                 """
                 SELECT sender, body FROM messages
                 WHERE conversation_id = :cid
                   AND sender IN ('customer', 'bot', 'agent')
-                ORDER BY COALESCE(sent_at, created_at) ASC, id ASC
+                ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                LIMIT :limit
                 """
             ),
-            {"cid": conversation_id},
+            {"cid": conversation_id, "limit": limit},
         ).mappings().all()
+    rows = list(reversed(rows))
     history: list[dict[str, str]] = []
     for r in rows:
         body = (r.get("body") or "").strip()

@@ -260,7 +260,17 @@ Agent Inbox and bot must not interleave blindly.
 3. Update row: `provider_ref=wamid`, `delivery_status='sent'` (or `failed` + error).  
 4. On job **retry / reaper reclaim:** if a message already exists for this `bot_turn_job_id` with `delivery_status IN ('sending','sent')` → **do not call Graph again**; if `sent`, mark job succeeded; if `sending` stuck, reconcile (query status or mark failed and escalate — never blind re-send).
 
-Agent `send_conversation_message` may keep its current order short-term; bot path must not copy that bug. Prefer aligning agent later to the same pattern.
+Agent `send_conversation_message` now follows the same persist-`sending`-first →
+send → finalize order (aligned in `db.py`).
+
+> **Design note (CodeRabbit review):** a crash *before* Graph submission is
+> indistinguishable from a lost response *after* submission, and WhatsApp Cloud
+> API has no client idempotency key. "Mark failed and escalate" can therefore drop
+> a reply that was actually delivered. Implemented behaviour (`bot_runtime`) **fails
+> safe**: a reused row still in `sending` is **not** auto-resent — the job is
+> cancelled for manual reconciliation (`outbound_sending_unconfirmed`); only
+> `failed` rows retry. A fully automatic resolution needs a durable reconciliation
+> state machine or provider-side idempotency, which WhatsApp does not offer today.
 
 **Success criterion:** worker retry after a successful Send produces **no second** WhatsApp message.
 

@@ -19,14 +19,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_provider_ref
-        ON messages (provider_ref)
-        WHERE provider_ref IS NOT NULL
-        """
-    )
+    # Build CONCURRENTLY so the index creation doesn't take an exclusive lock on
+    # `messages` (which would block WhatsApp/voice writes). CONCURRENTLY cannot run
+    # inside a transaction, hence the autocommit block. Note: this fails if any
+    # duplicate non-null provider_ref rows already exist — dedupe those first.
+    with op.get_context().autocommit_block():
+        op.execute(
+            """
+            CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_messages_provider_ref
+            ON messages (provider_ref)
+            WHERE provider_ref IS NOT NULL
+            """
+        )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS uq_messages_provider_ref")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS uq_messages_provider_ref")

@@ -542,7 +542,7 @@ If You do not comply with the following claims conditions, We may refuse to pay 
 
 ### Fraud Coverage - Sections 1 to 5
 
-(a) Notice shall be given to Us as soon as possible but in any case, within forty-eight (48) hours after the Loss Event is first discovered by You. For Online Shopping Fraud, within forty-eight (48) hours of sixty (60) days from the first date of purchase or scheduled arrival date, or such later date as informed by the Online Merchant.
+(a) Notice shall be given to Us as soon as possible but in any case, within forty-eight (48) hours after the Loss Event is first discovered by You. For Online Shopping Fraud, notice shall be given within forty-eight (48) hours after the applicable qualifying period ends — that is, thirty (30) days after the scheduled arrival date (or such later date as the Online Merchant informs You), or, where no scheduled arrival date was provided, sixty (60) days from the first date of purchase.
 
 (b) You must report to the police and where applicable, the issuers of Your Payment Card and/or the financial institution which provides Your Personal Account within twenty-four (24) hours after the loss event is first discovered by You.
 

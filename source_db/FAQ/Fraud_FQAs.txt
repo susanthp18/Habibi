@@ -23,7 +23,7 @@ Q: What is covered under Online Shopping Fraud?
 A: It covers situations where you were dishonestly induced to purchase goods from an online merchant but the goods were not delivered — within 30 days of the scheduled arrival date (or a later date the merchant informs you), or within 60 days from the first date of purchase if no scheduled arrival date is provided — and the merchant did not provide a full or partial refund or take remedial action within 60 days of the scheduled arrival date.
 
 Q: What is covered under Fund Transfer Fraud?
-A: It covers the following Fund Transfer Fraud events: The fraudulent electronic transfers of funds from Your Personal Account by a Third Party; Fraudulent transfer of funds or property from Your Personal Account to a Third Party after being defrauded, with the first e-communication being unsolicited and first sent to you via Email, SMS or WhatsApp The fraudulent unauthorised use of or electronic transfer of funds stored in Your personal Digital Wallet held by an Online Merchant
+A: It covers the following Fund Transfer Fraud events: The fraudulent electronic transfers of funds from Your Personal Account by a Third Party; Fraudulent transfer of funds or property from Your Personal Account to a Third Party after being defrauded, with the first e-communication being unsolicited and first sent to you via Email, SMS or WhatsApp; and The fraudulent unauthorised use of or electronic transfer of funds stored in Your personal Digital Wallet held by an Online Merchant.
 
 Q: What is covered under Cyber Extortion?
 A: It covers extortion payments made to a third party due to cyber extortion threat, as well as fees for experts appointed to advise or respond to the threat.

@@ -112,6 +112,9 @@ export function BudgetRuleDialog({
                     setBusy(true);
                     try {
                       await onDelete();
+                    } catch {
+                      // parent surfaces a toast and rethrows — swallow here to
+                      // avoid an unhandled promise rejection.
                     } finally {
                       setBusy(false);
                     }
@@ -133,6 +136,9 @@ export function BudgetRuleDialog({
                   setBusy(true);
                   try {
                     await onSave(draft);
+                  } catch {
+                    // parent surfaces a toast and rethrows — swallow here to
+                    // avoid an unhandled promise rejection.
                   } finally {
                     setBusy(false);
                   }

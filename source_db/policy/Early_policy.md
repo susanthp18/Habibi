@@ -164,7 +164,7 @@ For the purpose of this Policy and notwithstanding any other definition, which m
 
     The following are excluded:
     * Transient Ischaemic Attacks;
-    * Brain damage due to an accident or injury. infection, vasculitis, and inflammatory disease;
+    * Brain damage due to an accident or injury, infection, vasculitis, and inflammatory disease;
     * Vascular disease affecting the eye or optic nerve;
     * Ischaemic disorders of the vestibular system; and
     * Secondary haemorrhage within a pre-existing cerebral lesion.

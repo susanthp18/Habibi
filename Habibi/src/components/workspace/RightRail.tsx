@@ -17,9 +17,13 @@ export function RightRail() {
     try {
       const list = await fetchCallbacks();
       const cb = list.find((c) => c.id === nextCallback.id);
-      if (cb) await startCall(cb);
       void navigate({ to: "/callbacks", search: { id: nextCallback.id } });
-      toast.success(`Starting call with ${nextCallback.customer}`);
+      if (cb) {
+        await startCall(cb);
+        toast.success(`Starting call with ${nextCallback.customer}`);
+      } else {
+        toast.message("Callback no longer available — opening queue");
+      }
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Could not start call");
       void navigate({ to: "/callbacks", search: { id: nextCallback.id } });

@@ -121,15 +121,16 @@ minio:
   ports: ["9000:9000", "9001:9001"]
   volumes: [minio_data:/data]
   environment:
-    MINIO_ROOT_USER: minioadmin
-    MINIO_ROOT_PASSWORD: minioadmin
+    # Set to unique secrets (not the known minioadmin defaults); required, no fallback.
+    MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?set in .env}
+    MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?set in .env}
 ```
 
-App env (KB-2+):
+App env (KB-2+) — generate unique dev secrets, never commit real values:
 ```env
 MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+MINIO_ACCESS_KEY=<generate-a-unique-key>
+MINIO_SECRET_KEY=<generate-a-unique-secret>
 MINIO_BUCKET=collections-kb
 MINIO_SECURE=false
 ```

@@ -268,11 +268,17 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     conn = op.get_bind()
+    # NOTE: upgrade() also rewrote result / action_taken / evaluated_at on these
+    # rows from derived values without snapshotting the originals, so those columns
+    # cannot be perfectly restored here. We reset rule_id and strip the additive
+    # context marker (mappedBy/signal) that upgrade injected — the only cleanly
+    # reversible change on this seed/demo data.
     conn.execute(
         sa.text(
             """
             UPDATE routing_rule_executions
-            SET rule_id = 'route-sentiment-drop'
+            SET rule_id = 'route-sentiment-drop',
+                context = (COALESCE(context, '{}'::jsonb) - 'mappedBy' - 'signal')
             WHERE rule_id IS NOT NULL
               AND rule_id <> 'route-sentiment-drop'
             """

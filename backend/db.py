@@ -2881,18 +2881,20 @@ def create_lead(payload: dict[str, Any]) -> dict[str, Any]:
             {"id": lead_id, "customer_id": customer_id, "account_id": payload.get("accountId") or _first_account_id(conn, customer_id), "interaction_id": payload.get("interactionId"), "product_id": product_id, "owner_user_id": payload.get("ownerUserId") or _actor_user_id(), "team_id": payload.get("teamId") or "retail-sales", "stage": payload.get("stage") or "interested", "source": payload.get("source") or "agent", "sentiment_at_capture": payload.get("sentimentAtCapture") or "neutral", "sentiment_score": payload.get("sentimentScore"), "estimated_value": payload.get("estimatedValue"), "offer_amount": payload.get("offerAmount"), "offer_roi": payload.get("offerRoi"), "priority": payload.get("priority") or "normal", "transcript_snippet": payload.get("transcriptSnippet")},
         )
         # Phase 2-lite: persist evaluated eligibility (honest unknown for bureau/KYC).
+        # Savepoint: a capture failure must not abort the lead write + trailing activity.
         try:
             import capture
 
-            flags = payload.get("eligibilityFlags")
-            if not isinstance(flags, list):
-                flags = capture.evaluate_product_eligibility(
-                    conn, customer_id=customer_id, product_id=product_id
-                )
-            capture.insert_lead_eligibility(conn, lead_id=lead_id, flags=flags)
-            if payload.get("interactionId"):
-                capture.mark_upsell_presented(conn, payload.get("interactionId"))
-                capture.touch_primary_intent(conn, payload.get("interactionId"), "upsell_opportunity")
+            with conn.begin_nested():
+                flags = payload.get("eligibilityFlags")
+                if not isinstance(flags, list):
+                    flags = capture.evaluate_product_eligibility(
+                        conn, customer_id=customer_id, product_id=product_id
+                    )
+                capture.insert_lead_eligibility(conn, lead_id=lead_id, flags=flags)
+                if payload.get("interactionId"):
+                    capture.mark_upsell_presented(conn, payload.get("interactionId"))
+                    capture.touch_primary_intent(conn, payload.get("interactionId"), "upsell_opportunity")
         except Exception:
             logger.exception("lead eligibility capture failed for %s", lead_id)
         _activity(conn, "lead", lead_id, "lead_created", "Lead created", None, customer_id)
@@ -6538,15 +6540,19 @@ def _ingest_inbound_whatsapp_message(
         try:
             import bot_jobs
 
-            job_info = bot_jobs.enqueue_bot_turn(
-                conn,
-                conversation_id=conversation_id,
-                customer_id=customer["id"],
-                trigger_message_id=msg_id,
-                trigger_provider_ref=wa_message_id,
-                interaction_id=conv_row.get("interaction_id"),
-                channel="whatsapp",
-            )
+            # Savepoint: an enqueue failure otherwise aborts the shared webhook
+            # transaction, and the fallback _activity write below would then run
+            # on a broken connection.
+            with conn.begin_nested():
+                job_info = bot_jobs.enqueue_bot_turn(
+                    conn,
+                    conversation_id=conversation_id,
+                    customer_id=customer["id"],
+                    trigger_message_id=msg_id,
+                    trigger_provider_ref=wa_message_id,
+                    interaction_id=conv_row.get("interaction_id"),
+                    channel="whatsapp",
+                )
         except Exception:
             # Never fail Meta webhook because the queue insert failed — log via activity.
             _activity(
@@ -9252,26 +9258,28 @@ def backfill_kb_sources_to_minio(*, limit: int | None = None) -> dict[str, Any]:
                 mime = "text/markdown" if path.suffix.lower() == ".md" else "text/plain"
                 key = object_store.object_key(row["id"], path.name)
                 storage_ref = object_store.put_bytes(key, data, mime)
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO kb_source_files (
-                          id, document_id, storage_ref, filename, mime_type, size_bytes, hash, created_at
-                        ) VALUES (
-                          :id, :document_id, :storage_ref, :filename, :mime_type, :size_bytes, :hash, now()
-                        )
-                        """
-                    ),
-                    {
-                        "id": f"file-{row['id']}",
-                        "document_id": row["id"],
-                        "storage_ref": storage_ref,
-                        "filename": path.name,
-                        "mime_type": mime,
-                        "size_bytes": len(data),
-                        "hash": kb_ingest.content_sha256(data),
-                    },
-                )
+                # Savepoint per row: one bad insert must not abort the whole backfill txn.
+                with conn.begin_nested():
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO kb_source_files (
+                              id, document_id, storage_ref, filename, mime_type, size_bytes, hash, created_at
+                            ) VALUES (
+                              :id, :document_id, :storage_ref, :filename, :mime_type, :size_bytes, :hash, now()
+                            )
+                            """
+                        ),
+                        {
+                            "id": f"file-{row['id']}",
+                            "document_id": row["id"],
+                            "storage_ref": storage_ref,
+                            "filename": path.name,
+                            "mime_type": mime,
+                            "size_bytes": len(data),
+                            "hash": kb_ingest.content_sha256(data),
+                        },
+                    )
                 copied += 1
             except Exception as exc:
                 errors.append(f"{row['id']}: {exc}")

@@ -187,7 +187,7 @@ This benefit extends to cover:
 2. The physiotherapy treatment if deemed medically necessary by a Registered Medical Practitioner and You have a written medical referral from the Registered Medical Practitioner to the physiotherapist. We will reimburse You up to $100 per visit and up to 10% of the Benefit Limit as specified in the Policy Schedule for any one Accident.
 3. Medical Expenses incurred as a result of Infectious Disease suffered by You, provided that the claim is not made within the Waiting Period.
 
-Any Infectious Disease which is announced or notified as an epidemic or pandemic by the health authority of Singapore or the Government of the Republic of Singapore and a pandemic by the Whole Health Organisation (WHO). The cover for the epidemic or pandemic Infectious Disease shall cease from the date of such announcement or notification.
+Any Infectious Disease which is announced or notified as an epidemic or pandemic by the health authority of Singapore or the Government of the Republic of Singapore and a pandemic by the World Health Organization (WHO). The cover for the epidemic or pandemic Infectious Disease shall cease from the date of such announcement or notification.
 
 If at the time any claim arises under this Policy there is any other insurance policy effected by or on behalf of You with other insurance company covering the same expenses, We shall only be liable for the remaining amount which You are not compensated for.
 

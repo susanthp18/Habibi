@@ -133,25 +133,38 @@ def upgrade() -> None:
         {"metered": list(METERED_IDS)},
     )
 
-    # Rebuild invoices from real monthly production spend (org rollup)
-    conn.execute(sa.text("DELETE FROM invoice_line_items"))
-    conn.execute(sa.text("DELETE FROM invoices"))
+    # Rebuild invoices from real monthly production spend, PER TENANT — usage is
+    # recorded with a dynamic tenant_id (usage_meter), so grouping by month only
+    # would collapse every tenant's spend onto HDFC. Scope the purge to production
+    # so sandbox / other-environment invoices aren't collateral.
+    conn.execute(
+        sa.text(
+            """
+            DELETE FROM invoice_line_items
+            WHERE invoice_id IN (SELECT id FROM invoices WHERE environment = 'production')
+            """
+        )
+    )
+    conn.execute(sa.text("DELETE FROM invoices WHERE environment = 'production'"))
 
     months = conn.execute(
         sa.text(
             """
-            SELECT to_char(usage_date, 'YYYY-MM') AS ym,
+            SELECT tenant_id,
+                   to_char(usage_date, 'YYYY-MM') AS ym,
                    round(sum(cost_inr)::numeric, 2) AS total
             FROM billing_usage_daily
             WHERE environment = 'production'
-            GROUP BY 1
-            ORDER BY 1
+            GROUP BY tenant_id, to_char(usage_date, 'YYYY-MM')
+            ORDER BY tenant_id, ym
             """
         )
     ).fetchall()
 
-    for ym, total in months:
-        inv_id = f"INV-{ym}"
+    for tenant_id, ym, total in months:
+        # Keep the canonical id for the default tenant; qualify others so their
+        # invoice doesn't collide with (or overwrite) HDFC's.
+        inv_id = f"INV-{ym}" if tenant_id == "hdfc.retail" else f"INV-{tenant_id}-{ym}"
         # issued on 1st of next month
         y, m = int(ym[:4]), int(ym[5:7])
         if m == 12:
@@ -165,12 +178,13 @@ def upgrade() -> None:
                 INSERT INTO invoices (
                   id, tenant_id, invoice_month, environment, total_inr, status, issued_at
                 ) VALUES (
-                  :id, 'hdfc.retail', :month, 'production', :total, :status, :issued
+                  :id, :tenant, :month, 'production', :total, :status, :issued
                 )
                 """
             ),
             {
                 "id": inv_id,
+                "tenant": tenant_id,
                 "month": ym,
                 "total": float(total or 0),
                 "status": status,
