@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import socket
 import time
 from typing import Any
@@ -79,8 +80,17 @@ class KeepAliveAzureLLMService(AzureLLMService):
         return get_shared_client_sync()
 
 
-def _needs_max_completion_tokens(deployment: str) -> bool:
-    """gpt-5 / o-series deployments require ``max_completion_tokens``, not ``max_tokens``."""
+def _is_reasoning_deployment(deployment: str) -> bool:
+    """gpt-5 / o-series deployments require ``max_completion_tokens`` (not
+    ``max_tokens``) and reject a custom ``temperature``. Explicit config override
+    wins over the name heuristic, since deployment names are user-defined aliases.
+    """
+    raw = (os.getenv("AZURE_OPENAI_VOICE_REASONING_MODEL")
+           or os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
     d = (deployment or "").lower()
     return d.startswith(("o1", "o3", "o4")) or "gpt-5" in d or "gpt5" in d
 
@@ -93,22 +103,23 @@ async def _completion_ping(client: AsyncAzureOpenAI, deployment: str) -> None:
     # Pick the param by deployment family up front; only fall back on the API's
     # rejection so a wording change can't silently leave prewarm cold.
     msgs = [{"role": "user", "content": "Reply with: ok"}]
+    reasoning = _is_reasoning_deployment(deployment)
     primary, fallback = (
         ("max_completion_tokens", "max_tokens")
-        if _needs_max_completion_tokens(deployment)
+        if reasoning
         else ("max_tokens", "max_completion_tokens")
     )
+    # Reasoning deployments reject a custom temperature — omit it there.
+    base: dict = {"model": deployment, "messages": msgs}
+    if not reasoning:
+        base["temperature"] = 0
     try:
-        await client.chat.completions.create(
-            model=deployment, messages=msgs, temperature=0, **{primary: 16}
-        )
+        await client.chat.completions.create(**base, **{primary: 16})
     except Exception as exc:
         low = str(exc).lower()
         if primary not in low and "unsupported" not in low:
             raise
-        await client.chat.completions.create(
-            model=deployment, messages=msgs, temperature=0, **{fallback: 16}
-        )
+        await client.chat.completions.create(**base, **{fallback: 16})
 
 
 async def prewarm_shared_client(*, force: bool = False) -> float:

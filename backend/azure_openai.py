@@ -46,11 +46,28 @@ def get_chat_deployment() -> str:
     return _require("AZURE_OPENAI_CHAT_DEPLOYMENT")
 
 
-def _is_reasoning_deployment(deployment: str) -> bool:
-    """Heuristic: reasoning models (o-series / GPT-5) reject a custom ``temperature``.
-
-    Deployment names are user-defined, so match the common family substrings.
+def _reasoning_override() -> bool | None:
+    """Explicit config: reasoning models (o-series / GPT-5) reject a custom
+    ``temperature`` and require ``max_completion_tokens``. Deployment names are
+    user-defined aliases (an o-series model may be named ``prod-chat``), so an
+    explicit flag must be able to force the behaviour. Returns True/False when the
+    flag is set, else None to fall back to the name heuristic.
     """
+    raw = (os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return None
+
+
+def _is_reasoning_deployment(deployment: str) -> bool:
+    """Whether the chat deployment is a reasoning model. Explicit override wins;
+    otherwise fall back to matching the common family substrings in the name.
+    """
+    override = _reasoning_override()
+    if override is not None:
+        return override
     d = (deployment or "").lower()
     return (
         d.startswith(("o1", "o3", "o4"))

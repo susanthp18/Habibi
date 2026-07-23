@@ -244,6 +244,7 @@ In the context of this section the following terms have the following meanings a
 * **\*Non-Reporting NCD** - Refers to the loss of percentage of No Claim Discount as a result of not reporting or late reporting of an accident as set out under the Policy as per NCD Table 3.
 
 ### GENERAL CONDITIONS
+
 *(Applicable to the whole Policy)*
 
 The following conditions apply to any claim made under the Policy.

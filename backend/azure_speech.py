@@ -10,6 +10,7 @@ import hashlib
 import logging
 import os
 import re
+import tempfile
 import time
 import xml.sax.saxutils
 from pathlib import Path
@@ -319,10 +320,20 @@ def synthesize(
         raise RuntimeError("azure_speech_tts_empty_audio")
 
     # Atomic write: a crash mid-write must not leave a truncated MP3 that the
-    # cache-hit size gate above would then serve as valid audio.
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_bytes(audio)
-    os.replace(tmp, path)
+    # cache-hit size gate above would then serve as valid audio. Use a UNIQUE temp
+    # file per write (same dir, for an atomic rename) so concurrent writers to the
+    # same cache key don't clobber each other's temp file before os.replace.
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".mp3.tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(audio)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     chars = len(text or "")
     logger.info(
         "azure_speech_tts voice=%s chars=%s latency_ms=%s cache=miss",
