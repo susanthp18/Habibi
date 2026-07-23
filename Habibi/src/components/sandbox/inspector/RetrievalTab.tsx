@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { groundedLabel } from "@/api/sandbox";
 import { chunkTitle, type SandboxTurn } from "@/data/sandbox-seed";
 
 export function RetrievalTab({ turns }: { turns: SandboxTurn[] }) {
@@ -7,6 +8,51 @@ export function RetrievalTab({ turns }: { turns: SandboxTurn[] }) {
   if (!lastBot) {
     return <Empty text="Send a message to see what the bot retrieved." />;
   }
+
+  const live = lastBot.chunks ?? [];
+  if (live.length > 0) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between text-[11px] text-text-muted">
+          <span>
+            Top {live.length} chunks · {lastBot.latencyMs}ms · {lastBot.tokens}t
+          </span>
+          <Link
+            to="/knowledge-base"
+            className="inline-flex items-center gap-1 hover:text-text-secondary"
+          >
+            Open KB <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
+        {live.map((c) => (
+          <div
+            key={c.chunkId}
+            className="rounded-md border border-[var(--border-token)] bg-surface-sunken p-2.5"
+          >
+            <div className="flex items-center gap-2 text-[11px] text-text-muted">
+              <span className="font-mono">{c.chunkId}</span>
+              {typeof c.score === "number" && (
+                <span className="ml-auto font-mono">{c.score.toFixed(2)}</span>
+              )}
+            </div>
+            {typeof c.score === "number" && (
+              <div className="mt-1 h-1 w-full overflow-hidden rounded bg-surface-card">
+                <div className="h-full bg-brand-primary" style={{ width: `${c.score * 100}%` }} />
+              </div>
+            )}
+            <div className="mt-1.5 text-[12px] font-medium text-text-primary">
+              {c.heading || groundedLabel(c)}
+            </div>
+            <div className="text-[10.5px] text-text-muted">{groundedLabel(c)}</div>
+            {c.snippet && (
+              <div className="mt-1 line-clamp-3 text-[11.5px] text-text-secondary">{c.snippet}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const ids = lastBot.chunkIds ?? [];
   if (ids.length === 0) {
     return <Empty text="No chunks retrieved for this turn." />;
@@ -15,7 +61,9 @@ export function RetrievalTab({ turns }: { turns: SandboxTurn[] }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between text-[11px] text-text-muted">
-        <span>Top {chunks.length} chunks · {lastBot.latencyMs}ms · {lastBot.tokens}t</span>
+        <span>
+          Top {chunks.length} chunks · {lastBot.latencyMs}ms · {lastBot.tokens}t
+        </span>
         <Link to="/knowledge-base" className="inline-flex items-center gap-1 hover:text-text-secondary">
           Open KB <ExternalLink className="h-3 w-3" />
         </Link>
@@ -39,5 +87,9 @@ export function RetrievalTab({ turns }: { turns: SandboxTurn[] }) {
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="rounded-md border border-dashed border-[var(--border-token)] p-6 text-center text-[12px] text-text-muted">{text}</div>;
+  return (
+    <div className="rounded-md border border-dashed border-[var(--border-token)] p-6 text-center text-[12px] text-text-muted">
+      {text}
+    </div>
+  );
 }

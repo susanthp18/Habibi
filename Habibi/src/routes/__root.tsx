@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { clearSidebarCollapsedPreference } from "@/components/shell/sidebar-ui";
 
 function NotFoundComponent() {
   return (
@@ -39,7 +40,11 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
   useEffect(() => {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
+    // Stuck collapse preference was bricking every refresh after one bad render.
+    clearSidebarCollapsedPreference();
   }, [error]);
+
+  const detail = error?.message || String(error);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -50,9 +55,15 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <p className="mt-2 text-sm text-muted-foreground">
           Something went wrong on our end. You can try refreshing or head back home.
         </p>
+        {detail && (
+          <p className="mt-3 break-words rounded-md bg-muted px-3 py-2 text-left text-[11px] text-muted-foreground">
+            {detail}
+          </p>
+        )}
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={() => {
+              clearSidebarCollapsedPreference();
               router.invalidate();
               reset();
             }}
@@ -62,6 +73,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           </button>
           <a
             href="/"
+            onClick={() => clearSidebarCollapsedPreference()}
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             Go home
@@ -77,17 +89,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Collections Agent — AI Workspace for BFSI" },
+      { title: "BigBound AI — Collections Workspace for BFSI" },
       {
         name: "description",
         content:
-          "Voice-first inbound Collections AI agent with an enterprise CRM workspace for BFSI teams.",
+          "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
       },
-      { property: "og:title", content: "Collections Agent — AI Workspace for BFSI" },
+      { property: "og:title", content: "BigBound AI — Collections Workspace for BFSI" },
       {
         property: "og:description",
         content:
-          "Voice-first inbound Collections AI agent with an enterprise CRM workspace for BFSI teams.",
+          "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

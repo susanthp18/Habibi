@@ -49,12 +49,16 @@ export interface ThreadContext {
 export interface Thread {
   id: string;
   customer: string;
+  /** CRM customer id for Customer 360 / PTP / dispute deep-links. */
+  customerId?: string;
   accountId: string;
   channel: Channel;
   status: ThreadStatus;
   /** Owning agent; Mine filter = assignedUserId === current user. */
   assignedUserId: string | null;
   isMine: boolean;
+  /** True while a bot turn is queued/running (WhatsApp auto-reply in flight). */
+  botTyping?: boolean;
   sla: SlaLevel;
   unread: number;
   lastTime: string;
@@ -62,6 +66,8 @@ export interface Thread {
   lastFrom: Sender;
   sentiment: Sentiment;
   ragSuggestions: string[];
+  /** Optional grounded draft from shared kb_retrieve (same as Test Retrieval). */
+  ragDraftAnswer?: string | null;
   messages: ThreadItem[];
   context: ThreadContext;
 }
@@ -98,6 +104,7 @@ export const threads: Thread[] = [
   {
     id: "t1",
     customer: "Rahul Mehta",
+    customerId: "rahul-sinha",
     accountId: "AC-889123",
     channel: "whatsapp",
     status: "needs_human",
@@ -143,6 +150,7 @@ export const threads: Thread[] = [
   {
     id: "t2",
     customer: "Anita Sharma",
+    customerId: "anita-desai",
     accountId: "AC-772044",
     channel: "whatsapp",
     status: "bot",
@@ -183,6 +191,7 @@ export const threads: Thread[] = [
   {
     id: "t3",
     customer: "Kabir Singh",
+    customerId: "james-patel",
     accountId: "AC-654321",
     channel: "email",
     status: "escalated",
@@ -225,6 +234,7 @@ export const threads: Thread[] = [
   {
     id: "t4",
     customer: "Meera Iyer",
+    customerId: "farah-ahmed",
     accountId: "AC-441120",
     channel: "whatsapp",
     status: "assigned",
@@ -268,6 +278,7 @@ export const threads: Thread[] = [
   {
     id: "t5",
     customer: "Priya Nair",
+    customerId: "neha-kapoor",
     accountId: "AC-556677",
     channel: "whatsapp",
     status: "bot",
@@ -304,6 +315,7 @@ export const threads: Thread[] = [
   {
     id: "t6",
     customer: "Sanjay Gupta",
+    customerId: "vikram-rao",
     accountId: "AC-880013",
     channel: "email",
     status: "needs_human",
@@ -339,6 +351,7 @@ export const threads: Thread[] = [
   {
     id: "t7",
     customer: "Ravi Deshmukh",
+    customerId: "anita-desai",
     accountId: "AC-119988",
     channel: "sms",
     status: "needs_human",
@@ -373,6 +386,7 @@ export const threads: Thread[] = [
   {
     id: "t8",
     customer: "Sneha Kapoor",
+    customerId: "neha-kapoor",
     accountId: "AC-224466",
     channel: "whatsapp",
     status: "bot",
@@ -409,6 +423,7 @@ export const threads: Thread[] = [
   {
     id: "t9",
     customer: "Vikram Rao",
+    customerId: "vikram-rao",
     accountId: "AC-330012",
     channel: "whatsapp",
     status: "bot",
@@ -443,6 +458,7 @@ export const threads: Thread[] = [
   {
     id: "t10",
     customer: "Aarav Khanna",
+    customerId: "james-patel",
     accountId: "AC-771122",
     channel: "sms",
     status: "escalated",

@@ -15,14 +15,17 @@ import { CoachingBoard } from "@/components/qa/CoachingBoard";
 import { NewCoachingSheet } from "@/components/qa/NewCoachingSheet";
 import { RubricBuilderSheet } from "@/components/qa/RubricBuilderSheet";
 import {
+  createCoachingAction,
   finalizeScorecard,
+  patchCalibrationSession,
+  patchCoachingAction,
   saveScorecard,
+  useCalibrationSessions,
+  useCoachingActions,
   useRubric,
   useScorecards,
 } from "@/api/qa";
 import {
-  initialCoaching,
-  initialCalibrations,
   defaultRubric,
   agentStats,
   type Scorecard,
@@ -30,7 +33,6 @@ import {
   type CoachingAction,
   type CoachingStatus,
   type Rubric,
-  type CalibrationSession,
 } from "@/data/qa-seed";
 
 type Tab = "queue" | "trends" | "calibration" | "coaching";
@@ -38,7 +40,7 @@ type Tab = "queue" | "trends" | "calibration" | "coaching";
 export const Route = createFileRoute("/qa")({
   head: () => ({
     meta: [
-      { title: "QA Scorecards & Coaching — Collections Agent" },
+      { title: "QA Scorecards & Coaching — BigBound AI" },
       { name: "description", content: "Score bot and agent interactions against a weighted rubric, run calibration sessions, and assign coaching actions." },
       { property: "og:title", content: "QA Scorecards & Coaching" },
       { property: "og:description", content: "Rubric-driven quality scoring with AI-assisted suggestions, agent trends, calibration, and coaching workflow." },
@@ -51,6 +53,8 @@ function QaPage() {
   const queryClient = useQueryClient();
   const { data: remoteRubric } = useRubric();
   const { data: remoteScorecards } = useScorecards();
+  const { data: remoteCoaching } = useCoachingActions();
+  const { data: remoteCalibrations } = useCalibrationSessions();
 
   // Local rubric edits (builder sheet) — live GET /rubric is the base.
   const [rubricOverride, setRubricOverride] = useState<Rubric | null>(null);
@@ -59,9 +63,8 @@ function QaPage() {
   // In-progress criterion edits until Save draft / Publish.
   const [draftEntries, setDraftEntries] = useState<Record<string, ScorecardEntry[]>>({});
 
-  // Fast-follow tabs — still seed-backed until coaching/calibration endpoints land.
-  const [coaching, setCoaching] = useState<CoachingAction[]>(initialCoaching);
-  const [calibrations, setCalibrations] = useState<CalibrationSession[]>(initialCalibrations);
+  const coaching = remoteCoaching ?? [];
+  const calibrations = remoteCalibrations ?? [];
 
   const scorecards = useMemo(() => {
     const base = remoteScorecards ?? [];
@@ -92,6 +95,9 @@ function QaPage() {
   );
 
   const invalidateScorecards = () => queryClient.invalidateQueries({ queryKey: ["scorecards"] });
+  const invalidateCoaching = () => queryClient.invalidateQueries({ queryKey: ["coaching-actions"] });
+  const invalidateCalibrations = () =>
+    queryClient.invalidateQueries({ queryKey: ["calibration-sessions"] });
 
   const saveMutation = useMutation({
     mutationFn: async ({ sc, entries }: { sc: Scorecard; entries: ScorecardEntry[] }) => {
@@ -144,28 +150,45 @@ function QaPage() {
     setCoachOpen(true);
   };
 
+  const moveCoachMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: CoachingStatus }) =>
+      patchCoachingAction(id, { status }),
+    onSuccess: () => invalidateCoaching(),
+    onError: (err: Error) => toast.error("Could not update coaching", { description: err.message }),
+  });
+
+  const createCoachMutation = useMutation({
+    mutationFn: createCoachingAction,
+    onSuccess: (item) => {
+      invalidateCoaching();
+      setCoachOpen(false);
+      toast.success("Coaching action created", { description: `${item.agentId} · ${item.title}` });
+    },
+    onError: (err: Error) => toast.error("Could not create coaching", { description: err.message }),
+  });
+
+  const closeCalMutation = useMutation({
+    mutationFn: (id: string) => patchCalibrationSession(id, { status: "closed" }),
+    onSuccess: () => {
+      invalidateCalibrations();
+      toast.success("Calibration closed");
+    },
+    onError: (err: Error) => toast.error("Could not close calibration", { description: err.message }),
+  });
+
   const moveCoaching = (id: string, status: CoachingStatus) => {
-    setCoaching((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+    moveCoachMutation.mutate({ id, status });
   };
   const openCoachDetail = (id: string) => {
     const a = coaching.find((c) => c.id === id);
     if (a) toast(a.title, { description: `${a.agentId} · ${a.category}` });
   };
   const addCoaching = (data: Omit<CoachingAction, "id" | "createdAt" | "notes" | "status">) => {
-    const item: CoachingAction = {
-      ...data,
-      id: `coach-${Date.now()}`,
-      status: "assigned",
-      notes: [],
-      createdAt: new Date().toISOString(),
-    };
-    setCoaching((prev) => [item, ...prev]);
-    setCoachOpen(false);
-    toast.success("Coaching action created", { description: `${data.agentId} · ${data.title}` });
+    createCoachMutation.mutate(data);
   };
 
   const closeCalibration = (id: string) => {
-    setCalibrations((prev) => prev.map((s) => (s.id === id ? { ...s, status: "closed" } : s)));
+    closeCalMutation.mutate(id);
   };
 
   const TABS: Array<{ key: Tab; label: string; icon: any; count?: number }> = [

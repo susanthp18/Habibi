@@ -1,23 +1,25 @@
 import { useState } from "react";
-import { Activity, Layers, LineChart, Radio } from "lucide-react";
+import { Activity, Gauge, Layers, LineChart, Radio } from "lucide-react";
 import type { SandboxTurn } from "@/data/sandbox-seed";
 import { RetrievalTab } from "./inspector/RetrievalTab";
 import { IntentTab } from "./inspector/IntentTab";
 import { SentimentTab } from "./inspector/SentimentTab";
 import { TraceTab } from "./inspector/TraceTab";
+import { MetricsTab, type TurnMetric } from "./inspector/MetricsTab";
 import { cn } from "@/lib/utils";
 
-type Tab = "retrieval" | "intent" | "sentiment" | "trace";
+type Tab = "retrieval" | "intent" | "sentiment" | "trace" | "metrics";
 
-type Props = { turns: SandboxTurn[] };
+type Props = { turns: SandboxTurn[]; metrics?: TurnMetric[] };
 
-export function InspectorPanel({ turns }: Props) {
+export function InspectorPanel({ turns, metrics = [] }: Props) {
   const [tab, setTab] = useState<Tab>("retrieval");
-  const TABS: Array<{ key: Tab; label: string; icon: any }> = [
+  const TABS: Array<{ key: Tab; label: string; icon: typeof Layers }> = [
     { key: "retrieval", label: "Retrieval", icon: Layers },
     { key: "intent", label: "Intent", icon: Radio },
     { key: "sentiment", label: "Sentiment", icon: LineChart },
     { key: "trace", label: "Trace", icon: Activity },
+    { key: "metrics", label: "Metrics", icon: Gauge },
   ];
 
   return (
@@ -29,6 +31,7 @@ export function InspectorPanel({ turns }: Props) {
             return (
               <button
                 key={t.key}
+                type="button"
                 onClick={() => setTab(t.key)}
                 className={cn(
                   "inline-flex flex-1 items-center justify-center gap-1 border-b-2 px-1 py-2 text-[11.5px]",
@@ -49,6 +52,7 @@ export function InspectorPanel({ turns }: Props) {
         {tab === "intent" && <IntentTab turns={turns} />}
         {tab === "sentiment" && <SentimentTab turns={turns} />}
         {tab === "trace" && <TraceTab turns={turns} />}
+        {tab === "metrics" && <MetricsTab metrics={metrics} turns={turns} />}
       </div>
     </aside>
   );

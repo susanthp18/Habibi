@@ -85,7 +85,7 @@ const CUSTOMERS: Array<{ id: string; name: string; phone: string; account: strin
 ];
 
 const AGENTS = ["Aarav K.", "Priya Nair", "Arjun Mehta", "Sara Khan", "Rohit Verma", "Meera Joshi"];
-const BOTS = ["Kaia v2.4", "CollectionsBot v2.4", "WebChatBot"];
+const BOTS = ["BigBound v2.4", "CollectionsBot v2.4", "WebChatBot"];
 
 const DISPOSITIONS: Disposition[] = [
   "PTP Captured",
@@ -145,8 +145,8 @@ function buildTranscript(
   const agentSpeaker: Speaker = handler === "bot" ? "bot" : "agent";
   const openings: Record<Speaker, string[]> = {
     bot: [
-      "Hello, this is Kaia calling from HDFC Retail Collections on a recorded line. Am I speaking with the account holder?",
-      "Hi, I'm Kaia, an AI assistant from HDFC. This call is recorded for training and compliance.",
+      "Hello, this is BigBound calling from HDFC Retail Collections on a recorded line. Am I speaking with the account holder?",
+      "Hi, I'm BigBound, an AI assistant from HDFC. This call is recorded for training and compliance.",
     ],
     agent: [
       "Good afternoon, this is a recorded call from HDFC Collections. My name is Aarav — may I confirm your identity?",
@@ -349,9 +349,9 @@ function makeCall(i: number): CallRecord {
     latencyMs: 320 + Math.floor(rand() * 640),
     routing:
       handlerKind === "handoff"
-        ? ["IVR", "Bot: Kaia", "Handoff: Aarav"]
+        ? ["IVR", "Bot: BigBound", "Handoff: Aarav"]
         : handlerKind === "bot"
-          ? ["IVR", "Bot: Kaia"]
+          ? ["IVR", "Bot: BigBound"]
           : ["IVR", "Agent Queue"],
   };
 }

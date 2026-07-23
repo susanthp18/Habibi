@@ -5,13 +5,23 @@ Serves read/query endpoints from the normalized Postgres data layer.
 """
 
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import Header, FastAPI, HTTPException
+from fastapi import Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 import db
+import kb_rate_limit
+import kb_retrieve
+import sandbox_runtime
+import storage
+import whatsapp
 from schemas import (
+    BillingOverviewResponse,
+    BillingBudgetRuleResponse,
     BotAnalyticsResponse,
+    BotDeploymentResponse,
+    BudgetRuleUpsertRequest,
     CallResponse,
     CallbackCreateRequest,
     CallbackListResponse,
@@ -21,6 +31,8 @@ from schemas import (
     ConsentPatchRequest,
     ConversationListResponse,
     ConversationMessageCreateRequest,
+    ConversationSuggestionsRefreshRequest,
+    ConversationSuggestionsRefreshResponse,
     CustomerNoteCreateRequest,
     CustomerResponse,
     DashboardResponse,
@@ -44,27 +56,98 @@ from schemas import (
     OptOutCreateRequest,
     PaymentPlanCreateRequest,
     PaymentPlanResponse,
+    PersonaPresetResponse,
+    PromptVersionCreateRequest,
+    PromptVersionPatchRequest,
+    PromptVersionPublishRequest,
+    PromptVersionResponse,
     PromiseCreateRequest,
     PromiseListResponse,
     PromisePatchRequest,
     PromiseResponse,
     ReminderCreateRequest,
+    RedactionRecordListResponse,
+    RedactionRuleResponse,
+    RedactionRecordPatchRequest,
+    RedactionRulePatchRequest,
+    RedactionAudioMuteRequest,
+    PiiFindingPatchRequest,
+    PiiFindingPatchResponse,
+    ExportJobResponse,
+    ExportJobCreateRequest,
+    ExportJobPatchRequest,
+    RoutingRuleExecutionResponse,
+    RoutingRuleListResponse,
+    RoutingRuleCreateRequest,
+    RoutingRulePatchRequest,
+    RoutingReorderRequest,
+    RoutingAuditEntryResponse,
     RubricResponse,
+    CoachingActionResponse,
+    CoachingActionCreateRequest,
+    CoachingActionPatchRequest,
+    CalibrationSessionResponse,
+    CalibrationSessionPatchRequest,
+    SandboxRunCreateRequest,
+    SandboxRunDetailResponse,
+    SandboxRunResponse,
+    SandboxScenarioResponse,
+    SandboxTurnCreateRequest,
+    SandboxTurnResponse,
+    TtsPreviewRequest,
+    SttTranscribeResponse,
+    PromptLintRequest,
+    PromptLintResponse,
+    PromptTokenEstimateRequest,
+    PromptTokenEstimateResponse,
     ScorecardCreateRequest,
     ScorecardListResponse,
     ScorecardPatchRequest,
     MeResponse,
+    PresencePatchRequest,
+    PresenceResponse,
     StaffResponse,
     TeamResponse,
+    TtsVoiceResponse,
     ViolationListResponse,
     ViolationNoteCreateRequest,
     ViolationPatchRequest,
+    WorkItemResponse,
+    WorkspaceSummaryResponse,
+    KbChunkResponse,
+    KbDeleteDocumentResponse,
+    KbDocumentPatchRequest,
+    KbDocumentResponse,
+    KbFaqCreateRequest,
+    KbFaqPatchRequest,
+    KbFaqResponse,
+    KbGapLinkRequest,
+    KbGapResponse,
+    KbIndexJobResponse,
+    KbIngestSourceDbResponse,
+    KbPurgeRequest,
+    KbPurgeResponse,
+    KbReindexResponse,
+    KbRetrieveRequest,
+    KbRetrieveResponse,
+    KbSnapshotCreateRequest,
+    KbSnapshotResponse,
+    KbStatsResponse,
+    KbUploadResponse,
 )
+import json
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db.init_and_seed()
+    storage.ensure_bucket()
+    try:
+        import usage_meter
+
+        usage_meter.sync_price_book()
+    except Exception:
+        pass
     yield
 
 
@@ -120,6 +203,65 @@ def get_bot_analytics(range: str = "30d", channel: str = "all"):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.get("/billing", response_model=BillingOverviewResponse)
+def get_billing(
+    period: str = Query("mtd"),
+    tenantId: str = Query("all"),
+    env: str = Query("production"),
+):
+    """Billing & Usage Analytics — filtered spend, budgets, invoices."""
+    try:
+        return db.billing_overview(period, tenantId, env)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/billing/export.csv")
+def export_billing_csv(
+    period: str = Query("mtd"),
+    tenantId: str = Query("all"),
+    env: str = Query("production"),
+):
+    try:
+        csv_body = db.billing_export_csv(period, tenantId, env)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=csv_body,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="billing-usage.csv"'},
+    )
+
+
+@app.post("/billing/budgets/{budget_id}/rules", response_model=BillingBudgetRuleResponse)
+def create_budget_rule(budget_id: str, payload: BudgetRuleUpsertRequest):
+    try:
+        return db.upsert_budget_rule(budget_id, payload.model_dump())
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/billing/budgets/{budget_id}/rules/{rule_id}", response_model=BillingBudgetRuleResponse)
+def patch_budget_rule(budget_id: str, rule_id: str, payload: BudgetRuleUpsertRequest):
+    try:
+        return db.upsert_budget_rule(budget_id, payload.model_dump(), rule_id=rule_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/billing/budgets/{budget_id}/rules/{rule_id}", status_code=204)
+def delete_budget_rule(budget_id: str, rule_id: str):
+    try:
+        db.delete_budget_rule(budget_id, rule_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
 @app.get("/calls", response_model=list[CallResponse])
 def list_calls():
     return db.list_calls()
@@ -136,6 +278,32 @@ def get_me():
         return db.get_current_user()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/me/presence", response_model=PresenceResponse)
+def get_me_presence():
+    """Agent availability for My Workspace — reads agent_presence for ACTOR_USER_ID."""
+    return db.get_agent_presence()
+
+
+@app.patch("/me/presence", response_model=PresenceResponse)
+def patch_me_presence(payload: PresencePatchRequest):
+    try:
+        return db.patch_agent_presence(payload.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/work-items", response_model=list[WorkItemResponse])
+def list_work_items(assignee: str | None = Query("me")):
+    """Assigned queue from the work_items view. Default assignee=me is viewer-relative."""
+    return db.list_work_items(assignee=assignee)
+
+
+@app.get("/workspace/summary", response_model=WorkspaceSummaryResponse)
+def get_workspace_summary(assignee: str | None = Query("me")):
+    """Rolling-window StatsStrip + RightRail (next callback / SLA / outside-window)."""
+    return db.workspace_summary(assignee=assignee)
 
 
 @app.get("/staff", response_model=list[StaffResponse])
@@ -341,6 +509,463 @@ def patch_scorecard(scorecard_id: str, payload: ScorecardPatchRequest):
     return _handle_write(db.patch_scorecard, scorecard_id, payload.model_dump(exclude_unset=True))
 
 
+@app.get("/coaching-actions", response_model=list[CoachingActionResponse])
+def list_coaching_actions():
+    return db.list_coaching_actions()
+
+
+@app.post("/coaching-actions", response_model=CoachingActionResponse)
+def create_coaching_action(payload: CoachingActionCreateRequest):
+    return _handle_write(db.create_coaching_action, payload.model_dump(exclude_unset=True))
+
+
+@app.patch("/coaching-actions/{action_id}", response_model=CoachingActionResponse)
+def patch_coaching_action(action_id: str, payload: CoachingActionPatchRequest):
+    return _handle_write(
+        db.patch_coaching_action, action_id, payload.model_dump(exclude_unset=True)
+    )
+
+
+@app.get("/calibration-sessions", response_model=list[CalibrationSessionResponse])
+def list_calibration_sessions():
+    return db.list_calibration_sessions()
+
+
+@app.patch(
+    "/calibration-sessions/{session_id}",
+    response_model=CalibrationSessionResponse,
+)
+def patch_calibration_session(session_id: str, payload: CalibrationSessionPatchRequest):
+    return _handle_write(
+        db.patch_calibration_session, session_id, payload.model_dump(exclude_unset=True)
+    )
+
+
+@app.get("/redaction-records", response_model=list[RedactionRecordListResponse])
+def list_redaction_records():
+    """Redaction Hub queue — nested findings + audio segments. Masked PII only for non-Admin."""
+    return db.list_redaction_records()
+
+
+@app.get("/redaction-records/{redaction_id}", response_model=RedactionRecordListResponse)
+def get_redaction_record(redaction_id: str):
+    try:
+        return db.get_redaction_record(redaction_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/redaction-rules", response_model=list[RedactionRuleResponse])
+def list_redaction_rules():
+    return db.list_redaction_rules()
+
+
+@app.patch("/redaction-records/{redaction_id}", response_model=RedactionRecordListResponse)
+def patch_redaction_record(redaction_id: str, payload: RedactionRecordPatchRequest):
+    return _handle_write(
+        db.patch_redaction_record, redaction_id, payload.model_dump(exclude_unset=True)
+    )
+
+
+@app.patch("/pii-findings/{finding_id}", response_model=PiiFindingPatchResponse)
+def patch_pii_finding(finding_id: str, payload: PiiFindingPatchRequest):
+    return _handle_write(
+        db.patch_pii_finding, finding_id, payload.model_dump(exclude_unset=True)
+    )
+
+
+@app.patch("/redaction-records/{redaction_id}/audio-mute")
+def patch_redaction_audio_mute(redaction_id: str, payload: RedactionAudioMuteRequest):
+    return _handle_write(
+        db.patch_audio_segment_mute,
+        redaction_id,
+        payload.findingId,
+        payload.muted,
+    )
+
+
+@app.patch("/redaction-rules/{pii_type}", response_model=RedactionRuleResponse)
+def patch_redaction_rule(pii_type: str, payload: RedactionRulePatchRequest):
+    return _handle_write(
+        db.patch_redaction_rule, pii_type, payload.model_dump(exclude_unset=True)
+    )
+
+
+@app.get("/export-jobs", response_model=list[ExportJobResponse])
+def list_export_jobs():
+    return db.list_export_jobs()
+
+
+@app.post("/export-jobs", response_model=ExportJobResponse)
+def create_export_job(payload: ExportJobCreateRequest):
+    return _handle_write(db.create_export_job, payload.model_dump(exclude_unset=True))
+
+
+@app.patch("/export-jobs/{job_id}", response_model=ExportJobResponse)
+def patch_export_job(job_id: str, payload: ExportJobPatchRequest):
+    return _handle_write(db.patch_export_job, job_id, payload.model_dump(exclude_unset=True))
+
+
+@app.get("/routing-rules", response_model=list[RoutingRuleListResponse])
+def list_routing_rules():
+    """Priority-ordered routing library with matched-execution aggregates."""
+    return db.list_routing_rules()
+
+
+@app.get(
+    "/routing-rules/{rule_id}/executions",
+    response_model=list[RoutingRuleExecutionResponse],
+)
+def list_routing_rule_executions(rule_id: str):
+    try:
+        return db.list_routing_rule_executions(rule_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/routing-rules", response_model=RoutingRuleListResponse)
+def create_routing_rule(payload: RoutingRuleCreateRequest):
+    return _handle_write(db.create_routing_rule, payload.model_dump(exclude_unset=True))
+
+
+@app.patch("/routing-rules/{rule_id}", response_model=RoutingRuleListResponse)
+def patch_routing_rule(rule_id: str, payload: RoutingRulePatchRequest):
+    return _handle_write(
+        db.patch_routing_rule, rule_id, payload.model_dump(exclude_unset=True)
+    )
+
+
+@app.post("/routing-rules/reorder", response_model=list[RoutingRuleListResponse])
+def reorder_routing_rules(payload: RoutingReorderRequest):
+    return _handle_write(db.reorder_routing_rules, payload.orderedIds)
+
+
+@app.delete("/routing-rules/{rule_id}")
+def delete_routing_rule(rule_id: str):
+    return _handle_write(db.delete_routing_rule, rule_id)
+
+
+@app.get("/routing-audit", response_model=list[RoutingAuditEntryResponse])
+def list_routing_audit():
+    return db.list_routing_audit()
+
+
+@app.get("/prompt-versions", response_model=list[PromptVersionResponse])
+def list_prompt_versions():
+    """Prompt Studio version history (newest first)."""
+    return db.list_prompt_versions()
+
+
+@app.get("/prompt-versions/published", response_model=PromptVersionResponse)
+def get_published_prompt_version():
+    """Editor live badge — single published row (kept in sync with active prod deployment)."""
+    row = db.get_published_prompt_version()
+    if row is None:
+        raise HTTPException(status_code=404, detail="published_prompt_not_found")
+    return row
+
+
+@app.get("/prompt-versions/{version_id}", response_model=PromptVersionResponse)
+def get_prompt_version(version_id: str):
+    row = db.get_prompt_version(version_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="prompt_version_not_found")
+    return row
+
+
+@app.get("/persona-presets", response_model=list[PersonaPresetResponse])
+def list_persona_presets():
+    return db.list_persona_presets()
+
+
+@app.get("/tts-voices", response_model=list[TtsVoiceResponse])
+def list_tts_voices():
+    return db.list_tts_voices()
+
+
+@app.post("/tts/preview")
+def tts_preview(payload: TtsPreviewRequest):
+    """Azure Speech TTS preview — returns audio/mpeg (cached by synthesis params)."""
+    import azure_speech
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text_required")
+    if len(text) > 500:
+        text = text[:500].rstrip() + "…"
+
+    voice_id = (payload.voiceId or "").strip()
+    azure_name: str | None = None
+    for v in db.list_tts_voices():
+        if v["id"] == voice_id:
+            azure_name = v.get("azureVoiceName")
+            break
+    try:
+        resolved = azure_speech.resolve_azure_voice_name(voice_id, db_azure_name=azure_name)
+        result = azure_speech.synthesize(
+            text,
+            voice_name=resolved,
+            speed=payload.speed,
+            pitch=payload.pitch,
+            warmth=payload.warmth,
+            pause_ms=payload.pauseMs,
+        )
+    except azure_speech.AzureSpeechConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    headers = {
+        "X-TTS-Cache": "HIT" if result["cacheHit"] else "MISS",
+        "X-TTS-Voice": result["voiceName"],
+        "X-TTS-Latency-Ms": str(result["latencyMs"]),
+        "Cache-Control": "private, max-age=3600",
+    }
+    return Response(content=result["audio"], media_type=result["contentType"], headers=headers)
+
+
+@app.get("/bot-deployments", response_model=list[BotDeploymentResponse])
+def list_bot_deployments(
+    environment: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+):
+    """Runtime deployments — authoritative for what runs (Sandbox / live)."""
+    return db.list_bot_deployments(environment=environment, status=status)
+
+
+@app.get("/bot-deployments/active", response_model=BotDeploymentResponse)
+def get_active_bot_deployment(
+    environment: str = Query(default="production"),
+    botId: str | None = Query(default=None),
+):
+    """Thin wrapper over get_active_deployment — 404 if none active."""
+    row = db.get_active_deployment(bot_id=botId, environment=environment)
+    if row is None:
+        raise HTTPException(status_code=404, detail="active_deployment_not_found")
+    return row
+
+
+@app.post("/prompt-versions", response_model=PromptVersionResponse)
+def create_prompt_version(payload: PromptVersionCreateRequest):
+    """Create a draft — jsonb validated by nested Pydantic models."""
+    return _handle_write(db.create_prompt_version, payload.model_dump())
+
+
+@app.patch("/prompt-versions/{version_id}", response_model=PromptVersionResponse)
+def patch_prompt_version(version_id: str, payload: PromptVersionPatchRequest):
+    """Update draft only — 409 if the version is published/archived."""
+    body = payload.model_dump(exclude_unset=True)
+    return _handle_write(db.patch_prompt_version, version_id, body)
+
+
+@app.post("/prompt-versions/{version_id}/publish", response_model=PromptVersionResponse)
+def publish_prompt_version(version_id: str, payload: PromptVersionPublishRequest):
+    """Publish draft + swap active prod deployment atomically.
+
+    Optional kbSnapshotId / tuning from Sandbox Promote pin the deployment bundle.
+    Concurrent publish that loses the unique published index returns 409.
+    """
+    return _handle_write(
+        db.publish_prompt_version,
+        version_id,
+        payload.summary,
+        kb_snapshot_id=payload.kbSnapshotId,
+        tuning=payload.tuning,
+    )
+
+
+@app.post("/prompt-versions/lint", response_model=PromptLintResponse)
+def lint_prompt_version(payload: PromptLintRequest):
+    """Deterministic prompt lint (unknown vars, disclosure, prohibited words).
+
+    Optional includeLlm=true runs an Azure checklist pass — never auto-edits.
+    """
+    import prompt_lint
+
+    findings = prompt_lint.lint_prompt(
+        payload.prompt,
+        payload.guardrails.model_dump(),
+        include_llm=payload.includeLlm,
+    )
+    return {"findings": findings}
+
+
+@app.post("/prompt-versions/estimate-tokens", response_model=PromptTokenEstimateResponse)
+def estimate_prompt_tokens(payload: PromptTokenEstimateRequest):
+    """Tiktoken (cl100k_base) prompt token count + input-$ estimate for Studio.
+
+    Cost uses AZURE_OPENAI_INPUT_USD_PER_1M (default 2.50) — prompt-input only,
+    not a full turn (completion / RAG context excluded).
+    """
+    import os
+
+    from kb_chunking import count_tokens
+
+    text = payload.prompt or ""
+    if len(text) > 200_000:
+        raise HTTPException(status_code=400, detail="prompt_too_large")
+    tokens = count_tokens(text)
+    try:
+        usd_per_1m = float(os.getenv("AZURE_OPENAI_INPUT_USD_PER_1M") or "2.5")
+    except ValueError:
+        usd_per_1m = 2.5
+    if usd_per_1m < 0:
+        usd_per_1m = 0.0
+    cost_usd = round(tokens * usd_per_1m / 1_000_000.0, 6)
+    return {
+        "tokens": tokens,
+        "encoding": "cl100k_base",
+        "usdPer1M": usd_per_1m,
+        "costUsd": cost_usd,
+        "source": "tiktoken",
+    }
+
+
+@app.post("/prompt-versions/{version_id}/restore-as-draft", response_model=PromptVersionResponse)
+def restore_prompt_version_as_draft(version_id: str):
+    """Copy archived/published → new draft; never overwrites live."""
+    return _handle_write(db.restore_prompt_version_as_draft, version_id)
+
+
+@app.post("/prompt-versions/{version_id}/discard", response_model=PromptVersionResponse)
+def discard_prompt_version(version_id: str):
+    """Archive a draft — editor discard path. 409 if not a draft."""
+    return _handle_write(db.discard_prompt_version, version_id)
+
+
+@app.post("/bot-deployments/{deployment_id}/rollback", response_model=BotDeploymentResponse)
+def rollback_bot_deployment(deployment_id: str):
+    """Activate prior deployment and re-publish its prompt version (invariant)."""
+    return _handle_write(db.rollback_bot_deployment, deployment_id)
+
+
+@app.post("/sandbox/runs", response_model=SandboxRunResponse)
+def create_sandbox_run(payload: SandboxRunCreateRequest):
+    """Start a sandbox session bound to a prompt version (or active deployment)."""
+    body = payload.model_dump()
+    if body.get("context") is None:
+        body.pop("context", None)
+    else:
+        body["context"] = {k: v for k, v in body["context"].items() if v is not None}
+    try:
+        return sandbox_runtime.create_sandbox_run(body)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        msg = str(exc)
+        if msg.startswith("kb_snapshot_not_found"):
+            raise HTTPException(status_code=400, detail=msg) from exc
+        raise HTTPException(status_code=409, detail=msg) from exc
+
+
+@app.post("/stt/transcribe", response_model=SttTranscribeResponse)
+async def stt_transcribe(
+    file: UploadFile = File(...),
+    language: str = Form(default="en-IN"),
+):
+    """Azure Speech STT — multipart audio (webm/wav/mp3). Audio is not persisted."""
+    import azure_speech
+
+    audio = await file.read()
+    if not audio:
+        raise HTTPException(status_code=400, detail="empty_audio")
+    content_type = (file.content_type or "application/octet-stream").split(";")[0].strip()
+    try:
+        result = azure_speech.transcribe(
+            audio,
+            content_type=content_type,
+            language=(language or "en-IN").strip() or "en-IN",
+        )
+    except azure_speech.AzureSpeechConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return result
+
+
+@app.get("/sandbox/scenarios", response_model=list[SandboxScenarioResponse])
+def list_sandbox_scenarios():
+    """Scripted personas + customer turns for the sandbox picker."""
+    return db.list_sandbox_scenarios()
+
+
+@app.get("/sandbox/runs/{run_id}", response_model=SandboxRunDetailResponse)
+def get_sandbox_run(run_id: str):
+    """Run + persisted turns (ascending turnIndex) with grounded chunk titles."""
+    try:
+        return db.get_sandbox_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/sandbox/runs/{run_id}/turns", response_model=SandboxTurnResponse)
+def append_sandbox_turn(run_id: str, payload: SandboxTurnCreateRequest):
+    """Customer turn → KB retrieve + Azure chat → persisted bot reply."""
+    body = payload.model_dump()
+    if body.get("context") is None:
+        body.pop("context", None)
+    else:
+        body["context"] = {k: v for k, v in body["context"].items() if v is not None}
+    try:
+        return sandbox_runtime.append_sandbox_turn(run_id, body)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/sandbox/runs/{run_id}/complete")
+def complete_sandbox_run(run_id: str):
+    return _handle_write(sandbox_runtime.complete_sandbox_run, run_id)
+
+
+@app.get("/sandbox/tuning/presets")
+def list_sandbox_tuning_presets():
+    from agent_core.tuning import list_presets
+
+    return list_presets()
+
+
+@app.get("/voice/status")
+def get_voice_status():
+    import voice_sandbox
+
+    return voice_sandbox.voice_status()
+
+
+@app.post("/voice/sandbox/start")
+def start_voice_sandbox_session(payload: dict[str, Any]):
+    import voice_sandbox
+
+    try:
+        return voice_sandbox.start_voice_sandbox(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/voice/sandbox/{session_id}/stop")
+def stop_voice_sandbox_session(session_id: str):
+    import voice_sandbox
+
+    return _handle_write(voice_sandbox.stop_voice_sandbox, session_id)
+
+
+@app.post("/voice/sandbox/{session_id}/tune")
+def tune_voice_sandbox_session(session_id: str, payload: dict[str, Any]):
+    import voice_sandbox
+
+    delta = payload.get("tuning") if isinstance(payload.get("tuning"), dict) else payload
+    return _handle_write(voice_sandbox.tune_voice_sandbox, session_id, delta)
+
+
 @app.get("/conversations", response_model=list[ConversationListResponse])
 def list_conversations():
     return db.list_conversations()
@@ -359,6 +984,11 @@ def takeover_conversation(conversation_id: str):
     return _handle_write(db.takeover_conversation, conversation_id)
 
 
+@app.post("/conversations/{conversation_id}/return-to-bot", response_model=ConversationListResponse)
+def return_conversation_to_bot(conversation_id: str):
+    return _handle_write(db.return_conversation_to_bot, conversation_id)
+
+
 @app.post("/conversations/{conversation_id}/messages", response_model=ConversationListResponse)
 def send_conversation_message(conversation_id: str, payload: ConversationMessageCreateRequest):
     return _handle_write(
@@ -371,3 +1001,297 @@ def send_conversation_message(conversation_id: str, payload: ConversationMessage
 @app.get("/canned-responses", response_model=list[CannedResponseItem])
 def list_canned_responses():
     return db.list_canned_responses()
+
+
+@app.post("/kb/retrieve", response_model=KbRetrieveResponse)
+def kb_retrieve_endpoint(payload: KbRetrieveRequest):
+    """Test / runtime retrieval against embedded kb_chunks + faq_pairs."""
+    try:
+        return kb_retrieve.retrieve(
+            query=payload.query,
+            top_k=payload.topK,
+            include_draft_answer=payload.includeDraftAnswer,
+            source=payload.source,
+        )
+    except kb_rate_limit.RateLimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"kb_retrieve_failed: {exc}") from exc
+
+
+@app.get("/kb/stats", response_model=KbStatsResponse)
+def kb_stats():
+    return db.get_kb_stats()
+
+
+@app.get("/kb/documents", response_model=list[KbDocumentResponse])
+def kb_list_documents():
+    return db.list_kb_documents()
+
+
+@app.get("/kb/documents/{document_id}", response_model=KbDocumentResponse)
+def kb_get_document(document_id: str):
+    doc = db.get_kb_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="kb_document_not_found")
+    return doc
+
+
+@app.get("/kb/documents/{document_id}/chunks", response_model=list[KbChunkResponse])
+def kb_list_chunks(document_id: str):
+    if not db.get_kb_document(document_id):
+        raise HTTPException(status_code=404, detail="kb_document_not_found")
+    return db.list_kb_chunks(document_id)
+
+
+@app.patch("/kb/documents/{document_id}", response_model=KbUploadResponse)
+def kb_patch_document(document_id: str, payload: KbDocumentPatchRequest):
+    try:
+        result = db.patch_kb_document(document_id, payload.model_dump(exclude_none=True))
+        return {"document": result["document"], "jobId": result.get("jobId")}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/kb/documents/{document_id}/reindex", response_model=KbReindexResponse)
+def kb_reindex_document(document_id: str):
+    try:
+        return db.reindex_kb_document(document_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/kb/documents/{document_id}", response_model=KbDeleteDocumentResponse)
+def kb_delete_document(document_id: str):
+    try:
+        return db.delete_kb_document(document_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/kb/documents/purge", response_model=KbPurgeResponse)
+def kb_purge_documents(payload: KbPurgeRequest):
+    try:
+        return db.purge_kb_documents(scope=payload.scope, confirm=payload.confirm)
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "confirm_required":
+            raise HTTPException(status_code=400, detail="confirm must be true") from exc
+        raise HTTPException(status_code=400, detail=msg) from exc
+
+
+@app.post("/kb/ingest/source-db", response_model=KbIngestSourceDbResponse)
+def kb_ingest_source_db(product: str | None = Query(default=None)):
+    """Re-ingest policy/benefits/FAQs from disk source_db/ (same as CLI)."""
+    try:
+        return db.ingest_kb_from_source_db(product=product)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"kb_ingest_failed: {exc}") from exc
+
+
+@app.post("/kb/reindex-all")
+def kb_reindex_all():
+    result = db.reindex_all_kb_documents()
+    # Snapshot hook — freeze post-queue corpus pointer for sandbox readiness.
+    try:
+        snap = db.create_kb_snapshot(label=f"After reindex-all ({result.get('count', 0)} jobs)")
+        result["snapshot"] = snap
+    except Exception:
+        result["snapshot"] = None
+    return result
+
+
+@app.get("/kb/index-jobs/{job_id}", response_model=KbIndexJobResponse)
+def kb_get_index_job(job_id: str):
+    job = db.get_kb_index_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="kb_index_job_not_found")
+    return job
+
+
+@app.post("/kb/documents", response_model=KbUploadResponse)
+async def kb_upload_document(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    type: str = Form("policy"),
+    chunkSize: int = Form(512),
+    overlap: int = Form(64),
+    indexNow: bool = Form(True),
+    tags: str = Form("[]"),
+):
+    try:
+        tag_list = json.loads(tags) if tags else []
+        if not isinstance(tag_list, list):
+            raise ValueError("tags must be a JSON array")
+        data = await file.read()
+        result = db.create_kb_document_from_upload(
+            filename=file.filename or "upload.txt",
+            data=data,
+            content_type=file.content_type or "application/octet-stream",
+            title=title,
+            doc_type=type,
+            chunk_size=chunkSize,
+            overlap=overlap,
+            index_now=indexNow,
+            tags=[str(t) for t in tag_list],
+        )
+        return result
+    except storage.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"kb_upload_failed: {exc}") from exc
+
+
+@app.post("/kb/documents/{document_id}/versions", response_model=KbUploadResponse)
+async def kb_new_version(document_id: str, file: UploadFile = File(...)):
+    try:
+        data = await file.read()
+        return db.create_kb_document_version(
+            document_id,
+            filename=file.filename or "upload.txt",
+            data=data,
+            content_type=file.content_type or "application/octet-stream",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except storage.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"kb_version_failed: {exc}") from exc
+
+
+@app.get("/kb/faqs", response_model=list[KbFaqResponse])
+def kb_list_faqs():
+    return db.list_kb_faqs()
+
+
+@app.post("/kb/faqs", response_model=KbFaqResponse)
+def kb_create_faq(payload: KbFaqCreateRequest):
+    try:
+        return db.create_kb_faq(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/kb/faqs/{faq_id}", response_model=KbFaqResponse)
+def kb_patch_faq(faq_id: str, payload: KbFaqPatchRequest):
+    try:
+        return db.patch_kb_faq(faq_id, payload.model_dump(exclude_unset=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/kb/faqs/{faq_id}", status_code=204)
+def kb_delete_faq(faq_id: str):
+    try:
+        db.delete_kb_faq(faq_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+@app.get("/kb/gaps", response_model=list[KbGapResponse])
+def kb_list_gaps():
+    return db.list_kb_gaps()
+
+
+@app.post("/kb/gaps/{gap_id}/link", response_model=KbGapResponse)
+def kb_link_gap(gap_id: str, payload: KbGapLinkRequest):
+    """Link a gap to exactly one of FAQ / KB doc / prompt version."""
+    try:
+        return db.link_kb_gap(gap_id, payload.model_dump(exclude_none=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "gap_link_exactly_one_target":
+            raise HTTPException(status_code=409, detail=msg) from exc
+        raise HTTPException(status_code=400, detail=msg) from exc
+
+
+@app.get("/kb/snapshots", response_model=list[KbSnapshotResponse])
+def kb_list_snapshots():
+    return db.list_kb_snapshots()
+
+
+@app.post("/kb/snapshots", response_model=KbSnapshotResponse)
+def kb_create_snapshot(payload: KbSnapshotCreateRequest | None = None):
+    label = payload.label if payload else None
+    return db.create_kb_snapshot(label=label)
+
+
+@app.post(
+    "/conversations/{conversation_id}/suggestions/refresh",
+    response_model=ConversationSuggestionsRefreshResponse,
+)
+def refresh_conversation_suggestions(
+    conversation_id: str,
+    payload: ConversationSuggestionsRefreshRequest | None = None,
+):
+    """Debounced Inbox consumer: shared retrieve() → ai_response_suggestions chips."""
+    body = payload or ConversationSuggestionsRefreshRequest()
+    try:
+        return db.refresh_conversation_suggestions(
+            conversation_id,
+            top_k=body.topK,
+            include_draft_answer=body.includeDraftAnswer,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except kb_rate_limit.RateLimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"inbox_rag_failed: {exc}") from exc
+
+
+@app.get("/webhooks/whatsapp")
+@app.get("/webhook/whatsapp")  # Meta UI sometimes omits the plural "s"
+def whatsapp_webhook_verify(
+    hub_mode: str | None = Query(None, alias="hub.mode"),
+    hub_verify_token: str | None = Query(None, alias="hub.verify_token"),
+    hub_challenge: str | None = Query(None, alias="hub.challenge"),
+):
+    """Meta webhook verification challenge."""
+    cfg = whatsapp.config()
+    expected = cfg.get("verify_token")
+    if hub_mode == "subscribe" and expected and hub_verify_token == expected and hub_challenge is not None:
+        return Response(content=hub_challenge, media_type="text/plain")
+    raise HTTPException(status_code=403, detail="whatsapp_verify_failed")
+
+
+@app.post("/webhooks/whatsapp")
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook_receive(
+    request: Request,
+    x_hub_signature_256: str | None = Header(None, alias="X-Hub-Signature-256"),
+):
+    """Inbound WhatsApp messages + delivery status callbacks from Meta."""
+    import json as _json
+
+    raw = await request.body()
+    cfg = whatsapp.config()
+    if not whatsapp.verify_signature(cfg.get("app_secret"), raw, x_hub_signature_256):
+        raise HTTPException(status_code=403, detail="invalid_signature")
+    try:
+        payload = _json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    return db.process_whatsapp_webhook(payload)

@@ -23,7 +23,7 @@ import {
 export const Route = createFileRoute("/webhooks")({
   head: () => ({
     meta: [
-      { title: "Webhooks & Event Subscriptions — Collections Agent" },
+      { title: "Webhooks & Event Subscriptions — BigBound AI" },
       { name: "description", content: "Register downstream endpoints, subscribe them to CRM events, and monitor delivery, retries and signing." },
       { property: "og:title", content: "Webhooks & Event Subscriptions" },
       { property: "og:description", content: "How the Pipecat backend and the client's legacy banking systems stay in sync with the bot." },

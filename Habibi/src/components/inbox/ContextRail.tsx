@@ -7,6 +7,7 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread } from "@/data/inbox-seed";
@@ -27,20 +28,47 @@ const promiseStyle = {
 
 export function ContextRail({ thread }: { thread: Thread }) {
   const c = thread.context;
+  const navigate = useNavigate();
+  const customerId = thread.customerId;
+
+  const openCustomer360 = () => {
+    if (!customerId) {
+      toast.error("Customer id missing for this thread");
+      return;
+    }
+    void navigate({ to: "/customers/$customerId", params: { customerId } });
+  };
+
+  const openCreatePtp = () => {
+    void navigate({ to: "/promises", search: { new: true } });
+    toast.message("Create PTP — select this customer if prompted");
+  };
+
+  const openRaiseDispute = () => {
+    void navigate({ to: "/disputes", search: { new: true } });
+    toast.message("Raise dispute — select this customer if prompted");
+  };
 
   return (
-    <aside className="hidden min-h-0 w-[300px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-[var(--border-token)] bg-surface-app p-3 xl:flex xl:w-[320px]">
-      {/* Header */}
+    <aside className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto bg-surface-app p-3">
       <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
         <div className="flex items-start gap-3">
           <Avatar name={thread.customer} size={44} />
           <div className="min-w-0">
-            <div className="truncate text-[14px] font-semibold text-brand-navy">
-              {thread.customer}
-            </div>
-            <div className="font-mono text-[11px] text-text-muted">
-              {thread.accountId}
-            </div>
+            {customerId ? (
+              <Link
+                to="/customers/$customerId"
+                params={{ customerId }}
+                className="truncate text-[14px] font-semibold text-brand-navy hover:underline"
+              >
+                {thread.customer}
+              </Link>
+            ) : (
+              <div className="truncate text-[14px] font-semibold text-brand-navy">
+                {thread.customer}
+              </div>
+            )}
+            <div className="font-mono text-[11px] text-text-muted">{thread.accountId}</div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <span
                 className={cn(
@@ -64,14 +92,11 @@ export function ContextRail({ thread }: { thread: Thread }) {
                 {c.contactableNow ? "Contactable now" : "Not contactable"}
               </span>
             </div>
-            <div className="mt-1 text-[11px] text-text-secondary">
-              Window: {c.contactWindow}
-            </div>
+            <div className="mt-1 text-[11px] text-text-secondary">Window: {c.contactWindow}</div>
           </div>
         </div>
       </div>
 
-      {/* Outstanding */}
       <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
         <div className="text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
           Outstanding
@@ -82,7 +107,6 @@ export function ContextRail({ thread }: { thread: Thread }) {
         <div className="text-[12px] text-text-secondary">{c.outstandingAging}</div>
       </div>
 
-      {/* Next EMI + last promise */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-3 shadow-card">
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-text-muted">
@@ -120,7 +144,6 @@ export function ContextRail({ thread }: { thread: Thread }) {
         </div>
       </div>
 
-      {/* Open disputes */}
       <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
@@ -141,9 +164,7 @@ export function ContextRail({ thread }: { thread: Thread }) {
               >
                 <AlertOctagon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                 <div className="min-w-0">
-                  <div className="font-mono text-[10.5px] text-text-muted">
-                    {d.id}
-                  </div>
+                  <div className="font-mono text-[10.5px] text-text-muted">{d.id}</div>
                   <div className="text-[12px] text-text-primary">{d.summary}</div>
                 </div>
               </li>
@@ -152,7 +173,6 @@ export function ContextRail({ thread }: { thread: Thread }) {
         )}
       </div>
 
-      {/* Recent interactions */}
       <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
           Recent interactions
@@ -164,9 +184,7 @@ export function ContextRail({ thread }: { thread: Thread }) {
               <li key={r.id} className="flex items-start gap-2">
                 <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] text-text-primary">
-                    {r.summary}
-                  </div>
+                  <div className="truncate text-[12.5px] text-text-primary">{r.summary}</div>
                   <div className="text-[11px] text-text-secondary">{r.when}</div>
                 </div>
                 <span
@@ -182,7 +200,6 @@ export function ContextRail({ thread }: { thread: Thread }) {
         </ul>
       </div>
 
-      {/* Quick actions */}
       <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
           Quick actions
@@ -190,7 +207,7 @@ export function ContextRail({ thread }: { thread: Thread }) {
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => toast("Opening full Customer 360")}
+            onClick={openCustomer360}
             className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-md bg-brand-primary px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-brand-primary-hover active:scale-[0.98]"
           >
             Open full Customer 360
@@ -198,7 +215,7 @@ export function ContextRail({ thread }: { thread: Thread }) {
           </button>
           <button
             type="button"
-            onClick={() => toast("Create PTP — coming soon")}
+            onClick={openCreatePtp}
             className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[var(--border-token)] bg-white px-2.5 py-2 text-[12px] font-medium text-text-primary hover:bg-brand-tint hover:text-brand-primary-dark"
           >
             <HandCoins className="h-3.5 w-3.5 text-brand-primary" />
@@ -206,7 +223,7 @@ export function ContextRail({ thread }: { thread: Thread }) {
           </button>
           <button
             type="button"
-            onClick={() => toast("Raise dispute — coming soon")}
+            onClick={openRaiseDispute}
             className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[var(--border-token)] bg-white px-2.5 py-2 text-[12px] font-medium text-text-primary hover:bg-brand-tint hover:text-brand-primary-dark"
           >
             <AlertOctagon className="h-3.5 w-3.5 text-brand-primary" />

@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { BookOpen, MessageSquareText, AlertTriangle, Layers, Clock, Gauge } from "lucide-react";
+import { formatKbDate } from "@/lib/utils";
 
 interface Stat {
   label: string;
@@ -32,7 +33,7 @@ export function KbStatsStrip({
     { label: "Coverage gaps", value: gaps, hint: "from analytics", Icon: AlertTriangle },
     {
       label: "Last re-index",
-      value: new Date(lastIndexed).toLocaleDateString(undefined, { day: "2-digit", month: "short" }),
+      value: formatKbDate(lastIndexed, { day: "2-digit", month: "short" }),
       hint: "most recent doc",
       Icon: Clock,
     },

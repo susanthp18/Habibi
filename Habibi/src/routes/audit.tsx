@@ -12,7 +12,7 @@ import { useCalls } from "@/api/audit";
 export const Route = createFileRoute("/audit")({
   head: () => ({
     meta: [
-      { title: "Audit Trail — Collections Agent" },
+      { title: "Audit Trail — BigBound AI" },
       {
         name: "description",
         content: "Searchable, immutable log of every historical customer interaction with synced audio, transcript, sentiment timeline, and disclosure checklist.",

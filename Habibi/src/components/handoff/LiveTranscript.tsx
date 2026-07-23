@@ -97,7 +97,7 @@ function speakerMeta(sp: Speaker) {
     case "customer":
       return { name: "Priya Menon", Icon: User, align: "left" as const, tone: "neutral" as const };
     case "bot":
-      return { name: "Bot · Kaia", Icon: Bot, align: "left" as const, tone: "warn" as const };
+      return { name: "Bot · BigBound", Icon: Bot, align: "left" as const, tone: "warn" as const };
     case "system":
       return { name: "System", Icon: Info, align: "center" as const, tone: "system" as const };
   }

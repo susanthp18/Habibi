@@ -3,11 +3,11 @@ import { cn } from "@/lib/utils";
 import { ArrowRight, Phone, MessageSquare, Cpu, Mic, Volume2, Database, Workflow } from "lucide-react";
 
 const ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  twilio: Phone, deepgram: Mic, azure_openai: Cpu, openai: Cpu, elevenlabs: Volume2,
+  twilio: Phone, azure_speech_stt: Mic, azure_openai: Cpu, openai: Cpu, azure_speech_tts: Volume2,
   whatsapp: MessageSquare, cbs: Database, pipecat: Workflow,
 };
 
-const MAIN = ["twilio", "deepgram", "azure_openai", "elevenlabs"];
+const MAIN = ["twilio", "azure_speech_stt", "azure_openai", "azure_speech_tts"];
 const SIDE = ["whatsapp", "cbs"];
 
 type Props = {

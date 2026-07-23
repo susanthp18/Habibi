@@ -57,7 +57,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-02",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Rohit Sharma",
     accountTail: "8843",
     channel: "voice",
@@ -71,7 +71,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-03",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Neha Verma",
     accountTail: "4471",
     channel: "voice",
@@ -99,7 +99,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-05",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Deepa Iyer",
     accountTail: "3320",
     channel: "whatsapp",
@@ -127,7 +127,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-07",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Sana Ali",
     accountTail: "2210",
     channel: "voice",
@@ -141,7 +141,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-08",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Manoj Pillai",
     accountTail: "6655",
     channel: "voice",
@@ -169,7 +169,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-10",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Lakshmi R.",
     accountTail: "0098",
     channel: "voice",
@@ -183,7 +183,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-11",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Suresh Nair",
     accountTail: "3312",
     channel: "voice",
@@ -211,7 +211,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-13",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Prakash G.",
     accountTail: "1178",
     channel: "whatsapp",
@@ -225,7 +225,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-14",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Kavya Reddy",
     accountTail: "9931",
     channel: "voice",
@@ -253,7 +253,7 @@ export const activeCalls: ActiveCall[] = [
   },
   {
     id: "c-16",
-    handler: { kind: "bot", name: "Kaia v2.4" },
+    handler: { kind: "bot", name: "BigBound v2.4" },
     customer: "Pooja S.",
     accountTail: "2255",
     channel: "sms",

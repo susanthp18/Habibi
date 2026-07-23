@@ -1,16 +1,23 @@
 CREATE TABLE IF NOT EXISTS kb_documents (
   id TEXT PRIMARY KEY,
   updated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  type TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('policy','sop','product','compliance','faq','benefits')),
   version TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('draft','indexing','indexed','stale','failed')),
   enabled boolean NOT NULL DEFAULT true,
   chunk_size INTEGER,
   chunk_overlap INTEGER,
   title TEXT NOT NULL,
+  tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+  embedding_model TEXT,
+  last_indexed_at timestamptz,
+  product_key TEXT,
+  source_path TEXT,
+  content_hash TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_kb_documents_product_key ON kb_documents(product_key);
 
 CREATE TABLE IF NOT EXISTS kb_source_files (
   id TEXT PRIMARY KEY,
@@ -32,10 +39,15 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
   text TEXT NOT NULL,
   embedding vector(1536),
   hits INTEGER NOT NULL DEFAULT 0,
+  chunk_index INTEGER NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id ON kb_chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id_chunk_index ON kb_chunks(document_id, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding_hnsw
+  ON kb_chunks USING hnsw (embedding vector_cosine_ops)
+  WHERE embedding IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS kb_index_jobs (
   id TEXT PRIMARY KEY,
@@ -66,9 +78,13 @@ CREATE TABLE IF NOT EXISTS faq_pairs (
   question TEXT NOT NULL,
   answer TEXT NOT NULL,
   enabled boolean NOT NULL DEFAULT true,
+  embedding vector(1536),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_faq_pairs_embedding_hnsw
+  ON faq_pairs USING hnsw (embedding vector_cosine_ops)
+  WHERE embedding IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS prompt_versions (
   id TEXT PRIMARY KEY,
@@ -78,6 +94,8 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
   persona jsonb NOT NULL DEFAULT '{}'::jsonb,
   voice jsonb NOT NULL DEFAULT '{}'::jsonb,
   guardrails jsonb NOT NULL DEFAULT '{}'::jsonb,
+  label TEXT,
+  summary TEXT NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -115,6 +133,8 @@ CREATE TABLE IF NOT EXISTS bot_deployments (
   published_at timestamptz,
   rollback_deployment_id TEXT REFERENCES bot_deployments(id) ON DELETE SET NULL,
   voice_config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- AgentTuning (§4.7) — LLM/TTS/STT/VAD/turn/interaction knobs; default-filled by migration 0028.
+  tuning jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -125,7 +145,10 @@ CREATE TABLE IF NOT EXISTS routing_rules (
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   priority INTEGER NOT NULL,
   enabled boolean NOT NULL DEFAULT true,
-  conditions jsonb NOT NULL DEFAULT '{}'::jsonb,
+  name TEXT NOT NULL DEFAULT '',
+  description TEXT,
+  category TEXT,
+  conditions jsonb NOT NULL DEFAULT '[]'::jsonb,
   action_key TEXT NOT NULL,
   action_params jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),

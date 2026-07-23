@@ -24,9 +24,14 @@ import {
   Webhook,
   Receipt,
   ShieldAlert,
+  ChevronsLeft,
+  ChevronsRight,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BigBoundMark } from "@/components/brand/BigBoundMark";
+import { BRAND } from "@/lib/brand";
+import { useSidebarUi } from "./sidebar-ui";
 
 type NavItem = {
   label: string;
@@ -87,42 +92,69 @@ const groups: NavGroup[] = [
 
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { collapsed, toggle } = useSidebarUi();
 
   return (
-    <aside className="hidden h-screen min-h-0 w-[240px] shrink-0 flex-col border-r border-[var(--border-token)] bg-surface-card lg:flex">
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--border-token)] px-4">
-        <div className="grid h-8 w-8 place-items-center rounded-md bg-brand-primary text-white font-bold">
-          C
-        </div>
-        <div className="leading-tight">
-          <div className="text-[13px] font-semibold text-brand-navy">Collections AI</div>
-          <div className="text-[11px] text-text-secondary">HDFC · Retail Loans</div>
-        </div>
+    <aside
+      className={cn(
+        "hidden h-screen min-h-0 shrink-0 flex-col border-r border-[var(--border-token)] bg-surface-card transition-[width] duration-200 ease-out lg:flex",
+        collapsed ? "w-16" : "w-[240px]",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-14 shrink-0 items-center border-b border-[var(--border-token)]",
+          collapsed ? "justify-center px-1.5" : "gap-2 px-3",
+        )}
+      >
+        <BigBoundMark size={collapsed ? 28 : 32} />
+        {!collapsed && (
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-[13px] font-semibold tracking-tight text-brand-navy">
+              {BRAND.name}
+            </div>
+            <div className="truncate text-[11px] text-text-secondary">{BRAND.tenantLine}</div>
+          </div>
+        )}
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={toggle}
+            className="grid h-8 w-8 place-items-center rounded-md text-text-secondary hover:bg-surface-sunken hover:text-brand-primary"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+          >
+            <ChevronsLeft className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
         {groups.map((group) => (
-          <div key={group.label} className="mb-4">
-            <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
-              {group.label}
-            </div>
+          <div key={group.label} className={cn("mb-3", collapsed && "mb-2")}>
+            {!collapsed && (
+              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+                {group.label}
+              </div>
+            )}
             <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const active = item.to && pathname === item.to;
+                const active = Boolean(item.to && pathname === item.to);
                 const Icon = item.icon;
                 const base = cn(
-                  "group flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] transition-colors",
+                  "flex items-center rounded-md text-[13px] transition-colors",
+                  collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-2",
                   active
-                    ? "bg-brand-tint text-brand-primary-dark font-semibold"
+                    ? "bg-brand-tint font-semibold text-brand-primary-dark"
                     : "text-text-primary hover:bg-surface-sunken",
                   item.soon && "cursor-not-allowed opacity-60 hover:bg-transparent",
                 );
-                const content = (
+                const body = (
                   <>
                     <Icon className={cn("h-4 w-4 shrink-0", active && "text-brand-primary")} />
-                    <span className="truncate">{item.label}</span>
-                    {item.soon && (
-                      <span className="ml-auto rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-text-muted">
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && item.soon && (
+                      <span className="ml-auto rounded-md bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-text-muted">
                         Soon
                       </span>
                     )}
@@ -131,12 +163,12 @@ export function Sidebar() {
                 return (
                   <li key={item.label}>
                     {item.to && !item.soon ? (
-                      <Link to={item.to} className={base}>
-                        {content}
+                      <Link to={item.to} className={base} title={item.label} aria-label={item.label}>
+                        {body}
                       </Link>
                     ) : (
-                      <div className={base} aria-disabled>
-                        {content}
+                      <div className={base} aria-disabled title={item.label} aria-label={item.label}>
+                        {body}
                       </div>
                     )}
                   </li>
@@ -147,9 +179,23 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="shrink-0 border-t border-[var(--border-token)] px-4 py-3 text-[11px] text-text-muted">
-        v0.1 · PoC build
-      </div>
+      {collapsed ? (
+        <div className="shrink-0 border-t border-[var(--border-token)] p-2">
+          <button
+            type="button"
+            onClick={toggle}
+            className="grid h-9 w-full place-items-center rounded-md text-text-secondary hover:bg-surface-sunken hover:text-brand-primary"
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <ChevronsRight className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="shrink-0 border-t border-[var(--border-token)] px-4 py-3 text-[11px] text-text-muted">
+          {BRAND.shortName} · v0.1
+        </div>
+      )}
     </aside>
   );
 }

@@ -161,10 +161,12 @@ export function CallsTable({ rows, selected, onToggle, onToggleAll, openId, onOp
                       <span className="text-[11px] text-text-muted">—</span>
                     ) : (
                       c.flags.map((f) => {
-                        const meta = FLAG_ICON[f];
+                        const key = (typeof f === "string" ? f : (f as { flag?: string })?.flag) as CallFlag | undefined;
+                        const meta = key ? FLAG_ICON[key] : undefined;
+                        if (!meta) return null;
                         const Icon = meta.icon;
                         return (
-                          <span key={f} title={meta.label} className={cn("inline-flex", meta.tone)}>
+                          <span key={key} title={meta.label} className={cn("inline-flex", meta.tone)}>
                             <Icon className="h-3.5 w-3.5" />
                           </span>
                         );

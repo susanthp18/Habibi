@@ -33,17 +33,38 @@ export async function apiGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function apiSend<T>(method: "POST" | "PATCH", path: string, body: unknown): Promise<T> {
+async function apiSend<T>(
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      Accept: "application/json",
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`${method} ${path} failed: ${res.status} ${res.statusText} ${detail}`);
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const payload = (await res.json()) as { detail?: unknown };
+      if (typeof payload.detail === "string") detail = payload.detail;
+      else if (payload.detail != null) detail = JSON.stringify(payload.detail);
+    } catch {
+      try {
+        detail = await res.text();
+      } catch {
+        /* keep status text */
+      }
+    }
+    throw new Error(detail);
   }
-  return (await res.json()) as T;
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 export function apiPost<T>(path: string, body: unknown): Promise<T> {
@@ -52,4 +73,61 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
 
 export function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return apiSend<T>("PATCH", path, body);
+}
+
+export function apiDelete<T = void>(path: string): Promise<T> {
+  return apiSend<T>("DELETE", path);
+}
+
+/** POST that returns a binary Blob (e.g. TTS audio/mpeg). */
+export async function apiPostBlob(
+  path: string,
+  body: unknown,
+): Promise<{ blob: Blob; headers: Headers }> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { Accept: "audio/mpeg, application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const payload = (await res.json()) as { detail?: unknown };
+      if (typeof payload.detail === "string") detail = payload.detail;
+      else if (payload.detail != null) detail = JSON.stringify(payload.detail);
+    } catch {
+      try {
+        detail = await res.text();
+      } catch {
+        /* keep status text */
+      }
+    }
+    throw new Error(detail);
+  }
+  return { blob: await res.blob(), headers: res.headers };
+}
+
+/** Multipart upload helper (no Content-Type — browser sets boundary). */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const payload = (await res.json()) as { detail?: unknown };
+      if (typeof payload.detail === "string") detail = payload.detail;
+      else if (payload.detail != null) detail = JSON.stringify(payload.detail);
+    } catch {
+      try {
+        detail = await res.text();
+      } catch {
+        /* keep status text */
+      }
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as T;
 }

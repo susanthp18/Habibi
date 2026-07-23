@@ -1,7 +1,6 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  TENANTS,
   changePct,
   inr,
   inrCompact,
@@ -9,6 +8,7 @@ import {
   usageUnits,
   type DayPoint,
   type Service,
+  type Tenant,
 } from "@/data/billing-seed";
 import { cn } from "@/lib/utils";
 
@@ -18,12 +18,16 @@ export function ServiceDrawer({
   service,
   current,
   previous,
+  tenants,
+  serviceTenantSpend,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   service: Service | null;
   current: DayPoint[];
   previous: DayPoint[];
+  tenants: Tenant[];
+  serviceTenantSpend: Record<string, number>;
 }) {
   if (!service) return null;
   const cost = sumRange(current, service.id);
@@ -33,10 +37,13 @@ export function ServiceDrawer({
 
   const series = current.map((d) => ({ date: d.date, v: d.values[service.id] ?? 0 }));
 
-  const tenantRows = TENANTS.map((t) => ({
-    ...t,
-    spend: cost * t.spendShare,
-  })).sort((a, b) => b.spend - a.spend);
+  const tenantRows = tenants
+    .map((t) => ({
+      ...t,
+      spend: serviceTenantSpend[t.id] ?? 0,
+    }))
+    .sort((a, b) => b.spend - a.spend);
+  const tenantTotal = tenantRows.reduce((s, t) => s + t.spend, 0);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -54,7 +61,10 @@ export function ServiceDrawer({
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           <div className="grid grid-cols-3 gap-3">
             <Tile label="Spend" value={inrCompact(cost)} />
-            <Tile label="Usage" value={`${units >= 1000 ? (units / 1000).toFixed(1) + "k" : units.toFixed(1)} ${service.unit}`} />
+            <Tile
+              label="Usage"
+              value={`${units >= 1000 ? (units / 1000).toFixed(1) + "k" : units.toFixed(1)} ${service.unit}`}
+            />
             <Tile
               label="Δ vs prev"
               value={`${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`}
@@ -76,10 +86,21 @@ export function ServiceDrawer({
                   <XAxis dataKey="date" hide />
                   <YAxis hide />
                   <Tooltip
-                    contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid var(--border-token)", background: "var(--surface-card)" }}
+                    contentStyle={{
+                      fontSize: 11,
+                      borderRadius: 8,
+                      border: "1px solid var(--border-token)",
+                      background: "var(--surface-card)",
+                    }}
                     formatter={(v: number) => inrCompact(v)}
                   />
-                  <Area type="monotone" dataKey="v" stroke={service.color} strokeWidth={1.5} fill={`url(#fill-${service.id})`} />
+                  <Area
+                    type="monotone"
+                    dataKey="v"
+                    stroke={service.color}
+                    strokeWidth={1.5}
+                    fill={`url(#fill-${service.id})`}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -89,11 +110,14 @@ export function ServiceDrawer({
             <div className="mb-1 text-[12px] font-semibold text-brand-navy">Top tenants driving this cost</div>
             <div className="space-y-1.5">
               {tenantRows.map((t) => (
-                <div key={t.id} className="flex items-center gap-2 rounded-md border border-[var(--border-token)] px-3 py-2 text-[12px]">
+                <div
+                  key={t.id}
+                  className="flex items-center gap-2 rounded-md border border-[var(--border-token)] px-3 py-2 text-[12px]"
+                >
                   <span className="flex-1 truncate font-medium text-brand-navy">{t.name}</span>
                   <span className="font-mono text-text-secondary">{inrCompact(t.spend)}</span>
                   <span className="w-14 text-right text-[10.5px] text-text-muted">
-                    {(t.spendShare * 100).toFixed(0)}%
+                    {tenantTotal > 0 ? ((t.spend / tenantTotal) * 100).toFixed(0) : 0}%
                   </span>
                 </div>
               ))}

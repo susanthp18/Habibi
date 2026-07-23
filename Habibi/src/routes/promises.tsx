@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { HandCoins, Plus, CalendarClock, Inbox } from "lucide-react";
@@ -33,11 +33,13 @@ import {
 import { useCustomers } from "@/api/customers";
 import { useStaff } from "@/api/staff";
 import { USE_MOCK } from "@/api/config";
+import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/promises")({
+  validateSearch: parseDeepLinkSearch,
   head: () => ({
     meta: [
-      { title: "Promise-to-Pay & Payment Plans — Collections Agent" },
+      { title: "Promise-to-Pay & Payment Plans — BigBound AI" },
       { name: "description", content: "Capture, track, and follow up on payment commitments across bot and agent channels — the beating heart of collections." },
       { property: "og:title", content: "Promise-to-Pay & Payment Plans" },
       { property: "og:description", content: "Pipeline of upcoming, due, kept, broken, and partial promises with installment plans." },
@@ -48,6 +50,8 @@ export const Route = createFileRoute("/promises")({
 
 function PromisesPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const search = Route.useSearch();
   const { data: promisesData = [] } = usePromises();
   const { data: plansData = [] } = usePaymentPlans();
   const { data: liveCustomers } = useCustomers();
@@ -56,8 +60,9 @@ function PromisesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
-  const [detail, setDetail] = useState<Ptp | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [planDetail, setPlanDetail] = useState<PaymentPlan | null>(null);
+  const deepLinkApplied = useRef(false);
 
   // Live mode: pick real customers for the create/plan sheets. Mock mode: let the
   // sheets fall back to their seed roster (pass undefined).
@@ -134,12 +139,12 @@ function PromisesPage() {
 
   const handleMark = (p: Ptp, status: PromiseStatus, opts?: { paidAmount?: number }) => {
     markMutation.mutate({ p, status, opts });
-    if (detail && detail.id === p.id) setDetail(null);
+    if (detailId === p.id) setDetailId(null);
   };
 
   const handleReschedule = (p: Ptp, newDate: string) => {
     rescheduleMutation.mutate({ p, newDate });
-    if (detail && detail.id === p.id) setDetail(null);
+    if (detailId === p.id) setDetailId(null);
   };
 
   const handleDropStatus = (id: string, status: PromiseStatus) => {
@@ -150,6 +155,17 @@ function PromisesPage() {
 
   const handleCreate = (input: CreateInput) => createMutation.mutate(input);
   const handleCreatePlan = (input: PlanInput) => planMutation.mutate(input);
+
+  const detail = detailId ? promisesData.find((p) => p.id === detailId) ?? null : null;
+
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    if (!search.id && !search.new) return;
+    deepLinkApplied.current = true;
+    if (search.id) setDetailId(search.id);
+    if (search.new) setCreateOpen(true);
+    void navigate({ search: {}, replace: true });
+  }, [search.id, search.new, navigate]);
 
   return (
     <AppShell>
@@ -205,7 +221,7 @@ function PromisesPage() {
             promises={filtered}
             counts={metrics.counts}
             subtotals={metrics.subtotals}
-            onOpen={setDetail}
+            onOpen={(p) => setDetailId(p.id)}
             onMark={handleMark}
             onDropStatus={handleDropStatus}
           />
@@ -230,7 +246,7 @@ function PromisesPage() {
       />
       <PromiseDetailSheet
         promise={detail}
-        onOpenChange={(v) => !v && setDetail(null)}
+        onOpenChange={(v) => !v && setDetailId(null)}
         onMark={handleMark}
         onReschedule={handleReschedule}
       />

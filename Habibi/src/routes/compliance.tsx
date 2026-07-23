@@ -29,7 +29,7 @@ import { USE_MOCK } from "@/api/config";
 export const Route = createFileRoute("/compliance")({
   head: () => ({
     meta: [
-      { title: "Compliance Risk — Collections Agent" },
+      { title: "Compliance Risk — BigBound AI" },
       {
         name: "description",
         content:

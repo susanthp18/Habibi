@@ -88,13 +88,13 @@ Speak in {language}. Be patient, empathetic and non-judgemental.
 Always disclose that the call is recorded for quality and compliance.
 Never threaten legal action. Offer Promise-to-Pay options when the customer signals hardship.`;
 
-const FIRM_PROMPT = `You are {agent_name}, a collections agent for {bank_name}.
+const FIRM_PROMPT = `You are {agent_name}, a BigBound AI agent for {bank_name}.
 Address {customer_name} directly and state the purpose of the call within the first two sentences.
 Clearly state the overdue amount {overdue_amount} on account {account_no}, past due since {due_date}.
 Speak in {language}. Be professional, direct and outcome-oriented.
 Disclose call recording. Do not promise waivers. Escalate to a human on any dispute.`;
 
-const COMPLIANCE_PROMPT = `You are {agent_name}, a compliance-first collections agent for {bank_name}.
+const COMPLIANCE_PROMPT = `You are {agent_name}, a compliance-first BigBound AI agent for {bank_name}.
 Begin every call with the recording disclosure and verify caller identity before sharing any account information.
 Reference {customer_name}, account {account_no}, dues {overdue_amount}, due on {due_date} only after verification.
 Speak in {language}. Never quote interest rates. Never promise fee waivers. Escalate on any dispute or hardship signal.`;
@@ -218,7 +218,7 @@ export const VERSION_HISTORY: PromptVersion[] = [
     status: "archived",
     createdAt: new Date(Date.now() - 30 * 86400_000).toISOString(),
     summary: "first draft",
-    prompt: "You are a collections agent. Collect the overdue amount.",
+    prompt: "You are BigBound AI. Collect the overdue amount.",
     persona: DEFAULT_PERSONA,
     voice: DEFAULT_VOICE,
     guardrails: {
@@ -293,6 +293,7 @@ export function diffPrompts(a: string, b: string): DiffLine[] {
   return out;
 }
 
+/** Fallback length/4 heuristic — live Studio uses POST /prompt-versions/estimate-tokens (tiktoken). */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
@@ -303,3 +304,60 @@ export function nextVersionLabel(current: string): string {
   if (!m) return "v1.0";
   return `v${m[1]}.${Number(m[2]) + 1}`;
 }
+
+/** Serialize persona/voice/guardrails for line-level diffs alongside the prompt. */
+export function formatConfigBlock(
+  label: string,
+  persona: PersonaState,
+  voice: VoiceConfig,
+  guardrails: Guardrails,
+): string {
+  const traits = persona.traits;
+  return [
+    `## ${label}`,
+    "### Persona",
+    `language: ${persona.language}`,
+    `fallbacks: ${(persona.fallbackLanguages || []).join(", ") || "—"}`,
+    `empathy: ${traits.empathy}`,
+    `firmness: ${traits.firmness}`,
+    `formality: ${traits.formality}`,
+    `verbosity: ${traits.verbosity}`,
+    `upsell: ${traits.upsell}`,
+    "### Voice",
+    `voiceId: ${voice.voiceId}`,
+    `speed: ${voice.speed}`,
+    `pitch: ${voice.pitch}`,
+    `warmth: ${voice.warmth}`,
+    `pauseMs: ${voice.pauseMs}`,
+    "### Guardrails",
+    `prohibited: ${(guardrails.prohibited || []).join(", ") || "—"}`,
+    `escalateAbuse: ${guardrails.escalateAbuse}`,
+    `escalateLegal: ${guardrails.escalateLegal}`,
+    `neverQuoteRate: ${guardrails.neverQuoteRate}`,
+    `neverPromiseWaiver: ${guardrails.neverPromiseWaiver}`,
+    `alwaysDiscloseRecording: ${guardrails.alwaysDiscloseRecording}`,
+    `refusePoliticsReligion: ${guardrails.refusePoliticsReligion}`,
+    `maxTurns: ${guardrails.maxTurns}`,
+    `maxSeconds: ${guardrails.maxSeconds}`,
+  ].join("\n");
+}
+
+export function diffStudioVersions(
+  base: { prompt: string; persona: PersonaState; voice: VoiceConfig; guardrails: Guardrails },
+  current: { prompt: string; persona: PersonaState; voice: VoiceConfig; guardrails: Guardrails },
+): DiffLine[] {
+  const a = [
+    "### System prompt",
+    ...base.prompt.split("\n"),
+    "",
+    ...formatConfigBlock("Config", base.persona, base.voice, base.guardrails).split("\n"),
+  ].join("\n");
+  const b = [
+    "### System prompt",
+    ...current.prompt.split("\n"),
+    "",
+    ...formatConfigBlock("Config", current.persona, current.voice, current.guardrails).split("\n"),
+  ].join("\n");
+  return diffPrompts(a, b);
+}
+

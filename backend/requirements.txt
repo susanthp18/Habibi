@@ -3,3 +3,8 @@ uvicorn
 sqlalchemy
 psycopg[binary]
 alembic
+openai
+tiktoken
+httpx
+minio
+python-multipart

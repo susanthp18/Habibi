@@ -11,25 +11,52 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { documents, type FaqPair } from "@/data/kb-seed";
+import type { FaqPair, KbDocument } from "@/data/kb-seed";
 
-const INTENTS = ["late-fee", "emi", "foreclosure", "documents", "statement", "topup", "cibil", "dispute", "language", "consent", "compliance", "hardship", "restructure", "other"];
+const BASE_INTENTS = [
+  "late-fee",
+  "emi",
+  "foreclosure",
+  "documents",
+  "statement",
+  "topup",
+  "cibil",
+  "dispute",
+  "language",
+  "consent",
+  "compliance",
+  "hardship",
+  "restructure",
+  "car",
+  "home",
+  "travel",
+  "other",
+];
 
 export function FaqEditorSheet({
   open,
   faq,
+  documents,
   onClose,
   onSave,
+  onDelete,
 }: {
   open: boolean;
   faq: FaqPair | null;
+  documents: KbDocument[];
   onClose: () => void;
-  onSave: (f: FaqPair) => void;
+  onSave: (f: Omit<FaqPair, "id" | "updatedAt"> & { id?: string }) => void | Promise<void>;
+  onDelete?: (id: string) => void | Promise<void>;
 }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [intent, setIntent] = useState("other");
   const [linkedDocId, setLinkedDocId] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const intents = Array.from(new Set([...BASE_INTENTS, faq?.intent].filter(Boolean) as string[]));
+  const canDelete = Boolean(faq?.id && onDelete);
 
   useEffect(() => {
     if (!open) return;
@@ -37,26 +64,47 @@ export function FaqEditorSheet({
     setAnswer(faq?.answer ?? "");
     setIntent(faq?.intent ?? "other");
     setLinkedDocId(faq?.linkedDocId ?? "");
+    setSaving(false);
+    setDeleting(false);
   }, [open, faq]);
 
-  const save = () => {
-    if (!question.trim() || !answer.trim()) return;
-    onSave({
-      id: faq?.id ?? `f-${Date.now()}`,
-      question: question.trim(),
-      answer: answer.trim(),
-      intent,
-      enabled: faq?.enabled ?? true,
-      updatedAt: new Date().toISOString(),
-      linkedDocId: linkedDocId || undefined,
-    });
+  const save = async () => {
+    if (!question.trim() || !answer.trim() || saving || deleting) return;
+    setSaving(true);
+    try {
+      await Promise.resolve(
+        onSave({
+          id: faq?.id,
+          question: question.trim(),
+          answer: answer.trim(),
+          intent,
+          enabled: faq?.enabled ?? true,
+          linkedDocId: linkedDocId || undefined,
+        }),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!faq?.id || !onDelete || deleting || saving) return;
+    if (!window.confirm("Delete this FAQ pair? Linked analytics gaps will keep their question but lose the FAQ link.")) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await Promise.resolve(onDelete(faq.id));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{faq ? "Edit FAQ" : "New FAQ pair"}</SheetTitle>
+          <SheetTitle>{faq?.id ? "Edit FAQ" : "New FAQ pair"}</SheetTitle>
         </SheetHeader>
         <div className="mt-4 space-y-4 overflow-y-auto pr-1">
           <div>
@@ -82,7 +130,7 @@ export function FaqEditorSheet({
               <Select value={intent} onValueChange={setIntent}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {INTENTS.map((i) => (
+                  {intents.map((i) => (
                     <SelectItem key={i} value={i}>{i}</SelectItem>
                   ))}
                 </SelectContent>
@@ -102,9 +150,30 @@ export function FaqEditorSheet({
             </div>
           </div>
         </div>
-        <SheetFooter className="mt-4">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save}>{faq ? "Save changes" : "Create FAQ"}</Button>
+        <SheetFooter className="mt-4 flex-row justify-between gap-2 sm:justify-between">
+          {canDelete ? (
+            <Button
+              variant="outline"
+              className="border-danger/40 text-danger hover:bg-danger-bg"
+              onClick={() => void remove()}
+              disabled={saving || deleting}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving || deleting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void save()}
+              disabled={saving || deleting || !question.trim() || !answer.trim()}
+            >
+              {faq?.id ? "Save changes" : "Create FAQ"}
+            </Button>
+          </div>
         </SheetFooter>
       </SheetContent>
     </Sheet>

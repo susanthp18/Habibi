@@ -12,7 +12,7 @@ export type ProviderField = {
 };
 
 export type ProviderId =
-  | "azure_openai" | "openai" | "deepgram" | "elevenlabs"
+  | "azure_openai" | "openai" | "azure_speech_stt" | "azure_speech_tts"
   | "twilio" | "whatsapp" | "cbs" | "pipecat";
 
 export type UsageStat = { label: string; value: string };
@@ -117,64 +117,64 @@ export const PROVIDERS: Provider[] = [
     },
   },
   {
-    id: "deepgram",
-    name: "Deepgram",
-    vendor: "Deepgram",
+    id: "azure_speech_stt",
+    name: "Azure Speech STT",
+    vendor: "Microsoft Azure",
     category: "Voice AI",
     capability: "STT — streaming ASR",
-    description: "Nova-2 real-time transcription feeding audio frames from Pipecat's Twilio transport into the LLM.",
-    docsUrl: "https://developers.deepgram.com/",
-    brandInitial: "Dg",
-    brandColor: "bg-violet-100 text-violet-700",
-    capabilities: ["streaming", "diarization", "hi-IN + en-IN", "punctuation"],
+    description: "Azure Speech real-time transcription feeding audio frames from Pipecat's Twilio transport into the LLM.",
+    docsUrl: "https://learn.microsoft.com/azure/ai-services/speech-service/",
+    brandInitial: "Az",
+    brandColor: "bg-sky-100 text-sky-700",
+    capabilities: ["streaming", "hi-IN + en-IN", "punctuation", "interim results"],
     fields: [
-      { key: "apiKey", label: "API key", secret: true, placeholder: "dg-********" },
-      { key: "model", label: "Model", placeholder: "nova-2" },
+      { key: "speechKey", label: "Speech key", secret: true, placeholder: "********" },
+      { key: "region", label: "Region", placeholder: "centralindia" },
       { key: "language", label: "Language", placeholder: "en-IN" },
     ],
     perEnv: {
       sandbox: {
-        values: { apiKey: "dg-sbx-4a8c2b6d9f1e3a5c7b8d0e2f", model: "nova-2", language: "en-IN" },
-        region: "asia-south-1", health: "healthy", latencyMs: 82, enabled: true,
+        values: { speechKey: "az-sbx-speech-4a8c2b6d9f1e3a5c", region: "centralindia", language: "en-IN" },
+        region: "centralindia", health: "healthy", latencyMs: 92, enabled: true,
         usageStats: [{ label: "Minutes streamed", value: "3,420" }, { label: "WER (est.)", value: "6.1%" }, { label: "Concurrent streams", value: "12" }],
-        costMonth: "$41.04", unitLabel: "minutes",
+        costMonth: "$38.40", unitLabel: "minutes",
       },
       production: {
-        values: { apiKey: "dg-prd-9c1a4b7e2d8f6a3c5b9d0e2f", model: "nova-2", language: "en-IN" },
-        region: "asia-south-1", health: "healthy", latencyMs: 68, enabled: true,
+        values: { speechKey: "az-prd-speech-9c1a4b7e2d8f6a3c", region: "centralindia", language: "en-IN" },
+        region: "centralindia", health: "healthy", latencyMs: 74, enabled: true,
         usageStats: [{ label: "Minutes streamed", value: "72,180" }, { label: "WER (est.)", value: "5.4%" }, { label: "Concurrent streams", value: "184" }],
-        costMonth: "$866.16", unitLabel: "minutes",
+        costMonth: "$812.00", unitLabel: "minutes",
       },
     },
   },
   {
-    id: "elevenlabs",
-    name: "ElevenLabs",
-    vendor: "ElevenLabs",
+    id: "azure_speech_tts",
+    name: "Azure Speech TTS",
+    vendor: "Microsoft Azure",
     category: "Voice AI",
     capability: "TTS — outbound voice",
-    description: "Multilingual v2 voices synthesizing bot responses with the persona-selected voice profile.",
-    docsUrl: "https://elevenlabs.io/docs",
-    brandInitial: "El",
-    brandColor: "bg-rose-100 text-rose-700",
-    capabilities: ["streaming", "20+ voices", "SSML", "voice-cloning"],
+    description: "Azure neural voices synthesizing bot responses with the persona-selected voice profile from Prompt Studio.",
+    docsUrl: "https://learn.microsoft.com/azure/ai-services/speech-service/text-to-speech",
+    brandInitial: "Az",
+    brandColor: "bg-teal-100 text-teal-700",
+    capabilities: ["neural voices", "en-IN / hi-IN", "SSML", "streaming"],
     fields: [
-      { key: "apiKey", label: "API key", secret: true, placeholder: "xi-********" },
-      { key: "voiceId", label: "Default voice ID", placeholder: "21m00Tcm4TlvDq8ikWAM" },
-      { key: "model", label: "Model", placeholder: "eleven_multilingual_v2" },
+      { key: "speechKey", label: "Speech key", secret: true, placeholder: "********" },
+      { key: "region", label: "Region", placeholder: "centralindia" },
+      { key: "defaultVoice", label: "Default voice", placeholder: "en-IN-NeerjaNeural" },
     ],
     perEnv: {
       sandbox: {
-        values: { apiKey: "xi-sbx-3f7a2b9c4d1e6f8a5b0c2d1e", voiceId: "21m00Tcm4TlvDq8ikWAM", model: "eleven_multilingual_v2" },
-        region: "global", health: "healthy", latencyMs: 310, enabled: true,
-        usageStats: [{ label: "Characters", value: "412 K" }, { label: "Voices used", value: "4" }, { label: "Avg latency", value: "310 ms" }],
-        costMonth: "$74.16", unitLabel: "chars",
+        values: { speechKey: "az-sbx-speech-4a8c2b6d9f1e3a5c", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
+        region: "centralindia", health: "healthy", latencyMs: 280, enabled: true,
+        usageStats: [{ label: "Characters", value: "412 K" }, { label: "Voices used", value: "4" }, { label: "Avg latency", value: "280 ms" }],
+        costMonth: "$62.00", unitLabel: "chars",
       },
       production: {
-        values: { apiKey: "xi-prd-8b2c1a4e7d9f3a6c5b0d2e1f", voiceId: "21m00Tcm4TlvDq8ikWAM", model: "eleven_multilingual_v2" },
-        region: "global", health: "healthy", latencyMs: 264, enabled: true,
-        usageStats: [{ label: "Characters", value: "9.8 M" }, { label: "Voices used", value: "6" }, { label: "Avg latency", value: "264 ms" }],
-        costMonth: "$1,764.00", unitLabel: "chars",
+        values: { speechKey: "az-prd-speech-9c1a4b7e2d8f6a3c", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
+        region: "centralindia", health: "healthy", latencyMs: 240, enabled: true,
+        usageStats: [{ label: "Characters", value: "9.8 M" }, { label: "Voices used", value: "6" }, { label: "Avg latency", value: "240 ms" }],
+        costMonth: "$1,480.00", unitLabel: "chars",
       },
     },
   },
@@ -278,7 +278,7 @@ export const PROVIDERS: Provider[] = [
     vendor: "Pipecat (self-hosted)",
     category: "Orchestrator",
     capability: "Voice AI pipeline runtime",
-    description: "The Pipecat worker glues Twilio ↔ Deepgram ↔ Azure OpenAI ↔ ElevenLabs together. This connector holds its base URL and the HMAC secret used to sign webhooks into this CRM.",
+    description: "The Pipecat worker glues Twilio ↔ Azure Speech STT ↔ Azure OpenAI ↔ Azure Speech TTS together. This connector holds its base URL and the HMAC secret used to sign webhooks into this CRM.",
     docsUrl: "https://docs.pipecat.ai/",
     brandInitial: "Pc",
     brandColor: "bg-brand-tint text-brand-primary-dark",
@@ -361,17 +361,17 @@ const TEST_FIXTURES: Record<ProviderId, { okMessage: string; failMessage: string
     okPayload: '{"model":"gpt-4o","choices":[{"message":{"content":"pong"}}]}',
     failPayload: '{"error":{"type":"invalid_request_error","message":"Incorrect API key"}}',
   },
-  deepgram: {
-    okMessage: "Sample audio transcribed (nova-2)",
-    failMessage: "Websocket handshake refused",
-    okPayload: '{"channel":{"alternatives":[{"transcript":"hello I need help with my loan","confidence":0.97}]}}',
-    failPayload: '{"err_code":"REMOTE_DISCONNECT"}',
+  azure_speech_stt: {
+    okMessage: "Sample audio transcribed (Azure Speech)",
+    failMessage: "Speech websocket handshake refused",
+    okPayload: '{"RecognitionStatus":"Success","DisplayText":"hello I need help with my loan","Offset":0}',
+    failPayload: '{"error":{"code":"Unauthorized","message":"Invalid subscription key"}}',
   },
-  elevenlabs: {
-    okMessage: "TTS synthesized 42-char sample in 310 ms",
+  azure_speech_tts: {
+    okMessage: "TTS synthesized 42-char sample in 280 ms",
     failMessage: "Quota exceeded",
-    okPayload: '{"audio":"<base64 · 32 kB>","voice":"Rachel","chars":42}',
-    failPayload: '{"detail":{"status":"quota_exceeded"}}',
+    okPayload: '{"audio":"<base64 · 32 kB>","voice":"en-IN-NeerjaNeural","chars":42}',
+    failPayload: '{"error":{"code":"429","message":"Rate limit exceeded"}}',
   },
   twilio: {
     okMessage: "Lookup on +91 98 100 12345 succeeded",
@@ -403,14 +403,13 @@ export function pipecatSnippet(p: Provider, env: Env): string {
   const v = p.perEnv[env].values;
   const secret = (k: string) => `os.environ["${p.id.toUpperCase()}_${k.toUpperCase()}"]  # ${v[k]?.slice(0, 8)}…`;
   switch (p.id) {
-    case "deepgram":
-      return `from pipecat.services.deepgram import DeepgramSTTService
+    case "azure_speech_stt":
+      return `from pipecat.services.azure import AzureSTTService
 
-stt = DeepgramSTTService(
-    api_key=${secret("apiKey")},
-    model="${v.model}",
+stt = AzureSTTService(
+    api_key=${secret("speechKey")},
+    region="${v.region}",
     language="${v.language}",
-    interim_results=True,
 )`;
     case "azure_openai":
       return `from pipecat.services.azure import AzureLLMService
@@ -429,13 +428,13 @@ fallback_llm = OpenAILLMService(
     model="${v.model}",
     organization="${v.org}",
 )`;
-    case "elevenlabs":
-      return `from pipecat.services.elevenlabs import ElevenLabsTTSService
+    case "azure_speech_tts":
+      return `from pipecat.services.azure import AzureTTSService
 
-tts = ElevenLabsTTSService(
-    api_key=${secret("apiKey")},
-    voice_id="${v.voiceId}",
-    model="${v.model}",
+tts = AzureTTSService(
+    api_key=${secret("speechKey")},
+    region="${v.region}",
+    voice="${v.defaultVoice}",
 )`;
     case "twilio":
       return `from pipecat.transports.services.daily import TwilioFrameSerializer
@@ -473,9 +472,9 @@ x-signature: hmac-sha256(${secret("webhookSecret")}, body)
 
 Pipeline([
     transport.input(),   # Twilio
-    stt,                 # Deepgram
+    stt,                 # Azure Speech STT
     llm,                 # Azure OpenAI (fallback → OpenAI)
-    tts,                 # ElevenLabs
+    tts,                 # Azure Speech TTS
     transport.output(),
 ]).run(worker_pool="${v.workerPool}")`;
   }

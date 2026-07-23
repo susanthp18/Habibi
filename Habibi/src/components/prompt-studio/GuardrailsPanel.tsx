@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ExternalLink, Plus, X } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { useRedactionRules } from "@/api/redaction";
 import type { Guardrails } from "@/data/prompt-studio-seed";
 
 type Props = {
@@ -10,23 +12,17 @@ type Props = {
 };
 
 const TOGGLES: Array<{ key: keyof Guardrails; label: string; hint: string }> = [
-  { key: "escalateAbuse", label: "Escalate on abusive language", hint: "Trigger human handoff if customer uses abuse" },
-  { key: "escalateLegal", label: "Escalate on legal threats", hint: "Any mention of court / lawyer routes to Tier 2" },
-  { key: "neverQuoteRate", label: "Never quote interest rate", hint: "Deflect rate questions to disclosures / a human" },
-  { key: "neverPromiseWaiver", label: "Never promise fee waivers", hint: "Only stated policies allowed" },
-  { key: "alwaysDiscloseRecording", label: "Always disclose recording", hint: "Mandatory opening line every call" },
-  { key: "refusePoliticsReligion", label: "Refuse politics / religion topics", hint: "Politely deflect off-topic content" },
-];
-
-const PII = [
-  { key: "pan", label: "PAN / SSN", locked: true },
-  { key: "dob", label: "Date of birth", locked: true },
-  { key: "acct", label: "Full account number", locked: true },
-  { key: "cvv", label: "CVV", locked: true },
+  { key: "escalateAbuse", label: "Escalate on abusive language", hint: "Hard flag + handoff when customer uses abuse" },
+  { key: "escalateLegal", label: "Escalate on legal threats", hint: "Court / lawyer intents auto-escalate" },
+  { key: "neverQuoteRate", label: "Never quote interest rate", hint: "Hard-blocks APR / % rate quotes in bot replies" },
+  { key: "neverPromiseWaiver", label: "Never promise fee waivers", hint: "Hard-blocks waiver promises (goodwill review ok)" },
+  { key: "alwaysDiscloseRecording", label: "Always disclose recording", hint: "Flags missing disclosure on turn 1" },
+  { key: "refusePoliticsReligion", label: "Refuse politics / religion topics", hint: "Hard-blocks political/religious digressions" },
 ];
 
 export function GuardrailsPanel({ value, onChange }: Props) {
   const [draft, setDraft] = useState("");
+  const rulesQuery = useRedactionRules();
   const update = (patch: Partial<Guardrails>) => onChange({ ...value, ...patch });
 
   const addWord = () => {
@@ -35,6 +31,15 @@ export function GuardrailsPanel({ value, onChange }: Props) {
     update({ prohibited: [...value.prohibited, w] });
     setDraft("");
   };
+
+  const rules = rulesQuery.data;
+  const piiRows = rules
+    ? Object.entries(rules).map(([key, cfg]) => ({
+        key,
+        label: cfg.label,
+        enabled: cfg.enabled,
+      }))
+    : [];
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
@@ -114,21 +119,39 @@ export function GuardrailsPanel({ value, onChange }: Props) {
         </div>
 
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">PII the bot must never quote</div>
+          <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            <span>PII redaction (owned by Redaction Hub)</span>
+            <Link
+              to="/redaction"
+              className="inline-flex items-center gap-1 normal-case tracking-normal text-brand-primary hover:underline"
+            >
+              Open hub <ExternalLink className="h-3 w-3" />
+            </Link>
+          </div>
           <div className="grid grid-cols-2 gap-1.5">
-            {PII.map((p) => (
-              <label
+            {piiRows.length === 0 && (
+              <div className="col-span-2 rounded-md border border-dashed border-[var(--border-token)] px-2.5 py-3 text-[12px] text-text-muted">
+                Loading redaction rules…
+              </div>
+            )}
+            {piiRows.map((p) => (
+              <div
                 key={p.key}
                 className="flex items-center gap-2 rounded-md border border-[var(--border-token)] bg-surface-sunken px-2.5 py-2 text-[12.5px] text-text-secondary"
               >
-                <input type="checkbox" checked disabled className="accent-brand-primary" />
-                {p.label}
-                <span className="ml-auto text-[10px] uppercase text-text-muted">locked</span>
-              </label>
+                <span
+                  className={`h-2 w-2 rounded-full ${p.enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+                  title={p.enabled ? "Enabled in Redaction Hub" : "Disabled in Redaction Hub"}
+                />
+                <span className="truncate">{p.label}</span>
+                <span className="ml-auto text-[10px] uppercase text-text-muted">
+                  {p.enabled ? "on" : "off"}
+                </span>
+              </div>
             ))}
           </div>
           <p className="mt-1 text-[11px] text-text-muted">
-            Redaction rules are enforced by the Redaction Hub and cannot be disabled here.
+            Read-only here — toggle PAN, account, Aadhaar, etc. in Redaction Hub. Studio cannot override them.
           </p>
         </div>
       </div>

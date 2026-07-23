@@ -24,3 +24,8 @@ Thumbs.db
 **/node_modules/
 **/dist/
 **/.output/
+
+# Runtime logs / machine-specific tooling config
+logs.txt
+*.log
+.mcp.json

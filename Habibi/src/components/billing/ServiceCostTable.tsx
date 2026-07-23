@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import {
-  SERVICES,
   changePct,
   inr,
   inrCompact,
@@ -15,10 +14,12 @@ import { cn } from "@/lib/utils";
 type SortKey = "cost" | "share" | "delta";
 
 export function ServiceCostTable({
+  services,
   current,
   previous,
   onRowClick,
 }: {
+  services: Service[];
   current: DayPoint[];
   previous: DayPoint[];
   onRowClick: (s: Service) => void;
@@ -27,7 +28,7 @@ export function ServiceCostTable({
 
   const totalCur = sumRange(current);
   const rows = useMemo(() => {
-    const arr = SERVICES.map((s) => {
+    const arr = services.map((s) => {
       const cost = sumRange(current, s.id);
       const prev = sumRange(previous, s.id);
       const delta = changePct(cost, prev);
@@ -40,14 +41,16 @@ export function ServiceCostTable({
       return b.delta - a.delta;
     });
     return arr;
-  }, [current, previous, sort, totalCur]);
+  }, [services, current, previous, sort, totalCur]);
 
   return (
     <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
       <div className="flex items-center justify-between border-b border-[var(--border-token)] px-4 py-2">
         <div>
           <h3 className="text-[13px] font-semibold text-brand-navy">Cost breakdown by service</h3>
-          <p className="text-[11px] text-text-secondary">Sorted by {sort === "cost" ? "spend" : sort === "share" ? "share" : "period-over-period change"}</p>
+          <p className="text-[11px] text-text-secondary">
+            Sorted by {sort === "cost" ? "spend" : sort === "share" ? "share" : "period-over-period change"}
+          </p>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -104,7 +107,7 @@ export function ServiceCostTable({
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
+                    <div className="ml-auto flex items-center justify-end gap-2">
                       <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-sunken">
                         <div
                           className="h-full rounded-full"
@@ -130,6 +133,7 @@ function SortableTh({ label, active, onClick }: { label: string; active: boolean
   return (
     <th className="px-3 py-2 text-right">
       <button
+        type="button"
         onClick={onClick}
         className={cn(
           "inline-flex items-center gap-1 uppercase tracking-wider",
