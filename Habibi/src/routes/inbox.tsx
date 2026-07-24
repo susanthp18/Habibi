@@ -36,6 +36,9 @@ function friendlyInboxError(raw: string): string {
   if (raw.includes("take_over_required") || raw.includes("bot_still_handling")) {
     return "Take over this conversation before sending on WhatsApp.";
   }
+  if (raw.includes("whatsapp_missing_recipient")) {
+    return "No WhatsApp phone number on this customer.";
+  }
   if (raw.includes("whatsapp_not_configured")) {
     return "WhatsApp is not configured on the server.";
   }

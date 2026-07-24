@@ -22,8 +22,9 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
+from voice.rtvi_events import RtviEmitter
 from voice.session import VoiceSession
-from voice.tools import ToolState, build_tools
+from voice.tools import DeveloperInjector, ToolState, build_tools
 
 AsyncStartRecording = Callable[[], Awaitable[None]]
 
@@ -34,6 +35,13 @@ def build_collections_flow(
     role_message: str,
     bot_id: str | None = None,
     start_recording: AsyncStartRecording | None = None,
+    emitter: RtviEmitter | None = None,
+    kb_snapshot_id: str | None = None,
+    inject_developer: DeveloperInjector | None = None,
+    persona: dict[str, Any] | None = None,
+    channel: str = "sandbox_live",
+    on_kb_tool_used: Callable[[], None] | None = None,
+    sink: Any | None = None,
 ) -> tuple[ToolState, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
     """Wire tools + node factories.
 
@@ -46,6 +54,13 @@ def build_collections_flow(
         bot_id=bot_id,
         start_recording=start_recording,
         nodes=nodes,
+        emitter=emitter,
+        kb_snapshot_id=kb_snapshot_id,
+        inject_developer=inject_developer,
+        persona=persona,
+        channel=channel,
+        on_kb_tool_used=on_kb_tool_used,
+        sink=sink,
     )
 
     # role_message persists across nodes until re-set; re-state on RESET nodes.
@@ -117,6 +132,8 @@ def build_collections_flow(
                         "Dispute / already paid → begin_dispute. "
                         "Policy / FAQ question → search_knowledge_base (available "
                         "globally; follow answer_policy). "
+                        "Wants a statement, no-dues certificate, interest "
+                        "certificate, or receipt → request_documents. "
                         "Done / goodbye → begin_wrap_up or end_call. "
                         "If they name two intents, acknowledge both and handle them "
                         "in order. Abuse, legal threats, or lawyer mention → "
@@ -209,14 +226,30 @@ def build_collections_flow(
                     "role": "developer",
                     "content": (
                         "Only if the caller seems receptive and sentiment is not "
-                        "negative, briefly mention a relevant product and ask consent "
-                        "to continue. If they decline or sound frustrated, call "
-                        "begin_wrap_up immediately. Do not pressure."
+                        "negative, briefly mention ONE relevant product and ask "
+                        "consent to continue. If they decline or sound frustrated, "
+                        "call begin_wrap_up immediately. Do not pressure.\n"
+                        "Before pitching, call check_product_eligibility with the "
+                        "product id — if it returns eligible=false, do NOT pitch it "
+                        "and do not explain why; go to begin_wrap_up.\n"
+                        "Only after the caller clearly expresses interest, call "
+                        "capture_lead so a specialist can follow up. Never promise "
+                        "approval, rates, or limits — capture interest only."
                     ),
                 }
             ],
+            # Node-scoped tools (Flows best practice): eligibility → capture → exit.
             "functions": [
+                tools["check_product_eligibility"],
+                tools["capture_lead"],
                 tools["begin_wrap_up"],
+            ],
+            # Topic hop: collapse the collections negotiation into a summary before
+            # loading product context, so the upsell turn isn't reasoning over the
+            # full PTP haggle. Registered in bot.py via FlowManager.register_action.
+            "pre_actions": [
+                {"type": "summarize_context"},
+                {"type": "mesh_activate_insurance"},
             ],
             "respond_immediately": True,
         }
@@ -291,10 +324,16 @@ def build_collections_flow(
     )
 
     # Global: available on every node (docs: FlowManager global_functions).
+    # Document requests are global because callers ask for a statement or NOC at
+    # any point in the script, not at one scripted step.
     global_functions = [
         tools["escalate_to_human"],
         tools["search_knowledge_base"],
+        tools["get_customer_context"],
+        tools["get_payment_history"],
+        tools["get_emi_schedule"],
         tools["add_customer_note"],
+        tools["request_documents"],
         tools["pause_for_caller"],
         tools["end_call"],
     ]

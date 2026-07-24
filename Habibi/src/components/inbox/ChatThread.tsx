@@ -3,7 +3,7 @@ import { Copy, Bot, Info, MoreHorizontal, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadItem } from "@/data/inbox-seed";
-import { channelMeta, sentimentColor } from "./meta";
+import { resolveChannelMeta, sentimentColor } from "./meta";
 import { MessageBubble } from "./MessageBubble";
 
 function isMessage(item: ThreadItem): item is Extract<ThreadItem, { sender: unknown }> {
@@ -42,7 +42,7 @@ export function ChatThread({
   const scrollRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const chan = channelMeta[thread.channel];
+  const chan = resolveChannelMeta(thread.channel);
   const ChanIcon = chan.icon;
   const botTyping = Boolean(thread.botTyping) && thread.status === "bot" && !thread.isMine;
   const needsClaim =

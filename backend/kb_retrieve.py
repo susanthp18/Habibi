@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -199,6 +200,13 @@ def retrieve(
             conn.execute(text("SET LOCAL hnsw.iterative_scan = 'relaxed_order'"))
         except Exception:
             logger.debug("hnsw.iterative_scan unavailable; relying on over-fetch", exc_info=True)
+        # Default pgvector ef_search is 40 — tunable for recall vs latency.
+        try:
+            ef_raw = (os.getenv("HNSW_EF_SEARCH") or "64").strip()
+            ef_search = max(10, min(400, int(ef_raw)))
+            conn.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
+        except Exception:
+            logger.debug("hnsw.ef_search unavailable", exc_info=True)
 
         chunk_sql = """
                 SELECT
@@ -444,18 +452,18 @@ def retrieve(
     ]
 
     with db.engine.begin() as conn:
-        for item in top:
-            if item["_kind"] == "chunk":
-                conn.execute(
-                    text(
-                        """
-                        UPDATE kb_chunks
-                        SET hits = hits + 1, updated_at = now()
-                        WHERE id = :id
-                        """
-                    ),
-                    {"id": item["chunkId"]},
-                )
+        chunk_ids = [item["chunkId"] for item in top if item["_kind"] == "chunk"]
+        if chunk_ids:
+            conn.execute(
+                text(
+                    """
+                    UPDATE kb_chunks
+                    SET hits = hits + 1, updated_at = now()
+                    WHERE id = ANY(:ids)
+                    """
+                ),
+                {"ids": chunk_ids},
+            )
         conn.execute(
             text(
                 """

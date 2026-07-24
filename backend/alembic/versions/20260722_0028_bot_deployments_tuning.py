@@ -11,6 +11,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from seed_guard import seed_demo_enabled
 
 revision: str = "20260722_0028"
 down_revision: Union[str, Sequence[str], None] = "20260722_0027"
@@ -66,6 +67,9 @@ def upgrade() -> None:
           ADD COLUMN IF NOT EXISTS tuning jsonb NOT NULL DEFAULT '{}'::jsonb
         """
     )
+    if not seed_demo_enabled():
+        return
+
     # Seed the product default onto rows that still have an empty blob.
     # Bind the JSON as a parameter (no fragile manual quote-escaping / SQL literal).
     op.get_bind().execute(

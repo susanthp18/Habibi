@@ -1,4 +1,4 @@
-export type Channel = "whatsapp" | "sms" | "email";
+export type Channel = "whatsapp" | "sms" | "email" | "voice";
 export type Sender = "customer" | "bot" | "agent";
 /** Stored conversation status — "mine" is derived (assignedUserId === me). */
 export type ThreadStatus = "bot" | "needs_human" | "escalated" | "assigned";
@@ -59,6 +59,10 @@ export interface Thread {
   isMine: boolean;
   /** True while a bot turn is queued/running (WhatsApp auto-reply in flight). */
   botTyping?: boolean;
+  /** True while bot/agent outbound WhatsApp send is queued or mid-flight. */
+  pendingOutbound?: boolean;
+  /** Server watermark for delta polls (`?updatedAfter=`). */
+  updatedAt?: string | null;
   sla: SlaLevel;
   unread: number;
   lastTime: string;

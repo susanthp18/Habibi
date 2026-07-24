@@ -78,6 +78,21 @@ def ensure_bucket() -> None:
         logger.warning("minio_ensure_bucket_failed: %s", exc)
 
 
+def ping() -> dict[str, Any]:
+    """Non-mutating readiness probe. Returns {ok, configured, detail?}."""
+    if not is_configured():
+        return {"ok": True, "configured": False, "detail": "not_configured"}
+    try:
+        client = get_client()
+        bucket = get_bucket()
+        exists = bool(client.bucket_exists(bucket))
+        if not exists:
+            return {"ok": False, "configured": True, "detail": f"bucket_missing:{bucket}"}
+        return {"ok": True, "configured": True, "bucket": bucket}
+    except Exception as exc:
+        return {"ok": False, "configured": True, "detail": str(exc)}
+
+
 def object_key(doc_id: str, filename: str) -> str:
     safe_name = filename.replace("\\", "/").split("/")[-1] or "upload.bin"
     return f"kb/{doc_id}/{safe_name}"
@@ -102,6 +117,16 @@ def parse_storage_ref(storage_ref: str) -> tuple[str, str]:
 
 def put_bytes(key: str, data: bytes, content_type: str, *, bucket: str | None = None) -> str:
     """Upload bytes; returns storage_ref minio://{bucket}/{key}."""
+    import circuit_breaker
+
+    return circuit_breaker.get_breaker("minio").call(
+        _put_bytes_uncircuited, key, data, content_type, bucket=bucket
+    )
+
+
+def _put_bytes_uncircuited(
+    key: str, data: bytes, content_type: str, *, bucket: str | None = None
+) -> str:
     if not is_configured():
         raise StorageUnavailable("MinIO is not configured (set MINIO_ENDPOINT)")
     try:
@@ -124,6 +149,12 @@ def put_bytes(key: str, data: bytes, content_type: str, *, bucket: str | None = 
 
 
 def get_bytes(storage_ref: str) -> bytes:
+    import circuit_breaker
+
+    return circuit_breaker.get_breaker("minio").call(_get_bytes_uncircuited, storage_ref)
+
+
+def _get_bytes_uncircuited(storage_ref: str) -> bytes:
     if not is_configured():
         raise StorageUnavailable("MinIO is not configured (set MINIO_ENDPOINT)")
     try:

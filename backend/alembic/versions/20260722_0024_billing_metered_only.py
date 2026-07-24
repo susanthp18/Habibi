@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -40,6 +41,9 @@ def upgrade() -> None:
     conn = op.get_bind()
 
     # Drop estimate / obsolete usage + events
+    if not seed_demo_enabled():
+        return
+
     conn.execute(
         sa.text(
             """

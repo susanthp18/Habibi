@@ -10,6 +10,7 @@ import json
 from typing import Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 
 revision: str = "20260723_0029"
 down_revision: Union[str, Sequence[str], None] = "20260722_0028"
@@ -64,6 +65,9 @@ def upgrade() -> None:
           ADD COLUMN IF NOT EXISTS tuning jsonb NOT NULL DEFAULT '{}'::jsonb
         """
     )
+    if not seed_demo_enabled():
+        return
+
     payload = json.dumps(_DEFAULT_TUNING).replace("'", "''")
     op.execute(
         f"""

@@ -17,30 +17,11 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 UNKNOWN_CALLER_ID = "UNKNOWN-CALLER"
-TENANT_ID = "hdfc.retail"
 
 
 def upgrade() -> None:
-    op.execute(
-        f"""
-        INSERT INTO customers (
-          id, tenant_id, name, phone_primary, segment, risk, dnd,
-          created_at, updated_at
-        ) VALUES (
-          '{UNKNOWN_CALLER_ID}',
-          '{TENANT_ID}',
-          'Unknown caller',
-          NULL,
-          'sentinel',
-          'medium',
-          false,
-          now(),
-          now()
-        )
-        ON CONFLICT (id) DO NOTHING
-        """
-    )
-
+    # Schema only — UNKNOWN-CALLER sentinel is ensured at runtime
+    # (voice.persist.ensure_unknown_caller), not injected by migrations.
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS voice_sessions (

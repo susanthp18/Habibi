@@ -1,5 +1,5 @@
 import type { Channel, Sentiment, SlaLevel, ThreadStatus } from "@/data/inbox-seed";
-import { MessageCircle, Mail, MessageSquare } from "lucide-react";
+import { MessageCircle, Mail, MessageSquare, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const channelMeta: Record<
@@ -21,7 +21,21 @@ export const channelMeta: Record<
     icon: Mail,
     badge: "bg-brand-tint text-brand-primary-dark",
   },
+  voice: {
+    label: "Voice",
+    icon: Phone,
+    badge: "bg-brand-tint text-brand-primary-dark",
+  },
 };
+
+/** Safe lookup — unknown / future channels degrade instead of crashing. */
+export function resolveChannelMeta(channel: string | null | undefined) {
+  if (channel && channel in channelMeta) {
+    return channelMeta[channel as Channel];
+  }
+  return channelMeta.whatsapp;
+}
+
 
 export const slaColor: Record<SlaLevel, string> = {
   ok: "bg-success",

@@ -16,6 +16,8 @@ import xml.sax.saxutils
 from pathlib import Path
 from typing import Any
 
+import threading
+
 import httpx
 
 from env_loader import load_env
@@ -24,7 +26,24 @@ logger = logging.getLogger(__name__)
 
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "tts"
 _MAX_TEXT_CHARS = 500
-_DEFAULT_VOICE = "en-IN-NeerjaNeural"
+_DEFAULT_VOICE = "en-IN-AartiNeural"
+
+# Shared sync httpx client — keep-alive to Azure Speech (TTS 30s / STT 45s).
+_http_client: httpx.Client | None = None
+_http_lock = threading.Lock()
+
+
+def _http() -> httpx.Client:
+    global _http_client
+    if _http_client is not None:
+        return _http_client
+    with _http_lock:
+        if _http_client is None:
+            _http_client = httpx.Client(
+                timeout=httpx.Timeout(45.0, connect=10.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return _http_client
 
 
 class AzureSpeechConfigError(RuntimeError):
@@ -75,10 +94,40 @@ def resolve_azure_voice_name(voice_id: str | None, *, db_azure_name: str | None 
     """Resolve studio voice id → Azure neural voice name."""
     if db_azure_name and str(db_azure_name).strip():
         return str(db_azure_name).strip()
+    if looks_like_azure_short_name(voice_id):
+        return str(voice_id).strip()
     mapped = _voice_map()
     if voice_id and voice_id in mapped:
         return mapped[voice_id]
     return get_default_voice()
+
+
+def looks_like_azure_short_name(value: str | None) -> bool:
+    """True when value looks like en-IN-AartiNeural / hi-IN-SwaraNeural etc."""
+    v = (value or "").strip()
+    if not v or " " in v:
+        return False
+    # Locale-ShortName pattern, or known Neural/HD suffixes.
+    if re.match(r"^[a-z]{2,3}-[A-Z]{2}-.+$", v):
+        return True
+    return any(tok in v for tok in ("Neural", "DragonHD", "HDFlash", "Turbo", "MAI-Voice"))
+
+
+def catalog_styles_for_voice(short_name: str | None) -> list[str] | None:
+    """Return StyleList from catalog when available; None if catalog unknown."""
+    sn = (short_name or "").strip()
+    if not sn:
+        return None
+    try:
+        import db
+
+        entry = db.get_tts_voice_catalog_entry(sn)
+        if entry is None:
+            return None
+        styles = entry.get("styles") or []
+        return [str(s) for s in styles] if isinstance(styles, list) else []
+    except Exception:
+        return None
 
 
 def _clamp(n: float, lo: float, hi: float) -> float:
@@ -122,22 +171,35 @@ def _warmth_rate_scale(warmth: int) -> float:
 
 def _warmth_express_as(warmth: int, voice_name: str) -> tuple[str | None, float]:
     """Optional mstts express-as for style-capable voices. Returns (style, degree)."""
-    # Multilingual / many en-IN voices reject express-as — only enable for known US neural styles.
-    capable = voice_name in {
-        "en-US-JennyNeural",
-        "en-US-AriaNeural",
-        "en-US-GuyNeural",
-        "en-US-SaraNeural",
-        "en-US-DavisNeural",
-        "en-US-JaneNeural",
-    }
-    if not capable:
-        return None, 1.0
+    # Prefer live catalog StyleList; fall back to a small known-capable set.
+    catalog_styles = catalog_styles_for_voice(voice_name)
+    if catalog_styles is not None:
+        capable_styles = {s.lower() for s in catalog_styles}
+        if not capable_styles:
+            return None, 1.0
+    else:
+        capable = voice_name in {
+            "en-US-JennyNeural",
+            "en-US-AriaNeural",
+            "en-US-GuyNeural",
+            "en-US-SaraNeural",
+            "en-US-DavisNeural",
+            "en-US-JaneNeural",
+            "en-IN-NeerjaNeural",
+        }
+        if not capable:
+            return None, 1.0
+        capable_styles = {"friendly", "serious", "empathetic", "cheerful", "calm"}
+
     w = int(_clamp(int(warmth), 0, 100))
-    if w >= 65:
+    if w >= 65 and "friendly" in capable_styles:
         return "friendly", float(_clamp(0.9 + (w - 65) / 35 * 1.1, 0.5, 2.0))
-    if w <= 35:
+    if w >= 65 and "cheerful" in capable_styles:
+        return "cheerful", float(_clamp(0.9 + (w - 65) / 35 * 1.1, 0.5, 2.0))
+    if w <= 35 and "serious" in capable_styles:
         return "serious", float(_clamp(0.9 + (35 - w) / 35 * 1.1, 0.5, 2.0))
+    if "empathetic" in capable_styles and 35 < w < 65:
+        return "empathetic", float(_clamp(0.9 + abs(w - 50) / 50 * 0.6, 0.5, 2.0))
     return None, 1.0
 
 
@@ -282,17 +344,17 @@ def synthesize(
     url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
 
     def _post(ssml_body: str) -> httpx.Response:
-        with httpx.Client(timeout=30.0) as client:
-            return client.post(
-                url,
-                headers={
-                    "Ocp-Apim-Subscription-Key": key_header,
-                    "Content-Type": "application/ssml+xml",
-                    "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
-                    "User-Agent": "collections-agent-ps4",
-                },
-                content=ssml_body.encode("utf-8"),
-            )
+        return _http().post(
+            url,
+            headers={
+                "Ocp-Apim-Subscription-Key": key_header,
+                "Content-Type": "application/ssml+xml",
+                "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
+                "User-Agent": "collections-agent-ps4",
+            },
+            content=ssml_body.encode("utf-8"),
+            timeout=30.0,
+        )
 
     t0 = time.perf_counter()
     resp = _post(ssml)
@@ -413,17 +475,17 @@ def transcribe(
     )
 
     t0 = time.perf_counter()
-    with httpx.Client(timeout=45.0) as client:
-        resp = client.post(
-            url,
-            headers={
-                "Ocp-Apim-Subscription-Key": key_header,
-                "Content-Type": ct,
-                "Accept": "application/json",
-                "User-Agent": "collections-agent-ps5e",
-            },
-            content=audio,
-        )
+    resp = _http().post(
+        url,
+        headers={
+            "Ocp-Apim-Subscription-Key": key_header,
+            "Content-Type": ct,
+            "Accept": "application/json",
+            "User-Agent": "collections-agent-ps5e",
+        },
+        content=audio,
+        timeout=45.0,
+    )
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
     if resp.status_code >= 400:

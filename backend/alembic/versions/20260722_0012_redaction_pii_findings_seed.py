@@ -25,6 +25,7 @@ import re
 from typing import Any, Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -204,6 +205,8 @@ def _findings_for(text: str, turn_id: str, redaction_id: str, interaction_id: st
 
 
 def upgrade() -> None:
+    if not seed_demo_enabled():
+        return
     conn = op.get_bind()
 
     for plan in _PLANS:

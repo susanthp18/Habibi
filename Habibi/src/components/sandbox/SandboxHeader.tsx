@@ -60,8 +60,9 @@ export function SandboxHeader(p: Props) {
                 ? "bg-brand-primary text-white"
                 : "text-text-secondary hover:bg-surface-sunken",
             )}
+            title="Rehearse prompts and KB without writing CRM rows"
           >
-            Text
+            Prompt rehearsal
           </button>
           <button
             type="button"
@@ -70,7 +71,11 @@ export function SandboxHeader(p: Props) {
               p.onMode("live");
             }}
             disabled={!p.liveEnabled}
-            title={p.liveEnabled ? "Duplex voice via Pipecat" : "Live voice — start voice worker first"}
+            title={
+              p.liveEnabled
+                ? "Live CRM call — writes real interactions, promises, and leads"
+                : "Live CRM call — start voice worker first (python -m voice.bot)"
+            }
             className={cn(
               "rounded px-2.5 py-1 font-medium",
               p.mode === "live"
@@ -79,7 +84,7 @@ export function SandboxHeader(p: Props) {
               !p.liveEnabled && "cursor-not-allowed opacity-50",
             )}
           >
-            Live voice
+            Live CRM call
           </button>
         </div>
 
@@ -144,8 +149,9 @@ export function SandboxHeader(p: Props) {
         </div>
       </div>
       <p className="mt-1.5 text-[12px] text-text-secondary">
-        Rehearse the collections bot before production. Text mode spends chat tokens; Live voice is a
-        real duplex call via Pipecat — same prompt and knowledge you selected.
+        Rehearse the collections bot before production. Prompt rehearsal spends chat tokens only.
+        Live CRM call is a real duplex session via Pipecat — it writes real CRM rows (interactions,
+        promises, leads) against the prompt and knowledge you selected.
       </p>
     </header>
   );

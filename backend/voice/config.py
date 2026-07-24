@@ -78,4 +78,49 @@ def azure_speech_region() -> str:
 
 def azure_speech_default_voice() -> str:
     load_env()
-    return (os.getenv("AZURE_SPEECH_TTS_VOICE_DEFAULT") or "en-IN-NeerjaNeural").strip()
+    return (os.getenv("AZURE_SPEECH_TTS_VOICE_DEFAULT") or "en-IN-AartiNeural").strip()
+
+
+def twilio_account_sid() -> str | None:
+    return _optional("TWILIO_ACCOUNT_SID")
+
+
+def twilio_auth_token() -> str | None:
+    return _optional("TWILIO_AUTH_TOKEN")
+
+
+def twilio_phone_number() -> str | None:
+    return _optional("TWILIO_PHONE_NUMBER")
+
+
+def supervisor_callback_phone() -> str | None:
+    return _optional("SUPERVISOR_CALLBACK_PHONE")
+
+
+def voice_handoff_mode() -> str:
+    """callback_queue (Inbox) | warm (Twilio conference dial-out)."""
+    load_env()
+    mode = (os.getenv("VOICE_HANDOFF_MODE") or "callback_queue").strip().lower()
+    return "warm" if mode in {"warm", "warm_transfer", "conference"} else "callback_queue"
+
+
+def voice_multi_agent_enabled() -> bool:
+    load_env()
+    return (os.getenv("VOICE_MULTI_AGENT_ENABLED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def redis_url() -> str | None:
+    return _optional("REDIS_URL")
+
+
+def voice_public_base_url() -> str | None:
+    """Public HTTPS origin for the Pipecat runner (Media Streams /ws).
+
+    Must point at the voice process (:7860), not the CRM API (:8000).
+    """
+    return _optional("VOICE_PUBLIC_BASE_URL")

@@ -133,7 +133,8 @@ def start_voice_sandbox(payload: dict[str, Any]) -> dict[str, Any]:
         "pendingTune": None,
     }
     write_session(session_id, session)
-    write_session("latest", session)
+    # Do not write "latest" — concurrent Live sessions race on a shared pointer.
+    # The Pipecat client passes sessionId via SmallWebRTC requestData → runner_args.body.
 
     return {
         "sessionId": session_id,
@@ -169,5 +170,4 @@ def tune_voice_sandbox(session_id: str, tuning_delta: dict[str, Any]) -> dict[st
     merged = merge_tuning_delta(cur.get("tuning") or {}, tuning_delta or {})
     # pendingTune kept for observability / next-call merge only — not polled live.
     patch_session(session_id, {"tuning": merged, "pendingTune": tuning_delta, "status": "live"})
-    write_session("latest", read_session(session_id) or {})
     return {"ok": True, "tuning": merged, "apply": "persist"}

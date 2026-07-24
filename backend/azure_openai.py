@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import threading
 import time
-from typing import Any
+from collections import OrderedDict
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 from openai import AzureOpenAI
 
@@ -15,9 +19,25 @@ logger = logging.getLogger(__name__)
 
 EXPECTED_EMBEDDING_DIMS = 1536
 
+_client: AzureOpenAI | None = None
+_client_lock = threading.Lock()
+_azure_sem: threading.Semaphore | None = None
+_azure_sem_lock = threading.Lock()
+
+# Process-local embedding LRU. Correct for one API worker; with
+# uvicorn --workers >1 each process has its own cache (low hit rate → Redis).
+_embed_cache: OrderedDict[str, list[float]] = OrderedDict()
+_embed_cache_lock = threading.Lock()
+_EMBED_CACHE_HITS = 0
+_EMBED_CACHE_MISSES = 0
+
 
 class AzureOpenAIConfigError(RuntimeError):
     pass
+
+
+class AzureBusyError(RuntimeError):
+    """Raised when the Azure concurrency semaphore times out waiting for a slot."""
 
 
 def _require(name: str) -> str:
@@ -25,6 +45,69 @@ def _require(name: str) -> str:
     if not value:
         raise AzureOpenAIConfigError(f"Missing required env var: {name}")
     return value
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _api_timeout_s() -> float:
+    # Prefer shorter timeouts on the CRM request path; workers can raise via env.
+    return float(max(5, _env_int("AZURE_OPENAI_TIMEOUT_S", 20)))
+
+
+def _concurrency_limit() -> int:
+    return max(1, _env_int("AZURE_OPENAI_MAX_CONCURRENT", 6))
+
+
+def _semaphore() -> threading.Semaphore:
+    global _azure_sem
+    if _azure_sem is not None:
+        return _azure_sem
+    with _azure_sem_lock:
+        if _azure_sem is None:
+            _azure_sem = threading.Semaphore(_concurrency_limit())
+        return _azure_sem
+
+
+def _acquire_timeout_s() -> float:
+    return float(max(1, _env_int("AZURE_OPENAI_ACQUIRE_TIMEOUT_S", 10)))
+
+
+@contextmanager
+def _azure_slot() -> Iterator[None]:
+    """Cap concurrent Azure calls so DB pool + threadpool aren't unbounded.
+
+    Bounded acquire: if all slots are busy, shed with AzureBusyError (→ 503)
+    instead of queuing forever while holding a threadpool slot (and possibly a
+    DB connection on a buggy caller path).
+    """
+    sem = _semaphore()
+    if not sem.acquire(timeout=_acquire_timeout_s()):
+        raise AzureBusyError("azure_concurrency_saturated")
+    try:
+        yield
+    finally:
+        sem.release()
+
+
+def _azure_call(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """Semaphore + circuit breaker around a single Azure HTTP call."""
+    import circuit_breaker
+
+    breaker = circuit_breaker.get_breaker("azure_openai")
+
+    def _inner() -> Any:
+        with _azure_slot():
+            return fn(*args, **kwargs)
+
+    return breaker.call(_inner)
 
 
 def get_embedding_dims() -> int:
@@ -85,19 +168,51 @@ def get_embedding_deployment() -> str:
 
 
 def get_client() -> AzureOpenAI:
-    load_env()
-    get_embedding_dims()  # fail fast on dim mismatch
-    return AzureOpenAI(
-        api_key=_require("AZURE_OPENAI_API_KEY"),
-        api_version=_require("AZURE_OPENAI_API_VERSION"),
-        azure_endpoint=_require("AZURE_OPENAI_ENDPOINT").rstrip("/") + "/",
-        timeout=60.0,
-        max_retries=3,
-    )
+    """Process-wide singleton — reuses HTTP keep-alive / TLS to Azure.
+
+    Creating a client per call paid a fresh handshake on every embed/chat
+    (painful on India→East US RTT). Do not construct AzureOpenAI elsewhere.
+    """
+    global _client
+    if _client is not None:
+        return _client
+    with _client_lock:
+        if _client is not None:
+            return _client
+        load_env()
+        get_embedding_dims()  # fail fast on dim mismatch
+        _client = AzureOpenAI(
+            api_key=_require("AZURE_OPENAI_API_KEY"),
+            api_version=_require("AZURE_OPENAI_API_VERSION"),
+            azure_endpoint=_require("AZURE_OPENAI_ENDPOINT").rstrip("/") + "/",
+            timeout=_api_timeout_s(),
+            max_retries=2,
+        )
+        return _client
+
+
+def _embed_cache_max() -> int:
+    return max(0, _env_int("AZURE_EMBED_CACHE_MAX", 256))
+
+
+def _embed_cache_key(deployment: str, text: str) -> str:
+    digest = hashlib.sha256(f"{deployment}\0{text}".encode("utf-8")).hexdigest()
+    return digest
+
+
+def embed_cache_stats() -> dict[str, int]:
+    with _embed_cache_lock:
+        return {
+            "size": len(_embed_cache),
+            "max": _embed_cache_max(),
+            "hits": _EMBED_CACHE_HITS,
+            "misses": _EMBED_CACHE_MISSES,
+        }
 
 
 def embed_texts(texts: list[str], *, batch_size: int | None = None) -> list[list[float]]:
     """Embed texts via the configured Azure embedding deployment. Returns 1536-d vectors."""
+    global _EMBED_CACHE_HITS, _EMBED_CACHE_MISSES
     if not texts:
         return []
     load_env()
@@ -110,43 +225,81 @@ def embed_texts(texts: list[str], *, batch_size: int | None = None) -> list[list
     client = get_client()
     deployment = get_embedding_deployment()
     dims = get_embedding_dims()
-    out: list[list[float]] = []
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
-        # Azure rejects empty strings; keep alignment with placeholders.
-        cleaned = [t if t.strip() else " " for t in batch]
-        t0 = time.perf_counter()
-        resp = client.embeddings.create(model=deployment, input=cleaned)
-        latency_ms = int((time.perf_counter() - t0) * 1000)
-        ordered = sorted(resp.data, key=lambda d: d.index)
-        for item in ordered:
-            vec = list(item.embedding)
-            if len(vec) != dims:
-                raise AzureOpenAIConfigError(
-                    f"Embedding length {len(vec)} != expected {dims} (deployment={deployment})"
-                )
-            out.append(vec)
-        usage = getattr(resp, "usage", None)
-        prompt_tokens = getattr(usage, "prompt_tokens", None)
-        logger.info(
-            "azure_embed deployment=%s batch=%s latency_ms=%s prompt_tokens=%s",
-            deployment,
-            len(batch),
-            latency_ms,
-            prompt_tokens,
-        )
-        try:
-            import usage_meter
+    cache_max = _embed_cache_max()
 
-            usage_meter.record_embed_usage(
-                prompt_tokens=int(prompt_tokens) if prompt_tokens is not None else None,
-                deployment=deployment,
-                batch_size=len(batch),
-                source_ref="azure_openai.embed_texts",
+    out: list[list[float] | None] = [None] * len(texts)
+    miss_indices: list[int] = []
+    miss_texts: list[str] = []
+
+    if cache_max > 0:
+        with _embed_cache_lock:
+            for i, raw_text in enumerate(texts):
+                cleaned = raw_text if raw_text.strip() else " "
+                key = _embed_cache_key(deployment, cleaned)
+                hit = _embed_cache.get(key)
+                if hit is not None:
+                    _embed_cache.move_to_end(key)
+                    out[i] = list(hit)
+                    _EMBED_CACHE_HITS += 1
+                else:
+                    miss_indices.append(i)
+                    miss_texts.append(cleaned)
+                    _EMBED_CACHE_MISSES += 1
+    else:
+        miss_indices = list(range(len(texts)))
+        miss_texts = [t if t.strip() else " " for t in texts]
+
+    if miss_texts:
+        embedded: list[list[float]] = []
+        for i in range(0, len(miss_texts), batch_size):
+            batch = miss_texts[i : i + batch_size]
+            t0 = time.perf_counter()
+            resp = _azure_call(client.embeddings.create, model=deployment, input=batch)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            ordered = sorted(resp.data, key=lambda d: d.index)
+            for item in ordered:
+                vec = list(item.embedding)
+                if len(vec) != dims:
+                    raise AzureOpenAIConfigError(
+                        f"Embedding length {len(vec)} != expected {dims} (deployment={deployment})"
+                    )
+                embedded.append(vec)
+            usage = getattr(resp, "usage", None)
+            prompt_tokens = getattr(usage, "prompt_tokens", None)
+            logger.info(
+                "azure_embed deployment=%s batch=%s latency_ms=%s prompt_tokens=%s",
+                deployment,
+                len(batch),
+                latency_ms,
+                prompt_tokens,
             )
-        except Exception:
-            logger.exception("embed usage metering failed")
-    return out
+            try:
+                import usage_meter
+
+                usage_meter.record_embed_usage(
+                    prompt_tokens=int(prompt_tokens) if prompt_tokens is not None else None,
+                    deployment=deployment,
+                    batch_size=len(batch),
+                    source_ref="azure_openai.embed_texts",
+                )
+            except Exception:
+                logger.exception("embed usage metering failed")
+
+        if cache_max > 0:
+            with _embed_cache_lock:
+                for local_i, idx in enumerate(miss_indices):
+                    vec = embedded[local_i]
+                    out[idx] = vec
+                    key = _embed_cache_key(deployment, miss_texts[local_i])
+                    _embed_cache[key] = list(vec)
+                    _embed_cache.move_to_end(key)
+                    while len(_embed_cache) > cache_max:
+                        _embed_cache.popitem(last=False)
+        else:
+            for local_i, idx in enumerate(miss_indices):
+                out[idx] = embedded[local_i]
+
+    return [v if v is not None else [] for v in out]
 
 
 def chat_complete(
@@ -214,7 +367,7 @@ def chat_with_tools(
             kwargs["tool_choice"] = tool_choice
 
     t0 = time.perf_counter()
-    resp = client.chat.completions.create(**kwargs)
+    resp = _azure_call(client.chat.completions.create, **kwargs)
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
     choice = resp.choices[0]

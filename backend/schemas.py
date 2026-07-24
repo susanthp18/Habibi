@@ -819,6 +819,8 @@ class BotAnalyticsDailyPointResponse(BaseModel):
     latencyP90: float
     latencyP99: float
     sentiment: float
+    upsellPresented: int = 0
+    ptpCaptured: int = 0
 
 
 class BotAnalyticsIntentSentimentResponse(BaseModel):
@@ -1098,6 +1100,8 @@ class ConversationListResponse(BaseModel):
     assignedUserId: str | None = None
     isMine: bool
     botTyping: bool = False
+    pendingOutbound: bool = False
+    updatedAt: str | None = None
     sla: Literal["ok", "warn", "breach"]
     unread: int
     lastTime: str
@@ -1659,6 +1663,77 @@ class TtsVoiceResponse(BaseModel):
     azureVoiceName: str | None = None
 
 
+class TtsCatalogVoiceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shortName: str
+    displayName: str
+    localName: str = ""
+    gender: str
+    locale: str
+    localeName: str = ""
+    voiceType: str
+    status: str
+    priceTier: str
+    isPremium: bool = False
+    approxUsdPer1MChars: float | None = None
+    styles: list[str] = Field(default_factory=list)
+    personalities: list[str] = Field(default_factory=list)
+    scenarios: list[str] = Field(default_factory=list)
+    wordsPerMinute: int | None = None
+    sampleRateHertz: int | None = None
+    modelSeries: list[str] = Field(default_factory=list)
+    removedAt: str | None = None
+    enabledForPicker: bool = True
+    raw: dict[str, Any] | None = None
+
+
+class TtsCatalogListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[TtsCatalogVoiceItem]
+    total: int
+    nextCursor: str | None = None
+    lastSyncedAt: str | None = None
+    defaultVoice: str
+    premiumHiddenByDefault: bool = True
+
+
+class TtsPriceTierResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tier: str
+    label: str
+    approxUsdPer1MChars: float | None = None
+    isPremium: bool = False
+    notes: str = ""
+
+
+class TtsVoiceWarning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shortName: str
+    code: str
+    message: str
+    fallbackVoice: str
+
+
+class TtsSyncRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    source: str | None = None
+    fetchedCount: int = 0
+    upserted: int = 0
+    softRemoved: int = 0
+    unchanged: int = 0
+    error: str | None = None
+    region: str = ""
+    defaultVoice: str | None = None
+    startedAt: str | None = None
+    finishedAt: str | None = None
+
+
 class BotDeploymentResponse(BaseModel):
     """Runtime release unit — authoritative for what runs (see PROMPT_STUDIO_plan §6.4)."""
 
@@ -1951,11 +2026,14 @@ class TtsPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str
-    voiceId: str
+    voiceId: str | None = None
+    shortName: str | None = None
+    azureVoiceName: str | None = None
     speed: float = 1.0
     pitch: int = 0
     warmth: int = 60
     pauseMs: int = 300
+    style: str | None = None
 
 
 class SttTranscribeResponse(BaseModel):
@@ -2405,4 +2483,54 @@ class WorkspaceSummaryResponse(BaseModel):
     nextCallback: WorkspaceNextCallbackResponse | None = None
     slaCountdowns: list[WorkspaceSlaCountdownResponse]
     outsideWindowCount: int
+
+
+# ── Floor / Webhooks / Integrations (ops screens) ─────────────────────────────
+
+
+class FloorStatsResponse(BaseModel):
+    callsInProgress: int
+    avgSentiment: float
+    escalationRate: float
+    queueDepth: int
+    botContainment: float
+    longestWaitSec: int
+
+
+class FloorSnapshotResponse(BaseModel):
+    calls: list[dict[str, Any]]
+    alerts: list[dict[str, Any]]
+    stats: FloorStatsResponse
+
+
+class SupervisorActionRequest(BaseModel):
+    interactionId: str
+    action: Literal["listen_in", "whisper", "barge", "force_handoff"]
+    note: str | None = None
+
+
+class WebhookEndpointUpsertRequest(BaseModel):
+    name: str | None = None
+    url: str
+    target: str = "Custom"
+    events: list[str] = []
+    algo: str = "HMAC-SHA256"
+    retry: dict[str, Any] = Field(default_factory=lambda: {"attempts": 3, "backoff": "exponential", "maxAgeHours": 24})
+    headers: list[dict[str, str]] = []
+    status: Literal["active", "paused", "broken"] | None = None
+
+
+class WebhookEndpointPatchRequest(BaseModel):
+    name: str | None = None
+    url: str | None = None
+    target: str | None = None
+    events: list[str] | None = None
+    algo: str | None = None
+    retry: dict[str, Any] | None = None
+    headers: list[dict[str, str]] | None = None
+    status: Literal["active", "paused", "broken"] | None = None
+
+
+class ProviderEnabledPatchRequest(BaseModel):
+    enabled: bool
 

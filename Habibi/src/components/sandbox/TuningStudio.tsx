@@ -6,7 +6,9 @@ import {
   tuningFingerprint,
   type AgentTuning,
 } from "@/data/agent-tuning";
+import { useTtsVoiceCatalog } from "@/api/prompt-studio";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 
 type Props = {
   value: AgentTuning;
@@ -121,6 +123,13 @@ export function TuningStudio({
           open={open.voice}
           onToggle={() => setOpen((o) => ({ ...o, voice: !o.voice }))}
         >
+          <TuningVoicePicker
+            value={value.tts.voice}
+            disabled={disabled}
+            onChange={(shortName) =>
+              patch({ tts: { ...value.tts, voice: shortName, style: value.tts.style } }, true)
+            }
+          />
           <SelectRow
             label="Style"
             value={value.tts.style}
@@ -340,6 +349,78 @@ function Section({
         </span>
       </button>
       {open && <div className="space-y-2 border-t border-[var(--border-token)] px-2.5 py-2">{children}</div>}
+    </div>
+  );
+}
+
+function TuningVoicePicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (shortName: string) => void;
+  disabled?: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const [showPremium, setShowPremium] = useState(false);
+  const catalog = useTtsVoiceCatalog({
+    q: q.trim() || undefined,
+    status: "GA",
+    includePremium: showPremium,
+    limit: 40,
+  });
+  const items = catalog.data?.items ?? [];
+  const selectedLabel =
+    items.find((v) => v.shortName === value)?.displayName ||
+    value.replace(/^.*-/, "").replace(/Neural.*$/, "") ||
+    value;
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-[var(--border-token)] bg-surface-sunken/50 p-2">
+      <div className="flex items-center justify-between gap-2 text-[11px] text-text-secondary">
+        <span className="font-medium text-text-primary">TTS voice</span>
+        <label className="inline-flex items-center gap-1.5 text-[10px] text-text-muted">
+          <Switch
+            checked={showPremium}
+            onCheckedChange={setShowPremium}
+            disabled={disabled}
+            className="scale-90"
+          />
+          Premium
+        </label>
+      </div>
+      <div className="text-[10.5px] text-text-muted">
+        Selected: <span className="font-medium text-text-secondary">{selectedLabel}</span>
+      </div>
+      <input
+        type="search"
+        value={q}
+        disabled={disabled}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search catalog…"
+        className="w-full rounded border border-[var(--border-token)] bg-surface-card px-1.5 py-1 text-[11px]"
+      />
+      <select
+        value={value}
+        disabled={disabled || catalog.isLoading}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded border border-[var(--border-token)] bg-surface-card px-1.5 py-1 text-[11px]"
+      >
+        {!items.some((v) => v.shortName === value) && value ? (
+          <option value={value}>{value}</option>
+        ) : null}
+        {items.map((v) => (
+          <option key={v.shortName} value={v.shortName}>
+            {v.displayName} · {v.locale}
+            {v.isPremium ? " · premium" : ""}
+          </option>
+        ))}
+      </select>
+      <div className="text-[10px] text-text-muted">
+        {catalog.isFetching ? "Loading…" : `${catalog.data?.total ?? 0} voices`} · full picker in
+        Prompt Studio → Voice
+      </div>
     </div>
   );
 }

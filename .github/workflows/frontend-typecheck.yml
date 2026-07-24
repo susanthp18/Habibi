@@ -1,0 +1,33 @@
+name: Frontend typecheck
+
+on:
+  push:
+    paths:
+      - "Habibi/**"
+      - ".github/workflows/frontend-typecheck.yml"
+  pull_request:
+    paths:
+      - "Habibi/**"
+      - ".github/workflows/frontend-typecheck.yml"
+
+jobs:
+  tsc:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Habibi
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Habibi/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit

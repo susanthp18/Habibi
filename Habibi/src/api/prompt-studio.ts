@@ -120,6 +120,162 @@ export async function fetchTtsVoices(): Promise<TtsVoice[]> {
   }));
 }
 
+export type TtsCatalogVoice = {
+  shortName: string;
+  displayName: string;
+  localName: string;
+  gender: string;
+  locale: string;
+  localeName: string;
+  voiceType: string;
+  status: string;
+  priceTier: string;
+  isPremium: boolean;
+  approxUsdPer1MChars: number | null;
+  styles: string[];
+  personalities: string[];
+  scenarios: string[];
+  wordsPerMinute: number | null;
+  sampleRateHertz: number | null;
+  modelSeries: string[];
+  removedAt?: string | null;
+  enabledForPicker?: boolean;
+  raw?: Record<string, unknown> | null;
+};
+
+export type TtsCatalogList = {
+  items: TtsCatalogVoice[];
+  total: number;
+  nextCursor: string | null;
+  lastSyncedAt: string | null;
+  defaultVoice: string;
+  premiumHiddenByDefault: boolean;
+};
+
+export type TtsCatalogQuery = {
+  q?: string;
+  locale?: string;
+  gender?: string;
+  status?: string;
+  priceTier?: string;
+  includePremium?: boolean;
+  includeRemoved?: boolean;
+  limit?: number;
+  cursor?: string;
+};
+
+export type TtsPriceTier = {
+  tier: string;
+  label: string;
+  approxUsdPer1MChars: number | null;
+  isPremium: boolean;
+  notes: string;
+};
+
+export type TtsSyncRun = {
+  id: string;
+  source?: string | null;
+  fetchedCount: number;
+  upserted: number;
+  softRemoved: number;
+  unchanged: number;
+  error?: string | null;
+  region?: string;
+  defaultVoice?: string | null;
+};
+
+export type TtsVoiceWarning = {
+  shortName: string;
+  code: string;
+  message: string;
+  fallbackVoice: string;
+};
+
+export async function fetchTtsVoiceCatalog(params: TtsCatalogQuery = {}): Promise<TtsCatalogList> {
+  if (USE_MOCK) {
+    return mockDelay({
+      items: TTS_VOICES.map((v) => ({
+        shortName: `en-IN-${v.name}Neural`,
+        displayName: v.name,
+        localName: v.name,
+        gender: v.gender,
+        locale: "en-IN",
+        localeName: "English (India)",
+        voiceType: "Neural",
+        status: "GA",
+        priceTier: "standard",
+        isPremium: false,
+        approxUsdPer1MChars: 15,
+        styles: [],
+        personalities: [],
+        scenarios: [],
+        wordsPerMinute: null,
+        sampleRateHertz: 48000,
+        modelSeries: ["Monolingual"],
+      })),
+      total: TTS_VOICES.length,
+      nextCursor: null,
+      lastSyncedAt: new Date().toISOString(),
+      defaultVoice: "en-IN-AartiNeural",
+      premiumHiddenByDefault: true,
+    });
+  }
+  const q = new URLSearchParams();
+  if (params.q) q.set("q", params.q);
+  if (params.locale) q.set("locale", params.locale);
+  if (params.gender) q.set("gender", params.gender);
+  if (params.status) q.set("status", params.status);
+  if (params.priceTier) q.set("price_tier", params.priceTier);
+  if (params.includePremium) q.set("include_premium", "true");
+  if (params.includeRemoved) q.set("include_removed", "true");
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.cursor) q.set("cursor", params.cursor);
+  const qs = q.toString();
+  return apiGet<TtsCatalogList>(`/tts-voices/catalog${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchTtsVoiceDetail(shortName: string): Promise<TtsCatalogVoice> {
+  return apiGet<TtsCatalogVoice>(`/tts-voices/catalog/${encodeURIComponent(shortName)}`);
+}
+
+export async function fetchTtsPricing(): Promise<TtsPriceTier[]> {
+  if (USE_MOCK) {
+    return mockDelay([
+      { tier: "standard", label: "Standard Neural", approxUsdPer1MChars: 15, isPremium: false, notes: "" },
+      { tier: "hd", label: "Neural HD", approxUsdPer1MChars: 22, isPremium: true, notes: "" },
+    ]);
+  }
+  return apiGet<TtsPriceTier[]>("/tts-voices/pricing");
+}
+
+export async function syncTtsVoiceCatalog(): Promise<TtsSyncRun> {
+  return apiPost<TtsSyncRun>("/tts-voices/catalog/sync", {});
+}
+
+export async function fetchTtsVoiceWarning(shortName: string): Promise<TtsVoiceWarning | null> {
+  if (USE_MOCK) return mockDelay(null);
+  return apiGet<TtsVoiceWarning | null>(
+    `/tts-voices/catalog-warning?shortName=${encodeURIComponent(shortName)}`,
+  );
+}
+
+export function useTtsVoiceCatalog(params: TtsCatalogQuery) {
+  return useQuery({
+    queryKey: ["tts-voice-catalog", params],
+    queryFn: () => fetchTtsVoiceCatalog(params),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useTtsPricing() {
+  return useQuery({
+    queryKey: ["tts-voice-pricing"],
+    queryFn: fetchTtsPricing,
+    staleTime: 300_000,
+  });
+}
+
 export async function fetchBotDeployments(params?: {
   environment?: "sandbox" | "production";
   status?: "active" | "rolled_back" | "retired";
@@ -547,11 +703,14 @@ export function useEnsureStudioDraft() {
 
 export type TtsPreviewInput = {
   text: string;
-  voiceId: string;
+  voiceId?: string;
+  shortName?: string;
+  azureVoiceName?: string;
   speed: number;
   pitch: number;
   warmth: number;
   pauseMs: number;
+  style?: string | null;
 };
 
 export type TtsPreviewResult = {
@@ -596,10 +755,13 @@ export async function previewTts(input: TtsPreviewInput): Promise<TtsPreviewResu
   const { blob, headers } = await apiPostBlob("/tts/preview", {
     text: input.text,
     voiceId: input.voiceId,
+    shortName: input.shortName || input.azureVoiceName,
+    azureVoiceName: input.azureVoiceName || input.shortName,
     speed: input.speed,
     pitch: input.pitch,
     warmth: input.warmth,
     pauseMs: input.pauseMs,
+    style: input.style || undefined,
   });
   const lat = headers.get("X-TTS-Latency-Ms");
   return {

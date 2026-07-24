@@ -15,6 +15,7 @@ import json
 from typing import Any, Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -210,6 +211,9 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE prompt_versions ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT ''"
     )
+
+    if not seed_demo_enabled():
+        return
 
     conn = op.get_bind()
 

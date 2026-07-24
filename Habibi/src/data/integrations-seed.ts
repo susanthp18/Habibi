@@ -38,8 +38,19 @@ export type Provider = {
     usageStats: UsageStat[];
     costMonth: string;
     unitLabel: string; // "tokens", "minutes", "chars", "messages"…
+    /** Live mode: secrets are env/ops-managed — UI must not write them. */
+    credentialsLocked?: boolean;
   }>;
 };
+
+/** Providers backed by real process env in live mode (CBS / Pipecat stay mock-only). */
+export const LIVE_PROVIDER_IDS: ProviderId[] = [
+  "azure_openai",
+  "azure_speech_stt",
+  "azure_speech_tts",
+  "twilio",
+  "whatsapp",
+];
 
 const seedUsage = (id: ProviderId, days = 14) => {
   const pts: number[] = [];
@@ -72,13 +83,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { endpoint: "https://hdfc-coll-sbx.openai.azure.com", apiKey: "sk-sbx-9f21c3a8b74e2d1f7c6b4a2c", deployment: "gpt-4o-realtime", apiVersion: "2024-10-01-preview" },
+        values: { endpoint: "https://hdfc-coll-sbx.openai.azure.com", apiKey: "", deployment: "gpt-4o-realtime", apiVersion: "2024-10-01-preview" },
         region: "eastus", health: "healthy", latencyMs: 189, enabled: true,
         usageStats: [{ label: "Prompt tokens", value: "1.42 M" }, { label: "Completion tokens", value: "612 K" }, { label: "Avg latency", value: "189 ms" }],
         costMonth: "$243.10", unitLabel: "tokens",
       },
       production: {
-        values: { endpoint: "https://hdfc-coll.openai.azure.com", apiKey: "sk-prd-8b3e2a1c9f4d7e6b5a2c1d0e", deployment: "gpt-4o-realtime", apiVersion: "2024-10-01-preview" },
+        values: { endpoint: "https://hdfc-coll.openai.azure.com", apiKey: "", deployment: "gpt-4o-realtime", apiVersion: "2024-10-01-preview" },
         region: "centralindia", health: "healthy", latencyMs: 142, enabled: true,
         usageStats: [{ label: "Prompt tokens", value: "38.9 M" }, { label: "Completion tokens", value: "14.2 M" }, { label: "Avg latency", value: "142 ms" }],
         costMonth: "$6,412.55", unitLabel: "tokens",
@@ -103,13 +114,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { apiKey: "sk-sbx-openai-2c9b6f4a1d8e5b7c3a2f9d0e", org: "org_hdfc_sbx", model: "gpt-4o-mini" },
+        values: { apiKey: "", org: "org_hdfc_sbx", model: "gpt-4o-mini" },
         region: "global", health: "healthy", latencyMs: 220, enabled: true,
         usageStats: [{ label: "Requests", value: "8,412" }, { label: "Avg tokens/req", value: "1,240" }, { label: "Errors", value: "0.2%" }],
         costMonth: "$88.30", unitLabel: "tokens",
       },
       production: {
-        values: { apiKey: "sk-prd-openai-4d7b3a1c9f2e6b5a2c1d0e8f", org: "org_hdfc_prd", model: "gpt-4o" },
+        values: { apiKey: "", org: "org_hdfc_prd", model: "gpt-4o" },
         region: "global", health: "degraded", latencyMs: 480, enabled: true,
         usageStats: [{ label: "Requests", value: "42,120" }, { label: "Avg tokens/req", value: "2,190" }, { label: "Errors", value: "1.4%" }],
         costMonth: "$1,204.00", unitLabel: "tokens",
@@ -134,13 +145,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { speechKey: "az-sbx-speech-4a8c2b6d9f1e3a5c", region: "centralindia", language: "en-IN" },
+        values: { speechKey: "", region: "centralindia", language: "en-IN" },
         region: "centralindia", health: "healthy", latencyMs: 92, enabled: true,
         usageStats: [{ label: "Minutes streamed", value: "3,420" }, { label: "WER (est.)", value: "6.1%" }, { label: "Concurrent streams", value: "12" }],
         costMonth: "$38.40", unitLabel: "minutes",
       },
       production: {
-        values: { speechKey: "az-prd-speech-9c1a4b7e2d8f6a3c", region: "centralindia", language: "en-IN" },
+        values: { speechKey: "", region: "centralindia", language: "en-IN" },
         region: "centralindia", health: "healthy", latencyMs: 74, enabled: true,
         usageStats: [{ label: "Minutes streamed", value: "72,180" }, { label: "WER (est.)", value: "5.4%" }, { label: "Concurrent streams", value: "184" }],
         costMonth: "$812.00", unitLabel: "minutes",
@@ -165,13 +176,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { speechKey: "az-sbx-speech-4a8c2b6d9f1e3a5c", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
+        values: { speechKey: "", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
         region: "centralindia", health: "healthy", latencyMs: 280, enabled: true,
         usageStats: [{ label: "Characters", value: "412 K" }, { label: "Voices used", value: "4" }, { label: "Avg latency", value: "280 ms" }],
         costMonth: "$62.00", unitLabel: "chars",
       },
       production: {
-        values: { speechKey: "az-prd-speech-9c1a4b7e2d8f6a3c", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
+        values: { speechKey: "", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
         region: "centralindia", health: "healthy", latencyMs: 240, enabled: true,
         usageStats: [{ label: "Characters", value: "9.8 M" }, { label: "Voices used", value: "6" }, { label: "Avg latency", value: "240 ms" }],
         costMonth: "$1,480.00", unitLabel: "chars",
@@ -196,13 +207,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { accountSid: "AC_sbx_1a2b3c4d5e6f7a8b9c0d1e2f", authToken: "sbx-auth-9c8b7a6d5e4f3a2b1c0d9e8f", phoneNumber: "+91 22 68 888 000" },
+        values: { accountSid: "AC_sbx_1a2b3c4d5e6f7a8b9c0d1e2f", authToken: "", phoneNumber: "+91 22 68 888 000" },
         region: "in1", health: "healthy", latencyMs: 42, enabled: true,
         usageStats: [{ label: "Inbound minutes", value: "2,110" }, { label: "Active numbers", value: "1" }, { label: "MOS score", value: "4.3" }],
         costMonth: "$63.30", unitLabel: "minutes",
       },
       production: {
-        values: { accountSid: "AC_prd_9f8e7d6c5b4a3f2e1d0c9b8a", authToken: "prd-auth-2a3b4c5d6e7f8a9b0c1d2e3f", phoneNumber: "+91 22 61 999 111" },
+        values: { accountSid: "AC_prd_9f8e7d6c5b4a3f2e1d0c9b8a", authToken: "", phoneNumber: "+91 22 61 999 111" },
         region: "in1", health: "healthy", latencyMs: 38, enabled: true,
         usageStats: [{ label: "Inbound minutes", value: "58,410" }, { label: "Active numbers", value: "4" }, { label: "MOS score", value: "4.4" }],
         costMonth: "$1,752.30", unitLabel: "minutes",
@@ -227,13 +238,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { phoneNumberId: "1099887766554433", wabaId: "1029384756", accessToken: "EAAG-sbx-token-2a3b4c5d6e7f" },
+        values: { phoneNumberId: "1099887766554433", wabaId: "1029384756", accessToken: "" },
         region: "global", health: "unconfigured", latencyMs: 0, enabled: false,
         usageStats: [{ label: "Templates sent", value: "0" }, { label: "Sessions", value: "0" }],
         costMonth: "$0.00", unitLabel: "messages",
       },
       production: {
-        values: { phoneNumberId: "1088776655443322", wabaId: "9182736450", accessToken: "EAAG-prd-token-9f8e7d6c5b4a" },
+        values: { phoneNumberId: "1088776655443322", wabaId: "9182736450", accessToken: "" },
         region: "global", health: "healthy", latencyMs: 305, enabled: true,
         usageStats: [{ label: "Templates sent", value: "12,410" }, { label: "Sessions", value: "3,890" }, { label: "Delivered", value: "97.2%" }],
         costMonth: "$412.68", unitLabel: "messages",
@@ -259,13 +270,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { baseUrl: "https://cbs-uat.hdfc.internal/v2", clientId: "coll-ai-uat", clientSecret: "uat-secret-8f7e6d5c4b3a2f1e0d9c8b7a", certRef: "vault://cbs/uat-client-cert" },
+        values: { baseUrl: "https://cbs-uat.hdfc.internal/v2", clientId: "coll-ai-uat", clientSecret: "", certRef: "vault://cbs/uat-client-cert" },
         region: "internal", health: "healthy", latencyMs: 58, enabled: true,
         usageStats: [{ label: "Lookups", value: "18,240" }, { label: "Cache hit", value: "62%" }, { label: "5xx", value: "0.05%" }],
         costMonth: "—", unitLabel: "calls",
       },
       production: {
-        values: { baseUrl: "https://cbs-gw.hdfc.internal/v2", clientId: "coll-ai-svc", clientSecret: "prd-secret-1a2b3c4d5e6f7a8b9c0d1e2f", certRef: "vault://cbs/prod-client-cert" },
+        values: { baseUrl: "https://cbs-gw.hdfc.internal/v2", clientId: "coll-ai-svc", clientSecret: "", certRef: "vault://cbs/prod-client-cert" },
         region: "internal", health: "healthy", latencyMs: 47, enabled: true,
         usageStats: [{ label: "Lookups", value: "412,180" }, { label: "Cache hit", value: "71%" }, { label: "5xx", value: "0.02%" }],
         costMonth: "—", unitLabel: "calls",
@@ -290,13 +301,13 @@ export const PROVIDERS: Provider[] = [
     ],
     perEnv: {
       sandbox: {
-        values: { baseUrl: "https://pipecat-sbx.hdfc.internal", webhookSecret: "whsec_sbx_4a2b1c9d7e6f8a3b5c2d1e0f", workerPool: "coll-ai-workers-sbx" },
+        values: { baseUrl: "https://pipecat-sbx.hdfc.internal", webhookSecret: "", workerPool: "coll-ai-workers-sbx" },
         region: "in-mum-1", health: "healthy", latencyMs: 12, enabled: true,
         usageStats: [{ label: "Sessions today", value: "184" }, { label: "Active workers", value: "3" }, { label: "P95 turn latency", value: "1.42 s" }],
         costMonth: "—", unitLabel: "sessions",
       },
       production: {
-        values: { baseUrl: "https://pipecat.hdfc.internal", webhookSecret: "whsec_prd_9c8b7a6d5e4f3a2b1c0d9e8f", workerPool: "coll-ai-workers-01" },
+        values: { baseUrl: "https://pipecat.hdfc.internal", webhookSecret: "", workerPool: "coll-ai-workers-01" },
         region: "in-mum-1", health: "healthy", latencyMs: 9, enabled: true,
         usageStats: [{ label: "Sessions today", value: "4,120" }, { label: "Active workers", value: "24" }, { label: "P95 turn latency", value: "1.28 s" }],
         costMonth: "—", unitLabel: "sessions",

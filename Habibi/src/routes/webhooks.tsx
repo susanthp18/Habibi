@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
@@ -10,15 +10,16 @@ import { EndpointDrawer } from "@/components/webhooks/EndpointDrawer";
 import { EventCatalogDialog } from "@/components/webhooks/EventCatalogDialog";
 import { DeliveryLogPane } from "@/components/webhooks/DeliveryLogPane";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Pause, Play, KeyRound, Trash2 } from "lucide-react";
 import {
-  SEED_ENDPOINTS,
-  SEED_DELIVERIES,
-  rotateSecret,
-  simulateDelivery,
-  type Delivery,
-  type Endpoint,
-} from "@/data/webhooks-seed";
+  useWebhookDeliveries,
+  useWebhookEndpoints,
+  useWebhookMutations,
+  type WebhookDraft,
+} from "@/api/webhooks";
+import { USE_MOCK } from "@/api/config";
+import type { Endpoint } from "@/data/webhooks-seed";
 
 export const Route = createFileRoute("/webhooks")({
   head: () => ({
@@ -33,8 +34,10 @@ export const Route = createFileRoute("/webhooks")({
 });
 
 function WebhooksPage() {
-  const [endpoints, setEndpoints] = useState<Endpoint[]>(SEED_ENDPOINTS);
-  const [deliveries, setDeliveries] = useState<Delivery[]>(SEED_DELIVERIES);
+  const { data: endpoints = [], isLoading: loadingEp } = useWebhookEndpoints();
+  const { data: deliveries = [], isLoading: loadingDlv } = useWebhookDeliveries();
+  const mut = useWebhookMutations();
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -47,45 +50,57 @@ function WebhooksPage() {
     [endpoints, activeId],
   );
 
-  const appendDelivery = useCallback((d: Delivery) => {
-    setDeliveries((prev) => [d, ...prev]);
-  }, []);
-
-  const updateEndpoint = (ep: Endpoint) =>
-    setEndpoints((prev) => prev.map((e) => (e.id === ep.id ? ep : e)));
+  const updateEndpoint = (ep: Endpoint) => {
+    mut.update.mutate(ep, {
+      onSuccess: () => toast.success(`Saved ${ep.name}`),
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
+    });
+  };
 
   const deleteEndpoint = (ep: Endpoint) => {
-    setEndpoints((prev) => prev.filter((e) => e.id !== ep.id));
-    setDeliveries((prev) => prev.filter((d) => d.endpointId !== ep.id));
-    if (activeId === ep.id) setDrawerOpen(false);
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(ep.id);
-      return next;
+    mut.remove.mutate(ep, {
+      onSuccess: () => {
+        if (activeId === ep.id) setDrawerOpen(false);
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(ep.id);
+          return next;
+        });
+        toast.success(`Deleted ${ep.name}`);
+      },
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
     });
-    toast.success(`Deleted ${ep.name}`);
   };
 
   const rotateOne = (ep: Endpoint) => {
-    const secret = rotateSecret(ep.algo);
-    updateEndpoint({ ...ep, secret });
-    toast.success(`Rotated secret for ${ep.name}`, {
-      description: "Redeploy the receiver with the new secret.",
+    mut.rotate.mutate(ep, {
+      onSuccess: (res) => {
+        toast.success(`Rotated secret for ${ep.name}`, {
+          description: res.secretOnce
+            ? `Copy now: ${res.secretOnce.slice(0, 12)}… (shown once)`
+            : "Redeploy the receiver with the new secret.",
+        });
+      },
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Rotate failed"),
     });
   };
 
   const testFire = (ep: Endpoint) => {
-    const evt = ep.events[0] ?? "call.completed";
-    const d = simulateDelivery(ep, evt);
-    appendDelivery(d);
-    if (d.status === "success") toast.success(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
-    else toast.error(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
+    mut.testFire.mutate(
+      { ep },
+      {
+        onSuccess: (d) => {
+          if (d.status === "success") toast.success(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
+          else toast.error(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : "Test failed"),
+      },
+    );
   };
 
   const togglePause = (ep: Endpoint) => {
     const next: Endpoint = { ...ep, status: ep.status === "paused" ? "active" : "paused" };
     updateEndpoint(next);
-    toast.info(`${ep.name} ${next.status}`);
   };
 
   const openDrawer = (id: string) => {
@@ -103,40 +118,43 @@ function WebhooksPage() {
     setSheetOpen(true);
   };
 
-  const handleSaveDraft = (
-    draft: Omit<Endpoint, "id" | "createdAt" | "status"> & { id?: string },
-    andTest = false,
-  ) => {
+  const handleSaveDraft = (draft: WebhookDraft, andTest = false) => {
     if (editing) {
       const merged: Endpoint = { ...editing, ...draft } as Endpoint;
-      updateEndpoint(merged);
-      toast.success(`Saved ${merged.name}`);
-      setSheetOpen(false);
-      if (andTest) testFire(merged);
+      mut.update.mutate(merged, {
+        onSuccess: () => {
+          toast.success(`Saved ${merged.name}`);
+          setSheetOpen(false);
+          if (andTest) testFire(merged);
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
+      });
     } else {
-      const created: Endpoint = {
-        ...(draft as Omit<Endpoint, "id" | "createdAt" | "status">),
-        id: `wh_${Math.random().toString(36).slice(2, 9)}`,
-        status: "active",
-        createdAt: Date.now(),
-      };
-      setEndpoints((prev) => [created, ...prev]);
-      toast.success(`Created ${created.name}`);
-      setSheetOpen(false);
-      if (andTest) testFire(created);
+      mut.create.mutate(draft, {
+        onSuccess: (created) => {
+          toast.success(`Created ${created.name}`, {
+            description: created.secretOnce
+              ? `Signing secret (once): ${created.secretOnce.slice(0, 16)}…`
+              : undefined,
+          });
+          setSheetOpen(false);
+          if (andTest) testFire(created);
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : "Create failed"),
+      });
     }
   };
 
-  const retryDelivery = (d: Delivery) => {
-    const ep = endpoints.find((e) => e.id === d.endpointId);
-    if (!ep) return;
-    const next = simulateDelivery(ep, d.event, d.payload);
-    appendDelivery(next);
-    if (next.status === "success") toast.success(`Retry succeeded · ${next.httpStatus}`);
-    else toast.error(`Retry failed · ${next.httpStatus}`);
+  const retryDelivery = (d: (typeof deliveries)[number]) => {
+    mut.retry.mutate(d, {
+      onSuccess: (next) => {
+        if (next.status === "success") toast.success(`Retry succeeded · ${next.httpStatus}`);
+        else toast.error(`Retry failed · ${next.httpStatus}`);
+      },
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Retry failed"),
+    });
   };
 
-  /* Bulk toolbar actions */
   const selectedEndpoints = endpoints.filter((e) => selectedIds.has(e.id));
 
   const bulkPause = (pause: boolean) => {
@@ -145,20 +163,29 @@ function WebhooksPage() {
     );
     toast.info(`${selectedEndpoints.length} endpoint(s) ${pause ? "paused" : "resumed"}`);
   };
-  const bulkRotate = () => {
-    selectedEndpoints.forEach(rotateOne);
-  };
+  const bulkRotate = () => selectedEndpoints.forEach(rotateOne);
   const bulkDelete = () => {
     selectedEndpoints.forEach(deleteEndpoint);
     setSelectedIds(new Set());
   };
-  const rotateAll = () => {
-    endpoints.forEach(rotateOne);
-  };
+  const rotateAll = () => endpoints.forEach(rotateOne);
+
+  if (loadingEp && endpoints.length === 0) {
+    return (
+      <AppShell>
+        <div className="p-6"><Skeleton className="h-48 w-full" /></div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
+        {!USE_MOCK && (
+          <div className="shrink-0 border-b border-[var(--border-token)] bg-brand-tint/40 px-6 py-1.5 text-[11px] text-brand-primary-dark">
+            Live webhooks · test-fire is simulated (no real egress). Secrets returned once on create/rotate.
+          </div>
+        )}
         <WebhooksHeader
           onNew={openNew}
           onCatalog={() => setCatalogOpen(true)}
@@ -218,11 +245,15 @@ function WebhooksPage() {
         </div>
 
         <div className="flex min-h-[240px] flex-[2] flex-col">
-          <DeliveryLogPane
-            endpoints={endpoints}
-            deliveries={deliveries}
-            onRetry={retryDelivery}
-          />
+          {loadingDlv && deliveries.length === 0 ? (
+            <Skeleton className="m-4 h-32" />
+          ) : (
+            <DeliveryLogPane
+              endpoints={endpoints}
+              deliveries={deliveries}
+              onRetry={retryDelivery}
+            />
+          )}
         </div>
       </div>
 
@@ -244,9 +275,23 @@ function WebhooksPage() {
           deleteEndpoint(ep);
           setDrawerOpen(false);
         }}
-        onAppendDelivery={appendDelivery}
+        onAppendDelivery={() => {
+          /* live path invalidates via mutations */
+        }}
         onRotate={rotateOne}
         onRetry={retryDelivery}
+        onTestFire={(ep, event) =>
+          mut.testFire.mutate(
+            { ep, event },
+            {
+              onSuccess: (d) => {
+                if (d.status === "success") toast.success(`Test → ${d.httpStatus} · ${d.latencyMs}ms`);
+                else toast.error(`Test → ${d.httpStatus} · ${d.latencyMs}ms`);
+              },
+              onError: (e) => toast.error(e instanceof Error ? e.message : "Test failed"),
+            },
+          )
+        }
       />
 
       <EventCatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} />

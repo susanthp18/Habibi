@@ -1,7 +1,7 @@
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadStatus } from "@/data/inbox-seed";
-import { Avatar, channelMeta, chipStatus, slaColor, statusMeta } from "./meta";
+import { Avatar, resolveChannelMeta, chipStatus, slaColor, statusMeta } from "./meta";
 import { useMemo, useState } from "react";
 
 type Filter = "all" | ThreadStatus | "mine";
@@ -108,7 +108,7 @@ export function ConversationList({
         <ul>
           {filtered.map((t, i) => {
             const isActive = t.id === activeId;
-            const ChanIcon = channelMeta[t.channel].icon;
+            const ChanIcon = resolveChannelMeta(t.channel).icon;
             const chip = chipStatus(t);
             return (
               <li key={t.id}>

@@ -6,11 +6,13 @@ Uses db.engine / TENANT_ID / DEFAULT_BOT_ID only.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import socket
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
@@ -32,7 +34,7 @@ def _sid(prefix: str) -> str:
 
 
 def ensure_unknown_caller() -> None:
-    """Idempotent sentinel — migration seeds it; this is a runtime safety net."""
+    """Idempotent sentinel customer for unbound voice calls (runtime, not Alembic)."""
     with db.engine.begin() as conn:
         conn.execute(
             text(
@@ -158,6 +160,9 @@ def append_transcript_turn(
     sentiment_delta: float | None = None,
     intent: str | None = None,
     intent_score: float | None = None,
+    ttfb_ms: int | None = None,
+    ttfa_ms: int | None = None,
+    tokens: int | None = None,
 ) -> None:
     """Idempotent turn write — UNIQUE(interaction_id, turn_index)."""
     content = (text_content or "").strip()
@@ -169,10 +174,12 @@ def append_transcript_turn(
                 """
                 INSERT INTO interaction_transcript (
                   id, interaction_id, turn_index, speaker, at_sec, text,
-                  sentiment_delta, intent, intent_score, created_at
+                  sentiment_delta, intent, intent_score,
+                  ttfb_ms, ttfa_ms, tokens, created_at
                 ) VALUES (
                   :id, :interaction_id, :turn_index, :speaker, :at_sec, :text,
-                  :sentiment_delta, :intent, :intent_score, now()
+                  :sentiment_delta, :intent, :intent_score,
+                  :ttfb_ms, :ttfa_ms, :tokens, now()
                 )
                 ON CONFLICT (interaction_id, turn_index) DO NOTHING
                 """
@@ -187,6 +194,9 @@ def append_transcript_turn(
                 "sentiment_delta": sentiment_delta,
                 "intent": (intent or None),
                 "intent_score": round(float(intent_score), 3) if intent_score is not None else None,
+                "ttfb_ms": int(ttfb_ms) if ttfb_ms is not None else None,
+                "ttfa_ms": int(ttfa_ms) if ttfa_ms is not None else None,
+                "tokens": int(tokens) if tokens is not None else None,
             },
         )
 
@@ -769,6 +779,107 @@ def record_media(
             },
         )
     return mid
+
+
+def list_transcript_turns(interaction_id: str) -> list[dict[str, Any]]:
+    """Ordered turns for export / post-call review."""
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT turn_index, speaker, at_sec, text,
+                       sentiment_delta, intent, intent_score,
+                       ttfb_ms, ttfa_ms, tokens
+                FROM interaction_transcript
+                WHERE interaction_id = :id
+                ORDER BY turn_index ASC
+                """
+            ),
+            {"id": interaction_id},
+        ).mappings().all()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "turnIndex": int(r["turn_index"]),
+                "speaker": r["speaker"],
+                "atSec": int(r["at_sec"] or 0),
+                "text": r["text"],
+                "sentimentDelta": float(r["sentiment_delta"]) if r["sentiment_delta"] is not None else None,
+                "intent": r["intent"],
+                "intentScore": float(r["intent_score"]) if r["intent_score"] is not None else None,
+                "ttfbMs": int(r["ttfb_ms"]) if r["ttfb_ms"] is not None else None,
+                "ttfaMs": int(r["ttfa_ms"]) if r["ttfa_ms"] is not None else None,
+                "tokens": int(r["tokens"]) if r["tokens"] is not None else None,
+            }
+        )
+    return out
+
+
+def export_transcript_json(
+    *,
+    interaction_id: str,
+    session_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Serialize turns → MinIO (or local) → interaction_media kind=transcript_export.
+
+    Safe to call from CrmSink worker threads. Returns media row summary or None.
+    """
+    turns = list_transcript_turns(interaction_id)
+    if not turns:
+        return None
+
+    payload = {
+        "interactionId": interaction_id,
+        "sessionId": session_id,
+        "turnCount": len(turns),
+        "turns": turns,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    digest = hashlib.sha256(raw).hexdigest()
+    filename = f"{interaction_id}.transcript.json"
+    key = f"transcripts/{db.TENANT_ID}/{filename}"
+
+    storage_ref: str | None = None
+    try:
+        import storage
+
+        if storage.is_configured():
+            try:
+                storage_ref = storage.put_bytes(
+                    key,
+                    raw,
+                    "application/json",
+                    bucket="recordings",
+                )
+            except Exception:
+                storage_ref = storage.put_bytes(key, raw, "application/json")
+    except Exception:
+        logger.exception("transcript export minio upload failed — falling back to local")
+
+    if not storage_ref:
+        local_dir = Path(__file__).resolve().parent.parent / ".cache" / "transcripts"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        path = local_dir / filename
+        path.write_bytes(raw)
+        storage_ref = f"local://transcripts/{filename}"
+        logger.info("transcript export saved locally path=%s", path)
+
+    media_id = record_media(
+        interaction_id=interaction_id,
+        kind="transcript_export",
+        storage_ref=storage_ref,
+        duration_sec=None,
+        mime_type="application/json",
+        size_bytes=len(raw),
+        content_hash=digest,
+    )
+    return {
+        "mediaId": media_id,
+        "storageRef": storage_ref,
+        "sizeBytes": len(raw),
+        "turnCount": len(turns),
+    }
 
 
 def mark_ptp_captured(interaction_id: str) -> None:

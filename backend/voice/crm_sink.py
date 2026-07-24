@@ -59,6 +59,9 @@ class CrmSink:
         self._sentiment_scores: list[float] = []
         self._recent_bot_texts: list[str] = []
         self._ttfb_samples_ms: list[float] = []
+        self._pending_ttfb_ms: float | None = None
+        self._pending_ttfa_ms: float | None = None
+        self._pending_tokens: int | None = None
         self._closed = False
         self._escalated_live = False
         self._on_escalate: EscalateHandler | None = None
@@ -234,6 +237,13 @@ class CrmSink:
             interrupted = bool(getattr(message, "interrupted", False))
             turn_index = self.session.next_turn_index()
             intent, _ = classify_intent(self._last_customer_text or text)
+            # Consume the most recent LLM metrics for this bot turn.
+            ttfb = self._pending_ttfb_ms
+            ttfa = self._pending_ttfa_ms
+            tokens = self._pending_tokens
+            self._pending_ttfb_ms = None
+            self._pending_ttfa_ms = None
+            self._pending_tokens = None
             self.enqueue(
                 "bot_turn",
                 turn_index=turn_index,
@@ -243,6 +253,9 @@ class CrmSink:
                 intent=intent,
                 customer_text=self._last_customer_text,
                 customer_bot_exchanges=self._customer_exchanges,
+                ttfb_ms=int(ttfb) if ttfb is not None else None,
+                ttfa_ms=int(ttfa) if ttfa is not None else None,
+                tokens=int(tokens) if tokens is not None else None,
             )
             self._recent_bot_texts.append(text)
             if len(self._recent_bot_texts) > 8:
@@ -256,6 +269,21 @@ class CrmSink:
     def record_ttfb_ms(self, ms: float) -> None:
         if ms and ms > 0:
             self._ttfb_samples_ms.append(float(ms))
+            self._pending_ttfb_ms = float(ms)
+
+    def current_avg_sentiment(self) -> float | None:
+        """On-demand rolling average for mid-call routing (before stop())."""
+        if not self._sentiment_scores:
+            return None
+        return sum(self._sentiment_scores) / len(self._sentiment_scores)
+
+    def record_ttfa_ms(self, ms: float) -> None:
+        if ms and ms > 0:
+            self._pending_ttfa_ms = float(ms)
+
+    def record_tokens(self, tokens: int) -> None:
+        if tokens and tokens > 0:
+            self._pending_tokens = int(tokens)
 
     def build_observer(self) -> Any | None:
         """Optional MetricsFrame observer — returns None if Pipecat API unavailable."""
@@ -272,20 +300,52 @@ class CrmSink:
 
         sink = self
 
+        def _as_ms(value: Any) -> float | None:
+            try:
+                v = float(value)
+            except (TypeError, ValueError):
+                return None
+            if v <= 0:
+                return None
+            # Pipecat often reports seconds for TTFB/TTFA (< 50 → seconds).
+            return v * 1000.0 if v < 50 else v
+
         class _MetricsObserver(BaseObserver):  # type: ignore[misc,valid-type]
             async def on_push_frame(self, data):  # noqa: ANN001
                 try:
                     frame = getattr(data, "frame", None) or data
                     if MetricsFrame is not None and isinstance(frame, MetricsFrame):
                         for item in getattr(frame, "data", None) or []:
+                            name = str(getattr(item, "name", "") or "").lower()
+                            cls = type(item).__name__.lower()
+
                             ttfb = getattr(item, "ttfb", None)
-                            if ttfb is None and hasattr(item, "value"):
-                                name = str(getattr(item, "name", "") or "").lower()
-                                if "ttfb" in name:
-                                    ttfb = getattr(item, "value", None)
-                            if ttfb is not None:
-                                ms = float(ttfb) * 1000.0 if float(ttfb) < 50 else float(ttfb)
+                            if ttfb is None and hasattr(item, "value") and "ttfb" in (name + cls):
+                                ttfb = getattr(item, "value", None)
+                            ms = _as_ms(ttfb)
+                            if ms is not None:
                                 sink.record_ttfb_ms(ms)
+
+                            ttfa = getattr(item, "ttfa", None)
+                            if ttfa is None and hasattr(item, "value") and "ttfa" in (name + cls):
+                                ttfa = getattr(item, "value", None)
+                            ms_a = _as_ms(ttfa)
+                            if ms_a is not None:
+                                sink.record_ttfa_ms(ms_a)
+
+                            tokens = getattr(item, "tokens", None)
+                            if tokens is None:
+                                tokens = getattr(item, "total_tokens", None)
+                            if tokens is None:
+                                prompt = getattr(item, "prompt_tokens", None)
+                                completion = getattr(item, "completion_tokens", None)
+                                if prompt is not None or completion is not None:
+                                    tokens = int(prompt or 0) + int(completion or 0)
+                            if tokens is not None:
+                                try:
+                                    sink.record_tokens(int(tokens))
+                                except (TypeError, ValueError):
+                                    pass
                 except Exception:
                     logger.exception("metrics observer failed")
 
@@ -355,6 +415,9 @@ class CrmSink:
                 speaker="bot",
                 text_content=p["text"],
                 at_sec=float(p["at_sec"]),
+                ttfb_ms=p.get("ttfb_ms"),
+                ttfa_ms=p.get("ttfa_ms"),
+                tokens=p.get("tokens"),
             )
             if p.get("interrupted"):
                 persist.append_interaction_flag(
@@ -384,6 +447,21 @@ class CrmSink:
                 summary=p.get("summary"),
                 disposition=p.get("disposition"),
             )
+            # Off audio path — serialize turns after CRM close.
+            try:
+                exported = persist.export_transcript_json(
+                    interaction_id=ix,
+                    session_id=self.session.session_id,
+                )
+                if exported:
+                    logger.info(
+                        "transcript export · interaction=%s · media=%s · turns=%s",
+                        ix,
+                        exported.get("mediaId"),
+                        exported.get("turnCount"),
+                    )
+            except Exception:
+                logger.exception("transcript export failed · interaction=%s", ix)
         elif job.kind == "heartbeat":
             persist.heartbeat(self.session.session_id)
 

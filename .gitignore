@@ -29,3 +29,10 @@ Thumbs.db
 logs.txt
 *.log
 .mcp.json
+
+# Local machine-maintenance scratch (WSL/Docker disk cleanup) — not project files
+_cleanup_log.txt
+_diskpart_compact.txt
+_docker_err.txt
+_docker_out.txt
+_wsl_clean.sh

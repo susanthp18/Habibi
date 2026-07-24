@@ -45,7 +45,7 @@ const AuditRoute = AuditRouteImport.update({
   id: '/audit',
   path: '/audit',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/audit.lazy').then((d) => d.Route))
 const BillingRoute = BillingRouteImport.update({
   id: '/billing',
   path: '/billing',
@@ -55,7 +55,7 @@ const BotAnalyticsRoute = BotAnalyticsRouteImport.update({
   id: '/bot-analytics',
   path: '/bot-analytics',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/bot-analytics.lazy').then((d) => d.Route))
 const CallbacksRoute = CallbacksRouteImport.update({
   id: '/callbacks',
   path: '/callbacks',
@@ -100,7 +100,7 @@ const HandoffRoute = HandoffRouteImport.update({
   id: '/handoff',
   path: '/handoff',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/handoff.lazy').then((d) => d.Route))
 const InboxRoute = InboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
@@ -115,7 +115,9 @@ const KnowledgeBaseRoute = KnowledgeBaseRouteImport.update({
   id: '/knowledge-base',
   path: '/knowledge-base',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() =>
+  import('./routes/knowledge-base.lazy').then((d) => d.Route),
+)
 const PromisesRoute = PromisesRouteImport.update({
   id: '/promises',
   path: '/promises',
@@ -125,7 +127,7 @@ const PromptStudioRoute = PromptStudioRouteImport.update({
   id: '/prompt-studio',
   path: '/prompt-studio',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/prompt-studio.lazy').then((d) => d.Route))
 const QaRoute = QaRouteImport.update({
   id: '/qa',
   path: '/qa',
@@ -145,7 +147,7 @@ const SandboxRoute = SandboxRouteImport.update({
   id: '/sandbox',
   path: '/sandbox',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/sandbox.lazy').then((d) => d.Route))
 const UpsellRoute = UpsellRouteImport.update({
   id: '/upsell',
   path: '/upsell',
@@ -165,7 +167,9 @@ const CustomersCustomerIdRoute = CustomersCustomerIdRouteImport.update({
   id: '/$customerId',
   path: '/$customerId',
   getParentRoute: () => CustomersRoute,
-} as any)
+} as any).lazy(() =>
+  import('./routes/customers.$customerId.lazy').then((d) => d.Route),
+)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute

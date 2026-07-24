@@ -1,4 +1,4 @@
-﻿"""routing builder: widen rules + seed library + redistribute executions
+"""routing builder: widen rules + seed library + redistribute executions
 
 routing_rules had a single thin row (conditions jsonb + action_key only) while
 the Habibi Routing Builder needs name/description/category and a screen-shaped
@@ -23,6 +23,7 @@ import json
 from typing import Any, Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -150,9 +151,13 @@ _RULES: list[dict[str, Any]] = [
 
 
 def upgrade() -> None:
+    # Schema columns the builder UI expects (always).
     op.add_column("routing_rules", sa.Column("name", sa.Text(), nullable=True))
     op.add_column("routing_rules", sa.Column("description", sa.Text(), nullable=True))
     op.add_column("routing_rules", sa.Column("category", sa.Text(), nullable=True))
+
+    if not seed_demo_enabled():
+        return
 
     conn = op.get_bind()
 

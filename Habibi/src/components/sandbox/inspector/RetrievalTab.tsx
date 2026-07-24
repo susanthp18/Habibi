@@ -2,8 +2,21 @@ import { ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { groundedLabel } from "@/api/sandbox";
 import { chunkTitle, type SandboxTurn } from "@/data/sandbox-seed";
+import type { LiveRagHit } from "@/components/sandbox/voice/liveEvents";
 
-export function RetrievalTab({ turns }: { turns: SandboxTurn[] }) {
+export function RetrievalTab({
+  turns,
+  ragHits = [],
+}: {
+  turns: SandboxTurn[];
+  ragHits?: LiveRagHit[];
+}) {
+  // A live voice call has no per-turn `chunks` on the transcript — retrieval is
+  // reported out-of-band over RTVI. When those events exist they are the truth.
+  if (ragHits.length > 0) {
+    return <LiveRetrieval hits={ragHits} />;
+  }
+
   const lastBot = [...turns].reverse().find((t) => t.role === "bot");
   if (!lastBot) {
     return <Empty text="Send a message to see what the bot retrieved." />;
@@ -80,6 +93,53 @@ export function RetrievalTab({ turns }: { turns: SandboxTurn[] }) {
           <div className="mt-1.5 text-[12px] font-medium text-text-primary">{c.heading}</div>
           <div className="text-[10.5px] text-text-muted">{c.doc}</div>
           <div className="mt-1 line-clamp-3 text-[11.5px] text-text-secondary">{c.snippet}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Live-call retrieval, newest first. Shows the pinned snapshot explicitly:
+ * a narrow snapshot legitimately returns zero hits, and without this the
+ * operator cannot tell that from a broken KB.
+ */
+function LiveRetrieval({ hits }: { hits: LiveRagHit[] }) {
+  const ordered = [...hits].reverse();
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-[11px] text-text-muted">
+        <span>
+          {hits.length} retrieval {hits.length === 1 ? "call" : "calls"} this session
+        </span>
+        <Link to="/knowledge-base" className="inline-flex items-center gap-1 hover:text-text-secondary">
+          Open KB <ExternalLink className="h-3 w-3" />
+        </Link>
+      </div>
+      {ordered.map((h) => (
+        <div
+          key={h.id}
+          className="rounded-md border border-[var(--border-token)] bg-surface-sunken p-2.5"
+        >
+          <div className="flex items-center gap-2 text-[11px] text-text-muted">
+            <span className="rounded bg-surface-card px-1.5 py-0.5 text-[10px] font-medium">
+              {h.source}
+            </span>
+            {typeof h.topScore === "number" && (
+              <span className="ml-auto font-mono">{h.topScore.toFixed(2)}</span>
+            )}
+          </div>
+          <div className="mt-1.5 text-[12px] font-medium text-text-primary">{h.query}</div>
+          <div className="mt-1 text-[10.5px] text-text-muted">
+            {h.chunkIds.filter(Boolean).length > 0
+              ? h.chunkIds.filter(Boolean).join(" · ")
+              : "no chunks above threshold"}
+          </div>
+          {h.snapshotId && (
+            <div className="mt-1 font-mono text-[10px] text-text-muted">
+              snapshot: {h.snapshotId}
+            </div>
+          )}
         </div>
       ))}
     </div>

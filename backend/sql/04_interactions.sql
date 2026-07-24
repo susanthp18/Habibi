@@ -87,6 +87,9 @@ CREATE TABLE IF NOT EXISTS interaction_transcript (
   sentiment_delta numeric(5,3),
   intent TEXT,
   intent_score numeric(5,3),
+  ttfb_ms INTEGER,
+  ttfa_ms INTEGER,
+  tokens INTEGER,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (interaction_id, turn_index)
 );
@@ -163,7 +166,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('bot','needs_human','escalated','assigned')),
-  channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat')),
+  channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat','voice')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

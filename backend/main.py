@@ -4,15 +4,28 @@ Run:  .venv/Scripts/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --re
 Serves read/query endpoints from the normalized Postgres data layer.
 """
 
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Callable
 
-from fastapi import Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
+import actor_context
+import azure_openai
+import circuit_breaker
 import db
 import kb_rate_limit
 import kb_retrieve
+import ops_screens
 import sandbox_runtime
 import storage
 import whatsapp
@@ -46,6 +59,7 @@ from schemas import (
     DocumentRequestCreateRequest,
     DocumentRequestResponse,
     EvidenceCreateRequest,
+    FloorSnapshotResponse,
     FollowupPatchRequest,
     HandoffResponse,
     InteractionCreateRequest,
@@ -65,6 +79,7 @@ from schemas import (
     PromiseListResponse,
     PromisePatchRequest,
     PromiseResponse,
+    ProviderEnabledPatchRequest,
     ReminderCreateRequest,
     RedactionRecordListResponse,
     RedactionRuleResponse,
@@ -94,6 +109,7 @@ from schemas import (
     SandboxScenarioResponse,
     SandboxTurnCreateRequest,
     SandboxTurnResponse,
+    SupervisorActionRequest,
     TtsPreviewRequest,
     SttTranscribeResponse,
     PromptLintRequest,
@@ -109,9 +125,16 @@ from schemas import (
     StaffResponse,
     TeamResponse,
     TtsVoiceResponse,
+    TtsCatalogListResponse,
+    TtsCatalogVoiceItem,
+    TtsPriceTierResponse,
+    TtsSyncRunResponse,
+    TtsVoiceWarning,
     ViolationListResponse,
     ViolationNoteCreateRequest,
     ViolationPatchRequest,
+    WebhookEndpointPatchRequest,
+    WebhookEndpointUpsertRequest,
     WorkItemResponse,
     WorkspaceSummaryResponse,
     KbChunkResponse,
@@ -135,31 +158,191 @@ from schemas import (
     KbStatsResponse,
     KbUploadResponse,
 )
-import json
+
+
+logger = logging.getLogger(__name__)
+
+# APP_ENV=production (or prod) enables fail-closed auth + disabled OpenAPI docs.
+_APP_ENV = (os.getenv("APP_ENV") or "dev").strip().lower()
+_IS_PROD = _APP_ENV in {"prod", "production"}
+
+# Public paths that skip API-key auth (webhooks use their own HMAC).
+# Docs/OpenAPI are NOT exempt — when API_KEY is set they require the key;
+# in production the docs URLs themselves are disabled below.
+_AUTH_EXEMPT_PREFIXES = (
+    "/health",
+    "/ready",
+    "/webhooks/whatsapp",
+    "/webhook/whatsapp",
+    "/twilio/",
+    "/ws",
+)
+
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    """API-key gate + request-scoped actor binding.
+
+    CORS preflight (OPTIONS) must never be gated — browsers do not send
+    custom headers on preflight, and this middleware must run *inside*
+    CORSMiddleware so even 401 responses carry CORS headers.
+
+    Actor resolution (see ``actor_context``):
+      - ``API_KEY_MAP`` JSON maps each secret → ``users.id``
+      - shared ``API_KEY`` → ``ACTOR_USER_ID``, or ``X-Actor-User-Id`` when
+        ``ALLOW_ACTOR_HEADER`` is on (default: non-prod only)
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        path = request.url.path
+        if any(path == p or path.startswith(p + "/") for p in _AUTH_EXEMPT_PREFIXES):
+            return await call_next(request)
+
+        provided = (request.headers.get("x-api-key") or "").strip()
+        if not provided:
+            auth = (request.headers.get("authorization") or "").strip()
+            if auth.lower().startswith("bearer "):
+                provided = auth[7:].strip()
+
+        actor_header = (request.headers.get("x-actor-user-id") or "").strip() or None
+        key_map = actor_context.parse_api_key_map()
+        single = (os.getenv("API_KEY") or "").strip()
+        auth_required = bool(single or key_map)
+
+        if auth_required and not provided:
+            return Response(
+                content='{"detail":"unauthorized"}',
+                status_code=401,
+                media_type="application/json",
+            )
+
+        ok, actor_id, err = actor_context.resolve_authenticated_actor(
+            provided_key=provided if auth_required else (provided or ""),
+            actor_header=actor_header,
+        )
+        if not ok or not actor_id:
+            # actor_not_found is a client config error; wrong/missing key is 401.
+            status = 400 if err == "actor_not_found" else 401
+            return Response(
+                content=f'{{"detail":"{err or "unauthorized"}"}}',
+                status_code=status,
+                media_type="application/json",
+            )
+
+        request.state.actor_user_id = actor_id
+        token = actor_context.set_actor_user_id(actor_id)
+        try:
+            return await call_next(request)
+        finally:
+            actor_context.reset_actor_user_id(token)
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Propagate/assign X-Request-Id for log correlation."""
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        import uuid
+
+        rid = (request.headers.get("x-request-id") or "").strip() or uuid.uuid4().hex
+        request.state.request_id = rid
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = rid
+        return response
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Mirror FE mock fail-closed: prod without credentials must not boot.
+    has_auth = bool((os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map())
+    if _IS_PROD and not has_auth:
+        raise RuntimeError("API_KEY or API_KEY_MAP must be set when APP_ENV=production")
+    if not has_auth:
+        logger.warning(
+            "API_KEY / API_KEY_MAP unset — CRM routes are public. "
+            "Set credentials (required when APP_ENV=production)."
+        )
+
     db.init_and_seed()
     storage.ensure_bucket()
+    try:
+        actor_context.validate_configured_actors()
+    except RuntimeError:
+        if _IS_PROD:
+            raise
+        logger.warning("actor identity config invalid (non-prod): continuing", exc_info=True)
     try:
         import usage_meter
 
         usage_meter.sync_price_book()
     except Exception:
-        pass
+        logger.warning("usage_meter.sync_price_book failed", exc_info=True)
+    try:
+        from tts_catalog_sync import ensure_catalog_seeded
+
+        ensure_catalog_seeded(db.engine)
+    except Exception:
+        logger.warning("tts catalog boot seed failed", exc_info=True)
     yield
+    db.dispose_engine()
 
 
-app = FastAPI(title="Collections Agent API", version="0.1.0", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    # Any localhost port in dev (Vite may fall back to 8081, 8082, ...).
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="Collections Agent API",
+    version="0.1.0",
+    lifespan=lifespan,
+    # Prod: do not publish the OpenAPI schema unauthenticated.
+    docs_url=None if _IS_PROD else "/docs",
+    redoc_url=None if _IS_PROD else "/redoc",
+    openapi_url=None if _IS_PROD else "/openapi.json",
 )
+
+# Starlette inserts each add_middleware at index 0 → last added is OUTERMOST.
+# Desired order (outer → inner): CORS → ApiKey → RequestId → GZip → route
+# so (1) preflight/401s always get CORS headers and (2) ApiKey sees OPTIONS
+# only after CORS has claimed it — still pass OPTIONS through ApiKey.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(ApiKeyMiddleware)
+
+_cors_origins = [o.strip() for o in (os.getenv("CORS_ORIGINS") or "").split(",") if o.strip()]
+if _cors_origins:
+    # Prod: explicit allowlist + credentials (required for cookie auth).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # Dev: any localhost port (Vite may fall back to 8081…). Credentials
+    # enabled so cookie auth does not silently fail when added.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+# Azure concurrency saturation / circuit open → shed load fast.
+@app.exception_handler(azure_openai.AzureBusyError)
+async def _azure_busy_handler(_request: Request, exc: azure_openai.AzureBusyError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc) or "azure_concurrency_saturated"},
+    )
+
+
+@app.exception_handler(circuit_breaker.CircuitOpenError)
+async def _circuit_open_handler(_request: Request, exc: circuit_breaker.CircuitOpenError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc) or "circuit_open"},
+    )
 
 
 def _handle_write(fn, *args, **kwargs):
@@ -173,7 +356,30 @@ def _handle_write(fn, *args, **kwargs):
 
 @app.get("/health")
 def health():
+    """Process liveness — no dependency checks."""
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
+    """Readiness: DB ping + pool headroom (+ optional MinIO ping).
+
+    Exhausted pool or hard DB failure → 503 so LBs shed load.
+    MinIO unconfigured is OK (KB upload routes fail separately).
+    """
+    result = db.readiness()
+    minio = storage.ping()
+    result = {**result, "minio": minio, "circuits": circuit_breaker.snapshots()}
+    # Only fail readiness on MinIO when it is configured but unreachable.
+    if minio.get("configured") and not minio.get("ok"):
+        result = {
+            **result,
+            "ok": False,
+            "detail": result.get("detail") or f"minio:{minio.get('detail')}",
+        }
+    if not result.get("ok"):
+        raise HTTPException(status_code=503, detail=result)
+    return result
 
 
 @app.get("/customers", response_model=list[CustomerResponse])
@@ -347,6 +553,125 @@ def get_handoff_session():
     if session is None:
         raise HTTPException(status_code=404, detail="No interactions seeded")
     return session
+
+
+@app.get("/floor", response_model=FloorSnapshotResponse)
+def get_floor():
+    return ops_screens.get_floor_snapshot()
+
+
+@app.post("/supervisor-actions")
+def post_supervisor_action(payload: SupervisorActionRequest):
+    try:
+        return ops_screens.create_supervisor_action(payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/floor/alerts/{alert_id}/ack")
+def ack_floor_alert(alert_id: str):
+    try:
+        return ops_screens.ack_floor_alert(alert_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/event-types")
+def list_event_types():
+    return ops_screens.list_event_types()
+
+
+@app.get("/webhook-endpoints")
+def list_webhook_endpoints():
+    return ops_screens.list_webhook_endpoints()
+
+
+@app.post("/webhook-endpoints")
+def create_webhook_endpoint(payload: WebhookEndpointUpsertRequest):
+    try:
+        return ops_screens.create_webhook_endpoint(payload.model_dump())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/webhook-endpoints/{endpoint_id}")
+def patch_webhook_endpoint(endpoint_id: str, payload: WebhookEndpointPatchRequest):
+    try:
+        return ops_screens.patch_webhook_endpoint(
+            endpoint_id, payload.model_dump(exclude_unset=True)
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/webhook-endpoints/{endpoint_id}")
+def delete_webhook_endpoint(endpoint_id: str):
+    try:
+        ops_screens.delete_webhook_endpoint(endpoint_id)
+        return {"ok": True}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/webhook-endpoints/{endpoint_id}/rotate-secret")
+def rotate_webhook_secret(endpoint_id: str):
+    try:
+        return ops_screens.rotate_webhook_secret(endpoint_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/webhook-endpoints/{endpoint_id}/test")
+def test_webhook_endpoint(endpoint_id: str, event: str | None = Query(default=None)):
+    try:
+        return ops_screens.test_fire_webhook(endpoint_id, event)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/webhook-deliveries")
+def list_webhook_deliveries(endpointId: str | None = Query(default=None)):
+    return ops_screens.list_webhook_deliveries(endpointId)
+
+
+@app.post("/webhook-deliveries/{delivery_id}/retry")
+def retry_webhook_delivery(delivery_id: str):
+    try:
+        return ops_screens.retry_webhook_delivery(delivery_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/providers")
+def list_providers(env: str = Query(default="sandbox")):
+    return ops_screens.list_providers(env)
+
+
+@app.patch("/providers/{provider_id}/configs/{environment}")
+def patch_provider_config(
+    provider_id: str, environment: str, payload: ProviderEnabledPatchRequest
+):
+    try:
+        return ops_screens.patch_provider_enabled(
+            provider_id, environment, payload.enabled
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/providers/{provider_id}/test")
+def test_provider(provider_id: str, env: str = Query(default="sandbox")):
+    try:
+        return ops_screens.test_provider(provider_id, env)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/providers/{provider_id}/test-logs")
+def list_provider_test_logs(provider_id: str):
+    return ops_screens.list_provider_test_logs(provider_id)
 
 
 @app.post("/interactions", response_model=CallResponse)
@@ -683,6 +1008,58 @@ def list_tts_voices():
     return db.list_tts_voices()
 
 
+@app.get("/tts-voices/catalog", response_model=TtsCatalogListResponse)
+def list_tts_voice_catalog(
+    q: str | None = Query(default=None),
+    locale: str | None = Query(default=None),
+    gender: str | None = Query(default=None),
+    status: str | None = Query(default="GA"),
+    price_tier: str | None = Query(default=None),
+    include_premium: bool = Query(default=False),
+    include_removed: bool = Query(default=False),
+    limit: int = Query(default=60, ge=1, le=200),
+    cursor: str | None = Query(default=None),
+):
+    """Synced Azure TTS catalog — primary source for Voice picker."""
+    return db.list_tts_voice_catalog(
+        q=q,
+        locale=locale,
+        gender=gender,
+        status=status,
+        price_tier=price_tier,
+        include_premium=include_premium,
+        include_removed=include_removed,
+        limit=limit,
+        cursor=cursor,
+    )
+
+
+@app.get("/tts-voices/catalog/{short_name}", response_model=TtsCatalogVoiceItem)
+def get_tts_voice_catalog_entry(short_name: str):
+    row = db.get_tts_voice_catalog_entry(short_name)
+    if not row:
+        raise HTTPException(status_code=404, detail="voice_not_found")
+    return row
+
+
+@app.get("/tts-voices/pricing", response_model=list[TtsPriceTierResponse])
+def list_tts_pricing():
+    return db.list_tts_price_tiers()
+
+
+@app.get("/tts-voices/catalog-warning", response_model=TtsVoiceWarning | None)
+def tts_voice_warning(shortName: str = Query(...)):
+    return db.get_tts_voice_warning(shortName)
+
+
+@app.post("/tts-voices/catalog/sync", response_model=TtsSyncRunResponse)
+def sync_tts_voice_catalog():
+    """Admin refresh — pull Azure voices/list (JSON fallback)."""
+    from tts_catalog_sync import run_sync
+
+    return run_sync(db.engine, source="admin")
+
+
 @app.post("/tts/preview")
 def tts_preview(payload: TtsPreviewRequest):
     """Azure Speech TTS preview — returns audio/mpeg (cached by synthesis params)."""
@@ -694,14 +1071,25 @@ def tts_preview(payload: TtsPreviewRequest):
     if len(text) > 500:
         text = text[:500].rstrip() + "…"
 
+    short = (payload.shortName or payload.azureVoiceName or "").strip()
     voice_id = (payload.voiceId or "").strip()
-    azure_name: str | None = None
-    for v in db.list_tts_voices():
-        if v["id"] == voice_id:
-            azure_name = v.get("azureVoiceName")
-            break
+    azure_name: str | None = short or None
+    if not azure_name and voice_id:
+        if azure_speech.looks_like_azure_short_name(voice_id):
+            azure_name = voice_id
+        else:
+            for v in db.list_tts_voices():
+                if v["id"] == voice_id:
+                    azure_name = v.get("azureVoiceName")
+                    break
     try:
-        resolved = azure_speech.resolve_azure_voice_name(voice_id, db_azure_name=azure_name)
+        resolved = azure_speech.resolve_azure_voice_name(
+            voice_id or short or None, db_azure_name=azure_name
+        )
+        # Stale / removed voice → fall back for preview without failing the UI.
+        warning = db.get_tts_voice_warning(resolved)
+        if warning and warning.get("fallbackVoice"):
+            resolved = warning["fallbackVoice"]
         result = azure_speech.synthesize(
             text,
             voice_name=resolved,
@@ -865,18 +1253,24 @@ async def stt_transcribe(
     file: UploadFile = File(...),
     language: str = Form(default="en-IN"),
 ):
-    """Azure Speech STT — multipart audio (webm/wav/mp3). Audio is not persisted."""
+    """Azure Speech STT — multipart audio (webm/wav/mp3). Audio is not persisted.
+
+    File read is async; sync Azure Speech REST runs in a worker thread so this
+    async route does not block the event loop.
+    """
     import azure_speech
 
     audio = await file.read()
     if not audio:
         raise HTTPException(status_code=400, detail="empty_audio")
     content_type = (file.content_type or "application/octet-stream").split(";")[0].strip()
+    lang = (language or "en-IN").strip() or "en-IN"
     try:
-        result = azure_speech.transcribe(
+        result = await asyncio.to_thread(
+            azure_speech.transcribe,
             audio,
             content_type=content_type,
-            language=(language or "en-IN").strip() or "en-IN",
+            language=lang,
         )
     except azure_speech.AzureSpeechConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -966,9 +1360,145 @@ def tune_voice_sandbox_session(session_id: str, payload: dict[str, Any]):
     return _handle_write(voice_sandbox.tune_voice_sandbox, session_id, delta)
 
 
+def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
+    """Validate X-Twilio-Signature when TWILIO_AUTH_TOKEN is set (fail-open if unset)."""
+    from voice import twilio_ops
+
+    token = twilio_ops.auth_token()
+    if not token:
+        return True
+    signature = (request.headers.get("x-twilio-signature") or "").strip()
+    if not signature:
+        # Local ngrok tests sometimes omit; allow only outside production.
+        return not _IS_PROD
+    try:
+        from twilio.request_validator import RequestValidator
+
+        validator = RequestValidator(token)
+        # Reconstruct the public URL Twilio signed (ngrok HTTPS).
+        public = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+        path = request.url.path
+        url = f"{public}{path}" if public else str(request.url)
+        return bool(validator.validate(url, form, signature))
+    except Exception:
+        logger.exception("Twilio signature validation failed open=false")
+        return False
+
+
+@app.post("/twilio/voice/incoming")
+async def twilio_voice_incoming(request: Request):
+    """Twilio Voice webhook — return TwiML that streams audio to the Pipecat runner."""
+    from voice import twilio_ops
+
+    form = dict(await request.form())
+    if not _twilio_signature_ok(request, form):
+        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
+
+    if not twilio_ops.configured():
+        return Response(
+            content=twilio_ops.twiml_say_hangup(
+                "We're sorry, the voice agent is not configured. Please try again later."
+            ),
+            media_type="application/xml",
+        )
+
+    try:
+        twilio_ops.media_stream_wss_url()
+    except RuntimeError as exc:
+        logger.error("Twilio Stream URL unavailable: %s", exc)
+        return Response(
+            content=twilio_ops.twiml_say_hangup(
+                "We're sorry, the voice agent is temporarily unavailable."
+            ),
+            media_type="application/xml",
+        )
+
+    call_sid = str(form.get("CallSid") or "")
+    from_number = str(form.get("From") or "")
+    to_number = str(form.get("To") or "")
+    custom = {
+        "call_type": "inbound",
+        "from": from_number,
+        "to": to_number,
+        "call_sid": call_sid,
+    }
+    xml = twilio_ops.twiml_connect_stream(custom=custom)
+    logger.info(
+        "Twilio inbound CallSid=%s From=%s → Stream %s",
+        call_sid,
+        from_number,
+        twilio_ops.media_stream_wss_url(),
+    )
+    return Response(content=xml, media_type="application/xml")
+
+
+@app.post("/twilio/voice/outbound")
+async def twilio_voice_outbound(payload: dict[str, Any]):
+    """Start an outbound PSTN call that connects into the same Media Stream bot."""
+    from voice import twilio_ops
+
+    if not twilio_ops.configured():
+        raise HTTPException(status_code=503, detail="twilio_not_configured")
+    to = str(payload.get("to") or payload.get("phone") or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="to_required")
+    custom = {
+        k: str(v)
+        for k, v in (payload.get("custom") or {}).items()
+        if v is not None
+    }
+    if payload.get("customerId"):
+        custom["customer_id"] = str(payload["customerId"])
+    try:
+        return twilio_ops.start_outbound_call(to=to, custom=custom or None)
+    except Exception as exc:
+        logger.exception("Twilio outbound failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/twilio/voice/status")
+def twilio_voice_status():
+    from voice import twilio_ops
+    from voice.ws_proxy import voice_ws_upstream, ws_proxy_enabled
+
+    return {
+        "configured": twilio_ops.configured(),
+        "phoneNumber": twilio_ops.twilio_phone() or None,
+        "handoffMode": twilio_ops.handoff_mode(),
+        "wsViaApi": ws_proxy_enabled(),
+        "wsUpstream": voice_ws_upstream() if ws_proxy_enabled() else None,
+        "streamUrl": (
+            twilio_ops.media_stream_wss_url()
+            if (twilio_ops.voice_public_base_url() and twilio_ops.configured())
+            else None
+        ),
+        "supervisorPhone": twilio_ops.supervisor_phone() or None,
+        "hint": (
+            "Same ngrok as WhatsApp (PUBLIC_BASE_URL→:8000). "
+            "Voice webhook: POST {PUBLIC_BASE_URL}/twilio/voice/incoming. "
+            "Media Stream uses wss://{same-host}/ws (API proxies to voice:7860). "
+            "Start voice: python -m voice.bot -t twilio --host 0.0.0.0 --port 7860"
+        ),
+    }
+
+
+@app.websocket("/ws")
+async def voice_media_stream_proxy(websocket: WebSocket):
+    """Twilio Media Streams entry via the API ngrok tunnel → Pipecat :7860."""
+    from voice.ws_proxy import proxy_voice_websocket, ws_proxy_enabled
+
+    if not ws_proxy_enabled():
+        await websocket.close(code=1008)
+        return
+    await proxy_voice_websocket(websocket)
+
+
 @app.get("/conversations", response_model=list[ConversationListResponse])
-def list_conversations():
-    return db.list_conversations()
+def list_conversations(updatedAfter: str | None = None):
+    try:
+        return db.list_conversations(updated_after=updatedAfter)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/conversations/{conversation_id}", response_model=ConversationListResponse)
@@ -1132,7 +1662,9 @@ async def kb_upload_document(
         if not isinstance(tag_list, list):
             raise ValueError("tags must be a JSON array")
         data = await file.read()
-        result = db.create_kb_document_from_upload(
+        # Sync MinIO + DB off the event loop.
+        result = await asyncio.to_thread(
+            db.create_kb_document_from_upload,
             filename=file.filename or "upload.txt",
             data=data,
             content_type=file.content_type or "application/octet-stream",
@@ -1156,7 +1688,8 @@ async def kb_upload_document(
 async def kb_new_version(document_id: str, file: UploadFile = File(...)):
     try:
         data = await file.read()
-        return db.create_kb_document_version(
+        return await asyncio.to_thread(
+            db.create_kb_document_version,
             document_id,
             filename=file.filename or "upload.txt",
             data=data,
@@ -1294,4 +1827,5 @@ async def whatsapp_webhook_receive(
         payload = _json.loads(raw.decode("utf-8"))
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid_json") from exc
-    return db.process_whatsapp_webhook(payload)
+    # Sync DB + enqueue off the event loop (this route is async def).
+    return await asyncio.to_thread(db.process_whatsapp_webhook, payload)

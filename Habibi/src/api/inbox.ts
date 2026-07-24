@@ -7,9 +7,13 @@
 // Mock branch preserves the in-memory seed. Live branch maps to the Phase 3B
 // endpoints; callers invalidate + refetch rather than trusting partial bodies.
 // "Mine" is derived server-side (assignedUserId === GET /me).
+//
+// Live polling uses ?updatedAfter= deltas when the tab is visible, with a
+// periodic full refresh to heal drift.
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 import {
   cannedResponses as seedCanned,
@@ -20,24 +24,89 @@ import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };
 
-export async function fetchConversations(): Promise<Thread[]> {
+function maxUpdatedAt(rows: Thread[]): string | null {
+  let best: string | null = null;
+  for (const row of rows) {
+    const at = row.updatedAt;
+    if (!at) continue;
+    if (!best || at > best) best = at;
+  }
+  return best;
+}
+
+function mergeThreads(prev: Thread[], deltas: Thread[]): Thread[] {
+  if (!deltas.length) return prev;
+  const byId = new Map(prev.map((t) => [t.id, t]));
+  for (const d of deltas) byId.set(d.id, d);
+  return Array.from(byId.values()).sort((a, b) => {
+    const au = a.updatedAt || "";
+    const bu = b.updatedAt || "";
+    if (au !== bu) return bu.localeCompare(au);
+    return (b.lastTime || "").localeCompare(a.lastTime || "");
+  });
+}
+
+export async function fetchConversations(opts?: {
+  updatedAfter?: string | null;
+}): Promise<Thread[]> {
   if (USE_MOCK) return mockDelay(structuredClone(seedThreads));
-  return apiGet<Thread[]>("/conversations");
+  const q =
+    opts?.updatedAfter != null && opts.updatedAfter !== ""
+      ? `?updatedAfter=${encodeURIComponent(opts.updatedAfter)}`
+      : "";
+  return apiGet<Thread[]>(`/conversations${q}`);
 }
 
 export function useConversations() {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const pollCount = useRef(0);
+
+  const query = useQuery({
     queryKey: ["conversations"],
-    queryFn: fetchConversations,
+    queryFn: async () => {
+      if (USE_MOCK) return fetchConversations();
+      pollCount.current += 1;
+      const prev = queryClient.getQueryData<Thread[]>(["conversations"]);
+      // Full list on first fetch and every ~15th poll (~60s at 4s interval).
+      if (!prev || pollCount.current === 1 || pollCount.current % 15 === 0) {
+        return fetchConversations();
+      }
+      const after = maxUpdatedAt(prev);
+      if (!after) return fetchConversations();
+      const deltas = await fetchConversations({ updatedAfter: after });
+      return mergeThreads(prev, deltas);
+    },
     staleTime: 2_000,
-    // Poll faster while any thread shows bot typing so the indicator feels live.
-    refetchInterval: (query) => {
+    refetchInterval: (q) => {
       if (USE_MOCK) return false;
-      const rows = query.state.data;
-      if (Array.isArray(rows) && rows.some((t) => t?.botTyping)) return 1_500;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return false;
+      }
+      const rows = q.state.data;
+      if (
+        Array.isArray(rows) &&
+        rows.some((t) => t?.botTyping || t?.pendingOutbound)
+      ) {
+        return 1_500;
+      }
       return 4_000;
     },
+    refetchOnWindowFocus: true,
   });
+
+  // Resume polling immediately when the tab becomes visible again.
+  useEffect(() => {
+    if (USE_MOCK) return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [queryClient]);
+
+  return query;
 }
 
 export async function fetchCannedResponses(): Promise<CannedResponse[]> {

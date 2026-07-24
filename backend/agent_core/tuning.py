@@ -24,7 +24,7 @@ PRESET_EMPATHETIC_COLLECTIONS: dict[str, Any] = {
         "seed": None,
     },
     "tts": {
-        "voice": "en-IN-NeerjaNeural",
+        "voice": "en-IN-AartiNeural",
         "style": "empathetic",
         "style_degree": "1.4",
         "rate": "1.05",
@@ -203,7 +203,7 @@ def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     tts["style_degree"] = (
         f"{_clamp_float(tts.get('style_degree'), 0.01, 2.0, 1.4):.2f}".rstrip("0").rstrip(".") or "1.4"
     )
-    tts["voice"] = str(tts.get("voice") or "en-IN-NeerjaNeural").strip()
+    tts["voice"] = str(tts.get("voice") or "en-IN-AartiNeural").strip()
     tts["rate"] = str(tts.get("rate") or "1.05")
     tts["pitch"] = str(tts.get("pitch") or "+2%")
     tts["volume"] = str(tts.get("volume") or "default")

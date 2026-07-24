@@ -76,7 +76,7 @@ export const DEFAULT_AGENT_TUNING: AgentTuning = {
     seed: null,
   },
   tts: {
-    voice: "en-IN-NeerjaNeural",
+    voice: "en-IN-AartiNeural",
     style: "empathetic",
     style_degree: "1.4",
     rate: "1.05",
@@ -223,34 +223,52 @@ export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): 
 
 /** Seed TTS knobs from Prompt Studio VoiceConfig. */
 export function tuningFromVoiceConfig(
-  voice: { voiceId?: string; speed?: number; pitch?: number; warmth?: number },
+  voice: {
+    voiceId?: string;
+    azureVoiceName?: string;
+    speed?: number;
+    pitch?: number;
+    warmth?: number;
+    style?: string | null;
+  },
   base: AgentTuning = DEFAULT_AGENT_TUNING,
 ): AgentTuning {
   const warmth = voice.warmth ?? 60;
-  let style = "empathetic";
+  let style = voice.style?.trim() || "empathetic";
   let style_degree = "1.4";
-  if (warmth >= 70) {
-    style = "friendly";
-    style_degree = "1.6";
-  } else if (warmth <= 35) {
-    style = "empathetic";
-    style_degree = "1.15";
+  if (!voice.style) {
+    if (warmth >= 70) {
+      style = "friendly";
+      style_degree = "1.6";
+    } else if (warmth <= 35) {
+      style = "empathetic";
+      style_degree = "1.15";
+    }
   }
   const speed = voice.speed ?? 1;
   const pitch = voice.pitch ?? 0;
   const rate = String(Math.min(1.25, Math.max(0.85, speed * 1.03)).toFixed(2));
   const pitchStr = pitch === 0 ? "+2%" : `${pitch * 2 >= 0 ? "+" : ""}${pitch * 2}%`;
+  const shortName =
+    (voice.azureVoiceName || "").trim() ||
+    (looksLikeAzureShortName(voice.voiceId) ? voice.voiceId! : base.tts.voice);
   return clampAgentTuning({
     ...base,
     tts: {
       ...base.tts,
-      voice: voice.voiceId || base.tts.voice,
+      voice: shortName,
       style,
       style_degree,
       rate,
       pitch: pitchStr,
     },
   });
+}
+
+function looksLikeAzureShortName(value?: string | null): boolean {
+  const v = (value || "").trim();
+  if (!v || /\s/.test(v)) return false;
+  return /^[a-z]{2,3}-[A-Z]{2}-.+/.test(v) || /Neural|DragonHD|HDFlash|Turbo|MAI-Voice/.test(v);
 }
 
 export function tuningFingerprint(t: AgentTuning): string {

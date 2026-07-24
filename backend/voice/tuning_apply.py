@@ -244,16 +244,37 @@ def resolve_session_tuning(
 
     Pass speed/pitch/warmth as None when AgentTuning.tts already owns those fields
     (Sandbox Tuning Studio). Only voice_name is typically applied at call start.
+    Stale / removed catalog voices fall back to en-IN-AartiNeural at runtime only.
     """
     from agent_core.tuning import apply_voice_config_overlay
+    from tts_catalog_sync import DEFAULT_VOICE
 
-    return apply_voice_config_overlay(
+    tuning = apply_voice_config_overlay(
         normalize_tuning(raw),
         voice_name=voice_name,
         speed=speed,
         pitch=pitch,
         warmth=warmth,
     )
+    try:
+        import db
+
+        sn = str((tuning.get("tts") or {}).get("voice") or "").strip()
+        warning = db.get_tts_voice_warning(sn) if sn else None
+        if warning and warning.get("fallbackVoice"):
+            logger.warning(
+                "stale TTS voice {} ({}) → fallback {}",
+                sn,
+                warning.get("code"),
+                warning.get("fallbackVoice"),
+            )
+            tuning.setdefault("tts", {})["voice"] = warning["fallbackVoice"]
+            tuning["_voiceWarning"] = warning
+    except Exception:
+        # Catalog table may be missing mid-migration — keep selected voice.
+        logger.debug("tts catalog warning check skipped", exc_info=True)
+        _ = DEFAULT_VOICE
+    return tuning
 
 
 def merge_and_normalize(base: dict[str, Any] | None, delta: dict[str, Any] | None) -> dict[str, Any]:

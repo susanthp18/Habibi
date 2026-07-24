@@ -67,35 +67,51 @@ def build_voice_system_prompt(
 def azure_tts_style_from_warmth(warmth: int, voice_name: str) -> dict[str, str | None]:
     """Map Prompt Studio warmth → Azure express-as for live Pipecat TTS.
 
-    en-IN-NeerjaNeural supports empathetic/friendly (unlike the conservative
-    Preview Studio allow-list in azure_speech.py). A flat/"serious" delivery is
-    the main cause of the "sounds like a bot" complaint, so the floor here is
-    empathetic — never a cold, neutral read — and style_degree is pushed up so
-    the emotion is actually audible over a phone codec.
+    Prefer live catalog StyleList; fall back to a small known-capable set.
+    Voices without styles (e.g. en-IN-AartiNeural) skip express-as entirely.
     """
     name = (voice_name or "").strip()
-    # Voices known to accept mstts:express-as in our stack.
-    style_capable = {
-        "en-IN-NeerjaNeural",
-        "en-IN-PrabhatNeural",
-        "en-US-JennyNeural",
-        "en-US-AriaNeural",
-        "en-US-SaraNeural",
-        "en-US-GuyNeural",
-        "en-US-DavisNeural",
-        "en-US-JaneNeural",
-    }
-    if name not in style_capable:
-        return {"style": None, "style_degree": None, "role": None}
+    capable_styles: set[str] | None = None
+    try:
+        from azure_speech import catalog_styles_for_voice
+
+        listed = catalog_styles_for_voice(name)
+        if listed is not None:
+            capable_styles = {s.lower() for s in listed}
+    except Exception:
+        capable_styles = None
+
+    if capable_styles is not None:
+        if not capable_styles:
+            return {"style": None, "style_degree": None, "role": None}
+    else:
+        # Voices known to accept mstts:express-as when catalog is unavailable.
+        style_capable = {
+            "en-IN-NeerjaNeural",
+            "en-IN-PrabhatNeural",
+            "en-US-JennyNeural",
+            "en-US-AriaNeural",
+            "en-US-SaraNeural",
+            "en-US-GuyNeural",
+            "en-US-DavisNeural",
+            "en-US-JaneNeural",
+        }
+        if name not in style_capable:
+            return {"style": None, "style_degree": None, "role": None}
+        capable_styles = {"empathetic", "friendly", "serious", "cheerful", "calm"}
 
     w = max(0, min(100, int(warmth)))
-    # Collections default: audible, caring empathy; higher warmth → friendlier.
-    if w >= 70:
+    if w >= 70 and "friendly" in capable_styles:
         return {"style": "friendly", "style_degree": "1.6", "role": None}
-    if w <= 35:
-        # Even "firm" collections should read as calm-empathetic, not robotic.
+    if w >= 70 and "cheerful" in capable_styles:
+        return {"style": "cheerful", "style_degree": "1.6", "role": None}
+    if w <= 35 and "empathetic" in capable_styles:
         return {"style": "empathetic", "style_degree": "1.15", "role": None}
-    return {"style": "empathetic", "style_degree": "1.4", "role": None}
+    if "empathetic" in capable_styles:
+        return {"style": "empathetic", "style_degree": "1.4", "role": None}
+    if "friendly" in capable_styles:
+        return {"style": "friendly", "style_degree": "1.3", "role": None}
+    return {"style": None, "style_degree": None, "role": None}
 
 
 # Tools that do genuine, latency-bearing I/O (DB reads/writes, pgvector search).

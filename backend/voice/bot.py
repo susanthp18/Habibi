@@ -15,10 +15,15 @@ import asyncio
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 
 _BACKEND = Path(__file__).resolve().parent.parent
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
+
+import os
+
+os.environ.setdefault("DB_PROCESS_ROLE", "voice")
 
 from loguru import logger
 
@@ -162,6 +167,10 @@ async def run_bot(transport, runner_args) -> None:
         LLMUserAggregatorParams,
     )
     from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
+    from pipecat.processors.frameworks.rtvi import (
+        RTVIFunctionCallReportLevel,
+        RTVIObserverParams,
+    )
     from pipecat.services.azure.stt import AzureSTTService
     from pipecat.utils.context.llm_context_summarization import (
         LLMAutoContextSummarizationConfig,
@@ -169,18 +178,46 @@ async def run_bot(transport, runner_args) -> None:
     )
     from pipecat.workers.runner import WorkerRunner
 
+    from voice.rtvi_events import RtviEmitter
     from voice.tts_pool import KeepAliveAzureTTSService
 
     import db as _db
 
     # Prefer Sandbox Live session config (written by POST /voice/sandbox/start).
+    # Session id arrives via SmallWebRTC request_data → runner_args.body (or
+    # runner_args.session_id). Never use a shared "latest" pointer — that races.
     sandbox_session = None
+    _vsb = None
+    call_data = getattr(runner_args, "call_data", None)
+    transport_type = (
+        getattr(runner_args, "transport_type", None)
+        or getattr(call_data, "provider", None)
+        or ""
+    )
+    if not transport_type and call_data is not None:
+        transport_type = "twilio"
+    is_twilio = str(transport_type).lower() in {"twilio", "telnyx", "plivo", "exotel"}
     try:
         import voice_sandbox as _vsb
 
-        sandbox_session = _vsb.read_session("latest")
+        body = getattr(runner_args, "body", None)
+        sid = None
+        if isinstance(body, dict):
+            sid = body.get("sessionId") or body.get("session_id")
+        if not sid:
+            sid = getattr(runner_args, "session_id", None)
+        if sid:
+            sandbox_session = _vsb.read_session(str(sid))
+            if not sandbox_session:
+                logger.warning("voice sandbox session not found: %s", sid)
+        elif not is_twilio:
+            logger.warning(
+                "No sessionId in runner_args.body — sandbox Live config unavailable"
+            )
     except Exception:
+        logger.exception("failed to load voice sandbox session")
         sandbox_session = None
+        _vsb = None
 
     try:
         if sandbox_session and sandbox_session.get("promptVersionId"):
@@ -225,11 +262,53 @@ async def run_bot(transport, runner_args) -> None:
         bundle = {**bundle, "sandboxPersona": sandbox_session["persona"]}
 
     bot_id = _db.DEFAULT_BOT_ID
+    # Sandbox Live: reuse the VS- id minted by voice_sandbox.start_voice_sandbox
+    # so the session file, voice_sessions row, and CRM interaction join on one key.
+    # Non-sandbox transports keep a fresh uuid4 id.
+    if sandbox_session and sandbox_session.get("sessionId"):
+        session_id = str(sandbox_session["sessionId"])
+    else:
+        session_id = f"VS-{uuid.uuid4().hex[:10].upper()}"
+    transport_name = "twilio" if is_twilio else "smallwebrtc"
     session = VoiceSession(
-        session_id=f"VS-{uuid.uuid4().hex[:10].upper()}",
+        session_id=session_id,
         deployment_id=bundle.get("deploymentId"),
-        transport="smallwebrtc",
+        transport=transport_name,
     )
+    # Twilio CallSid + caller ANI for warm transfer / CRM prefill.
+    if call_data is not None:
+        session.extra["call_sid"] = getattr(call_data, "call_id", None) or (
+            call_data.get("call_id") if isinstance(call_data, dict) else None
+        )
+        session.extra["from_number"] = getattr(call_data, "from_number", None) or (
+            call_data.get("from") if isinstance(call_data, dict) else None
+        )
+        session.extra["to_number"] = getattr(call_data, "to_number", None) or (
+            call_data.get("to") if isinstance(call_data, dict) else None
+        )
+        body_params = getattr(call_data, "body", None) or {}
+        if isinstance(body_params, dict):
+            session.extra["twilio_params"] = body_params
+            session.extra["call_sid"] = session.extra.get("call_sid") or body_params.get(
+                "call_sid"
+            )
+            session.extra["from_number"] = session.extra.get("from_number") or body_params.get(
+                "from"
+            )
+    if is_twilio and session.extra.get("from_number"):
+        try:
+            from voice import twilio_ops
+
+            matched = twilio_ops.lookup_customer_for_caller(session.extra["from_number"])
+            if matched:
+                session.extra["pstn_customer"] = matched
+                logger.info(
+                    "Twilio caller matched customer=%s dpd=%s",
+                    matched.get("customerId"),
+                    matched.get("dpd"),
+                )
+        except Exception:
+            logger.exception("Twilio caller lookup failed")
     sink = CrmSink(session, guardrails=bundle.get("guardrails") or {})
     system_instruction = _system_instruction_from_bundle(bundle)
     vparams = voice_params_from_config(
@@ -315,10 +394,13 @@ async def run_bot(transport, runner_args) -> None:
         "vad_analyzer": SileroVADAnalyzer(params=build_vad_params(tuning)),
         "user_turn_strategies": build_user_turn_strategies(tuning),
         "user_mute_strategies": build_user_mute_strategies(tuning),
-        # Disabled: filter_incomplete_user_turns injects ✓ / ◐ into the LLM
-        # context (seen in logs as assistant content '◐'), which burns turns and
-        # confuses the model. Smart Turn already handles end-of-turn.
-        "filter_incomplete_user_turns": False,
+        # Disabled by default: filter_incomplete_user_turns injects ✓ / ◐ into the
+        # LLM context (seen in logs as assistant content '◐'). Enable via
+        # VOICE_FILTER_INCOMPLETE_TURNS=1 after India-EN prompt soak tests.
+        "filter_incomplete_user_turns": (
+            (os.getenv("VOICE_FILTER_INCOMPLETE_TURNS") or "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        ),
         "user_turn_stop_timeout": 5.0,
     }
     if idle_timeout is not None:
@@ -351,9 +433,39 @@ async def run_bot(transport, runner_args) -> None:
 
     from voice.kb_enrich import KbEnrichProcessor
 
+    # Sandbox Live is the only surface with a UI listening for domain events; a
+    # PSTN call has no client to render chips, so the emitter simply stays
+    # unbound there and every send() is a no-op.
+    emitter = RtviEmitter()
+    kb_snapshot_id = bundle.get("kbSnapshotId")
+    sandbox_persona = bundle.get("sandboxPersona") if isinstance(bundle.get("sandboxPersona"), dict) else None
+
+    async def _inject_developer(messages: list[dict]) -> None:
+        """Append developer messages (CRM card, persona, deltas) to the context.
+
+        run_llm=False: these are facts for the *next* turn, not a prompt to
+        speak now. Letting them trigger inference would make the bot narrate
+        its own CRM lookup.
+        """
+        if not messages:
+            return
+        await user_aggregator.push_frame(LLMMessagesAppendFrame(messages, run_llm=False))
+
+    # ToolState is created inside build_collections_flow below; the getter reads
+    # it lazily so KB corpus scope can follow the live Flows node.
+    _flow_holder: dict[str, object] = {}
+
+    def _current_product_keys() -> list[str] | None:
+        from agent_core.context import product_keys_for_node
+
+        state = _flow_holder.get("state")
+        return product_keys_for_node(getattr(state, "current_node", None))
+
     kb_enrich = KbEnrichProcessor(
         interaction_id_getter=lambda: session.interaction_id,
-        product_keys=("collections",),
+        product_keys_getter=_current_product_keys,
+        kb_snapshot_id=kb_snapshot_id,
+        emitter=emitter,
     )
 
     # Silence ladder (§6) — escalate nudge → direct → close.
@@ -398,6 +510,7 @@ async def run_bot(transport, runner_args) -> None:
                 await sink.enqueue_alert("silence", f"idle_strike_{idle_strikes}")
         except Exception:
             pass
+        await emitter.lifecycle(phase="idle", reason=f"{step}:{idle_strikes}")
 
         if step == "nudge":
             msg = {
@@ -435,12 +548,63 @@ async def run_bot(transport, runner_args) -> None:
         await worker.queue_frame(EndWorkerFrame())
 
     # Manual start after disclosure (plan §9.5) — never auto_start.
-    audiobuffer = AudioBufferProcessor(num_channels=2, auto_start_recording=False)
+    # Optional chunked buffer for long calls: VOICE_AUDIO_BUFFER_SECS=30
+    # Turn audio feeds Inspector playback (VOICE_TURN_AUDIO=1, default on for sandbox).
+    _buf_secs = (os.getenv("VOICE_AUDIO_BUFFER_SECS") or "").strip()
+    _turn_audio = (os.getenv("VOICE_TURN_AUDIO") or ("1" if sandbox_session else "0")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    _audiobuf_kwargs: dict[str, Any] = {
+        "num_channels": 2,
+        "auto_start_recording": False,
+        "enable_turn_audio": _turn_audio,
+    }
+    if _buf_secs:
+        try:
+            _audiobuf_kwargs["buffer_size"] = max(1, int(float(_buf_secs) * 16000))
+        except ValueError:
+            pass
+    audiobuffer = AudioBufferProcessor(**_audiobuf_kwargs)
     attach_recording_handlers(
         audiobuffer,
         session,
         on_uploaded=lambda row: session.extra.update({"audio_media_id": row.get("mediaId")}),
     )
+
+    if _turn_audio:
+
+        async def _emit_turn_audio(kind: str, audio: bytes, sample_rate: int, _num_channels: int) -> None:
+            import base64
+
+            if not audio or len(audio) < 64:
+                return
+            # Cap payload for RTVI (~250ms @ 16k mono int16 ≈ 8KB).
+            max_bytes = 16_000
+            clip = bytes(audio[-max_bytes:]) if len(audio) > max_bytes else bytes(audio)
+            try:
+                await emitter.send(
+                    "turn.audio",
+                    {
+                        "speaker": kind,
+                        "sampleRate": int(sample_rate or 16000),
+                        "encoding": "pcm_s16le",
+                        "pcmBase64": base64.b64encode(clip).decode("ascii"),
+                        "bytes": len(clip),
+                    },
+                )
+            except Exception:
+                logger.debug("turn.audio emit failed", exc_info=True)
+
+        @audiobuffer.event_handler("on_user_turn_audio_data")
+        async def _on_user_turn_audio(buffer, sample_rate, num_channels):
+            await _emit_turn_audio("user", buffer, sample_rate, num_channels)
+
+        @audiobuffer.event_handler("on_bot_turn_audio_data")
+        async def _on_bot_turn_audio(buffer, sample_rate, num_channels):
+            await _emit_turn_audio("bot", buffer, sample_rate, num_channels)
 
     async def _start_recording() -> None:
         await audiobuffer.start_recording()
@@ -451,39 +615,115 @@ async def run_bot(transport, runner_args) -> None:
         role_message=system_instruction,
         bot_id=bot_id,
         start_recording=_start_recording,
+        emitter=emitter,
+        kb_snapshot_id=kb_snapshot_id,
+        inject_developer=_inject_developer,
+        persona=sandbox_persona,
+        channel="sandbox_live" if sandbox_session else "voice",
+        on_kb_tool_used=kb_enrich.suppress,
+        sink=sink,
     )
+    _flow_holder["state"] = _tool_state
 
-    pipeline = Pipeline(
+    # Outbound Twilio only — VoicemailDetector between STT and user agg, gate after TTS.
+    voicemail_detector = None
+    try:
+        from voice.amd import attach_voicemail_handlers, should_enable_amd
+
+        if should_enable_amd(session.extra, is_twilio=is_twilio):
+            from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
+
+            classifier_llm = KeepAliveAzureLLMService(
+                api_key=voice_config.azure_openai_voice_api_key(),
+                endpoint=voice_config.azure_openai_voice_endpoint(),
+                api_version=voice_config.azure_openai_voice_api_version(),
+                settings=KeepAliveAzureLLMService.Settings(
+                    **build_llm_settings_kwargs(
+                        tuning,
+                        model=deployment,
+                        system_instruction=(
+                            "Classify whether the audio is a live human or a voicemail greeting. "
+                            "Reply with the detector's required tokens only."
+                        ),
+                    )
+                ),
+            )
+            voicemail_detector = VoicemailDetector(llm=classifier_llm)
+            logger.info("AMD VoicemailDetector enabled · session={}", session.session_id)
+    except Exception:
+        logger.exception("AMD setup failed — continuing without voicemail detection")
+        voicemail_detector = None
+
+    pipeline_stages: list[Any] = [transport.input(), stt]
+    if voicemail_detector is not None:
+        pipeline_stages.append(voicemail_detector.detector())
+    pipeline_stages.extend(
         [
-            transport.input(),
-            stt,
             context_aggregator.user(),
-            kb_enrich,  # always-on collections FAQ enrich (Moss/Mem0 pattern)
+            kb_enrich,
             llm,
             tts,
+        ]
+    )
+    if voicemail_detector is not None:
+        pipeline_stages.append(voicemail_detector.gate())
+    pipeline_stages.extend(
+        [
             transport.output(),
             audiobuffer,
             context_aggregator.assistant(),
         ]
     )
+    pipeline = Pipeline(pipeline_stages)
 
     observers = []
     metrics_obs = sink.build_observer()
     if metrics_obs is not None:
         observers.append(metrics_obs)
 
+    # Sandbox gets FULL function-call reporting so the Inspector can show tool
+    # args and results. A production call reports NAME only: verify_identity
+    # args are the caller's mobile digits and must not be shipped to a client
+    # (voice plan §2.2 / docs: RTVIFunctionCallReportLevel).
+    report_level = (
+        RTVIFunctionCallReportLevel.FULL
+        if sandbox_session
+        else RTVIFunctionCallReportLevel.NAME
+    )
+
     # cancel_on_idle_timeout=False so we can speak a farewell first
     # (docs: pipeline-idle-detection / pipeline-termination).
+    # Twilio Media Streams are 8 kHz mono — set sample rates to avoid resample lag.
+    pipeline_kwargs: dict[str, Any] = {
+        "enable_metrics": True,
+        "enable_usage_metrics": True,
+    }
+    if is_twilio:
+        pipeline_kwargs["audio_in_sample_rate"] = 8000
+        pipeline_kwargs["audio_out_sample_rate"] = 8000
     worker = PipelineWorker(
         pipeline,
-        params=PipelineParams(
-            enable_metrics=True,
-            enable_usage_metrics=True,
-        ),
+        params=PipelineParams(**pipeline_kwargs),
         observers=observers or None,
         idle_timeout_secs=_WORKER_IDLE_TIMEOUT_SECS,
         cancel_on_idle_timeout=False,
+        rtvi_observer_params=RTVIObserverParams(
+            function_call_report_level=report_level,
+        ),
     )
+
+    if voicemail_detector is not None:
+        try:
+            from voice.amd import attach_voicemail_handlers
+
+            await attach_voicemail_handlers(
+                voicemail_detector=voicemail_detector,
+                session=session,
+                sink=sink,
+                worker=worker,
+            )
+        except Exception:
+            logger.exception("AMD handlers failed")
 
     flow_manager = FlowManager(
         llm=llm,
@@ -492,6 +732,44 @@ async def run_bot(transport, runner_args) -> None:
         transport=transport,
         global_functions=global_fns,
     )
+
+    async def _summarize_context_action(action: dict) -> None:
+        """Collapse history on a topic hop (voice plan §2.15).
+
+        Uses the native summarizer frame rather than Flows' deprecated
+        RESET_WITH_SUMMARY context strategy. Best-effort: a failed summarize
+        must leave the call running on the full context, not break the hop.
+        """
+        from pipecat.frames.frames import LLMSummarizeContextFrame
+
+        try:
+            await worker.queue_frame(LLMSummarizeContextFrame())
+            logger.debug("Topic-hop summarize queued · session={}", session.session_id)
+        except Exception:
+            logger.exception("summarize_context action failed (non-fatal)")
+
+    try:
+        flow_manager.register_action("summarize_context", _summarize_context_action)
+    except Exception:
+        logger.warning("could not register summarize_context action", exc_info=True)
+
+    async def _mesh_activate_insurance_action(action: dict) -> None:
+        try:
+            from voice import mesh_bus
+
+            role = await mesh_bus.activate_and_publish(
+                "insurance", session_id=session.session_id
+            )
+            logger.info("mesh role after upsell hop → {} · session={}", role, session.session_id)
+        except Exception:
+            logger.exception("mesh_activate_insurance failed (non-fatal)")
+
+    try:
+        flow_manager.register_action(
+            "mesh_activate_insurance", _mesh_activate_insurance_action
+        )
+    except Exception:
+        logger.warning("could not register mesh_activate_insurance", exc_info=True)
 
     @worker.event_handler("on_idle_timeout")
     async def on_worker_idle_timeout(worker_ref):
@@ -620,6 +898,9 @@ async def run_bot(transport, runner_args) -> None:
     # client-message → ClientMessage(type="tuning_delta", data=delta).
     try:
         rtvi = worker.rtvi
+        # Domain events (crm.entity / rag.hits / flow.node / lifecycle) ride the
+        # same processor as tuning deltas.
+        emitter.bind(rtvi)
 
         @rtvi.event_handler("on_client_message")
         async def on_rtvi_client_message(rtvi_proc, message):
@@ -685,8 +966,45 @@ async def run_bot(transport, runner_args) -> None:
                 row["interactionId"],
                 row["customerId"],
             )
+            # Deep-link keys for Sandbox → Customer 360. voiceSessionId equals
+            # sessionId after unification; both written so clients can rely on
+            # either field without guessing.
+            if _vsb is not None and sandbox_session and sandbox_session.get("sessionId"):
+                try:
+                    _vsb.patch_session(
+                        str(sandbox_session["sessionId"]),
+                        {
+                            "voiceSessionId": session.session_id,
+                            "interactionId": row["interactionId"],
+                            "status": "live",
+                        },
+                    )
+                except Exception:
+                    logger.exception("sandbox session CRM id patch failed (non-fatal)")
         except Exception:
             logger.exception("Failed to start CRM persistence — call continues without DB")
+
+        await emitter.lifecycle(phase="connected", reason=session.session_id)
+
+        # Persona describes the simulated caller the tester is playing. It was
+        # written into the session file but never read — the bot had no idea who
+        # it was talking to in a rehearsal.
+        if sandbox_persona:
+            try:
+                from agent_core.context import CallContext
+
+                persona_msg = CallContext(
+                    channel="sandbox_live", persona=sandbox_persona
+                ).persona_message()
+                if persona_msg:
+                    await _inject_developer([persona_msg])
+                    logger.info(
+                        "Sandbox persona applied · session={} · name={}",
+                        session.session_id,
+                        sandbox_persona.get("name"),
+                    )
+            except Exception:
+                logger.exception("persona injection failed (non-fatal)")
 
         try:
             await flow_manager.initialize(initial_node())
@@ -711,6 +1029,7 @@ async def run_bot(transport, runner_args) -> None:
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected · session={}", session.session_id)
+        await emitter.lifecycle(phase="ended", reason="client_disconnected")
         if duration_task is not None and not duration_task.done():
             duration_task.cancel()
         try:

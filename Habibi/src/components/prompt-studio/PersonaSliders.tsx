@@ -73,7 +73,7 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
       stop();
       return;
     }
-    if (!voice?.voiceId) {
+    if (!voice?.voiceId && !voice?.azureVoiceName) {
       toast.error("Pick a TTS voice in the Voice tab first");
       return;
     }
@@ -83,10 +83,13 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
       const result = await previewTts({
         text,
         voiceId: voice.voiceId,
+        shortName: voice.azureVoiceName,
+        azureVoiceName: voice.azureVoiceName,
         speed: voice.speed,
         pitch: voice.pitch,
         warmth: voice.warmth,
         pauseMs: voice.pauseMs,
+        style: voice.style,
       });
       const url = URL.createObjectURL(result.blob);
       urlRef.current = url;

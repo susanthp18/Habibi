@@ -16,6 +16,7 @@ import json
 from typing import Any, Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -234,6 +235,8 @@ SCENARIOS: list[dict[str, Any]] = [
 
 
 def upgrade() -> None:
+    if not seed_demo_enabled():
+        return
     bind = op.get_bind()
 
     # Insert/upsert new scenarios first so FK re-points succeed.

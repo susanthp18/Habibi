@@ -15,6 +15,7 @@ import re
 from typing import Any, Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -49,6 +50,8 @@ _DETECTORS = [
 
 
 def upgrade() -> None:
+    if not seed_demo_enabled():
+        return
     conn = op.get_bind()
     row = conn.execute(
         sa.text(

@@ -38,6 +38,117 @@ from prompt_render import render_prompt
 
 logger = logging.getLogger(__name__)
 
+_SANDBOX_TOOL_NAMES = (
+    "get_customer_context",
+    "get_payment_history",
+    "get_emi_schedule",
+    "search_knowledge_base",
+    "create_promise_to_pay",
+    "flag_dispute",
+    "request_callback",
+    "check_product_eligibility",
+    "capture_lead",
+    "request_documents",
+)
+_SANDBOX_MAX_TOOL_ITERS = 4
+
+
+def _sandbox_tools_enabled(payload: dict[str, Any], context: dict[str, Any] | None) -> bool:
+    if payload.get("enableTools") is False:
+        return False
+    if payload.get("enableTools") is True:
+        return True
+    flag = (os.getenv("SANDBOX_TEXT_TOOLS") or "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    # Auto-enable when a CRM customer is pinned on the run context.
+    ctx = context or {}
+    return bool(ctx.get("customerId") or ctx.get("customer_id"))
+
+
+def _run_sandbox_tool_loop(
+    *,
+    messages: list[dict[str, Any]],
+    customer_text: str,
+    intent: str,
+    customer_id: str,
+    run_id: str,
+    temperature: float,
+    max_tokens: int,
+) -> tuple[str, int, int, list[dict[str, Any]]]:
+    """Shared catalog tools under a max-iteration budget (unification Phase D)."""
+    from agent_core.tools.catalog import CATALOG
+    from bot_tools import ToolContext, execute_tool
+
+    tools = CATALOG.openai_tools(list(_SANDBOX_TOOL_NAMES))
+    ctx = ToolContext(
+        job_id=f"sandbox-{run_id}",
+        conversation_id=f"sandbox-{run_id}",
+        customer_id=customer_id,
+        interaction_id=None,
+        bot_id=db.DEFAULT_BOT_ID,
+        customer_text=customer_text,
+        intent=intent or "general",
+    )
+    working = list(messages)
+    tool_trace: list[dict[str, Any]] = []
+    total_tokens = 0
+    total_latency = 0
+    bot_text = ""
+
+    for _ in range(_SANDBOX_MAX_TOOL_ITERS):
+        chat = azure_openai.chat_with_tools(
+            working,
+            tools=tools,
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+        )
+        total_latency += int(chat.get("latencyMs") or 0)
+        total_tokens += int(
+            chat.get("totalTokens")
+            or ((chat.get("promptTokens") or 0) + (chat.get("completionTokens") or 0))
+            or 0
+        )
+        calls = list(chat.get("toolCalls") or chat.get("tool_calls") or [])
+        content = (chat.get("content") or "").strip()
+        if content:
+            bot_text = content
+        if not calls:
+            break
+        # Assistant message with tool_calls (OpenAI wire shape).
+        working.append(
+            {
+                "role": "assistant",
+                "content": content or None,
+                "tool_calls": [
+                    {
+                        "id": c.get("id") or f"call_{i}",
+                        "type": "function",
+                        "function": {
+                            "name": c.get("name"),
+                            "arguments": c.get("arguments") or "{}",
+                        },
+                    }
+                    for i, c in enumerate(calls)
+                ],
+            }
+        )
+        for c in calls:
+            name = c.get("name") or ""
+            args_json = c.get("arguments") or "{}"
+            ok, result, _ms = execute_tool(ctx, name, args_json)
+            tool_trace.append({"name": name, "ok": ok, "result": result})
+            working.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": c.get("id") or name,
+                    "content": json.dumps(result if isinstance(result, dict) else {"result": result}),
+                }
+            )
+    if not bot_text:
+        bot_text = "I understand. Let me help you with that."
+    return bot_text, total_latency, max(1, total_tokens), tool_trace
+
 # Absolute ceiling on customer→bot exchanges per run (cost control).
 _HARD_MAX_TURNS = max(1, int(os.getenv("SANDBOX_HARD_MAX_TURNS", "3")))
 
@@ -326,19 +437,37 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     sent_label = assembled["sentiment_label"]
 
     t0 = time.perf_counter()
+    tool_trace: list[dict[str, Any]] = []
+    turn_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    customer_id = str(
+        turn_context.get("customerId")
+        or turn_context.get("customer_id")
+        or (payload.get("customerId") or "")
+    ).strip()
     try:
-        chat = azure_openai.chat_complete_detailed(
-            messages,
-            temperature=temperature,
-            max_completion_tokens=max_tokens,
-        )
-        bot_text = chat["content"] or "I understand. Let me help you with that."
-        chat_latency = int(chat["latencyMs"] or 0)
-        tokens = int(
-            chat.get("totalTokens")
-            or ((chat.get("promptTokens") or 0) + (chat.get("completionTokens") or 0))
-            or max(1, len(bot_text) // 4)
-        )
+        if _sandbox_tools_enabled(payload, turn_context) and customer_id:
+            bot_text, chat_latency, tokens, tool_trace = _run_sandbox_tool_loop(
+                messages=messages,
+                customer_text=customer_text,
+                intent=str(intent or "general"),
+                customer_id=customer_id,
+                run_id=run_id,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        else:
+            chat = azure_openai.chat_complete_detailed(
+                messages,
+                temperature=temperature,
+                max_completion_tokens=max_tokens,
+            )
+            bot_text = chat["content"] or "I understand. Let me help you with that."
+            chat_latency = int(chat["latencyMs"] or 0)
+            tokens = int(
+                chat.get("totalTokens")
+                or ((chat.get("promptTokens") or 0) + (chat.get("completionTokens") or 0))
+                or max(1, len(bot_text) // 4)
+            )
     except Exception as exc:
         logger.exception("sandbox chat failed")
         raise RuntimeError(f"sandbox_chat_failed: {exc}") from exc
@@ -498,6 +627,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             "tokens": tokens,
             "guardrailFlags": flags,
             "intent": intent,
+            "toolCalls": tool_trace,
             "sentiment": sentiment,
             "sentimentLabel": sent_label,
             "retrievalLogId": retrieval.get("logId"),

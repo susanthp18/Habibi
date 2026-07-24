@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import os
+import sys
 from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# Make ``seed_guard`` importable from version scripts.
+_ALEMBIC_DIR = Path(__file__).resolve().parent
+if str(_ALEMBIC_DIR) not in sys.path:
+    sys.path.insert(0, str(_ALEMBIC_DIR))
 
 config = context.config
 

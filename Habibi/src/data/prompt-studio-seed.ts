@@ -10,6 +10,10 @@ export type PersonaState = {
 
 export type VoiceConfig = {
   voiceId: string;
+  /** Azure ShortName — authoritative for TTS when set. */
+  azureVoiceName?: string;
+  /** Optional express-as style when the catalog voice supports it. */
+  style?: string | null;
   speed: number; // 0.5 - 1.5
   pitch: number; // -6 to +6
   warmth: number; // 0-100
@@ -149,6 +153,7 @@ export const DEFAULT_GUARDRAILS: Guardrails = {
 
 export const DEFAULT_VOICE: VoiceConfig = {
   voiceId: "priya",
+  azureVoiceName: "en-IN-AartiNeural",
   speed: 1.0,
   pitch: 0,
   warmth: 62,

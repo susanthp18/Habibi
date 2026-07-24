@@ -1,5 +1,5 @@
 import { LineChart, Line, ResponsiveContainer } from "recharts";
-import { Bot, ShieldCheck, AlertTriangle, MessageSquare, Timer, Smile } from "lucide-react";
+import { Bot, ShieldCheck, AlertTriangle, MessageSquare, Timer, Smile, TrendingUp, HandCoins } from "lucide-react";
 import type { Kpis } from "@/data/bot-analytics-seed";
 
 function Spark({ data, color = "var(--brand-primary)" }: { data: number[]; color?: string }) {
@@ -67,6 +67,21 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           hint={`Abandon ${kpis.abandonment.toFixed(1)}%`}
           spark={kpis.escalationSpark}
           tone={kpis.escalation > 20 ? "text-red-700" : "text-amber-700"}
+        />
+        <Tile
+          icon={TrendingUp}
+          label="Upsell presented"
+          value={`${kpis.upsellRate.toFixed(1)}%`}
+          hint="Sessions with offer"
+          spark={kpis.upsellSpark}
+        />
+        <Tile
+          icon={HandCoins}
+          label="PTP rate"
+          value={`${kpis.ptpRate.toFixed(1)}%`}
+          hint="Promise-to-pay captured"
+          spark={kpis.ptpSpark}
+          tone={kpis.ptpRate >= 15 ? "text-emerald-700" : "text-amber-700"}
         />
         <Tile
           icon={MessageSquare}

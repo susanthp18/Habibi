@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -75,6 +76,9 @@ def upgrade() -> None:
           ON usage_events (occurred_at DESC)
         """
     )
+
+    if not seed_demo_enabled():
+        return
 
     conn = op.get_bind()
 

@@ -10,6 +10,13 @@ import type { Persona } from "@/data/sandbox-seed";
 import type { SandboxTurn } from "@/data/sandbox-seed";
 import type { LiveCallChrome } from "@/components/sandbox/ConversationPanel";
 import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
+import {
+  asServerMessage,
+  EMPTY_INSIGHTS,
+  type LiveCallInsights,
+  type LiveRagHit,
+  type LiveToolCall,
+} from "./liveEvents";
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
@@ -107,6 +114,7 @@ type Args = {
 
 export function useSandboxLiveCall(args: Args) {
   const [status, setStatus] = useState<LiveCallChrome["status"]>("idle");
+  const [insights, setInsights] = useState<LiveCallInsights>(EMPTY_INSIGHTS);
   const [muted, setMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -195,6 +203,8 @@ export function useSandboxLiveCall(args: Args) {
     if (!a.enabled) return;
     setStatus("connecting");
     setElapsedSec(0);
+    // Each call is its own trace — never carry the previous call's tool chips.
+    setInsights(EMPTY_INSIGHTS);
     stopBotAudio();
     a.onTurns(() => [
       {
@@ -294,10 +304,189 @@ export function useSandboxLiveCall(args: Args) {
         }
       });
 
+      // --- Turn-taking state (server truth, not a local guess) ----------------
+      c.on(RTVIEvent.BotStartedSpeaking, () =>
+        setInsights((p) => ({ ...p, botSpeaking: true })),
+      );
+      c.on(RTVIEvent.BotStoppedSpeaking, () =>
+        setInsights((p) => ({ ...p, botSpeaking: false })),
+      );
+      c.on(RTVIEvent.UserStartedSpeaking, () =>
+        setInsights((p) => ({ ...p, userSpeaking: true })),
+      );
+      c.on(RTVIEvent.UserStoppedSpeaking, () =>
+        setInsights((p) => ({ ...p, userSpeaking: false })),
+      );
+
+      // Device / transport errors — surface instead of failing silently.
+      const onDeviceOrError = (err: unknown) => {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : typeof err === "string"
+              ? err
+              : (err as { message?: string })?.message || "Voice device error";
+        toast.error(msg, { description: "Check mic permissions and try Restart." });
+      };
+      try {
+        // Optional events — older clients may not emit them.
+        c.on(RTVIEvent.Error as never, onDeviceOrError);
+      } catch {
+        /* ignore */
+      }
+
+      // --- Tool calls ---------------------------------------------------------
+      // InProgress carries tool_call_id + arguments; Stopped closes the same id.
+      // (Started has no id, so it cannot be correlated — we skip it.)
+      c.on(
+        RTVIEvent.LLMFunctionCallInProgress,
+        (data: { function_name?: string; tool_call_id: string; arguments?: unknown }) => {
+          if (!data?.tool_call_id) return;
+          setInsights((p) => {
+            if (p.toolCalls.some((t) => t.id === data.tool_call_id)) return p;
+            const call: LiveToolCall = {
+              id: data.tool_call_id,
+              name: data.function_name || "tool",
+              status: "running",
+              args: data.arguments,
+              startedAt: Date.now(),
+            };
+            return { ...p, toolCalls: [...p.toolCalls, call] };
+          });
+        },
+      );
+
+      c.on(
+        RTVIEvent.LLMFunctionCallStopped,
+        (data: {
+          function_name?: string;
+          tool_call_id: string;
+          cancelled?: boolean;
+          result?: unknown;
+        }) => {
+          if (!data?.tool_call_id) return;
+          setInsights((p) => {
+            const idx = p.toolCalls.findIndex((t) => t.id === data.tool_call_id);
+            // A cancelled call is a barge-in, not a failure — but the result is
+            // still incomplete, so mark it error so the Inspector doesn't imply
+            // a CRM write succeeded.
+            const status: LiveToolCall["status"] = data.cancelled ? "error" : "done";
+            if (idx < 0) {
+              return {
+                ...p,
+                toolCalls: [
+                  ...p.toolCalls,
+                  {
+                    id: data.tool_call_id,
+                    name: data.function_name || "tool",
+                    status,
+                    result: data.result,
+                    startedAt: Date.now(),
+                    endedAt: Date.now(),
+                  },
+                ],
+              };
+            }
+            const next = [...p.toolCalls];
+            next[idx] = {
+              ...next[idx],
+              status,
+              result: data.result ?? next[idx].result,
+              endedAt: Date.now(),
+            };
+            return { ...p, toolCalls: next };
+          });
+        },
+      );
+
+      // --- BigBound domain events (see backend/voice/rtvi_events.py) ----------
+      c.on(RTVIEvent.ServerMessage, (raw: unknown) => {
+        const msg = asServerMessage(raw);
+        if (!msg) return;
+        switch (msg.type) {
+          case "crm.entity":
+            setInsights((p) => {
+              // Attach the CRM row to the tool call that created it so the
+              // Inspector shows one chip per action, not two parallel lists.
+              const next = [...p.toolCalls];
+              for (let i = next.length - 1; i >= 0; i--) {
+                if (!msg.tool || next[i].name === msg.tool) {
+                  next[i] = {
+                    ...next[i],
+                    entity: msg.entity,
+                    entityId: msg.id,
+                    deepLink: msg.deepLink,
+                  };
+                  break;
+                }
+              }
+              return { ...p, toolCalls: next };
+            });
+            break;
+          case "rag.hits":
+            setInsights((p) => {
+              const hit: LiveRagHit = {
+                id: `${Date.now()}-${p.ragHits.length}`,
+                query: msg.query,
+                chunkIds: msg.chunkIds ?? [],
+                snapshotId: msg.snapshotId,
+                topScore: msg.topScore,
+                source: msg.source,
+                at: Date.now(),
+              };
+              // Cap history — a long call must not grow this unbounded.
+              return { ...p, ragHits: [...p.ragHits, hit].slice(-25) };
+            });
+            break;
+          case "flow.node":
+            setInsights((p) => {
+              const name = msg.name?.trim();
+              if (!name) return p;
+              // Skip consecutive duplicates (re-emits on reconnect / same node).
+              const hist =
+                p.flowNodeHistory[p.flowNodeHistory.length - 1] === name
+                  ? p.flowNodeHistory
+                  : [...p.flowNodeHistory, name].slice(-12);
+              return { ...p, flowNode: name, flowNodeHistory: hist };
+            });
+            break;
+          case "session.lifecycle":
+            setInsights((p) => ({ ...p, lifecycle: msg }));
+            break;
+          case "handoff.status":
+            setInsights((p) => ({ ...p, handoff: msg }));
+            break;
+          case "context.card":
+            setInsights((p) => ({ ...p, contextCard: msg.card }));
+            break;
+          case "turn.audio":
+            setInsights((p) => ({
+              ...p,
+              turnAudio: [
+                ...p.turnAudio,
+                {
+                  id: `${Date.now()}-${p.turnAudio.length}`,
+                  speaker: msg.speaker,
+                  sampleRate: msg.sampleRate || 16000,
+                  pcmBase64: msg.pcmBase64,
+                  bytes: msg.bytes,
+                  at: Date.now(),
+                },
+              ].slice(-12),
+            }));
+            break;
+        }
+      });
+
       if (typeof c.initDevices === "function") {
         await c.initDevices();
       }
-      await c.connect({ webrtcUrl: started.webrtcUrl });
+      // Pass sessionId so the voice bot loads THIS session file (not a shared
+      // "latest.json"). SmallWebRTC maps requestData → runner_args.body.
+      await c.connect({
+        webrtcUrl: started.webrtcUrl,
+        requestData: { sessionId: started.sessionId },
+      });
       clientRef.current = c as typeof clientRef.current;
       setStatus("live");
       startedAt.current = Date.now();
@@ -375,10 +564,15 @@ export function useSandboxLiveCall(args: Args) {
     muted,
     elapsedSec,
     voiceLabel,
+    flowNodeHistory: insights.flowNodeHistory,
+    botSpeaking: insights.botSpeaking,
+    userSpeaking: insights.userSpeaking,
+    handoff: insights.handoff,
+    lifecycle: insights.lifecycle,
     onStart: () => void start(),
     onEnd: () => void end(),
     onToggleMute: toggleMute,
   };
 
-  return { chrome, sessionId, applyTune, restart, status };
+  return { chrome, sessionId, applyTune, restart, status, insights };
 }

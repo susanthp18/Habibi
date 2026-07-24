@@ -70,6 +70,15 @@ def verify_signature(app_secret: str | None, raw_body: bytes, header: str | None
 
 def send_text_message(*, to_phone: str, body: str) -> dict[str, Any]:
     """Send a free-form WhatsApp text message. Raises ValueError on API/config errors."""
+    import circuit_breaker
+
+    return circuit_breaker.get_breaker("whatsapp_meta").call(
+        _send_text_message_uncircuited, to_phone=to_phone, body=body
+    )
+
+
+def _send_text_message_uncircuited(*, to_phone: str, body: str) -> dict[str, Any]:
+    """Send a free-form WhatsApp text message. Raises ValueError on API/config errors."""
     cfg = config()
     token = cfg["token"]
     phone_number_id = cfg["phone_number_id"]

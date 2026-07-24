@@ -18,6 +18,8 @@ import { transcribeAudio } from "@/api/speech";
 import type { VoiceConfig } from "@/data/prompt-studio-seed";
 import { INTENT_LABEL, type IntentKey, type SandboxTurn } from "@/data/sandbox-seed";
 import { cn } from "@/lib/utils";
+import { Waveform } from "@/components/floor/Waveform";
+import type { HandoffStatusEvent, LifecycleEvent } from "./voice/liveEvents";
 import type { SandboxMode } from "./SandboxHeader";
 
 export type LiveCallChrome = {
@@ -25,10 +27,31 @@ export type LiveCallChrome = {
   muted: boolean;
   elapsedSec: number;
   voiceLabel?: string;
+  /** Last Flows nodes for the breadcrumb (server truth). */
+  flowNodeHistory?: string[];
+  /** Server-side speaking state — do not blend with local mic mute. */
+  botSpeaking?: boolean;
+  userSpeaking?: boolean;
+  /** Optional AnalyserNode levels 0–1 for waveform amplitude. */
+  localLevel?: number;
+  remoteLevel?: number;
+  handoff?: HandoffStatusEvent | null;
+  lifecycle?: LifecycleEvent | null;
   onStart: () => void;
   onEnd: () => void;
   onToggleMute: () => void;
 };
+
+function handoffBannerCopy(h: HandoffStatusEvent): string {
+  const reason = (h.reason || "").trim() || "no reason given";
+  const who = (h.assignee || h.team || "").trim();
+  const whoSuffix = who ? ` · ${who}` : "";
+  // `callback_queue` must not read as a live transfer.
+  if (h.mode === "callback_queue") {
+    return `Human callback queued — ${reason}${whoSuffix}`;
+  }
+  return `Handoff (${h.mode}) — ${reason}${whoSuffix}`;
+}
 
 type Props = {
   mode: SandboxMode;
@@ -192,53 +215,106 @@ export function ConversationPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface-page">
       {mode === "live" && live && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-token)] bg-surface-card px-4 py-2">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium capitalize",
-              live.status === "live"
-                ? "bg-emerald-50 text-emerald-700"
-                : live.status === "connecting"
-                  ? "bg-amber-50 text-amber-700"
-                  : "bg-surface-sunken text-text-secondary",
-            )}
-          >
-            {live.status}
-          </span>
-          {(live.status === "live" || live.status === "connecting") && (
-            <span className="font-mono text-[11px] text-text-muted">{formatElapsed(live.elapsedSec)}</span>
-          )}
-          {live.voiceLabel && (
-            <span className="text-[11px] text-text-muted">Voice: {live.voiceLabel}</span>
-          )}
-          <div className="ml-auto flex items-center gap-1.5">
-            {live.status === "idle" || live.status === "ended" ? (
-              <button
-                type="button"
-                onClick={live.onStart}
-                className="inline-flex items-center gap-1 rounded-md bg-brand-primary px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-brand-primary-dark"
-              >
-                <Phone className="h-3.5 w-3.5" /> Start call
-              </button>
-            ) : (
+        <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card">
+          <div className="flex items-center gap-2 px-4 py-2">
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-medium capitalize",
+                live.status === "live"
+                  ? "bg-emerald-50 text-emerald-700"
+                  : live.status === "connecting"
+                    ? "bg-amber-50 text-amber-700"
+                    : "bg-surface-sunken text-text-secondary",
+              )}
+            >
+              {live.status}
+            </span>
+            {(live.status === "live" || live.status === "connecting") && (
               <>
-                <button
-                  type="button"
-                  onClick={live.onToggleMute}
-                  className="rounded-md border border-[var(--border-token)] px-2.5 py-1.5 text-[12px] hover:bg-surface-sunken"
+                <span className="font-mono text-[11px] text-text-muted">
+                  {formatElapsed(live.elapsedSec)}
+                </span>
+                <span
+                  className="inline-flex items-center gap-1.5"
+                  title="Server speaking state (bot · user)"
+                  aria-label="Speaking indicator"
                 >
-                  {live.muted ? "Unmute" : "Mute"}
-                </button>
-                <button
-                  type="button"
-                  onClick={live.onEnd}
-                  className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] font-medium text-red-700 hover:bg-red-100"
-                >
-                  <PhoneOff className="h-3.5 w-3.5" /> End
-                </button>
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full transition-colors",
+                      live.botSpeaking ? "bg-brand-primary" : "bg-surface-sunken ring-1 ring-[var(--border-token)]",
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full transition-colors",
+                      live.userSpeaking ? "bg-emerald-500" : "bg-surface-sunken ring-1 ring-[var(--border-token)]",
+                    )}
+                  />
+                  <Waveform
+                    active={Boolean(live.botSpeaking || live.userSpeaking)}
+                    bars={14}
+                    className="ml-0.5 h-3.5"
+                  />
+                </span>
               </>
             )}
+            {live.lifecycle?.phase && (
+              <span
+                className="rounded-full bg-surface-sunken px-2 py-0.5 text-[10.5px] font-medium capitalize text-text-secondary"
+                title={live.lifecycle.reason || live.lifecycle.phase}
+              >
+                {live.lifecycle.phase}
+                {live.lifecycle.phase === "idle" && live.lifecycle.reason
+                  ? ` · ${live.lifecycle.reason}`
+                  : ""}
+              </span>
+            )}
+            {live.voiceLabel && (
+              <span className="text-[11px] text-text-muted">Voice: {live.voiceLabel}</span>
+            )}
+            {(live.flowNodeHistory?.length ?? 0) > 0 && (
+              <span
+                className="hidden min-w-0 truncate font-mono text-[10.5px] text-text-muted sm:inline"
+                title={live.flowNodeHistory!.join(" → ")}
+              >
+                {live.flowNodeHistory!.slice(-3).join(" → ")}
+              </span>
+            )}
+            <div className="ml-auto flex items-center gap-1.5">
+              {live.status === "idle" || live.status === "ended" ? (
+                <button
+                  type="button"
+                  onClick={live.onStart}
+                  className="inline-flex items-center gap-1 rounded-md bg-brand-primary px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-brand-primary-dark"
+                >
+                  <Phone className="h-3.5 w-3.5" /> Start call
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={live.onToggleMute}
+                    className="rounded-md border border-[var(--border-token)] px-2.5 py-1.5 text-[12px] hover:bg-surface-sunken"
+                  >
+                    {live.muted ? "Unmute" : "Mute"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={live.onEnd}
+                    className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] font-medium text-red-700 hover:bg-red-100"
+                  >
+                    <PhoneOff className="h-3.5 w-3.5" /> End
+                  </button>
+                </>
+              )}
+            </div>
           </div>
+          {live.handoff && (
+            <div className="border-t border-amber-100 bg-amber-50 px-4 py-1.5 text-[11.5px] text-amber-900">
+              {handoffBannerCopy(live.handoff)}
+            </div>
+          )}
         </div>
       )}
 
@@ -370,10 +446,13 @@ async function playBotText(text: string, voice: VoiceConfig): Promise<void> {
   const result = await previewTts({
     text: text.slice(0, 500),
     voiceId: voice.voiceId,
+    shortName: voice.azureVoiceName,
+    azureVoiceName: voice.azureVoiceName,
     speed: voice.speed,
     pitch: voice.pitch,
     warmth: voice.warmth,
     pauseMs: voice.pauseMs,
+    style: voice.style,
   });
   const url = URL.createObjectURL(result.blob);
   try {

@@ -26,6 +26,10 @@ export interface DailyPoint {
   latencyP90: number;
   latencyP99: number;
   sentiment: number; // -1..1
+  /** Sessions where an upsell was presented (voice + WhatsApp). */
+  upsellPresented?: number;
+  /** Sessions that captured a promise-to-pay. */
+  ptpCaptured?: number;
 }
 
 export interface EscalationReason {
@@ -109,6 +113,8 @@ export const dailySeries: DailyPoint[] = Array.from({ length: 90 }, (_, i) => {
     latencyP90: 1350 + (r() - 0.5) * 280,
     latencyP99: 2400 + (r() - 0.5) * 500,
     sentiment: 0.25 + (r() - 0.5) * 0.35,
+    upsellPresented: Math.round(sessions * (0.08 + (r() - 0.5) * 0.03)),
+    ptpCaptured: Math.round(sessions * (0.18 + (r() - 0.5) * 0.05)),
   };
 });
 
@@ -187,12 +193,16 @@ export interface Kpis {
   latencyP90: number;
   avgSentiment: number;
   csatProxy: number; // derived
+  upsellRate: number; // % of sessions with upsell presented
+  ptpRate: number; // % of sessions with PTP captured
   containmentSpark: number[];
   latencySpark: number[];
   turnsSpark: number[];
   sentimentSpark: number[];
   escalationSpark: number[];
   sessionsSpark: number[];
+  upsellSpark: number[];
+  ptpSpark: number[];
 }
 
 export function computeKpis(points: DailyPoint[]): Kpis {
@@ -200,6 +210,8 @@ export function computeKpis(points: DailyPoint[]): Kpis {
   const contained = points.reduce((a, p) => a + p.contained, 0);
   const escalated = points.reduce((a, p) => a + p.escalated, 0);
   const abandoned = points.reduce((a, p) => a + p.abandoned, 0);
+  const upsellPresented = points.reduce((a, p) => a + (p.upsellPresented ?? 0), 0);
+  const ptpCaptured = points.reduce((a, p) => a + (p.ptpCaptured ?? 0), 0);
   const avgTurns = points.reduce((a, p) => a + p.avgTurns, 0) / (points.length || 1);
   const latencyP50 = points.reduce((a, p) => a + p.latencyP50, 0) / (points.length || 1);
   const latencyP90 = points.reduce((a, p) => a + p.latencyP90, 0) / (points.length || 1);
@@ -215,12 +227,16 @@ export function computeKpis(points: DailyPoint[]): Kpis {
     latencyP90,
     avgSentiment,
     csatProxy: Math.max(0, Math.min(100, 60 + avgSentiment * 40)),
+    upsellRate: (upsellPresented / (sessions || 1)) * 100,
+    ptpRate: (ptpCaptured / (sessions || 1)) * 100,
     containmentSpark: points.map((p) => (p.contained / (p.sessions || 1)) * 100),
     latencySpark: points.map((p) => p.latencyP90),
     turnsSpark: points.map((p) => p.avgTurns),
     sentimentSpark: points.map((p) => p.sentiment),
     escalationSpark: points.map((p) => (p.escalated / (p.sessions || 1)) * 100),
     sessionsSpark: points.map((p) => p.sessions),
+    upsellSpark: points.map((p) => ((p.upsellPresented ?? 0) / (p.sessions || 1)) * 100),
+    ptpSpark: points.map((p) => ((p.ptpCaptured ?? 0) / (p.sessions || 1)) * 100),
   };
 }
 

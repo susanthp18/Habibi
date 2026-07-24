@@ -1,10 +1,17 @@
-fastapi
-uvicorn
-sqlalchemy
-psycopg[binary]
-alembic
-openai
-tiktoken
-httpx
-minio
-python-multipart
+# Known-good pins from the local venv (optimization Tier 0).
+# Bump deliberately after testing — do not leave floating majors in prod.
+fastapi==0.139.2
+uvicorn==0.51.0
+sqlalchemy==2.0.51
+psycopg[binary]==3.3.4
+alembic==1.18.5
+openai==2.46.0
+tiktoken==0.13.0
+httpx==0.28.1
+minio==7.2.20
+python-multipart==0.0.32
+twilio>=9.0,<10
+redis>=5.0,<6
+websockets>=12.0,<16
+# Dev / regression (auth CORS lock + readiness)
+pytest==9.1.1

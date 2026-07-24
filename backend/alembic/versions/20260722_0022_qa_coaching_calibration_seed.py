@@ -14,6 +14,7 @@ import json
 from typing import Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -26,7 +27,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     conn = op.get_bind()
 
-    # --- columns ---
+    # --- columns (schema; always) ---
     conn.execute(
         sa.text(
             """
@@ -74,6 +75,9 @@ def upgrade() -> None:
         )
     )
 
+    if not seed_demo_enabled():
+        return
+
     # Enrich the single existing coaching row if still sparse
     conn.execute(
         sa.text(
@@ -93,6 +97,7 @@ def upgrade() -> None:
 
     # Pull real scorecard / interaction anchors for additional seed rows
     rows = conn.execute(
+
         sa.text(
             """
             SELECT s.id AS scorecard_id,

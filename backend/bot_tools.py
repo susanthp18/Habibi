@@ -9,8 +9,31 @@ from typing import Any, Callable
 
 import db
 from agent_core.intent import classify_intent, resolve_intent
+from agent_core.tools import domain
+from agent_core.tools.catalog import CATALOG
 
 logger = logging.getLogger(__name__)
+
+# Domain soft failures the model can retry against — never raise these.
+_CRM_HARD_FAIL = frozenset({"crm_write_failed"})
+
+
+def _domain_soft_fail(result: domain.ToolResult) -> dict[str, Any] | None:
+    """Return structured error payload for validation/soft fails; None if ok.
+
+    Raises ValueError only for unexpected CRM write failures so execute_tool
+    still logs a traceback for those.
+    """
+    if result.ok:
+        return None
+    err = result.error or "tool_failed"
+    if err in _CRM_HARD_FAIL:
+        raise ValueError(err)
+    out: dict[str, Any] = {"ok": False, "error": err, **(result.data or {})}
+    if result.spoken_summary:
+        out["say"] = result.spoken_summary
+    return out
+
 
 # Intents allowed to call search_knowledge_base (insurance/product corpus).
 # Collections money questions must use CRM tools, not HL Assurance chunks.
@@ -125,240 +148,29 @@ def _wants_activity_eligibility(query: str) -> bool:
         )
     ) and any(c in t for c in ("cover", "covered", "allow", "permitted", "can i", "claim"))
 
-TOOL_DEFINITIONS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_customer_context",
-            "description": (
-                "Authoritative customer/account snapshot: name, outstanding, DPD, "
-                "DND, consent, open promises/disputes. Use for any money question."
-            ),
-            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_payment_history",
-            "description": "Recent ledger entries for the customer's primary account.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8},
-                },
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_emi_schedule",
-            "description": "EMI installment schedule for the customer's primary account.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 24, "default": 6},
-                },
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_knowledge_base",
-            "description": (
-                "Search product/policy knowledge base for insurance benefits, coverage, "
-                "exclusions, or FAQ. NEVER for balance/EMI/fees (use CRM tools). "
-                "Query narrowly: for coverage ask the benefit/section (e.g. 'Travel "
-                "Protect360 overseas medical expenses benefits'); for exclusions ask "
-                "'Travel Protect360 GENERAL EXCLUSIONS policy wording'."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "minLength": 2},
-                },
-                "required": ["query"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_promise_to_pay",
-            "description": "Record a promise-to-pay (PTP). Does not collect payment.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "amount": {"type": "number", "minimum": 1},
-                    "promisedDate": {
-                        "type": "string",
-                        "description": "ISO date YYYY-MM-DD",
-                    },
-                },
-                "required": ["amount", "promisedDate"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "flag_dispute",
-            "description": "Flag a payment/charge dispute for human review (capture only).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "type": {"type": "string"},
-                    "amount": {"type": "number"},
-                    "transcriptSnippet": {"type": "string"},
-                },
-                "required": ["type"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "request_callback",
-            "description": "Schedule a human callback. Respects DND windows.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string",
-                        "enum": [
-                            "payment_discussion",
-                            "dispute_followup",
-                            "document_query",
-                            "hardship_review",
-                            "upsell_interest",
-                            "general",
-                        ],
-                    },
-                    "scheduledAt": {
-                        "type": "string",
-                        "description": "ISO datetime for the callback slot",
-                    },
-                    "windowMins": {"type": "integer", "minimum": 15, "maximum": 120},
-                },
-                "required": ["reason", "scheduledAt"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_customer_note",
-            "description": "Add an internal CRM note on the customer.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "minLength": 2},
-                    "pinned": {"type": "boolean"},
-                },
-                "required": ["text"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "escalate_to_human",
-            "description": (
-                "Hand the conversation to a human agent (needs_human). "
-                "Use for legal threats, abuse, identity confusion, or when tools fail."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reason": {"type": "string"},
-                },
-                "required": ["reason"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_product_eligibility",
-            "description": (
-                "Evaluate eligibility for an upsell/cross-sell product using live account "
-                "DPD, consent/DND, and product rules. Bureau/KYC/income return unknown "
-                "(not fake passes). Call before capture_lead."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "productId": {
-                        "type": "string",
-                        "description": (
-                            "Product id e.g. topup-loan, debt-consolidation, "
-                            "cc-limit-upgrade, bundled-insurance, personal-loan, gold-loan"
-                        ),
-                    },
-                },
-                "required": ["productId"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "capture_lead",
-            "description": (
-                "Capture an upsell/cross-sell lead into the CRM pipeline (Interested). "
-                "Runs eligibility first; hard-blocks on DND/consent fail or DPD rule fail. "
-                "Unknown bureau/KYC does not block. Prefer after customer shows interest."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "productId": {"type": "string"},
-                    "offerAmount": {"type": "number", "minimum": 1},
-                    "transcriptSnippet": {"type": "string"},
-                    "priority": {
-                        "type": "string",
-                        "enum": ["low", "normal", "high"],
-                    },
-                },
-                "required": ["productId"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "identify_customer",
-            "description": (
-                "Verify the caller/customer by phone digits or account last-4 and rebind "
-                "the interaction (writes identity_verifications). Use when identity is "
-                "unclear or the session started as an unknown caller."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "phone": {"type": "string"},
-                    "accountTail": {
-                        "type": "string",
-                        "description": "Last 4 digits of account id",
-                    },
-                },
-                "additionalProperties": False,
-            },
-        },
-    },
-]
+# Wire contract now comes from the shared catalog so voice and WhatsApp cannot
+# drift apart again (they previously disagreed on promise_date/promisedDate,
+# dispute_type/type, scheduled_at/scheduledAt, summary/transcriptSnippet).
+# execute_tool() normalizes incoming args, so a model that still emits the old
+# camelCase names keeps working.
+TOOL_DEFINITIONS: list[dict[str, Any]] = CATALOG.openai_tools(
+    [
+        "get_customer_context",
+        "get_payment_history",
+        "get_emi_schedule",
+        "search_knowledge_base",
+        "create_promise_to_pay",
+        "flag_dispute",
+        "request_callback",
+        "add_customer_note",
+        "escalate_to_human",
+        "check_product_eligibility",
+        "capture_lead",
+        "request_documents",
+        "identify_customer",
+    ]
+)
+
 
 
 def _compact_customer(customer: dict[str, Any]) -> dict[str, Any]:
@@ -579,57 +391,75 @@ def _tool_search_knowledge_base(ctx: ToolContext, args: dict[str, Any]) -> dict[
 
 
 def _tool_create_promise(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "customerId": ctx.customer_id,
-        "amount": args["amount"],
-        "promisedDate": args["promisedDate"],
-        "interactionId": ctx.interaction_id,
-        "channel": "whatsapp",
-    }
-    if ctx.bot_id:
-        payload["ownerBotId"] = ctx.bot_id
     idem = f"{ctx.job_id}:create_promise_to_pay"
-    try:
-        result = db.create_promise(payload, idempotency_key=idem)
-    except KeyError:
-        payload.pop("ownerBotId", None)
-        result = db.create_promise(payload, idempotency_key=idem)
-    if ctx.interaction_id:
-        try:
-            import capture
-
-            with db.engine.begin() as conn:
-                capture.mark_ptp_captured(conn, ctx.interaction_id)
-        except Exception:
-            logger.exception("mark_ptp_captured failed")
-    return {"ok": True, "promise": {"id": result.get("id"), "amount": result.get("amount"), "status": result.get("status")}}
+    result = domain.create_promise_to_pay(
+        customer_id=ctx.customer_id,
+        amount=args["amount"],
+        promised_date=args["promise_date"],
+        interaction_id=ctx.interaction_id,
+        channel="whatsapp",
+        bot_id=ctx.bot_id,
+        idempotency_key=idem,
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    return {
+        "ok": True,
+        "promise": {
+            "id": result.data.get("promiseId"),
+            "amount": result.data.get("amount"),
+            "status": result.data.get("status"),
+        },
+    }
 
 
 def _tool_flag_dispute(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    payload = {
-        "customerId": ctx.customer_id,
-        "type": args["type"],
-        "amount": args.get("amount"),
-        "transcriptSnippet": args.get("transcriptSnippet") or ctx.customer_text[:240],
-        "interactionId": ctx.interaction_id,
-        "priority": "high",
-    }
     idem = f"{ctx.job_id}:flag_dispute"
-    result = db.create_dispute(payload, idempotency_key=idem)
-    return {"ok": True, "dispute": {"id": result.get("id"), "status": result.get("status"), "type": result.get("type")}}
+    result = domain.flag_dispute(
+        customer_id=ctx.customer_id,
+        dispute_type=args.get("dispute_type") or "",
+        amount=args.get("amount"),
+        summary=args.get("summary") or ctx.customer_text[:240],
+        interaction_id=ctx.interaction_id,
+        priority="high",
+        idempotency_key=idem,
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    return {
+        "ok": True,
+        "dispute": {
+            "id": result.data.get("disputeId"),
+            "status": result.data.get("status"),
+            "type": result.data.get("type"),
+        },
+    }
 
 
 def _tool_request_callback(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    payload = {
-        "customerId": ctx.customer_id,
-        "reason": args["reason"],
-        "scheduledAt": args["scheduledAt"],
-        "windowMins": args.get("windowMins") or 30,
-        "interactionId": ctx.interaction_id,
-        "transcriptSnippet": ctx.customer_text[:240],
+    result = domain.request_callback(
+        customer_id=ctx.customer_id,
+        reason=args.get("reason") or "general",
+        scheduled_at=args.get("scheduled_at") or "",
+        window_mins=args.get("window_mins") or 30,
+        interaction_id=ctx.interaction_id,
+        transcript_snippet=ctx.customer_text[:240],
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    return {
+        "ok": True,
+        "callback": {
+            "id": result.data.get("callbackId"),
+            "reason": result.data.get("reason"),
+            "scheduledAt": result.data.get("scheduledAt"),
+            "windowMins": result.data.get("windowMins"),
+            "status": result.data.get("status"),
+        },
     }
-    result = db.create_callback(payload)
-    return {"ok": True, "callback": result}
 
 
 def _tool_add_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -646,144 +476,58 @@ def _tool_escalate(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tool_check_product_eligibility(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    import capture
-    from sqlalchemy import text
-
-    product_id = (args.get("productId") or "").strip()
-    if not product_id:
-        raise ValueError("productId_required")
-    with db.engine.begin() as conn:
-        product = conn.execute(
-            text("SELECT id, name, roi FROM products WHERE id = :id"),
-            {"id": product_id},
-        ).mappings().first()
-        if product is None:
-            raise KeyError(f"product_not_found:{product_id}")
-        flags = capture.evaluate_product_eligibility(
-            conn, customer_id=ctx.customer_id, product_id=product_id
-        )
-        block = capture.eligibility_blocks_capture(flags)
-        capture.record_eligibility_checked(
-            conn,
-            interaction_id=ctx.interaction_id,
-            customer_id=ctx.customer_id,
-            product_id=product_id,
-            flags=flags,
-            blocked=block,
-            actor_bot_id=ctx.bot_id,
-        )
-    return {
-        "ok": True,
-        "productId": product_id,
-        "productName": product.get("name"),
-        "eligible": block is None,
-        "blockReason": block,
-        "flags": [
-            {
-                "label": f.get("label"),
-                "passed": f.get("passed"),
-                "reason": f.get("reason"),
-                "status": f.get("status"),
-            }
-            for f in flags
-        ],
-    }
+    """Delegates to the shared handler so voice and WhatsApp apply identical rules."""
+    result = domain.check_product_eligibility(
+        customer_id=ctx.customer_id,
+        product_id=(args.get("product_id") or "").strip(),
+        interaction_id=ctx.interaction_id,
+        bot_id=ctx.bot_id,
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    return {"ok": True, **result.data}
 
 
 def _tool_capture_lead(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    import capture
-    from agent_core.sentiment import estimate_sentiment, sentiment_label
-    from sqlalchemy import text
+    """Delegates to the shared handler (same eligibility gate, same lead row)."""
+    result = domain.capture_lead(
+        customer_id=ctx.customer_id,
+        product_id=(args.get("product_id") or "").strip(),
+        interaction_id=ctx.interaction_id,
+        bot_id=ctx.bot_id,
+        offer_amount=args.get("offer_amount"),
+        summary=args.get("summary"),
+        priority=args.get("priority"),
+        source="bot_chat",
+        customer_text=ctx.customer_text or "",
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    payload: dict[str, Any] = {"ok": True, **result.data}
+    if result.deep_link:
+        payload["deepLink"] = result.deep_link
+    return payload
 
-    product_id = (args.get("productId") or "").strip()
-    if not product_id:
-        raise ValueError("productId_required")
 
-    with db.engine.begin() as conn:
-        product = conn.execute(
-            text("SELECT id, name, roi FROM products WHERE id = :id"),
-            {"id": product_id},
-        ).mappings().first()
-        if product is None:
-            raise KeyError(f"product_not_found:{product_id}")
-        flags = capture.evaluate_product_eligibility(
-            conn, customer_id=ctx.customer_id, product_id=product_id
-        )
-        block = capture.eligibility_blocks_capture(flags)
-        capture.record_eligibility_checked(
-            conn,
-            interaction_id=ctx.interaction_id,
-            customer_id=ctx.customer_id,
-            product_id=product_id,
-            flags=flags,
-            blocked=block,
-            actor_bot_id=ctx.bot_id,
-        )
-        if block:
-            return {
-                "ok": False,
-                "error": "eligibility_blocked",
-                "blockReason": block,
-                "flags": flags,
-            }
-
-    score = estimate_sentiment(ctx.customer_text or "")
-    snippet = (args.get("transcriptSnippet") or ctx.customer_text or "")[:400]
-    offer_amount = args.get("offerAmount")
-    priority = args.get("priority") or "normal"
-    if priority not in {"low", "normal", "high"}:
-        priority = "normal"
-
-    payload: dict[str, Any] = {
-        "customerId": ctx.customer_id,
-        "productId": product_id,
-        "interactionId": ctx.interaction_id,
-        "source": "bot_chat",
-        "stage": "interested",
-        "sentimentAtCapture": sentiment_label(score),
-        "sentimentScore": round(float(score), 3),
-        "transcriptSnippet": snippet or f"Interest in {product.get('name')}",
-        "offerAmount": offer_amount,
-        "offerRoi": product.get("roi"),
-        "estimatedValue": offer_amount,
-        "priority": priority,
-        "eligibilityFlags": flags,
-    }
-    lead = db.create_lead(payload)
-    try:
-        import capture as capture_mod
-
-        with db.engine.begin() as conn:
-            capture_mod.record_lead_captured(
-                conn,
-                interaction_id=ctx.interaction_id,
-                lead_id=str(lead.get("id")),
-                product_id=product_id,
-                actor_bot_id=ctx.bot_id,
-            )
-            if ctx.interaction_id:
-                capture_mod.record_offer_presented(
-                    conn,
-                    interaction_id=ctx.interaction_id,
-                    product_id=product_id,
-                    source="capture_lead",
-                    actor_bot_id=ctx.bot_id,
-                )
-    except Exception:
-        logger.exception("lead_captured event failed")
-    return {
-        "ok": True,
-        "lead": {
-            "id": lead.get("id"),
-            "stage": lead.get("stage"),
-            "productId": product_id,
-            "productName": product.get("name"),
-        },
-        "flags": [
-            {"label": f.get("label"), "passed": f.get("passed"), "status": f.get("status")}
-            for f in flags
-        ],
-    }
+def _tool_request_documents(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Raise a document request — the tool voice already had and chat did not."""
+    result = domain.request_documents(
+        customer_id=ctx.customer_id,
+        document_type=(args.get("document_type") or "").strip(),
+        interaction_id=ctx.interaction_id,
+        delivery_channel=args.get("delivery_channel"),
+        period=args.get("period"),
+        requested_via="bot_chat",
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    payload: dict[str, Any] = {"ok": True, **result.data}
+    if result.deep_link:
+        payload["deepLink"] = result.deep_link
+    return payload
 
 
 def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -795,9 +539,9 @@ def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
         raise ValueError("interaction_id_required")
 
     phone = (args.get("phone") or "").strip()
-    account_tail = (args.get("accountTail") or "").strip()
+    account_tail = (args.get("account_tail") or "").strip()
     if not phone and not account_tail:
-        raise ValueError("phone_or_accountTail_required")
+        raise ValueError("phone_or_account_tail_required")
 
     with db.engine.begin() as conn:
         matched = None
@@ -845,6 +589,7 @@ HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "escalate_to_human": _tool_escalate,
     "check_product_eligibility": _tool_check_product_eligibility,
     "capture_lead": _tool_capture_lead,
+    "request_documents": _tool_request_documents,
     "identify_customer": _tool_identify_customer,
 }
 
@@ -864,9 +609,20 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
         latency = int((time.perf_counter() - t0) * 1000)
         return False, {"error": f"unknown_tool: {name}"}, latency
 
+    # Canonicalize to snake_case. A model replaying an older conversation may
+    # still emit promisedDate / scheduledAt / productId; the catalog's aliases
+    # map those onto the names the handlers below read.
+    args = CATALOG.normalize(name, args)
+
     try:
         result = handler(ctx, args)
         latency = int((time.perf_counter() - t0) * 1000)
+        if isinstance(result, dict) and result.get("ok") is False:
+            logger.warning(
+                "tool %s rejected · error=%s",
+                name,
+                result.get("error"),
+            )
         return True, result, latency
     except Exception as exc:
         logger.exception("tool %s failed", name)
