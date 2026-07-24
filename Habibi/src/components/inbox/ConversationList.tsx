@@ -1,7 +1,7 @@
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadStatus } from "@/data/inbox-seed";
-import { Avatar, channelMeta, chipStatus, slaColor, statusMeta } from "./meta";
+import { Avatar, resolveChannelMeta, chipStatus, slaColor, statusMeta } from "./meta";
 import { useMemo, useState } from "react";
 
 type Filter = "all" | ThreadStatus | "mine";
@@ -60,7 +60,7 @@ export function ConversationList({
   }, [threads, q, filter]);
 
   return (
-    <aside className="flex min-h-0 w-[280px] shrink-0 flex-col border-r border-[var(--border-token)] bg-surface-card xl:w-[320px]">
+    <aside className="flex h-full min-h-0 w-full flex-col border-r border-[var(--border-token)] bg-surface-card">
       <div className="shrink-0 border-b border-[var(--border-token)] px-3 py-3">
         <h2 className="mb-2 text-[15px] font-semibold text-brand-navy">Inbox</h2>
         <div className="relative">
@@ -72,14 +72,14 @@ export function ConversationList({
             className="w-full rounded-md border border-[var(--border-token)] bg-surface-sunken py-2 pl-8 pr-2 text-[13px] placeholder:text-text-muted focus:border-brand-primary focus:bg-white focus:outline-none"
           />
         </div>
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {filters.map((f) => (
             <button
               key={f.key}
               type="button"
               onClick={() => setFilter(f.key)}
               className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
                 filter === f.key
                   ? "border-brand-primary bg-brand-tint text-brand-primary-dark"
                   : "border-[var(--border-token)] bg-white text-text-secondary hover:bg-surface-sunken",
@@ -108,7 +108,7 @@ export function ConversationList({
         <ul>
           {filtered.map((t, i) => {
             const isActive = t.id === activeId;
-            const ChanIcon = channelMeta[t.channel].icon;
+            const ChanIcon = resolveChannelMeta(t.channel).icon;
             const chip = chipStatus(t);
             return (
               <li key={t.id}>
@@ -138,12 +138,18 @@ export function ConversationList({
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", slaColor[t.sla])} />
                       <p className="min-w-0 truncate text-[12px] text-text-secondary">
-                        {t.lastFrom === "bot"
-                          ? "Bot: "
-                          : t.lastFrom === "agent"
-                            ? "You: "
-                            : ""}
-                        {t.lastPreview}
+                        {t.botTyping ? (
+                          <span className="font-medium text-brand-primary">Bot is typing…</span>
+                        ) : (
+                          <>
+                            {t.lastFrom === "bot"
+                              ? "Bot: "
+                              : t.lastFrom === "agent"
+                                ? "You: "
+                                : ""}
+                            {t.lastPreview}
+                          </>
+                        )}
                       </p>
                     </div>
                     <div className="mt-1.5 flex items-center gap-1.5">

@@ -11,26 +11,27 @@ import { ServiceDrawer } from "@/components/billing/ServiceDrawer";
 import { TenantTable } from "@/components/billing/TenantTable";
 import { InvoiceList } from "@/components/billing/InvoiceList";
 import {
-  BUDGETS,
-  TENANTS,
-  forecastEom,
-  previousPeriod,
-  sliceForPeriod,
-  sumRange,
-  type BudgetRule,
-  type Env,
-  type Period,
-  type Service,
-  type Budget,
-} from "@/data/billing-seed";
+  billingExportUrl,
+  useBilling,
+  useBudgetRuleMutations,
+  type BillingBudget,
+} from "@/api/billing";
+import type { BudgetRule, Env, Period, Service } from "@/data/billing-seed";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/billing")({
   head: () => ({
     meta: [
-      { title: "Billing & Usage Analytics — Collections Agent" },
-      { name: "description", content: "Cloud spend across LLM, voice, messaging and infrastructure with per-tenant unit economics." },
+      { title: "Billing & Usage Analytics — BigBound AI" },
+      {
+        name: "description",
+        content: "Metered Azure OpenAI and Speech spend with per-tenant unit economics.",
+      },
       { property: "og:title", content: "Billing & Usage Analytics" },
-      { property: "og:description", content: "Cost per resolved call, budget alerts and per-tenant spend for the collections voice AI stack." },
+      {
+        property: "og:description",
+        content: "Cost per resolved call, budget alerts and per-tenant spend for the collections voice AI stack.",
+      },
     ],
   }),
   component: BillingPage,
@@ -40,58 +41,36 @@ function BillingPage() {
   const [period, setPeriod] = useState<Period>("mtd");
   const [tenantId, setTenantId] = useState<string>("all");
   const [env, setEnv] = useState<Env>("production");
-  const [budgets, setBudgets] = useState<Budget[]>(BUDGETS);
   const [drawerService, setDrawerService] = useState<Service | null>(null);
 
-  const rawCurrent = useMemo(() => sliceForPeriod(period), [period]);
-  const rawPrevious = useMemo(() => previousPeriod(period), [period]);
+  const { data, isLoading, isError, error, refetch, isFetching } = useBilling(period, tenantId, env);
+  const { save, remove } = useBudgetRuleMutations();
 
-  // Tenant scoping — scale down by tenant's spendShare when a single tenant is picked.
-  const scale = useMemo(() => {
-    if (tenantId === "all") return 1;
-    return TENANTS.find((t) => t.id === tenantId)?.spendShare ?? 1;
-  }, [tenantId]);
+  const services = data?.services ?? [];
+  const tenants = data?.tenants ?? [];
+  const budgets: BillingBudget[] = data?.budgets ?? [];
 
-  const envScale = env === "sandbox" ? 0.08 : 1;
-  const factor = scale * envScale;
-
-  const current = useMemo(
-    () =>
-      rawCurrent.map((d) => ({
-        date: d.date,
-        values: Object.fromEntries(Object.entries(d.values).map(([k, v]) => [k, Math.round(v * factor)])),
-      })),
-    [rawCurrent, factor],
-  );
-  const previous = useMemo(
-    () =>
-      rawPrevious.map((d) => ({
-        date: d.date,
-        values: Object.fromEntries(Object.entries(d.values).map(([k, v]) => [k, Math.round(v * factor)])),
-      })),
-    [rawPrevious, factor],
-  );
-
-  const spendMtd = sumRange(current);
-  const spendPrev = sumRange(previous);
-  const forecast = forecastEom(current);
-
-  const totalResolved = tenantId === "all"
-    ? TENANTS.reduce((s, t) => s + t.resolvedCalls, 0)
-    : TENANTS.find((t) => t.id === tenantId)?.resolvedCalls ?? 1;
-  const totalResolvedPrev = totalResolved * 0.93;
-  const costPerCall = totalResolved > 0 ? spendMtd / totalResolved : 0;
-  const costPerCallPrev = totalResolvedPrev > 0 ? spendPrev / totalResolvedPrev : 0;
-
-  const budgetForEnv = budgets.find((b) => b.env === env) ?? budgets[0];
-
-  const spendByEnv: Record<string, number> = {
-    production: env === "production" ? spendMtd : sumRange(rawCurrent) * (tenantId === "all" ? 1 : scale),
-    sandbox: env === "sandbox" ? spendMtd : sumRange(rawCurrent) * 0.08 * (tenantId === "all" ? 1 : scale),
+  const handleSaveRule = async (
+    budgetId: string,
+    rule: { id?: string; threshold: number; channels: string[]; action: string; severity: BudgetRule["severity"] },
+  ) => {
+    try {
+      await save.mutateAsync({ budgetId, rule });
+      toast.success(rule.id ? "Budget rule updated" : "Budget rule added");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save rule");
+      throw e;
+    }
   };
 
-  const setRules = (envKey: Env, rules: BudgetRule[]) => {
-    setBudgets((prev) => prev.map((b) => (b.env === envKey ? { ...b, rules } : b)));
+  const handleDeleteRule = async (budgetId: string, ruleId: string) => {
+    try {
+      await remove.mutateAsync({ budgetId, ruleId });
+      toast.info("Budget rule removed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete rule");
+      throw e;
+    }
   };
 
   return (
@@ -102,60 +81,91 @@ function BillingPage() {
           onPeriod={setPeriod}
           tenantId={tenantId}
           onTenant={setTenantId}
+          tenants={tenants}
           env={env}
           onEnv={setEnv}
+          onExportCsv={() => {
+            if (!data) return;
+            window.open(billingExportUrl(period, tenantId, env), "_blank");
+            toast.success("CSV export started");
+          }}
+          refreshing={isFetching}
         />
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <BillingKpiStrip
-            daily={current}
-            spendMtd={spendMtd}
-            spendPrev={spendPrev}
-            costPerCall={costPerCall}
-            costPerCallPrev={costPerCallPrev}
-            forecast={forecast}
-            budgetCap={budgetForEnv.monthlyCapInr}
-          />
-
-          <div className="grid gap-4 px-6 py-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <SpendTrendChart data={current} />
-            </div>
-            <div>
-              <BudgetPanel
-                budgets={budgets}
-                spendByEnv={spendByEnv}
-                onChangeRules={setRules}
+        {isLoading && !data ? (
+          <div className="flex flex-1 items-center justify-center text-[13px] text-text-secondary">
+            Loading billing data…
+          </div>
+        ) : isError ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-[13px] text-text-secondary">
+            <p>Couldn’t load billing data.</p>
+            <p className="text-[11px] text-rose-600">
+              {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+            <button
+              type="button"
+              className="rounded-md bg-brand-primary px-3 py-1.5 text-[12px] font-medium text-white"
+              onClick={() => void refetch()}
+            >
+              Retry
+            </button>
+          </div>
+        ) : data ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-surface-app px-5 py-4">
+            <div className="grid gap-4">
+              <BillingKpiStrip
+                daily={data.daily}
+                spendMtd={data.spend}
+                spendPrev={data.spendPrev}
+                costPerCall={data.costPerCall}
+                costPerCallPrev={data.costPerCallPrev}
+                forecast={data.forecast}
+                budgetCap={data.budgetCap}
               />
-            </div>
-          </div>
 
-          <div className="grid gap-4 px-6 pb-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <ServiceCostTable
-                current={current}
-                previous={previous}
-                onRowClick={setDrawerService}
-              />
-            </div>
-            <div>
-              <ServiceDonut data={current} />
-            </div>
-          </div>
+              <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <div className="min-h-[320px]">
+                  <SpendTrendChart data={data.daily} services={services} />
+                </div>
+                <div className="min-h-[320px] max-h-[420px]">
+                  <BudgetPanel
+                    budgets={budgets}
+                    spendByEnv={data.spendByEnv}
+                    alerts={data.alerts}
+                    onSaveRule={handleSaveRule}
+                    onDeleteRule={handleDeleteRule}
+                    saving={save.isPending || remove.isPending}
+                  />
+                </div>
+              </div>
 
-          <div className="grid gap-4 px-6 pb-6 lg:grid-cols-2">
-            <TenantTable current={current} previous={previous} />
-            <InvoiceList />
+              <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <ServiceCostTable
+                  services={services}
+                  current={data.daily}
+                  previous={data.previousDaily}
+                  onRowClick={setDrawerService}
+                />
+                <ServiceDonut data={data.daily} services={services} />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                <TenantTable rows={data.tenantBreakdown} />
+                <InvoiceList invoices={data.invoices} />
+              </div>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <ServiceDrawer
         open={!!drawerService}
         onOpenChange={(v) => !v && setDrawerService(null)}
         service={drawerService}
-        current={current}
-        previous={previous}
+        current={data?.daily ?? []}
+        previous={data?.previousDaily ?? []}
+        tenants={tenants}
+        serviceTenantSpend={drawerService ? (data?.serviceTenantSpend[drawerService.id] ?? {}) : {}}
       />
     </AppShell>
   );

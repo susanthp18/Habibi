@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -95,6 +96,9 @@ def upgrade() -> None:
     )
 
     # Drop children that reference the old 2-criterion rubric before replacing it.
+    if not seed_demo_enabled():
+        return
+
     op.execute("DELETE FROM qa_scorecard_entries")
 
     # Insert the screen rubric first so FK updates below can point at it.

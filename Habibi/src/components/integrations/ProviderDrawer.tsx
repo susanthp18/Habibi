@@ -26,14 +26,17 @@ type Props = {
   onClose: () => void;
   onUpdate: (p: Provider) => void;
   onAppendLog: (e: TestLogEntry) => void;
+  /** Live mode: run API health check instead of mock. */
+  onTestLive?: (p: Provider) => void;
 };
 
-export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppendLog }: Props) {
+export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppendLog, onTestLive }: Props) {
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [testing, setTesting] = useState(false);
 
   if (!provider) return null;
   const cfg = provider.perEnv[env];
+  const locked = Boolean(cfg.credentialsLocked);
   const t = healthTone(cfg.health);
 
   const usage = usageSeries(provider.id, env).map((v, i) => ({ day: `D${i + 1}`, value: v }));
@@ -47,6 +50,10 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
   };
 
   const rotate = (key: string) => {
+    if (locked) {
+      toast.message("Rotate secrets via ops vault / env — not from this UI.");
+      return;
+    }
     const fresh = `rot-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36).slice(-6)}`;
     setField(key, fresh);
     toast.success("Key rotated — restart Pipecat worker to pick it up.");
@@ -54,10 +61,19 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
 
   const runTest = async () => {
     setTesting(true);
-    const entry = await runMockHealthCheck(provider, env);
-    onAppendLog(entry);
-    setTesting(false);
-    entry.ok ? toast.success(`${provider.name} · ${entry.latencyMs} ms`) : toast.error(`${provider.name} · ${entry.message}`);
+    try {
+      if (onTestLive) {
+        onTestLive(provider);
+      } else {
+        const entry = await runMockHealthCheck(provider, env);
+        onAppendLog(entry);
+        entry.ok
+          ? toast.success(`${provider.name} · ${entry.latencyMs} ms`)
+          : toast.error(`${provider.name} · ${entry.message}`);
+      }
+    } finally {
+      setTesting(false);
+    }
   };
 
   const snippet = useMemo(() => pipecatSnippet(provider, env), [provider, env]);
@@ -109,11 +125,16 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
             </TabsContent>
 
             <TabsContent value="credentials" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">
-              {env === "production" && (
+              {locked ? (
+                <div className="mb-3 rounded-md border border-sky-200 bg-sky-50 p-2 text-[11px] text-sky-900">
+                  Credentials are managed via process environment / ops vault. This screen shows
+                  configuration status only — plaintext keys are never stored in the CRM DB or JS bundle.
+                </div>
+              ) : env === "production" ? (
                 <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800">
                   Rotating keys here will restart the Pipecat worker.
                 </div>
-              )}
+              ) : null}
               <div className="space-y-3">
                 {provider.fields.map(f => (
                   <div key={f.key}>
@@ -121,22 +142,27 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
                     {f.secret ? (
                       <MaskedInput
                         value={cfg.values[f.key] ?? ""}
-                        onChange={(v) => setField(f.key, v)}
-                        onRotate={() => rotate(f.key)}
-                        placeholder={f.placeholder}
+                        onChange={(v) => !locked && setField(f.key, v)}
+                        onRotate={locked ? undefined : () => rotate(f.key)}
+                        placeholder={locked ? "•••••••• (env/vault)" : f.placeholder}
                       />
                     ) : (
                       <Input
                         className="h-8 font-mono text-[11px]"
                         value={cfg.values[f.key] ?? ""}
                         placeholder={f.placeholder}
-                        onChange={(e) => setField(f.key, e.target.value)}
+                        readOnly={locked}
+                        onChange={(e) => !locked && setField(f.key, e.target.value)}
                       />
                     )}
                   </div>
                 ))}
               </div>
-              <div className="mt-4 text-[10px] text-text-muted">Values are held in this browser session only. In production they resolve from the vault referenced above.</div>
+              <div className="mt-4 text-[10px] text-text-muted">
+                {locked
+                  ? "Set AZURE_*/TWILIO_*/WHATSAPP_* in backend/.env (or your secret manager)."
+                  : "Demo values are placeholders only — never commit real secrets."}
+              </div>
             </TabsContent>
 
             <TabsContent value="usage" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">

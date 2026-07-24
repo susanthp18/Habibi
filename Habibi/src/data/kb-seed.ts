@@ -1,6 +1,6 @@
 // Knowledge Base (RAG) — synthetic documents, chunks, FAQ pairs and mock retrieval.
 
-export type KbDocType = "policy" | "sop" | "product" | "compliance" | "faq";
+export type KbDocType = "policy" | "sop" | "product" | "compliance" | "faq" | "benefits";
 export type KbStatus = "indexed" | "indexing" | "stale" | "failed" | "draft";
 
 export interface KbChunk {
@@ -234,6 +234,7 @@ export const DOC_TYPE_LABEL: Record<KbDocType, string> = {
   product: "Product",
   compliance: "Compliance",
   faq: "FAQ",
+  benefits: "Benefits",
 };
 
 export const STATUS_LABEL: Record<KbStatus, string> = {

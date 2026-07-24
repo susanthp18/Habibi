@@ -12,6 +12,7 @@ Create Date: 2026-07-22
 from typing import Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -119,6 +120,9 @@ _SEED_GAPS = [
 
 def upgrade() -> None:
     op.add_column("unanswered_questions", sa.Column("top_intent", sa.Text(), nullable=True))
+
+    if not seed_demo_enabled():
+        return
 
     for qid, question, hits, last_seen, top_intent, fix, _has_kb in _SEED_GAPS:
         op.execute(

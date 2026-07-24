@@ -14,7 +14,7 @@ export const Route = createFileRoute("/customers/")({
     meta: [
       { title: "Customers — Customer 360" },
       { name: "description", content: "Search and open the unified master record for every debtor." },
-      { property: "og:title", content: "Customer 360 — Collections Agent" },
+      { property: "og:title", content: "Customer 360 — BigBound AI" },
       { property: "og:description", content: "Unified ledger, EMI schedule, interactions, promises, disputes, and documents." },
     ],
   }),

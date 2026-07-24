@@ -71,6 +71,15 @@ export type SandboxTurn = {
   intentScores?: Record<IntentKey, number>;
   sentiment?: number;
   chunkIds?: string[];
+  /** Live RAG hits with doc titles — preferred over seed chunkTitle lookup. */
+  chunks?: Array<{
+    chunkId: string;
+    docId?: string | null;
+    docTitle?: string | null;
+    heading?: string | null;
+    snippet?: string | null;
+    score?: number | null;
+  }>;
   latencyMs?: number;
   tokens?: number;
   guardrailFlags?: string[];
@@ -88,6 +97,16 @@ function pickChunks(match: string, n = 3): string[] {
 }
 
 export function chunkTitle(id: string): { doc: string; heading: string; snippet: string } | null {
+  const live = (typeof window !== "undefined"
+    ? (window as unknown as { __sandboxChunkMeta?: Record<string, { docTitle?: string | null; heading?: string | null; snippet?: string | null }> }).__sandboxChunkMeta
+    : undefined)?.[id];
+  if (live) {
+    return {
+      doc: live.docTitle || id,
+      heading: live.heading || "",
+      snippet: (live.snippet || "").slice(0, 160),
+    };
+  }
   const c = kbChunks.find((k) => k.id === id);
   if (!c) return null;
   const d = kbDocs.find((x) => x.id === c.docId);

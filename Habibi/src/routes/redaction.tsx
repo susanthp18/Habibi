@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Settings2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { AppShell } from "@/components/shell/AppShell";
@@ -12,8 +13,18 @@ import { ExportConfigPanel } from "@/components/redaction/ExportConfigPanel";
 import { ExportAuditLog } from "@/components/redaction/ExportAuditLog";
 import { RulesSheet } from "@/components/redaction/RulesSheet";
 import {
-  records as seedRecords,
-  initialExports,
+  bumpExportDownload,
+  createExportJob,
+  markRedactionReviewed,
+  patchRedactionRuleEnabled,
+  retryExportJob,
+  toggleAudioMuted,
+  toggleFindingAccepted,
+  useExportJobs,
+  useRedactionRecords,
+  useRedactionRules,
+} from "@/api/redaction";
+import {
   DEFAULT_RULES,
   ENTITY_TYPES,
   defaultFilter,
@@ -21,7 +32,6 @@ import {
   formatDateTime,
   statsFor,
   type ExportFormat,
-  type ExportJob,
   type ExportScope,
   type PiiEntityType,
   type RecordFilter,
@@ -32,7 +42,7 @@ import {
 export const Route = createFileRoute("/redaction")({
   head: () => ({
     meta: [
-      { title: "Redaction & Export Hub — Collections Agent" },
+      { title: "Redaction & Export Hub — BigBound AI" },
       {
         name: "description",
         content: "Compliance-controlled export workflow — auto-detect PII in transcripts and audio, preview masks, and ship watermarked bundles with an immutable audit log.",
@@ -48,19 +58,37 @@ export const Route = createFileRoute("/redaction")({
 });
 
 function RedactionPage() {
-  const [recordState, setRecordState] = useState<RedactionRecord[]>(seedRecords);
-  const [exports, setExports] = useState<ExportJob[]>(initialExports);
+  const queryClient = useQueryClient();
+  const { data: remoteRecords } = useRedactionRecords();
+  const { data: remoteRules } = useRedactionRules();
+  const { data: remoteExports } = useExportJobs();
+
   const [filter, setFilter] = useState<RecordFilter>(defaultFilter);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [activeId, setActiveId] = useState<string | null>(seedRecords[0]?.id ?? null);
-  const [rules, setRules] = useState<RedactionRules>(DEFAULT_RULES);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
 
-  // Export config state
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [scope, setScope] = useState<ExportScope[]>(["transcript", "metadata"]);
   const [watermark, setWatermark] = useState("HDFC-CONFIDENTIAL · Compliance review");
   const [accessRole, setAccessRole] = useState("Compliance Officer");
+
+  const rules = remoteRules ?? DEFAULT_RULES;
+  const recordState = remoteRecords ?? [];
+  const exports = remoteExports ?? [];
+
+  const invalidateRecords = () =>
+    queryClient.invalidateQueries({ queryKey: ["redaction-records"] });
+  const invalidateRules = () =>
+    queryClient.invalidateQueries({ queryKey: ["redaction-rules"] });
+  const invalidateExports = () =>
+    queryClient.invalidateQueries({ queryKey: ["export-jobs"] });
+
+  useEffect(() => {
+    if (!activeId && recordState.length > 0) {
+      setActiveId(recordState[0]!.id);
+    }
+  }, [activeId, recordState]);
 
   const activeTypes = useMemo(
     () => new Set<PiiEntityType>(ENTITY_TYPES.filter((t) => rules[t].enabled)),
@@ -77,7 +105,6 @@ function RedactionPage() {
     [recordState, activeId],
   );
 
-  // Filter findings against enabled rules for preview
   const activeForRender: RedactionRecord | null = useMemo(() => {
     if (!active) return null;
     return {
@@ -90,23 +117,26 @@ function RedactionPage() {
   const stats = useMemo(() => statsFor(recordState, exports), [recordState, exports]);
 
   const toggleFinding = (findingId: string) => {
-    setRecordState((rs) =>
-      rs.map((r) =>
-        r.id !== activeId
-          ? r
-          : { ...r, findings: r.findings.map((f) => (f.id === findingId ? { ...f, accepted: !f.accepted } : f)) },
-      ),
-    );
+    if (!activeId) return;
+    const base = recordState.find((r) => r.id === activeId);
+    if (!base) return;
+    const finding = base.findings.find((f) => f.id === findingId);
+    if (!finding) return;
+    const next = !finding.accepted;
+    void toggleFindingAccepted(findingId, next)
+      .then(() => invalidateRecords())
+      .catch((err: Error) => toast.error("Could not update finding", { description: err.message }));
   };
 
   const toggleSegment = (findingId: string) => {
-    setRecordState((rs) =>
-      rs.map((r) =>
-        r.id !== activeId
-          ? r
-          : { ...r, audioSegments: r.audioSegments.map((s) => (s.findingId === findingId ? { ...s, muted: !s.muted } : s)) },
-      ),
-    );
+    if (!activeId) return;
+    const base = recordState.find((r) => r.id === activeId);
+    if (!base) return;
+    const seg = base.audioSegments.find((s) => s.findingId === findingId);
+    if (!seg) return;
+    void toggleAudioMuted(activeId, findingId, !seg.muted)
+      .then(() => invalidateRecords())
+      .catch((err: Error) => toast.error("Could not mute segment", { description: err.message }));
   };
 
   const toggleSelect = (id: string) => {
@@ -123,58 +153,58 @@ function RedactionPage() {
   };
 
   const toggleRule = (t: PiiEntityType) => {
-    setRules((r) => ({ ...r, [t]: { ...r[t], enabled: !r[t].enabled } }));
+    const enabled = !rules[t].enabled;
+    void patchRedactionRuleEnabled(t, enabled)
+      .then(() => invalidateRules())
+      .catch((err: Error) => toast.error("Could not update rule", { description: err.message }));
   };
 
   const markReviewed = () => {
     if (!active) return;
-    setRecordState((rs) => rs.map((r) => (r.id === active.id ? { ...r, reviewed: true } : r)));
-    toast.success(`Marked ${active.id} as reviewed`);
+    void markRedactionReviewed(active.id)
+      .then(() => {
+        invalidateRecords();
+        toast.success(`Marked ${active.id} as reviewed`);
+      })
+      .catch((err: Error) => toast.error("Could not mark reviewed", { description: err.message }));
   };
 
   const generateExport = () => {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
-    const entitiesRedacted = recordState
-      .filter((r) => selected.has(r.id))
-      .reduce((s, r) => s + r.findings.filter((f) => f.accepted && activeTypes.has(f.type)).length, 0);
-
-    const jobId = `EX-${2050 + exports.length}`;
-    const job: ExportJob = {
-      id: jobId,
-      at: new Date().toISOString(),
-      actor: "Meera Joshi",
-      actorRole: accessRole,
+    void createExportJob({
       recordIds: ids,
       format,
       scope,
       watermark,
-      status: "queued",
-      downloadCount: 0,
-      entitiesRedacted,
-    };
-    setExports((es) => [job, ...es]);
-    toast.info(`${jobId} queued`, { description: `${ids.length} record(s) · ${entitiesRedacted} PII entities` });
-
-    setTimeout(() => {
-      setExports((es) => es.map((e) => (e.id === jobId ? { ...e, status: "ready" as const } : e)));
-      toast.success(`${jobId} ready to download`, { description: `Watermark: "${watermark}"` });
-    }, 1200);
-
-    setSelected(new Set());
+      actorRole: accessRole,
+    })
+      .then((job) => {
+        invalidateExports();
+        toast.success(`${job.id} ready`, {
+          description: `${ids.length} record(s) · ${job.entitiesRedacted} PII entities`,
+        });
+        setSelected(new Set());
+      })
+      .catch((err: Error) => toast.error("Export failed", { description: err.message }));
   };
 
   const download = (id: string) => {
-    setExports((es) => es.map((e) => (e.id === id ? { ...e, downloadCount: e.downloadCount + 1 } : e)));
-    toast.success(`Downloading ${id}`, { description: "Access logged to immutable audit trail." });
+    void bumpExportDownload(id)
+      .then(() => {
+        invalidateExports();
+        toast.success(`Downloading ${id}`);
+      })
+      .catch((err: Error) => toast.error("Download failed", { description: err.message }));
   };
 
   const retry = (id: string) => {
-    setExports((es) => es.map((e) => (e.id === id ? { ...e, status: "queued" as const } : e)));
-    setTimeout(() => {
-      setExports((es) => es.map((e) => (e.id === id ? { ...e, status: "ready" as const } : e)));
-      toast.success(`${id} regenerated`);
-    }, 1000);
+    void retryExportJob(id)
+      .then(() => {
+        invalidateExports();
+        toast.success(`${id} re-queued`);
+      })
+      .catch((err: Error) => toast.error("Retry failed", { description: err.message }));
   };
 
   const pendingReviewInSelection = recordState.filter(
@@ -223,7 +253,6 @@ function RedactionPage() {
             onOpen={setActiveId}
           />
 
-          {/* Center: PII preview */}
           <section className="flex min-h-0 flex-1 flex-col bg-surface-app">
             {activeForRender ? (
               <>
@@ -269,8 +298,10 @@ function RedactionPage() {
             )}
           </section>
 
-          {/* Right: export + audit */}
           <aside className="hidden h-full min-h-0 w-[340px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-[var(--border-token)] bg-surface-app p-3 xl:flex">
+            <div className="flex items-center gap-2 px-0.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Export</span>
+            </div>
             <ExportConfigPanel
               selectedCount={selected.size}
               pendingReview={pendingReviewInSelection}
@@ -289,7 +320,27 @@ function RedactionPage() {
         </div>
       </div>
 
-      <RulesSheet open={rulesOpen} onOpenChange={setRulesOpen} rules={rules} onChange={setRules} />
+      <RulesSheet
+        open={rulesOpen}
+        onOpenChange={setRulesOpen}
+        rules={rules}
+        onChange={(next) => {
+          void (async () => {
+            try {
+              for (const t of ENTITY_TYPES) {
+                if (next[t].enabled !== rules[t].enabled) {
+                  await patchRedactionRuleEnabled(t, next[t].enabled);
+                }
+              }
+              invalidateRules();
+            } catch (err) {
+              toast.error("Could not update rules", {
+                description: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })();
+        }}
+      />
     </AppShell>
   );
 }

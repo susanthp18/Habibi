@@ -20,6 +20,7 @@ Create Date: 2026-07-22
 from typing import Sequence, Union
 
 from alembic import op
+from seed_guard import seed_demo_enabled
 import sqlalchemy as sa
 
 
@@ -35,7 +36,9 @@ TENANT_ID = "hdfc.retail"
 
 
 def upgrade() -> None:
-    # 1. Diversify escalation (handoff) reasons across the real taxonomy.
+    if not seed_demo_enabled():
+        return
+# 1. Diversify escalation (handoff) reasons across the real taxonomy.
     #    Signal-driven where possible, else spread deterministically by hash.
     op.execute(
         sa.text(

@@ -2,10 +2,9 @@
 // Handoff Hub — data access seam (initial session snapshot).
 //   fetchHandoffSession() → the escalated-call snapshot at handoff time
 //
-// NOTE: the live transcript, sentiment walk and compliance auto-checks are
-// simulated client-side today. In Phase 4 the transcript/sentiment/suggestions
-// become a WebSocket stream; this fetch stays as the initial snapshot (customer
-// context, active-call metadata, disposition list) that the socket builds on.
+// NOTE: transcript / sentiment / compliance ticks are simulated client-side
+// only when USE_MOCK is true. Live mode shows the snapshot from GET /handoff/active
+// without script replay (Phase 4 will stream turns over WebSocket).
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";

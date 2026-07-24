@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 RiskLevel = Literal["critical", "high", "medium", "low"]
@@ -223,6 +223,21 @@ class MeResponse(BaseModel):
     team: str | None = None
     status: str | None = None
     tenantId: str
+
+
+class PresenceResponse(BaseModel):
+    """Agent availability from agent_presence (My Workspace toggle)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["available", "on_break", "wrap_up", "offline"]
+    sinceAt: str
+
+
+class PresencePatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["available", "on_break", "wrap_up", "offline"]
 
 
 class TeamResponse(BaseModel):
@@ -804,6 +819,8 @@ class BotAnalyticsDailyPointResponse(BaseModel):
     latencyP90: float
     latencyP99: float
     sentiment: float
+    upsellPresented: int = 0
+    ptpCaptured: int = 0
 
 
 class BotAnalyticsIntentSentimentResponse(BaseModel):
@@ -1076,11 +1093,15 @@ class ConversationListResponse(BaseModel):
 
     id: str
     customer: str
+    customerId: str
     accountId: str
     channel: Literal["whatsapp", "sms", "email"]
     status: Literal["bot", "needs_human", "escalated", "assigned"]
     assignedUserId: str | None = None
     isMine: bool
+    botTyping: bool = False
+    pendingOutbound: bool = False
+    updatedAt: str | None = None
     sla: Literal["ok", "warn", "breach"]
     unread: int
     lastTime: str
@@ -1088,6 +1109,7 @@ class ConversationListResponse(BaseModel):
     lastFrom: Literal["customer", "bot", "agent"]
     sentiment: Literal["positive", "neutral", "negative"]
     ragSuggestions: list[str] = []
+    ragDraftAnswer: str | None = None
     messages: list[InboxMessageResponse | InboxSystemEventResponse] = []
     context: InboxThreadContextResponse
 
@@ -1102,3 +1124,1413 @@ class CannedResponseItem(BaseModel):
 
 class ConversationMessageCreateRequest(BaseModel):
     text: str = Field(min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# Redaction & Export Hub (Phase 3B — reads first)
+# ---------------------------------------------------------------------------
+
+PiiEntityType = Literal[
+    "card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom"
+]
+
+
+class PiiFindingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    turnId: str
+    type: PiiEntityType
+    start: int
+    end: int
+    text: str
+    masked: str
+    confidence: float
+    source: Literal["auto", "manual"]
+    accepted: bool
+
+
+class RedactionTurnResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    t: int
+    speaker: Literal["bot", "agent", "customer", "system"]
+    text: str
+
+
+class RedactionAudioSegmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    atSec: int
+    durSec: float
+    type: PiiEntityType
+    findingId: str
+    muted: bool
+
+
+class RedactionRecordListResponse(BaseModel):
+    """Redaction queue row — mirrors Habibi RedactionRecord (redaction-seed.ts)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    callId: str
+    customer: str
+    customerId: str
+    channel: Literal["voice", "whatsapp", "sms"]
+    handler: str
+    occurredAt: str
+    durationSec: int
+    transcript: list[RedactionTurnResponse]
+    findings: list[PiiFindingResponse]
+    audioSegments: list[RedactionAudioSegmentResponse]
+    reviewed: bool
+
+
+class RedactionRuleResponse(BaseModel):
+    """Tenant redaction rule — maps to one entry in Habibi RedactionRules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    piiType: PiiEntityType
+    enabled: bool
+    replacement: str
+    label: str
+
+
+# ---------------------------------------------------------------------------
+# Routing & Logic Builder (Phase 3B — reads first)
+# ---------------------------------------------------------------------------
+
+RoutingRuleCategory = Literal["Escalation", "Handoff", "Throttle", "Compliance", "Routing"]
+
+RoutingActionKey = Literal[
+    "route_tier2",
+    "route_specialist",
+    "handoff_human",
+    "play_disclosure",
+    "send_sms",
+    "log_flag",
+    "stop_upsell",
+    "slow_tts",
+    "escalate_supervisor",
+]
+
+
+class RoutingActionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: RoutingActionKey
+    params: dict[str, str] | None = None
+
+
+class RoutingRuleListResponse(BaseModel):
+    """Priority-ordered routing rule — mirrors Habibi Rule (routing-seed.ts)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    description: str
+    category: RoutingRuleCategory
+    enabled: bool
+    priority: int
+    when: list[Any]  # ConditionNode[] — validated loosely; screen owns the shape
+    then: RoutingActionResponse
+    executionCount: int
+    lastFiredAt: str | None
+    triggersLast24h: int
+
+
+class RoutingRuleExecutionResponse(BaseModel):
+    """Single rule evaluation row — optional firing log for the builder."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    ruleId: str
+    interactionId: str | None
+    result: str | None
+    actionTaken: str | None
+    evaluatedAt: str
+    context: dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Base / RAG (Phase KB-1 — retrieve spine)
+# ---------------------------------------------------------------------------
+
+
+class KbRetrievalResultItem(BaseModel):
+    """Mirrors Habibi RetrievalResult in kb-seed.ts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunkId: str
+    docId: str
+    docTitle: str
+    heading: str
+    snippet: str
+    score: float
+    matchedTerms: list[str]
+
+
+class KbRetrieveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str
+    topK: int = 4
+    includeDraftAnswer: bool = True
+    source: str = "test"
+
+
+class KbRetrieveResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    results: list[KbRetrievalResultItem]
+    draftAnswer: str | None = None
+    latencyMs: int
+    embeddingModel: str
+    chatModel: str | None = None
+    logId: str
+
+
+KbDocType = Literal["policy", "sop", "product", "compliance", "faq", "benefits"]
+KbDocStatus = Literal["draft", "indexing", "indexed", "stale", "failed"]
+
+
+class KbDocumentResponse(BaseModel):
+    """Mirrors Habibi KbDocument in kb-seed.ts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    filename: str
+    type: KbDocType
+    version: str
+    status: KbDocStatus
+    enabled: bool
+    chunks: int
+    chunkSize: int
+    overlap: int
+    embeddingModel: str
+    updatedBy: str
+    lastIndexed: str
+    tags: list[str]
+
+
+class KbChunkResponse(BaseModel):
+    """Mirrors Habibi KbChunk."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    docId: str
+    index: int
+    heading: str
+    tokens: int
+    text: str
+    hits: int
+
+
+class KbStatsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    docs: int
+    activeDocs: int
+    faqs: int
+    chunks: int
+    gaps: int
+    lastIndexed: str
+    avgScore: float
+
+
+class KbDocumentPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    title: str | None = None
+    tags: list[str] | None = None
+    chunkSize: int | None = None
+    overlap: int | None = None
+
+
+class KbReindexResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    jobId: str
+    documentId: str
+    status: str = "queued"
+
+
+class KbIndexJobResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    documentId: str
+    status: str
+    chunkSize: int | None = None
+    chunkOverlap: int | None = None
+    embeddingModel: str | None = None
+    startedAt: str | None = None
+    completedAt: str | None = None
+    error: str | None = None
+    createdAt: str
+    updatedAt: str
+
+
+class KbUploadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    document: KbDocumentResponse
+    jobId: str | None = None
+
+
+class KbFaqResponse(BaseModel):
+    """Mirrors Habibi FaqPair in kb-seed.ts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    question: str
+    answer: str
+    intent: str
+    enabled: bool
+    updatedAt: str
+    linkedDocId: str | None = None
+
+
+class KbFaqCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    answer: str
+    intent: str = "other"
+    enabled: bool = True
+    linkedDocId: str | None = None
+    gapId: str | None = None  # optional: link analytics gap on create
+
+
+class KbFaqPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str | None = None
+    answer: str | None = None
+    intent: str | None = None
+    enabled: bool | None = None
+    linkedDocId: str | None = None
+
+
+KbGapSuggestedFix = Literal["kb", "prompt", "both"]
+
+
+class KbGapResponse(BaseModel):
+    """Coverage gap row — mirrors Habibi UnansweredQuestion (+ link state)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    text: str
+    hits: int
+    lastSeen: str
+    topIntent: str
+    hasKbDoc: bool
+    hasFaq: bool
+    resolved: bool
+    suggestedFix: KbGapSuggestedFix
+    linkedDocumentId: str | None = None
+    linkedFaqId: str | None = None
+    linkedPromptVersionId: str | None = None
+
+
+class KbGapLinkRequest(BaseModel):
+    """Exactly one of faqPairId | kbDocumentId | promptVersionId."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    faqPairId: str | None = None
+    kbDocumentId: str | None = None
+    promptVersionId: str | None = None
+
+
+class ConversationSuggestionsRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topK: int = 4
+    includeDraftAnswer: bool = False
+
+
+class ConversationSuggestionsRefreshResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversationId: str
+    ragSuggestions: list[str]
+    draftAnswer: str | None = None
+    chatModel: str | None = None
+    latencyMs: int | None = None
+    logId: str | None = None
+    thread: ConversationListResponse | None = None
+
+
+class KbSnapshotCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+
+
+class KbSnapshotResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    documentIds: list[str] = []
+    faqIds: list[str] = []
+    documentCount: int = 0
+    faqCount: int = 0
+    createdAt: str | None = None
+
+
+KbPurgeScope = Literal["all", "uploads", "corpus"]
+
+
+class KbPurgeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: KbPurgeScope = "uploads"
+    confirm: bool = False
+
+
+class KbPurgeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: KbPurgeScope
+    documentsDeleted: int
+    faqsDeleted: int
+    minioObjectsRemoved: int = 0
+    documentIds: list[str] = []
+
+
+class KbDeleteDocumentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deleted: bool
+    documentId: str
+    faqsDeleted: int = 0
+    minioObjectsRemoved: int = 0
+
+
+class KbIngestSourceDbResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    products: list[str]
+    jobsDrained: int
+    faqsUpserted: int
+    docs: int
+    chunks: int
+    faqs: int
+
+
+# ---------------------------------------------------------------------------
+# My Workspace — Assigned queue (Phase 3B — reads from work_items view)
+# ---------------------------------------------------------------------------
+
+WorkItemEntityType = Literal[
+    "dispute",
+    "callback",
+    "document_request",
+    "promise",
+    "followup",
+    "lead",
+]
+
+WorkItemSla = Literal["ok", "warn", "breach"]
+
+
+class WorkItemResponse(BaseModel):
+    """Assigned-queue row — mirrors Habibi QueueRow + entityType for tab bucketing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    customer: str
+    accountId: str
+    type: str
+    detail: str
+    amount: float | None = None
+    ageHours: int
+    sla: WorkItemSla
+    slaLabel: str
+    entityType: WorkItemEntityType
+    status: str | None = None
+    assigneeUserId: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Persona & Prompt Studio (PS-1 reads — Habibi prompt-studio-seed.ts shapes)
+# ---------------------------------------------------------------------------
+
+PromptVersionStatus = Literal["draft", "published", "archived"]
+BotDeploymentEnvironment = Literal["sandbox", "production"]
+BotDeploymentStatus = Literal["active", "rolled_back", "retired"]
+TtsGender = Literal["Female", "Male"]
+
+
+class PersonaTraits(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    empathy: int
+    firmness: int
+    formality: int
+    verbosity: int
+    upsell: int
+
+
+class PersonaState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    traits: PersonaTraits
+    language: str
+    fallbackLanguages: list[str]
+
+
+class VoiceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voiceId: str
+    speed: float
+    pitch: int
+    warmth: int
+    pauseMs: int
+    sampleText: str
+
+
+class Guardrails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prohibited: list[str]
+    escalateAbuse: bool
+    escalateLegal: bool
+    neverQuoteRate: bool
+    neverPromiseWaiver: bool
+    alwaysDiscloseRecording: bool
+    refusePoliticsReligion: bool
+    maxTurns: int
+    maxSeconds: int
+
+
+class PromptVersionResponse(BaseModel):
+    """Mirrors Habibi PromptVersion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    author: str
+    status: PromptVersionStatus
+    createdAt: str
+    summary: str
+    prompt: str
+    persona: PersonaState
+    voice: VoiceConfig
+    guardrails: Guardrails
+    tuning: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonaPresetResponse(BaseModel):
+    """Mirrors Habibi PersonaPreset."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    description: str
+    traits: PersonaTraits
+    promptTemplate: str
+
+
+class TtsVoiceResponse(BaseModel):
+    """Mirrors Habibi TtsVoice (+ azureVoiceName for PS-4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    gender: TtsGender
+    accent: str
+    duration: str
+    azureVoiceName: str | None = None
+
+
+class TtsCatalogVoiceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shortName: str
+    displayName: str
+    localName: str = ""
+    gender: str
+    locale: str
+    localeName: str = ""
+    voiceType: str
+    status: str
+    priceTier: str
+    isPremium: bool = False
+    approxUsdPer1MChars: float | None = None
+    styles: list[str] = Field(default_factory=list)
+    personalities: list[str] = Field(default_factory=list)
+    scenarios: list[str] = Field(default_factory=list)
+    wordsPerMinute: int | None = None
+    sampleRateHertz: int | None = None
+    modelSeries: list[str] = Field(default_factory=list)
+    removedAt: str | None = None
+    enabledForPicker: bool = True
+    raw: dict[str, Any] | None = None
+
+
+class TtsCatalogListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[TtsCatalogVoiceItem]
+    total: int
+    nextCursor: str | None = None
+    lastSyncedAt: str | None = None
+    defaultVoice: str
+    premiumHiddenByDefault: bool = True
+
+
+class TtsPriceTierResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tier: str
+    label: str
+    approxUsdPer1MChars: float | None = None
+    isPremium: bool = False
+    notes: str = ""
+
+
+class TtsVoiceWarning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shortName: str
+    code: str
+    message: str
+    fallbackVoice: str
+
+
+class TtsSyncRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    source: str | None = None
+    fetchedCount: int = 0
+    upserted: int = 0
+    softRemoved: int = 0
+    unchanged: int = 0
+    error: str | None = None
+    region: str = ""
+    defaultVoice: str | None = None
+    startedAt: str | None = None
+    finishedAt: str | None = None
+
+
+class BotDeploymentResponse(BaseModel):
+    """Runtime release unit — authoritative for what runs (see PROMPT_STUDIO_plan §6.4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    botId: str
+    promptVersionId: str
+    kbSnapshotId: str | None
+    ttsVoiceId: str | None
+    environment: BotDeploymentEnvironment
+    status: BotDeploymentStatus
+    publishedBy: str | None
+    publishedAt: str | None
+    rollbackDeploymentId: str | None
+    voiceConfig: dict[str, Any]
+    tuning: dict[str, Any] = Field(default_factory=dict)
+
+
+class PromptVersionCreateRequest(BaseModel):
+    """Create a draft prompt version (PS-2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+    prompt: str
+    persona: PersonaState
+    voice: VoiceConfig
+    guardrails: Guardrails
+    summary: str = ""
+
+
+class PromptVersionPatchRequest(BaseModel):
+    """Update a draft only — 409 if not draft (PS-2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+    prompt: str | None = None
+    persona: PersonaState | None = None
+    voice: VoiceConfig | None = None
+    guardrails: Guardrails | None = None
+    summary: str | None = None
+
+
+class PromptVersionPublishRequest(BaseModel):
+    """Promote a draft + create active prod deployment in one transaction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = ""
+    kbSnapshotId: str | None = None
+    tuning: dict[str, Any] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Sandbox (PS-3) — scenarios + run transcript reads
+# ---------------------------------------------------------------------------
+
+SandboxDifficulty = Literal["easy", "medium", "hard"]
+
+
+class SandboxPersonaResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    phoneLast4: str
+    product: str
+    dpd: int
+    overdue: float
+    mood: str
+    language: str
+
+
+class SandboxScenarioTurnResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer: str
+    expectedIntent: str | None = None
+    expectedSentiment: float | None = None
+
+
+class SandboxScenarioResponse(BaseModel):
+    """Mirrors Habibi Scenario (sandbox-seed.ts) for the scenario picker."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    summary: str
+    difficulty: SandboxDifficulty
+    intents: list[str]
+    persona: SandboxPersonaResponse
+    openingBot: str
+    turns: list[SandboxScenarioTurnResponse]
+
+
+class SandboxGroundedChunkResponse(BaseModel):
+    """Visible RAG proof — doc title chips on bot turns."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunkId: str
+    docTitle: str
+    heading: str = ""
+    snippet: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Call Sandbox (PS-3 — Azure chat + KB retrieve)
+# ---------------------------------------------------------------------------
+
+SandboxRunStatus = Literal["running", "completed", "failed"]
+SandboxSpeaker = Literal["bot", "customer", "system"]
+SentimentLabel = Literal["positive", "neutral", "negative"]
+
+
+class SandboxRunTurnResponse(BaseModel):
+    """Persisted turn row for GET /sandbox/runs/{id}."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    turnIndex: int
+    role: SandboxSpeaker
+    text: str
+    detectedIntent: str | None = None
+    intent: str | None = None
+    sentiment: float | None = None
+    sentimentLabel: str | None = None
+    chunkIds: list[str] = []
+    retrievedChunkIds: list[str] = []
+    groundedIn: list[SandboxGroundedChunkResponse] = []
+    guardrailFlags: list[str] = []
+    latencyMs: int | None = None
+    tokens: int | None = None
+    tokenCount: int | None = None
+    ts: int = 0
+    createdAt: str | None = None
+    systemKind: Literal["info", "warn", "success"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _speaker_alias_to_role(cls, data: Any) -> Any:
+        """Accept legacy `speaker` from older mappers; schema field is `role`."""
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if "role" not in out and out.get("speaker") is not None:
+            out["role"] = out["speaker"]
+        out.pop("speaker", None)
+        return out
+
+
+class SandboxRunDetailResponse(BaseModel):
+    """Full run + turns (newest-ready order is ascending by turnIndex)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    scenarioId: str | None = None
+    deploymentId: str | None = None
+    promptVersionId: str | None = None
+    kbSnapshotId: str | None = None
+    startedByUserId: str | None = None
+    status: SandboxRunStatus
+    aggregateLatencyMs: int | None = None
+    aggregateTokens: int | None = None
+    createdAt: str | None = None
+    updatedAt: str | None = None
+    turns: list[SandboxRunTurnResponse] = []
+
+
+class SandboxContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_name: str | None = None
+    account_no: str | None = None
+    overdue_amount: str | None = None
+    due_date: str | None = None
+    last_payment: str | None = None
+    agent_name: str | None = None
+    bank_name: str | None = None
+    language: str | None = None
+    time_of_day: str | None = None
+
+
+class SandboxHistoryItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["bot", "customer"]
+    text: str
+
+
+class SandboxRunCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    promptVersionId: str | None = None
+    scenarioId: str | None = None
+    scenarioTitle: str | None = None
+    kbSnapshotId: str | None = None
+    openingTemplate: str | None = None
+    persona: dict[str, Any] | None = None
+    context: SandboxContext | None = None
+
+
+class SandboxRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    scenarioId: str | None = None
+    deploymentId: str | None = None
+    promptVersionId: str
+    kbSnapshotId: str | None = None
+    status: SandboxRunStatus
+    openingMessage: str | None = None
+    promptVersion: PromptVersionResponse
+    context: dict[str, str]
+
+
+class SandboxTurnCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    history: list[SandboxHistoryItem] = []
+    context: SandboxContext | None = None
+    topK: int = 4
+
+
+class SandboxChunkHit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chunkId: str
+    docId: str | None = None
+    docTitle: str | None = None
+    heading: str | None = None
+    snippet: str | None = None
+    score: float | None = None
+
+
+class SandboxCustomerTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    role: Literal["customer"] = "customer"
+    text: str
+    intent: str
+    intentScores: dict[str, float]
+    sentiment: float
+    sentimentLabel: SentimentLabel
+
+
+class SandboxBotTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    role: Literal["bot"] = "bot"
+    text: str
+    chunkIds: list[str]
+    chunks: list[SandboxChunkHit] = []
+    latencyMs: int
+    tokens: int
+    guardrailFlags: list[str]
+    intent: str
+    sentiment: float
+    sentimentLabel: SentimentLabel
+    retrievalLogId: str | None = None
+    retrieveLatencyMs: int | None = None
+    chatLatencyMs: int | None = None
+    halted: bool = False
+
+
+class SandboxTurnResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runId: str
+    promptVersionId: str
+    customerTurn: SandboxCustomerTurn
+    botTurn: SandboxBotTurn
+
+
+# ---------------------------------------------------------------------------
+# Azure Speech TTS preview (PS-4)
+# ---------------------------------------------------------------------------
+
+
+class TtsPreviewRequest(BaseModel):
+    """Synthesize sample text for the Prompt Studio Voice tab."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    voiceId: str | None = None
+    shortName: str | None = None
+    azureVoiceName: str | None = None
+    speed: float = 1.0
+    pitch: int = 0
+    warmth: int = 60
+    pauseMs: int = 300
+    style: str | None = None
+
+
+class SttTranscribeResponse(BaseModel):
+    """Azure Speech STT result — raw audio is not persisted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    latencyMs: int
+    language: str
+    recognitionStatus: str | None = None
+
+
+class PromptLintFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    severity: Literal["error", "warn", "info"]
+    code: str
+    message: str
+    span: dict[str, int] | None = None
+
+
+class PromptLintRequest(BaseModel):
+    """Deterministic prompt checks (+ optional Azure LLM pass)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str
+    guardrails: Guardrails
+    includeLlm: bool = False
+
+
+class PromptLintResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[PromptLintFinding]
+
+
+class PromptTokenEstimateRequest(BaseModel):
+    """Count prompt tokens with the same tiktoken encoding as chat/KB."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str
+
+
+class PromptTokenEstimateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tokens: int
+    encoding: str
+    usdPer1M: float
+    costUsd: float
+    source: Literal["tiktoken", "heuristic"] = "tiktoken"
+
+
+# ---------------------------------------------------------------------------
+# Billing & Usage Analytics
+# ---------------------------------------------------------------------------
+
+BillingEnv = Literal["production", "sandbox"]
+BillingPeriod = Literal["mtd", "7d", "30d", "quarter"]
+BillingServiceCategory = Literal["LLM", "Voice", "Messaging", "Infra"]
+BillingRuleSeverity = Literal["info", "warn", "critical"]
+BillingInvoiceStatus = Literal["paid", "pending", "draft"]
+
+
+class BillingServiceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    provider: str
+    category: BillingServiceCategory
+    unit: str
+    unitCostInr: float
+    color: str
+
+
+class BillingDayPointResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: str
+    values: dict[str, float]
+
+
+class BillingTenantResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    resolvedCalls: int
+    ahtSec: int
+    budgetInr: float
+    spendShare: float
+
+
+class BillingTenantBreakdownResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    resolvedCalls: int
+    ahtSec: int
+    budgetInr: float
+    spend: float
+    spendPrev: float
+    costPerCall: float
+    budgetPct: float
+
+
+class BillingBudgetRuleResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    threshold: float
+    channels: list[str]
+    action: str
+    severity: BillingRuleSeverity
+
+
+class BillingBudgetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    env: BillingEnv
+    month: str
+    monthlyCapInr: float
+    rules: list[BillingBudgetRuleResponse]
+
+
+class BillingAlertResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    when: str
+    ruleId: str
+    env: BillingEnv
+    message: str
+
+
+class BillingInvoiceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    month: str
+    status: BillingInvoiceStatus
+    amountInr: float
+    issuedAt: str
+
+
+class BillingOverviewResponse(BaseModel):
+    """Full /billing payload — already filtered by period / tenant / env."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asOf: str
+    period: BillingPeriod
+    env: BillingEnv
+    tenantId: str
+    services: list[BillingServiceResponse]
+    tenants: list[BillingTenantResponse]
+    daily: list[BillingDayPointResponse]
+    previousDaily: list[BillingDayPointResponse]
+    spend: float
+    spendPrev: float
+    forecast: float
+    costPerCall: float
+    costPerCallPrev: float
+    resolvedCalls: int
+    budgetCap: float
+    spendByEnv: dict[str, float]
+    budgets: list[BillingBudgetResponse]
+    alerts: list[BillingAlertResponse]
+    invoices: list[BillingInvoiceResponse]
+    tenantBreakdown: list[BillingTenantBreakdownResponse]
+    serviceTenantSpend: dict[str, dict[str, float]]
+
+
+class BudgetRuleUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    threshold: float = Field(ge=1, le=200)
+    channels: list[str] = Field(min_length=1)
+    action: str = Field(min_length=1)
+    severity: BillingRuleSeverity = "warn"
+
+
+# ---------------------------------------------------------------------------
+# QA Coaching / Calibration (Phase 3B fast-follow)
+# ---------------------------------------------------------------------------
+
+CoachingStatus = Literal["assigned", "in_progress", "done"]
+CalibrationStatus = Literal["active", "closed"]
+
+
+class CoachingNoteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    at: str
+    author: str
+    text: str
+
+
+class CoachingActionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    agentId: str
+    title: str
+    category: str
+    scorecardId: str | None = None
+    callId: str | None = None
+    dueAt: str
+    status: CoachingStatus
+    notes: list[CoachingNoteResponse]
+    createdAt: str
+
+
+class CoachingActionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agentId: str
+    title: str
+    category: str = "General"
+    scorecardId: str | None = None
+    callId: str | None = None
+    dueAt: str | None = None
+
+
+class CoachingActionPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: CoachingStatus | None = None
+    title: str | None = None
+    category: str | None = None
+    dueAt: str | None = None
+
+
+class CalibrationReviewerResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reviewer: str
+    entries: list[ScorecardEntryResponse]
+
+
+class CalibrationSessionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    callId: str
+    customerName: str
+    target: list[ScorecardEntryResponse]
+    reviewers: list[CalibrationReviewerResponse]
+    status: CalibrationStatus
+    createdAt: str
+
+
+class CalibrationSessionPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: CalibrationStatus | None = None
+
+
+# ---------------------------------------------------------------------------
+# Redaction writes + export jobs
+# ---------------------------------------------------------------------------
+
+
+class PiiFindingPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accepted: bool
+
+
+class PiiFindingPatchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    accepted: bool
+    redactionId: str
+
+
+class RedactionAudioMuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    findingId: str
+    muted: bool
+
+
+class RedactionRecordPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reviewed: bool | None = None
+
+
+class RedactionRulePatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    replacement: str | None = None
+
+
+ExportFormat = Literal["pdf", "csv", "audio-zip"]
+ExportScope = Literal["transcript", "audio", "metadata"]
+ExportStatus = Literal["queued", "ready", "failed"]
+
+
+class ExportJobResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    at: str
+    actor: str
+    actorRole: str
+    recordIds: list[str]
+    format: ExportFormat
+    scope: list[ExportScope]
+    watermark: str
+    status: ExportStatus
+    downloadCount: int
+    entitiesRedacted: int
+
+
+class ExportJobCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recordIds: list[str] = Field(min_length=1)
+    format: ExportFormat = "pdf"
+    scope: list[ExportScope] = Field(default_factory=lambda: ["transcript"])
+    watermark: str = ""
+    actorRole: str = "Compliance Officer"
+
+
+class ExportJobPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ExportStatus | None = None
+    bumpDownload: bool | None = None
+
+
+# ---------------------------------------------------------------------------
+# Routing writes + audit
+# ---------------------------------------------------------------------------
+
+
+class RoutingActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: RoutingActionKey
+    params: dict[str, str] | None = None
+
+
+class RoutingRuleCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = None
+    name: str = "Untitled rule"
+    description: str = ""
+    category: RoutingRuleCategory = "Routing"
+    enabled: bool = True
+    priority: int | None = None
+    when: list[Any] = Field(default_factory=list)
+    then: RoutingActionRequest
+
+
+class RoutingRulePatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    description: str | None = None
+    category: RoutingRuleCategory | None = None
+    enabled: bool | None = None
+    priority: int | None = None
+    when: list[Any] | None = None
+    then: RoutingActionRequest | None = None
+
+
+class RoutingReorderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    orderedIds: list[str] = Field(min_length=1)
+
+
+RoutingAuditAction = Literal[
+    "created", "edited", "reordered", "toggled", "deleted", "duplicated"
+]
+
+
+class RoutingAuditEntryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    at: str
+    author: str
+    ruleId: str | None = None
+    ruleName: str
+    action: RoutingAuditAction
+    summary: str
+
+
+# ---------------------------------------------------------------------------
+# Workspace summary (StatsStrip + RightRail)
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceStatsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    callsHandled: int
+    callsHandledDelta: str
+    aht: str
+    ahtDelta: str
+    resolutions: int
+    resolutionRate: str
+    promisesCount: int
+    promisesAmount: float
+    windowLabel: str
+
+
+class WorkspaceNextCallbackResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    customer: str
+    accountId: str
+    reason: str
+    time: str
+    timezone: str
+    inMinutes: int
+
+
+class WorkspaceSlaCountdownResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    remaining: str
+    level: WorkItemSla
+
+
+class WorkspaceSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stats: WorkspaceStatsResponse
+    nextCallback: WorkspaceNextCallbackResponse | None = None
+    slaCountdowns: list[WorkspaceSlaCountdownResponse]
+    outsideWindowCount: int
+
+
+# ── Floor / Webhooks / Integrations (ops screens) ─────────────────────────────
+
+
+class FloorStatsResponse(BaseModel):
+    callsInProgress: int
+    avgSentiment: float
+    escalationRate: float
+    queueDepth: int
+    botContainment: float
+    longestWaitSec: int
+
+
+class FloorSnapshotResponse(BaseModel):
+    calls: list[dict[str, Any]]
+    alerts: list[dict[str, Any]]
+    stats: FloorStatsResponse
+
+
+class SupervisorActionRequest(BaseModel):
+    interactionId: str
+    action: Literal["listen_in", "whisper", "barge", "force_handoff"]
+    note: str | None = None
+
+
+class WebhookEndpointUpsertRequest(BaseModel):
+    name: str | None = None
+    url: str
+    target: str = "Custom"
+    events: list[str] = []
+    algo: str = "HMAC-SHA256"
+    retry: dict[str, Any] = Field(default_factory=lambda: {"attempts": 3, "backoff": "exponential", "maxAgeHours": 24})
+    headers: list[dict[str, str]] = []
+    status: Literal["active", "paused", "broken"] | None = None
+
+
+class WebhookEndpointPatchRequest(BaseModel):
+    name: str | None = None
+    url: str | None = None
+    target: str | None = None
+    events: list[str] | None = None
+    algo: str | None = None
+    retry: dict[str, Any] | None = None
+    headers: list[dict[str, str]] | None = None
+    status: Literal["active", "paused", "broken"] | None = None
+
+
+class ProviderEnabledPatchRequest(BaseModel):
+    enabled: bool
+

@@ -42,6 +42,9 @@ def main() -> None:
             seed_collections_and_sales(conn, ctx)
             seed_compliance_qa_redaction(conn, ctx)
             seed_admin_analytics_crosscutting(conn, ctx)
+            from seed_susanth import seed_susanth
+
+            seed_susanth(conn)
 
     print(
         "[seed] loaded "
@@ -544,31 +547,421 @@ def seed_consent(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
 
 
 def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
-    upsert(conn, "tts_voices", {"id": "voice-hindi-en-1", "provider": "local-tts", "name": "Hindi English Female", "config": {"language": "hi-IN"}, "enabled": True})
-    upsert(conn, "persona_presets", {"id": "persona-compliant-collector", "name": "Compliant Collector", "config": {"tone": "calm", "empathy": "high"}})
-    upsert(
-        conn,
-        "prompt_versions",
-        {
-            "id": "prompt-v2-4",
-            "author_user_id": "priya-nair" if "priya-nair" in ctx["users"] else None,
-            "status": "published",
-            "prompt": "You are Kaia, a compliant collections assistant.",
-            "persona": {"preset": "persona-compliant-collector"},
-            "voice": {"voiceId": "voice-hindi-en-1"},
-            "guardrails": {"recordingDisclosureRequired": True, "noHarassment": True},
-        },
+    # --- Prompt Studio (Habibi /prompt-studio shapes). Alembic 0018 mirrors this. ---
+    for user_id, name in (("anita-rao", "Anita Rao"), ("vikram-shah", "Vikram Shah")):
+        upsert(
+            conn,
+            "users",
+            {
+                "id": user_id,
+                "tenant_id": TENANT_ID,
+                "team_id": "supervisors",
+                "name": name,
+                "email": f"{user_id}@hdfc.example",
+                "status": "active",
+            },
+        )
+
+    _emp_prompt = (
+        "You are {agent_name}, an inbound collections voice agent for {bank_name}.\n"
+        "Greet {customer_name} warmly and acknowledge their situation before discussing dues.\n"
+        "Reference their account {account_no} and the overdue amount of {overdue_amount} due on {due_date}.\n"
+        "Speak in {language}. Be patient, empathetic and non-judgemental.\n"
+        "Always disclose that the call is recorded for quality and compliance.\n"
+        "Never threaten legal action. Offer Promise-to-Pay options when the customer signals hardship."
     )
+    _firm_prompt = (
+        "You are {agent_name}, a collections agent for {bank_name}.\n"
+        "Address {customer_name} directly and state the purpose of the call within the first two sentences.\n"
+        "Clearly state the overdue amount {overdue_amount} on account {account_no}, past due since {due_date}.\n"
+        "Speak in {language}. Be professional, direct and outcome-oriented.\n"
+        "Disclose call recording. Do not promise waivers. Escalate to a human on any dispute."
+    )
+    _comp_prompt = (
+        "You are {agent_name}, a compliance-first collections agent for {bank_name}.\n"
+        "Begin every call with the recording disclosure and verify caller identity before sharing any account information.\n"
+        "Reference {customer_name}, account {account_no}, dues {overdue_amount}, due on {due_date} only after verification.\n"
+        "Speak in {language}. Never quote interest rates. Never promise fee waivers. Escalate on any dispute or hardship signal."
+    )
+    _upsell_prompt = (
+        "You are {agent_name}, a collections + relationship voice agent for {bank_name}.\n"
+        "Resolve {customer_name}'s query about their overdue {overdue_amount} on account {account_no} first.\n"
+        "Once the primary query is addressed, and eligibility permits, gently introduce one relevant product offer.\n"
+        "Speak in {language}. Do not push if the customer is stressed or has raised a dispute."
+    )
+    _guardrails = {
+        "prohibited": ["guarantee", "police", "arrest", "threaten", "family will pay", "harassment"],
+        "escalateAbuse": True,
+        "escalateLegal": True,
+        "neverQuoteRate": True,
+        "neverPromiseWaiver": True,
+        "alwaysDiscloseRecording": True,
+        "refusePoliticsReligion": True,
+        "maxTurns": 20,
+        "maxSeconds": 480,
+    }
+    _voice = {
+        "voiceId": "priya",
+        "speed": 1.0,
+        "pitch": 0,
+        "warmth": 62,
+        "pauseMs": 320,
+        "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+    }
+    _emp_traits = {"empathy": 82, "firmness": 40, "formality": 55, "verbosity": 60, "upsell": 20}
+    _firm_traits = {"empathy": 35, "firmness": 80, "formality": 65, "verbosity": 40, "upsell": 15}
+    _comp_traits = {"empathy": 55, "firmness": 55, "formality": 90, "verbosity": 55, "upsell": 5}
+    _upsell_traits = {"empathy": 65, "firmness": 45, "formality": 55, "verbosity": 55, "upsell": 75}
+
+    for voice_id, name, gender, accent, azure in (
+        ("priya", "Priya", "Female", "Indian English", "en-IN-NeerjaNeural"),
+        ("anjali", "Anjali", "Female", "Hindi-English", "en-IN-AashiNeural"),
+        ("neha", "Neha", "Female", "Neutral English", "en-IN-NeerjaNeural"),
+        ("ravi", "Ravi", "Male", "Indian English", "en-IN-PrabhatNeural"),
+        ("arjun", "Arjun", "Male", "Hindi-English", "en-IN-KunalNeural"),
+        ("kabir", "Kabir", "Male", "Neutral English", "en-IN-PrabhatNeural"),
+    ):
+        upsert(
+            conn,
+            "tts_voices",
+            {
+                "id": voice_id,
+                "provider": "azure-speech",
+                "name": name,
+                "config": {"gender": gender, "accent": accent, "duration": "0:03", "azureVoiceName": azure},
+                "enabled": True,
+            },
+        )
+
+    for preset_id, name, description, traits, template in (
+        ("empathetic", "Empathetic Collector", "Warm, patient, hardship-aware", _emp_traits, _emp_prompt),
+        ("firm", "Firm Collector", "Direct, outcome-focused", _firm_traits, _firm_prompt),
+        ("compliance", "Compliance-First", "Every disclosure, every time", _comp_traits, _comp_prompt),
+        ("upsell", "Upsell-Focused", "Resolve, then convert", _upsell_traits, _upsell_prompt),
+    ):
+        upsert(
+            conn,
+            "persona_presets",
+            {
+                "id": preset_id,
+                "name": name,
+                "config": {
+                    "label": name,
+                    "description": description,
+                    "traits": traits,
+                    "promptTemplate": template,
+                },
+            },
+        )
+
+    def _persona(traits: dict[str, int], fallback: list[str] | None = None) -> dict[str, Any]:
+        return {"traits": traits, "language": "English", "fallbackLanguages": fallback or ["Hindi"]}
+
+    # Archived first, then sole published — keeps ux_prompt_versions_one_published happy.
+    for row in (
+        {
+            "id": "v1_0",
+            "author_user_id": "anita-rao",
+            "status": "archived",
+            "label": "v1.0",
+            "summary": "first draft",
+            "prompt": "You are a collections agent. Collect the overdue amount.",
+            "persona": _persona(_emp_traits),
+            "voice": {**_voice},
+            "guardrails": {**_guardrails, "prohibited": [], "alwaysDiscloseRecording": False, "escalateAbuse": False},
+            "created_at": "2026-06-22T10:00:00Z",
+            "updated_at": "2026-06-22T10:00:00Z",
+        },
+        {
+            "id": "v1_1",
+            "author_user_id": "vikram-shah",
+            "status": "archived",
+            "label": "v1.1",
+            "summary": "initial compliance pass",
+            "prompt": _comp_prompt.replace("Never quote interest rates.", ""),
+            "persona": _persona(_comp_traits),
+            "voice": {**_voice, "warmth": 45},
+            "guardrails": {**_guardrails, "neverQuoteRate": False},
+            "created_at": "2026-07-02T10:00:00Z",
+            "updated_at": "2026-07-02T10:00:00Z",
+        },
+        {
+            "id": "v1_2",
+            "author_user_id": "vikram-shah",
+            "status": "archived",
+            "label": "v1.2",
+            "summary": "− legal-threat language, + Hindi fallback",
+            "prompt": _firm_prompt,
+            "persona": _persona(_firm_traits, ["Hindi", "Marathi"]),
+            "voice": {**_voice, "voiceId": "ravi"},
+            "guardrails": {**_guardrails, "prohibited": ["police", "arrest", "harassment"]},
+            "created_at": "2026-07-10T10:00:00Z",
+            "updated_at": "2026-07-10T10:00:00Z",
+        },
+        {
+            "id": "v1_3",
+            "author_user_id": "anita-rao",
+            "status": "archived",
+            "label": "v1.3",
+            "summary": "+ upsell-focused fallback path",
+            "prompt": _emp_prompt.replace("Offer Promise-to-Pay", "Offer Promise-to-Pay or product upgrade"),
+            "persona": _persona({**_emp_traits, "upsell": 40}),
+            "voice": {**_voice, "warmth": 55},
+            "guardrails": {**_guardrails, "neverPromiseWaiver": False},
+            "created_at": "2026-07-16T10:00:00Z",
+            "updated_at": "2026-07-16T10:00:00Z",
+        },
+        {
+            "id": "v1_4",
+            "author_user_id": "anita-rao",
+            "status": "published",
+            "label": "v1.4",
+            "summary": "+ recording disclosure, empathy 70→75",
+            "prompt": _emp_prompt,
+            "persona": _persona({**_emp_traits, "empathy": 75}),
+            "voice": {**_voice},
+            "guardrails": {**_guardrails},
+            "created_at": "2026-07-20T10:00:00Z",
+            "updated_at": "2026-07-20T10:00:00Z",
+        },
+    ):
+        upsert(conn, "prompt_versions", row)
+
     upsert(conn, "kb_documents", {"id": "kb-rbi-disclosures", "updated_by_user_id": "priya-nair", "type": "policy", "version": "2026.07", "status": "indexed", "enabled": True, "chunk_size": 800, "chunk_overlap": 120, "title": "RBI Collections Disclosure Guide"})
     upsert(conn, "kb_source_files", {"id": "file-kb-rbi-disclosures", "document_id": "kb-rbi-disclosures", "storage_ref": "minio://kb-sources/hdfc.retail/rbi-disclosures.pdf", "filename": "rbi-disclosures.pdf", "mime_type": "application/pdf", "size_bytes": 284000, "hash": stable_hash("rbi-disclosures")})
-    upsert(conn, "kb_chunks", {"id": "chunk-rbi-disclosures-1", "document_id": "kb-rbi-disclosures", "heading": "Recording disclosure", "tokens": 42, "text": "Agents and bots must disclose recording and identity before discussing account details.", "embedding": None, "hits": 12})
+    upsert(conn, "kb_chunks", {"id": "chunk-rbi-disclosures-1", "document_id": "kb-rbi-disclosures", "heading": "Recording disclosure", "tokens": 42, "text": "Agents and bots must disclose recording and identity before discussing account details.", "embedding": None, "hits": 12, "chunk_index": 1})
     upsert(conn, "kb_index_jobs", {"id": "kb-job-rbi-disclosures", "document_id": "kb-rbi-disclosures", "status": "succeeded", "chunk_size": 800, "chunk_overlap": 120, "embedding_model": "text-embedding-3-small", "started_at": "2026-07-21T08:00:00Z", "completed_at": "2026-07-21T08:02:00Z", "error": None})
     upsert(conn, "faq_pairs", {"id": "faq-payment-link", "linked_document_id": "kb-rbi-disclosures", "intent": "payment_link", "question": "Can you send a payment link?", "answer": "Yes, I can send a secure payment link to your registered channel.", "enabled": True})
     upsert(conn, "kb_snapshots", {"id": "kb-snapshot-2026-07", "label": "July production KB", "document_ids": ["kb-rbi-disclosures"], "faq_ids": ["faq-payment-link"]})
-    upsert(conn, "bot_deployments", {"id": "DEP-2026-07-PROD", "bot_id": "kaia-v2-4", "prompt_version_id": "prompt-v2-4", "kb_snapshot_id": "kb-snapshot-2026-07", "tts_voice_id": "voice-hindi-en-1", "environment": "production", "status": "active", "published_by_user_id": "priya-nair", "published_at": "2026-07-21T08:30:00Z", "rollback_deployment_id": None, "voice_config": {"bargeIn": True}})
-    upsert(conn, "routing_rules", {"id": "route-sentiment-drop", "tenant_id": TENANT_ID, "priority": 10, "enabled": True, "conditions": {"avgSentimentLt": -0.35}, "action_key": "handoff", "action_params": {"team": "card-collections"}})
-    upsert(conn, "sandbox_scenarios", {"id": "scenario-hardship", "name": "Hardship PTP negotiation", "sim_persona": {"risk": "high"}, "turns": [{"speaker": "customer", "text": "I cannot pay today."}]})
-    upsert(conn, "sandbox_runs", {"id": "SBX-1001", "scenario_id": "scenario-hardship", "deployment_id": "DEP-2026-07-PROD", "prompt_version_id": "prompt-v2-4", "kb_snapshot_id": "kb-snapshot-2026-07", "started_by_user_id": "priya-nair", "status": "completed", "aggregate_latency_ms": 980, "aggregate_tokens": 640})
+    # Live-config invariant: active prod deployment → published prompt (v1_4) + Azure voice.
+    upsert(
+        conn,
+        "bot_deployments",
+        {
+            "id": "DEP-2026-07-PROD",
+            "bot_id": "kaia-v2-4",
+            "prompt_version_id": "v1_4",
+            "kb_snapshot_id": "kb-snapshot-2026-07",
+            "tts_voice_id": "priya",
+            "environment": "production",
+            "status": "active",
+            "published_by_user_id": "priya-nair",
+            "published_at": "2026-07-21T08:30:00Z",
+            "rollback_deployment_id": None,
+            "voice_config": {**_voice},
+        },
+    )
+    # Screen-shaped routing library (Habibi Routing Builder). Alembic 0013 mirrors this.
+    routing_library = [
+        {
+            "id": "route-abusive-supervisor",
+            "priority": 1,
+            "enabled": True,
+            "name": "Abusive language → immediate supervisor",
+            "description": "Barge supervisor when abusive language or legal threats detected.",
+            "category": "Escalation",
+            "conditions": [
+                {
+                    "id": "c-abuse-or",
+                    "or": [
+                        {"id": "c-abuse-1", "field": "guardrail_flag", "op": "=", "value": "abusive-language"},
+                        {"id": "c-abuse-2", "field": "guardrail_flag", "op": "=", "value": "legal-threat"},
+                    ],
+                }
+            ],
+            "action_key": "escalate_supervisor",
+            "action_params": {},
+        },
+        {
+            "id": "route-high-value-tier2",
+            "priority": 2,
+            "enabled": True,
+            "name": "High-value angry customer → Tier 2",
+            "description": "Angry customers with high overdue routed to Tier 2 collections.",
+            "category": "Routing",
+            "conditions": [
+                {"id": "c-hv-sent", "field": "sentiment", "op": "=", "value": "angry"},
+                {"id": "c-hv-amt", "field": "overdue_amount", "op": ">", "value": 25000},
+            ],
+            "action_key": "route_tier2",
+            "action_params": {},
+        },
+        {
+            "id": "route-hardship-handoff",
+            "priority": 3,
+            "enabled": True,
+            "name": "Hardship intent → human handoff",
+            "description": "Hand off when customer expresses financial hardship.",
+            "category": "Handoff",
+            "conditions": [{"id": "c-hardship", "field": "intent", "op": "=", "value": "hardship"}],
+            "action_key": "handoff_human",
+            "action_params": {"team": "Hardship Desk"},
+        },
+        {
+            "id": "route-dispute-queue",
+            "priority": 4,
+            "enabled": True,
+            "name": "Dispute intent → collections queue",
+            "description": "Route dispute intents to the specialist collections dispute desk.",
+            "category": "Routing",
+            "conditions": [{"id": "c-dispute", "field": "intent", "op": "=", "value": "dispute"}],
+            "action_key": "route_specialist",
+            "action_params": {"team": "Dispute Desk"},
+        },
+        {
+            "id": "route-sentiment-drop",
+            "priority": 5,
+            "enabled": True,
+            "name": "Negative sentiment → supervisor",
+            "description": "Escalate when average call sentiment turns strongly negative.",
+            "category": "Escalation",
+            "conditions": [{"id": "c-sent", "field": "sentiment", "op": "=", "value": "angry"}],
+            "action_key": "escalate_supervisor",
+            "action_params": {},
+        },
+        {
+            "id": "route-verify-failed",
+            "priority": 6,
+            "enabled": True,
+            "name": "Verification failed → human",
+            "description": "Stop upsell and hand off when caller verification fails mid-call.",
+            "category": "Throttle",
+            "conditions": [
+                {"id": "c-vf-status", "field": "verification_status", "op": "=", "value": "failed"},
+                {"id": "c-vf-turns", "field": "turn_count", "op": ">=", "value": 4},
+            ],
+            "action_key": "stop_upsell",
+            "action_params": {},
+        },
+        {
+            "id": "route-dnd-sms",
+            "priority": 7,
+            "enabled": True,
+            "name": "DND breach → SMS follow-up only",
+            "description": "If DND is on during a voice attempt, close voice and send scheduled SMS.",
+            "category": "Compliance",
+            "conditions": [
+                {"id": "c-dnd", "field": "consent_dnd", "op": "=", "value": True},
+                {"id": "c-dnd-ch", "field": "channel", "op": "=", "value": "voice"},
+            ],
+            "action_key": "send_sms",
+            "action_params": {"template": "dnd_followup_v2"},
+        },
+        {
+            "id": "route-high-dpd",
+            "priority": 8,
+            "enabled": False,
+            "name": "High DPD → priority Tier 2 queue",
+            "description": "Anyone above 60 DPD goes to Tier 2 regardless of sentiment.",
+            "category": "Routing",
+            "conditions": [{"id": "c-dpd", "field": "dpd", "op": ">", "value": 60}],
+            "action_key": "route_tier2",
+            "action_params": {},
+        },
+    ]
+    for rule in routing_library:
+        upsert(conn, "routing_rules", {"tenant_id": TENANT_ID, **rule})
+    # Sandbox scenarios — Habibi-shaped (sim_persona carries persona + openingBot metadata).
+    sandbox_scenarios = [
+        {
+            "id": "angry-waiver",
+            "name": "Angry customer — waiver dispute",
+            "sim_persona": {
+                "title": "Angry customer — waiver dispute",
+                "summary": "Customer is furious about a late fee and demands it be waived immediately.",
+                "difficulty": "hard",
+                "intents": ["waiver_request", "escalation"],
+                "name": "Rahul Sharma",
+                "phoneLast4": "4821",
+                "product": "Personal Loan",
+                "dpd": 12,
+                "overdue": 18450,
+                "mood": "angry",
+                "language": "English",
+                "accountNo": "••••4821",
+                "dueDate": "the 5th",
+                "openingBot": "Hello, this is {agent_name} calling from {bank_name} regarding your loan account. This call is recorded for quality. Am I speaking with {customer_name}?",
+            },
+            "turns": [
+                {"customer": "Yes it's me. Why are you charging me a late fee? This is ridiculous!", "expectedIntent": "waiver_request", "expectedSentiment": -0.7},
+                {"customer": "I want it waived. I've been a customer for 5 years.", "expectedIntent": "waiver_request", "expectedSentiment": -0.6},
+            ],
+        },
+        {
+            "id": "hardship",
+            "name": "Hardship — recent job loss",
+            "sim_persona": {
+                "title": "Hardship — recent job loss",
+                "summary": "Customer lost their job and can't pay this month.",
+                "difficulty": "hard",
+                "intents": ["hardship", "escalation"],
+                "name": "Anil Kumar",
+                "phoneLast4": "1177",
+                "product": "Home Loan",
+                "dpd": 22,
+                "overdue": 42800,
+                "mood": "distressed",
+                "language": "English",
+                "accountNo": "••••1177",
+                "dueDate": "the 1st",
+                "openingBot": "Hello, this is {agent_name} from {bank_name}. This call is recorded. Am I speaking with {customer_name}?",
+            },
+            "turns": [
+                {"customer": "Yes. Look, I lost my job last month. I can't pay right now.", "expectedIntent": "hardship", "expectedSentiment": -0.7},
+                {"customer": "How does the deferral work?", "expectedIntent": "hardship", "expectedSentiment": -0.2},
+            ],
+        },
+        {
+            "id": "pay-today",
+            "name": "Wants to pay today (happy path)",
+            "sim_persona": {
+                "title": "Wants to pay today (happy path)",
+                "summary": "Straightforward: customer wants to clear dues on the call.",
+                "difficulty": "easy",
+                "intents": ["payment_intent"],
+                "name": "Neha Verma",
+                "phoneLast4": "5522",
+                "product": "Auto Loan",
+                "dpd": 3,
+                "overdue": 12200,
+                "mood": "cooperative",
+                "language": "English",
+                "accountNo": "••••5522",
+                "dueDate": "today",
+                "openingBot": "Hi {customer_name}, this is {agent_name} from {bank_name}. This call is recorded. Calling about your auto loan EMI.",
+            },
+            "turns": [
+                {"customer": "Yes, I want to clear it right now.", "expectedIntent": "payment_intent", "expectedSentiment": 0.6},
+                {"customer": "Yes, send the UPI link.", "expectedIntent": "payment_intent", "expectedSentiment": 0.7},
+            ],
+        },
+        {
+            "id": "legal-threat",
+            "name": "Legal threat — auto-escalation trigger",
+            "sim_persona": {
+                "title": "Legal threat — auto-escalation trigger",
+                "summary": "Customer threatens legal action; bot should escalate immediately.",
+                "difficulty": "hard",
+                "intents": ["escalation"],
+                "name": "Vikram Joshi",
+                "phoneLast4": "8804",
+                "product": "Credit Card",
+                "dpd": 45,
+                "overdue": 62100,
+                "mood": "hostile",
+                "language": "English",
+                "accountNo": "••••8804",
+                "dueDate": "overdue",
+                "openingBot": "Hello {customer_name}, {agent_name} from {bank_name}. This call is recorded. Calling regarding your outstanding balance.",
+            },
+            "turns": [
+                {"customer": "If you call me again I'll take you to court!", "expectedIntent": "escalation", "expectedSentiment": -0.9},
+            ],
+        },
+    ]
+    for sc in sandbox_scenarios:
+        upsert(conn, "sandbox_scenarios", sc)
+    upsert(conn, "sandbox_runs", {"id": "SBX-1001", "scenario_id": "hardship", "deployment_id": "DEP-2026-07-PROD", "prompt_version_id": "v1_4", "kb_snapshot_id": "kb-snapshot-2026-07", "started_by_user_id": "priya-nair", "status": "completed", "aggregate_latency_ms": 980, "aggregate_tokens": 640})
     upsert(conn, "sandbox_run_turns", {"id": "SBX-1001-turn-1", "run_id": "SBX-1001", "turn_index": 1, "speaker": "bot", "text": "I understand. Let us find a suitable payment date.", "detected_intent": "hardship", "sentiment_label": "neutral", "retrieved_chunk_ids": ["chunk-rbi-disclosures-1"], "guardrail_flags": [], "latency_ms": 980, "token_count": 64})
 
 
@@ -989,14 +1382,14 @@ def seed_admin_analytics_crosscutting(conn: psycopg.Connection, ctx: dict[str, A
         upsert(conn, "event_types", {"id": f"event-{slug(event)}", "name": event, "description": event.replace(".", " ")})
         insert_ignore(conn, "INSERT INTO webhook_subscriptions (endpoint_id, event_type_id) VALUES (%(endpoint_id)s, %(event_type_id)s) ON CONFLICT DO NOTHING", {"endpoint_id": "wh-crm-events", "event_type_id": f"event-{slug(event)}"})
     upsert(conn, "webhook_deliveries", {"id": "dlv-0001", "endpoint_id": "wh-crm-events", "event_type_id": "event-interaction-completed", "payload": {"interactionId": ctx["calls"][0]["id"]}, "response_body": "ok", "http_status": 200, "attempt_number": 1, "latency_ms": 80, "status": "success", "next_retry_at": None})
-    upsert(conn, "billing_services", {"id": "svc-voice-minutes", "name": "Voice minutes", "unit": "minute", "unit_cost_inr": 1.25})
-    upsert(conn, "billing_services", {"id": "svc-rag-query", "name": "RAG query", "unit": "query", "unit_cost_inr": 0.15})
-    upsert(conn, "billing_usage_daily", {"id": "usage-2026-07-21-voice", "service_id": "svc-voice-minutes", "tenant_id": TENANT_ID, "environment": "production", "usage_date": "2026-07-21", "units": 420, "cost_inr": 525})
-    upsert(conn, "invoices", {"id": "INV-2026-07", "tenant_id": TENANT_ID, "invoice_month": "2026-07", "environment": "production", "total_inr": 525, "status": "draft"})
-    upsert(conn, "invoice_line_items", {"id": "INV-2026-07-voice", "invoice_id": "INV-2026-07", "service_id": "svc-voice-minutes", "units": 420, "unit_cost_inr": 1.25, "amount_inr": 525})
-    upsert(conn, "budgets", {"id": "budget-2026-07", "tenant_id": TENANT_ID, "month": "2026-07", "amount_inr": 2500000})
-    upsert(conn, "budget_rules", {"id": "budget-2026-07-80", "budget_id": "budget-2026-07", "threshold_pct": 80, "action_channel": "email"})
-    upsert(conn, "budget_alert_events", {"id": "budget-alert-1", "budget_rule_id": "budget-2026-07-80", "triggered_at": "2026-07-21T12:00:00Z", "spend_inr": 2000000, "message": "Budget threshold reached"})
+    upsert(conn, "billing_services", {"id": "llm_gpt4o", "name": "Azure OpenAI GPT-4o", "unit": "1K tokens", "unit_cost_inr": 0.42, "provider": "Azure", "category": "LLM", "color": "#3b82f6"})
+    upsert(conn, "billing_services", {"id": "stt_az", "name": "Azure Speech STT", "unit": "minute", "unit_cost_inr": 0.32, "provider": "Azure", "category": "Voice", "color": "#0ea5e9"})
+    upsert(conn, "billing_usage_daily", {"id": "usage-2026-07-21-llm", "service_id": "llm_gpt4o", "tenant_id": TENANT_ID, "environment": "production", "usage_date": "2026-07-21", "units": 11428.57, "cost_inr": 4800})
+    upsert(conn, "invoices", {"id": "INV-2026-07", "tenant_id": TENANT_ID, "invoice_month": "2026-07", "environment": "production", "total_inr": 4800, "status": "draft", "issued_at": "2026-08-01"})
+    upsert(conn, "invoice_line_items", {"id": "INV-2026-07-llm", "invoice_id": "INV-2026-07", "service_id": "llm_gpt4o", "units": 11428.57, "unit_cost_inr": 0.42, "amount_inr": 4800})
+    upsert(conn, "budgets", {"id": "budget-prod-2026-07", "tenant_id": None, "environment": "production", "month": "2026-07", "amount_inr": 600000})
+    upsert(conn, "budget_rules", {"id": "r1", "budget_id": "budget-prod-2026-07", "threshold_pct": 70, "action_channel": "email:finance-ops", "severity": "info", "action": "Notify finance-ops", "channels": ["email:finance-ops"]})
+    upsert(conn, "budget_alert_events", {"id": "budget-alert-1", "budget_rule_id": "r1", "triggered_at": "2026-07-21T12:00:00Z", "spend_inr": 420000, "message": "Prod spend crossed 70% of monthly cap"})
 
     upsert(conn, "analytics_daily", {"id": "analytics-2026-07-21", "tenant_id": TENANT_ID, "metric_date": "2026-07-21", "resolved_calls": 28, "escalations": 6, "ptp_count": 12, "avg_sentiment": 0.08})
     upsert(conn, "intent_aggregates", {"id": "intent-payment-2026-07-21", "tenant_id": TENANT_ID, "metric_date": "2026-07-21", "intent": "payment", "sessions": 18, "containment_rate": 0.72, "escalation_rate": 0.18, "abandonment_rate": 0.03, "avg_turns": 5.4, "avg_latency_ms": 870, "avg_sentiment": 0.11})
@@ -1039,7 +1432,7 @@ def seed_admin_analytics_crosscutting(conn: psycopg.Connection, ctx: dict[str, A
                     "unanswered_question_id": qid,
                     "kb_document_id": "kb-rbi-disclosures",
                     "faq_pair_id": "faq-payment-link",
-                    "prompt_version_id": "prompt-v2-4",
+                    "prompt_version_id": "v1_4",
                     "routing_rule_id": None,
                 },
             )

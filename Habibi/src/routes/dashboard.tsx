@@ -18,13 +18,13 @@ import type { Range, Segment, TeamFilter } from "@/data/dashboard-seed";
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
-      { title: "Executive Dashboard — Collections Agent" },
+      { title: "Executive Dashboard — BigBound AI" },
       {
         name: "description",
         content:
           "Portfolio health at a glance: AHT, upsell conversion, recovery, bot containment, sentiment, leaderboard, and at-risk accounts.",
       },
-      { property: "og:title", content: "Executive Dashboard — Collections Agent" },
+      { property: "og:title", content: "Executive Dashboard — BigBound AI" },
       {
         property: "og:description",
         content: "Leadership view of collections performance across bot and human channels.",

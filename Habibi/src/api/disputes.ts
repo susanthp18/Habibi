@@ -17,12 +17,14 @@ import {
   addNote as addSeedNote,
   assignDispute as assignSeedDispute,
   attachEvidence as attachSeedEvidence,
+  createDispute as createSeedDispute,
   disputes as seedDisputes,
   moveDispute as moveSeedDispute,
   rejectDispute as rejectSeedDispute,
   resolveDispute as resolveSeedDispute,
   type Dispute,
   type DisputeStatus,
+  type DisputeType,
   type Evidence,
   type ResolutionCode,
 } from "@/data/disputes-seed";
@@ -31,9 +33,35 @@ import { resolveActor } from "./staff";
 
 export const UNASSIGNED = "Unassigned";
 
+export type CreateDisputeInput = {
+  customerId: string;
+  customerName: string;
+  accountId: string;
+  type: DisputeType;
+  amount: number;
+  notes?: string;
+};
+
 export async function fetchDisputes(): Promise<Dispute[]> {
   if (USE_MOCK) return mockDelay(seedDisputes);
   return apiGet<Dispute[]>("/disputes");
+}
+
+/** Raise a dispute from the Disputes desk (or workspace quick action). */
+export async function createDispute(input: CreateDisputeInput): Promise<{ id: string }> {
+  if (USE_MOCK) {
+    const d = createSeedDispute(input);
+    await mockDelay(undefined);
+    return { id: d.id };
+  }
+  const created = await apiPost<{ id: string }>("/disputes", {
+    customerId: input.customerId,
+    accountId: input.accountId,
+    type: input.type,
+    amount: input.amount,
+    transcriptSnippet: input.notes?.trim() || undefined,
+  });
+  return { id: created.id };
 }
 
 export function useDisputes() {

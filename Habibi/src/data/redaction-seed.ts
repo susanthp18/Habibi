@@ -114,19 +114,19 @@ export const ENTITY_COLORS: Record<PiiEntityType, string> = {
 const AUDIO_ELIGIBLE: PiiEntityType[] = ["card", "phone", "account", "aadhaar", "dob"];
 
 const CUSTOMERS = [
-  { id: "vikram-rao",   name: "Vikram Rao",   handler: "Kaia v2.4",   channel: "voice"    as const },
+  { id: "vikram-rao",   name: "Vikram Rao",   handler: "BigBound v2.4",   channel: "voice"    as const },
   { id: "anita-desai",  name: "Anita Desai",  handler: "Aarav K.",    channel: "voice"    as const },
-  { id: "priya-menon",  name: "Priya Menon",  handler: "Kaia v2.4",   channel: "whatsapp" as const },
+  { id: "priya-menon",  name: "Priya Menon",  handler: "BigBound v2.4",   channel: "whatsapp" as const },
   { id: "rahul-shetty", name: "Rahul Shetty", handler: "Priya Nair",  channel: "voice"    as const },
-  { id: "kavya-iyer",   name: "Kavya Iyer",   handler: "Kaia v2.4",   channel: "voice"    as const },
+  { id: "kavya-iyer",   name: "Kavya Iyer",   handler: "BigBound v2.4",   channel: "voice"    as const },
   { id: "sameer-khan",  name: "Sameer Khan",  handler: "Arjun Mehta", channel: "voice"    as const },
   { id: "neha-gupta",   name: "Neha Gupta",   handler: "WebChatBot",  channel: "whatsapp" as const },
   { id: "arjun-nair",   name: "Arjun Nair",   handler: "Sara Khan",   channel: "voice"    as const },
-  { id: "divya-shah",   name: "Divya Shah",   handler: "Kaia v2.4",   channel: "voice"    as const },
+  { id: "divya-shah",   name: "Divya Shah",   handler: "BigBound v2.4",   channel: "voice"    as const },
   { id: "rohit-verma",  name: "Rohit Verma",  handler: "Meera Joshi", channel: "voice"    as const },
-  { id: "isha-kapoor",  name: "Isha Kapoor",  handler: "Kaia v2.4",   channel: "sms"      as const },
+  { id: "isha-kapoor",  name: "Isha Kapoor",  handler: "BigBound v2.4",   channel: "sms"      as const },
   { id: "manoj-pillai", name: "Manoj Pillai", handler: "Aarav K.",    channel: "voice"    as const },
-  { id: "sneha-jain",   name: "Sneha Jain",   handler: "Kaia v2.4",   channel: "voice"    as const },
+  { id: "sneha-jain",   name: "Sneha Jain",   handler: "BigBound v2.4",   channel: "voice"    as const },
   { id: "kunal-bose",   name: "Kunal Bose",   handler: "Priya Nair",  channel: "voice"    as const },
 ];
 

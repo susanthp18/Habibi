@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { FileText, Plus } from "lucide-react";
@@ -32,11 +32,13 @@ import {
 import { humanNames, useStaff } from "@/api/staff";
 import { useCustomers } from "@/api/customers";
 import { USE_MOCK } from "@/api/config";
+import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/documents")({
+  validateSearch: parseDeepLinkSearch,
   head: () => ({
     meta: [
-      { title: "Document Fulfillment Desk — Collections Agent" },
+      { title: "Document Fulfillment Desk — BigBound AI" },
       {
         name: "description",
         content:
@@ -54,6 +56,8 @@ export const Route = createFileRoute("/documents")({
 
 function DocumentsPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const search = Route.useSearch();
   const { data: items = [] } = useDocuments();
   const { data: staff = [] } = useStaff();
   const { data: liveCustomers = [] } = useCustomers();
@@ -61,6 +65,7 @@ function DocumentsPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showNew, setShowNew] = useState(false);
+  const deepLinkApplied = useRef(false);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -190,6 +195,15 @@ function DocumentsPage() {
   const handleRetry = (d: DocRequest) => {
     retryMutation.mutate(d);
   };
+
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    if (!search.id && !search.new) return;
+    deepLinkApplied.current = true;
+    if (search.id) setOpenId(search.id);
+    if (search.new) setShowNew(true);
+    void navigate({ search: {}, replace: true });
+  }, [search.id, search.new, navigate]);
 
   return (
     <AppShell>

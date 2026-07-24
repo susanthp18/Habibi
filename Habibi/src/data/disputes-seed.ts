@@ -393,6 +393,38 @@ export function computeMetrics(list: Dispute[]) {
 }
 
 // ---- Mutations ----
+export function createDispute(input: {
+  customerId: string;
+  customerName: string;
+  accountId: string;
+  type: DisputeType;
+  amount: number;
+  notes?: string;
+}): Dispute {
+  const id = `D-${Math.floor(4800 + Math.random() * 900)}`;
+  const at = new Date().toISOString();
+  const d: Dispute = {
+    id,
+    customerId: input.customerId,
+    customerName: input.customerName,
+    accountId: input.accountId,
+    accountTail: input.accountId.slice(-4),
+    type: input.type,
+    disputedAmount: input.amount,
+    source: "agent",
+    transcriptSnippet: input.notes?.trim() ? `"${input.notes.trim()}"` : "(agent-raised)",
+    capturedAt: at,
+    slaDueAt: hoursISO(48),
+    status: "new",
+    assignee: CURRENT_AGENT,
+    priority: "normal",
+    evidence: [],
+    events: [{ at, label: "Dispute raised", actor: CURRENT_AGENT, tone: "info" }],
+  };
+  disputes.unshift(d);
+  return d;
+}
+
 export function moveDispute(id: string, next: DisputeStatus, opts?: { actor?: string; note?: string }) {
   const d = disputes.find((x) => x.id === id);
   if (!d) return;

@@ -1,4 +1,29 @@
+# Collections Agent — data plane + app processes.
+#
+# Connection budget (defaults below, sum ≈ 25):
+#   api 5+5=10  +  worker 3+2=5  +  bot_worker 3+2=5  +  voice 3+2=5
+# Stay under Postgres max_connections (100) − reserved (~10).
+# Do NOT raise uvicorn --workers without re-budgeting.
+#
+# Quick start (from backend/):
+#   docker compose up -d --build
+#   docker compose exec api alembic upgrade head
+#   docker compose exec api python scripts/seed_demo.py   # optional demo rows
+
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: collections_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   db:
     image: pgvector/pgvector:pg16
     container_name: collections_db
@@ -17,5 +42,183 @@ services:
       timeout: 5s
       retries: 10
 
+  # Pin by digest (not :latest). Tag RELEASE.2025-09-07T16-13-09Z — last official
+  # Hub publish before MinIO went source-only for newer builds. Bump deliberately.
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    container_name: collections_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in backend/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in backend/.env}
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
+    image: collections-api:local
+    container_name: collections_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      DB_PROCESS_ROLE: api
+      DB_POOL_SIZE: ${API_DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-5}
+      VOICE_RUNNER_URL: http://voice:7860
+      REDIS_URL: redis://redis:6379/0
+      VOICE_WS_VIA_API: "true"
+      # Single worker — connection budget assumes 1× pool.
+      UVICORN_WORKERS: "1"
+    command:
+      [
+        "uvicorn",
+        "main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--workers",
+        "1",
+      ]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
+    image: collections-api:local
+    container_name: collections_kb_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      DB_PROCESS_ROLE: worker
+      DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-3}
+      DB_MAX_OVERFLOW: ${WORKER_DB_MAX_OVERFLOW:-2}
+    command: ["python", "-m", "worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  bot_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
+    image: collections-api:local
+    container_name: collections_bot_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      DB_PROCESS_ROLE: bot_worker
+      DB_POOL_SIZE: ${BOT_WORKER_DB_POOL_SIZE:-3}
+      DB_MAX_OVERFLOW: ${BOT_WORKER_DB_MAX_OVERFLOW:-2}
+    command: ["python", "-m", "bot_worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  voice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: voice
+    image: collections-voice:local
+    container_name: collections_voice
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      DB_PROCESS_ROLE: voice
+      DB_POOL_SIZE: ${VOICE_DB_POOL_SIZE:-3}
+      DB_MAX_OVERFLOW: ${VOICE_DB_MAX_OVERFLOW:-2}
+      REDIS_URL: redis://redis:6379/0
+      VOICE_MULTI_AGENT_ENABLED: "true"
+    command: ["python", "-m", "voice.bot", "--host", "0.0.0.0", "--port", "7860"]
+    # Pipecat runner — must bind 0.0.0.0 for published ports.
+    ports:
+      - "127.0.0.1:${VOICE_PORT:-7860}:7860"
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  voice_insurance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: voice
+    image: collections-voice:local
+    container_name: collections_voice_insurance
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      DB_PROCESS_ROLE: voice
+      DB_POOL_SIZE: "2"
+      DB_MAX_OVERFLOW: "1"
+      REDIS_URL: redis://redis:6379/0
+      VOICE_MULTI_AGENT_ENABLED: "true"
+    command: ["python", "-m", "voice.workers.insurance"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  minio_data:

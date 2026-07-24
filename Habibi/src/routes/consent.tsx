@@ -29,7 +29,7 @@ import {
 export const Route = createFileRoute("/consent")({
   head: () => ({
     meta: [
-      { title: "Consent & Communication Preferences — Collections Agent" },
+      { title: "Consent & Communication Preferences — BigBound AI" },
       { name: "description", content: "BFSI-grade consent registry: per-channel opt-in/opt-out, DND windows, frequency caps, expiry tracking, and an auditable opt-out log." },
       { property: "og:title", content: "Consent & DND Registry" },
       { property: "og:description", content: "Manage per-customer channel consent, contact windows, and opt-outs with a full audit trail." },

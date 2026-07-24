@@ -85,10 +85,18 @@ CREATE TABLE IF NOT EXISTS interaction_transcript (
   at_sec INTEGER NOT NULL DEFAULT 0,
   text TEXT NOT NULL,
   sentiment_delta numeric(5,3),
+  intent TEXT,
+  intent_score numeric(5,3),
+  ttfb_ms INTEGER,
+  ttfa_ms INTEGER,
+  tokens INTEGER,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (interaction_id, turn_index)
 );
 CREATE INDEX IF NOT EXISTS idx_interaction_transcript_interaction_id ON interaction_transcript(interaction_id);
+CREATE INDEX IF NOT EXISTS idx_interaction_transcript_intent
+  ON interaction_transcript (interaction_id, intent)
+  WHERE intent IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS interaction_sentiment (
   id TEXT PRIMARY KEY,
@@ -158,7 +166,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('bot','needs_human','escalated','assigned')),
-  channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat')),
+  channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat','voice')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -176,6 +184,10 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+-- WhatsApp / provider message ids — Meta retries require idempotent ingest.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_provider_ref
+  ON messages (provider_ref)
+  WHERE provider_ref IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS canned_responses (
   id TEXT PRIMARY KEY,

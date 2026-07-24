@@ -217,9 +217,35 @@ from `currentActor()` — never a hardcoded "You".
 
 ## Remaining after QA core
 
-Fast-follows on the same page: coaching actions + calibration sessions (their
-DB tables already exist). Then Phase 4 bot emission / Tier-2 screens per the
-product roadmap.
+~~Fast-follows on the same page: coaching actions + calibration sessions~~
+**Done** — see seed-chip close-out below. Then Phase 4 bot emission / Tier-2
+screens per the product roadmap.
+
+## Done: Redaction & Export Hub (reads) ✅
+
+Tier-1 close-out screen — **reads + writes**. Accept/reject finding, rule
+toggles, mark-reviewed, and export jobs persist via live endpoints (see
+seed-chip close-out).
+
+Same five moves. Central gotcha: never leak raw PII through the read API —
+`pii_findings.masked` is what non-Admin actors get in `finding.text`; raw
+substring from the transcript turn is reserved for Admin / Compliance roles.
+`accepted` is surfaced on every finding. Frontend seam:
+`Habibi/src/api/redaction.ts` (`useRedactionRecords`, `useRedactionRules`).
+
+**Also closed with this pass (Tier-1 crash fixes):**
+- `LeadCard` null `owner` → `"Unassigned"` (3 unassigned leads no longer crash).
+- Audit `fetchCalls` maps `[{flag,severity}]` → `CallFlag[]` and drops
+  `smoke_flag`; leftover `smoke_flag` seed row deleted from `interaction_flags`.
+
+**Closed for real (not flagged):**
+- `GET /redaction-records` (+ `/{id}`) → screen `RedactionRecord` shape with
+  nested `findings[]` + `audioSegments[]` + interaction transcript; tenant-scoped
+  via `interactions.tenant_id` / `customers.tenant_id` = `hdfc.retail`.
+- `GET /redaction-rules` → full 10-type vocabulary with labels; frontend maps
+  the list into `RedactionRules`.
+- Local overlays in `redaction.tsx` for finding accept/mute/reviewed; exports +
+  rule edits remain seed-backed and labelled.
 
 ## Done: Conversation Inbox ✅
 
@@ -234,3 +260,150 @@ SLA/unread/`isMine`, context rail). Writes: `POST .../takeover`,
 
 **Deferred by design (see `conversation_inbox_plan.md`):** WhatsApp Meta I/O
 (Phase B), Azure RAG (Phase C), shared realtime with Handoff/Floor (Phase D).
+
+## Done: Redaction PII seed polish ✅
+
+Seed gap (not a code bug): all 8 `pii_findings` were identical phone clones with
+`transcript_turn_id` NULL / offsets 0, and transcripts had no PII — so
+TranscriptRedactor highlighted nothing and the masking / role-gate path was a
+no-op. Alembic `20260722_0012` (+ `0014` card/aadhaar overlap fix) injects
+varied PII into customer turns and rebuilds findings with correct turn anchors
++ offsets (phone/email/PAN/aadhaar/card/account/dob). A few records are left
+unreviewed so pending-review is demonstrable.
+
+## Done: Routing & Logic Builder (reads) ✅
+
+Tier-2 screen — **reads first**. Create / reorder / toggle / edit / delete stay
+optimistic/seed (flagged) until Phase 3A writes land. Audit log remains seed.
+
+Seed pass first (`20260722_0013`): widen `routing_rules` with
+`name` / `description` / `category`, seed ~8 screen-shaped rules (Habibi
+FIELDS + ActionKey vocabulary), rewrite legacy `route-sentiment-drop`, and
+redistribute the 42 `routing_rule_executions` across rules (one execution per
+interaction — no double-count) with a matched slice bumped into the last 24h.
+
+Same five moves. Frontend seam: `Habibi/src/api/routing.ts` (`useRoutingRules`).
+
+**Closed for real (not flagged):**
+- `GET /routing-rules` → priority-ordered screen `Rule` shape with `when[]`,
+  `then`, `executionCount` (matched), `lastFiredAt`, `triggersLast24h`.
+- `GET /routing-rules/{id}/executions` → firing log (optional; builder audit
+  tab stays seed for rule-edit history).
+- Tenant-scoped; aggregates via `LATERAL` / `rule_id` (no N+1, no version
+  double-count — there is no rule-version column).
+
+**Still seed-chipped:** ~~New rule / save / toggle / reorder / delete / audit log.~~
+**Closed** — see seed-chip close-out.
+
+## Done: My Workspace — AssignedQueue (reads) ✅
+
+Agent home screen. Clean win off the `work_items` view (open-status UNION across
+disputes / callbacks / docs / broken·partial PTPs / followups / leads). StatsStrip
+and RightRail are follow-ons — **not** faked live.
+
+**Product decisions (flagged honestly):**
+- **Followups tab added.** The view has ~28 followups (Priya: 8) with no prior
+  tab — leaving them out hid half the chase list. Leads stay on Upsell (returned
+  with `entityType=lead` but not bucketed into tabs).
+- **Broken PTPs** = `entity_type='promise'`. The view already excludes pending
+  (`due_today|broken|partial` only); client keeps broken/partial/due_today.
+- **StatsStrip stays seed-chipped.** Literal "today" aggregates over interactions
+  would read all-zero on the historical seed (same liveness trap as Floor). Wire
+  a rolling window later rather than ship fake zeros.
+
+Same five moves. Frontend seam: `Habibi/src/api/workspace.ts` (`useWorkItems`,
+`bucketWorkItems`). Greeting first name from `useMe()` — never hardcoded Priya.
+
+**Closed for real (not flagged):**
+- `GET /work-items?assignee=me` → screen `QueueRow` + `entityType` / `status` /
+  `assigneeUserId`. Default `assignee=me` resolves via `ACTOR_USER_ID` (`/me`).
+- `sla` / `slaLabel` / `ageHours` computed server-side from `sla_due_at` +
+  `created_at` (not stored). Detail/amount via 6 grouped `= ANY(:ids)`
+  enrichments (no N+1).
+- AssignedQueue tabs are live slices; null `amount` / missing assignee safe
+  (no `.split` crash class).
+
+**Still seed-chipped:** ~~StatsStrip tiles, RightRail (next callback / SLA
+countdowns / outside-window nudge count).~~ **Closed** — see seed-chip close-out.
+
+## Done: Call Simulation Sandbox (PS-3) ✅
+
+Demo climax — not the usual 5-move read. Heart is a compute path that spends
+real Azure tokens + KB retrieve.
+
+**Closed for real (not flagged):**
+- `GET /sandbox/scenarios` → Habibi-shaped scenarios (persona + openingBot +
+  scripted customer turns). Seeded via `20260722_0019` (6 scenarios, ≤2 turns).
+- `GET /sandbox/runs/{id}` → run + turns with `groundedIn[]` doc-title chips
+  (real `kb_chunks` ids only in `retrieved_chunk_ids`).
+- `POST /sandbox/runs` → start session bound to `promptVersionId` (Studio
+  deep-link) or active sandbox/prod deployment. Opening uses whitelist
+  `render_prompt` (no `str.format` injection).
+- `POST /sandbox/runs/{id}/turns` → retrieve (top-k, no draft) →
+  `chat_complete_detailed` (temp 0.2) → persist customer+bot turns with
+  chunk ids, guardrail flags, latency, tokens. Hard ceiling
+  `SANDBOX_HARD_MAX_TURNS` (default 3). Prohibited / max-turns / max-seconds /
+  waiver-blocked **halt** the run; `auto-escalate` flags without hard-stop.
+- Frontend seam `Habibi/src/api/sandbox.ts` + rewired `/sandbox`:
+  `useSandboxScenarios`, `usePromptVersions`, create/append on Next/Send.
+  No auto-run on mount. `promptVersionId` search param from Studio "Test in
+  Sandbox". Bot bubbles show **grounded in [doc title]** chips.
+
+**Still seed-chipped:** ~~KB snapshot dropdown~~ (live), ~~Promote-to-Production~~
+(now calls `publishPromptVersion`).
+
+## Done: Prompt Studio TTS preview (PS-4) ✅
+
+Replace the oscillator stand-in in VoicePanel with real Azure Speech neural TTS.
+
+**Closed for real (not flagged):**
+- `backend/azure_speech.py` — REST SSML synthesize (`audio-16khz-128kbitrate-mono-mp3`),
+  whitelist voice resolve from `tts_voices.config.azureVoiceName`, disk cache under
+  `.cache/tts/` keyed by hash(text, voice, speed, pitch, warmth, pauseMs).
+- `POST /tts/preview` → `audio/mpeg` bytes + `X-TTS-Cache` / `X-TTS-Voice` /
+  `X-TTS-Latency-Ms` headers. Caps sample text at 500 chars.
+- Frontend `previewTts()` + rewired `VoicePanel`: Preview button hits Azure;
+  while playing, slider/voice nudges are **debounced (450ms)** and identical
+  params hit the server cache (no meter on every pixel).
+- `.env.example` documents `AZURE_SPEECH_KEY` / `REGION` / default voice.
+
+**Requires:** `AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION` in `backend/.env`
+(503 if missing).
+
+## Done: Seed-chip close-out (QA / Redaction / Routing / Workspace / Sandbox) ✅
+
+Closed the remaining "Still seed-chipped" leftovers on already-wired screens.
+
+**QA coaching + calibration**
+- Alembic `20260722_0022` adds `coaching_actions.category`, `calibration_sessions.name`
+  + `target_scores`, remaps statuses, seeds ~6 coaching + 2 calibration sessions.
+- `GET/POST /coaching-actions`, `PATCH /coaching-actions/{id}`
+- `GET /calibration-sessions`, `PATCH /calibration-sessions/{id}` (close)
+- Notes via `activity_events`; FE `useCoachingActions` / `useCalibrationSessions`.
+
+**Redaction writes + exports**
+- `PATCH /pii-findings/{id}` (accepted), `PATCH .../audio-mute`,
+  `PATCH /redaction-records/{id}` (reviewed), `PATCH /redaction-rules/{pii_type}`
+- `GET/POST /export-jobs`, `PATCH /export-jobs/{id}` (download bump / retry)
+- Seed chips removed from the Redaction route.
+
+**Routing writes + audit**
+- `POST/PATCH/DELETE /routing-rules`, `POST /routing-rules/reorder`
+- `GET /routing-audit` from `activity_events` (`rule_*` kinds)
+- Seed chips removed from the Routing route.
+
+**My Workspace StatsStrip + RightRail**
+- `GET /workspace/summary` — rolling 7d anchored to `max(interactions.started_at)`
+  (honest non-zero on historical seed), next callback, SLA countdowns,
+  outside-window count. No fake "today" zeros.
+
+**Sandbox**
+- KB dropdown already on live `GET /kb/snapshots` + "Current (live index)"
+- Promote → `publishPromptVersion` (real prod publish path)
+
+**Module:** `backend/followups_db.py` (re-exported from `db.py`).
+
+**Still out of scope (unchanged):** Floor live interactions, Integrations table,
+Webhooks/Billing thin screens, Phase 4 Pipecat/WebSocket, PS-5 deep-links.
+
+

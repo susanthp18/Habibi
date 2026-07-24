@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS billing_services (
   name TEXT NOT NULL,
   unit TEXT NOT NULL,
   unit_cost_inr numeric(14,4) NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'Unknown',
+  category TEXT NOT NULL DEFAULT 'Infra' CHECK (category IN ('LLM','Voice','Messaging','Infra')),
+  color TEXT NOT NULL DEFAULT '#64748b',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -128,9 +131,11 @@ CREATE TABLE IF NOT EXISTS billing_usage_daily (
   usage_date date NOT NULL,
   units numeric(14,4) NOT NULL,
   cost_inr numeric(14,2) NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (service_id, tenant_id, environment, usage_date)
 );
 CREATE INDEX IF NOT EXISTS idx_billing_usage_daily_tenant_id ON billing_usage_daily(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_billing_usage_daily_date ON billing_usage_daily(usage_date);
 
 CREATE TABLE IF NOT EXISTS invoices (
   id TEXT PRIMARY KEY,
@@ -139,6 +144,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   environment TEXT NOT NULL CHECK (environment IN ('sandbox','production')),
   total_inr numeric(14,2) NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft',
+  issued_at date,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -155,18 +161,24 @@ CREATE TABLE IF NOT EXISTS invoice_line_items (
 
 CREATE TABLE IF NOT EXISTS budgets (
   id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  tenant_id TEXT REFERENCES tenants(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL DEFAULT 'production' CHECK (environment IN ('sandbox','production')),
   month TEXT NOT NULL,
   amount_inr numeric(14,2) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_budgets_org_env_month
+  ON budgets (environment, month) WHERE tenant_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS budget_rules (
   id TEXT PRIMARY KEY,
   budget_id TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
   threshold_pct numeric(6,2) NOT NULL,
   action_channel TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'warn' CHECK (severity IN ('info','warn','critical')),
+  action TEXT NOT NULL DEFAULT 'Notify',
+  channels JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -179,4 +191,20 @@ CREATE TABLE IF NOT EXISTS budget_alert_events (
   message TEXT,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS usage_events (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox','production')),
+  service_id TEXT NOT NULL REFERENCES billing_services(id),
+  units numeric(18,6) NOT NULL,
+  cost_inr numeric(14,6) NOT NULL,
+  meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  source_ref TEXT,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_usage_events_service_env
+  ON usage_events (service_id, tenant_id, environment, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_usage_events_occurred ON usage_events (occurred_at DESC);
 

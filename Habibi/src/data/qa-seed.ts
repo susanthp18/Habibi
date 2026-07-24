@@ -198,7 +198,7 @@ export function bandColor(band: ScoreBand): { text: string; bg: string; border: 
 // ---------- seed generation ----------
 
 const AGENTS = ["Aarav K.", "Priya Nair", "Arjun Mehta", "Sara Khan", "Rohit Verma", "Meera Joshi"];
-const BOTS = ["Kaia v2.4"];
+const BOTS = ["BigBound v2.4"];
 
 function makeEntries(
   rand: () => number,
@@ -243,7 +243,7 @@ function seedFrom(calls: CallRecord[]): Scorecard[] {
       disposition: call.disposition,
       handledBy: { kind, label },
       agentId,
-      reviewer: status === "final" ? "Meera Joshi" : status === "ai_draft" ? "Kaia QA" : undefined,
+      reviewer: status === "final" ? "Meera Joshi" : status === "ai_draft" ? "BigBound QA" : undefined,
       status,
       entries,
       scoredAt: status === "final" ? new Date(Date.parse(call.startedAt) + 3600_000).toISOString() : undefined,
@@ -366,7 +366,7 @@ export const initialCoaching: CoachingAction[] = [
   },
   {
     id: "coach-6",
-    agentId: "Kaia v2.4",
+    agentId: "BigBound v2.4",
     title: "Prompt tune: reduce over-apology in dispute flow",
     category: "Empathy",
     dueAt: new Date(Date.now() + 4 * 86400_000).toISOString(),
