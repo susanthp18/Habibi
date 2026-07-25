@@ -1,22 +1,24 @@
 // -----------------------------------------------------------------------------
-// QA Scorecards — data access seam (scorecard core MVP).
-//   fetchScorecards / fetchRubric → GET /scorecards + GET /rubric
-//   saveScorecard / finalizeScorecard → widened PATCH /scorecards/{id}
-//
-// Coaching + calibration stay on seed until their endpoints land. Reviewer is
-// always the acting user from GET /me — never a hardcoded "You" / "Meera Joshi".
+// QA Scorecards — data access seam.
+//   Scorecards/rubric: GET + PATCH (core MVP)
+//   Coaching / calibration: GET + POST/PATCH (fast-follow)
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
 
 import {
   defaultRubric,
+  initialCalibrations,
+  initialCoaching,
   scorecards as seedScorecards,
+  type CalibrationSession,
+  type CoachingAction,
+  type CoachingStatus,
   type Rubric,
   type Scorecard,
   type ScorecardEntry,
 } from "@/data/qa-seed";
-import { apiGet, apiPatch, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { currentActor } from "./me";
 
 export async function fetchScorecards(): Promise<Scorecard[]> {
@@ -84,4 +86,90 @@ export async function finalizeScorecard(sc: Scorecard, entries: ScorecardEntry[]
   });
 }
 
-export type { Rubric, Scorecard, ScorecardEntry };
+// ---------- Coaching ----------
+
+let _mockCoaching: CoachingAction[] = [...initialCoaching];
+
+export async function fetchCoachingActions(): Promise<CoachingAction[]> {
+  if (USE_MOCK) return mockDelay(_mockCoaching);
+  return apiGet<CoachingAction[]>("/coaching-actions");
+}
+
+export function useCoachingActions() {
+  return useQuery({
+    queryKey: ["coaching-actions"],
+    queryFn: fetchCoachingActions,
+    staleTime: 15_000,
+  });
+}
+
+export async function createCoachingAction(
+  data: Omit<CoachingAction, "id" | "createdAt" | "notes" | "status">,
+): Promise<CoachingAction> {
+  if (USE_MOCK) {
+    const item: CoachingAction = {
+      ...data,
+      id: `coach-${Date.now()}`,
+      status: "assigned",
+      notes: [],
+      createdAt: new Date().toISOString(),
+    };
+    _mockCoaching = [item, ..._mockCoaching];
+    return mockDelay(item);
+  }
+  return apiPost<CoachingAction>("/coaching-actions", {
+    agentId: data.agentId,
+    title: data.title,
+    category: data.category,
+    scorecardId: data.scorecardId,
+    callId: data.callId,
+    dueAt: data.dueAt,
+  });
+}
+
+export async function patchCoachingAction(
+  id: string,
+  patch: { status?: CoachingStatus; title?: string; category?: string; dueAt?: string },
+): Promise<CoachingAction> {
+  if (USE_MOCK) {
+    _mockCoaching = _mockCoaching.map((a) => (a.id === id ? { ...a, ...patch } : a));
+    const row = _mockCoaching.find((a) => a.id === id);
+    if (!row) throw new Error("coaching_action_not_found");
+    return mockDelay(row);
+  }
+  return apiPatch<CoachingAction>(`/coaching-actions/${id}`, patch);
+}
+
+// ---------- Calibration ----------
+
+let _mockCalibrations: CalibrationSession[] = [...initialCalibrations];
+
+export async function fetchCalibrationSessions(): Promise<CalibrationSession[]> {
+  if (USE_MOCK) return mockDelay(_mockCalibrations);
+  return apiGet<CalibrationSession[]>("/calibration-sessions");
+}
+
+export function useCalibrationSessions() {
+  return useQuery({
+    queryKey: ["calibration-sessions"],
+    queryFn: fetchCalibrationSessions,
+    staleTime: 15_000,
+  });
+}
+
+export async function patchCalibrationSession(
+  id: string,
+  patch: { status: "active" | "closed" },
+): Promise<CalibrationSession> {
+  if (USE_MOCK) {
+    _mockCalibrations = _mockCalibrations.map((s) =>
+      s.id === id ? { ...s, status: patch.status } : s,
+    );
+    const row = _mockCalibrations.find((s) => s.id === id);
+    if (!row) throw new Error("calibration_session_not_found");
+    return mockDelay(row);
+  }
+  return apiPatch<CalibrationSession>(`/calibration-sessions/${id}`, patch);
+}
+
+export type { Rubric, Scorecard, ScorecardEntry, CoachingAction, CalibrationSession };

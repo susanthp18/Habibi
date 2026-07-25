@@ -9,9 +9,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { SERVICES, type DayPoint, inrCompact } from "@/data/billing-seed";
+import { type DayPoint, type Service, inrCompact } from "@/data/billing-seed";
 
-export function SpendTrendChart({ data }: { data: DayPoint[] }) {
+export function SpendTrendChart({ data, services }: { data: DayPoint[]; services: Service[] }) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const rows = useMemo(
@@ -19,7 +19,7 @@ export function SpendTrendChart({ data }: { data: DayPoint[] }) {
       data.map((d) => {
         const row: Record<string, string | number> = { date: d.date };
         let total = 0;
-        for (const s of SERVICES) {
+        for (const s of services) {
           const v = d.values[s.id] ?? 0;
           row[s.id] = v;
           total += v;
@@ -27,7 +27,7 @@ export function SpendTrendChart({ data }: { data: DayPoint[] }) {
         row.total = total;
         return row;
       }),
-    [data],
+    [data, services],
   );
 
   const fmtDay = (d: string) => {
@@ -91,7 +91,7 @@ export function SpendTrendChart({ data }: { data: DayPoint[] }) {
                 });
               }}
             />
-            {SERVICES.map((s) => (
+            {services.map((s) => (
               <Area
                 key={s.id}
                 type="monotone"

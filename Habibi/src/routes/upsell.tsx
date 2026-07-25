@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Sparkles, Plus } from "lucide-react";
@@ -22,11 +22,16 @@ import {
   type LeadStage,
 } from "@/data/upsell-seed";
 import { patchLead, useLeads } from "@/api/upsell";
+import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/upsell")({
+  validateSearch: (search: Record<string, unknown>) => {
+    const parsed = parseDeepLinkSearch(search);
+    return { id: parsed.id };
+  },
   head: () => ({
     meta: [
-      { title: "Upsell & Leads Manager — Collections Agent" },
+      { title: "Upsell & Leads Manager — BigBound AI" },
       {
         name: "description",
         content: "Pipeline for eligibility-gated upsells captured by the bot — Interested → Contacted → Qualified → Won/Lost with follow-ups and conversion tracking.",
@@ -49,6 +54,9 @@ function UpsellPage() {
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<UpsellView>("board");
   const queryClient = useQueryClient();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const search = Route.useSearch();
+  const deepLinkApplied = useRef(false);
 
   const { data: seed = [] } = useLeads();
 
@@ -62,6 +70,14 @@ function UpsellPage() {
     bump();
     await queryClient.invalidateQueries({ queryKey: ["leads"] });
   };
+
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    if (!search.id) return;
+    deepLinkApplied.current = true;
+    setOpenId(search.id);
+    void navigate({ search: { id: undefined }, replace: true });
+  }, [search.id, navigate]);
 
   const stageMutation = useMutation({
     mutationFn: ({ id, next }: { id: string; next: LeadStage }) => {

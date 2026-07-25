@@ -9,10 +9,19 @@ type Props = {
   promptLabel: string;
   kbLabel: string;
   scenarioLabel: string;
+  tuningSummary?: string;
   onConfirm: () => void;
 };
 
-export function PromoteDialog({ open, onOpenChange, promptLabel, kbLabel, scenarioLabel, onConfirm }: Props) {
+export function PromoteDialog({
+  open,
+  onOpenChange,
+  promptLabel,
+  kbLabel,
+  scenarioLabel,
+  tuningSummary,
+  onConfirm,
+}: Props) {
   const [text, setText] = useState("");
   return (
     <Dialog
@@ -28,8 +37,16 @@ export function PromoteDialog({ open, onOpenChange, promptLabel, kbLabel, scenar
         </DialogHeader>
         <div className="space-y-3 text-[13px]">
           <div className="rounded-md border border-[var(--border-token)] bg-surface-sunken p-3 text-text-secondary">
-            Prompt: <span className="font-mono">{promptLabel}</span><br />
-            KB: <span className="font-mono">{kbLabel}</span><br />
+            Prompt: <span className="font-mono">{promptLabel}</span>
+            <br />
+            KB: <span className="font-mono">{kbLabel}</span>
+            <br />
+            {tuningSummary && (
+              <>
+                Tuning: <span className="font-mono">{tuningSummary}</span>
+                <br />
+              </>
+            )}
             Last tested with: <span className="italic">{scenarioLabel}</span>
           </div>
           <div>
@@ -40,8 +57,12 @@ export function PromoteDialog({ open, onOpenChange, promptLabel, kbLabel, scenar
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={text !== "PROMOTE"} onClick={onConfirm}>Promote</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={text !== "PROMOTE"} onClick={onConfirm}>
+            Promote
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

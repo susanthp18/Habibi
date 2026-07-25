@@ -1,0 +1,120 @@
+name: Backend pytest
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-pytest.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-pytest.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: collections
+          POSTGRES_PASSWORD: collections
+          POSTGRES_DB: collections
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U collections -d collections"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://collections:collections@localhost:5432/collections
+      APP_ENV: dev
+      API_KEY: ci-test-api-key
+      ACTOR_USER_ID: priya-nair
+      ALLOW_ACTOR_HEADER: "true"
+      # Schema-only migrate; demo rows via scripts/seed_demo.py (not Alembic).
+      ALEMBIC_SEED_DEMO: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Apply base SQL schema
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import psycopg
+          dsn = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
+          sql_dir = Path("sql")
+          files = sorted(sql_dir.glob("*.sql"))
+          assert files, "no sql/*.sql found"
+          with psycopg.connect(dsn) as conn:
+              conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+              for f in files:
+                  conn.execute(f.read_text(encoding="utf-8"))
+                  print("applied", f.name)
+              conn.commit()
+          PY
+
+      # sql/*.sql IS the authoritative current schema; revision 20260721_0001 is
+      # an intentional no-op that baselines it. Migrations 0002+ are deltas that
+      # are ALREADY reflected in sql/, so replaying them here raises
+      # DuplicateColumn (19 add_column calls collide). Stamp instead of upgrade.
+      # Chain integrity is asserted separately by tests/test_migrations.py.
+      - name: Stamp Alembic at head (schema already applied above)
+        run: alembic stamp head
+        env:
+          ALEMBIC_SEED_DEMO: ""
+
+      - name: Assert schema matches Alembic expectations
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          dsn = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
+          # Columns that only ever existed as migration deltas — if sql/*.sql
+          # drifts behind the migrations again, fail here rather than at runtime.
+          required = [
+              ("conversations", "bot_state"),
+              ("messages", "bot_turn_job_id"),
+              ("webhook_endpoints", "name"),
+              ("interaction_transcript", "ttfb_ms"),
+              ("disputes", "resolution_notes"),
+          ]
+          with psycopg.connect(dsn) as conn:
+              have = {
+                  (t, c)
+                  for t, c in conn.execute(
+                      "SELECT table_name, column_name FROM information_schema.columns"
+                      " WHERE table_schema='public'"
+                  ).fetchall()
+              }
+          missing = [f"{t}.{c}" for t, c in required if (t, c) not in have]
+          if missing:
+              raise SystemExit("sql/*.sql is behind Alembic; missing: " + ", ".join(missing))
+          print("schema drift check passed")
+          PY
+
+      - name: Seed demo graph
+        run: python scripts/seed_demo.py
+
+      - name: Pytest
+        run: pytest -q
+        env:
+          RUN_ALEMBIC_ROUNDTRIP: "0"

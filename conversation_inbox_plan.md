@@ -1,16 +1,16 @@
 # Conversation Inbox — Make It Real
 
-**Status today (Phase A complete):** Inbox UI is wired to live Postgres via `/conversations` APIs. Pre-A vocabulary migration applied (`mine` → `assigned` + `assigned_user_id`; sender `human` → `agent`). WhatsApp / Azure OpenAI / RAG still future (Phases B–D).
+**Status today (Phase B core wired):** Inbox UI ↔ Postgres live. Susanth seeded (`cust-susanth` / `CV-SUSANTH-WA1`, phone `919655282324`). WhatsApp inbound webhook + take-over-gated Meta send implemented. RAG deferred to `KB_plan.md`.
 
 | Layer | Status |
 |--------|--------|
 | UI (list / thread / composer / rail) | Built + live-wired (`api/inbox.ts`) |
-| Postgres tables + seeded WA/SMS threads | Exist (~13 convos) |
+| Postgres tables + seeded WA/SMS threads | Exist (+ Susanth WA thread) |
 | Pre-A status/sender vocabulary | **Done** (Alembic `20260722_0011`) |
 | API (`/conversations`, send, take-over, canned) | **Done** |
 | Frontend `api/inbox.ts` | **Done** |
-| WhatsApp webhook / send | **Missing** (Phase B) |
-| Azure OpenAI + RAG retrieval | Schema only (`kb_chunks` + pgvector); no pipeline, no HNSW index |
+| WhatsApp webhook / send | **Wired** (`GET/POST /webhooks/whatsapp`, signature + idempotent `provider_ref`, 24h gate). Requires valid Meta send-capable token + ngrok→8000 + Meta webhook config for live phone round-trip |
+| Azure OpenAI + RAG retrieval | Deferred (`KB_plan.md`); schema/HNSW may exist separately |
 
 Docker today is basically **Postgres (pgvector)** — enough to start.
 

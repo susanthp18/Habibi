@@ -23,7 +23,8 @@ const priorityDot: Record<Lead["priority"], string> = {
 export function LeadCard({ lead: l, onOpen }: Props) {
   const failing = l.eligibilityFlags.filter((f) => !f.ok).length;
   const SIcon = l.source === "bot_voice" ? Mic : l.source === "bot_chat" ? MessageSquare : User;
-  const initials = l.owner === "Unassigned" ? "?" : l.owner.split(" ").map((n) => n[0]).slice(0, 2).join("");
+  const owner = l.owner ?? "Unassigned";
+  const initials = owner === "Unassigned" ? "?" : owner.split(" ").map((n) => n[0]).slice(0, 2).join("");
 
   return (
     <div
@@ -86,16 +87,16 @@ export function LeadCard({ lead: l, onOpen }: Props) {
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10.5px]",
-              l.owner === "Unassigned"
+              owner === "Unassigned"
                 ? "border-dashed border-[var(--border-token)] text-text-muted"
                 : "border-[var(--border-token)] text-text-secondary",
             )}
-            title={l.owner}
+            title={owner}
           >
             <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-tint text-[9px] font-semibold text-brand-primary-dark">
               {initials}
             </span>
-            {l.owner === "Unassigned" ? "Unassigned" : l.owner.split(" ")[0]}
+            {owner === "Unassigned" ? "Unassigned" : owner.split(" ")[0]}
           </span>
           {l.nextFollowUpAt ? (
             <span className="inline-flex items-center gap-1 text-[10.5px] text-text-secondary">

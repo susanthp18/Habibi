@@ -106,7 +106,7 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
       <SheetContent side="right" className="w-full sm:max-w-[440px]">
         <SheetHeader>
           <SheetTitle>New promise-to-pay</SheetTitle>
-          <SheetDescription>Capture a commitment and Collections AI will handle reminders.</SheetDescription>
+          <SheetDescription>Capture a commitment and BigBound AI will handle reminders.</SheetDescription>
         </SheetHeader>
         <div className="mt-4 space-y-3">
           <Field label="Customer">

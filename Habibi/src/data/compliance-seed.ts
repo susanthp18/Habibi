@@ -93,9 +93,9 @@ const PROHIBITED_SNIPPETS: Record<string, { rule: string; text: string }[]> = {
 };
 
 function actorFrom(call: CallRecord): { kind: ActorKind; name: string } {
-  if (call.handledBy.kind === "bot") return { kind: "bot", name: call.handledBy.bot ?? "Kaia v2.4" };
+  if (call.handledBy.kind === "bot") return { kind: "bot", name: call.handledBy.bot ?? "BigBound v2.4" };
   if (call.handledBy.agent) return { kind: "human", name: call.handledBy.agent };
-  return { kind: "bot", name: call.handledBy.bot ?? "Kaia v2.4" };
+  return { kind: "bot", name: call.handledBy.bot ?? "BigBound v2.4" };
 }
 
 function pickTurn(call: CallRecord, rand: () => number): TranscriptTurn | null {

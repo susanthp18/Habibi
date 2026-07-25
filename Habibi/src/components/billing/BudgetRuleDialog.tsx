@@ -16,8 +16,8 @@ export function BudgetRuleDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   rule: BudgetRule | null;
-  onSave: (r: BudgetRule) => void;
-  onDelete?: () => void;
+  onSave: (r: BudgetRule) => void | Promise<void>;
+  onDelete?: () => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState<BudgetRule>(
     rule ?? {
@@ -28,6 +28,7 @@ export function BudgetRuleDialog({
       severity: "warn",
     },
   );
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -40,6 +41,7 @@ export function BudgetRuleDialog({
           severity: "warn",
         },
       );
+      setBusy(false);
     }
   }, [open, rule]);
 
@@ -86,7 +88,13 @@ export function BudgetRuleDialog({
             <Input
               value={draft.channels.join(", ")}
               onChange={(e) =>
-                setDraft({ ...draft, channels: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
+                setDraft({
+                  ...draft,
+                  channels: e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
               }
               placeholder="email:finance-ops, slack:#billing"
             />
@@ -95,14 +103,50 @@ export function BudgetRuleDialog({
         <DialogFooter className="justify-between">
           <div>
             {onDelete && (
-              <Button variant="ghost" className="text-rose-600 hover:text-rose-700" onClick={onDelete}>
+              <Button
+                variant="ghost"
+                className="text-rose-600 hover:text-rose-700"
+                disabled={busy}
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      await onDelete();
+                    } catch {
+                      // parent surfaces a toast and rethrows — swallow here to
+                      // avoid an unhandled promise rejection.
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
                 Delete
               </Button>
             )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={() => onSave(draft)}>Save</Button>
+            <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy || !draft.action.trim() || draft.channels.length === 0}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await onSave(draft);
+                  } catch {
+                    // parent surfaces a toast and rethrows — swallow here to
+                    // avoid an unhandled promise rejection.
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {busy ? "Saving…" : "Save"}
+            </Button>
           </div>
         </DialogFooter>
       </DialogContent>

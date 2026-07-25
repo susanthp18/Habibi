@@ -2,22 +2,27 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { diffPrompts } from "@/data/prompt-studio-seed";
+import {
+  diffStudioVersions,
+  type Guardrails,
+  type PersonaState,
+  type VoiceConfig,
+} from "@/data/prompt-studio-seed";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   fromLabel: string;
   toLabel: string;
-  fromPrompt: string;
-  toPrompt: string;
+  from: { prompt: string; persona: PersonaState; voice: VoiceConfig; guardrails: Guardrails };
+  to: { prompt: string; persona: PersonaState; voice: VoiceConfig; guardrails: Guardrails };
   onConfirm: (note: string) => void;
 };
 
-export function PublishDialog({ open, onOpenChange, fromLabel, toLabel, fromPrompt, toPrompt, onConfirm }: Props) {
+export function PublishDialog({ open, onOpenChange, fromLabel, toLabel, from, to, onConfirm }: Props) {
   const [confirmText, setConfirmText] = useState("");
   const [note, setNote] = useState("");
-  const lines = diffPrompts(fromPrompt, toPrompt);
+  const lines = diffStudioVersions(from, to);
   const added = lines.filter((l) => l.kind === "add").length;
   const removed = lines.filter((l) => l.kind === "del").length;
 
@@ -41,9 +46,10 @@ export function PublishDialog({ open, onOpenChange, fromLabel, toLabel, fromProm
         <div className="space-y-3 text-[13px]">
           <div className="rounded-md border border-[var(--border-token)] bg-surface-sunken p-3">
             <div className="text-text-secondary">
-              Replacing live <span className="font-mono">{fromLabel}</span>. Diff:{" "}
+              Replacing live <span className="font-mono">{fromLabel}</span>. Full config diff:{" "}
               <span className="font-medium text-emerald-700">+{added}</span> ·{" "}
-              <span className="font-medium text-red-700">−{removed}</span> lines.
+              <span className="font-medium text-red-700">−{removed}</span> lines (prompt + persona +
+              voice + guardrails).
             </div>
           </div>
           <div>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Search } from "lucide-react";
-import { SCENARIOS, type Difficulty } from "@/data/sandbox-seed";
+import type { Difficulty, Scenario } from "@/data/sandbox-seed";
 import { cn } from "@/lib/utils";
 
 const DIFF_COLOR: Record<Difficulty, string> = {
@@ -10,19 +10,25 @@ const DIFF_COLOR: Record<Difficulty, string> = {
 };
 
 type Props = {
+  scenarios: Scenario[];
   activeId: string;
   onSelect: (id: string) => void;
 };
 
-export function ScenarioList({ activeId, onSelect }: Props) {
+export function ScenarioList({ scenarios, activeId, onSelect }: Props) {
   const [q, setQ] = useState("");
-  const filtered = SCENARIOS.filter((s) =>
-    !q || s.title.toLowerCase().includes(q.toLowerCase()) || s.summary.toLowerCase().includes(q.toLowerCase()),
+  const filtered = scenarios.filter(
+    (s) =>
+      !q ||
+      s.title.toLowerCase().includes(q.toLowerCase()) ||
+      s.summary.toLowerCase().includes(q.toLowerCase()),
   );
   return (
     <aside className="hidden h-full min-h-0 w-[280px] shrink-0 flex-col border-r border-[var(--border-token)] bg-surface-card lg:flex">
       <div className="shrink-0 border-b border-[var(--border-token)] p-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Scenarios</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          Scenarios
+        </div>
         <div className="relative mt-1.5">
           <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
           <input
@@ -34,6 +40,9 @@ export function ScenarioList({ activeId, onSelect }: Props) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {filtered.length === 0 && (
+          <div className="p-3 text-center text-[12px] text-text-muted">No scenarios.</div>
+        )}
         {filtered.map((s) => (
           <button
             key={s.id}
@@ -50,7 +59,12 @@ export function ScenarioList({ activeId, onSelect }: Props) {
                 <div className="truncate text-[12.5px] font-medium text-text-primary">{s.title}</div>
                 <div className="mt-0.5 line-clamp-2 text-[11px] text-text-muted">{s.summary}</div>
               </div>
-              <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize", DIFF_COLOR[s.difficulty])}>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                  DIFF_COLOR[s.difficulty],
+                )}
+              >
                 {s.difficulty}
               </span>
             </div>

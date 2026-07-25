@@ -1,5 +1,17 @@
+import { useEffect, useRef, useState } from "react";
+import { Play, Square, Volume2 } from "lucide-react";
+import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
-import { LANGUAGES, PRESETS, renderPersonaPreview, type PersonaState, type PersonaTraitKey } from "@/data/prompt-studio-seed";
+import { previewTts } from "@/api/prompt-studio";
+import {
+  LANGUAGES,
+  PRESETS,
+  renderPersonaPreview,
+  type PersonaPreset,
+  type PersonaState,
+  type PersonaTraitKey,
+  type VoiceConfig,
+} from "@/data/prompt-studio-seed";
 
 const TRAITS: Array<{ key: PersonaTraitKey; label: string; lo: string; hi: string }> = [
   { key: "empathy", label: "Empathy", lo: "Transactional", hi: "Warm" },
@@ -12,9 +24,17 @@ const TRAITS: Array<{ key: PersonaTraitKey; label: string; lo: string; hi: strin
 type Props = {
   value: PersonaState;
   onChange: (next: PersonaState) => void;
+  presets?: PersonaPreset[];
+  /** Current TTS voice settings — used to speak the persona preview. */
+  voice?: VoiceConfig;
 };
 
-export function PersonaSliders({ value, onChange }: Props) {
+export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Props) {
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const urlRef = useRef<string | null>(null);
+
   const update = (patch: Partial<PersonaState>) => onChange({ ...value, ...patch });
   const setTrait = (k: PersonaTraitKey, v: number) =>
     onChange({ ...value, traits: { ...value.traits, [k]: v } });
@@ -28,13 +48,70 @@ export function PersonaSliders({ value, onChange }: Props) {
     });
   };
 
+  const stop = () => {
+    const a = audioRef.current;
+    if (a) {
+      a.onended = null;
+      a.pause();
+      a.removeAttribute("src");
+      audioRef.current = null;
+    }
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+    setPlaying(false);
+    setLoading(false);
+  };
+
+  // Stop playback and revoke the blob URL if the tab unmounts mid-preview
+  // (PersonaSliders is conditionally rendered), matching VoicePanel's guard.
+  useEffect(() => () => stop(), []);
+
+  const hearPreview = async () => {
+    if (playing || loading) {
+      stop();
+      return;
+    }
+    if (!voice?.voiceId && !voice?.azureVoiceName) {
+      toast.error("Pick a TTS voice in the Voice tab first");
+      return;
+    }
+    const text = renderPersonaPreview(value);
+    setLoading(true);
+    try {
+      const result = await previewTts({
+        text,
+        voiceId: voice.voiceId,
+        shortName: voice.azureVoiceName,
+        azureVoiceName: voice.azureVoiceName,
+        speed: voice.speed,
+        pitch: voice.pitch,
+        warmth: voice.warmth,
+        pauseMs: voice.pauseMs,
+        style: voice.style,
+      });
+      const url = URL.createObjectURL(result.blob);
+      urlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => setPlaying(false);
+      await audio.play();
+      setPlaying(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not speak preview");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
       <div className="flex flex-col gap-5">
         <div>
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Presets</div>
           <div className="flex flex-wrap gap-1.5">
-            {PRESETS.map((p) => (
+            {presets.map((p) => (
               <button
                 key={p.id}
                 onClick={() => update({ traits: p.traits })}
@@ -102,15 +179,27 @@ export function PersonaSliders({ value, onChange }: Props) {
       </div>
 
       <div className="rounded-lg border border-[var(--border-token)] bg-surface-sunken p-4">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Persona preview</div>
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Persona preview</div>
+          <button
+            type="button"
+            onClick={() => void hearPreview()}
+            disabled={loading}
+            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1 text-[11px] hover:bg-white disabled:opacity-50"
+          >
+            {playing || loading ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+            {loading ? "Synthesizing…" : playing ? "Stop" : "Hear tone"}
+          </button>
+        </div>
         <div className="rounded-md border border-[var(--border-token)] bg-surface-card p-3 text-[13px] leading-relaxed text-text-primary">
           <span className="mr-2 rounded-full bg-brand-tint px-1.5 py-0.5 text-[10px] font-medium uppercase text-brand-primary-dark">
             bot
           </span>
           {renderPersonaPreview(value)}
         </div>
-        <p className="mt-2 text-[11px] text-text-muted">
-          Auto-generated from current trait mix. Adjust sliders to hear the tone shift.
+        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-text-muted">
+          <Volume2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          Spoken with the Voice tab’s TTS settings (warmth/pitch/speed). Adjust sliders, then Hear tone.
         </p>
       </div>
     </div>

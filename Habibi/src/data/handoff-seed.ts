@@ -32,7 +32,7 @@ export const activeCall = {
   phone: "+91 98••••3421",
   channel: "Voice · Twilio",
   agentName: "You (Aarav K.)",
-  transferredFrom: "Bot · Kaia v2.4",
+  transferredFrom: "Bot · BigBound v2.4",
   escalationReason: "Dispute — payment not reflected",
   startedAt: Date.now(),
 };

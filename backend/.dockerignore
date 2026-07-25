@@ -1,0 +1,23 @@
+# Context: backend/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+*.log
+.env
+.env.*
+!.env.example
+.git/
+.gitignore
+.idea/
+.vscode/
+agent-tools/
+_tmp_*.py
+*.md
+!README.md
+alembic/versions/__pycache__/

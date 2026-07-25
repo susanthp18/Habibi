@@ -12,4 +12,16 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      proxy: {
+        // Pipecat SmallWebRTC offer — Habibi Live voice never opens :7860 HTML.
+        "/voice-rtc": {
+          target: "http://127.0.0.1:7860",
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/voice-rtc/, ""),
+        },
+      },
+    },
+  },
 });

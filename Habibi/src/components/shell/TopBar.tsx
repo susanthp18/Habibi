@@ -1,10 +1,15 @@
-import { Bell, HelpCircle, Search } from "lucide-react";
-import { toast } from "sonner";
+import { ChevronsLeft, ChevronsRight, Search } from "lucide-react";
 
 import { useMe } from "@/api/me";
+import { CommandPalette, useCommandPalette } from "@/components/shell/CommandPalette";
+import { NotificationsPopover } from "@/components/shell/NotificationsPopover";
+import { HelpPopover } from "@/components/shell/HelpPopover";
+import { useSidebarUi } from "@/components/shell/sidebar-ui";
 
 export function TopBar() {
   const { data: me } = useMe();
+  const { open, setOpen } = useCommandPalette();
+  const { collapsed, toggle } = useSidebarUi();
   const initials = me
     ? me.name
         .split(" ")
@@ -18,8 +23,18 @@ export function TopBar() {
     <header className="z-20 flex h-14 shrink-0 items-center gap-3 border-b border-[var(--border-token)] bg-surface-card px-4">
       <button
         type="button"
-        onClick={() => toast("Command palette coming soon", { description: "⌘K jump-to customer, call, dispute…" })}
-        className="flex h-9 flex-1 max-w-md items-center gap-2 rounded-md border border-[var(--border-token)] bg-surface-sunken px-3 text-left text-[13px] text-text-secondary transition-colors hover:bg-white"
+        onClick={toggle}
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-text-secondary hover:bg-surface-sunken hover:text-brand-primary"
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex h-9 max-w-md flex-1 items-center gap-2 rounded-md border border-[var(--border-token)] bg-surface-sunken px-3 text-left text-[13px] text-text-secondary transition-colors hover:bg-white"
       >
         <Search className="h-4 w-4" />
         <span>Search customers, calls, disputes…</span>
@@ -29,23 +44,8 @@ export function TopBar() {
       </button>
 
       <div className="ml-auto flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => toast("3 new notifications")}
-          className="relative grid h-9 w-9 place-items-center rounded-md text-text-secondary transition-colors hover:bg-surface-sunken"
-          aria-label="Notifications"
-        >
-          <Bell className="h-4.5 w-4.5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-danger" />
-        </button>
-        <button
-          type="button"
-          onClick={() => toast("Help center")}
-          className="grid h-9 w-9 place-items-center rounded-md text-text-secondary transition-colors hover:bg-surface-sunken"
-          aria-label="Help"
-        >
-          <HelpCircle className="h-4.5 w-4.5" />
-        </button>
+        <NotificationsPopover />
+        <HelpPopover />
         <div className="ml-2 flex items-center gap-2 rounded-full border border-[var(--border-token)] bg-surface-sunken py-1 pl-1 pr-3">
           <div className="grid h-7 w-7 place-items-center rounded-full bg-brand-primary text-[12px] font-semibold text-white">
             {initials}
@@ -56,6 +56,8 @@ export function TopBar() {
           </div>
         </div>
       </div>
+
+      <CommandPalette open={open} onOpenChange={setOpen} />
     </header>
   );
 }

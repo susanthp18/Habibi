@@ -12,19 +12,35 @@ python -m venv .venv
 ## Database
 ```
 cd backend
-docker compose up -d
+docker compose up -d db minio
 ```
 
-Apply schema in order:
+Full stack (API + KB worker + bot worker + voice), with connection budgets baked into compose:
+```
+cd backend
+docker compose up -d --build
+docker compose exec api alembic upgrade head
+docker compose exec api python scripts/seed_demo.py   # optional; refuses APP_ENV=production
+```
+
+Probes: `http://127.0.0.1:8000/health` · `http://127.0.0.1:8000/ready`  
+Voice WebRTC UI: `http://127.0.0.1:7860`
+
+Data-plane only (legacy local Python processes via `scripts/dev-up.ps1`):
+```
+docker compose up -d db minio
+```
+
+Apply schema in order (first-time empty DB, before or instead of Alembic baseline stamp):
 ```
 Get-ChildItem sql/*.sql | Sort-Object Name | ForEach-Object {
   docker exec -i collections_db psql -U collections -d collections -v ON_ERROR_STOP=1 -f - < $_.FullName
 }
 ```
 
-Seed coherent sample data:
+Seed coherent sample data (host venv):
 ```
-.venv/Scripts/python seed_postgres.py
+.venv/Scripts/python scripts/seed_demo.py
 ```
 
 The current SQL-applied schema is stamped as Alembic baseline `20260721_0001`.

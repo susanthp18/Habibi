@@ -1,14 +1,21 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { BookOpen, Bot, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { INTENTS, type UnansweredQuestion } from "@/data/bot-analytics-seed";
+import { linkKbGap } from "@/api/kb";
+import { usePublishedPromptVersion } from "@/api/prompt-studio";
+import { USE_MOCK } from "@/api/config";
 
 type SortKey = "hits" | "lastSeen";
 
 export function UnansweredTable({ questions }: { questions: UnansweredQuestion[] }) {
+  const navigate = useNavigate();
+  const publishedQuery = usePublishedPromptVersion();
   const [sort, setSort] = useState<SortKey>("hits");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const arr = [...questions];
@@ -22,10 +29,45 @@ export function UnansweredTable({ questions }: { questions: UnansweredQuestion[]
 
   const toggle = (k: SortKey) => {
     if (sort === k) setDir(dir === "desc" ? "asc" : "desc");
-    else { setSort(k); setDir("desc"); }
+    else {
+      setSort(k);
+      setDir("desc");
+    }
   };
 
   const intentLabel = (id: string) => INTENTS.find((i) => i.id === id)?.label ?? id;
+
+  const onAddToKb = (r: UnansweredQuestion) => {
+    void navigate({
+      to: "/knowledge-base",
+      search: { gapId: r.id, q: r.text },
+    });
+  };
+
+  const onPromptFix = async (r: UnansweredQuestion) => {
+    setBusyId(r.id);
+    try {
+      if (!USE_MOCK) {
+        const publishedId = publishedQuery.data?.id;
+        if (publishedId) {
+          try {
+            await linkKbGap(r.id, { promptVersionId: publishedId });
+          } catch (err) {
+            // Navigate anyway — link is audit trail, not a hard gate.
+            toast.message("Gap link skipped", {
+              description: err instanceof Error ? err.message : "Could not persist prompt link",
+            });
+          }
+        }
+      }
+      void navigate({
+        to: "/prompt-studio",
+        search: { unansweredId: r.id, note: r.text },
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
@@ -81,7 +123,7 @@ export function UnansweredTable({ questions }: { questions: UnansweredQuestion[]
                 <td className="px-3 py-2">
                   <div className="flex justify-end gap-1">
                     <button
-                      onClick={() => toast.success("Sent to Knowledge Base", { description: "Added as suggested doc gap." })}
+                      onClick={() => onAddToKb(r)}
                       className={cn(
                         "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]",
                         r.suggestedFix !== "prompt"
@@ -92,9 +134,10 @@ export function UnansweredTable({ questions }: { questions: UnansweredQuestion[]
                       <BookOpen className="h-3 w-3" /> Add to KB
                     </button>
                     <button
-                      onClick={() => toast.success("Sent to Prompt Studio", { description: "Draft prompt-fix task created." })}
+                      onClick={() => void onPromptFix(r)}
+                      disabled={busyId === r.id}
                       className={cn(
-                        "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]",
+                        "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] disabled:opacity-50",
                         r.suggestedFix !== "kb"
                           ? "border-brand-primary bg-brand-tint text-brand-primary-dark hover:bg-brand-tint-strong"
                           : "border-[var(--border-token)] text-text-secondary hover:bg-surface-sunken",

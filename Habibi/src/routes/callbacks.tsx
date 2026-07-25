@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CalendarClock, Plus } from "lucide-react";
@@ -32,13 +32,15 @@ import { useCustomers } from "@/api/customers";
 import { humanNames, useStaff } from "@/api/staff";
 import { teamNames, useTeams } from "@/api/teams";
 import { USE_MOCK } from "@/api/config";
+import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 const UNASSIGNED_LABEL = "Unassigned";
 
 export const Route = createFileRoute("/callbacks")({
+  validateSearch: parseDeepLinkSearch,
   head: () => ({
     meta: [
-      { title: "Callback & Scheduling Manager — Collections Agent" },
+      { title: "Callback & Scheduling Manager — BigBound AI" },
       {
         name: "description",
         content: "Week calendar and list for customer-requested callbacks — DND-aware scheduling, reminders, assignment, and outcome capture.",
@@ -55,6 +57,8 @@ export const Route = createFileRoute("/callbacks")({
 
 function CallbacksPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const search = Route.useSearch();
   const { data: callbacksData = [] } = useCallbacks();
   const { data: liveCustomers } = useCustomers();
   const { data: staff = [] } = useStaff();
@@ -66,6 +70,7 @@ function CallbacksPage() {
   const [view, setView] = useState<CbView>("week");
   const [weekAnchor, setWeekAnchor] = useState<Date>(new Date());
   const autoMarked = useRef(false);
+  const deepLinkApplied = useRef(false);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["callbacks"] });
@@ -126,6 +131,18 @@ function CallbacksPage() {
   const openCb = openId ? callbacksData.find((c) => c.id === openId) ?? null : null;
 
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
+
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    if (!search.id && !search.new) return;
+    deepLinkApplied.current = true;
+    if (search.id) {
+      setOpenId(search.id);
+      setView("list");
+    }
+    if (search.new) setShowNew(true);
+    void navigate({ search: {}, replace: true });
+  }, [search.id, search.new, navigate]);
 
   const rescheduleMutation = useMutation({
     mutationFn: (v: { id: string; iso: string }) => {

@@ -43,6 +43,7 @@ export function EndpointDrawer({
   onAppendDelivery,
   onRotate,
   onRetry,
+  onTestFire,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -53,6 +54,8 @@ export function EndpointDrawer({
   onAppendDelivery: (d: Delivery) => void;
   onRotate: (ep: Endpoint) => void;
   onRetry: (d: Delivery) => void;
+  /** Prefer API test-fire when provided (live mode). */
+  onTestFire?: (ep: Endpoint, event: EventKey) => void;
 }) {
   const [tab, setTab] = useState("overview");
   const [revealSecret, setRevealSecret] = useState(false);
@@ -88,6 +91,10 @@ export function EndpointDrawer({
   };
 
   const fireTest = () => {
+    if (onTestFire) {
+      onTestFire(endpoint, testEvent);
+      return;
+    }
     let payload: Record<string, unknown>;
     try {
       payload = JSON.parse(testJson);

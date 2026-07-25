@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Collections Agent — Design System (Part 1 of spec)
+ * BigBound AI — Design System
  * WhatsApp/Facebook aesthetic: clean, blue-and-white, high-trust, dense-but-calm.
  */
 
@@ -216,6 +216,43 @@
   background-color: var(--brand-tint);
 }
 
+/* BigBound dialer mark — circular softphone logo */
+@keyframes bb-dial-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bb-dial-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.14);
+  }
+}
+
+.bb-dialer__ring,
+.bb-dialer__pulse {
+  transform-box: view-box;
+  transform-origin: 20px 19.2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bb-dialer--live .bb-dialer__ring {
+    animation: bb-dial-spin 16s linear infinite;
+  }
+  .bb-dialer--live .bb-dialer__pulse {
+    animation: bb-dial-pulse 2.5s ease-in-out infinite;
+  }
+}
+
 @keyframes pulse-ring {
   0% {
     box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.55);
@@ -239,12 +276,29 @@
   }
 }
 
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
 @utility animate-fade-up {
   animation: fade-up 0.25s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 @utility pulse-dot {
   animation: pulse-ring 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@utility typing-dot {
+  animation: typing-bounce 1.05s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

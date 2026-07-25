@@ -1,24 +1,42 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { diffPrompts, type PromptVersion } from "@/data/prompt-studio-seed";
+import {
+  diffStudioVersions,
+  type Guardrails,
+  type PersonaState,
+  type PromptVersion,
+  type VoiceConfig,
+} from "@/data/prompt-studio-seed";
+
+type Snapshot = {
+  label: string;
+  prompt: string;
+  persona: PersonaState;
+  voice: VoiceConfig;
+  guardrails: Guardrails;
+};
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   base?: PromptVersion;
-  current: { label: string; prompt: string };
+  current: Snapshot;
 };
 
 export function DiffModal({ open, onOpenChange, base, current }: Props) {
   if (!base) return null;
-  const lines = diffPrompts(base.prompt, current.prompt);
+  const lines = diffStudioVersions(base, current);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Diff · <span className="font-mono">{base.label}</span> → <span className="font-mono">{current.label}</span>
+            Diff · <span className="font-mono">{base.label}</span> →{" "}
+            <span className="font-mono">{current.label}</span>
           </DialogTitle>
         </DialogHeader>
+        <p className="text-[11px] text-text-muted">
+          Includes system prompt, persona traits, voice settings, and guardrails.
+        </p>
         <div className="rounded-md border border-[var(--border-token)] bg-surface-sunken font-mono text-[12px]">
           {lines.map((l, i) => (
             <div
