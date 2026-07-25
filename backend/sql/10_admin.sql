@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS webhook_endpoints (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   target_system TEXT NOT NULL,
+  -- Operator-facing label (migration 20260724_0031).
+  name TEXT,
   url TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('active','paused','broken')),
   signing_algorithm TEXT,

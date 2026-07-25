@@ -73,10 +73,43 @@ jobs:
               conn.commit()
           PY
 
-      - name: Migrate schema only
-        run: alembic upgrade head
+      # sql/*.sql IS the authoritative current schema; revision 20260721_0001 is
+      # an intentional no-op that baselines it. Migrations 0002+ are deltas that
+      # are ALREADY reflected in sql/, so replaying them here raises
+      # DuplicateColumn (19 add_column calls collide). Stamp instead of upgrade.
+      # Chain integrity is asserted separately by tests/test_migrations.py.
+      - name: Stamp Alembic at head (schema already applied above)
+        run: alembic stamp head
         env:
           ALEMBIC_SEED_DEMO: ""
+
+      - name: Assert schema matches Alembic expectations
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          dsn = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
+          # Columns that only ever existed as migration deltas — if sql/*.sql
+          # drifts behind the migrations again, fail here rather than at runtime.
+          required = [
+              ("conversations", "bot_state"),
+              ("messages", "bot_turn_job_id"),
+              ("webhook_endpoints", "name"),
+              ("interaction_transcript", "ttfb_ms"),
+              ("disputes", "resolution_notes"),
+          ]
+          with psycopg.connect(dsn) as conn:
+              have = {
+                  (t, c)
+                  for t, c in conn.execute(
+                      "SELECT table_name, column_name FROM information_schema.columns"
+                      " WHERE table_schema='public'"
+                  ).fetchall()
+              }
+          missing = [f"{t}.{c}" for t, c in required if (t, c) not in have]
+          if missing:
+              raise SystemExit("sql/*.sql is behind Alembic; missing: " + ", ".join(missing))
+          print("schema drift check passed")
+          PY
 
       - name: Seed demo graph
         run: python scripts/seed_demo.py

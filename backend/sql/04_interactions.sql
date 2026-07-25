@@ -167,6 +167,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('bot','needs_human','escalated','assigned')),
   channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat','voice')),
+  -- Per-conversation bot runtime memory (migration 20260722_0025).
+  bot_state JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -180,10 +182,16 @@ CREATE TABLE IF NOT EXISTS messages (
   body TEXT NOT NULL,
   delivery_status TEXT,
   provider_ref TEXT,
+  -- Bot turn that produced this message (migration 20260722_0025).
+  bot_turn_job_id TEXT,
   sent_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+-- One message per bot turn job — replayed jobs must not duplicate sends.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_bot_turn_job_id
+  ON messages (bot_turn_job_id)
+  WHERE bot_turn_job_id IS NOT NULL;
 -- WhatsApp / provider message ids — Meta retries require idempotent ingest.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_provider_ref
   ON messages (provider_ref)
