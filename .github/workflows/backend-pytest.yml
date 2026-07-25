@@ -86,29 +86,43 @@ jobs:
       - name: Assert schema matches Alembic expectations
         run: |
           python - <<'PY'
-          import os, psycopg
+          import os, re, psycopg
+          from pathlib import Path
           dsn = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
-          # Columns that only ever existed as migration deltas — if sql/*.sql
-          # drifts behind the migrations again, fail here rather than at runtime.
-          required = [
-              ("conversations", "bot_state"),
-              ("messages", "bot_turn_job_id"),
-              ("webhook_endpoints", "name"),
-              ("interaction_transcript", "ttfb_ms"),
-              ("disputes", "resolution_notes"),
-          ]
           with psycopg.connect(dsn) as conn:
-              have = {
+              have_cols = {
                   (t, c)
                   for t, c in conn.execute(
                       "SELECT table_name, column_name FROM information_schema.columns"
                       " WHERE table_schema='public'"
                   ).fetchall()
               }
-          missing = [f"{t}.{c}" for t, c in required if (t, c) not in have]
+              have_tables = {t for t, in conn.execute(
+                  "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+              ).fetchall()}
+
+          # Derive expectations from the migrations themselves rather than a
+          # hand-kept list — a new op.create_table/add_column that never lands in
+          # sql/*.sql fails here instead of at runtime. (idempotency_keys was
+          # missing this way: every "idempotent" write silently duplicated.)
+          src = "\n".join(
+              p.read_text(encoding="utf-8")
+              for p in sorted(Path("alembic/versions").glob("*.py"))
+          )
+          want_tables = set(re.findall(r'op\.create_table\(\s*["\'](\w+)["\']', src))
+          want_cols = set(re.findall(
+              r'op\.add_column\(\s*["\'](\w+)["\']\s*,\s*sa\.Column\(\s*["\'](\w+)["\']', src))
+
+          missing = [f"table {t}" for t in sorted(want_tables) if t not in have_tables]
+          missing += [
+              f"{t}.{c}" for t, c in sorted(want_cols)
+              if t in have_tables and (t, c) not in have_cols
+          ]
           if missing:
-              raise SystemExit("sql/*.sql is behind Alembic; missing: " + ", ".join(missing))
-          print("schema drift check passed")
+              raise SystemExit(
+                  "sql/*.sql is behind Alembic; missing: " + ", ".join(missing)
+              )
+          print(f"schema drift check passed ({len(want_tables)} tables, {len(want_cols)} columns verified)")
           PY
 
       - name: Seed demo graph
