@@ -36,15 +36,15 @@ export function SpendTrendChart({ data, services }: { data: DayPoint[]; services
   };
 
   return (
-    <div className="flex h-full min-h-[280px] flex-col rounded-lg border border-[var(--border-token)] bg-surface-card p-4">
-      <div className="mb-2 flex items-start justify-between">
+    <div className="flex h-full min-h-[17.5rem] flex-col rounded-large border border-border bg-surface p-200">
+      <div className="mb-100 flex items-start justify-between">
         <div>
-          <h3 className="text-[13px] font-semibold text-brand-navy">Spend trend</h3>
-          <p className="text-[11px] text-text-secondary">Daily cost stacked by service</p>
+          <h3 className="text-body font-semibold text-text">Spend trend</h3>
+          <p className="text-body-small text-text-subtle">Daily cost stacked by service</p>
         </div>
         <div className="text-right">
-          <div className="text-[10.5px] text-text-muted">Period total</div>
-          <div className="text-[13px] font-semibold text-brand-navy">
+          <div className="text-body-small text-text-subtlest">Period total</div>
+          <div className="text-body font-semibold text-text">
             {inrCompact(rows.reduce((s, r) => s + (r.total as number), 0))}
           </div>
         </div>
@@ -52,7 +52,7 @@ export function SpendTrendChart({ data, services }: { data: DayPoint[]; services
       <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%" minHeight={220}>
           <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-token)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis
               dataKey="date"
               tickFormatter={fmtDay}
@@ -72,8 +72,8 @@ export function SpendTrendChart({ data, services }: { data: DayPoint[]; services
               contentStyle={{
                 fontSize: 11,
                 borderRadius: 8,
-                border: "1px solid var(--border-token)",
-                background: "var(--surface-card)",
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
               }}
               labelFormatter={fmtDay}
               formatter={(v: number, name) => [inrCompact(v), name as string]}

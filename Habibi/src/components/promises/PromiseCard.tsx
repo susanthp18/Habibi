@@ -43,60 +43,60 @@ export function PromiseCard({ promise: p, onOpen, onMark }: Props) {
         e.dataTransfer.effectAllowed = "move";
       }}
       className={cn(
-        "group rounded-md border bg-surface-card p-2.5 shadow-[var(--shadow-soft)] transition-shadow hover:shadow-md",
-        p.status === "broken" ? "border-red-200" : "border-[var(--border-token)]",
+        "group rounded-medium border bg-surface p-150 shadow-raised transition-shadow",
+        p.status === "broken" ? "border-border-danger-subtle" : "border-border",
       )}
     >
       {p.status === "broken" && (
-        <div className="mb-2 -mx-2.5 -mt-2.5 rounded-t-md bg-red-500 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+        <div className="mb-100 -mx-150 -mt-150 rounded-t-md bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-white">
           Auto-routed to follow-up
         </div>
       )}
 
       <button onClick={() => onOpen(p)} className="w-full text-left">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start justify-between gap-100">
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold text-brand-navy">{p.customerName}</div>
-            <div className="text-[11px] text-text-muted">
+            <div className="truncate text-body font-semibold text-text">{p.customerName}</div>
+            <div className="text-body-small text-text-subtlest">
               #{p.accountTail} · {p.id}
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="text-[14px] font-semibold text-brand-navy tabular-nums">{fmtMoney(p.amount)}</div>
+            <div className="text-body font-semibold text-text tabular-nums">{fmtMoney(p.amount)}</div>
             {p.status === "partial" && p.paidAmount !== undefined && (
-              <div className="text-[10.5px] text-orange-600 tabular-nums">
+              <div className="text-body-small text-text-warning tabular-nums">
                 {fmtMoney(p.paidAmount)} paid
               </div>
             )}
           </div>
         </div>
 
-        <div className="mt-2 flex items-center gap-1.5">
+        <div className="mt-100 flex items-center gap-075">
           <span
             className={cn(
-              "rounded px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums",
+              "rounded px-075 py-025 text-body-small font-medium tabular-nums",
               p.status === "kept"
-                ? "bg-emerald-50 text-emerald-700"
+                ? "bg-background-success-subtler text-text-success-bolder"
                 : p.status === "broken"
-                  ? "bg-red-50 text-red-700"
+                  ? "bg-background-danger-subtler text-text-danger-bolder"
                   : p.status === "partial"
-                    ? "bg-orange-50 text-orange-700"
+                    ? "bg-background-warning-subtler text-text-warning-bolder"
                     : p.status === "due_today"
-                      ? "bg-amber-50 text-amber-700"
-                      : "bg-brand-tint text-brand-primary-dark",
+                      ? "bg-background-warning-subtler text-text-warning-bolder"
+                      : "bg-background-brand-subtlest text-text-brand",
             )}
           >
             {dayLabel}
           </span>
-          <span className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-text-secondary">
+          <span className="inline-flex items-center gap-050 rounded bg-surface-sunken px-075 py-025 text-body-small text-text-subtle">
             {p.source === "bot" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
             <CIcon className="h-3 w-3" />
             {p.source === "bot" ? "Bot" : p.source === "agent" ? p.owner.split(" ")[0] : "Self"}
           </span>
           <span
             className={cn(
-              "ml-auto inline-flex items-center gap-1 text-[10.5px]",
-              p.reminderStatus === "off" ? "text-text-muted" : "text-text-secondary",
+              "ml-auto inline-flex items-center gap-050 text-body-small",
+              p.reminderStatus === "off" ? "text-text-subtlest" : "text-text-subtle",
             )}
           >
             {p.reminderStatus === "off" ? <BellOff className="h-3 w-3" /> : <BellRing className="h-3 w-3" />}
@@ -106,44 +106,44 @@ export function PromiseCard({ promise: p, onOpen, onMark }: Props) {
       </button>
 
       {(p.status === "upcoming" || p.status === "due_today") && (
-        <div className="mt-2 flex items-center gap-1 border-t border-[var(--border-token)] pt-2 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="mt-100 flex items-center gap-050 border-t border-border pt-100 opacity-0 transition-opacity group-hover:opacity-100">
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 flex-1 px-2 text-[11px] text-emerald-700 hover:bg-emerald-50"
+            className="h-300 flex-1 px-100 text-body-small text-text-success-bolder hover:bg-background-success-subtler"
             onClick={(e) => {
               e.stopPropagation();
               onMark(p, "kept");
             }}
           >
-            <CheckCircle2 className="mr-1 h-3 w-3" /> Kept
+            <CheckCircle2 className="mr-050 h-3 w-3" /> Kept
           </Button>
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 flex-1 px-2 text-[11px] text-orange-700 hover:bg-orange-50"
+            className="h-300 flex-1 px-100 text-body-small text-text-warning-bolder hover:bg-background-warning-subtler"
             onClick={(e) => {
               e.stopPropagation();
               onMark(p, "partial");
             }}
           >
-            <HandCoins className="mr-1 h-3 w-3" /> Partial
+            <HandCoins className="mr-050 h-3 w-3" /> Partial
           </Button>
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 flex-1 px-2 text-[11px] text-red-700 hover:bg-red-50"
+            className="h-300 flex-1 px-100 text-body-small text-text-danger-bolder hover:bg-background-danger-subtler"
             onClick={(e) => {
               e.stopPropagation();
               onMark(p, "broken");
             }}
           >
-            <XCircle className="mr-1 h-3 w-3" /> Broken
+            <XCircle className="mr-050 h-3 w-3" /> Broken
           </Button>
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 w-6 p-0"
+            className="h-300 w-300 p-0"
             onClick={(e) => {
               e.stopPropagation();
               onOpen(p);

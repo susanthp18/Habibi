@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   ChevronRight,
+  Flag,
   Mic,
   MicOff,
   Phone,
@@ -12,6 +13,7 @@ import {
   SkipForward,
   Volume2,
 } from "lucide-react";
+import { Lozenge } from "@/components/ui/lozenge";
 import { groundedLabel, type SandboxChunkHit } from "@/api/sandbox";
 import { previewTts } from "@/api/prompt-studio";
 import { transcribeAudio } from "@/api/speech";
@@ -32,9 +34,6 @@ export type LiveCallChrome = {
   /** Server-side speaking state — do not blend with local mic mute. */
   botSpeaking?: boolean;
   userSpeaking?: boolean;
-  /** Optional AnalyserNode levels 0–1 for waveform amplitude. */
-  localLevel?: number;
-  remoteLevel?: number;
   handoff?: HandoffStatusEvent | null;
   lifecycle?: LifecycleEvent | null;
   onStart: () => void;
@@ -106,6 +105,7 @@ export function ConversationPanel({
   const streamRef = useRef<MediaStream | null>(null);
   const wantRecordingRef = useRef(false);
   const lastSpokenBotId = useRef<string | null>(null);
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -115,6 +115,14 @@ export function ConversationPanel({
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       mediaRecorderRef.current = null;
+      // Auto-played TTS outlived the panel otherwise — the clip kept talking
+      // over whatever screen the user navigated to.
+      const audio = activeAudioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.src = "";
+        activeAudioRef.current = null;
+      }
     };
   }, []);
 
@@ -125,7 +133,9 @@ export function ConversationPanel({
     if (!lastBot || lastBot.id === lastSpokenBotId.current) return;
     if (lastBot.latencyMs === 0 && (lastBot.tokens ?? 0) === 0) return; // skip template opening
     lastSpokenBotId.current = lastBot.id;
-    void playBotText(lastBot.text, voice).catch(() => undefined);
+    void playBotText(lastBot.text, voice, (audio) => {
+      activeAudioRef.current = audio;
+    }).catch(() => undefined);
   }, [turns, autoPlayTts, mode, voice]);
 
   const send = () => {
@@ -163,6 +173,9 @@ export function ConversationPanel({
       recorder.start();
       setRecording(true);
     } catch {
+      wantRecordingRef.current = false;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
       toast.error("Mic permission denied — type your turn instead");
       setRecording(false);
     }
@@ -179,8 +192,22 @@ export function ConversationPanel({
     setTranscribing(true);
 
     const blob = await new Promise<Blob>((resolve) => {
+      let settled = false;
+      const finish = (value: Blob) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const timeoutId = window.setTimeout(() => {
+        finish(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
+      }, 3000);
+      recorder.onerror = () => {
+        window.clearTimeout(timeoutId);
+        finish(new Blob([], { type: recorder.mimeType || "audio/webm" }));
+      };
       recorder.onstop = () => {
-        resolve(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
+        window.clearTimeout(timeoutId);
+        finish(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
       };
       recorder.stop();
     });
@@ -188,6 +215,7 @@ export function ConversationPanel({
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     mediaRecorderRef.current = null;
+    chunksRef.current = [];
 
     try {
       if (blob.size < 256) {
@@ -215,78 +243,79 @@ export function ConversationPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface-page">
       {mode === "live" && live && (
-        <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card">
-          <div className="flex items-center gap-2 px-4 py-2">
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 text-[11px] font-medium capitalize",
+        <div className="shrink-0 border-b border-border bg-surface">
+          <div className="flex items-center gap-100 px-200 py-100">
+            <Lozenge
+              tone={
                 live.status === "live"
-                  ? "bg-emerald-50 text-emerald-700"
+                  ? "success"
                   : live.status === "connecting"
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-surface-sunken text-text-secondary",
-              )}
+                    ? "warning"
+                    : "neutral"
+              }
+              className="capitalize"
             >
               {live.status}
-            </span>
+            </Lozenge>
             {(live.status === "live" || live.status === "connecting") && (
               <>
-                <span className="font-mono text-[11px] text-text-muted">
+                <span className="font-mono text-body-small text-text-subtlest">
                   {formatElapsed(live.elapsedSec)}
                 </span>
                 <span
-                  className="inline-flex items-center gap-1.5"
+                  className="inline-flex items-center gap-075"
                   title="Server speaking state (bot · user)"
                   aria-label="Speaking indicator"
                 >
                   <span
                     className={cn(
-                      "h-2 w-2 rounded-full transition-colors",
-                      live.botSpeaking ? "bg-brand-primary" : "bg-surface-sunken ring-1 ring-[var(--border-token)]",
+                      "h-100 w-100 rounded-full transition-colors",
+                      live.botSpeaking ? "bg-background-brand-bold" : "bg-surface-sunken ring-1 ring-border",
                     )}
                   />
                   <span
                     className={cn(
-                      "h-2 w-2 rounded-full transition-colors",
-                      live.userSpeaking ? "bg-emerald-500" : "bg-surface-sunken ring-1 ring-[var(--border-token)]",
+                      "h-100 w-100 rounded-full transition-colors",
+                      live.userSpeaking ? "bg-background-success-bold" : "bg-surface-sunken ring-1 ring-border",
                     )}
                   />
                   <Waveform
                     active={Boolean(live.botSpeaking || live.userSpeaking)}
                     bars={14}
-                    className="ml-0.5 h-3.5"
+                    className="ml-025 h-3.5"
                   />
                 </span>
               </>
             )}
             {live.lifecycle?.phase && (
-              <span
-                className="rounded-full bg-surface-sunken px-2 py-0.5 text-[10.5px] font-medium capitalize text-text-secondary"
+              <Lozenge
+                tone="neutral"
+                className="capitalize"
                 title={live.lifecycle.reason || live.lifecycle.phase}
               >
                 {live.lifecycle.phase}
                 {live.lifecycle.phase === "idle" && live.lifecycle.reason
                   ? ` · ${live.lifecycle.reason}`
                   : ""}
-              </span>
+              </Lozenge>
             )}
             {live.voiceLabel && (
-              <span className="text-[11px] text-text-muted">Voice: {live.voiceLabel}</span>
+              <span className="text-body-small text-text-subtlest">Voice: {live.voiceLabel}</span>
             )}
             {(live.flowNodeHistory?.length ?? 0) > 0 && (
               <span
-                className="hidden min-w-0 truncate font-mono text-[10.5px] text-text-muted sm:inline"
+                className="hidden min-w-0 truncate font-mono text-body-small text-text-subtlest sm:inline"
                 title={live.flowNodeHistory!.join(" → ")}
               >
                 {live.flowNodeHistory!.slice(-3).join(" → ")}
               </span>
             )}
-            <div className="ml-auto flex items-center gap-1.5">
+            <div className="ml-auto flex items-center gap-075">
               {live.status === "idle" || live.status === "ended" ? (
                 <button
                   type="button"
                   onClick={live.onStart}
-                  className="inline-flex items-center gap-1 rounded-md bg-brand-primary px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-brand-primary-dark"
+                  className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
                 >
                   <Phone className="h-3.5 w-3.5" /> Start call
                 </button>
@@ -295,14 +324,14 @@ export function ConversationPanel({
                   <button
                     type="button"
                     onClick={live.onToggleMute}
-                    className="rounded-md border border-[var(--border-token)] px-2.5 py-1.5 text-[12px] hover:bg-surface-sunken"
+                    className="rounded-medium border border-border px-150 py-075 text-body-small hover:bg-surface-sunken"
                   >
                     {live.muted ? "Unmute" : "Mute"}
                   </button>
                   <button
                     type="button"
                     onClick={live.onEnd}
-                    className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] font-medium text-red-700 hover:bg-red-100"
+                    className="inline-flex items-center gap-050 rounded-medium border border-border-danger-subtle bg-background-danger-subtler px-150 py-075 text-body-small font-medium text-text-danger-bolder hover:bg-background-danger-subtler"
                   >
                     <PhoneOff className="h-3.5 w-3.5" /> End
                   </button>
@@ -311,7 +340,7 @@ export function ConversationPanel({
             </div>
           </div>
           {live.handoff && (
-            <div className="border-t border-amber-100 bg-amber-50 px-4 py-1.5 text-[11.5px] text-amber-900">
+            <div className="border-t border-border-warning-subtle bg-background-warning-subtler px-200 py-075 text-body-small text-text-warning-bolder">
               {handoffBannerCopy(live.handoff)}
             </div>
           )}
@@ -319,56 +348,49 @@ export function ConversationPanel({
       )}
 
       {mode === "text" && lastCustomer?.intent && lastExpectedIntent && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-token)] bg-surface-sunken/60 px-4 py-1.5 text-[11px]">
-          <span className="text-text-muted">Scorecard</span>
-          <span className="rounded-full bg-surface-card px-2 py-0.5 text-text-secondary">
+        <div className="flex shrink-0 items-center gap-100 border-b border-border bg-surface-sunken/60 px-200 py-075 text-body-small">
+          <span className="text-text-subtlest">Scorecard</span>
+          <Lozenge tone="neutral">
             expected {INTENT_LABEL[lastExpectedIntent]}
-          </span>
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 font-medium",
-              lastCustomer.intent === lastExpectedIntent
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-amber-50 text-amber-800",
-            )}
-          >
+          </Lozenge>
+          <Lozenge tone={lastCustomer.intent === lastExpectedIntent ? "success" : "warning"}>
             got {INTENT_LABEL[lastCustomer.intent as IntentKey] ?? lastCustomer.intent}
             {lastCustomer.intent === lastExpectedIntent ? " · match" : " · mismatch"}
-          </span>
+          </Lozenge>
         </div>
       )}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-200 py-200">
+        <div className="mx-auto flex max-w-3xl flex-col gap-100">
           {turns.map((t) => (
             <TurnBubble key={t.id} turn={t} voice={mode === "text" ? voice : null} />
           ))}
           {awaiting && (
-            <div className="flex items-center gap-2 self-start rounded-full bg-surface-card px-3 py-1.5 text-[11px] text-text-muted shadow-sm">
-              <span className="flex gap-0.5">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-primary [animation-delay:0ms]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-primary [animation-delay:120ms]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-primary [animation-delay:240ms]" />
+            <Lozenge tone="neutral" className="self-start">
+              <span className="flex gap-025">
+                <span className="h-1.5 w-1.5 typing-dot rounded-full bg-background-brand-bold [animation-delay:0ms]" />
+                <span className="h-1.5 w-1.5 typing-dot rounded-full bg-background-brand-bold [animation-delay:120ms]" />
+                <span className="h-1.5 w-1.5 typing-dot rounded-full bg-background-brand-bold [animation-delay:240ms]" />
               </span>
               bot is thinking… (retrieve + chat)
-            </div>
+            </Lozenge>
           )}
           {transcribing && (
-            <div className="flex items-center gap-2 self-end rounded-full bg-surface-card px-3 py-1.5 text-[11px] text-text-muted shadow-sm">
+            <Lozenge tone="neutral" className="self-end">
               Transcribing…
-            </div>
+            </Lozenge>
           )}
         </div>
       </div>
 
       {mode === "text" && (
-        <div className="shrink-0 border-t border-[var(--border-token)] bg-surface-card px-4 py-3">
-          <div className="mx-auto flex max-w-3xl items-center gap-2">
+        <div className="shrink-0 border-t border-border bg-surface px-200 py-150">
+          <div className="mx-auto flex max-w-3xl items-center gap-100">
             <button
               type="button"
               onClick={onPlayNext}
               disabled={!canPlayNext || micBusy}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-2 py-1.5 text-[11.5px] hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-050 rounded-medium border border-border px-100 py-075 text-body-small hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
               title="Play next scripted customer turn (spends tokens)"
             >
               <Play className="h-3.5 w-3.5" /> Next
@@ -377,20 +399,22 @@ export function ConversationPanel({
               type="button"
               onClick={onSkipEnd}
               disabled={!canPlayNext || micBusy}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-2 py-1.5 text-[11.5px] hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-050 rounded-medium border border-border px-100 py-075 text-body-small hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
               title="Play up to 3 remaining scripted turns"
             >
               <SkipForward className="h-3.5 w-3.5" /> Skip
             </button>
             {onAutoPlayTts && (
-              <label className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+              <label className="inline-flex items-center gap-050 text-body-small text-text-subtlest">
                 <input
                   type="checkbox"
                   checked={autoPlayTts}
                   onChange={(e) => onAutoPlayTts(e.target.checked)}
-                  className="rounded border-[var(--border-token)]"
+                  className="rounded border-border"
                 />
-                Auto ▶
+                <span className="inline-flex items-center gap-025">
+                  Auto <Play aria-hidden="true" className="size-3" />
+                </span>
               </label>
             )}
             <input
@@ -399,7 +423,7 @@ export function ConversationPanel({
               onKeyDown={(e) => e.key === "Enter" && send()}
               placeholder="Type as the customer…"
               disabled={micBusy}
-              className="flex-1 rounded-md border border-[var(--border-token)] bg-surface-card px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-primary/30 disabled:opacity-50"
+              className="flex-1 rounded-medium border border-border bg-surface px-150 py-100 text-body focus:outline-none focus:ring-2 focus:ring-border-brand/30 disabled:opacity-50"
             />
             <button
               type="button"
@@ -408,9 +432,9 @@ export function ConversationPanel({
                 void holdStart();
               }}
               onMouseUp={() => void holdEnd()}
-              onMouseLeave={() => {
-                if (recording) void holdEnd();
-              }}
+              onMouseLeave={() => void holdEnd()}
+              onPointerUp={() => void holdEnd()}
+              onPointerCancel={() => void holdEnd()}
               onTouchStart={(e) => {
                 e.preventDefault();
                 void holdStart();
@@ -420,8 +444,8 @@ export function ConversationPanel({
               className={cn(
                 "grid h-9 w-9 place-items-center rounded-full border transition disabled:opacity-50",
                 recording
-                  ? "border-red-400 bg-red-50 text-red-600 animate-pulse"
-                  : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+                  ? "border-border-danger bg-background-danger-subtler text-text-danger animate-pulse"
+                  : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
               )}
               title="Hold to speak — Azure Speech STT"
             >
@@ -431,7 +455,7 @@ export function ConversationPanel({
               type="button"
               onClick={send}
               disabled={!draft.trim() || micBusy}
-              className="inline-flex items-center gap-1 rounded-md bg-brand-primary px-3 py-2 text-[12.5px] font-medium text-white hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-100 text-[0.75rem] font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send className="h-3.5 w-3.5" /> Send
             </button>
@@ -442,7 +466,11 @@ export function ConversationPanel({
   );
 }
 
-async function playBotText(text: string, voice: VoiceConfig): Promise<void> {
+async function playBotText(
+  text: string,
+  voice: VoiceConfig,
+  onAudio?: (audio: HTMLAudioElement) => void,
+): Promise<void> {
   const result = await previewTts({
     text: text.slice(0, 500),
     voiceId: voice.voiceId,
@@ -457,10 +485,17 @@ async function playBotText(text: string, voice: VoiceConfig): Promise<void> {
   const url = URL.createObjectURL(result.blob);
   try {
     const audio = new Audio(url);
-    await audio.play();
+    // Handed to the caller so an unmount can stop playback: without it, the
+    // clip kept playing after the user navigated away from the sandbox.
+    onAudio?.(audio);
     await new Promise<void>((resolve) => {
+      if (audio.ended) {
+        resolve();
+        return;
+      }
       audio.onended = () => resolve();
       audio.onerror = () => resolve();
+      void audio.play().catch(() => resolve());
     });
   } finally {
     URL.revokeObjectURL(url);
@@ -470,28 +505,47 @@ async function playBotText(text: string, voice: VoiceConfig): Promise<void> {
 function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | null }) {
   const [open, setOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.src = "";
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   if (turn.role === "system") {
     return (
-      <div className="my-1 self-center rounded-full bg-surface-sunken px-3 py-1 text-[11px] text-text-muted">
+      <Lozenge tone="neutral" className="my-050 self-center">
         {turn.text}
-      </div>
+      </Lozenge>
     );
   }
 
   const isBot = turn.role === "bot";
   const chunks: SandboxChunkHit[] = turn.chunks ?? [];
-  const grounded = chunks.filter((c) => c.docTitle || c.chunkId);
+  const grounded = chunks.filter((c) => c.docTitle);
 
   const onPlay = async () => {
     if (!voice || playing) return;
     setPlaying(true);
     try {
-      await playBotText(turn.text, voice);
+      await playBotText(turn.text, voice, (audio) => {
+        audioRef.current = audio;
+      });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "TTS failed");
+      if (mountedRef.current) toast.error(err instanceof Error ? err.message : "TTS failed");
     } finally {
-      setPlaying(false);
+      // The bubble can unmount mid-clip (turn list re-rendered, route change);
+      // setState on an unmounted component is a no-op warning at best.
+      if (mountedRef.current) setPlaying(false);
     }
   };
 
@@ -499,34 +553,32 @@ function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | 
     <div className={cn("flex", isBot ? "justify-start" : "justify-end")}>
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed shadow-sm",
+          "max-w-[80%] rounded-xxlarge px-150 py-100 text-body leading-relaxed",
           isBot
-            ? "rounded-bl-sm bg-surface-card text-text-primary"
-            : "rounded-br-sm bg-brand-primary text-white",
+            ? "rounded-bl-sm bg-surface text-text"
+            : "rounded-br-sm bg-background-brand-bold text-white",
         )}
       >
         <div>{turn.text}</div>
         {isBot && grounded.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
+          <div className="mt-075 flex flex-wrap gap-050">
             {grounded.slice(0, 4).map((c) => (
-              <span
+              <Lozenge
                 key={c.chunkId}
-                title={c.snippet ?? c.heading ?? undefined}
-                className="rounded-full border border-[var(--border-token)] bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-text-secondary"
-              >
+                title={c.snippet ?? c.heading ?? undefined} tone="neutral">
                 grounded in {groundedLabel(c)}
-              </span>
+              </Lozenge>
             ))}
           </div>
         )}
         {isBot && (
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+          <div className="mt-050 flex flex-wrap items-center gap-100">
             {voice && (
               <button
                 type="button"
                 onClick={() => void onPlay()}
                 disabled={playing}
-                className="inline-flex items-center gap-1 text-[10.5px] text-brand-primary hover:text-brand-primary-dark disabled:opacity-50"
+                className="inline-flex items-center gap-050 text-body-small text-text-brand hover:text-text-brand disabled:opacity-50"
                 title="Hear this turn (Azure TTS)"
               >
                 <Volume2 className="h-3 w-3" />
@@ -537,17 +589,21 @@ function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | 
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="inline-flex items-center gap-1 text-[10.5px] text-text-muted hover:text-text-secondary"
+                className="inline-flex items-center gap-050 text-body-small text-text-subtlest hover:text-text-subtle"
               >
                 {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 {turn.latencyMs}ms · {turn.tokens}t · {turn.chunkIds?.length ?? 0} chunks
-                {turn.guardrailFlags?.length ? ` · ⚑ ${turn.guardrailFlags.join(",")}` : ""}
+                {turn.guardrailFlags?.length ? (
+                  <span className="inline-flex items-center gap-025">
+                    · <Flag aria-hidden="true" className="size-3" /> {turn.guardrailFlags.join(",")}
+                  </span>
+                ) : null}
               </button>
             ) : null}
           </div>
         )}
         {open && isBot && turn.chunkIds && turn.chunkIds.length > 0 && (
-          <div className="mt-1.5 space-y-0.5 border-t border-[var(--border-token)] pt-1.5 font-mono text-[10.5px] text-text-muted">
+          <div className="mt-075 space-y-025 border-t border-border pt-075 font-mono text-body-small text-text-subtlest">
             {turn.chunkIds.map((id) => (
               <div key={id}>· {id}</div>
             ))}

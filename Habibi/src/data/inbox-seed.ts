@@ -4,7 +4,7 @@ export type Sender = "customer" | "bot" | "agent";
 export type ThreadStatus = "bot" | "needs_human" | "escalated" | "assigned";
 export type SlaLevel = "ok" | "warn" | "breach";
 export type Sentiment = "positive" | "neutral" | "negative";
-export type DeliveryStatus = "sent" | "delivered" | "read";
+export type DeliveryStatus = "sent" | "delivered" | "read" | "failed";
 
 export interface Message {
   id: string;

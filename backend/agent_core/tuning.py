@@ -9,6 +9,7 @@ See voice_agent_plan.md §4.7 and sandbox_plan.md §4.4.
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from typing import Any
 
@@ -53,7 +54,12 @@ PRESET_EMPATHETIC_COLLECTIONS: dict[str, Any] = {
         "barge_in": "on",
         "min_words": 3,
         "mute": ["until_first_bot_complete", "during_function_calls"],
-        "idle_timeout_secs": 6.0,
+        # 6.0 fired inside normal thinking time. On call VS-6B252E0479 the
+        # caller's real pauses ran 3-28s — twice the ladder tripped at exactly
+        # 6.006s while they were still composing an answer, and the bot talked
+        # over the reply it had just asked for. 12s still reads as attentive on
+        # a phone call and sits above the pauses that matter.
+        "idle_timeout_secs": 12.0,
         "idle_ladder": ["nudge", "direct", "close"],
     },
 }
@@ -76,7 +82,7 @@ PRESET_BRISK_VERIFICATION: dict[str, Any] = {
         **PRESET_EMPATHETIC_COLLECTIONS["interaction"],
         "barge_in": "min_words",
         "min_words": 2,
-        "idle_timeout_secs": 5.0,
+        "idle_timeout_secs": 10.0,
     },
 }
 
@@ -98,7 +104,7 @@ PRESET_FIRM_LEGAL: dict[str, Any] = {
     "interaction": {
         **PRESET_EMPATHETIC_COLLECTIONS["interaction"],
         "barge_in": "locked",  # protect mandatory disclosures
-        "idle_timeout_secs": 8.0,
+        "idle_timeout_secs": 15.0,
     },
 }
 
@@ -123,7 +129,7 @@ PRESET_LOW_LATENCY_DEMO: dict[str, Any] = {
     },
     "interaction": {
         **PRESET_EMPATHETIC_COLLECTIONS["interaction"],
-        "idle_timeout_secs": 5.0,
+        "idle_timeout_secs": 10.0,
     },
 }
 
@@ -157,10 +163,21 @@ def list_presets() -> list[dict[str, Any]]:
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any] | None) -> dict[str, Any]:
+    """Merge overlay onto base.
+
+    Required section mappings (dict values already present on base) are preserved
+    when the overlay replaces them with null/non-dict junk — only nested dict
+    overlays are applied into those sections.
+    """
     out = deepcopy(base)
     if not isinstance(overlay, dict):
         return out
     for key, value in overlay.items():
+        if isinstance(out.get(key), dict):
+            if isinstance(value, dict):
+                out[key] = _deep_merge(out[key], value)
+            # else: keep required base mapping (ignore null/list/scalar wipe)
+            continue
         if isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = _deep_merge(out[key], value)
         else:
@@ -172,6 +189,11 @@ def _clamp_float(value: Any, lo: float, hi: float, default: float) -> float:
     try:
         n = float(value)
     except (TypeError, ValueError):
+        return default
+    # float() accepts "nan"/"inf". NaN compares false against everything, so the
+    # clamp below silently returned `hi` — a persisted "nan" confidence became
+    # the maximum rather than the default.
+    if not math.isfinite(n):
         return default
     return max(lo, min(hi, n))
 
@@ -243,7 +265,12 @@ def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     if not isinstance(mute, list):
         mute = ["until_first_bot_complete", "during_function_calls"]
     allowed = {"until_first_bot_complete", "during_function_calls", "always", "first_speech"}
-    ix["mute"] = [m for m in mute if m in allowed]
+    ix["mute"] = [m for m in mute if isinstance(m, str) and m in allowed]
+    if not ix["mute"]:
+        # Same fallback shape as idle_ladder below: a persisted list of only
+        # unrecognised values must not silently disable user muting entirely,
+        # which lets the customer's own audio feed back during function calls.
+        ix["mute"] = ["until_first_bot_complete", "during_function_calls"]
     idle = ix.get("idle_timeout_secs")
     try:
         idle_f = float(idle)
@@ -285,17 +312,22 @@ def apply_voice_config_overlay(
     tts = t["tts"]
     if voice_name:
         tts["voice"] = str(voice_name).strip()
+    # These arrive from persisted Studio jsonb, so a legacy/hand-edited row can
+    # carry a string or null. Raw float()/int() turned that into a TypeError in
+    # the middle of call setup; the clamp helpers fall back the same way every
+    # other tuning field does. Pitch is clamped *before* the ×2 conversion so a
+    # stray 9999 cannot emit "+19998%" into the SSML.
     if speed is not None:
         # Azure rate is a float string; nudge slightly for phone like bot.py did.
-        rate = max(0.85, min(1.25, float(speed) * 1.03))
+        rate = max(0.85, min(1.25, _clamp_float(speed, 0.5, 2.0, 1.0) * 1.03))
         tts["rate"] = f"{rate:.2f}"
     if pitch is not None:
-        p = int(pitch)
+        p = _clamp_int(pitch, -25, 25, 0)
         tts["pitch"] = "+2%" if p == 0 else f"{p * 2:+d}%"
     if warmth is not None:
         # Mirror voice.natural.azure_tts_style_from_warmth (keep agent_core
         # free of the voice package — sandbox / WhatsApp also import this).
-        w = max(0, min(100, int(warmth)))
+        w = _clamp_int(warmth, 0, 100, 60)
         if w >= 70:
             tts["style"], tts["style_degree"] = "friendly", "1.6"
         elif w <= 35:

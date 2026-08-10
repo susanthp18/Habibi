@@ -31,16 +31,16 @@ export function RuleList(props: Props) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-token)] bg-surface-card px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-075 border-b border-border bg-surface px-150 py-100">
         {FILTERS.map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+              "rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
               filter === f
-                ? "border-brand-primary bg-brand-tint text-brand-primary-dark"
-                : "border-[var(--border-token)] bg-white text-text-secondary hover:border-brand-primary/40",
+                ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                : "border-border bg-surface text-text-subtle hover:border-border-brand/40",
             )}
           >
             {f}
@@ -48,9 +48,9 @@ export function RuleList(props: Props) {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-100 overflow-y-auto p-150">
         {filtered.length === 0 && (
-          <div className="rounded-lg border border-dashed border-[var(--border-token)] p-8 text-center text-[12px] text-text-muted">
+          <div className="rounded-large border border-dashed border-border p-400 text-center text-body-small text-text-subtlest">
             No rules match this filter.
           </div>
         )}

@@ -19,7 +19,7 @@ import {
   type WebhookDraft,
 } from "@/api/webhooks";
 import { USE_MOCK } from "@/api/config";
-import type { Endpoint } from "@/data/webhooks-seed";
+import type { Endpoint, EventKey } from "@/data/webhooks-seed";
 
 export const Route = createFileRoute("/webhooks")({
   head: () => ({
@@ -72,30 +72,39 @@ function WebhooksPage() {
     });
   };
 
+  const revealSecretOnce = (name: string, secretOnce: string | null | undefined) => {
+    if (!secretOnce) {
+      toast.success(`Rotated secret for ${name}`, {
+        description: "Redeploy the receiver with the new secret.",
+      });
+      return;
+    }
+    toast.success(`Rotated secret for ${name}`, {
+      description: secretOnce,
+      duration: 60_000,
+      action: {
+        label: "Copy",
+        onClick: () => {
+          void navigator.clipboard?.writeText(secretOnce);
+        },
+      },
+    });
+  };
+
   const rotateOne = (ep: Endpoint) => {
     mut.rotate.mutate(ep, {
-      onSuccess: (res) => {
-        toast.success(`Rotated secret for ${ep.name}`, {
-          description: res.secretOnce
-            ? `Copy now: ${res.secretOnce.slice(0, 12)}… (shown once)`
-            : "Redeploy the receiver with the new secret.",
-        });
-      },
+      onSuccess: (res) => revealSecretOnce(ep.name, res.secretOnce),
       onError: (e) => toast.error(e instanceof Error ? e.message : "Rotate failed"),
     });
   };
 
-  const testFire = (ep: Endpoint) => {
-    mut.testFire.mutate(
-      { ep },
-      {
-        onSuccess: (d) => {
-          if (d.status === "success") toast.success(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
-          else toast.error(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
-        },
-        onError: (e) => toast.error(e instanceof Error ? e.message : "Test failed"),
-      },
+  const testFire = async (ep: Endpoint, event?: EventKey) => {
+    const d = await mut.testFire.mutateAsync(
+      event ? { ep, event } : { ep },
     );
+    if (d.status === "success") toast.success(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
+    else toast.error(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
+    return d;
   };
 
   const togglePause = (ep: Endpoint) => {
@@ -125,7 +134,7 @@ function WebhooksPage() {
         onSuccess: () => {
           toast.success(`Saved ${merged.name}`);
           setSheetOpen(false);
-          if (andTest) testFire(merged);
+          if (andTest) void testFire(merged).catch((e) => toast.error(e instanceof Error ? e.message : "Test failed"));
         },
         onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
       });
@@ -133,12 +142,19 @@ function WebhooksPage() {
       mut.create.mutate(draft, {
         onSuccess: (created) => {
           toast.success(`Created ${created.name}`, {
-            description: created.secretOnce
-              ? `Signing secret (once): ${created.secretOnce.slice(0, 16)}…`
+            description: created.secretOnce ?? undefined,
+            duration: created.secretOnce ? 60_000 : undefined,
+            action: created.secretOnce
+              ? {
+                  label: "Copy",
+                  onClick: () => {
+                    void navigator.clipboard?.writeText(created.secretOnce!);
+                  },
+                }
               : undefined,
           });
           setSheetOpen(false);
-          if (andTest) testFire(created);
+          if (andTest) void testFire(created).catch((e) => toast.error(e instanceof Error ? e.message : "Test failed"));
         },
         onError: (e) => toast.error(e instanceof Error ? e.message : "Create failed"),
       });
@@ -158,22 +174,89 @@ function WebhooksPage() {
   const selectedEndpoints = endpoints.filter((e) => selectedIds.has(e.id));
 
   const bulkPause = (pause: boolean) => {
-    selectedEndpoints.forEach((ep) =>
-      updateEndpoint({ ...ep, status: pause ? "paused" : "active" }),
+    void runSequential(
+      pause ? "Paused" : "Resumed",
+      selectedEndpoints,
+      (ep) => mut.update.mutateAsync({ ...ep, status: pause ? "paused" : "active" }),
     );
-    toast.info(`${selectedEndpoints.length} endpoint(s) ${pause ? "paused" : "resumed"}`);
   };
-  const bulkRotate = () => selectedEndpoints.forEach(rotateOne);
+  // Bulk actions run one at a time and report a summary. forEach fired N
+  // concurrent mutations with no ceiling, and the two destructive ones — a
+  // rotate breaks every receiver until it is redeployed, a delete is
+  // unrecoverable — had no confirmation at all. bulkDelete also cleared the
+  // selection before any request had come back, so a partial failure left the
+  // user with no idea which endpoints survived.
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const runSequential = async (
+    label: string,
+    targets: Endpoint[],
+    run: (ep: Endpoint) => Promise<unknown>,
+  ) => {
+    if (!targets.length || bulkBusy) return [];
+    setBulkBusy(true);
+    const failed: string[] = [];
+    try {
+      for (const ep of targets) {
+        try {
+          await run(ep);
+        } catch {
+          failed.push(ep.name);
+        }
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+    if (failed.length) {
+      toast.error(
+        `${label}: ${targets.length - failed.length}/${targets.length} succeeded — failed: ${failed.join(", ")}`,
+      );
+    } else {
+      toast.success(`${label}: ${targets.length} endpoint(s)`);
+    }
+    return failed;
+  };
+
+  const confirmRotate = (count: number) =>
+    window.confirm(
+      `Rotate the signing secret for ${count} endpoint(s)? Each receiver stops verifying deliveries until it is redeployed with the new secret.`,
+    );
+
+  const rotateSequential = async (ep: Endpoint) => {
+    const res = await mut.rotate.mutateAsync(ep);
+    revealSecretOnce(ep.name, res.secretOnce);
+  };
+
+  const bulkRotate = () => {
+    if (!confirmRotate(selectedEndpoints.length)) return;
+    void runSequential("Rotated", selectedEndpoints, rotateSequential);
+  };
+
   const bulkDelete = () => {
-    selectedEndpoints.forEach(deleteEndpoint);
-    setSelectedIds(new Set());
+    if (
+      !window.confirm(
+        `Delete ${selectedEndpoints.length} endpoint(s)? This cannot be undone.`,
+      )
+    )
+      return;
+    const ids = selectedEndpoints.map((e) => e.id);
+    void runSequential("Deleted", selectedEndpoints, (ep) => mut.remove.mutateAsync(ep)).then(
+      () => {
+        if (activeId && ids.includes(activeId)) setDrawerOpen(false);
+        setSelectedIds(new Set());
+      },
+    );
   };
-  const rotateAll = () => endpoints.forEach(rotateOne);
+
+  const rotateAll = () => {
+    if (!confirmRotate(endpoints.length)) return;
+    void runSequential("Rotated", endpoints, rotateSequential);
+  };
 
   if (loadingEp && endpoints.length === 0) {
     return (
       <AppShell>
-        <div className="p-6"><Skeleton className="h-48 w-full" /></div>
+        <div className="p-300"><Skeleton className="h-48 w-full" /></div>
       </AppShell>
     );
   }
@@ -182,7 +265,7 @@ function WebhooksPage() {
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
         {!USE_MOCK && (
-          <div className="shrink-0 border-b border-[var(--border-token)] bg-brand-tint/40 px-6 py-1.5 text-[11px] text-brand-primary-dark">
+          <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-300 py-075 text-body-small text-text-brand">
             Live webhooks · test-fire is simulated (no real egress). Secrets returned once on create/rotate.
           </div>
         )}
@@ -194,27 +277,27 @@ function WebhooksPage() {
         <WebhooksStats endpoints={endpoints} deliveries={deliveries} />
 
         {selectedIds.size > 0 && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-token)] bg-brand-tint/60 px-6 py-2 text-[12px]">
-            <span className="font-semibold text-brand-primary-dark">
+          <div className="flex shrink-0 items-center gap-100 border-b border-border bg-background-brand-subtlest/60 px-300 py-100 text-body-small">
+            <span className="font-semibold text-text-brand">
               {selectedIds.size} selected
             </span>
-            <div className="ml-auto flex gap-2">
+            <div className="ml-auto flex gap-100">
               <Button size="sm" variant="outline" onClick={() => bulkPause(true)}>
-                <Pause className="mr-1 h-3.5 w-3.5" /> Pause
+                <Pause className="mr-050 h-3.5 w-3.5" /> Pause
               </Button>
               <Button size="sm" variant="outline" onClick={() => bulkPause(false)}>
-                <Play className="mr-1 h-3.5 w-3.5" /> Resume
+                <Play className="mr-050 h-3.5 w-3.5" /> Resume
               </Button>
               <Button size="sm" variant="outline" onClick={bulkRotate}>
-                <KeyRound className="mr-1 h-3.5 w-3.5" /> Rotate
+                <KeyRound className="mr-050 h-3.5 w-3.5" /> Rotate
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                className="text-rose-600 hover:text-rose-700"
+                className="text-text-danger hover:text-text-danger-bolder"
                 onClick={bulkDelete}
               >
-                <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+                <Trash2 className="mr-050 h-3.5 w-3.5" /> Delete
               </Button>
             </div>
           </div>
@@ -244,9 +327,9 @@ function WebhooksPage() {
           />
         </div>
 
-        <div className="flex min-h-[240px] flex-[2] flex-col">
+        <div className="flex min-h-[15rem] flex-[2] flex-col">
           {loadingDlv && deliveries.length === 0 ? (
-            <Skeleton className="m-4 h-32" />
+            <Skeleton className="m-200 h-32" />
           ) : (
             <DeliveryLogPane
               endpoints={endpoints}
@@ -280,18 +363,14 @@ function WebhooksPage() {
         }}
         onRotate={rotateOne}
         onRetry={retryDelivery}
-        onTestFire={(ep, event) =>
-          mut.testFire.mutate(
-            { ep, event },
-            {
-              onSuccess: (d) => {
-                if (d.status === "success") toast.success(`Test → ${d.httpStatus} · ${d.latencyMs}ms`);
-                else toast.error(`Test → ${d.httpStatus} · ${d.latencyMs}ms`);
-              },
-              onError: (e) => toast.error(e instanceof Error ? e.message : "Test failed"),
-            },
-          )
-        }
+        onTestFire={async (ep, event) => {
+          try {
+            await testFire(ep, event);
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Test failed");
+            throw e;
+          }
+        }}
       />
 
       <EventCatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} />

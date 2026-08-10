@@ -72,17 +72,20 @@ def test_wrong_api_key_401(client: TestClient, api_key: str) -> None:
     assert res.headers.get("access-control-allow-origin") == "http://localhost:5173"
 
 
-def test_non_ascii_api_key_compare_is_safe() -> None:
-    """str compare_digest raises on non-ASCII; bytes path must stay 401-safe."""
-    import secrets
+def test_non_ascii_api_key_compare_is_safe(client: TestClient, api_key: str) -> None:
+    """A non-ASCII key must 401 through the real middleware, not 500.
 
-    provided = "café-key"
-    api_key = "test-api-key-regression-lock"
-    # This is the middleware predicate — must not raise.
-    ok = bool(provided) and secrets.compare_digest(
-        provided.encode("utf-8"), api_key.encode("utf-8")
+    ``secrets.compare_digest`` raises TypeError on non-ASCII ``str`` input, so
+    this exercises ApiKeyMiddleware end-to-end rather than re-asserting its
+    predicate — an inline copy would keep passing after the middleware
+    regressed to the str comparison.
+    """
+    # httpx encodes str header values as ASCII, so send raw bytes — that is
+    # what a real client puts on the wire anyway.
+    res = client.get(
+        "/conversations", headers={"X-API-Key": "café-key".encode("utf-8")}
     )
-    assert ok is False
+    assert res.status_code == 401, res.text
 
 
 def test_correct_api_key_passes(client: TestClient, api_key: str) -> None:
@@ -185,16 +188,40 @@ def test_circuit_open_maps_to_503(client: TestClient, api_key: str) -> None:
 
 
 def test_prod_boot_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production startup must refuse to boot with no credentials configured.
+
+    Drives main's real lifespan validation. The previous version re-implemented
+    the condition and raised its own RuntimeError, so it passed even if the
+    production check were deleted outright.
+    """
+    import asyncio
+
+    import actor_context
+    import main as app_main
+
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.delenv("API_KEY", raising=False)
     monkeypatch.delenv("API_KEY_MAP", raising=False)
-    app_env = (os.getenv("APP_ENV") or "dev").strip().lower()
-    is_prod = app_env in {"prod", "production"}
-    has_auth = bool((os.getenv("API_KEY") or "").strip())
-    assert is_prod and not has_auth
-    with pytest.raises(RuntimeError, match="API_KEY"):
-        if is_prod and not has_auth:
-            raise RuntimeError("API_KEY or API_KEY_MAP must be set when APP_ENV=production")
+    monkeypatch.setattr(app_main, "_IS_PROD", True)
+    # Deferred-hardening gate would fire first — acknowledge it so this test
+    # exercises the credential check specifically.
+    monkeypatch.setenv("ALLOW_UNHARDENED_PRODUCTION", "1")
+    actor_context.reload_api_key_map()
+
+    async def _boot() -> None:
+        async with app_main.lifespan(app_main.app):
+            pass
+
+    try:
+        with pytest.raises(RuntimeError, match="API_KEY"):
+            asyncio.run(_boot())
+    finally:
+        # Undo the env changes BEFORE rebuilding the cache, and do it even when
+        # the assertion fails: reloading first cached the map for the test's
+        # own stripped environment, so every later test in the process ran
+        # against no API keys.
+        monkeypatch.undo()
+        actor_context.reload_api_key_map()
 
 
 def test_semaphore_acquire_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

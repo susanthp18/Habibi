@@ -7,9 +7,14 @@ import logging
 import time
 from typing import Any, Callable
 
+from sqlalchemy import text
+
+import capture
 import db
 from agent_core.intent import classify_intent, resolve_intent
+from agent_core.sentiment import estimate_sentiment
 from agent_core.tools import domain
+from agent_core.tools import kb as kb_tool
 from agent_core.tools.catalog import CATALOG
 
 logger = logging.getLogger(__name__)
@@ -35,118 +40,16 @@ def _domain_soft_fail(result: domain.ToolResult) -> dict[str, Any] | None:
     return out
 
 
-# Intents allowed to call search_knowledge_base (insurance/product corpus).
-# Collections money questions must use CRM tools, not HL Assurance chunks.
-KB_ALLOWED_INTENTS = frozenset(
-    {
-        "product_faq",
-        "upsell_opportunity",
-    }
-)
+# KB policy (gate, query steering, retrieval shape, confidence, analytics) lives
+# in agent_core.tools.kb so voice and WhatsApp answer the same question the same
+# way. Re-exported here because this module is the text channel's public surface.
+KB_ALLOWED_INTENTS = kb_tool.KB_ALLOWED_INTENTS
+_query_looks_product = kb_tool.query_looks_product
+_wants_policy_detail = kb_tool.wants_policy_detail
+_wants_coverage_detail = kb_tool.wants_coverage_detail
+_wants_activity_eligibility = kb_tool.wants_activity_eligibility
+_classify_kb_intent = kb_tool.classify_kb_intent
 
-_PRODUCT_QUERY_HINTS = (
-    "insurance",
-    "policy",
-    "coverage",
-    "exclu",
-    "invalid",
-    "benefit",
-    "claim",
-    "premium",
-    "protect360",
-    "travel",
-    "plan",
-    "covered",
-    "wording",
-    "terms",
-)
-
-
-def _query_looks_product(query: str) -> bool:
-    t = (query or "").lower()
-    return any(h in t for h in _PRODUCT_QUERY_HINTS)
-
-
-def _wants_policy_detail(query: str) -> bool:
-    t = (query or "").lower()
-    return any(
-        h in t
-        for h in (
-            "exclu",
-            "invalid",
-            "not covered",
-            "list all",
-            "tell me all",
-            "see and tell",
-            "full list",
-            "all details",
-            "more details",
-            "in detail",
-            "complete list",
-            "all conditions",
-            "policy wording",
-            "terms and conditions",
-            "what voids",
-            "when is it void",
-        )
-    )
-
-
-def _wants_coverage_detail(query: str) -> bool:
-    """Coverage / benefits questions — should not be steered into exclusions-only retrieve."""
-    t = (query or "").lower()
-    if _wants_policy_detail(t):
-        return False
-    # "Is scuba diving covered?" needs exclusions + conditions, not benefits-only.
-    if any(
-        a in t
-        for a in (
-            "scuba",
-            "diving",
-            "bungee",
-            "rafting",
-            "ski",
-            "racing",
-            "extreme",
-            "sport",
-        )
-    ) and any(c in t for c in ("cover", "covered", "allow", "permitted", "can i")):
-        return False
-    return any(
-        h in t
-        for h in (
-            "cover",
-            "coverage",
-            "benefit",
-            "medical",
-            "hospital",
-            "cancel",
-            "cancellation",
-            "postpon",
-            "baggage",
-            "delay",
-            "what does it",
-            "include",
-            "overseas",
-        )
-    )
-
-
-def _wants_activity_eligibility(query: str) -> bool:
-    t = (query or "").lower()
-    return any(
-        a in t
-        for a in (
-            "scuba",
-            "diving",
-            "bungee",
-            "rafting",
-            "ski",
-            "racing",
-            "extreme",
-            "underwater",
-        )
-    ) and any(c in t for c in ("cover", "covered", "allow", "permitted", "can i", "claim"))
 
 # Wire contract now comes from the shared catalog so voice and WhatsApp cannot
 # drift apart again (they previously disagreed on promise_date/promisedDate,
@@ -164,8 +67,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = CATALOG.openai_tools(
         "request_callback",
         "add_customer_note",
         "escalate_to_human",
+        "recommend_next_offer",
         "check_product_eligibility",
         "capture_lead",
+        "decline_offer",
         "request_documents",
         "identify_customer",
     ]
@@ -217,6 +122,7 @@ class ToolContext:
         intent: str,
         session_intent: str | None = None,
         product_hint: str | None = None,
+        sentiment: float | None = None,
     ) -> None:
         self.job_id = job_id
         self.conversation_id = conversation_id
@@ -227,54 +133,20 @@ class ToolContext:
         self.intent = intent
         self.session_intent = session_intent
         self.product_hint = product_hint
+        # This turn's sentiment, already classified by the caller. None means
+        # "nobody told us", and the tools fall back to the English lexicon —
+        # which returns 0.00 for any Hindi or code-switched turn, so the offer
+        # engine's sentiment floor would never suppress anything.
+        self.sentiment = sentiment
         self.escalated = False
         self.escalate_reason: str | None = None
-
-
-def _kb_gate_allows(ctx: ToolContext, query: str) -> tuple[bool, str]:
-    """Structural gate: block collections money intents; allow product threads + product queries."""
-    intent = ctx.intent or ""
-    session = ctx.session_intent or ""
-    if intent in KB_ALLOWED_INTENTS:
-        return True, intent
-    if session in KB_ALLOWED_INTENTS:
-        return True, session
-    if _query_looks_product(query) or _query_looks_product(ctx.customer_text):
-        return True, intent or session or "product_faq"
-    # Still blocked for pure collections intents with no product signal.
-    return False, intent or session or "unknown"
-
-
-def _expand_kb_query(ctx: ToolContext, query: str) -> str:
-    """Enrich vague follow-ups with product/topic context so ANN hits policy docs."""
-    parts = [query.strip()]
-    if ctx.product_hint and ctx.product_hint.lower() not in query.lower():
-        parts.append(ctx.product_hint)
-    # Steer by what the *customer* asked — not by noisy tool-arg padding.
-    cust = ctx.customer_text or ""
-    if (
-        _wants_policy_detail(cust)
-        or _wants_activity_eligibility(cust)
-        or (
-            _wants_policy_detail(query)
-            and not _wants_coverage_detail(cust)
-            and not _wants_activity_eligibility(cust)
-        )
-    ):
-        parts.append("policy exclusions invalidation conditions not covered")
-        if _wants_activity_eligibility(cust) or _wants_activity_eligibility(query):
-            parts.append("leisure scuba diving underwater breathing apparatus conditions")
-    elif _wants_coverage_detail(cust) or _wants_coverage_detail(query):
-        parts.append("benefits coverage section conditions")
-    # Deduplicate while preserving order.
-    seen: set[str] = set()
-    out: list[str] = []
-    for p in parts:
-        key = p.lower()
-        if key and key not in seen:
-            seen.add(key)
-            out.append(p)
-    return " — ".join(out)
+        # Offer engine bookkeeping for this turn — mirrors ToolState on voice so
+        # both channels report outcomes against the same decision log.
+        self.offer_decision_id: str | None = None
+        self.offered_product_id: str | None = None
+        self.offered_product_ids: set[str] = set()
+        self.offer_declined = False
+        self.offers_presented = 0
 
 
 def _tool_get_customer_context(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -303,95 +175,60 @@ def _tool_get_emi_schedule(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
 
 
 def _tool_search_knowledge_base(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    query = (args.get("query") or "").strip()
-    if not query:
+    """Thin adapter — gate, steering, retrieval and analytics live in agent_core.tools.kb.
+
+    ``prefer_policy=None`` asks the shared handler to derive steering from the
+    customer's own words, which is exactly what this channel did inline before.
+    """
+    result = kb_tool.search_knowledge_base(
+        query=(args.get("query") or "").strip(),
+        channel="text",
         # Fall back to the customer turn so follow-ups still retrieve.
-        query = (ctx.customer_text or "").strip()
-    if not query:
-        raise ValueError("query_required")
-
-    allowed, gate_intent = _kb_gate_allows(ctx, query)
-    if not allowed:
-        return {
-            "available": False,
-            "reason": "kb_gated_for_intent",
-            "intent": gate_intent,
-            "message": (
-                "Knowledge base is not available for this collections intent. "
-                "Use get_customer_context / get_emi_schedule / get_payment_history "
-                "for money facts, or escalate_to_human for policy exceptions."
-            ),
-            "results": [],
-        }
-
-    expanded = _expand_kb_query(ctx, query)
-    prefer_policy = (
-        _wants_policy_detail(ctx.customer_text)
-        or _wants_activity_eligibility(ctx.customer_text)
-        or (
-            _wants_policy_detail(expanded)
-            and not _wants_coverage_detail(ctx.customer_text)
-        )
+        customer_text=ctx.customer_text or "",
+        intent=ctx.intent,
+        session_intent=ctx.session_intent,
+        product_hint=ctx.product_hint,
+        interaction_id=ctx.interaction_id,
+        bot_id=ctx.bot_id,
     )
-    import kb_retrieve
-
-    raw = kb_retrieve.retrieve(
-        query=expanded,
-        top_k=8 if prefer_policy else 6,
-        include_draft_answer=False,
-        source="bot",
-        prefer_policy=prefer_policy,
-    )
-    results = []
-    for r in raw.get("results") or []:
-        snippet = (r.get("snippet") or "").strip()
-        # Cap high enough to carry real exclusion lists, not just one line.
-        cap = 2000 if prefer_policy else 1400
-        results.append(
-            {
-                "docTitle": r.get("docTitle") or r.get("docId"),
-                "docType": r.get("docType"),
-                "heading": r.get("heading"),
-                "snippet": snippet[:cap],
-                "score": r.get("score"),
-            }
-        )
-    # Product KB answer with hits ⇒ upsell/cross-sell was presented (Phase 0/1).
-    if results and ctx.interaction_id and (
-        gate_intent in {"product_faq", "upsell_opportunity"}
-        or (ctx.session_intent or "") in {"product_faq", "upsell_opportunity"}
-    ):
-        try:
-            import capture
-
-            with db.engine.begin() as conn:
-                capture.record_offer_presented(
-                    conn,
-                    interaction_id=ctx.interaction_id,
-                    product_id=None,
-                    source="kb",
-                    actor_bot_id=ctx.bot_id,
-                )
-                capture.touch_primary_intent(
-                    conn,
-                    ctx.interaction_id,
-                    gate_intent
-                    if gate_intent in {"product_faq", "upsell_opportunity"}
-                    else "product_faq",
-                )
-        except Exception:
-            logger.exception("mark_upsell_presented failed")
+    if not result.ok:
+        if result.error == "empty_query":
+            raise ValueError("query_required")
+        return {"ok": False, "error": result.error, **(result.data or {})}
+    data = result.data
+    if not data.get("available"):
+        return data
+    # Chunk plumbing stays voice-only (the Inspector consumes it), but the
+    # confidence verdict must not be dropped: the shared handler scores every
+    # retrieval against KB_CONFIDENCE_THRESHOLD and voice already refuses to
+    # answer below it. Text was handed the same weak snippets with no directive
+    # at all, so a 0.3-score passage read as ground truth on WhatsApp.
+    confident = bool(data.get("confident"))
     return {
         "available": True,
-        "intent": gate_intent,
-        "queryUsed": expanded,
-        "results": results,
-        "logId": raw.get("logId"),
+        "intent": data["intent"],
+        "queryUsed": data["queryUsed"],
+        "results": data["results"],
+        "confident": confident,
+        "answer_policy": (
+            "Answer ONLY from these snippets."
+            if confident
+            else (
+                "Retrieval was weak — do NOT answer from these snippets. Tell "
+                "the customer a specialist will follow up and offer "
+                "request_callback."
+            )
+        ),
+        "logId": data.get("logId"),
     }
 
 
 def _tool_create_promise(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     idem = f"{ctx.job_id}:create_promise_to_pay"
+    # The model can omit a "required" property; a KeyError here would surface as
+    # a raw traceback instead of a result the model can correct on the next turn.
+    if args.get("amount") in (None, "") or not str(args.get("promise_date") or "").strip():
+        return {"ok": False, "error": "amount_and_promise_date_required"}
     result = domain.create_promise_to_pay(
         customer_id=ctx.customer_id,
         amount=args["amount"],
@@ -475,13 +312,98 @@ def _tool_escalate(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "status": "needs_human", "reason": reason}
 
 
+def _tool_recommend_next_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Ask the engine what may be offered. Same pipeline as voice."""
+    from agent_core.reco import engine as reco_engine
+    from agent_core.reco.features import CallSignals
+
+    result = reco_engine.recommend(
+        customer_id=ctx.customer_id,
+        interaction_id=ctx.interaction_id,
+        channel="whatsapp",
+        live=CallSignals(
+            interaction_id=ctx.interaction_id,
+            channel="whatsapp",
+            intents_seen=(ctx.intent,) if ctx.intent else (),
+            dominant_intent=ctx.session_intent or ctx.intent,
+            sentiment_current=(
+                ctx.sentiment
+                if ctx.sentiment is not None
+                else estimate_sentiment(ctx.customer_text or "")
+            ),
+            # Text has no PTP-before-pitch graph, so the commitment gate would
+            # suppress every chat offer. The channel is asynchronous and
+            # interruption-free, which is what that gate exists to protect
+            # against on a live call.
+            commitment_secured=True,
+            escalation_flagged=ctx.escalated,
+            offer_declined_this_call=ctx.offer_declined,
+            offers_presented_this_call=ctx.offers_presented,
+        ),
+    )
+    ctx.offer_decision_id = result.decision_id
+    payload = result.to_tool_payload()
+    if result.suppressed or not result.offers:
+        payload["say"] = "do not mention any product; continue with the conversation"
+        return payload
+
+    top = result.top
+    ctx.offered_product_id = top.product_id
+    # Every returned offer is admissible, not just the top one — the model may
+    # legitimately pick the second if the customer steers it there.
+    ctx.offered_product_ids.update(o.product_id for o in result.offers)
+    ctx.offers_presented += 1
+    try:
+        reco_engine.present(result.decision_id, top.product_id)
+        domain.mark_upsell_presented(
+            interaction_id=ctx.interaction_id,
+            product_id=top.product_id,
+            bot_id=ctx.bot_id,
+        )
+    except Exception:
+        logger.exception("marking offer presented failed")
+    payload["say"] = (
+        "mention this ONE product in a single short sentence with the indicative "
+        "amount, then ask if they would like a specialist to explain it"
+    )
+    return payload
+
+
+def _tool_decline_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Record a refusal so the same product is not raised again."""
+    from agent_core.reco import decisions
+
+    ctx.offer_declined = True
+    reason = (args.get("reason") or "").strip() or None
+    if ctx.offer_decision_id:
+        decisions.record_response(ctx.offer_decision_id, "declined")
+    try:
+        with db.engine.begin() as conn:
+            capture.record_offer_declined(
+                conn,
+                interaction_id=ctx.interaction_id,
+                customer_id=ctx.customer_id,
+                product_id=ctx.offered_product_id,
+                reason=reason,
+                actor_bot_id=ctx.bot_id,
+            )
+    except Exception:
+        logger.exception("record_offer_declined failed")
+    return {"ok": True, "say": "acknowledge briefly and move on; do not raise it again"}
+
+
 def _tool_check_product_eligibility(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    """Delegates to the shared handler so voice and WhatsApp apply identical rules."""
+    """Re-confirm an offer the engine already made. Cannot introduce a product."""
+    product_id = (args.get("product_id") or "").strip()
+    violation = domain.offer_sourcing_violation(product_id, ctx.offered_product_ids)
+    if violation is not None:
+        return _domain_soft_fail(violation) or {"ok": False, "error": "product_not_offered"}
     result = domain.check_product_eligibility(
         customer_id=ctx.customer_id,
-        product_id=(args.get("product_id") or "").strip(),
+        product_id=product_id,
         interaction_id=ctx.interaction_id,
         bot_id=ctx.bot_id,
+        channel="whatsapp",
     )
     soft = _domain_soft_fail(result)
     if soft is not None:
@@ -491,9 +413,27 @@ def _tool_check_product_eligibility(ctx: ToolContext, args: dict[str, Any]) -> d
 
 def _tool_capture_lead(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     """Delegates to the shared handler (same eligibility gate, same lead row)."""
+    product_id = (args.get("product_id") or "").strip()
+    offer_id = str(args.get("offer_id") or "").strip()
+    decision_id = ctx.offer_decision_id
+    if offer_id and ":" in offer_id:
+        offer_decision, offer_product = offer_id.split(":", 1)
+        if offer_product and offer_product != product_id:
+            logger.warning(
+                "capture_lead offer/product mismatch: offer=%s product=%s — trusting the offer",
+                offer_id,
+                product_id,
+            )
+            product_id = offer_product
+        decision_id = offer_decision or decision_id
+
+    violation = domain.offer_sourcing_violation(product_id, ctx.offered_product_ids)
+    if violation is not None:
+        return _domain_soft_fail(violation) or {"ok": False, "error": "product_not_offered"}
+
     result = domain.capture_lead(
         customer_id=ctx.customer_id,
-        product_id=(args.get("product_id") or "").strip(),
+        product_id=product_id,
         interaction_id=ctx.interaction_id,
         bot_id=ctx.bot_id,
         offer_amount=args.get("offer_amount"),
@@ -501,6 +441,14 @@ def _tool_capture_lead(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
         priority=args.get("priority"),
         source="bot_chat",
         customer_text=ctx.customer_text or "",
+        channel="whatsapp",
+        # Stable per (conversation, customer, product) so a retried job cannot
+        # create a second identical lead.
+        idempotency_key=f"chat-lead:{ctx.conversation_id}:{ctx.customer_id}:{product_id}",
+        decision_id=decision_id,
+        # Otherwise the lead is scored by the English lexicon and every lead
+        # from a Hindi caller reaches the rep marked "neutral".
+        sentiment_score=ctx.sentiment,
     )
     soft = _domain_soft_fail(result)
     if soft is not None:
@@ -530,8 +478,39 @@ def _tool_request_documents(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     return payload
 
 
+def _thread_phone_digits(conn: Any, conversation_id: str) -> str:
+    """Digits of the phone number this WhatsApp thread is bound to.
+
+    The inbound webhook resolves the customer from the sender's number, so the
+    bound customer's phone is the number the peer demonstrably controls.
+    """
+    import re
+
+    row = conn.execute(
+        text(
+            """
+            SELECT c.phone_primary
+            FROM conversations cv
+            JOIN customers c ON c.id = cv.customer_id
+            WHERE cv.id = :id
+            """
+        ),
+        {"id": conversation_id},
+    ).mappings().first()
+    return re.sub(r"\D", "", str((row or {}).get("phone_primary") or ""))
+
+
 def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    """Verify/rebind the interaction to a customer by phone or account tail."""
+    """Verify/rebind the interaction to a customer by phone or account tail.
+
+    Hard constraint: identification may only ever resolve to the customer who
+    owns the number this thread is running on. The caller controls the WhatsApp
+    number, nothing else — so a supplied phone must equal the thread's number,
+    and an account tail (4 digits, trivially guessable) is accepted only as a
+    *second factor* confirming that same customer. Without this, anyone could
+    message the bot and enumerate account tails to read another customer's
+    balance, EMI schedule and payment history.
+    """
     import capture
     import re
 
@@ -544,15 +523,37 @@ def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
         raise ValueError("phone_or_account_tail_required")
 
     with db.engine.begin() as conn:
+        thread_digits = _thread_phone_digits(conn, ctx.conversation_id)
         matched = None
         method = "manual"
         if phone:
             digits = re.sub(r"\D", "", phone)
-            matched = db._find_customer_by_phone(conn, digits)
             method = "phone_match"
+            if thread_digits and digits and digits[-10:] == thread_digits[-10:]:
+                matched = db._find_customer_by_phone(conn, digits)
+            else:
+                logger.warning(
+                    "identify_customer rejected phone not matching thread "
+                    "conversation=%s",
+                    ctx.conversation_id,
+                )
         if matched is None and account_tail:
-            matched = capture.find_customer_by_account_tail(conn, account_tail)
             method = "account_tail"
+            candidate = capture.find_customer_by_account_tail(conn, account_tail)
+            candidate_digits = re.sub(r"\D", "", str((candidate or {}).get("phone_primary") or ""))
+            if (
+                candidate is not None
+                and thread_digits
+                and candidate_digits
+                and candidate_digits[-10:] == thread_digits[-10:]
+            ):
+                matched = candidate
+            elif candidate is not None:
+                logger.warning(
+                    "identify_customer rejected account_tail for a customer that does "
+                    "not own this thread's number conversation=%s",
+                    ctx.conversation_id,
+                )
         if matched is None:
             capture.record_identity_failed(
                 conn,
@@ -587,8 +588,10 @@ HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "request_callback": _tool_request_callback,
     "add_customer_note": _tool_add_note,
     "escalate_to_human": _tool_escalate,
+    "recommend_next_offer": _tool_recommend_next_offer,
     "check_product_eligibility": _tool_check_product_eligibility,
     "capture_lead": _tool_capture_lead,
+    "decline_offer": _tool_decline_offer,
     "request_documents": _tool_request_documents,
     "identify_customer": _tool_identify_customer,
 }
@@ -623,8 +626,20 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
                 name,
                 result.get("error"),
             )
+            return False, result, latency
         return True, result, latency
-    except Exception as exc:
-        logger.exception("tool %s failed", name)
+    except ValueError as exc:
+        # Handlers raise ValueError with their own stable, model-facing codes
+        # ("query_required", "phone_or_account_tail_required") — the model is
+        # meant to read and correct those.
+        logger.warning("tool %s rejected args · error=%s", name, exc)
         latency = int((time.perf_counter() - t0) * 1000)
         return False, {"error": str(exc)}, latency
+    except Exception as exc:
+        # Anything else is a driver/runtime failure whose str() can carry SQL
+        # parameters, connection strings or stack context. It was returned to
+        # the model *and* persisted to bot_tool_calls.error, which the Inbox
+        # renders. Log it in full; hand back a stable code.
+        logger.exception("tool %s failed", name)
+        latency = int((time.perf_counter() - t0) * 1000)
+        return False, {"error": f"tool_failed:{type(exc).__name__}"}, latency

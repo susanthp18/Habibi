@@ -1,12 +1,13 @@
 """Idempotent Susanth customer graph for WhatsApp Inbox round-trip testing.
 
 Safe to re-run. Reuses tenant/bots/products already seeded by seed_postgres.
-Phone: 919655282324 (matches WHATSAPP_TEST_TO / personal handset).
+Phone comes from WHATSAPP_TEST_TO (synthetic fallback for non-prod only).
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -19,13 +20,42 @@ CUSTOMER_ID = "cust-susanth"
 ACCOUNT_ID = "AC-SUSANTH"
 INTERACTION_ID = "IX-SUSANTH-WA1"
 CONVERSATION_ID = "CV-SUSANTH-WA1"
-PHONE = "919655282324"
 BOT_ID = "collectionsbot-v2-4"
 PRODUCT_ID = "personal-loan"
 ACTOR = "priya-nair"
 
 
+def _is_prod() -> bool:
+    """Same production detection as scripts/seed_demo.py."""
+    return (os.getenv("APP_ENV") or "dev").strip().lower() in {"prod", "production"}
+
+
+def _test_phone() -> str:
+    """Phone for the WhatsApp round-trip fixture — WHATSAPP_TEST_TO only.
+
+    No fallback literal: this number receives real WhatsApp messages during
+    testing, so a hard-coded default either points at a real person's handset
+    or seeds an undeliverable synthetic number that looks configured. Missing
+    configuration must fail loudly instead.
+    """
+    raw = (os.getenv("WHATSAPP_TEST_TO") or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        raise RuntimeError(
+            "WHATSAPP_TEST_TO is not set — seed_susanth needs an explicit test "
+            "recipient number (E.164 digits) for the WhatsApp round-trip fixture."
+        )
+    return digits
+
+
+PHONE = ""
+
+
 def seed_susanth(conn: psycopg.Connection) -> None:
+    if _is_prod():
+        raise RuntimeError("seed_susanth refused: APP_ENV=production")
+    global PHONE
+    PHONE = _test_phone()
     now = datetime.now(timezone.utc)
     # Keep free-form WhatsApp window open for local testing.
     t0 = now - timedelta(minutes=12)
@@ -99,12 +129,20 @@ def seed_susanth(conn: psycopg.Connection) -> None:
             },
         )
 
-    for i, (etype, desc, amount, bal) in enumerate(
+    for i, (etype, desc, amount, bal, days_ago) in enumerate(
         [
-            ("charge", "EMI due", 4800, 67200),
-            ("payment", "UPI payment", -4800, 62400),
-            ("fee", "Late fee", 350, 62750),
-            ("waiver", "Goodwill late-fee waiver", -350, 62400),
+            ("charge", "EMI due #1", 4800, 72000, 90),
+            ("payment", "UPI payment", -4800, 67200, 85),
+            ("charge", "EMI due #2", 4800, 72000, 60),
+            ("payment", "UPI payment", -4800, 67200, 55),
+            ("charge", "EMI due", 4800, 72000, 40),
+            ("payment", "UPI payment", -4800, 67200, 37),
+            ("fee", "Late fee", 350, 67550, 35),
+            ("waiver", "Goodwill late-fee waiver", -350, 67200, 32),
+            ("charge", "EMI due (current)", 4800, 72000, 10),
+            ("payment", "Partial UPI", -4800, 67200, 8),
+            ("adjustment", "Interest capitalization", 200, 67400, 5),
+            ("payment", "Goodwill adjustment settle", -1000, 62400, 2),
         ],
         start=1,
     ):
@@ -119,7 +157,7 @@ def seed_susanth(conn: psycopg.Connection) -> None:
                 "amount": amount,
                 "balance": bal,
                 "invoice_id": None,
-                "posted_at": now - timedelta(days=40 - i * 3),
+                "posted_at": now - timedelta(days=days_ago),
             },
         )
 
@@ -188,6 +226,78 @@ def seed_susanth(conn: psycopg.Connection) -> None:
             "started_at": t0,
             "ended_at": None,
             "duration_sec": None,
+            "source_payload": {},
+        },
+    )
+
+    # Prior voice touch + broken PTP context for richer 360 insights
+    ix_voice = "IX-SUSANTH-VOICE1"
+    upsert(
+        conn,
+        "interactions",
+        {
+            "id": ix_voice,
+            "tenant_id": TENANT_ID,
+            "customer_id": CUSTOMER_ID,
+            "account_id": ACCOUNT_ID,
+            "handler_kind": "human",
+            "handler_user_id": ACTOR,
+            "handler_bot_id": None,
+            "transferred_from_bot_id": None,
+            "channel": "voice",
+            "direction": "outbound",
+            "status": "completed",
+            "disposition": "PTP captured (broken)",
+            "primary_intent": "collections",
+            "query_resolved": True,
+            "upsell_presented": False,
+            "ptp_captured": True,
+            "avg_sentiment": -0.2,
+            "sentiment_label": "negative",
+            "summary": "Outbound call — Susanth committed ₹4,800 by month-end then missed. Prefers WhatsApp follow-ups.",
+            "hash": None,
+            "latency_ms": None,
+            "rag_hits": 0,
+            "redaction_applied": False,
+            "deployment_id": None,
+            "started_at": now - timedelta(days=28),
+            "ended_at": now - timedelta(days=28, hours=-1),
+            "duration_sec": 312,
+            "source_payload": {},
+        },
+    )
+    ix_wa2 = "IX-SUSANTH-WA2"
+    upsert(
+        conn,
+        "interactions",
+        {
+            "id": ix_wa2,
+            "tenant_id": TENANT_ID,
+            "customer_id": CUSTOMER_ID,
+            "account_id": ACCOUNT_ID,
+            "handler_kind": "bot",
+            "handler_user_id": None,
+            "handler_bot_id": BOT_ID,
+            "transferred_from_bot_id": None,
+            "channel": "whatsapp",
+            "direction": "inbound",
+            "status": "completed",
+            "disposition": "Bot contained",
+            "primary_intent": "balance_inquiry",
+            "query_resolved": True,
+            "upsell_presented": False,
+            "ptp_captured": False,
+            "avg_sentiment": 0.05,
+            "sentiment_label": "neutral",
+            "summary": "Balance and late-fee FAQ. Customer asked about fee waiver — dispute later filed.",
+            "hash": None,
+            "latency_ms": 380,
+            "rag_hits": 2,
+            "redaction_applied": False,
+            "deployment_id": None,
+            "started_at": now - timedelta(days=12),
+            "ended_at": now - timedelta(days=12, hours=-1),
+            "duration_sec": 180,
             "source_payload": {},
         },
     )
@@ -321,6 +431,46 @@ def seed_susanth(conn: psycopg.Connection) -> None:
     )
     upsert(
         conn,
+        "promises",
+        {
+            "id": "PTP-SUSANTH-2",
+            "customer_id": CUSTOMER_ID,
+            "account_id": ACCOUNT_ID,
+            "interaction_id": "IX-SUSANTH-VOICE1",
+            "owner_kind": "human",
+            "owner_user_id": ACTOR,
+            "owner_bot_id": None,
+            "plan_id": None,
+            "amount": 4800,
+            "promised_at": now - timedelta(days=20),
+            "status": "broken",
+            "reminder_status": "sent",
+            "paid_amount": 0,
+            "channel": "voice",
+        },
+    )
+    upsert(
+        conn,
+        "promises",
+        {
+            "id": "PTP-SUSANTH-3",
+            "customer_id": CUSTOMER_ID,
+            "account_id": ACCOUNT_ID,
+            "interaction_id": None,
+            "owner_kind": "bot",
+            "owner_user_id": None,
+            "owner_bot_id": BOT_ID,
+            "plan_id": None,
+            "amount": 2400,
+            "promised_at": now - timedelta(days=45),
+            "status": "kept",
+            "reminder_status": "acknowledged",
+            "paid_amount": 2400,
+            "channel": "whatsapp",
+        },
+    )
+    upsert(
+        conn,
         "promise_reminders",
         {
             "id": "REM-SUSANTH-1",
@@ -361,7 +511,7 @@ def seed_susanth(conn: psycopg.Connection) -> None:
             "customer_id": CUSTOMER_ID,
             "author_user_id": ACTOR,
             "interaction_id": INTERACTION_ID,
-            "text": "WhatsApp test customer — primary phone 919655282324 for Meta round-trip.",
+            "text": f"WhatsApp test customer — primary phone {PHONE} for Meta round-trip.",
             "pinned": True,
         },
     )
@@ -424,11 +574,14 @@ def seed_susanth(conn: psycopg.Connection) -> None:
         },
     )
 
-    for i, (kind, label, note, at) in enumerate(
+    for i, (kind, label, note, at, entity_type, entity_id, actor_kind) in enumerate(
         [
-            ("conversation_opened", "WhatsApp conversation opened", "Inbound WA bot thread", t0),
-            ("promise_captured", "Promise logged", "₹4,800 Friday", t2),
-            ("note_added", "Agent note", "WA test handset linked", t3),
+            ("conversation_opened", "WhatsApp conversation opened", "Inbound WA bot thread", t0, "conversation", CONVERSATION_ID, "bot"),
+            ("promise_captured", "Promise logged", "₹4,800 Friday", t2, "conversation", CONVERSATION_ID, "bot"),
+            ("note_added", "Agent note", "WA test handset linked", t3, "conversation", CONVERSATION_ID, "human"),
+            ("promise_broken", "PTP broken", "₹4,800 month-end miss", now - timedelta(days=18), "customer", CUSTOMER_ID, "system"),
+            ("dispute_opened", "Fee waiver dispute", "Late fee challenge", now - timedelta(days=10), "customer", CUSTOMER_ID, "human"),
+            ("document_sent", "Statement delivered", "Last 6 months via WhatsApp", now - timedelta(days=9), "customer", CUSTOMER_ID, "bot"),
         ],
         start=1,
     ):
@@ -438,12 +591,12 @@ def seed_susanth(conn: psycopg.Connection) -> None:
             {
                 "id": f"ACT-SUSANTH-{i}",
                 "tenant_id": TENANT_ID,
-                "entity_type": "conversation",
-                "entity_id": CONVERSATION_ID,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
                 "at": at,
-                "actor_kind": "bot" if i == 1 else "human",
-                "actor_user_id": None if i == 1 else ACTOR,
-                "actor_bot_id": BOT_ID if i == 1 else None,
+                "actor_kind": actor_kind,
+                "actor_user_id": None if actor_kind != "human" else ACTOR,
+                "actor_bot_id": BOT_ID if actor_kind == "bot" else None,
                 "kind": kind,
                 "label": label,
                 "note": note,
@@ -459,6 +612,13 @@ def seed_susanth(conn: psycopg.Connection) -> None:
 
 
 def main() -> None:
+    # Guard the direct-execution path too, before any connection is opened —
+    # seed_susanth() also checks, but failing here keeps the hardcoded test
+    # customer from ever reaching a production DSN.
+    if _is_prod():
+        raise SystemExit(
+            "Refusing to seed the Susanth test fixture when APP_ENV=production|prod."
+        )
     dsn = app_dsn_to_psycopg(os.getenv("DATABASE_URL") or read_env("DATABASE_URL") or DEFAULT_DSN)
     with psycopg.connect(dsn) as conn:
         with conn.transaction():

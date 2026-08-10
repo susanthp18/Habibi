@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from typing import Any
@@ -14,8 +16,80 @@ from sqlalchemy import text
 
 import azure_openai
 import db
+import pii_redact
 
 logger = logging.getLogger(__name__)
+
+# --- Buffered chunk-hit counters -------------------------------------------
+# `hits` is an analytics counter, not a correctness value. Bumping it inline on
+# every retrieval put a synchronous UPDATE on the read path and, worse,
+# serialised concurrent readers behind row locks on the few hot chunks every
+# query returns — while churning a dead tuple per hit.
+_HIT_FLUSH_INTERVAL_S = 30.0
+_HIT_FLUSH_MAX_CHUNKS = 500
+_hit_buffer: dict[str, int] = {}
+_hit_lock = threading.Lock()
+_hit_last_flush = 0.0
+
+
+def record_chunk_hits(chunk_ids: list[str]) -> None:
+    """Buffer hit counts; flushed in one aggregated UPDATE."""
+    if not chunk_ids:
+        return
+    global _hit_last_flush
+    now = time.monotonic()
+    with _hit_lock:
+        for cid in chunk_ids:
+            _hit_buffer[cid] = _hit_buffer.get(cid, 0) + 1
+        due = (
+            len(_hit_buffer) >= _HIT_FLUSH_MAX_CHUNKS
+            or (now - _hit_last_flush) >= _HIT_FLUSH_INTERVAL_S
+        )
+        if not due:
+            return
+        _hit_last_flush = now
+    flush_chunk_hits()
+
+
+def flush_chunk_hits() -> int:
+    """Persist buffered hit counts. Returns the number of chunks updated."""
+    with _hit_lock:
+        if not _hit_buffer:
+            return 0
+        batch = list(_hit_buffer.items())
+        _hit_buffer.clear()
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE kb_chunks c
+                    SET hits = c.hits + v.n
+                    FROM (
+                      SELECT unnest(CAST(:ids AS text[])) AS id,
+                             unnest(CAST(:counts AS int[])) AS n
+                    ) v
+                    WHERE c.id = v.id
+                    """
+                ),
+                {"ids": [cid for cid, _ in batch], "counts": [n for _, n in batch]},
+            )
+    except Exception:
+        # Analytics only: put the counts back and try again next time rather
+        # than failing a retrieval, but never let the buffer grow unbounded.
+        logger.warning("kb chunk hit flush failed (requeued)", exc_info=True)
+        with _hit_lock:
+            for cid, n in batch:
+                _hit_buffer[cid] = _hit_buffer.get(cid, 0) + n
+            if len(_hit_buffer) > _HIT_FLUSH_MAX_CHUNKS * 4:
+                _hit_buffer.clear()
+                logger.error("kb chunk hit buffer overflow — counts dropped")
+        return 0
+    return len(batch)
+
+
+atexit.register(flush_chunk_hits)
+
 
 STOP = {
     "the",
@@ -50,6 +124,67 @@ STOP = {
 }
 
 
+# --- Ranking heuristics -------------------------------------------------
+# Named so retrieval tuning is reviewable/testable instead of buried as magic
+# numbers inside the scoring loop. Deltas are applied in listed order and the
+# score is clamped to [0, 1] after each step.
+POINTER_RE = re.compile(
+    r"(find out more|learn more|see (our |the )?policy wording|refer to (the |our )?|"
+    r"click here|more about .+ here\.?$|policy wording\.?$)",
+    re.I,
+)
+
+EXCLUSION_HEADING_KEYWORDS = ("exclu", "not covered", "general exclu", "limitation")
+COVERAGE_HEADING_KEYWORDS = (
+    "medical",
+    "hospital",
+    "overseas",
+    "benefit",
+    "cancel",
+    "baggage",
+    "delay",
+    "cover",
+)
+OTHER_PRODUCT_TOKENS = (
+    "home",
+    "maid",
+    "car",
+    "motor",
+    "family",
+    "fraud",
+    "choice",
+    "early",
+    "travel",
+    "personal accident",
+)
+
+BOOST_EXCLUSION_POLICY_DOC = 0.08
+BOOST_EXCLUSION_BENEFITS_DOC = 0.03
+BOOST_EXCLUSION_HEADING = 0.12
+BOOST_COVERAGE_DOC = 0.05
+BOOST_COVERAGE_HEADING = 0.12
+PENALTY_COVERAGE_EXCLUSION_HEADING = -0.08
+BOOST_PRODUCT_TITLE_MATCH = 0.10
+PENALTY_PRODUCT_TITLE_MISMATCH = -0.12
+PENALTY_POINTER_CHUNK = -0.15
+POINTER_CHUNK_MAX_CHARS = 80
+PENALTY_POINTER_FAQ = -0.12
+PENALTY_EXCLUSION_FAQ = -0.04
+POINTER_FAQ_MAX_CHARS = 120
+
+
+def _clamp(score: float) -> float:
+    return max(0.0, min(1.0, score))
+
+
+def _apply_rank_rules(score: float, rules: list[tuple[bool, float]]) -> float:
+    """Apply (condition, delta) rules in order, clamping after each step."""
+    for matched, delta in rules:
+        if matched:
+            score = _clamp(score + delta)
+    return score
+
+
 def _vector_literal(vec: list[float]) -> str:
     return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
@@ -70,6 +205,20 @@ def _matched_terms(query: str, text_blob: str) -> list[str]:
         if t in blob and t not in seen:
             seen.append(t)
     return seen
+
+
+def _try_set_local(conn: Any, assignment: str) -> None:
+    """`SET LOCAL <assignment>` guarded by a savepoint.
+
+    pgvector GUCs differ by version; an unknown parameter raises and would
+    otherwise poison the enclosing transaction. Releasing the savepoint keeps
+    the setting in effect for the rest of the transaction.
+    """
+    try:
+        with conn.begin_nested():
+            conn.execute(text(f"SET LOCAL {assignment}"))
+    except Exception:
+        logger.debug("SET LOCAL %s unavailable; relying on over-fetch", assignment, exc_info=True)
 
 
 def _draft_system_prompt() -> str:
@@ -94,6 +243,10 @@ def retrieve(
     prefer_policy: bool = False,
     kb_snapshot_id: str | None = None,
     product_keys: list[str] | None = None,
+    # Which turn asked. interaction_id alone is session-grained, so "which
+    # retrieval backed turn 4's answer" was unanswerable. Optional: the
+    # speculative prefetch and the operator's test panel have no turn.
+    transcript_turn_id: str | None = None,
 ) -> dict[str, Any]:
     q = (query or "").strip()
     if not q:
@@ -185,28 +338,24 @@ def retrieve(
             docs = snap.get("document_ids") or []
             faqs = snap.get("faq_ids") or []
             if isinstance(docs, str):
-                import json as _json
-
-                docs = _json.loads(docs)
+                docs = json.loads(docs)
             if isinstance(faqs, str):
-                import json as _json
-
-                faqs = _json.loads(faqs)
+                faqs = json.loads(faqs)
             snap_doc_ids = {str(x) for x in docs if x}
             snap_faq_ids = {str(x) for x in faqs if x}
 
     with db.engine.begin() as conn:
-        try:
-            conn.execute(text("SET LOCAL hnsw.iterative_scan = 'relaxed_order'"))
-        except Exception:
-            logger.debug("hnsw.iterative_scan unavailable; relying on over-fetch", exc_info=True)
+        # Each optional pgvector tuning knob runs inside its own SAVEPOINT: an
+        # unsupported GUC must not abort the surrounding transaction (Postgres
+        # marks the whole txn as failed otherwise and every later query 25P02s).
+        _try_set_local(conn, "hnsw.iterative_scan = 'relaxed_order'")
         # Default pgvector ef_search is 40 — tunable for recall vs latency.
         try:
             ef_raw = (os.getenv("HNSW_EF_SEARCH") or "64").strip()
             ef_search = max(10, min(400, int(ef_raw)))
-            conn.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
-        except Exception:
-            logger.debug("hnsw.ef_search unavailable", exc_info=True)
+        except (TypeError, ValueError):
+            ef_search = 64
+        _try_set_local(conn, f"hnsw.ef_search = {ef_search}")
 
         chunk_sql = """
                 SELECT
@@ -261,11 +410,19 @@ def retrieve(
                 """
         faq_params: dict[str, Any] = {"q": q_lit, "overfetch": overfetch}
         if product_key_filter:
-            # FAQ ids are faq-{product_key}-N from ingest_source_db.
-            prefixes = [f"faq-{pk}-%" for pk in product_key_filter]
-            faq_sql += " AND (" + " OR ".join(f"f.id LIKE :faq_p{i}" for i in range(len(prefixes))) + ")"
-            for i, pref in enumerate(prefixes):
-                faq_params[f"faq_p{i}"] = pref
+            # FAQ ids are faq-{product_key}-N from ingest_source_db. Match the
+            # key segment exactly — a LIKE prefix would let `%`/`_` in a
+            # caller-supplied product key act as a wildcard and leak other
+            # products' FAQs into the snapshot-scoped result set.
+            # lower() to match the chunk filter above: product_key_filter is
+            # lowercased by the caller, so an id whose key segment carries any
+            # uppercase silently matched nothing on the FAQ side while the
+            # chunk side matched fine — a one-sided, invisible retrieval miss.
+            faq_sql += (
+                " AND lower(regexp_replace(f.id, '^faq-(.*)-[0-9]+$', '\\1'))"
+                " = ANY(CAST(:faq_product_keys AS text[]))"
+            )
+            faq_params["faq_product_keys"] = product_key_filter
         if snap_faq_ids is not None:
             if not snap_faq_ids:
                 faq_rows = []
@@ -284,71 +441,53 @@ def retrieve(
                 """
             faq_rows = conn.execute(text(faq_sql), faq_params).mappings().all()
 
-    pointer_re = re.compile(
-        r"(find out more|learn more|see (our |the )?policy wording|refer to (the |our )?|"
-        r"click here|more about .+ here\.?$|policy wording\.?$)",
-        re.I,
-    )
-
     scored: list[dict[str, Any]] = []
     for row in chunk_rows:
         if not row["enabled"] or row["status"] != "indexed":
             continue
-        score = max(0.0, min(1.0, float(row["score"] or 0.0)))
+        score = _clamp(float(row["score"] or 0.0))
         doc_type = (row.get("doc_type") or "").lower()
         title_l = (row.get("doc_title") or "").lower()
         heading_l = (row.get("heading") or "").lower()
-        text_blob = f"{row['heading'] or ''}\n{row['text'] or ''}"
-        # Prefer substantive policy wording for exclusion / invalidation questions.
-        if wants_exclusions and doc_type == "policy":
-            score = min(1.0, score + 0.08)
-        if wants_exclusions and doc_type == "benefits":
-            score = min(1.0, score + 0.03)
-        if wants_exclusions and any(
-            k in heading_l for k in ("exclu", "not covered", "general exclu", "limitation")
-        ):
-            score = min(1.0, score + 0.12)
-        if wants_coverage and doc_type in {"policy", "benefits"}:
-            score = min(1.0, score + 0.05)
-        if wants_coverage and any(
-            k in heading_l
-            for k in (
-                "medical",
-                "hospital",
-                "overseas",
-                "benefit",
-                "cancel",
-                "baggage",
-                "delay",
-                "cover",
+        body = row["text"] or ""
+        text_blob = f"{row['heading'] or ''}\n{body}"
+        title_matches_product = bool(product_tokens) and any(t in title_l for t in product_tokens)
+        title_matches_other_product = (
+            bool(product_tokens)
+            and not title_matches_product
+            and any(
+                other in title_l for other in OTHER_PRODUCT_TOKENS if other not in product_tokens
             )
-        ):
-            score = min(1.0, score + 0.12)
-        if wants_coverage and "exclu" in heading_l and "medical" not in q_l:
-            score = max(0.0, score - 0.08)
-        if product_tokens:
-            if any(t in title_l for t in product_tokens):
-                score = min(1.0, score + 0.1)
-            elif any(
-                other in title_l
-                for other in (
-                    "home",
-                    "maid",
-                    "car",
-                    "motor",
-                    "family",
-                    "fraud",
-                    "choice",
-                    "early",
-                    "travel",
-                    "personal accident",
-                )
-                if other not in product_tokens
-            ):
-                score = max(0.0, score - 0.12)
-        # Thin / pointer-only chunks are weak answers.
-        if len((row["text"] or "").strip()) < 80 and pointer_re.search(row["text"] or ""):
-            score = max(0.0, score - 0.15)
+        )
+        score = _apply_rank_rules(
+            score,
+            [
+                # Prefer substantive policy wording for exclusion / invalidation questions.
+                (wants_exclusions and doc_type == "policy", BOOST_EXCLUSION_POLICY_DOC),
+                (wants_exclusions and doc_type == "benefits", BOOST_EXCLUSION_BENEFITS_DOC),
+                (
+                    wants_exclusions
+                    and any(k in heading_l for k in EXCLUSION_HEADING_KEYWORDS),
+                    BOOST_EXCLUSION_HEADING,
+                ),
+                (wants_coverage and doc_type in {"policy", "benefits"}, BOOST_COVERAGE_DOC),
+                (
+                    wants_coverage and any(k in heading_l for k in COVERAGE_HEADING_KEYWORDS),
+                    BOOST_COVERAGE_HEADING,
+                ),
+                (
+                    wants_coverage and "exclu" in heading_l and "medical" not in q_l,
+                    PENALTY_COVERAGE_EXCLUSION_HEADING,
+                ),
+                (title_matches_product, BOOST_PRODUCT_TITLE_MATCH),
+                (title_matches_other_product, PENALTY_PRODUCT_TITLE_MISMATCH),
+                # Thin / pointer-only chunks are weak answers.
+                (
+                    len(body.strip()) < POINTER_CHUNK_MAX_CHARS and bool(POINTER_RE.search(body)),
+                    PENALTY_POINTER_CHUNK,
+                ),
+            ],
+        )
         scored.append(
             {
                 "chunkId": row["chunk_id"],
@@ -364,14 +503,21 @@ def retrieve(
         )
 
     for row in faq_rows:
-        score = max(0.0, min(1.0, float(row["score"] or 0.0)))
+        score = _clamp(float(row["score"] or 0.0))
         answer = row["answer"] or ""
         text_blob = f"{row['question']}\n{answer}"
-        # FAQ stubs that only point at policy wording lose to real policy chunks.
-        if pointer_re.search(answer) or len(answer.strip()) < 120:
-            score = max(0.0, score - 0.12)
-        if wants_exclusions:
-            score = max(0.0, score - 0.04)
+        score = _apply_rank_rules(
+            score,
+            [
+                # FAQ stubs that only point at policy wording lose to real policy chunks.
+                (
+                    bool(POINTER_RE.search(answer))
+                    or len(answer.strip()) < POINTER_FAQ_MAX_CHARS,
+                    PENALTY_POINTER_FAQ,
+                ),
+                (wants_exclusions, PENALTY_EXCLUSION_FAQ),
+            ],
+        )
         scored.append(
             {
                 "chunkId": f"faq-{row['faq_id']}",
@@ -437,6 +583,10 @@ def retrieve(
         except Exception:
             logger.exception("draft answer failed; returning snippets only")
             draft_answer = None
+            # Clear the model too: reporting the deployment that was *going* to
+            # write the draft, next to a null draft, read as "this model
+            # produced nothing" rather than "the call failed".
+            chat_model = None
             selected_source = "snippets"
 
     latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -451,27 +601,18 @@ def retrieve(
         for r in top
     ]
 
+    record_chunk_hits([item["chunkId"] for item in top if item["_kind"] == "chunk"])
+
     with db.engine.begin() as conn:
-        chunk_ids = [item["chunkId"] for item in top if item["_kind"] == "chunk"]
-        if chunk_ids:
-            conn.execute(
-                text(
-                    """
-                    UPDATE kb_chunks
-                    SET hits = hits + 1, updated_at = now()
-                    WHERE id = ANY(:ids)
-                    """
-                ),
-                {"ids": chunk_ids},
-            )
         conn.execute(
             text(
                 """
                 INSERT INTO retrieval_logs (
-                  id, interaction_id, sandbox_run_id, query, top_chunks,
-                  latency_ms, selected_answer_source, created_at
+                  id, interaction_id, sandbox_run_id, transcript_turn_id, query,
+                  top_chunks, latency_ms, selected_answer_source, created_at
                 ) VALUES (
-                  :id, :interaction_id, :sandbox_run_id, :query, CAST(:top_chunks AS jsonb),
+                  :id, :interaction_id, :sandbox_run_id, :transcript_turn_id, :query,
+                  CAST(:top_chunks AS jsonb),
                   :latency_ms, :selected_answer_source, now()
                 )
                 """
@@ -480,7 +621,10 @@ def retrieve(
                 "id": log_id,
                 "interaction_id": interaction_id,
                 "sandbox_run_id": sandbox_run_id,
-                "query": q,
+                "transcript_turn_id": transcript_turn_id,
+                # The caller's own words, kept for retrieval analytics — mask
+                # any PII before it becomes a permanent row.
+                "query": pii_redact.redact_text(q),
                 "top_chunks": json.dumps(top_payload),
                 "latency_ms": latency_ms,
                 "selected_answer_source": f"{source}:{selected_source}",
@@ -509,3 +653,60 @@ def retrieve(
         "chatModel": chat_model,
         "logId": log_id,
     }
+
+
+def catalog(
+    *,
+    product_keys: list[str] | None = None,
+    kb_snapshot_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """What the corpus *covers* — one row per product, not per passage.
+
+    Some questions are about the shape of the knowledge base rather than the
+    contents of any document in it. "What insurance products do you have?" is
+    answered by this list; it is not answerable by similarity search, because
+    no chunk in a per-product corpus describes the set of products. A caller
+    asked exactly that four times on a live call and was refused each time,
+    while ten Protect360 products sat indexed — their own words scored 0.389
+    against a 0.70 gate, and no threshold anywhere would have rescued it.
+
+    Deliberately reads ``kb_documents`` and not the chunk table: this is
+    metadata about the corpus, so it costs one cheap query and no embedding
+    call, and it cannot drift from what is actually indexed.
+    """
+    import db
+
+    sql = """
+        SELECT d.product_key                       AS product_key,
+               min(d.title)                        AS sample_title,
+               array_agg(DISTINCT d.type ORDER BY d.type) AS doc_types,
+               count(*)                            AS doc_count
+          FROM kb_documents d
+         WHERE d.status = 'indexed'
+           AND d.enabled
+           AND d.product_key IS NOT NULL
+           AND btrim(d.product_key) <> ''
+    """
+    params: dict[str, Any] = {}
+    if product_keys:
+        sql += " AND lower(d.product_key) = ANY(CAST(:product_keys AS text[]))"
+        params["product_keys"] = [str(k).strip().lower() for k in product_keys if str(k).strip()]
+    sql += " GROUP BY d.product_key ORDER BY d.product_key"
+
+    with db.engine.begin() as conn:
+        rows = conn.execute(text(sql), params).mappings().all()
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        # "Travel Protect360 — Benefits" → "Travel Protect360". The catalog
+        # names a product; the section suffix belongs to the document.
+        title = str(r["sample_title"] or "").split("—")[0].strip()
+        out.append(
+            {
+                "productKey": r["product_key"],
+                "title": title or str(r["product_key"]),
+                "docTypes": list(r["doc_types"] or []),
+                "docCount": int(r["doc_count"] or 0),
+            }
+        )
+    return out

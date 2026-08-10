@@ -27,7 +27,7 @@ function BotAnalyticsPage() {
   const [channel, setChannel] = useState<ChannelKey>("all");
   const [activeIntent, setActiveIntent] = useState<string | null>(null);
 
-  const { data } = useBotAnalytics(range, channel);
+  const { data, isLoading, isError, error, refetch } = useBotAnalytics(range, channel);
   const points = data?.dailySeries ?? [];
   const intentAggs = data?.intentAggs ?? [];
   const kpis = useMemo(() => {
@@ -42,25 +42,48 @@ function BotAnalyticsPage() {
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
         <BotAnalyticsHeader range={range} channel={channel} onRange={setRange} onChannel={setChannel} />
-        <HeroStrip kpis={kpis} />
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-surface-app px-5 py-4">
-          <div className="grid gap-4">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-              <IntentDistribution intents={intentAggs} activeId={activeIntent} onSelect={setActiveIntent} />
-              <DropOffFunnel stages={data?.funnelStages ?? []} />
-            </div>
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-              <EscalationReasons reasons={data?.escalationReasons ?? []} />
-              <SentimentByIntentHeatmap intents={intentAggs} activeId={activeIntent} />
-            </div>
-            <UnansweredTable questions={data?.unansweredQuestions ?? []} />
-            <div className="grid gap-4 xl:grid-cols-2">
-              <LatencyChart points={points} />
-              <TurnsHistogram buckets={data?.turnsHistogram ?? []} />
-            </div>
+        {isLoading && !data ? (
+          <div className="flex flex-1 items-center justify-center text-body text-text-subtle">
+            Loading bot analytics…
           </div>
-        </div>
+        ) : isError && !data ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
+            <p>Couldn’t load bot analytics.</p>
+            <p className="text-body-small text-text-danger">
+              {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+            <button
+              type="button"
+              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white"
+              onClick={() => void refetch()}
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <>
+            <HeroStrip kpis={kpis} />
+
+            <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">
+              <div className="grid gap-200">
+                <div className="grid gap-200 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                  <IntentDistribution intents={intentAggs} activeId={activeIntent} onSelect={setActiveIntent} />
+                  <DropOffFunnel stages={data?.funnelStages ?? []} />
+                </div>
+                <div className="grid gap-200 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+                  <EscalationReasons reasons={data?.escalationReasons ?? []} />
+                  <SentimentByIntentHeatmap intents={intentAggs} activeId={activeIntent} />
+                </div>
+                <UnansweredTable questions={data?.unansweredQuestions ?? []} />
+                <div className="grid gap-200 xl:grid-cols-2">
+                  <LatencyChart points={points} />
+                  <TurnsHistogram buckets={data?.turnsHistogram ?? []} />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </AppShell>
   );

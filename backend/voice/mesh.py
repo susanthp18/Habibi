@@ -15,6 +15,7 @@ workers can run across processes using Pipecat's RedisBus when available.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
 
@@ -80,21 +81,43 @@ class MeshState:
         return self.active_role
 
 
-_state = MeshState()
+# Session-scoped state. A single module-level MeshState meant every concurrent
+# call shared one active_role and one history: caller A entering the upsell node
+# flipped caller B's specialist mid-sentence, and the transition history was an
+# interleaved mix of unrelated calls. Keyed by session_id; `None` is the
+# single-session/legacy bucket.
+_states: dict[str | None, MeshState] = {}
+_states_lock = threading.Lock()
+
+
+def _state_for(session_id: str | None) -> MeshState:
+    with _states_lock:
+        state = _states.get(session_id)
+        if state is None:
+            state = MeshState()
+            _states[session_id] = state
+        return state
+
+
+def release_session(session_id: str | None) -> None:
+    """Drop a finished call's mesh state so the map does not grow unbounded."""
+    with _states_lock:
+        _states.pop(session_id, None)
 
 
 def enabled() -> bool:
     return voice_config.voice_multi_agent_enabled()
 
 
-def active_role() -> str:
-    return _state.active_role
+def active_role(session_id: str | None = None) -> str:
+    return _state_for(session_id).active_role
 
 
-def activate_role(role: str) -> str:
+def activate_role(role: str, session_id: str | None = None) -> str:
+    state = _state_for(session_id)
     if not enabled():
-        return _state.active_role
-    return _state.activate(role)
+        return state.active_role
+    return state.activate(role)
 
 
 def bus_backend() -> str:
@@ -103,25 +126,26 @@ def bus_backend() -> str:
     return "redis" if voice_config.redis_url() else "local"
 
 
-def status() -> dict[str, Any]:
+def status(session_id: str | None = None) -> dict[str, Any]:
+    state = _state_for(session_id)
     return {
         "enabled": enabled(),
         "backend": bus_backend(),
-        "activeRole": _state.active_role,
-        "history": list(_state.history),
+        "activeRole": state.active_role,
+        "history": list(state.history),
         "roles": list(ROLES.keys()),
         "redisUrlSet": bool(voice_config.redis_url()),
     }
 
 
-async def maybe_activate_insurance_on_upsell() -> str:
+async def maybe_activate_insurance_on_upsell(session_id: str | None = None) -> str:
     """Called when Flows enters gated_upsell — switches specialist role."""
     if not enabled():
-        return _state.active_role
-    return activate_role("insurance")
+        return active_role(session_id)
+    return activate_role("insurance", session_id)
 
 
-async def maybe_restore_collections() -> str:
+async def maybe_restore_collections(session_id: str | None = None) -> str:
     if not enabled():
-        return _state.active_role
-    return activate_role("collections")
+        return active_role(session_id)
+    return activate_role("collections", session_id)

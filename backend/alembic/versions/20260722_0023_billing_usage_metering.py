@@ -24,6 +24,11 @@ down_revision: Union[str, Sequence[str], None] = "20260722_0022"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+# Historical backfill is priced AS OF this date and must stay reproducible: the
+# numbers below are the rates that were live on 2026-07-22 and are deliberately
+# pinned here rather than read from usage_meter, whose env-driven price book
+# changes over time. New cost calculations at runtime use usage_meter's
+# configured rates — see usage_meter.unit_cost_book_inr() / sync_price_book().
 AS_OF = date(2026, 7, 22)
 FX = 86.0
 # GPT-5-mini class defaults
@@ -289,11 +294,16 @@ def upgrade() -> None:
     ).scalar()
     total_embed_tokens = int(chunk_tokens or 0)
     if total_embed_tokens > 0:
-        per_day = max(1, total_embed_tokens // 14)
-        remainder = total_embed_tokens - per_day * 14
+        # divmod, not max(1, ...): with fewer than 14 total tokens the old
+        # `max(1, n // 14)` over-allocated and the correction remainder went
+        # negative, writing a negative toks / cost_inr / units row on the last
+        # day. Spread the remainder one token per early day instead.
+        per_day, remainder = divmod(total_embed_tokens, 14)
         for i in range(14):
             day = AS_OF - timedelta(days=13 - i)
-            toks = per_day + (remainder if i == 13 else 0)
+            toks = per_day + (1 if i < remainder else 0)
+            if toks <= 0:
+                continue
             cost = _embed_cost(toks)
             units = round(toks / 1000.0, 6)
             eid = f"ue-bf-embed-{day.isoformat()}"
@@ -401,6 +411,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # The chat/embed backfill upserts *accumulate* into billing_usage_daily
+    # (units = existing + EXCLUDED). Leaving those rows behind means a
+    # downgrade → upgrade cycle double-counts every metered day, so the
+    # aggregate has to be removed before the table goes away. Only the
+    # service_ids this migration wrote are touched; other services are left
+    # alone.
+    if seed_demo_enabled():
+        op.execute(
+            """
+            DELETE FROM billing_usage_daily
+            WHERE service_id IN ('llm_chat', 'llm_embed')
+              AND tenant_id = 'hdfc.retail'
+              AND environment = 'production'
+            """
+        )
     op.execute("DROP INDEX IF EXISTS idx_usage_events_occurred")
     op.execute("DROP INDEX IF EXISTS idx_usage_events_service_env")
     op.execute("DROP TABLE IF EXISTS usage_events")

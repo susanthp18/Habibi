@@ -34,36 +34,36 @@ export function Simulator({ rules }: { rules: Rule[] }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mb-3">
-          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-muted">Presets</div>
-          <div className="flex flex-wrap gap-1.5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-200">
+        <div className="mb-150">
+          <div className="mb-075 text-body-small font-medium text-text-subtlest">Presets</div>
+          <div className="flex flex-wrap gap-075">
             {PRESET_CONTEXTS.map(p => (
               <button
                 key={p.label}
                 onClick={() => { setCtx(p.ctx); setRan(false); }}
-                className="rounded-full border border-[var(--border-token)] bg-white px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:border-brand-primary/40 hover:text-brand-primary-dark"
+                className="rounded-full border border-border bg-surface px-150 py-050 text-body-small font-medium text-text-subtle hover:border-border-brand/40 hover:text-text-brand"
               >{p.label}</button>
             ))}
           </div>
         </div>
 
-        <div className="rounded-lg border border-[var(--border-token)] bg-surface-card p-3">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Mock call context</div>
-          <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-large border border-border bg-surface p-150">
+          <div className="mb-100 text-body-small font-semibold text-text-subtlest">Mock call context</div>
+          <div className="grid grid-cols-2 gap-100">
             {FIELDS.map(f => (
               <div key={f.key}>
-                <Label className="text-[10px] text-text-muted">{f.label}</Label>
+                <Label className="text-body-small text-text-subtlest">{f.label}</Label>
                 {f.type === "enum" ? (
                   <Select value={String((ctx as any)[f.key])} onValueChange={(v) => update(f.key as keyof SimContext, v)}>
-                    <SelectTrigger className="mt-0.5 h-8 text-[12px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="mt-025 h-400 text-body-small"><SelectValue /></SelectTrigger>
                     <SelectContent>{f.options!.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                   </Select>
                 ) : f.type === "boolean" ? (
-                  <div className="mt-1.5"><Switch checked={Boolean((ctx as any)[f.key])} onCheckedChange={(v) => update(f.key as keyof SimContext, v)} /></div>
+                  <div className="mt-075"><Switch checked={Boolean((ctx as any)[f.key])} onCheckedChange={(v) => update(f.key as keyof SimContext, v)} /></div>
                 ) : (
                   <Input
-                    className="mt-0.5 h-8 text-[12px]"
+                    className="mt-025 h-400 text-body-small"
                     type="number"
                     value={String((ctx as any)[f.key])}
                     onChange={(e) => update(f.key as keyof SimContext, Number(e.target.value))}
@@ -75,44 +75,44 @@ export function Simulator({ rules }: { rules: Rule[] }) {
         </div>
 
         {ran && (
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Evaluation</div>
-              <div className="text-[11px] text-text-muted">
+          <div className="mt-200">
+            <div className="mb-100 flex items-center justify-between">
+              <div className="text-body-small font-semibold text-text-subtlest">Evaluation</div>
+              <div className="text-body-small text-text-subtlest">
                 {results.length} rules · {results.filter(r => r.matched).length} matched
               </div>
             </div>
             {firing && (
-              <div className="mb-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3">
-                <div className="flex items-center gap-2 text-[12px] font-semibold text-emerald-800">
+              <div className="mb-150 rounded-large border border-border-success bg-background-success-subtler p-150">
+                <div className="flex items-center gap-100 text-body-small font-semibold text-text-success-bolder">
                   <ArrowRight className="h-4 w-4" /> Firing action
                 </div>
-                <div className="mt-1 text-[13px] font-semibold text-brand-navy">{ACTION_LABEL[firing.then.key]}</div>
-                <div className="text-[11px] text-text-secondary">from rule: {firing.name}</div>
+                <div className="mt-050 text-body font-semibold text-text">{ACTION_LABEL[firing.then.key]}</div>
+                <div className="text-body-small text-text-subtle">from rule: {firing.name}</div>
               </div>
             )}
             {!firing && (
-              <div className="mb-3 rounded-lg border border-[var(--border-token)] bg-surface-sunken p-3 text-[12px] text-text-secondary">
+              <div className="mb-150 rounded-large border border-border bg-surface-sunken p-150 text-body-small text-text-subtle">
                 No rule matched — default flow continues.
               </div>
             )}
-            <div className="space-y-1.5">
+            <div className="space-y-075">
               {results.map(r => (
                 <div key={r.rule.id} className={cn(
-                  "rounded-md border p-2",
-                  r.matched ? "border-emerald-200 bg-emerald-50/60" : "border-[var(--border-token)] bg-white",
-                  firing?.id === r.rule.id && "ring-1 ring-emerald-400",
+                  "rounded-medium border p-100",
+                  r.matched ? "border-border-success-subtle bg-background-success-subtler/60" : "border-border bg-surface",
+                  firing?.id === r.rule.id && "ring-1 ring-border-border-success",
                 )}>
-                  <div className="flex items-center gap-2 text-[12px]">
-                    {r.matched ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-text-muted" />}
-                    <span className="flex-1 font-medium text-brand-navy">{r.rule.name}</span>
-                    <span className="font-mono text-[10px] text-text-muted">{r.latencyMs} ms</span>
+                  <div className="flex items-center gap-100 text-body-small">
+                    {r.matched ? <CheckCircle2 className="h-3.5 w-3.5 text-text-success" /> : <XCircle className="h-3.5 w-3.5 text-text-subtlest" />}
+                    <span className="flex-1 font-medium text-text">{r.rule.name}</span>
+                    <span className="font-mono text-body-small text-text-subtlest">{r.latencyMs} ms</span>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-1">
+                  <div className="mt-050 flex flex-wrap gap-050">
                     {r.nodes.flatMap(n => n.conditions).map(c => (
                       <span key={c.id} className={cn(
-                        "rounded px-1.5 py-0.5 font-mono text-[10px]",
-                        c.matched ? "bg-emerald-100 text-emerald-800" : "bg-red-50 text-red-600",
+                        "rounded px-075 py-025 font-mono text-body-small",
+                        c.matched ? "bg-background-success-subtler text-text-success-bolder" : "bg-background-danger-subtler text-text-danger",
                       )}>{c.label}</span>
                     ))}
                   </div>
@@ -123,8 +123,8 @@ export function Simulator({ rules }: { rules: Rule[] }) {
         )}
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-token)] bg-surface-card px-4 py-2.5">
-        <Button size="sm" className="gap-1.5 bg-brand-primary hover:bg-brand-primary-dark" onClick={run}>
+      <div className="flex shrink-0 items-center justify-end gap-100 border-t border-border bg-surface px-200 py-150">
+        <Button size="sm" className="gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed" onClick={run}>
           <Play className="h-3.5 w-3.5" /> Run evaluation
         </Button>
       </div>

@@ -1,5 +1,7 @@
 // Persona & Prompt Studio seed + helpers (deterministic, in-memory)
 
+import type { FlowGraph } from "@/api/flow";
+
 export type PersonaTraitKey = "empathy" | "firmness" | "formality" | "verbosity" | "upsell";
 
 export type PersonaState = {
@@ -44,6 +46,8 @@ export type PromptVersion = {
   persona: PersonaState;
   voice: VoiceConfig;
   guardrails: Guardrails;
+  /** Authored conversation graph; absent on versions predating flow authoring. */
+  flow?: FlowGraph;
 };
 
 export type PersonaPreset = {
@@ -330,6 +334,11 @@ export function formatConfigBlock(
     `upsell: ${traits.upsell}`,
     "### Voice",
     `voiceId: ${voice.voiceId}`,
+    // Both are authoritative: azureVoiceName is what the TTS request actually
+    // uses and style drives express-as. Leaving them out of the diff meant
+    // switching the neural voice or the speaking style showed as no change.
+    `azureVoiceName: ${voice.azureVoiceName || "—"}`,
+    `style: ${voice.style || "—"}`,
     `speed: ${voice.speed}`,
     `pitch: ${voice.pitch}`,
     `warmth: ${voice.warmth}`,

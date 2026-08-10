@@ -1,4 +1,11 @@
-import { ArrowDownRight, ArrowUpRight, PhoneCall, Clock, CheckCircle2, HandCoins } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  PhoneCall,
+  Clock,
+  CheckCircle2,
+  HandCoins,
+} from "lucide-react";
 import { useWorkspaceSummary } from "@/api/workspace";
 import { cn } from "@/lib/utils";
 
@@ -48,11 +55,11 @@ export function StatsStrip() {
   return (
     <div>
       {stats?.windowLabel && (
-        <div className="mb-2 inline-flex items-center rounded-md bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-muted">
+        <div className="mb-100 inline-flex items-center rounded-medium bg-surface-sunken px-100 py-025 text-body-small font-medium text-text-subtlest">
           {stats.windowLabel}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
         {tiles.map((t, i) => {
           const Icon = t.icon;
           const Arrow = t.invertArrow
@@ -65,24 +72,24 @@ export function StatsStrip() {
           return (
             <div
               key={t.label}
-              className="animate-fade-up rounded-[12px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card"
+              className="animate-fade-up rounded-xlarge border border-border bg-surface p-200"
               style={{ animationDelay: `${i * 30}ms` }}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+              <div className="flex items-center justify-between gap-100">
+                <span className="text-body-small font-medium text-text-subtlest">
                   {t.label}
                 </span>
-                <span className="grid h-7 w-7 place-items-center rounded-md bg-surface-sunken text-text-muted">
+                <span className="grid h-7 w-7 place-items-center rounded-medium bg-surface-sunken text-text-subtlest">
                   <Icon className="h-3.5 w-3.5" />
                 </span>
               </div>
-              <div className="mt-2.5 font-mono text-[28px] font-bold leading-none tracking-tight text-brand-navy tabular">
-                {t.value}
-              </div>
+              <div className="mt-150 font-mono metric-large text-text tabular">{t.value}</div>
               <div
                 className={cn(
-                  "mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-medium",
-                  t.good ? "bg-success-bg text-success" : "bg-danger-bg text-danger",
+                  "mt-100 inline-flex items-center gap-050 rounded-medium px-075 py-025 text-body-small font-medium",
+                  t.good
+                    ? "bg-background-success text-text-success"
+                    : "bg-background-danger text-text-danger",
                 )}
               >
                 <Arrow className="h-3.5 w-3.5" />

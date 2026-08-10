@@ -11,12 +11,12 @@ export function RoutingStats({ rules }: { rules: Rule[] }) {
     { label: "Avg latency", value: "0.31 ms", sub: "per evaluation" },
   ];
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
       {cards.map(c => (
-        <div key={c.label} className="rounded-lg border border-[var(--border-token)] bg-surface-card p-3">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-text-muted">{c.label}</div>
-          <div className="mt-1 text-[22px] font-semibold text-brand-navy">{c.value}</div>
-          <div className="text-[11px] text-text-secondary">{c.sub}</div>
+        <div key={c.label} className="rounded-large border border-border bg-surface p-150">
+          <div className="text-body-small font-medium text-text-subtlest">{c.label}</div>
+          <div className="mt-050 text-[1.5rem] font-semibold text-text">{c.value}</div>
+          <div className="text-body-small text-text-subtle">{c.sub}</div>
         </div>
       ))}
     </div>

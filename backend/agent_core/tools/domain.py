@@ -16,10 +16,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 
-from agent_core.tools.catalog import CALLBACK_REASONS, CATALOG, DISPUTE_TYPES
+from agent_core.tools.catalog import (
+    CALLBACK_REASONS,
+    CATALOG,
+    DISPUTE_TYPES,
+    LEAD_PRIORITIES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +43,32 @@ class ToolResult:
     analytics: list[str] = field(default_factory=list)
     error: str | None = None
 
+    def __post_init__(self) -> None:
+        # Normalize here rather than at every read site. Callers were split
+        # between `result.data.get(...)` and `(result.data or {})`, so an
+        # explicit `data=None` from any future handler would have raised
+        # AttributeError on the voice audio path in exactly the sites that
+        # skipped the guard.
+        if self.data is None:
+            self.data = {}
+        if self.analytics is None:
+            self.analytics = []
+
     def to_llm(self) -> dict[str, Any]:
-        """Payload handed back to the model — deliberately compact."""
-        out: dict[str, Any] = {"ok": self.ok, **self.data}
+        """Payload handed back to the model — deliberately compact.
+
+        Canonical ``ok`` / ``error`` / ``say`` win over handler data keys.
+        """
+        out: dict[str, Any] = {**self.data}
+        out["ok"] = self.ok
         if self.error:
             out["error"] = self.error
+        else:
+            out.pop("error", None)
         if self.spoken_summary:
             out["say"] = self.spoken_summary
+        else:
+            out.pop("say", None)
         return out
 
 
@@ -55,6 +80,43 @@ def _link(tool_name: str, entity_id: str | None) -> str | None:
 def _entity(tool_name: str) -> str | None:
     spec = CATALOG.get(tool_name)
     return spec.entity if spec else None
+
+
+def _row_field(row: Any, key: str, default: Any = None) -> Any:
+    """Read a field off a db.create_* result without assuming it is a mapping.
+
+    The create_* helpers return a mapping today, but a driver/schema change that
+    makes one return None must surface as a structured CRM failure, not an
+    AttributeError escaping into the turn loop. Every read of a create_* result
+    goes through here — a single direct ``.get()`` alongside it re-opens the
+    hole the guard exists to close.
+    """
+    if isinstance(row, Mapping):
+        value = row.get(key, default)
+        return default if value is None else value
+    return default
+
+
+def _row_id_or_failure(
+    row: Any, *, what: str, spoken: str
+) -> tuple[str | None, "ToolResult | None"]:
+    """Resolve a create_* result's ``id``, or the CRM failure to return instead.
+
+    :func:`_row_field` already keeps a ``None`` row from raising, but the caller
+    then reported ``ok=True`` with a null entity id and a deep link pointing
+    nowhere — the model told the customer the record was created while nothing
+    referenced it. A write with no id is a failed write.
+    """
+    raw = _row_field(row, "id")
+    if raw:
+        return str(raw), None
+    logger.error("%s returned no id row=%r", what, row)
+    return None, ToolResult(
+        ok=False,
+        error="crm_write_failed",
+        data={"detail": "crm_write_failed"},
+        spoken_summary=spoken,
+    )
 
 
 def _parse_promise_date(raw: str) -> str | None:
@@ -72,15 +134,22 @@ def _parse_promise_date(raw: str) -> str | None:
 
 
 def _parse_scheduled_at(raw: str) -> str | None:
-    """Accept ISO datetime (with optional Z); return canonical string or None."""
-    when = (raw or "").strip()
-    if not when:
+    """Accept an ISO datetime; return a canonical UTC instant, or None.
+
+    This used to return the model's string verbatim, so what got stored
+    depended entirely on whether the model happened to attach an offset and
+    which one it guessed. On a live call it emitted ``12:30:00+00:00`` while
+    saying "12:30 PM" — five and a half hours apart for an India-facing
+    product. A naive value is now read as tenant-local (see agent_core.clock),
+    which is what the model means when it echoes a wall-clock time back to the
+    caller, and everything is normalised to an explicit instant before storage.
+    """
+    from agent_core import clock
+
+    when = clock.to_instant(raw)
+    if when is None:
         return None
-    try:
-        datetime.fromisoformat(when.replace("Z", "+00:00"))
-    except Exception:
-        return None
-    return when
+    return clock.utc_isoformat(when)
 
 
 def _clamp_window_mins(window_mins: Any) -> int:
@@ -95,6 +164,116 @@ def _clamp_window_mins(window_mins: Any) -> int:
 # Upsell
 # ---------------------------------------------------------------------------
 
+# Sentinel flags list distinguishing "transaction failed" from "product absent"
+# — both return product=None, but only one is a CRM write failure.
+_ELIGIBILITY_FAILED: list[dict[str, Any]] = [{"__failed__": True}]
+
+
+def _check_and_record_eligibility(
+    *,
+    customer_id: str,
+    product_id: str,
+    interaction_id: str | None,
+    bot_id: str | None,
+    channel: str | None = None,
+    record_event: bool = True,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str | None]:
+    """Look up the product, evaluate eligibility, and record the check.
+
+    Shared by check_product_eligibility and capture_lead so the two cannot
+    drift apart. Returns ``(product, flags, block)``; ``product`` is None when
+    the product id does not exist, and ``flags`` is :data:`_ELIGIBILITY_FAILED`
+    when the transaction itself failed — the sibling handlers all convert a CRM
+    write failure into a structured result, so this one must not be the single
+    path that lets an exception escape into the turn loop.
+
+    ``record_event=False`` re-runs the evaluation without emitting a second
+    ``eligibility_checked`` event. capture_lead deliberately re-checks (consent
+    can change between the pitch and the yes) but the funnel should not count
+    that as a separate check — one conversation, one recorded check.
+
+    Only inactive products are hidden: a lead captured against a product that
+    was later switched off must still resolve its name for display.
+    """
+    import capture
+    import db
+    from sqlalchemy import text
+
+    try:
+        with db.engine.begin() as conn:
+            product = (
+                conn.execute(
+                    text(
+                        "SELECT id, name, roi, category, ticket_min, ticket_max, is_active"
+                        " FROM products WHERE id = :id"
+                    ),
+                    {"id": product_id},
+                )
+                .mappings()
+                .first()
+            )
+            if product is None or not product.get("is_active", True):
+                return None, [], None
+            flags = capture.evaluate_product_eligibility(
+                conn, customer_id=customer_id, product_id=product_id, channel=channel
+            )
+            block = capture.eligibility_blocks_capture(flags)
+            if record_event:
+                capture.record_eligibility_checked(
+                    conn,
+                    interaction_id=interaction_id,
+                    customer_id=customer_id,
+                    product_id=product_id,
+                    flags=flags,
+                    blocked=block,
+                    actor_bot_id=bot_id,
+                )
+    except Exception:
+        logger.exception(
+            "eligibility check failed customer=%s product=%s", customer_id, product_id
+        )
+        return None, _ELIGIBILITY_FAILED, None
+    return dict(product), list(flags), block
+
+
+def offer_sourcing_violation(
+    product_id: str, offered_product_ids: "set[str] | frozenset[str] | None"
+) -> ToolResult | None:
+    """Refuse a product the offer engine did not put on the table.
+
+    The prompt tells the model not to name a product ``recommend_next_offer``
+    did not return. This makes it true. A prompt line is not a control: the
+    model only has to hallucinate one plausible id — and the ids are guessable
+    English slugs — to pitch something nobody approved, to a customer who may
+    hold it already, be barred from it, or have refused it last month.
+
+    ``None``/empty means the engine has not run at all this session, which is
+    itself the violation: nothing may be pitched before it has.
+    """
+    if offered_product_ids and product_id in offered_product_ids:
+        return None
+    return ToolResult(
+        ok=False,
+        error="product_not_offered",
+        data={
+            "productId": product_id,
+            "allowed": sorted(offered_product_ids or ()),
+        },
+        spoken_summary=(
+            "do not mention this product; call recommend_next_offer and only "
+            "discuss what it returns"
+        ),
+    )
+
+
+def _eligibility_failure_result(product_id: str) -> ToolResult:
+    return ToolResult(
+        ok=False,
+        error="crm_write_failed",
+        data={"detail": "crm_write_failed", "productId": product_id},
+        spoken_summary="apologise and offer a callback so an agent can follow up",
+    )
+
 
 def check_product_eligibility(
     *,
@@ -102,42 +281,27 @@ def check_product_eligibility(
     product_id: str,
     interaction_id: str | None = None,
     bot_id: str | None = None,
+    channel: str | None = None,
 ) -> ToolResult:
     """Evaluate live eligibility and record the check as a commercial event."""
-    import capture
-    import db
-    from sqlalchemy import text
-
     pid = (product_id or "").strip()
     if not pid:
         return ToolResult(ok=False, error="product_id_required")
 
-    with db.engine.begin() as conn:
-        product = (
-            conn.execute(
-                text("SELECT id, name, roi FROM products WHERE id = :id"), {"id": pid}
-            )
-            .mappings()
-            .first()
-        )
-        if product is None:
-            return ToolResult(
-                ok=False,
-                error="product_not_found",
-                data={"productId": pid},
-            )
-        flags = capture.evaluate_product_eligibility(
-            conn, customer_id=customer_id, product_id=pid
-        )
-        block = capture.eligibility_blocks_capture(flags)
-        capture.record_eligibility_checked(
-            conn,
-            interaction_id=interaction_id,
-            customer_id=customer_id,
-            product_id=pid,
-            flags=flags,
-            blocked=block,
-            actor_bot_id=bot_id,
+    product, flags, block = _check_and_record_eligibility(
+        customer_id=customer_id,
+        product_id=pid,
+        interaction_id=interaction_id,
+        bot_id=bot_id,
+        channel=channel,
+    )
+    if flags is _ELIGIBILITY_FAILED:
+        return _eligibility_failure_result(pid)
+    if product is None:
+        return ToolResult(
+            ok=False,
+            error="product_not_found",
+            data={"productId": pid},
         )
 
     eligible = block is None
@@ -167,6 +331,39 @@ def check_product_eligibility(
     )
 
 
+def _suggested_amount(
+    product: Mapping[str, Any] | dict[str, Any], offer_amount: float | None
+) -> float | None:
+    """Clamp an offered amount into the product's ticket band, or fall back to
+    the band's floor.
+
+    ``estimated_value`` drives every money figure on the pipeline board, and it
+    was simply whatever optional argument the model happened to pass — so a
+    model that omitted it produced a NULL that rendered as ₹NaN subtotals and
+    crashed the lead card outright.
+    """
+    lo = product.get("ticket_min")
+    hi = product.get("ticket_max")
+    try:
+        lo_f = float(lo) if lo is not None else None
+        hi_f = float(hi) if hi is not None else None
+    except (TypeError, ValueError):
+        lo_f = hi_f = None
+
+    if offer_amount is not None:
+        try:
+            amount = float(offer_amount)
+        except (TypeError, ValueError):
+            amount = None
+        if amount is not None and amount > 0:
+            if lo_f is not None:
+                amount = max(amount, lo_f)
+            if hi_f is not None:
+                amount = min(amount, hi_f)
+            return amount
+    return lo_f
+
+
 def capture_lead(
     *,
     customer_id: str,
@@ -178,54 +375,90 @@ def capture_lead(
     priority: str | None = None,
     source: str = "bot_chat",
     customer_text: str = "",
+    channel: str | None = None,
+    idempotency_key: str | None = None,
+    decision_id: str | None = None,
+    sentiment_score: float | None = None,
 ) -> ToolResult:
-    """Re-check eligibility, then write the lead row and its commercial events."""
+    """Re-check eligibility, then write the lead row and its commercial events.
+
+    ``sentiment_score`` lets a channel that has already classified the turn pass
+    it in. Without it the lead is scored by the English lexicon, so every lead
+    captured from a Hindi caller lands on the rep's queue marked "neutral".
+    """
     import capture
     import db
     from agent_core.sentiment import estimate_sentiment, sentiment_label
-    from sqlalchemy import text
 
     pid = (product_id or "").strip()
     if not pid:
         return ToolResult(ok=False, error="product_id_required")
 
-    with db.engine.begin() as conn:
-        product = (
-            conn.execute(
-                text("SELECT id, name, roi FROM products WHERE id = :id"), {"id": pid}
-            )
-            .mappings()
-            .first()
+    # Re-check rather than trust the earlier probe: consent can change between
+    # the pitch and the yes. record_event=False so the funnel counts one check
+    # per conversation, not two.
+    product, flags, block = _check_and_record_eligibility(
+        customer_id=customer_id,
+        product_id=pid,
+        interaction_id=interaction_id,
+        bot_id=bot_id,
+        channel=channel,
+        record_event=False,
+    )
+    if flags is _ELIGIBILITY_FAILED:
+        return _eligibility_failure_result(pid)
+    if product is None:
+        return ToolResult(ok=False, error="product_not_found", data={"productId": pid})
+    if block:
+        return ToolResult(
+            ok=False,
+            error="eligibility_blocked",
+            data={"blockReason": block, "productId": pid},
+            spoken_summary=(
+                "do not capture interest for this product; thank them and move on "
+                "without explaining the internal reason"
+            ),
         )
-        if product is None:
-            return ToolResult(ok=False, error="product_not_found", data={"productId": pid})
-        flags = capture.evaluate_product_eligibility(
-            conn, customer_id=customer_id, product_id=pid
-        )
-        block = capture.eligibility_blocks_capture(flags)
-        capture.record_eligibility_checked(
-            conn,
-            interaction_id=interaction_id,
-            customer_id=customer_id,
-            product_id=pid,
-            flags=flags,
-            blocked=block,
-            actor_bot_id=bot_id,
-        )
-        if block:
-            return ToolResult(
-                ok=False,
-                error="eligibility_blocked",
-                data={"blockReason": block, "productId": pid},
-                spoken_summary=(
-                    "do not capture interest for this product; thank them and move on "
-                    "without explaining the internal reason"
-                ),
-            )
 
-    text_for_sentiment = summary or customer_text or ""
-    score = estimate_sentiment(text_for_sentiment)
-    prio = priority if priority in {"low", "normal", "high"} else "normal"
+    # Already-open lead for this product: acknowledge it warmly instead of
+    # stacking a second row that puts two reps on the same call.
+    try:
+        with db.engine.connect() as conn:
+            existing = db.find_open_lead(conn, customer_id, pid)
+    except Exception:
+        logger.exception("duplicate lead lookup failed customer=%s product=%s", customer_id, pid)
+        existing = None
+    if existing:
+        return ToolResult(
+            ok=True,
+            data={
+                "leadId": existing["id"],
+                "duplicate": True,
+                "stage": existing.get("stage"),
+                "productId": pid,
+                "productName": product.get("name"),
+            },
+            spoken_summary=(
+                "confirm this is already noted and a specialist will follow up — "
+                "do not take the details again"
+            ),
+            entity=_entity("capture_lead"),
+            entity_id=existing["id"],
+            deep_link=_link("capture_lead", existing["id"]),
+        )
+
+    # The customer's own words are the whole value of the snippet: it is the
+    # most prominent field on the lead card and the rep's only context. Falling
+    # back to a generic string threw that away whenever the model omitted a
+    # summary — which also silently scored sentiment as neutral.
+    text_for_sentiment = (summary or "").strip() or (customer_text or "").strip()
+    score = (
+        float(sentiment_score)
+        if sentiment_score is not None
+        else estimate_sentiment(text_for_sentiment)
+    )
+    prio = priority if priority in LEAD_PRIORITIES else "normal"
+    amount = _suggested_amount(product, offer_amount)
 
     payload: dict[str, Any] = {
         "customerId": customer_id,
@@ -238,13 +471,61 @@ def capture_lead(
         "transcriptSnippet": (text_for_sentiment or f"Interest in {product.get('name')}")[:400],
         "offerAmount": offer_amount,
         "offerRoi": product.get("roi"),
-        "estimatedValue": offer_amount,
+        "estimatedValue": amount,
         "priority": prio,
         "eligibilityFlags": flags,
+        "channel": channel,
     }
-    lead = db.create_lead(payload)
-    lead_id = str(lead.get("id")) if lead.get("id") else None
+    # Same CRM-write failure contract as the sibling handlers: the model gets a
+    # structured result it can speak around instead of an exception escaping
+    # into the turn loop.
+    try:
+        lead = db.create_lead(payload, idempotency_key=idempotency_key)
+    except ValueError as exc:
+        # Race: another writer captured the same product between the lookup
+        # above and this insert. The advisory lock in create_lead makes this the
+        # authoritative answer, so treat it the same way as the pre-check.
+        detail = str(exc)
+        if detail.startswith("duplicate_open_lead:"):
+            existing_id = detail.split(":", 1)[1]
+            return ToolResult(
+                ok=True,
+                data={"leadId": existing_id, "duplicate": True, "productId": pid},
+                spoken_summary="confirm this is already noted and a specialist will follow up",
+                entity=_entity("capture_lead"),
+                entity_id=existing_id,
+                deep_link=_link("capture_lead", existing_id),
+            )
+        logger.exception("create_lead rejected customer=%s product=%s", customer_id, pid)
+        return ToolResult(
+            ok=False,
+            error="crm_write_failed",
+            data={"detail": "crm_write_failed", "productId": pid},
+            spoken_summary="apologise and offer a callback so an agent can follow up",
+        )
+    except Exception:
+        logger.exception("create_lead failed customer=%s product=%s", customer_id, pid)
+        return ToolResult(
+            ok=False,
+            error="crm_write_failed",
+            data={"detail": "crm_write_failed", "productId": pid},
+            spoken_summary="apologise and offer a callback so an agent can follow up",
+        )
+    lead_id, failure = _row_id_or_failure(
+        lead,
+        what="create_lead",
+        spoken="apologise and offer a callback so an agent can follow up",
+    )
+    if failure is not None:
+        return failure
 
+    # Report only the events that actually landed: Bot Analytics reads this
+    # list, and claiming an upsell_presented whose row was never written makes
+    # the funnel disagree with the commercial-events table it is derived from.
+    # Each event is committed independently so a failure in the second does not
+    # retract the first — clearing the list wholesale reported a lead_captured
+    # that HAD been written as if it had not.
+    analytics: list[str] = []
     try:
         with db.engine.begin() as conn:
             capture.record_lead_captured(
@@ -254,7 +535,14 @@ def capture_lead(
                 product_id=pid,
                 actor_bot_id=bot_id,
             )
-            if interaction_id:
+        analytics.append("lead_captured")
+    except Exception:
+        # The lead row is the durable artifact; analytics events must not undo it.
+        logger.exception("lead_captured event failed for %s", lead_id)
+
+    if interaction_id:
+        try:
+            with db.engine.begin() as conn:
                 capture.record_offer_presented(
                     conn,
                     interaction_id=interaction_id,
@@ -262,15 +550,25 @@ def capture_lead(
                     source="capture_lead",
                     actor_bot_id=bot_id,
                 )
-    except Exception:
-        # The lead row is the durable artifact; analytics events must not undo it.
-        logger.exception("lead_captured event failed")
+            analytics.append("upsell_presented")
+        except Exception:
+            logger.exception("offer_presented event failed for %s", lead_id)
+
+    # Close the loop on the recommendation that produced this lead. Without it
+    # the decision log has no outcome label and nothing can be trained on it.
+    if decision_id:
+        try:
+            from agent_core.reco import decisions
+
+            decisions.attach_lead(decision_id, lead_id=lead_id, response="interested")
+        except Exception:
+            logger.exception("attach_lead failed for decision %s", decision_id)
 
     return ToolResult(
         ok=True,
         data={
             "leadId": lead_id,
-            "stage": lead.get("stage"),
+            "stage": _row_field(lead, "stage"),
             "productId": pid,
             "productName": product.get("name"),
         },
@@ -278,7 +576,7 @@ def capture_lead(
         entity=_entity("capture_lead"),
         entity_id=lead_id,
         deep_link=_link("capture_lead", lead_id),
-        analytics=["upsell_presented", "lead_captured"],
+        analytics=analytics,
     )
 
 
@@ -322,13 +620,20 @@ def request_documents(
     delivery_channel: str | None = None,
     period: str | None = None,
     requested_via: str = "bot_chat",
+    idempotency_key: str | None = None,
 ) -> ToolResult:
     """Raise a document request row that Operations fulfils."""
     import db
+    from agent_core.tools.catalog import DOCUMENT_CHANNELS, DOCUMENT_TYPES
 
     dtype = (document_type or "").strip()
     if not dtype:
         return ToolResult(ok=False, error="document_type_required")
+    if dtype not in DOCUMENT_TYPES:
+        return ToolResult(ok=False, error="invalid_document_type")
+    channel = (delivery_channel or "").strip() or None
+    if channel and channel not in DOCUMENT_CHANNELS:
+        return ToolResult(ok=False, error="invalid_delivery_channel")
 
     payload: dict[str, Any] = {
         "customerId": customer_id,
@@ -337,29 +642,35 @@ def request_documents(
         "docType": dtype,
         "requestedVia": requested_via,
     }
-    if delivery_channel:
-        payload["deliveryChannel"] = delivery_channel
+    if channel:
+        payload["deliveryChannel"] = channel
     if period:
         payload["period"] = period
 
     try:
-        row = db.create_document_request(payload)
-    except Exception as exc:
+        row = db.create_document_request(payload, idempotency_key=idempotency_key)
+    except Exception:
         logger.exception("create_document_request failed")
         return ToolResult(
             ok=False,
             error="crm_write_failed",
-            data={"detail": str(exc)},
+            data={"detail": "crm_write_failed"},
             spoken_summary="apologise and offer a callback so an agent can send it",
         )
 
-    doc_id = str(row.get("id")) if row.get("id") else None
+    doc_id, failure = _row_id_or_failure(
+        row,
+        what="create_document_request",
+        spoken="apologise and offer a callback so an agent can send it",
+    )
+    if failure is not None:
+        return failure
     return ToolResult(
         ok=True,
         data={
             "documentRequestId": doc_id,
-            "documentType": row.get("docType") or dtype,
-            "deliveryChannel": row.get("deliveryChannel"),
+            "documentType": _row_field(row, "docType") or dtype,
+            "deliveryChannel": _row_field(row, "deliveryChannel"),
         },
         spoken_summary="confirm which document was requested and how it will arrive",
         entity=_entity("request_documents"),
@@ -415,20 +726,29 @@ def create_promise_to_pay(
     try:
         try:
             row = db.create_promise(payload, idempotency_key=idempotency_key)
-        except KeyError:
-            # Some environments reject ownerBotId — retry without it.
+        except db.OwnerBotNotFound:
+            # This environment has no row for the configured bot — retry with a
+            # human owner. Narrow on purpose: a bare `except KeyError` also
+            # swallowed genuine missing-payload-key bugs and resubmitted them.
+            logger.warning("create_promise: unknown ownerBotId %s — retrying unowned", bot_id)
             payload.pop("ownerBotId", None)
             row = db.create_promise(payload, idempotency_key=idempotency_key)
-    except Exception as exc:
+    except Exception:
         logger.exception("create_promise failed")
         return ToolResult(
             ok=False,
             error="crm_write_failed",
-            data={"detail": str(exc)},
+            data={"detail": "crm_write_failed"},
             spoken_summary="apologise and offer a callback or human agent",
         )
 
-    promise_id = str(row.get("id")) if row.get("id") else None
+    promise_id, failure = _row_id_or_failure(
+        row,
+        what="create_promise",
+        spoken="apologise and offer a callback or human agent",
+    )
+    if failure is not None:
+        return failure
     if interaction_id:
         try:
             with db.engine.begin() as conn:
@@ -440,9 +760,9 @@ def create_promise_to_pay(
         ok=True,
         data={
             "promiseId": promise_id,
-            "amount": row.get("amount", amt),
+            "amount": _row_field(row, "amount", amt),
             "promisedDate": date_s,
-            "status": row.get("status"),
+            "status": _row_field(row, "status"),
         },
         spoken_summary="confirm the amount and date back to them",
         entity=_entity("create_promise_to_pay"),
@@ -490,22 +810,28 @@ def flag_dispute(
 
     try:
         row = db.create_dispute(payload, idempotency_key=idempotency_key)
-    except Exception as exc:
+    except Exception:
         logger.exception("create_dispute failed")
         return ToolResult(
             ok=False,
             error="crm_write_failed",
-            data={"detail": str(exc)},
+            data={"detail": "crm_write_failed"},
             spoken_summary="apologise and offer a callback or human agent",
         )
 
-    dispute_id = str(row.get("id")) if row.get("id") else None
+    dispute_id, failure = _row_id_or_failure(
+        row,
+        what="create_dispute",
+        spoken="apologise and offer a callback or human agent",
+    )
+    if failure is not None:
+        return failure
     return ToolResult(
         ok=True,
         data={
             "disputeId": dispute_id,
-            "type": row.get("type") or dtype,
-            "status": row.get("status"),
+            "type": _row_field(row, "type") or dtype,
+            "status": _row_field(row, "status"),
         },
         spoken_summary="a specialist will follow up",
         entity=_entity("flag_dispute"),
@@ -525,6 +851,7 @@ def request_callback(
     window_mins: int | None = 30,
     priority: str | None = None,
     transcript_snippet: str | None = None,
+    idempotency_key: str | None = None,
 ) -> ToolResult:
     """Schedule a human callback."""
     import db
@@ -551,17 +878,23 @@ def request_callback(
         payload["transcriptSnippet"] = str(transcript_snippet)[:240]
 
     try:
-        row = db.create_callback(payload)
-    except Exception as exc:
+        row = db.create_callback(payload, idempotency_key=idempotency_key)
+    except Exception:
         logger.exception("create_callback failed")
         return ToolResult(
             ok=False,
             error="crm_write_failed",
-            data={"detail": str(exc)},
+            data={"detail": "crm_write_failed"},
             spoken_summary="apologise and offer to try again or connect to an agent",
         )
 
-    callback_id = str(row.get("id")) if row.get("id") else None
+    callback_id, failure = _row_id_or_failure(
+        row,
+        what="create_callback",
+        spoken="apologise and offer to try again or connect to an agent",
+    )
+    if failure is not None:
+        return failure
     return ToolResult(
         ok=True,
         data={
@@ -569,7 +902,7 @@ def request_callback(
             "reason": reason_n,
             "windowMins": window,
             "scheduledAt": when,
-            "status": row.get("status") if isinstance(row, dict) else None,
+            "status": _row_field(row, "status"),
         },
         spoken_summary="confirm the callback time briefly",
         entity=_entity("request_callback"),

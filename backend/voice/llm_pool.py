@@ -10,10 +10,10 @@ Prewarm and the Pipecat LLM service must share the same client.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import socket
+import threading
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -28,7 +28,13 @@ from voice import config as voice_config
 logger = logging.getLogger(__name__)
 
 _client: AsyncAzureOpenAI | None = None
-_lock = asyncio.Lock()
+# threading.Lock, not asyncio.Lock: get_shared_client_sync() is called from
+# Pipecat service constructors on whatever thread builds the pipeline, so an
+# async-only guard left the sync path unsynchronised — two callers could each
+# build a client and the "process-wide" keep-alive pool silently became two.
+# Construction is pure object setup (no I/O), so holding this briefly inside
+# the coroutine does not block the loop.
+_lock = threading.Lock()
 _prewarmed = False
 _last_prewarm_ms: float | None = None
 
@@ -53,24 +59,26 @@ def _build_client() -> AsyncAzureOpenAI:
 
 async def get_shared_client() -> AsyncAzureOpenAI:
     """Return the process-wide voice LLM client (create once)."""
-    global _client
-    async with _lock:
-        if _client is None:
-            _client = _build_client()
-            logger.info(
-                "voice LLM shared client created · endpoint=%s · deployment=%s",
-                voice_config.azure_openai_voice_endpoint(),
-                voice_config.azure_openai_voice_deployment(),
-            )
-        return _client
+    return _get_or_build_client(log=True)
 
 
 def get_shared_client_sync() -> AsyncAzureOpenAI:
     """Sync accessor for constructors (creates if missing)."""
+    return _get_or_build_client(log=False)
+
+
+def _get_or_build_client(*, log: bool) -> AsyncAzureOpenAI:
     global _client
-    if _client is None:
-        _client = _build_client()
-    return _client
+    with _lock:
+        if _client is None:
+            _client = _build_client()
+            if log:
+                logger.info(
+                    "voice LLM shared client created · endpoint=%s · deployment=%s",
+                    voice_config.azure_openai_voice_endpoint(),
+                    voice_config.azure_openai_voice_deployment(),
+                )
+        return _client
 
 
 class KeepAliveAzureLLMService(AzureLLMService):
@@ -95,6 +103,29 @@ def _is_reasoning_deployment(deployment: str) -> bool:
     return d.startswith(("o1", "o3", "o4")) or "gpt-5" in d or "gpt5" in d
 
 
+def build_completion_kwargs(
+    deployment: str, *, max_output_tokens: int, temperature: float | None = None
+) -> tuple[dict, str, str]:
+    """Deployment-appropriate request kwargs plus the token-param fallback name.
+
+    Reasoning deployments (o1/o3/o4/gpt-5) reject a custom ``temperature`` and
+    require ``max_completion_tokens``. Every completion this module and
+    voice.spike issue goes through here — the diagnostics used to hardcode
+    ``temperature=0.2`` and 400 on exactly the deployments they exist to probe.
+    """
+    reasoning = _is_reasoning_deployment(deployment)
+    primary, fallback = (
+        ("max_completion_tokens", "max_tokens")
+        if reasoning
+        else ("max_tokens", "max_completion_tokens")
+    )
+    kwargs: dict = {"model": deployment}
+    if temperature is not None and not reasoning:
+        kwargs["temperature"] = temperature
+    kwargs[primary] = max_output_tokens
+    return kwargs, primary, fallback
+
+
 async def _completion_ping(client: AsyncAzureOpenAI, deployment: str) -> None:
     # NB: use a small-but-nonzero output budget. max_(completion_)tokens=1 makes
     # gpt-5.x return 400 "could not finish the message" (the single token can't
@@ -103,23 +134,33 @@ async def _completion_ping(client: AsyncAzureOpenAI, deployment: str) -> None:
     # Pick the param by deployment family up front; only fall back on the API's
     # rejection so a wording change can't silently leave prewarm cold.
     msgs = [{"role": "user", "content": "Reply with: ok"}]
-    reasoning = _is_reasoning_deployment(deployment)
-    primary, fallback = (
-        ("max_completion_tokens", "max_tokens")
-        if reasoning
-        else ("max_tokens", "max_completion_tokens")
+    kwargs, primary, fallback = build_completion_kwargs(
+        deployment, max_output_tokens=16, temperature=0
     )
-    # Reasoning deployments reject a custom temperature — omit it there.
-    base: dict = {"model": deployment, "messages": msgs}
-    if not reasoning:
-        base["temperature"] = 0
     try:
-        await client.chat.completions.create(**base, **{primary: 16})
+        await client.chat.completions.create(messages=msgs, **kwargs)
     except Exception as exc:
-        low = str(exc).lower()
-        if primary not in low and "unsupported" not in low:
+        # Branch on the API's structured error, not on substrings of the message
+        # text: the old check matched any exception whose text happened to
+        # contain "max_tokens" or "unsupported" (including auth and quota
+        # errors) and re-issued a request that could not possibly succeed.
+        if not _is_unsupported_token_param(exc, primary):
             raise
-        await client.chat.completions.create(**base, **{fallback: 16})
+        retry = {k: v for k, v in kwargs.items() if k != primary}
+        retry[fallback] = 16
+        await client.chat.completions.create(messages=msgs, **retry)
+
+
+def _is_unsupported_token_param(exc: BaseException, param: str) -> bool:
+    """True only for a 400 rejecting `param` as an unsupported parameter."""
+    body = getattr(exc, "body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict):
+        return False
+    code = str(error.get("code") or "")
+    if code not in {"unsupported_parameter", "unsupported_value", "invalid_request_error"}:
+        return False
+    return str(error.get("param") or "") == param
 
 
 async def prewarm_shared_client(*, force: bool = False) -> float:
@@ -223,47 +264,37 @@ async def measure_bottlenecks(rounds: int = 5) -> dict[str, Any]:
     client = await get_shared_client()
     await prewarm_shared_client(force=True)
 
+    msgs = [
+        {
+            "role": "system",
+            "content": "You are a voice assistant. Respond in 1 brief sentence.",
+        },
+        {"role": "user", "content": "Can I pay Friday?"},
+    ]
+    # Pick the token-budget parameter (and drop temperature on reasoning
+    # deployments) by family instead of issuing a duplicate request on failure —
+    # the retry path used to leave the first, already-open stream unclosed and
+    # leaked a connection per round.
+    ttfb_kwargs, _, _ = build_completion_kwargs(
+        deployment, max_output_tokens=40, temperature=0.2
+    )
     for _ in range(rounds):
         t0 = time.perf_counter()
         first = None
+        stream = await client.chat.completions.create(
+            messages=msgs,
+            stream=True,
+            **ttfb_kwargs,
+        )
         try:
-            stream = await client.chat.completions.create(
-                model=deployment,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a voice assistant. Respond in 1 brief sentence.",
-                    },
-                    {"role": "user", "content": "Can I pay Friday?"},
-                ],
-                max_tokens=40,
-                temperature=0.2,
-                stream=True,
-            )
-        except Exception:
-            stream = await client.chat.completions.create(
-                model=deployment,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a voice assistant. Respond in 1 brief sentence.",
-                    },
-                    {"role": "user", "content": "Can I pay Friday?"},
-                ],
-                max_completion_tokens=40,
-                temperature=0.2,
-                stream=True,
-            )
-        async for ev in stream:
-            if ev.choices and (ev.choices[0].delta.content or ""):
-                if first is None:
+            async for ev in stream:
+                if ev.choices and (ev.choices[0].delta.content or ""):
                     first = time.perf_counter()
-                break
-        try:
-            async for _ev in stream:
-                pass
-        except Exception:
-            pass
+                    break
+        finally:
+            # Break out of the iterator early → the HTTP response stays open
+            # unless it is explicitly closed.
+            await stream.close()
         if first is not None:
             out["llm_ttfb_ms"].append(round((first - t0) * 1000.0, 1))
 

@@ -156,10 +156,27 @@ def upgrade() -> None:
     op.add_column("routing_rules", sa.Column("description", sa.Text(), nullable=True))
     op.add_column("routing_rules", sa.Column("category", sa.Text(), nullable=True))
 
+    conn = op.get_bind()
+
+    # The NOT NULL invariant on `name` is part of the schema contract, not the
+    # demo seed: it used to sit after the seed_demo_enabled() early-return, so a
+    # production database ended up with a nullable `name` that later revisions
+    # (and the API's COALESCE(NULLIF(name,''), id) reads) assume is present.
+    # Backfill every pre-existing row — including ones not in _RULES — then
+    # enforce, before any demo insert runs.
+    conn.execute(
+        sa.text(
+            """
+            UPDATE routing_rules
+            SET name = id
+            WHERE name IS NULL OR btrim(name) = ''
+            """
+        )
+    )
+    op.alter_column("routing_rules", "name", nullable=False)
+
     if not seed_demo_enabled():
         return
-
-    conn = op.get_bind()
 
     for rule in _RULES:
         conn.execute(
@@ -267,12 +284,18 @@ def upgrade() -> None:
         ).bindparams(tenant=TENANT_ID)
     )
 
-    op.alter_column("routing_rules", "name", nullable=False, server_default="")
-    op.alter_column("routing_rules", "name", server_default=None)
-
 
 def downgrade() -> None:
+    if not seed_demo_enabled():
+        # Still reverse the schema change made unconditionally by upgrade().
+        op.alter_column("routing_rules", "name", nullable=True)
+        op.drop_column("routing_rules", "category")
+        op.drop_column("routing_rules", "description")
+        op.drop_column("routing_rules", "name")
+        return
     conn = op.get_bind()
+    # Relax NOT NULL first — the seed restore below writes name = NULL.
+    op.alter_column("routing_rules", "name", nullable=True)
     # NOTE: upgrade() also rewrote result / action_taken / evaluated_at on these
     # rows from derived values without snapshotting the originals, so those columns
     # cannot be perfectly restored here. We reset rule_id and strip the additive
@@ -281,13 +304,16 @@ def downgrade() -> None:
     conn.execute(
         sa.text(
             """
-            UPDATE routing_rule_executions
+            UPDATE routing_rule_executions e
             SET rule_id = 'route-sentiment-drop',
-                context = (COALESCE(context, '{}'::jsonb) - 'mappedBy' - 'signal')
-            WHERE rule_id IS NOT NULL
-              AND rule_id <> 'route-sentiment-drop'
+                context = (COALESCE(e.context, '{}'::jsonb) - 'mappedBy' - 'signal')
+            FROM interactions i
+            WHERE i.id = e.interaction_id
+              AND i.tenant_id = :tenant
+              AND e.rule_id IS NOT NULL
+              AND e.rule_id <> 'route-sentiment-drop'
             """
-        )
+        ).bindparams(tenant=TENANT_ID)
     )
     conn.execute(
         sa.text(

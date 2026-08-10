@@ -6,15 +6,44 @@ inbound dial-in skip this path — the browser/human is never a voicemail box.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
-VOICMAIL_SCRIPT = (
-    "Hello, this is Priya calling from HDFC Bank collections regarding your account. "
-    "Please call us back at your earliest convenience. Thank you."
+# Fallback wording when no deployment/persona config is available. Every
+# deployment should render its own agent name and brand via voicemail_script().
+_DEFAULT_AGENT_NAME = "Priya"
+_DEFAULT_ISSUER = "HDFC Bank"
+VOICEMAIL_SCRIPT = (
+    f"Hello, this is {_DEFAULT_AGENT_NAME} calling from {_DEFAULT_ISSUER} collections "
+    "regarding your account. Please call us back at your earliest convenience. Thank you."
 )
+
+
+def voicemail_script(
+    persona: dict[str, Any] | None = None,
+    tuning: dict[str, Any] | None = None,
+) -> str:
+    """Render the voicemail message for this deployment.
+
+    Agent name and issuer come from the deployment's persona/tuning bundle so a
+    second tenant does not leave messages claiming to be HDFC's Priya.
+    """
+    p = persona or {}
+    t = tuning or {}
+    persona_block = t.get("persona") if isinstance(t.get("persona"), dict) else {}
+    agent = str(
+        p.get("agentName") or p.get("name") or persona_block.get("agentName") or ""
+    ).strip() or _DEFAULT_AGENT_NAME
+    issuer = str(
+        p.get("issuer") or p.get("brand") or persona_block.get("issuer") or ""
+    ).strip() or _DEFAULT_ISSUER
+    return (
+        f"Hello, this is {agent} calling from {issuer} collections regarding your "
+        "account. Please call us back at your earliest convenience. Thank you."
+    )
 
 
 def should_enable_amd(session_extra: dict[str, Any] | None, *, is_twilio: bool) -> bool:
@@ -33,6 +62,8 @@ async def attach_voicemail_handlers(
     sink: Any,
     worker: Any,
     on_left_message: Callable[[], Awaitable[None]] | None = None,
+    persona: dict[str, Any] | None = None,
+    tuning: dict[str, Any] | None = None,
 ) -> None:
     """Register conversation / voicemail event handlers on the detector."""
     from pipecat.frames.frames import EndWorkerFrame, TTSSpeakFrame
@@ -42,10 +73,13 @@ async def attach_voicemail_handlers(
     async def _on_human(_detector) -> None:
         logger.info("AMD: live conversation · session=%s", session.session_id)
         session.extra["amd"] = "human"
-        try:
-            await sink.enqueue_alert("compliance", "amd_human") if hasattr(sink, "enqueue_alert") else None
-        except Exception:
-            pass
+        if hasattr(sink, "enqueue_alert"):
+            try:
+                await sink.enqueue_alert("compliance", "amd_human")
+            except Exception:
+                # Alerting is best-effort on the audio path, but a persistent
+                # failure must be visible rather than swallowed silently.
+                logger.warning("amd_human alert failed", exc_info=True)
 
     @voicemail_detector.event_handler("on_voicemail_detected")
     async def _on_voicemail(processor) -> None:
@@ -59,7 +93,8 @@ async def attach_voicemail_handlers(
             if ix:
                 # Placeholder media row — actual audio still flows through audiobuffer
                 # if disclosure already started; kind marks the disposition for QA.
-                persist.record_media(
+                await asyncio.to_thread(
+                    persist.record_media,
                     interaction_id=ix,
                     kind="voicemail",
                     storage_ref=f"voicemail://{session.session_id}",
@@ -70,10 +105,16 @@ async def attach_voicemail_handlers(
         except Exception:
             logger.exception("voicemail media row failed")
 
+        script = voicemail_script(persona, tuning)
         try:
-            await processor.push_frame(TTSSpeakFrame(VOICMAIL_SCRIPT, append_to_context=False))
+            await processor.push_frame(TTSSpeakFrame(script, append_to_context=False))
         except TypeError:
-            await processor.push_frame(TTSSpeakFrame(VOICMAIL_SCRIPT))
+            # Older Pipecat without append_to_context — retry, but the retry
+            # needs its own guard or a real TTS failure escapes this handler.
+            try:
+                await processor.push_frame(TTSSpeakFrame(script))
+            except Exception:
+                logger.exception("voicemail TTS failed (legacy frame signature)")
         except Exception:
             logger.exception("voicemail TTS failed")
 

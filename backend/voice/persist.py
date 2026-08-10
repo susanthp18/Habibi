@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 import db
 from agent_core import estimate_sentiment, evaluate_guardrails, sentiment_label
+from agent_core import lexicon
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +63,22 @@ def start_voice_call(
     bot_id: str | None = None,
     direction: str = "inbound",
 ) -> dict[str, Any]:
-    """INSERT active interaction + voice_sessions row. Returns ids."""
+    """INSERT active interaction + voice_sessions row. Returns ids.
+
+    Interaction is committed first so CRM tools still work if the
+    ``voice_sessions`` registry row fails (missing table / constraint). A prior
+    single-transaction design rolled back both when ``voice_sessions`` was
+    absent, leaving Live sandbox with ``interaction_id=None`` and every tool
+    returning ``no_interaction``.
+    """
     ensure_unknown_caller()
     cid = customer_id or UNKNOWN_CALLER_ID
     bid = (bot_id or db.DEFAULT_BOT_ID).strip() or db.DEFAULT_BOT_ID
     interaction_id = _sid("CL")
     host = socket.gethostname()
     started = _now()
+    transport_n = transport if transport in ("smallwebrtc", "twilio", "daily") else "smallwebrtc"
+    direction_n = direction if direction in ("inbound", "outbound") else "inbound"
 
     with db.engine.begin() as conn:
         # Resolve account only for known customers.
@@ -98,33 +108,10 @@ def start_voice_call(
                 "customer_id": cid,
                 "account_id": acct,
                 "bot_id": bid,
-                "direction": direction if direction in ("inbound", "outbound") else "inbound",
+                "direction": direction_n,
                 "deployment_id": deployment_id,
                 "started": started,
-                "payload": json.dumps({"source": "voice", "transport": transport}),
-            },
-        )
-        conn.execute(
-            text(
-                """
-                INSERT INTO voice_sessions (
-                  id, interaction_id, deployment_id, transport, provider_call_id,
-                  worker_host, status, started_at, last_heartbeat_at,
-                  created_at, updated_at
-                ) VALUES (
-                  :id, :interaction_id, :deployment_id, :transport, :provider_call_id,
-                  :host, 'live', :started, :started, now(), now()
-                )
-                """
-            ),
-            {
-                "id": session_id,
-                "interaction_id": interaction_id,
-                "deployment_id": deployment_id,
-                "transport": transport if transport in ("smallwebrtc", "twilio", "daily") else "smallwebrtc",
-                "provider_call_id": provider_call_id,
-                "host": host,
-                "started": started,
+                "payload": json.dumps({"source": "voice", "transport": transport_n}),
             },
         )
         try:
@@ -134,11 +121,43 @@ def start_voice_call(
                 interaction_id,
                 "voice_session_started",
                 "Voice session started",
-                f"transport={transport}",
+                f"transport={transport_n}",
                 cid,
             )
         except Exception:
             logger.exception("activity_events write failed (non-fatal)")
+
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO voice_sessions (
+                      id, interaction_id, deployment_id, transport, provider_call_id,
+                      worker_host, status, started_at, last_heartbeat_at,
+                      created_at, updated_at
+                    ) VALUES (
+                      :id, :interaction_id, :deployment_id, :transport, :provider_call_id,
+                      :host, 'live', :started, :started, now(), now()
+                    )
+                    """
+                ),
+                {
+                    "id": session_id,
+                    "interaction_id": interaction_id,
+                    "deployment_id": deployment_id,
+                    "transport": transport_n,
+                    "provider_call_id": provider_call_id,
+                    "host": host,
+                    "started": started,
+                },
+            )
+    except Exception:
+        logger.exception(
+            "voice_sessions insert failed session=%s interaction=%s — CRM tools still bound",
+            session_id,
+            interaction_id,
+        )
 
     return {
         "sessionId": session_id,
@@ -163,11 +182,27 @@ def append_transcript_turn(
     ttfb_ms: int | None = None,
     ttfa_ms: int | None = None,
     tokens: int | None = None,
+    stt_ttfb_ms: int | None = None,
+    llm_ttfb_ms: int | None = None,
+    tts_ttfb_ms: int | None = None,
+    user_turn_ms: int | None = None,
+    tool_ms: int | None = None,
+    aggregation_ms: int | None = None,
 ) -> None:
-    """Idempotent turn write — UNIQUE(interaction_id, turn_index)."""
+    """Idempotent turn write — UNIQUE(interaction_id, turn_index).
+
+    The ``*_ttfb_ms`` / ``user_turn_ms`` / ``tool_ms`` / ``aggregation_ms``
+    breakdown comes from Pipecat's UserBotLatencyObserver and is written on the
+    same INSERT as ``ttfb_ms`` rather than a follow-up UPDATE — an UPDATE would
+    race the ON CONFLICT DO NOTHING above.
+    """
     content = (text_content or "").strip()
     if not content:
         return
+
+    def _int(value: Any) -> int | None:
+        return int(value) if value is not None else None
+
     with db.engine.begin() as conn:
         conn.execute(
             text(
@@ -175,11 +210,15 @@ def append_transcript_turn(
                 INSERT INTO interaction_transcript (
                   id, interaction_id, turn_index, speaker, at_sec, text,
                   sentiment_delta, intent, intent_score,
-                  ttfb_ms, ttfa_ms, tokens, created_at
+                  ttfb_ms, ttfa_ms, tokens,
+                  stt_ttfb_ms, llm_ttfb_ms, tts_ttfb_ms,
+                  user_turn_ms, tool_ms, aggregation_ms, created_at
                 ) VALUES (
                   :id, :interaction_id, :turn_index, :speaker, :at_sec, :text,
                   :sentiment_delta, :intent, :intent_score,
-                  :ttfb_ms, :ttfa_ms, :tokens, now()
+                  :ttfb_ms, :ttfa_ms, :tokens,
+                  :stt_ttfb_ms, :llm_ttfb_ms, :tts_ttfb_ms,
+                  :user_turn_ms, :tool_ms, :aggregation_ms, now()
                 )
                 ON CONFLICT (interaction_id, turn_index) DO NOTHING
                 """
@@ -194,9 +233,15 @@ def append_transcript_turn(
                 "sentiment_delta": sentiment_delta,
                 "intent": (intent or None),
                 "intent_score": round(float(intent_score), 3) if intent_score is not None else None,
-                "ttfb_ms": int(ttfb_ms) if ttfb_ms is not None else None,
-                "ttfa_ms": int(ttfa_ms) if ttfa_ms is not None else None,
-                "tokens": int(tokens) if tokens is not None else None,
+                "ttfb_ms": _int(ttfb_ms),
+                "ttfa_ms": _int(ttfa_ms),
+                "tokens": _int(tokens),
+                "stt_ttfb_ms": _int(stt_ttfb_ms),
+                "llm_ttfb_ms": _int(llm_ttfb_ms),
+                "tts_ttfb_ms": _int(tts_ttfb_ms),
+                "user_turn_ms": _int(user_turn_ms),
+                "tool_ms": _int(tool_ms),
+                "aggregation_ms": _int(aggregation_ms),
             },
         )
 
@@ -228,6 +273,124 @@ def append_sentiment_point(
                 "label": lbl if lbl in ("positive", "neutral", "negative") else "neutral",
             },
         )
+
+
+def record_voice_tool_call(
+    *,
+    interaction_id: str,
+    turn_index: int,
+    tool_name: str,
+    result_ok: bool,
+    error: str | None = None,
+    latency_ms: int | None = None,
+) -> None:
+    """Audit one voice tool call into ``bot_tool_calls``.
+
+    The turn id is **read back**, never constructed. ``capture`` normalises
+    transcript ids to ``{interaction_id}-T{index}`` inside a savepoint that is
+    allowed to fail (it logs "transcript turn id normalisation skipped"), so a
+    row can permanently keep an id of the form ``{ix}-T-next-{uuid}``. Building
+    the FK by string would dangle exactly on those rows.
+
+    A missing transcript row is normal, not an error: the analysis queue and the
+    CRM queue drain independently, so a tool call can be recorded before the
+    turn it belongs to is written. ``interaction_id`` alone still places it on
+    the timeline.
+    """
+    import bot_jobs
+
+    with db.engine.begin() as conn:
+        turn_id = conn.execute(
+            text(
+                "SELECT id FROM interaction_transcript "
+                "WHERE interaction_id = :ix AND turn_index = :ti"
+            ),
+            {"ix": interaction_id, "ti": int(turn_index)},
+        ).scalar()
+        bot_jobs.record_tool_call(
+            conn,
+            interaction_id=interaction_id,
+            transcript_turn_id=turn_id,
+            channel="voice",
+            tool_name=tool_name,
+            args={},  # Voice args are bound server-side from VoiceSession.
+            result_ok=result_ok,
+            error=error,
+            latency_ms=latency_ms,
+        )
+
+
+def update_turn_understanding(
+    *,
+    interaction_id: str,
+    turn_index: int,
+    intent: str,
+    intent_score: float,
+    sentiment: float,
+) -> bool:
+    """Correct a persisted customer turn with the LLM classification.
+
+    The keyword pass writes the row immediately from the audio path so the
+    transcript is never missing a turn; this lands a moment later and replaces
+    intent/sentiment with what the caller actually meant. Returns False when the
+    row is not there — which is legitimate, not an error: the analysis queue and
+    the CRM queue drain independently, so the refinement can win the race.
+
+    Also corrects the matching ``interaction_sentiment`` point, otherwise the
+    Inbox sentiment sparkline keeps showing the English-lexicon 0.00 for every
+    Hindi turn while the transcript shows the real value.
+    """
+    updated = False
+    with db.engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE interaction_transcript
+                   SET intent = :intent,
+                       intent_score = :intent_score,
+                       sentiment_delta = :sentiment
+                 WHERE interaction_id = :interaction_id
+                   AND turn_index = :turn_index
+                """
+            ),
+            {
+                "interaction_id": interaction_id,
+                "turn_index": int(turn_index),
+                "intent": intent,
+                "intent_score": round(float(intent_score), 3),
+                "sentiment": round(float(sentiment), 3),
+            },
+        )
+        updated = bool(result.rowcount)
+        if updated:
+            # Match on the row this turn wrote rather than by at_sec, which the
+            # sink computes independently and is not a key.
+            conn.execute(
+                text(
+                    """
+                    UPDATE interaction_sentiment
+                       SET score = :score, label = :label
+                     WHERE id = (
+                       SELECT id FROM interaction_sentiment
+                        WHERE interaction_id = :interaction_id
+                        ORDER BY at_sec DESC, created_at DESC
+                        LIMIT 1
+                     )
+                    """
+                ),
+                {
+                    "interaction_id": interaction_id,
+                    "score": round(float(sentiment), 3),
+                    "label": sentiment_label(sentiment),
+                },
+            )
+    if not updated:
+        logger.debug(
+            "turn understanding update matched no row · ix=%s · turn=%s",
+            interaction_id,
+            turn_index,
+        )
+    return updated
 
 
 def append_interaction_flag(
@@ -288,6 +451,110 @@ def append_live_alert(
                 "kind": k,
                 "severity": severity,
                 "reason": reason or kind,
+            },
+        )
+
+
+# --------------------------------------------------------------------------
+# Guardrail breach -> compliance violation
+# --------------------------------------------------------------------------
+#
+# evaluate_and_flag_bot_turn already knows the bot broke a rule; until now that
+# knowledge reached interaction_flags and live_alerts and stopped. live_alerts
+# are ephemeral floor-console signals — nobody reviews them after the call, so
+# a breach was only ever caught if a human happened to QA-sample that call
+# (industry norm: 1-2% of volume). A violations row is the reviewable artefact:
+# it carries a rule, a status workflow and an assignee, and the Compliance
+# screen is already built on it.
+#
+# Mapping is deliberately explicit and partial. An unmapped flag writes NO
+# violation. A row filed against the wrong rule is worse than no row: it
+# misleads the reviewer, corrupts per-rule breach rates, and is the kind of
+# error that surfaces in an audit rather than in testing.
+_FLAG_RULE_MAP = {
+    # The bot's opening turns never mentioned recording. Exact semantic match
+    # for RBI-DISC-01.
+    "missing-recording-disclosure": "r-rec",
+    # The bot said "waive"/"waiver" on a waiver_request turn despite
+    # neverPromiseWaiver — an outcome the bot has no authority to promise.
+    "waiver-blocked": "r-guarantee",
+}
+
+#: Flags that describe the *caller's* conduct or a session limit, not bot
+#: misconduct. Listed so a reader can see they were considered and rejected
+#: rather than overlooked.
+_NON_BOT_FLAGS = frozenset(
+    {"auto-escalate", "max-turns", "max-seconds", "politics-religion"}
+)
+
+
+def rule_for_flag(flag: str) -> str | None:
+    """Map one guardrail flag to a compliance_rules id, or None to skip.
+
+    ``prohibited:<term>`` is deployment-configured free text, so the term is
+    classified through the same lexicon the escalation path uses. A term that
+    is neither a legal threat nor abusive is left unmapped on purpose: the
+    remaining PROH-LANG rules (false legal claim, guarantee of outcome) cannot
+    be inferred from the word alone.
+    """
+    if flag in _FLAG_RULE_MAP:
+        return _FLAG_RULE_MAP[flag]
+    if flag.startswith("prohibited:"):
+        term = flag.split(":", 1)[1].strip()
+        if not term:
+            return None
+        if lexicon.is_legal_threat(term):
+            return "r-threat"
+        if lexicon.is_abusive(term):
+            return "r-abuse"
+    return None
+
+
+def append_violation(
+    *,
+    interaction_id: str,
+    rule_id: str,
+    description: str,
+    at_sec: int = 0,
+) -> None:
+    """File one open violation against the bot that handled ``interaction_id``.
+
+    Idempotent per (interaction, rule): a bot that repeats a banned word on six
+    turns has broken one rule once as far as a reviewer is concerned, and six
+    rows would bury the other breaches on the call.
+
+    Silently does nothing when the interaction has no bot handler — the table's
+    CHECK constraint requires actor_bot_id for actor_kind='bot', and a
+    human-handled turn is not this function's business.
+    """
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO violations (
+                  id, interaction_id, customer_id, rule_id,
+                  actor_kind, actor_bot_id, status, description, at_sec,
+                  created_at, updated_at
+                )
+                SELECT
+                  :id, i.id, i.customer_id, :rule_id,
+                  'bot', i.handler_bot_id, 'open', :description, :at_sec,
+                  now(), now()
+                FROM interactions i
+                WHERE i.id = :interaction_id
+                  AND i.handler_bot_id IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM violations v
+                    WHERE v.interaction_id = i.id AND v.rule_id = :rule_id
+                  )
+                """
+            ),
+            {
+                "id": _sid("VIO"),
+                "interaction_id": interaction_id,
+                "rule_id": rule_id,
+                "description": description,
+                "at_sec": max(int(at_sec), 0),
             },
         )
 
@@ -428,6 +695,14 @@ def evaluate_and_flag_bot_turn(
                     kind="escalation",
                     reason=f,
                 )
+            rule_id = rule_for_flag(f)
+            if rule_id:
+                append_violation(
+                    interaction_id=interaction_id,
+                    rule_id=rule_id,
+                    description=f"Auto-detected on turn {turn_index}: {f}",
+                    at_sec=int(elapsed_seconds),
+                )
         except Exception:
             logger.exception("flag/alert write failed for %s", f)
     return flags
@@ -475,6 +750,9 @@ def lookup_customer_for_verify(
             "accountTail": (_digits_only(acct)[-4:] or None) if acct and len(_digits_only(acct)) >= 4 else None,
         }
 
+    # Every branch is tenant-scoped: identity verification must never resolve a
+    # caller to another tenant's customer, and accounts inherits its tenant
+    # through customers, so the predicate lives on `c`.
     with db.engine.connect() as conn:
         if method_n == "phone_match":
             digits = _digits_only(raw)
@@ -496,11 +774,11 @@ def lookup_customer_for_verify(
                           ORDER BY outstanding DESC NULLS LAST
                           LIMIT 1
                         ) a ON true
-                        WHERE c.id = :cid
+                        WHERE c.id = :cid AND c.tenant_id = :tenant
                         LIMIT 1
                         """
                     ),
-                    {"cid": found["id"]},
+                    {"cid": found["id"], "tenant": db.TENANT_ID},
                 ).mappings().first()
                 return _pack(row) if row else None
 
@@ -519,6 +797,7 @@ def lookup_customer_for_verify(
                       LIMIT 1
                     ) a ON true
                     WHERE c.id <> :unknown
+                      AND c.tenant_id = :tenant
                       AND (
                         RIGHT(regexp_replace(COALESCE(c.phone_primary, ''), '[^0-9]', '', 'g'), 4) = :tail4
                         OR RIGHT(regexp_replace(COALESCE(c.phone_alt, ''), '[^0-9]', '', 'g'), 4) = :tail4
@@ -526,14 +805,21 @@ def lookup_customer_for_verify(
                     LIMIT 2
                     """
                 ),
-                {"tail4": digits[-4:], "unknown": UNKNOWN_CALLER_ID},
+                {
+                    "tail4": digits[-4:],
+                    "unknown": UNKNOWN_CALLER_ID,
+                    "tenant": db.TENANT_ID,
+                },
             ).mappings().all()
             if len(matches) != 1:
                 return None
             return _pack(matches[0])
 
         if method_n == "account_tail":
-            tail = raw[-4:].upper()
+            digits = "".join(ch for ch in raw if ch.isdigit())
+            tail = digits[-4:] if len(digits) >= 4 else ""
+            if len(tail) != 4:
+                return None
             matches = conn.execute(
                 text(
                     """
@@ -542,12 +828,13 @@ def lookup_customer_for_verify(
                     FROM accounts a
                     JOIN customers c ON c.id = a.customer_id
                     WHERE c.id <> :unknown
-                      AND UPPER(RIGHT(a.id, 4)) = :tail
+                      AND c.tenant_id = :tenant
+                      AND RIGHT(regexp_replace(a.id, '[^0-9]', '', 'g'), 4) = :tail
                     ORDER BY a.outstanding DESC NULLS LAST
                     LIMIT 2
                     """
                 ),
-                {"tail": tail, "unknown": UNKNOWN_CALLER_ID},
+                {"tail": tail, "unknown": UNKNOWN_CALLER_ID, "tenant": db.TENANT_ID},
             ).mappings().all()
             if len(matches) != 1:
                 return None
@@ -567,11 +854,11 @@ def lookup_customer_for_verify(
                       ORDER BY outstanding DESC NULLS LAST
                       LIMIT 1
                     ) a ON true
-                    WHERE c.id = :cid AND c.id <> :unknown
+                    WHERE c.id = :cid AND c.id <> :unknown AND c.tenant_id = :tenant
                     LIMIT 1
                     """
                 ),
-                {"cid": raw, "unknown": UNKNOWN_CALLER_ID},
+                {"cid": raw, "unknown": UNKNOWN_CALLER_ID, "tenant": db.TENANT_ID},
             ).mappings().first()
             return _pack(row) if row else None
 
@@ -733,12 +1020,19 @@ def record_handoff(
             ),
             {"id": interaction_id},
         )
-    append_live_alert(
-        interaction_id=interaction_id,
-        kind="escalation",
-        reason=r,
-        severity="high",
-    )
+    # Best-effort, like the alert writes in evaluate_and_flag_bot_turn and
+    # start_voice_call: the handoff is already committed, so raising here would
+    # report a failure for work that succeeded and invite a retry that writes a
+    # second handoff row.
+    try:
+        append_live_alert(
+            interaction_id=interaction_id,
+            kind="escalation",
+            reason=r,
+            severity="high",
+        )
+    except Exception:
+        logger.exception("live alert for handoff %s failed (handoff persisted)", hid)
     return hid
 
 

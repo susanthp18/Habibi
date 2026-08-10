@@ -1,23 +1,22 @@
 import { useMemo } from "react";
 import { ClipboardCheck, Clock, TrendingUp, Users, Scale } from "lucide-react";
 import { computeTotal, type Rubric, type Scorecard, type CoachingAction, type CalibrationSession } from "@/data/qa-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 
 function Tile({ icon: Icon, label, value, hint, tone, seed }: { icon: any; label: string; value: string; hint?: string; tone?: string; seed?: boolean }) {
   return (
-    <div className="flex-1 min-w-[160px] rounded-lg border border-[var(--border-token)] bg-surface-card px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+    <div className="flex-1 min-w-[10rem] rounded-large border border-border bg-surface px-150 py-150">
+      <div className="flex items-center gap-075 text-body-small font-medium text-text-subtlest">
         <Icon className="h-3.5 w-3.5" /> {label}
         {seed && (
-          <span
-            title="Seed data — coaching/calibration not yet wired to the live backend"
-            className="ml-auto rounded-full border border-[var(--border-token)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-normal text-text-muted"
-          >
+          <Lozenge
+            title="Seed data — coaching/calibration not yet wired to the live backend" tone="neutral" className="ml-auto tracking-normal">
             seed
-          </span>
+          </Lozenge>
         )}
       </div>
-      <div className={`mt-0.5 text-[20px] font-semibold ${tone ?? "text-brand-navy"}`}>{value}</div>
-      {hint && <div className="text-[11px] text-text-muted">{hint}</div>}
+      <div className={`mt-025 text-[1.25rem] font-semibold ${tone ?? "text-text"}`}>{value}</div>
+      {hint && <div className="text-body-small text-text-subtlest">{hint}</div>}
     </div>
   );
 }
@@ -53,13 +52,13 @@ export function QaStatsStrip({
   }, [scorecards, coaching, calibrations, rubric]);
 
   return (
-    <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-app px-5 py-3">
-      <div className="flex flex-wrap gap-2">
-        <Tile icon={TrendingUp} label="Avg score" value={`${stats.avg.toFixed(1)}`} hint="Weighted, last 30 days" tone="text-brand-primary-dark" />
+    <div className="shrink-0 border-b border-border bg-surface px-250 py-150">
+      <div className="flex flex-wrap gap-100">
+        <Tile icon={TrendingUp} label="Avg score" value={`${stats.avg.toFixed(1)}`} hint="Weighted, last 30 days" tone="text-text-brand" />
         <Tile icon={ClipboardCheck} label="Scored (7d)" value={String(stats.scored)} hint="Human-finalised" />
-        <Tile icon={Clock} label="Pending review" value={String(stats.pending)} hint="AI draft + unscored" tone={stats.pending > 10 ? "text-amber-600" : undefined} />
+        <Tile icon={Clock} label="Pending review" value={String(stats.pending)} hint="AI draft + unscored" tone={stats.pending > 10 ? "text-text-warning" : undefined} />
         <Tile icon={Users} label="Coaching open" value={String(stats.open)} hint="Assigned + in progress" seed />
-        <Tile icon={Scale} label="Calibration variance" value={`±${stats.variance.toFixed(1)}`} hint="Reviewer vs target" tone={stats.variance > 8 ? "text-red-600" : "text-emerald-700"} seed />
+        <Tile icon={Scale} label="Calibration variance" value={`±${stats.variance.toFixed(1)}`} hint="Reviewer vs target" tone={stats.variance > 8 ? "text-text-danger" : "text-text-success-bolder"} seed />
       </div>
     </div>
   );

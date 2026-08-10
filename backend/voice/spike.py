@@ -39,7 +39,18 @@ from loguru import logger
 
 from voice import config as voice_config
 from voice.latency import KeepAliveAzureLLMService, measure_bottlenecks, prewarm_llm_connection
-from voice.llm_pool import get_shared_client
+from voice.llm_pool import build_completion_kwargs, get_shared_client
+
+# Strong refs for fire-and-forget prewarm tasks (the loop keeps only weak ones).
+_PREWARM_TASKS: set[asyncio.Task] = set()
+
+
+def _log_prewarm_result(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("LLM prewarm failed: {}", exc)
 
 
 async def probe_llm_ttfb(*, rounds: int = 5) -> None:
@@ -67,41 +78,47 @@ async def probe_llm_ttfb(*, rounds: int = 5) -> None:
         t0 = time.perf_counter()
         first_token_at: float | None = None
         chunks = 0
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user},
+        ]
+        # Shared builder: it picks max_completion_tokens and drops temperature
+        # for reasoning deployments. The old code hardcoded temperature=0.2 in
+        # both the primary and the "fallback", so on an o-series or gpt-5
+        # deployment both attempts 400'd on the same unsupported parameter and
+        # the probe could never succeed.
+        kwargs, primary, fallback = build_completion_kwargs(
+            deployment, max_output_tokens=64, temperature=0.2
+        )
         try:
             stream = await client.chat.completions.create(
-                model=deployment,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": user},
-                ],
-                temperature=0.2,
-                max_tokens=64,
-                stream=True,
+                messages=messages, stream=True, **kwargs
             )
         except Exception:
+            retry = {k: v for k, v in kwargs.items() if k != primary}
+            retry[fallback] = 64
             stream = await client.chat.completions.create(
-                model=deployment,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": user},
-                ],
-                temperature=0.2,
-                max_completion_tokens=64,
-                stream=True,
+                messages=messages, stream=True, **retry
             )
-        async for event in stream:
-            chunks += 1
-            delta = ""
-            if event.choices:
-                delta = event.choices[0].delta.content or ""
-            if delta and first_token_at is None:
-                first_token_at = time.perf_counter()
-                break
+        # finally, not a bare except: breaking out of the iterator leaves the
+        # HTTP response open, and the drain loop could raise on its way out —
+        # every round then leaked a connection from the shared keep-alive pool.
         try:
-            async for _ in stream:
-                pass
-        except Exception:
-            pass
+            async for event in stream:
+                chunks += 1
+                delta = ""
+                if event.choices:
+                    delta = event.choices[0].delta.content or ""
+                if delta and first_token_at is None:
+                    first_token_at = time.perf_counter()
+                    break
+            try:
+                async for _ in stream:
+                    pass
+            except Exception:
+                logger.debug("TTFB probe drain failed", exc_info=True)
+        finally:
+            await stream.close()
 
         if first_token_at is None:
             logger.warning("round {} · no token received", i + 1)
@@ -183,7 +200,13 @@ async def run_bot(transport, runner_args) -> None:
             ),
         ),
     )
-    asyncio.create_task(prewarm_llm_connection())
+    # Keep a strong reference: the event loop only holds a weak one, so a bare
+    # create_task() can be garbage-collected mid-flight (the prewarm silently
+    # never happens) and any exception is never retrieved.
+    _prewarm_task = asyncio.create_task(prewarm_llm_connection())
+    _PREWARM_TASKS.add(_prewarm_task)
+    _prewarm_task.add_done_callback(_PREWARM_TASKS.discard)
+    _prewarm_task.add_done_callback(_log_prewarm_result)
 
     context = LLMContext()
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(

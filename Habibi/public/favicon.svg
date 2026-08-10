@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="BigBound AI">
+  <title>BigBound AI</title>
+  <!--
+    Favicon variant of the monogram. Same 40-unit coordinate space as BigBoundMark.tsx,
+    but inverted onto a navy plate and set a little heavier: on white the gradient
+    monogram carries itself, on a 16px tab it needs a solid field behind it and thicker
+    strokes to stay legible.
+
+    Regenerate the PNGs after editing:  npm run icons
+  -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12305A"/>
+      <stop offset="1" stop-color="#071A33"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="40" height="40" rx="8.75" fill="url(#plate)"/>
+
+  <g transform="translate(20 19.5) scale(0.84) translate(-18 -19.5)">
+    <rect x="7.6" y="5" width="4.8" height="24" rx="2.4" fill="#FFFFFF"/>
+    <path d="M9.9 7.4H19.6C23.6 7.4 26.6 9.6 26.6 12.5C26.6 15.4 23.6 17.7 19.6 17.7H9.9"
+          stroke="#FFFFFF" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M9.9 17.7H20.6C24.9 17.7 28.2 19.7 28.2 22.2C28.2 24.7 24.9 26.6 20.6 26.6H9.9"
+          stroke="#FFFFFF" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M6.8 35.2C15.4 34.4 26.2 32.6 34.2 27.2"
+          stroke="#4BA3FF" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

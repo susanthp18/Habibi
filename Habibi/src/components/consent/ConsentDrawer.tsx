@@ -9,6 +9,7 @@ import { FrequencyCapsEditor } from "./FrequencyCapsEditor";
 import { OptOutLog } from "./OptOutLog";
 import { ContactablePill } from "./ContactablePill";
 import type { ChannelConsent, AllowedWindow, ConsentRecord, ConsentChannel, OptOutSource } from "@/data/consent-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 
 const SOURCES: OptOutSource[] = ["Agent", "IVR", "Web", "Regulator", "Bulk Import", "WhatsApp Reply"];
 
@@ -57,34 +58,34 @@ export function ConsentDrawer({
 
   return (
     <Sheet open={!!record} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full max-w-[560px] overflow-y-auto p-0 sm:max-w-[560px]">
-        <SheetHeader className="sticky top-0 z-10 border-b border-[var(--border-token)] bg-surface-card p-4">
-          <div className="flex items-center gap-2">
+      <SheetContent side="right" className="w-full max-w-[37.5rem] overflow-y-auto p-0 sm:max-w-[37.5rem]">
+        <SheetHeader className="sticky top-0 z-10 border-b border-border bg-surface p-200">
+          <div className="flex items-center gap-100">
             <ContactablePill record={record} />
-            <span className="ml-auto rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-semibold uppercase text-text-secondary">
+            <Lozenge tone="neutral" className="ml-auto">
               {record.segment}
-            </span>
+            </Lozenge>
           </div>
-          <SheetTitle className="text-left text-[16px] font-semibold text-brand-navy">
+          <SheetTitle className="text-left text-[1rem] font-semibold text-text">
             {record.customerName}
           </SheetTitle>
-          <div className="grid grid-cols-2 gap-1 text-[11px] text-text-secondary">
-            <div><span className="text-text-muted">Account:</span> <span className="font-mono">{record.accountId}</span></div>
-            <div><span className="text-text-muted">Phone:</span> {record.phone}</div>
-            <div className="col-span-2"><span className="text-text-muted">Email:</span> {record.email}</div>
+          <div className="grid grid-cols-2 gap-050 text-body-small text-text-subtle">
+            <div><span className="text-text-subtlest">Account:</span> <span className="font-mono">{record.accountId}</span></div>
+            <div><span className="text-text-subtlest">Phone:</span> {record.phone}</div>
+            <div className="col-span-2"><span className="text-text-subtlest">Email:</span> {record.email}</div>
           </div>
         </SheetHeader>
 
-        <div className="space-y-4 p-4">
+        <div className="space-y-200 p-200">
           <section>
-            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            <div className="mb-050 flex items-center gap-100 text-body-small font-semibold text-text-subtlest">
               Channel matrix
               <button
                 onClick={() => onToggleDnd(record.id, !record.onDndRegistry)}
-                className={`ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                className={`ml-auto inline-flex items-center gap-050 rounded-full px-100 py-025 text-body-small font-semibold ${
                   record.onDndRegistry
-                    ? "bg-[color:var(--danger-bg)] text-[color:var(--danger)]"
-                    : "bg-surface-sunken text-text-secondary hover:bg-brand-tint hover:text-brand-primary"
+                    ? "bg-[color:var(--danger-bg)] text-text-danger"
+                    : "bg-surface-sunken text-text-subtle hover:bg-background-brand-subtlest hover:text-text-brand"
                 }`}
               >
                 <ShieldOff className="h-3 w-3" /> DND registry {record.onDndRegistry ? "· ON" : "· off"}
@@ -94,35 +95,35 @@ export function ConsentDrawer({
           </section>
 
           <section>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Allowed contact window</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Allowed contact window</div>
             <AllowedHoursEditor window={window} timezone={record.timezone} onChange={setWindow} />
           </section>
 
           <section>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Frequency caps</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Frequency caps</div>
             <FrequencyCapsEditor channels={channels} onChange={setChannels} />
           </section>
 
-          <section className="rounded-md border border-[var(--border-token)] bg-surface-card p-3">
-            <div className="mb-2 flex items-center justify-between">
+          <section className="rounded-medium border border-border bg-surface p-150">
+            <div className="mb-100 flex items-center justify-between">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Consent expiry</div>
-                <div className="text-[13px] text-brand-navy">{new Date(record.consentExpiresAt).toLocaleDateString()}</div>
+                <div className="text-body-small font-semibold text-text-subtlest">Consent expiry</div>
+                <div className="text-body text-text">{new Date(record.consentExpiresAt).toLocaleDateString()}</div>
               </div>
-              <Button size="sm" variant="outline" className="h-8" onClick={() => onRenew(record.id)}>
-                <RefreshCw className="mr-1 h-3.5 w-3.5" /> Renew consent
+              <Button size="sm" variant="outline" className="h-400" onClick={() => onRenew(record.id)}>
+                <RefreshCw className="mr-050 h-3.5 w-3.5" /> Renew consent
               </Button>
             </div>
           </section>
 
           <section>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Capture opt-out</div>
-            <div className="rounded-md border border-[var(--border-token)] bg-surface-card p-3 space-y-2">
-              <div className="flex flex-wrap gap-2">
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Capture opt-out</div>
+            <div className="rounded-medium border border-border bg-surface p-150 space-y-100">
+              <div className="flex flex-wrap gap-100">
                 <select
                   value={optChannel}
                   onChange={(e) => setOptChannel(e.target.value as ConsentChannel | "all")}
-                  className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
                 >
                   <option value="all">All channels</option>
                   <option value="call">Call</option>
@@ -133,7 +134,7 @@ export function ConsentDrawer({
                 <select
                   value={optSource}
                   onChange={(e) => setOptSource(e.target.value as OptOutSource)}
-                  className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
                 >
                   {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
@@ -142,27 +143,27 @@ export function ConsentDrawer({
                 value={optNote}
                 onChange={(e) => setOptNote(e.target.value)}
                 placeholder="How was the opt-out captured? (verbatim if possible)"
-                className="min-h-[60px] text-[12px]"
+                className="min-h-[3.75rem] text-body-small"
               />
               <div className="flex justify-end">
-                <Button size="sm" variant="outline" className="h-8" disabled={!optNote.trim()} onClick={captureOptOut}>
-                  <Ban className="mr-1 h-3.5 w-3.5" /> Log opt-out
+                <Button size="sm" variant="outline" className="h-400" disabled={!optNote.trim()} onClick={captureOptOut}>
+                  <Ban className="mr-050 h-3.5 w-3.5" /> Log opt-out
                 </Button>
               </div>
             </div>
           </section>
 
           <section>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Opt-out log</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Opt-out log</div>
             <OptOutLog events={record.optOutLog} />
           </section>
 
           <section>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Audit trail</div>
-            <ul className="space-y-1 text-[12px]">
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Audit trail</div>
+            <ul className="space-y-050 text-body-small">
               {record.audit.slice().reverse().map((a) => (
-                <li key={a.id} className="rounded-md border border-[var(--border-token)] bg-surface-card p-2">
-                  <div className="text-[10px] text-text-muted">{new Date(a.at).toLocaleString()} · {a.actor}</div>
+                <li key={a.id} className="rounded-medium border border-border bg-surface p-100">
+                  <div className="text-body-small text-text-subtlest">{new Date(a.at).toLocaleString()} · {a.actor}</div>
                   <div>{a.action}</div>
                 </li>
               ))}
@@ -170,16 +171,16 @@ export function ConsentDrawer({
           </section>
         </div>
 
-        <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-[var(--border-token)] bg-surface-card px-4 py-3">
+        <div className="sticky bottom-0 z-10 flex items-center gap-100 border-t border-border bg-surface px-200 py-150">
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Change note (added to audit trail)…"
-            className="min-h-[36px] flex-1 text-[12px]"
+            className="min-h-[2.25rem] flex-1 text-body-small"
             rows={1}
           />
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" className="bg-brand-primary hover:bg-brand-primary-hover" onClick={save}>Save changes</Button>
+          <Button size="sm" className="bg-background-brand-bold hover:bg-background-brand-bold-hovered" onClick={save}>Save changes</Button>
         </div>
       </SheetContent>
     </Sheet>

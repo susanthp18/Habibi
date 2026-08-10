@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS provider_configs (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- One config row per provider per tenant per environment. This is the upsert
+-- conflict target: keying on the surrogate id alone let one tenant's write
+-- clobber another tenant's row when ids collided.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_provider_configs_provider_tenant_env
+  ON provider_configs (provider_id, tenant_id, environment);
 
 CREATE TABLE IF NOT EXISTS provider_config_versions (
   id TEXT PRIMARY KEY,
@@ -60,6 +65,7 @@ CREATE TABLE IF NOT EXISTS webhook_endpoints (
   status TEXT NOT NULL CHECK (status IN ('active','paused','broken')),
   signing_algorithm TEXT,
   secret_ref TEXT,
+  secret_hash TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -131,8 +137,12 @@ CREATE TABLE IF NOT EXISTS billing_usage_daily (
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   environment TEXT NOT NULL CHECK (environment IN ('sandbox','production')),
   usage_date date NOT NULL,
-  units numeric(14,4) NOT NULL,
-  cost_inr numeric(14,2) NOT NULL,
+  -- Scale matches usage_events: the flusher adds each batch into these columns,
+  -- so anything narrower rounds on every flush and a sub-paisa batch rounds to
+  -- zero outright. The error is systematically downward, and these are the
+  -- columns the billing screens read.
+  units numeric(18,6) NOT NULL,
+  cost_inr numeric(14,6) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (service_id, tenant_id, environment, usage_date)
 );
@@ -170,8 +180,13 @@ CREATE TABLE IF NOT EXISTS budgets (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- Org-wide rows (tenant_id IS NULL) and tenant rows each need their own
+-- partial unique index: a single index over (tenant_id, environment, month)
+-- would not constrain the NULL-tenant rows at all.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_budgets_org_env_month
   ON budgets (environment, month) WHERE tenant_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_budgets_tenant_env_month
+  ON budgets (tenant_id, environment, month) WHERE tenant_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS budget_rules (
   id TEXT PRIMARY KEY,
@@ -203,10 +218,20 @@ CREATE TABLE IF NOT EXISTS usage_events (
   cost_inr numeric(14,6) NOT NULL,
   meta JSONB NOT NULL DEFAULT '{}'::jsonb,
   occurred_at timestamptz NOT NULL DEFAULT now(),
+  -- Free-form provenance ("which code path emitted this"). Not an id: call
+  -- attribution lives in interaction_id below.
   source_ref TEXT,
+  -- SET NULL, not CASCADE: a retention sweep that deletes an interaction must
+  -- not delete the record that money was spent.
+  interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
+  model TEXT,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_usage_events_service_env
   ON usage_events (service_id, tenant_id, environment, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_usage_events_occurred ON usage_events (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_interaction
+  ON usage_events (interaction_id) WHERE interaction_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_usage_events_model
+  ON usage_events (service_id, model, occurred_at) WHERE model IS NOT NULL;
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Phone, CalendarClock, Plus, FileText, AlertOctagon, User, HandCoins } from "lucide-react";
@@ -12,8 +13,13 @@ export function RightRail() {
   const nextCallback = data?.nextCallback;
   const slaCountdowns = data?.slaCountdowns ?? [];
 
+  // Guards a double-click: startCall places a real outbound call, and two
+  // clicks a moment apart used to fire two of them.
+  const [startingCall, setStartingCall] = useState(false);
+
   const onStartCall = async () => {
-    if (!nextCallback) return;
+    if (!nextCallback || startingCall) return;
+    setStartingCall(true);
     try {
       const list = await fetchCallbacks();
       const cb = list.find((c) => c.id === nextCallback.id);
@@ -27,6 +33,8 @@ export function RightRail() {
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Could not start call");
       void navigate({ to: "/callbacks", search: { id: nextCallback.id } });
+    } finally {
+      setStartingCall(false);
     }
   };
 
@@ -45,63 +53,72 @@ export function RightRail() {
   ];
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-150">
       {/* Next callback */}
-      <div className="rounded-[12px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-[13px] font-semibold tracking-tight text-brand-navy">Next scheduled callback</h3>
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <div className="flex items-center justify-between gap-100">
+          <h3 className="heading-xsmall text-text">Next scheduled callback</h3>
           {nextCallback && (
-            <span className="inline-flex shrink-0 items-center rounded-md border border-brand-primary/25 bg-brand-tint px-2 py-0.5 text-[11px] font-semibold text-brand-primary-dark">
+            <span className="inline-flex shrink-0 items-center rounded-medium border border-border-brand/25 bg-background-brand-subtlest px-100 py-025 text-body-small font-medium text-text-brand">
               {formatInMinutes(nextCallback.inMinutes)}
             </span>
           )}
         </div>
         {nextCallback ? (
           <>
-            <div className="mt-3 flex items-start gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-tint to-white text-brand-primary ring-1 ring-brand-primary/15">
-                <User className="h-5 w-5" />
+            <div className="mt-150 flex items-start gap-150">
+              <div className="grid h-500 w-500 shrink-0 place-items-center rounded-xlarge bg-background-brand-subtlest text-text-brand ring-1 ring-border-brand/15">
+                <User className="h-250 w-250" />
               </div>
               <div className="min-w-0">
-                <div className="truncate text-[14px] font-semibold text-text-primary">{nextCallback.customer}</div>
-                <div className="font-mono text-[11px] text-text-muted">{nextCallback.accountId}</div>
-                <div className="mt-1 line-clamp-2 text-[12px] text-text-secondary">{nextCallback.reason}</div>
-                <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-surface-sunken px-2 py-0.5 text-[12px] font-medium text-brand-navy">
-                  <CalendarClock className="h-3.5 w-3.5 text-brand-primary" />
+                <div className="truncate text-body font-medium text-text">
+                  {nextCallback.customer}
+                </div>
+                <div className="font-mono text-body-small text-text-subtlest">
+                  {nextCallback.accountId}
+                </div>
+                <div className="mt-050 line-clamp-2 text-body-small text-text-subtle">
+                  {nextCallback.reason}
+                </div>
+                <div className="mt-075 inline-flex items-center gap-050 rounded-medium bg-surface-sunken px-100 py-025 text-body-small font-medium text-text">
+                  <CalendarClock className="h-3.5 w-3.5 text-text-brand" />
                   {nextCallback.time} {nextCallback.timezone}
                 </div>
               </div>
             </div>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-200 flex gap-100">
               <button
                 type="button"
                 onClick={() => void onStartCall()}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-primary px-3 py-2 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-primary-hover active:scale-[0.98]"
+                disabled={startingCall}
+                className="inline-flex flex-1 items-center justify-center gap-075 rounded-medium bg-background-brand-bold px-150 py-100 text-body font-medium text-text-inverse transition-colors hover:bg-background-brand-bold-hovered active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Phone className="h-4 w-4" />
-                Start call
+                {startingCall ? "Starting…" : "Start call"}
               </button>
               <button
                 type="button"
                 onClick={() => void navigate({ to: "/callbacks", search: { id: nextCallback.id } })}
-                className="rounded-md border border-[var(--border-token)] bg-white px-3 py-2 text-[13px] font-medium text-text-primary hover:bg-surface-sunken"
+                className="rounded-medium border border-border bg-surface px-150 py-100 text-body font-medium text-text hover:bg-surface-sunken"
               >
                 Reschedule
               </button>
             </div>
           </>
         ) : (
-          <p className="mt-3 text-[12px] text-text-muted">No upcoming callbacks on your queue.</p>
+          <p className="mt-150 text-body-small text-text-subtlest">
+            No upcoming callbacks on your queue.
+          </p>
         )}
       </div>
 
       {/* SLA countdowns */}
-      <div className="rounded-[12px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <h3 className="text-[13px] font-semibold tracking-tight text-brand-navy">Personal SLA countdowns</h3>
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <h3 className="heading-xsmall text-text">Personal SLA countdowns</h3>
         {slaCountdowns.length === 0 ? (
-          <p className="mt-3 text-[12px] text-text-muted">No open SLA timers.</p>
+          <p className="mt-150 text-body-small text-text-subtlest">No open SLA timers.</p>
         ) : (
-          <ul className="mt-3 space-y-2">
+          <ul className="mt-150 max-h-[22rem] space-y-100 overflow-y-auto pr-025">
             {slaCountdowns.map((s) => {
               const entityType = entityTypeFromSlaLabel(s.label);
               return (
@@ -113,11 +130,13 @@ export function RightRail() {
                       if (!entityType) return;
                       navigateWorkItem(navigate, { id: s.id, entityType });
                     }}
-                    className="flex w-full items-center gap-3 rounded-lg border border-[var(--border-token)] bg-surface-sunken/80 px-3 py-2.5 text-left transition-colors hover:border-brand-primary/25 hover:bg-brand-tint/50 disabled:cursor-default disabled:hover:border-[var(--border-token)] disabled:hover:bg-surface-sunken/80"
+                    className="flex w-full items-center gap-150 rounded-large border border-border bg-surface-sunken/80 px-150 py-150 text-left transition-colors hover:border-border-brand/25 hover:bg-background-brand-subtlest/50 disabled:cursor-default disabled:hover:border-border disabled:hover:bg-surface-sunken/80"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12.5px] font-medium text-text-primary">{s.label}</div>
-                      <div className="font-mono text-[10.5px] text-text-muted">{s.id}</div>
+                      <div className="truncate text-body-small font-medium text-text">
+                        {s.label}
+                      </div>
+                      <div className="font-mono text-body-small text-text-subtlest">{s.id}</div>
                     </div>
                     <SlaPill level={s.level} label={s.remaining} className="shrink-0" />
                   </button>
@@ -129,9 +148,9 @@ export function RightRail() {
       </div>
 
       {/* Quick links */}
-      <div className="rounded-[12px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <h3 className="text-[13px] font-semibold tracking-tight text-brand-navy">Quick actions</h3>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <h3 className="heading-xsmall text-text">Quick actions</h3>
+        <div className="mt-150 grid grid-cols-2 gap-100">
           {quickActions.map((a) => {
             const Icon = a.icon;
             return (
@@ -139,13 +158,11 @@ export function RightRail() {
                 key={a.label}
                 type="button"
                 onClick={() => {
-                  void (navigate as (opts: { to: string; search?: Record<string, unknown> }) => unknown)(
-                    a.search ? { to: a.to, search: a.search } : { to: a.to },
-                  );
+                  void navigate(a.search ? { to: a.to, search: a.search } : { to: a.to });
                 }}
-                className="flex items-center gap-2 rounded-lg border border-[var(--border-token)] bg-white px-3 py-2.5 text-left text-[12px] font-medium text-text-primary shadow-sm transition-colors hover:border-brand-primary/30 hover:bg-brand-tint/60 hover:text-brand-primary-dark active:scale-[0.98]"
+                className="flex items-center gap-100 rounded-large border border-border bg-surface px-150 py-150 text-left text-body-small font-medium text-text transition-colors hover:border-border-brand/30 hover:bg-background-brand-subtlest/60 hover:text-text-brand active:scale-[0.98]"
               >
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-tint text-brand-primary">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-medium bg-background-brand-subtlest text-text-brand">
                   <Icon className="h-3.5 w-3.5" />
                 </span>
                 <span className="leading-tight">{a.label}</span>

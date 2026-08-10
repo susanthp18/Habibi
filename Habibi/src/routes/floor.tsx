@@ -36,11 +36,11 @@ function FloorPage() {
   return (
     <AppShell>
       {isLoading && !data ? (
-        <div className="grid h-full place-items-center p-8">
+        <div className="grid h-full place-items-center p-400">
           <Skeleton className="h-40 w-full max-w-3xl" />
         </div>
-      ) : isError ? (
-        <div className="grid h-full place-items-center text-[13px] text-rose-600">
+      ) : isError && !data ? (
+        <div className="grid h-full place-items-center text-body text-text-danger">
           {error instanceof Error ? error.message : "Failed to load floor"}
         </div>
       ) : data ? (
@@ -137,16 +137,14 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
   }, [calls, filters]);
 
   const handleListenToggle = (id: string) => {
-    setListeningId((prev) => {
-      const next = prev === id ? null : id;
-      if (next) {
-        actionMut.mutate(
-          { interactionId: id, action: "listen_in" },
-          { onError: (e) => toast.error(e instanceof Error ? e.message : "Listen failed") },
-        );
-      }
-      return next;
-    });
+    const turningOn = listeningId !== id;
+    setListeningId(turningOn ? id : null);
+    if (turningOn) {
+      actionMut.mutate(
+        { interactionId: id, action: "listen_in" },
+        { onError: (e) => toast.error(e instanceof Error ? e.message : "Listen failed") },
+      );
+    }
   };
 
   const handleWhisperSubmit = (id: string, text: string) => {
@@ -194,9 +192,9 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface-app">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
       {!USE_MOCK && (
-        <div className="shrink-0 border-b border-[var(--border-token)] bg-brand-tint/40 px-4 py-1.5 text-[11px] text-brand-primary-dark">
+        <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
           Live floor · listen / whisper / barge write supervisor audit only (no media plane yet)
         </div>
       )}
@@ -220,14 +218,14 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-200 py-200">
           {filtered.length === 0 ? (
-            <div className="grid h-full place-items-center text-[13px] text-text-muted">
+            <div className="grid h-full place-items-center text-body text-text-subtlest">
               {calls.length === 0 ? "No active calls right now." : "No calls match these filters."}
             </div>
           ) : (
             <div
-              className="grid gap-3"
+              className="grid gap-150"
               style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
             >
               {filtered.map((call) => (

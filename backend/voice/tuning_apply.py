@@ -29,16 +29,31 @@ def _is_reasoning_model(model: str) -> bool:
     return d.startswith(("o1", "o3", "o4")) or "gpt-5" in d or "gpt5" in d
 
 
-def _language(code: str):
+def normalize_language(code: str):
+    """BCP-47 tag → Pipecat ``Language``, defaulting to en-IN.
+
+    Public: mid-call language switching in voice.bot needs this, and reaching
+    across modules for a private helper made an internal rename a runtime break
+    in the live audio path.
+    """
     from pipecat.transcriptions.language import Language
 
     mapping = {
-        "en-IN": Language.EN_IN,
-        "en-US": Language.EN_US,
-        "en-GB": Language.EN_GB,
-        "hi-IN": getattr(Language, "HI_IN", Language.EN_IN),
+        "en-in": Language.EN_IN,
+        "en-us": Language.EN_US,
+        "en-gb": Language.EN_GB,
+        "hi-in": getattr(Language, "HI_IN", Language.EN_IN),
     }
-    return mapping.get((code or "en-IN").strip(), Language.EN_IN)
+    # Case- and separator-insensitive: BCP-47 tags arrive as en-US, en_us or
+    # en-us depending on whether they came from the tuning JSON, an operator
+    # typing into the Voice tab, or a provider callback. An exact-match lookup
+    # silently dropped every variant to en-IN.
+    key = (code or "en-IN").strip().replace("_", "-").lower()
+    return mapping.get(key, Language.EN_IN)
+
+
+# Backwards-compatible alias for in-module call sites.
+_language = normalize_language
 
 
 def text_aggregation_mode(tuning: dict[str, Any]):
@@ -142,9 +157,10 @@ def build_tts_settings(tuning: dict[str, Any]):
     from pipecat.services.azure.tts import AzureTTSService
 
     tts = normalize_tuning(tuning)["tts"]
+    stt = normalize_tuning(tuning)["stt"]
     kwargs: dict[str, Any] = {
         "voice": tts["voice"],
-        "language": _language((tuning.get("stt") or {}).get("language") or "en-IN"),
+        "language": _language(stt.get("language") or "en-IN"),
         "rate": tts.get("rate") or "1.05",
         "pitch": tts.get("pitch") or "+2%",
     }
@@ -243,15 +259,32 @@ def resolve_session_tuning(
     """Normalize deployment/session tuning; optionally overlay Prompt Studio voice.
 
     Pass speed/pitch/warmth as None when AgentTuning.tts already owns those fields
-    (Sandbox Tuning Studio). Only voice_name is typically applied at call start.
-    Stale / removed catalog voices fall back to en-IN-AartiNeural at runtime only.
+    (Sandbox Tuning Studio). Stale / removed catalog voices fall back to
+    en-IN-AartiNeural at runtime only.
+
+    **Voice precedence.** Two surfaces can name a neural voice: the Prompt Studio
+    voice picker (``voice_config.voiceId``, arriving here as ``voice_name``) and
+    the Sandbox Tuning Studio picker (``AgentTuning.tts.voice``). This used to
+    apply ``voice_name`` unconditionally, so the Tuning Studio selection was
+    silently discarded on every call — pick William in the sandbox and the
+    published version's voice answered instead.
+
+    An explicit ``tts.voice`` now wins, and ``voice_name`` supplies the default
+    when the tuning does not name one. The check reads *raw*, before
+    ``normalize_tuning``, because normalisation invents ``en-IN-AartiNeural``
+    for a missing voice — after it runs, a deliberate choice and a default are
+    indistinguishable.
     """
     from agent_core.tuning import apply_voice_config_overlay
-    from tts_catalog_sync import DEFAULT_VOICE
 
+    explicit = str(((raw or {}).get("tts") or {}).get("voice") or "").strip()
+    if explicit and voice_name and explicit != str(voice_name).strip():
+        logger.info(
+            "tts voice: using tuning '{}' over prompt-studio '{}'", explicit, voice_name
+        )
     tuning = apply_voice_config_overlay(
         normalize_tuning(raw),
-        voice_name=voice_name,
+        voice_name=None if explicit else voice_name,
         speed=speed,
         pitch=pitch,
         warmth=warmth,
@@ -273,7 +306,6 @@ def resolve_session_tuning(
     except Exception:
         # Catalog table may be missing mid-migration — keep selected voice.
         logger.debug("tts catalog warning check skipped", exc_info=True)
-        _ = DEFAULT_VOICE
     return tuning
 
 

@@ -35,7 +35,8 @@ export const UNASSIGNED = "Unassigned";
 
 export type CreateDisputeInput = {
   customerId: string;
-  customerName: string;
+  /** Display name — required for mock seed rows; live API resolves it server-side. */
+  customerName?: string;
   accountId: string;
   type: DisputeType;
   amount: number;
@@ -50,7 +51,10 @@ export async function fetchDisputes(): Promise<Dispute[]> {
 /** Raise a dispute from the Disputes desk (or workspace quick action). */
 export async function createDispute(input: CreateDisputeInput): Promise<{ id: string }> {
   if (USE_MOCK) {
-    const d = createSeedDispute(input);
+    const d = createSeedDispute({
+      ...input,
+      customerName: input.customerName?.trim() || input.customerId,
+    });
     await mockDelay(undefined);
     return { id: d.id };
   }

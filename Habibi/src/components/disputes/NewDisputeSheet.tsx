@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,13 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
   const [amount, setAmount] = useState("0");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setCustomerId((cur) => {
+      if (pool.length === 0) return "";
+      return pool.some((c) => c.id === cur) ? cur : pool[0]!.id;
+    });
+  }, [pool]);
 
   const selected = useMemo(() => pool.find((c) => c.id === customerId), [pool, customerId]);
 
@@ -60,24 +67,24 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
   return (
     <div className="fixed inset-0 z-40 flex">
       <button aria-label="Close overlay" type="button" onClick={onClose} className="flex-1 bg-black/30" />
-      <aside className="flex h-full w-full max-w-[440px] flex-col bg-surface-card shadow-xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-token)] px-4 py-3">
+      <aside className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-200 py-150">
           <div>
-            <h2 className="text-[15px] font-semibold text-brand-navy">Raise dispute</h2>
-            <p className="text-[11px] text-text-muted">Log an exception for review on the disputes board.</p>
+            <h2 className="text-[0.875rem] font-semibold text-text">Raise dispute</h2>
+            <p className="text-body-small text-text-subtlest">Log an exception for review on the disputes board.</p>
           </div>
           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-[12.5px]">
+        <div className="min-h-0 flex-1 space-y-150 overflow-y-auto p-200 text-body-small">
           <div>
-            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Customer</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Customer</div>
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
-              className="h-9 w-full rounded-md border border-[var(--border-token)] bg-surface-app px-2"
+              className="h-9 w-full rounded-medium border border-border bg-surface px-100"
             >
               {pool.length === 0 && <option value="">No customers loaded</option>}
               {pool.map((c) => (
@@ -88,11 +95,11 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
             </select>
           </div>
           <div>
-            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Type</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Type</div>
             <select
               value={type}
               onChange={(e) => setType(e.target.value as DisputeType)}
-              className="h-9 w-full rounded-md border border-[var(--border-token)] bg-surface-app px-2"
+              className="h-9 w-full rounded-medium border border-border bg-surface px-100"
             >
               {TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -102,11 +109,11 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
             </select>
           </div>
           <div>
-            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Amount (₹)</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Amount (₹)</div>
             <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-9" />
           </div>
           <div>
-            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Notes</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Notes</div>
             <Textarea
               rows={3}
               value={notes}
@@ -116,7 +123,7 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
           </div>
         </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--border-token)] px-4 py-3">
+        <div className="flex shrink-0 justify-end gap-100 border-t border-border px-200 py-150">
           <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
             Cancel
           </Button>

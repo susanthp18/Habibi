@@ -122,32 +122,26 @@ def upgrade() -> None:
     )
 
     # Flip product default Neerja → Aarti only where still the old default.
-    op.execute(
-        f"""
-        UPDATE bot_deployments
-        SET tuning = jsonb_set(
-              COALESCE(tuning, '{{}}'::jsonb),
-              '{{tts,voice}}',
-              to_jsonb('{_DEFAULT_VOICE}'::text),
-              true
-            ),
-            updated_at = now()
-        WHERE COALESCE(tuning->'tts'->>'voice', '') IN ('', '{_OLD_DEFAULT}')
-        """
-    )
-    op.execute(
-        f"""
-        UPDATE prompt_versions
-        SET tuning = jsonb_set(
-              COALESCE(tuning, '{{}}'::jsonb),
-              '{{tts,voice}}',
-              to_jsonb('{_DEFAULT_VOICE}'::text),
-              true
-            ),
-            updated_at = now()
-        WHERE COALESCE(tuning->'tts'->>'voice', '') IN ('', '{_OLD_DEFAULT}')
-        """
-    )
+    #
+    # jsonb_set(..., '{tts,voice}', ..., true) only creates the *last* path
+    # element: when `tuning` has no `tts` object at all (the common case for a
+    # row with tuning = '{}'), the intermediate key is missing and jsonb_set
+    # returns the target unchanged — so exactly the rows this backfill exists
+    # for were skipped. Build the nested object explicitly instead.
+    for table in ("bot_deployments", "prompt_versions"):
+        op.execute(
+            f"""
+            UPDATE {table}
+            SET tuning = COALESCE(tuning, '{{}}'::jsonb)
+                  || jsonb_build_object(
+                       'tts',
+                       COALESCE(tuning->'tts', '{{}}'::jsonb)
+                         || jsonb_build_object('voice', '{_DEFAULT_VOICE}'::text)
+                     ),
+                updated_at = now()
+            WHERE COALESCE(tuning->'tts'->>'voice', '') IN ('', '{_OLD_DEFAULT}')
+            """
+        )
 
 
 def downgrade() -> None:

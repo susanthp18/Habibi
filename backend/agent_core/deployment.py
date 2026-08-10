@@ -23,7 +23,10 @@ def load_active_bundle(
     Raises KeyError('active_deployment_not_found') when no active row exists
     for the requested (or fallback) environment(s).
     """
-    envs = (environment, *fallback_environments)
+    envs: list[str] = []
+    for env in (environment, *fallback_environments):
+        if env and env not in envs:
+            envs.append(env)
     deployment: dict[str, Any] | None = None
     for env in envs:
         deployment = db.get_active_deployment(bot_id=bot_id, environment=env)
@@ -52,13 +55,19 @@ def load_active_bundle(
         "deploymentId": deployment["id"],
         "promptVersionId": prompt_version_id,
         "kbSnapshotId": deployment.get("kbSnapshotId"),
-        "ttsVoiceId": deployment.get("ttsVoiceId"),
+        # Azure ShortName (column formerly held studio alias ids like "priya").
+        "ttsVoiceId": deployment.get("ttsVoiceId")
+        or (tuning.get("tts") or {}).get("voice")
+        or voice_config.get("azureVoiceName"),
         "voiceConfig": voice_config,
         "tuning": tuning,
         "prompt": version.get("prompt") or "",
         "persona": persona,
         "voice": voice,
         "guardrails": guardrails,
+        # Authored conversation graph. Empty when the version predates flow
+        # authoring; voice/bot.py then keeps the built-in flow.
+        "flow": version.get("flow") if isinstance(version.get("flow"), dict) else {},
         "promptVersion": version,
     }
 
@@ -92,6 +101,7 @@ def resolve_prompt_bundle(
             "persona": persona,
             "voice": voice,
             "guardrails": guardrails,
+            "flow": version.get("flow") if isinstance(version.get("flow"), dict) else {},
             "promptVersion": version,
         }
     return load_active_bundle(

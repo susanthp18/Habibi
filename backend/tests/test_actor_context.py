@@ -15,6 +15,10 @@ def _reload_map(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("API_KEY_MAP", raising=False)
     actor_context.reload_api_key_map()
     yield
+    # Restore the environment *before* reloading: monkeypatch's own teardown
+    # runs after this fixture, so reloading first re-caches the test's mapping
+    # and leaks it into every later module.
+    monkeypatch.undo()
     actor_context.reload_api_key_map()
 
 

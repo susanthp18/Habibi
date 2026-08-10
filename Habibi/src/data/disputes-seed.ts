@@ -401,7 +401,18 @@ export function createDispute(input: {
   amount: number;
   notes?: string;
 }): Dispute {
-  const id = `D-${Math.floor(4800 + Math.random() * 900)}`;
+  // Validate before minting an id: a NaN or negative disputed amount used to
+  // be written straight into the record and then rendered as "₹NaN" in the
+  // queue, with the id already consumed.
+  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+    throw new Error("Disputed amount must be a positive number");
+  }
+  const nextNum =
+    disputes.reduce((max, d) => {
+      const m = d.id.match(/^(?:DSP-|D-)(\d+)$/);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 4800) + 1;
+  const id = `D-${nextNum}`;
   const at = new Date().toISOString();
   const d: Dispute = {
     id,
@@ -414,7 +425,7 @@ export function createDispute(input: {
     source: "agent",
     transcriptSnippet: input.notes?.trim() ? `"${input.notes.trim()}"` : "(agent-raised)",
     capturedAt: at,
-    slaDueAt: hoursISO(48),
+    slaDueAt: new Date(Date.parse(at) + 48 * 3_600_000).toISOString(),
     status: "new",
     assignee: CURRENT_AGENT,
     priority: "normal",

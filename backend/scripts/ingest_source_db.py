@@ -22,14 +22,29 @@ if str(BACKEND_ROOT) not in sys.path:
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from sqlalchemy import text
-
-import azure_openai
-import db
 from env_loader import load_env
-from kb_chunking import faq_id, faq_intent, parse_faq_qa
-from kb_corpus_manifest import CORPUS_MANIFEST, CorpusProduct, validate_manifest
-from kb_ingest import drain_queue, enqueue_index_job, upsert_document
+
+# db + azure_openai bind DATABASE_URL / AZURE_OPENAI_* at import time, so .env
+# must already be in os.environ. load_env() is idempotent and a no-op when the
+# HTTP entrypoint has already loaded it.
+load_env()
+
+from sqlalchemy import text  # noqa: E402
+
+import azure_openai  # noqa: E402
+import db  # noqa: E402
+from kb_chunking import faq_id, faq_intent, parse_faq_qa  # noqa: E402
+from kb_corpus_manifest import (  # noqa: E402
+    CORPUS_MANIFEST,
+    CorpusProduct,
+    validate_manifest,
+)
+from kb_ingest import (  # noqa: E402
+    drain_queue,
+    enqueue_index_job,
+    job_statuses,
+    upsert_document,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,12 +140,27 @@ def ingest_product(product: CorpusProduct, paths: dict[str, Path]) -> dict[str, 
             ),
             {"p": policy_id, "b": benefits_id},
         )
-        enqueue_index_job(conn, document_id=policy_id)
-        enqueue_index_job(conn, document_id=benefits_id)
+        policy_job = enqueue_index_job(conn, document_id=policy_id)
+        benefits_job = enqueue_index_job(conn, document_id=benefits_id)
 
     # Process jobs outside the FAQ txn so embed failures don't orphan FAQ deletes mid-flight.
     jobs_drained = drain_queue(db.engine)
     logger.info("product=%s index_jobs_drained=%s", product.product_key, jobs_drained)
+
+    # drain_queue swallows per-job failures (they are recorded on the job row),
+    # so a failed embed would otherwise leave FAQs pointing at an unindexed
+    # document and the run would report success.
+    with db.engine.connect() as conn:
+        statuses = job_statuses(conn, [policy_job, benefits_job])
+    failed = {
+        jid: statuses.get(jid, "missing")
+        for jid in (policy_job, benefits_job)
+        if statuses.get(jid) != "succeeded"
+    }
+    if failed:
+        raise RuntimeError(
+            f"index jobs did not succeed for product={product.product_key}: {failed}"
+        )
 
     with db.engine.begin() as conn:
         faq_count = _upsert_faqs(

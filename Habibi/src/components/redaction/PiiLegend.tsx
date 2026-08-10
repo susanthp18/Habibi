@@ -9,7 +9,7 @@ interface Props {
 
 export function PiiLegend({ active, onToggle, compact }: Props) {
   return (
-    <div className={cn("flex flex-wrap gap-1.5", compact && "gap-1")}>
+    <div className={cn("flex flex-wrap gap-075", compact && "gap-050")}>
       {ENTITY_TYPES.map((t) => {
         const isActive = !active || active.has(t);
         return (
@@ -18,14 +18,14 @@ export function PiiLegend({ active, onToggle, compact }: Props) {
             type="button"
             onClick={() => onToggle?.(t)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+              "inline-flex items-center gap-075 rounded-full border px-100 py-025 text-body-small transition-colors",
               isActive
-                ? "border-transparent bg-surface-sunken text-text-primary"
-                : "border-dashed border-[var(--border-token)] bg-transparent text-text-muted line-through",
-              onToggle && "cursor-pointer hover:bg-brand-tint",
+                ? "border-transparent bg-surface-sunken text-text"
+                : "border-dashed border-border bg-transparent text-text-subtlest line-through",
+              onToggle && "cursor-pointer hover:bg-background-brand-subtlest",
             )}
           >
-            <span className="h-2 w-2 rounded-full" style={{ background: ENTITY_COLORS[t] }} />
+            <span className="h-100 w-100 rounded-full" style={{ background: ENTITY_COLORS[t] }} />
             {DEFAULT_RULES[t].label}
           </button>
         );

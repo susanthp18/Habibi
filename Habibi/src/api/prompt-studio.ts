@@ -5,7 +5,7 @@
 // -----------------------------------------------------------------------------
 
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   KNOWN_VARIABLES,
@@ -20,6 +20,7 @@ import {
   type VoiceConfig,
 } from "@/data/prompt-studio-seed";
 import { apiGet, apiPatch, apiPost, apiPostBlob, mockDelay, USE_MOCK } from "./config";
+import type { FlowGraph } from "./flow";
 
 export type BotDeployment = {
   id: string;
@@ -33,6 +34,7 @@ export type BotDeployment = {
   publishedAt: string | null;
   rollbackDeploymentId: string | null;
   voiceConfig: Record<string, unknown>;
+  tuning?: Record<string, unknown>;
 };
 
 export type PromptVersionDraftInput = {
@@ -42,6 +44,8 @@ export type PromptVersionDraftInput = {
   voice: VoiceConfig;
   guardrails: Guardrails;
   summary?: string;
+  /** Omitted (not sent empty) leaves the stored graph untouched. */
+  flow?: FlowGraph;
 };
 
 export type PromptVersionPatchInput = {
@@ -182,6 +186,8 @@ export type TtsSyncRun = {
   error?: string | null;
   region?: string;
   defaultVoice?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
 };
 
 export type TtsVoiceWarning = {
@@ -235,6 +241,12 @@ export async function fetchTtsVoiceCatalog(params: TtsCatalogQuery = {}): Promis
 }
 
 export async function fetchTtsVoiceDetail(shortName: string): Promise<TtsCatalogVoice> {
+  if (USE_MOCK) {
+    const catalog = await fetchTtsVoiceCatalog();
+    const found = catalog.items.find((v) => v.shortName === shortName);
+    if (!found) throw new Error(`tts_voice_not_found: ${shortName}`);
+    return mockDelay(found);
+  }
   return apiGet<TtsCatalogVoice>(`/tts-voices/catalog/${encodeURIComponent(shortName)}`);
 }
 
@@ -249,7 +261,38 @@ export async function fetchTtsPricing(): Promise<TtsPriceTier[]> {
 }
 
 export async function syncTtsVoiceCatalog(): Promise<TtsSyncRun> {
+  if (USE_MOCK) {
+    return mockDelay({
+      id: `sync-mock-${Date.now()}`,
+      source: "mock",
+      fetchedCount: TTS_VOICES.length,
+      upserted: TTS_VOICES.length,
+      softRemoved: 0,
+      unchanged: 0,
+      region: "centralindia",
+      defaultVoice: "en-IN-AartiNeural",
+    });
+  }
   return apiPost<TtsSyncRun>("/tts-voices/catalog/sync", {});
+}
+
+export async function fetchTtsSyncRuns(limit = 20): Promise<TtsSyncRun[]> {
+  if (USE_MOCK) {
+    return mockDelay([
+      {
+        id: "sync-mock-1",
+        source: "mock",
+        fetchedCount: TTS_VOICES.length,
+        upserted: TTS_VOICES.length,
+        softRemoved: 0,
+        unchanged: 0,
+        region: "centralindia",
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      },
+    ]);
+  }
+  return apiGet<TtsSyncRun[]>(`/tts-voices/catalog/sync-runs?limit=${limit}`);
 }
 
 export async function fetchTtsVoiceWarning(shortName: string): Promise<TtsVoiceWarning | null> {
@@ -265,6 +308,34 @@ export function useTtsVoiceCatalog(params: TtsCatalogQuery) {
     queryFn: () => fetchTtsVoiceCatalog(params),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
+  });
+}
+
+/** Infinite catalog pages — VoicePanel / Tuning Studio primary loader. */
+export function useInfiniteTtsVoiceCatalog(
+  params: Omit<TtsCatalogQuery, "cursor"> & { limit?: number },
+) {
+  const limit = params.limit ?? 50;
+  const { limit: _ignored, ...filters } = params;
+  return useInfiniteQuery({
+    queryKey: ["tts-voice-catalog-infinite", filters, limit],
+    queryFn: ({ pageParam }) =>
+      fetchTtsVoiceCatalog({
+        ...filters,
+        limit,
+        cursor: pageParam ?? undefined,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    staleTime: 30_000,
+  });
+}
+
+export function useTtsSyncRuns(limit = 5) {
+  return useQuery({
+    queryKey: ["tts-voice-sync-runs", limit],
+    queryFn: () => fetchTtsSyncRuns(limit),
+    staleTime: 30_000,
   });
 }
 
@@ -288,7 +359,9 @@ export async function fetchBotDeployments(params?: {
         botId: "kaia-v2-4",
         promptVersionId: published?.id ?? "v1_4",
         kbSnapshotId: "kb-snapshot-2026-07",
-        ttsVoiceId: published?.voice.voiceId ?? "priya",
+        ttsVoiceId: published?.voice.azureVoiceName
+          ?? published?.voice.voiceId
+          ?? "en-IN-AartiNeural",
         environment: "production" as const,
         status: "active" as const,
         publishedBy: "Priya Nair",
@@ -487,7 +560,8 @@ export async function rollbackBotDeployment(deploymentId: string): Promise<BotDe
       botId: "kaia-v2-4",
       promptVersionId: archived.id,
       kbSnapshotId: "kb-snapshot-2026-07",
-      ttsVoiceId: archived.voice.voiceId,
+      ttsVoiceId:
+        archived.voice.azureVoiceName ?? archived.voice.voiceId ?? "en-IN-AartiNeural",
       environment: "production",
       status: "active",
       publishedBy: "You",
@@ -614,6 +688,21 @@ export function useProdDeployments() {
   });
 }
 
+/** True when PATCH draft is expected to fail and caller should create a new draft instead. */
+function isDraftPatchFallbackError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("404") ||
+    msg.includes("409") ||
+    msg.includes("not found") ||
+    msg.includes("prompt_version_not_found") ||
+    msg.includes("prompt_version_not_draft") ||
+    msg.includes("not_draft") ||
+    msg.includes("not-draft")
+  );
+}
+
 /** Create-or-patch a draft from editor state, then publish it. */
 export async function publishStudioDraft(opts: {
   draftId?: string | null;
@@ -635,7 +724,8 @@ export async function publishStudioDraft(opts: {
   if (draftId) {
     try {
       await patchPromptVersion(draftId, body);
-    } catch {
+    } catch (err) {
+      if (!isDraftPatchFallbackError(err)) throw err;
       // Draft may have been published/archived elsewhere — fall through to create.
       draftId = null;
     }
@@ -655,6 +745,7 @@ export async function ensureStudioDraft(opts: {
   persona: PersonaState;
   voice: VoiceConfig;
   guardrails: Guardrails;
+  flow?: FlowGraph;
   summary?: string;
 }): Promise<PromptVersion> {
   const body: PromptVersionDraftInput = {
@@ -665,10 +756,15 @@ export async function ensureStudioDraft(opts: {
     guardrails: opts.guardrails,
     summary: opts.summary ?? "draft autosave",
   };
+  // Omitted rather than sent empty: the backend leaves the column untouched
+  // when the key is absent, so a save issued before the flow tab ever loaded
+  // cannot wipe an authored graph.
+  if (opts.flow) body.flow = opts.flow;
   if (opts.draftId) {
     try {
       return await patchPromptVersion(opts.draftId, body);
-    } catch {
+    } catch (err) {
+      if (!isDraftPatchFallbackError(err)) throw err;
       /* create below */
     }
   }

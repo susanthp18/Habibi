@@ -10,7 +10,7 @@ Contract (server → client), mirrored by ``useSandboxLiveCall`` on the frontend
 
 ===================== ==========================================
 ``crm.entity``        ``{entity, id, deepLink, tool, summary}``
-``rag.hits``          ``{query, chunkIds, snapshotId, topScore}``
+``rag.hits``          ``{query, chunkIds, snapshotId, topScore, source}``
 ``flow.node``         ``{name, previous}``
 ``session.lifecycle`` ``{phase, reason}``
 ``handoff.status``    ``{mode, state, reason, assignee?, team?, conversationId?}``
@@ -131,6 +131,59 @@ class RtviEmitter:
             payload["conversationId"] = conversation_id
         await self.send("handoff.status", payload)
 
+    async def session_bound(
+        self, *, interaction_id: str | None, customer_id: str | None
+    ) -> None:
+        """The CRM interaction backing this call.
+
+        The Inspector's Trace tab reads the persisted per-turn timeline when it
+        has an interaction id and falls back to a client-derived sketch when it
+        does not. The sandbox never had the id, so a live call always got the
+        sketch — which reports ``0 chunks · 0ms · 0t`` because live turns are
+        appended without those fields.
+        """
+        await self.send(
+            "session.bound",
+            {"interactionId": interaction_id, "customerId": customer_id},
+        )
+
+    async def turn_analysis(self, payload: dict[str, Any]) -> None:
+        """One turn's classification and timings, as they are produced.
+
+        The Inspector's Intent, Sentiment and Metrics tabs were empty for whole
+        live calls: the browser built its turn list from the RTVI transcript,
+        which carries text only, while the intent scores, sentiment and latency
+        breakdown were computed server-side and written straight to Postgres.
+        Keys mirror the ``interaction_transcript`` columns so the live view and
+        the downloadable export never disagree.
+
+        Emitted twice for a customer turn — once with the keyword baseline, then
+        again when the LLM refinement lands, carrying ``source`` so the client
+        can tell a provisional reading from a settled one. ``turnIndex`` is the
+        merge key.
+        """
+        await self.send("turn.analysis", payload)
+
     async def context_card(self, card: str) -> None:
         """Sandbox-only CallContext debug dump."""
         await self.send("context.card", {"card": card})
+
+    async def identity_verified(
+        self,
+        *,
+        customer_name: str | None,
+        customer_id: str | None,
+        method: str | None = None,
+    ) -> None:
+        """Who the call is actually about, once verification succeeds.
+
+        The Sandbox header used to show only the rehearsal persona ("Rahul
+        Sharma"), which is the name the tester typed — while every tool from
+        this point on returns the real CRM customer. The name was already in
+        the context card, but only as a line of prose inside a debug dump, so
+        the UI had nothing structured to read.
+        """
+        await self.send(
+            "identity.verified",
+            {"customerName": customer_name, "customerId": customer_id, "method": method},
+        )

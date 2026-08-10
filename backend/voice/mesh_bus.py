@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 from voice import config as voice_config
@@ -21,7 +22,6 @@ CHANNEL = "bigbound.voice.mesh"
 
 _bus: Any | None = None
 _bus_lock = asyncio.Lock()
-_listeners: list[asyncio.Queue] = []
 
 
 async def get_bus() -> Any | None:
@@ -34,19 +34,27 @@ async def get_bus() -> Any | None:
             return _bus
         url = voice_config.redis_url()
         if url:
+            client = None
             try:
                 from redis.asyncio import Redis
                 from pipecat.bus.network.redis import RedisBus
 
+                # Publish-only: do not call RedisBus.start() here — that
+                # requires a TaskManager owned by WorkerRunner. publish()
+                # uses redis.publish and works without the reader loop.
                 client = Redis.from_url(url, decode_responses=False)
                 _bus = RedisBus(redis=client, channel=CHANNEL)
-                if hasattr(_bus, "start"):
-                    maybe = _bus.start()
-                    if asyncio.iscoroutine(maybe):
-                        await maybe
-                logger.info("voice mesh RedisBus connected · channel=%s", CHANNEL)
+                logger.info("voice mesh RedisBus (publish) · channel=%s", CHANNEL)
             except Exception:
                 logger.exception("RedisBus init failed — falling back to local")
+                if client is not None:
+                    try:
+                        await client.aclose()
+                    except Exception:
+                        try:
+                            await client.close()
+                        except Exception:
+                            pass
                 _bus = _LocalBus()
         else:
             _bus = _LocalBus()
@@ -103,8 +111,27 @@ async def publish_role_change(role: str, *, session_id: str | None = None) -> No
         logger.exception("mesh publish failed")
 
 
-async def activate_and_publish(role: str, *, session_id: str | None = None) -> str:
-    active = activate_role(role)
+async def activate_and_publish(
+    role: str,
+    *,
+    session_id: str | None = None,
+    customer_id: str | None = None,
+    interaction_id: str | None = None,
+    bot_id: str | None = None,
+) -> str:
+    """Activate a mesh role and announce it.
+
+    ``customer_id`` is per-call: the process-wide MESH_CUSTOMER_ID env fallback
+    made every concurrent call activate the insurance worker against the same
+    customer, so a second caller's sidecar answered with the first caller's CRM
+    context.
+
+    ``interaction_id`` and ``bot_id`` travel with it so anything the specialist
+    writes is attributable to the call that triggered it. Without them a
+    mesh-captured lead had no source call, no lead_captured event and no
+    upsell_presented flag — invisible to every analytic that matters.
+    """
+    active = activate_role(role, session_id)
     await publish_role_change(active, session_id=session_id)
     # Cross-process activate for the insurance LLMWorker sidecar.
     if active == "insurance":
@@ -115,7 +142,13 @@ async def activate_and_publish(role: str, *, session_id: str | None = None) -> s
 
                 await bus.publish(
                     BusActivateWorkerMessage(
-                        args={"sessionId": session_id, "role": active},
+                        args={
+                            "sessionId": session_id,
+                            "role": active,
+                            "customerId": customer_id or os.getenv("MESH_CUSTOMER_ID") or "",
+                            "interactionId": interaction_id or "",
+                            "botId": bot_id or "",
+                        },
                         source="voice.collections",
                         target="insurance",
                     )
@@ -125,7 +158,7 @@ async def activate_and_publish(role: str, *, session_id: str | None = None) -> s
     return active
 
 
-def mesh_status() -> dict[str, Any]:
-    st = status()
+def mesh_status(session_id: str | None = None) -> dict[str, Any]:
+    st = status(session_id)
     st["channel"] = CHANNEL
     return st

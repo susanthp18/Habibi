@@ -21,13 +21,13 @@ function Node({ p, env, onOpen }: { p: Provider; env: Env; onOpen: (id: string) 
   return (
     <button
       onClick={() => onOpen(p.id)}
-      className="group flex min-w-[120px] flex-col items-center gap-1 rounded-lg border border-[var(--border-token)] bg-white px-3 py-2 shadow-sm transition-all hover:border-brand-primary hover:shadow"
+      className="group flex min-w-[7.5rem] flex-col items-center gap-050 rounded-large border border-border bg-surface px-150 py-100 transition-all hover:border-border-brand"
     >
-      <div className={cn("grid h-9 w-9 place-items-center rounded-md", p.brandColor)}>
+      <div className={cn("grid h-9 w-9 place-items-center rounded-medium", p.brandColor)}>
         <Icon className="h-4 w-4" />
       </div>
-      <div className="text-[11px] font-semibold text-brand-navy">{p.name}</div>
-      <div className="flex items-center gap-1 text-[10px]">
+      <div className="text-body-small font-semibold text-text">{p.name}</div>
+      <div className="flex items-center gap-050 text-body-small">
         <span className={cn("h-1.5 w-1.5 rounded-full", t.dot)} />
         <span className={t.text}>{t.label}</span>
       </div>
@@ -43,25 +43,25 @@ export function PipelineBanner({ env, onOpen, providers }: Props & { providers?:
   const orchestrator = byId("pipecat");
 
   return (
-    <div className="rounded-lg border border-brand-primary/30 bg-gradient-to-br from-brand-tint/60 to-white p-4">
-      <div className="mb-3 flex items-center justify-between">
+    <div className="rounded-large border border-border-brand/30 bg-gradient-to-br from-background-brand-subtlest/60 to-white p-200">
+      <div className="mb-150 flex items-center justify-between">
         <div>
-          <div className="text-[12px] font-semibold uppercase tracking-wide text-brand-primary-dark">Pipecat pipeline</div>
-          <p className="text-[11px] text-text-secondary">Each stage below is where the Pipecat backend plugs into this workspace. Click a node to configure it.</p>
+          <div className="text-body-small font-semibold text-text-brand">Pipecat pipeline</div>
+          <p className="text-body-small text-text-subtle">Each stage below is where the Pipecat backend plugs into this workspace. Click a node to configure it.</p>
         </div>
         {orchestrator ? <Node p={orchestrator} env={env} onOpen={onOpen} /> : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-100">
         {main.map((p, i) => (
-          <div key={p.id} className="flex items-center gap-2">
+          <div key={p.id} className="flex items-center gap-100">
             <Node p={p} env={env} onOpen={onOpen} />
-            {i < main.length - 1 && <ArrowRight className="h-4 w-4 text-brand-primary/50" />}
+            {i < main.length - 1 && <ArrowRight className="h-4 w-4 text-text-brand/50" />}
           </div>
         ))}
         {side.length > 0 && (
           <>
-            <div className="mx-2 h-8 w-px bg-[var(--border-token)]" />
-            <div className="text-[10px] font-medium uppercase tracking-wider text-text-muted">Side channels</div>
+            <div className="mx-100 h-400 w-px bg-border" />
+            <div className="text-body-small font-medium text-text-subtlest">Side channels</div>
             {side.map((p) => (
               <Node key={p.id} p={p} env={env} onOpen={onOpen} />
             ))}

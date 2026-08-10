@@ -5,25 +5,25 @@ import { Star } from "lucide-react";
 
 export function HeroKpiCard({ kpi }: { kpi: HeroKpi }) {
   return (
-    <div className="relative flex flex-col justify-between overflow-hidden rounded-lg border border-brand-primary/40 bg-surface-card p-5 shadow-card">
-      <span className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-primary to-brand-primary-dark" />
+    <div className="relative flex flex-col justify-between overflow-hidden rounded-large border border-border-brand/40 bg-surface p-250">
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-050 bg-background-brand-bold" />
       <div className="flex items-start justify-between">
         <div>
-          <div className="mb-1 flex items-center gap-1.5">
-            <Star className="h-3.5 w-3.5 fill-brand-primary text-brand-primary" />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-primary">
-              North-Star Metric
+          <div className="mb-050 flex items-center gap-075">
+            <Star className="h-3.5 w-3.5 fill-icon-brand text-text-brand" />
+            <span className="text-body-small font-medium text-text-brand">
+              North-star metric
             </span>
           </div>
-          <div className="text-sm font-medium text-text-secondary">{kpi.label}</div>
+          <div className="text-sm font-medium text-text-subtle">{kpi.label}</div>
         </div>
         <DeltaChip value={kpi.delta} good={kpi.deltaGood} />
       </div>
 
-      <div className="mt-3 flex items-end justify-between">
+      <div className="mt-150 flex items-end justify-between">
         <div>
-          <div className="text-3xl font-semibold text-brand-navy tabular">{kpi.value}</div>
-          <div className="mt-1 text-xs text-text-muted">{kpi.sub}</div>
+          <div className="text-3xl font-semibold text-text tabular">{kpi.value}</div>
+          <div className="mt-050 text-xs text-text-subtlest">{kpi.sub}</div>
         </div>
         <Sparkline data={kpi.spark} width={140} height={44} />
       </div>

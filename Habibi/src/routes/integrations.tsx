@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
 import { IntegrationsHeader } from "@/components/integrations/IntegrationsHeader";
@@ -36,14 +37,26 @@ function IntegrationsPage() {
   const [logs, setLogs] = useState<TestLogEntry[]>([]);
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
   const [testingAll, setTestingAll] = useState(false);
+  // Mock-only local credential edits. Keyed by environment as well as id —
+  // an id-only map leaked a sandbox edit into the production view — and
+  // deliberately NOT used for toggle/test results any more: those are server
+  // truth and go straight into the query cache, so a refetch can correct them.
+  // As an override they shadowed refreshed server data permanently.
   const [localOverrides, setLocalOverrides] = useState<Record<string, Provider>>({});
 
   const { data: remote = [], isLoading } = useProviders(env);
   const mut = useProviderMutations(env);
+  const queryClient = useQueryClient();
+
+  const patchProviderCache = (next: Provider) => {
+    queryClient.setQueryData<Provider[]>(["providers", env], (prev) =>
+      Array.isArray(prev) ? prev.map((p) => (p.id === next.id ? next : p)) : prev,
+    );
+  };
 
   const providers = useMemo(
-    () => remote.map((p) => localOverrides[p.id] ?? p),
-    [remote, localOverrides],
+    () => remote.map((p) => localOverrides[`${env}:${p.id}`] ?? p),
+    [remote, localOverrides, env],
   );
 
   const filtered = useMemo(
@@ -53,18 +66,19 @@ function IntegrationsPage() {
 
   const updateProvider = (p: Provider) => {
     // Live mode: credentials are locked — only allow local mock edits.
-    if (!USE_MOCK && p.perEnv[env].credentialsLocked) {
+    const envCfg = p.perEnv?.[env];
+    if (!USE_MOCK && envCfg?.credentialsLocked) {
       toast.message("Secrets are env/ops-managed — enable/disable and health tests only.");
       return;
     }
-    setLocalOverrides((prev) => ({ ...prev, [p.id]: p }));
+    setLocalOverrides((prev) => ({ ...prev, [`${env}:${p.id}`]: p }));
   };
 
   const toggleProvider = (id: string, v: boolean) => {
     mut.setEnabled.mutate(
       { id: id as Provider["id"], enabled: v },
       {
-        onSuccess: (p) => setLocalOverrides((prev) => ({ ...prev, [p.id]: p })),
+        onSuccess: patchProviderCache,
         onError: (e) => toast.error(e instanceof Error ? e.message : "Toggle failed"),
       },
     );
@@ -75,21 +89,26 @@ function IntegrationsPage() {
     try {
       const entry = await mut.testOne.mutateAsync(p);
       setLogs((prev) => [...prev, entry]);
-      setLocalOverrides((prev) => ({
-        ...prev,
-        [p.id]: {
-          ...p,
-          perEnv: {
-            ...p.perEnv,
-            [env]: {
-              ...p.perEnv[env],
-              health: entry.ok ? "healthy" : "degraded",
-              latencyMs: entry.latencyMs,
-            },
+      // Patch from the server-backed cache row, not a local override snapshot.
+      const base =
+        queryClient.getQueryData<Provider[]>(["providers", env])?.find((x) => x.id === p.id) ?? p;
+      const envCfg = base.perEnv?.[env];
+      if (!envCfg) return entry;
+      patchProviderCache({
+        ...base,
+        perEnv: {
+          ...base.perEnv,
+          [env]: {
+            ...envCfg,
+            health: entry.ok ? "healthy" : "degraded",
+            latencyMs: entry.latencyMs,
           },
         },
-      }));
+      });
       return entry;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Connection test failed");
+      return { ok: false, latencyMs: 0, message: "Test failed", providerId: p.id, env, at: new Date().toISOString(), id: `err-${Date.now()}`, payload: undefined } satisfies TestLogEntry;
     } finally {
       setTestingIds((prev) => {
         const n = new Set(prev);
@@ -101,11 +120,14 @@ function IntegrationsPage() {
 
   const testAll = async () => {
     setTestingAll(true);
-    const enabled = providers.filter((p) => p.perEnv[env].enabled);
-    const results = await Promise.all(enabled.map(runOne));
-    const ok = results.filter((r) => r.ok).length;
-    setTestingAll(false);
-    toast.success(`${ok} of ${enabled.length} healthy in ${env}`);
+    try {
+      const enabled = providers.filter((p) => p.perEnv?.[env]?.enabled);
+      const results = await Promise.all(enabled.map(runOne));
+      const ok = results.filter((r) => r.ok).length;
+      toast.success(`${ok} of ${enabled.length} healthy in ${env}`);
+    } finally {
+      setTestingAll(false);
+    }
   };
 
   const selected = providers.find((p) => p.id === selectedId) ?? null;
@@ -119,34 +141,34 @@ function IntegrationsPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-4 py-3">
+        <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
           <IntegrationsHeader env={env} onEnv={setEnv} onTestAll={testAll} testing={testingAll} />
         </div>
 
         {!USE_MOCK && (
-          <div className="shrink-0 border-b border-[var(--border-token)] bg-brand-tint/40 px-4 py-1.5 text-[11px] text-brand-primary-dark">
+          <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
             Live stack providers only · secrets resolve from process env / vault (not editable here)
           </div>
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="space-y-4 p-4">
+          <div className="space-y-200 p-200">
             {isLoading && providers.length === 0 ? (
               <Skeleton className="h-40 w-full" />
             ) : (
               <>
                 <PipelineBanner env={env} onOpen={setSelectedId} providers={providers} />
 
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-075">
                   {categories.map((c) => (
                     <button
                       key={c}
                       onClick={() => setCategory(c)}
                       className={cn(
-                        "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                        "rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
                         category === c
-                          ? "border-brand-primary bg-brand-tint text-brand-primary-dark"
-                          : "border-[var(--border-token)] bg-white text-text-secondary hover:border-brand-primary/40",
+                          ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                          : "border-border bg-surface text-text-subtle hover:border-border-brand/40",
                       )}
                     >
                       {c}
@@ -154,7 +176,7 @@ function IntegrationsPage() {
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 gap-150 md:grid-cols-2 xl:grid-cols-3">
                   {filtered.map((p) => (
                     <ProviderCard
                       key={p.id}

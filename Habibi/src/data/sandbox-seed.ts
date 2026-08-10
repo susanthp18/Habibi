@@ -4,15 +4,51 @@ import type { Guardrails, PersonaState } from "./prompt-studio-seed";
 export type Difficulty = "easy" | "medium" | "hard";
 export type Role = "bot" | "customer" | "system";
 
-export type IntentKey =
-  | "balance_query"
-  | "dispute"
-  | "hardship"
-  | "waiver_request"
-  | "payment_intent"
-  | "upsell_opportunity"
-  | "escalation"
-  | "out_of_scope";
+export const INTENT_KEYS = [
+  "balance_query",
+  "dispute",
+  "hardship",
+  "waiver_request",
+  "payment_intent",
+  "upsell_opportunity",
+  "escalation",
+  "out_of_scope",
+] as const;
+
+export type IntentKey = (typeof INTENT_KEYS)[number];
+
+export type SandboxChunkMeta = {
+  docTitle?: string | null;
+  heading?: string | null;
+  snippet?: string | null;
+};
+
+declare global {
+  interface Window {
+    __sandboxChunkMeta?: Record<string, SandboxChunkMeta>;
+  }
+}
+
+/** Cache live RAG chunk titles for seed fallback lookups. */
+export function mergeSandboxChunkMeta(
+  hits: Array<{
+    chunkId: string;
+    docTitle?: string | null;
+    heading?: string | null;
+    snippet?: string | null;
+  }>,
+): void {
+  if (typeof window === "undefined" || hits.length === 0) return;
+  const map = (window.__sandboxChunkMeta ??= {});
+  for (const c of hits) {
+    if (!c.chunkId) continue;
+    map[c.chunkId] = {
+      docTitle: c.docTitle ?? null,
+      heading: c.heading ?? null,
+      snippet: c.snippet ?? null,
+    };
+  }
+}
 
 export const INTENT_LABEL: Record<IntentKey, string> = {
   balance_query: "Balance / dues query",
@@ -97,9 +133,7 @@ function pickChunks(match: string, n = 3): string[] {
 }
 
 export function chunkTitle(id: string): { doc: string; heading: string; snippet: string } | null {
-  const live = (typeof window !== "undefined"
-    ? (window as unknown as { __sandboxChunkMeta?: Record<string, { docTitle?: string | null; heading?: string | null; snippet?: string | null }> }).__sandboxChunkMeta
-    : undefined)?.[id];
+  const live = (typeof window !== "undefined" ? window.__sandboxChunkMeta : undefined)?.[id];
   if (live) {
     return {
       doc: live.docTitle || id,

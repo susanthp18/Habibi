@@ -3,13 +3,14 @@ import { cn, formatKbDate } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { DOC_TYPE_LABEL, STATUS_LABEL, type KbDocument } from "@/data/kb-seed";
 import { FileText, RefreshCw, Trash2 } from "lucide-react";
+import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
-const statusStyles: Record<string, string> = {
-  indexed: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  indexing: "bg-brand-tint text-brand-primary-dark border-brand-primary/30",
-  stale: "bg-amber-50 text-amber-700 border-amber-200",
-  failed: "bg-red-50 text-red-700 border-red-200",
-  draft: "bg-surface-sunken text-text-secondary border-[var(--border-token)]",
+const statusStyles: Record<string, LozengeTone> = {
+  indexed: "success",
+  indexing: "selected",
+  stale: "warning",
+  failed: "danger",
+  draft: "neutral",
 };
 
 export function DocumentsTable({
@@ -23,6 +24,7 @@ export function DocumentsTable({
   deletingId,
   loading = false,
   filteredOutSelected = false,
+  emptyFromFilter = false,
 }: {
   docs: KbDocument[];
   selectedId: string | null;
@@ -35,24 +37,30 @@ export function DocumentsTable({
   loading?: boolean;
   /** Selected doc exists but is hidden by the current search/filter. */
   filteredOutSelected?: boolean;
+  /** List is empty because search/filters excluded all docs (collection may still have items). */
+  emptyFromFilter?: boolean;
 }) {
   const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
 
   useEffect(() => {
     if (!selectedId || filteredOutSelected) return;
     selectedRowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [selectedId, filteredOutSelected, docs]);
+    // `docs` deliberately omitted: the list is polled, so a new array identity
+    // with identical content re-ran this and yanked the table back to the
+    // selected row while the user was scrolling elsewhere.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, filteredOutSelected]);
 
   if (loading) {
     return (
-      <div className="overflow-hidden rounded-lg border border-[var(--border-token)] bg-surface-card">
-        <div className="space-y-0 divide-y divide-[var(--border-token)] p-0">
+      <div className="overflow-hidden rounded-large border border-border bg-surface">
+        <div className="space-y-0 divide-y divide-border p-0">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 px-3 py-3">
+            <div key={i} className="flex items-center gap-150 px-150 py-150">
               <div className="h-4 w-4 animate-pulse rounded bg-surface-sunken" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3.5 w-2/5 animate-pulse rounded bg-surface-sunken" />
-                <div className="h-3 w-1/4 animate-pulse rounded bg-surface-sunken" />
+              <div className="flex-1 space-y-075">
+                <div className="h-3.5 w-100/5 animate-pulse rounded bg-surface-sunken" />
+                <div className="h-3 w-050/4 animate-pulse rounded bg-surface-sunken" />
               </div>
             </div>
           ))}
@@ -63,13 +71,13 @@ export function DocumentsTable({
 
   if (docs.length === 0) {
     return (
-      <div className="flex min-h-[220px] flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border-token)] bg-surface-card px-6 py-10 text-center">
-        <FileText className="mb-2 h-8 w-8 text-text-muted" />
-        <p className="text-[13px] font-medium text-brand-navy">
-          {filteredOutSelected ? "No matches in this view" : "No documents yet"}
+      <div className="flex min-h-[13.75rem] flex-col items-center justify-center rounded-large border border-dashed border-border bg-surface px-300 py-500 text-center">
+        <FileText className="mb-100 h-400 w-400 text-text-subtlest" />
+        <p className="text-body font-medium text-text">
+          {filteredOutSelected || emptyFromFilter ? "No matches in this view" : "No documents yet"}
         </p>
-        <p className="mt-1 max-w-sm text-[12px] text-text-muted">
-          {filteredOutSelected
+        <p className="mt-050 max-w-sm text-body-small text-text-subtlest">
+          {filteredOutSelected || emptyFromFilter
             ? "Clear the search to see all documents, or pick another filter."
             : "Sync from source_db to load the HDFC insurance corpus, or upload a document."}
         </p>
@@ -78,30 +86,32 @@ export function DocumentsTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border-token)] bg-surface-card">
+    <div className="overflow-hidden rounded-large border border-border bg-surface">
       {filteredOutSelected && (
-        <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+        <div className="border-b border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
           Selected document is hidden by the current search. Clear search to locate it in the list.
         </div>
       )}
-      <div className="max-h-[min(70vh,720px)] overflow-auto">
-        <table className="w-full text-[13px]">
-          <thead className="sticky top-0 z-10 bg-surface-sunken text-[11px] font-medium uppercase tracking-wide text-text-muted shadow-[0_1px_0_var(--border-token)]">
+      <div className="max-h-[min(70vh,45rem)] overflow-auto">
+        <table className="w-full text-body">
+          <thead className="sticky top-0 z-10 bg-surface-sunken text-body-small font-medium text-text-subtlest shadow-[0_1px_0_var(--border)]">
             <tr>
-              <th className="px-3 py-2 text-left">Document</th>
-              <th className="px-3 py-2 text-left">Type</th>
-              <th className="px-2 py-2 text-left">Ver</th>
-              <th className="px-2 py-2 text-right">Chunks</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Last indexed</th>
-              <th className="px-3 py-2 text-center">Enabled</th>
-              <th className="px-2 py-2" />
+              <th className="px-150 py-100 text-left">Document</th>
+              <th className="px-150 py-100 text-left">Type</th>
+              <th className="px-100 py-100 text-left">Ver</th>
+              <th className="px-100 py-100 text-right">Chunks</th>
+              <th className="px-150 py-100 text-left">Status</th>
+              <th className="px-150 py-100 text-left">Last indexed</th>
+              <th className="px-150 py-100 text-center">Enabled</th>
+              <th className="px-100 py-100" />
             </tr>
           </thead>
           <tbody>
             {docs.map((d) => {
               const active = d.id === selectedId;
-              const busy = reindexing.has(d.id) || deletingId === d.id;
+              const isReindexing = reindexing.has(d.id);
+              const isDeleting = deletingId === d.id;
+              const busy = isReindexing || isDeleting;
               return (
                 <tr
                   key={d.id}
@@ -109,52 +119,49 @@ export function DocumentsTable({
                   data-selected={active ? "true" : undefined}
                   onClick={() => onSelect(d.id)}
                   className={cn(
-                    "cursor-pointer border-t border-[var(--border-token)] hover:bg-surface-sunken/60",
-                    active && "bg-brand-tint/60 ring-1 ring-inset ring-brand-primary/35",
+                    "cursor-pointer border-t border-border hover:bg-surface-sunken/60",
+                    active && "bg-background-brand-subtlest/60 ring-1 ring-inset ring-border-brand/35",
                   )}
                 >
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
+                  <td className="px-150 py-150">
+                    <div className="flex items-center gap-100">
                       <FileText
-                        className={cn("h-4 w-4 shrink-0", active ? "text-brand-primary" : "text-text-muted")}
+                        className={cn("h-4 w-4 shrink-0", active ? "text-text-brand" : "text-text-subtlest")}
                       />
                       <div className="min-w-0">
-                        <div className="truncate font-medium text-brand-navy">{d.title}</div>
-                        <div className="truncate text-[11px] text-text-muted">{d.filename}</div>
+                        <div className="truncate font-medium text-text">{d.title}</div>
+                        <div className="truncate text-body-small text-text-subtlest">{d.filename}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-2.5 text-text-secondary">{DOC_TYPE_LABEL[d.type]}</td>
-                  <td className="px-2 py-2.5 font-mono text-[12px] text-text-secondary">{d.version}</td>
-                  <td className="px-2 py-2.5 text-right tabular-nums text-text-secondary">{d.chunks}</td>
-                  <td className="px-3 py-2.5">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                        statusStyles[busy ? "indexing" : d.status],
-                      )}
+                  <td className="px-150 py-150 text-text-subtle">{DOC_TYPE_LABEL[d.type]}</td>
+                  <td className="px-100 py-150 font-mono text-body-small text-text-subtle">{d.version}</td>
+                  <td className="px-100 py-150 text-right tabular-nums text-text-subtle">{d.chunks}</td>
+                  <td className="px-150 py-150">
+                    <Lozenge
+                      tone={statusStyles[isDeleting ? "failed" : isReindexing ? "indexing" : d.status]}
                     >
-                      {busy && <RefreshCw className="mr-1 h-3 w-3 animate-spin" />}
-                      {STATUS_LABEL[busy ? "indexing" : d.status]}
-                    </span>
+                      {busy && <RefreshCw className="animate-spin" />}
+                      {isDeleting ? "Deleting…" : isReindexing ? STATUS_LABEL.indexing : STATUS_LABEL[d.status]}
+                    </Lozenge>
                   </td>
-                  <td className="px-3 py-2.5 text-[12px] text-text-secondary">
+                  <td className="px-150 py-150 text-body-small text-text-subtle">
                     {formatKbDate(d.lastIndexed)}
                   </td>
-                  <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-150 py-150 text-center" onClick={(e) => e.stopPropagation()}>
                     <Switch
                       checked={d.enabled}
                       disabled={busy}
                       onCheckedChange={(v) => onToggle(d.id, v)}
                     />
                   </td>
-                  <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="inline-flex items-center gap-0.5">
+                  <td className="px-100 py-150 text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="inline-flex items-center gap-025">
                       <button
                         type="button"
                         onClick={() => onReindex(d.id)}
                         disabled={busy}
-                        className="rounded-md p-1.5 text-text-muted hover:bg-surface-sunken hover:text-brand-primary disabled:opacity-40"
+                        className="rounded-medium p-075 text-text-subtlest hover:bg-surface-sunken hover:text-text-brand disabled:opacity-40"
                         aria-label="Re-index"
                         title="Re-index"
                       >
@@ -165,7 +172,7 @@ export function DocumentsTable({
                           type="button"
                           onClick={() => onDelete(d.id)}
                           disabled={busy}
-                          className="rounded-md p-1.5 text-text-muted hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
+                          className="rounded-medium p-075 text-text-subtlest hover:bg-background-danger-subtler hover:text-text-danger-bolder disabled:opacity-40"
                           aria-label="Delete"
                           title="Delete"
                         >

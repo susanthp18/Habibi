@@ -28,10 +28,10 @@ function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () 
     <button
       onClick={onClick}
       className={cn(
-        "rounded-full border px-2 py-0.5 text-[11px]",
+        "rounded-full border px-100 py-025 text-body-small",
         on
-          ? "border-brand-primary bg-brand-tint text-brand-primary-dark font-semibold"
-          : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+          ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold"
+          : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
       )}
     >
       {label}
@@ -59,21 +59,21 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
     (filters.search ? 1 : 0);
 
   return (
-    <div className="shrink-0 rounded-lg border border-[var(--border-token)] bg-surface-card px-2.5 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+    <div className="shrink-0 rounded-large border border-border bg-surface px-150 py-100">
+      <div className="flex flex-wrap items-center gap-100">
+        <div className="relative flex-1 min-w-[13.75rem]">
+          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
           <Input
             value={filters.search}
             onChange={(e) => onPatch({ search: e.target.value })}
             placeholder="Search customer, account, ID…"
-            className="h-8 pl-7 text-[12px]"
+            className="h-400 pl-400 text-body-small"
           />
         </div>
         <select
           value={filters.queue}
           onChange={(e) => onPatch({ queue: e.target.value })}
-          className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
         >
           <option value="all">All queues</option>
           {queues.map((q) => <option key={q} value={q}>{q}</option>)}
@@ -81,7 +81,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
         <select
           value={filters.assignee}
           onChange={(e) => onPatch({ assignee: e.target.value })}
-          className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
         >
           <option value="all">All assignees</option>
           {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -97,21 +97,21 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
           onClick={() => onPatch({ dndSafeOnly: !filters.dndSafeOnly })}
         />
         {activeCount > 0 && (
-          <Button variant="ghost" size="sm" className="h-8 text-[11px]" onClick={onReset}>
-            <X className="mr-1 h-3 w-3" /> Reset ({activeCount})
+          <Button variant="ghost" size="sm" className="h-400 text-body-small" onClick={onReset}>
+            <X className="mr-050 h-3 w-3" /> Reset ({activeCount})
           </Button>
         )}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className="text-[10.5px] uppercase tracking-wide text-text-muted mr-1">Reason</span>
+      <div className="mt-100 flex flex-wrap items-center gap-075">
+        <span className="text-body-small text-text-subtlest mr-050">Reason</span>
         {REASONS.map((r) => (
           <Chip key={r} on={filters.reasons.includes(r)} label={REASON_LABELS[r]} onClick={() => onPatch({ reasons: toggle(filters.reasons, r) })} />
         ))}
-        <span className="text-[10.5px] uppercase tracking-wide text-text-muted mx-2">Status</span>
+        <span className="text-body-small text-text-subtlest mx-100">Status</span>
         {STATUSES.map((s) => (
           <Chip key={s} on={filters.statuses.includes(s)} label={STATUS_LABELS[s]} onClick={() => onPatch({ statuses: toggle(filters.statuses, s) })} />
         ))}
-        <span className="text-[10.5px] uppercase tracking-wide text-text-muted mx-2">Reminder</span>
+        <span className="text-body-small text-text-subtlest mx-100">Reminder</span>
         {CHANNELS.map((c) => (
           <Chip key={c} on={filters.channels.includes(c)} label={CHANNEL_LABELS[c]} onClick={() => onPatch({ channels: toggle(filters.channels, c) })} />
         ))}

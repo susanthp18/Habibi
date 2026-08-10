@@ -23,21 +23,21 @@ export function ServiceDonut({ data, services }: { data: DayPoint[]; services: S
   const grand = rows.reduce((a, r) => a + r.value, 0);
 
   return (
-    <div className="flex h-full min-h-[280px] flex-col rounded-lg border border-[var(--border-token)] bg-surface-card p-4">
-      <div className="mb-2 shrink-0">
-        <h3 className="text-[13px] font-semibold text-brand-navy">Share by category</h3>
-        <p className="text-[11px] text-text-secondary">LLM · Voice · Messaging · Infra</p>
+    <div className="flex h-full min-h-[17.5rem] flex-col rounded-large border border-border bg-surface p-200">
+      <div className="mb-100 shrink-0">
+        <h3 className="text-body font-semibold text-text">Share by category</h3>
+        <p className="text-body-small text-text-subtle">LLM · Voice · Messaging · Infra</p>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="mx-auto h-44 w-full max-w-[220px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-150">
+        <div className="mx-auto h-44 w-full max-w-[13.75rem]">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Tooltip
                 contentStyle={{
                   fontSize: 11,
                   borderRadius: 8,
-                  border: "1px solid var(--border-token)",
-                  background: "var(--surface-card)",
+                  border: "1px solid var(--border)",
+                  background: "var(--surface)",
                 }}
                 formatter={(v: number) => inrCompact(v)}
               />
@@ -56,20 +56,20 @@ export function ServiceDonut({ data, services }: { data: DayPoint[]; services: S
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div className="space-y-1.5 text-[12px]">
+        <div className="space-y-075 text-body-small">
           {rows.map((r) => {
             const pct = grand > 0 ? Math.round((r.value / grand) * 100) : 0;
             return (
-              <div key={r.name} className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: r.color }} />
-                <span className="flex-1 font-medium text-brand-navy">{r.name}</span>
-                <span className="font-mono text-text-secondary">{inrCompact(r.value)}</span>
-                <span className="w-8 text-right text-[10.5px] text-text-muted">{pct}%</span>
+              <div key={r.name} className="flex items-center gap-100">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-small" style={{ backgroundColor: r.color }} />
+                <span className="flex-1 font-medium text-text">{r.name}</span>
+                <span className="font-mono text-text-subtle">{inrCompact(r.value)}</span>
+                <span className="w-400 text-right text-body-small text-text-subtlest">{pct}%</span>
               </div>
             );
           })}
           {rows.length === 0 && (
-            <p className="text-[11.5px] text-text-muted">No spend in this period.</p>
+            <p className="text-body-small text-text-subtlest">No spend in this period.</p>
           )}
         </div>
       </div>

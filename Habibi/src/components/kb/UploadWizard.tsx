@@ -9,6 +9,13 @@ import { DOC_TYPE_LABEL, type KbDocType } from "@/data/kb-seed";
 import { previewChunksFromText, type KbUploadInput } from "@/api/kb";
 import { KbTagEditor } from "@/components/kb/KbTagEditor";
 import { UploadCloud, FileText, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
+import { Lozenge } from "@/components/ui/lozenge";
+
+/** Client-side text read cap — aligns with backend MAX_UPLOAD_BYTES (25 MiB) for PoC files. */
+const MAX_KB_UPLOAD_BYTES = 25 * 1024 * 1024;
+/** Bound preview tokenization to keep the wizard responsive on large files. */
+const MAX_PREVIEW_TEXT_CHARS = 500_000;
 
 type Step = 1 | 2 | 3;
 
@@ -40,21 +47,36 @@ export function UploadWizard({
       setReading(false);
       return;
     }
+    if (file.size > MAX_KB_UPLOAD_BYTES) {
+      toast.error(`File too large (${Math.round(file.size / (1024 * 1024))} MB). Max ${MAX_KB_UPLOAD_BYTES / (1024 * 1024)} MB.`);
+      setFile(null);
+      setFileText("");
+      setReading(false);
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
     setReading(true);
     const reader = new FileReader();
+    let cancelled = false;
     reader.onload = () => {
-      setFileText(String(reader.result ?? ""));
+      if (cancelled) return;
+      setFileText(String(reader.result ?? "").slice(0, MAX_PREVIEW_TEXT_CHARS));
       setReading(false);
     };
     reader.onerror = () => {
+      if (cancelled) return;
       setFileText("");
       setReading(false);
     };
     reader.readAsText(file);
+    return () => {
+      cancelled = true;
+      reader.abort();
+    };
   }, [file]);
 
   const preview = useMemo(
-    () => previewChunksFromText(fileText, size, overlap),
+    () => previewChunksFromText(fileText.slice(0, MAX_PREVIEW_TEXT_CHARS), size, overlap),
     [fileText, size, overlap],
   );
   const filename = file?.name ?? "";
@@ -113,26 +135,26 @@ export function UploadWizard({
         onEscapeKeyDown={(e) => submitting && e.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <UploadCloud className="h-4 w-4 text-brand-primary" />
+          <DialogTitle className="flex items-center gap-100 text-base">
+            <UploadCloud className="h-4 w-4 text-text-brand" />
             Upload document · Step {step} of 3
             {submitting ? " · Uploading…" : ""}
           </DialogTitle>
         </DialogHeader>
 
         {step === 1 && (
-          <div className="space-y-3">
+          <div className="space-y-150">
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={submitting}
-              className="grid w-full place-items-center rounded-lg border-2 border-dashed border-[var(--border-token)] bg-surface-sunken/40 p-8 text-center transition-colors hover:border-brand-primary/40 disabled:opacity-60"
+              className="grid w-full place-items-center rounded-large border-2 border-dashed border-border bg-surface-sunken/40 p-400 text-center transition-colors hover:border-border-brand/40 disabled:opacity-60"
             >
-              <FileText className="h-8 w-8 text-text-muted" />
-              <div className="mt-2 text-[13px] font-medium text-brand-navy">
+              <FileText className="h-400 w-400 text-text-subtlest" />
+              <div className="mt-100 text-body font-medium text-text">
                 {file ? file.name : "Choose a .md or .txt policy / benefits file"}
               </div>
-              <div className="text-[11px] text-text-muted">
+              <div className="text-body-small text-text-subtlest">
                 {file
                   ? `${Math.round(file.size / 1024)} KB · click to change`
                   : "PoC indexer supports markdown / plain text"}
@@ -145,7 +167,7 @@ export function UploadWizard({
               className="hidden"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-150">
               <div>
                 <Label>Filename</Label>
                 <Input value={filename} readOnly placeholder="Select a file above" />
@@ -177,18 +199,18 @@ export function UploadWizard({
             </div>
             <div>
               <Label>Tags</Label>
-              <KbTagEditor tags={tags} onChange={setTags} disabled={submitting} className="mt-1" />
+              <KbTagEditor tags={tags} onChange={setTags} disabled={submitting} className="mt-050" />
             </div>
           </div>
         )}
 
         {step === 2 && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-200">
+            <div className="grid grid-cols-2 gap-200">
               <div>
-                <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-wide text-text-muted">
+                <div className="mb-050 flex items-center justify-between text-body-small text-text-subtlest">
                   <span>Chunk size (tokens)</span>
-                  <span className="font-mono text-brand-navy">{size}</span>
+                  <span className="font-mono text-text">{size}</span>
                 </div>
                 <Slider
                   min={200}
@@ -204,9 +226,9 @@ export function UploadWizard({
                 />
               </div>
               <div>
-                <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-wide text-text-muted">
+                <div className="mb-050 flex items-center justify-between text-body-small text-text-subtlest">
                   <span>Overlap</span>
-                  <span className="font-mono text-brand-navy">{overlap}</span>
+                  <span className="font-mono text-text">{overlap}</span>
                 </div>
                 <Slider
                   min={0}
@@ -218,33 +240,33 @@ export function UploadWizard({
                 />
               </div>
             </div>
-            <div className="rounded-md bg-brand-tint/60 p-2 text-[12px] text-brand-primary-dark">
+            <div className="rounded-medium bg-background-brand-subtlest/60 p-100 text-body-small text-text-brand">
               {reading ? (
                 "Reading file…"
               ) : (
                 <>
                   Estimated ~<strong>{preview.count}</strong> chunks from this file · avg {size} words/window ·{" "}
                   {overlap} overlap
-                  <span className="block text-[11px] opacity-80">
+                  <span className="block text-body-small opacity-80">
                     Local word-window preview — server indexing uses tiktoken.
                   </span>
                 </>
               )}
             </div>
             <div>
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+              <div className="mb-075 text-body-small font-semibold text-text-subtlest">
                 First 5 chunks (from file)
               </div>
               {preview.samples.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[var(--border-token)] p-4 text-[12px] text-text-muted">
+                <div className="rounded-medium border border-dashed border-border p-200 text-body-small text-text-subtlest">
                   {reading ? "Loading preview…" : "No readable text in this file yet."}
                 </div>
               ) : (
-                <ul className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+                <ul className="max-h-64 space-y-075 overflow-y-auto pr-050">
                   {preview.samples.map((s, i) => (
-                    <li key={i} className="rounded-md border border-[var(--border-token)] bg-surface-app p-2">
-                      <div className="text-[10px] font-mono text-text-muted">#{i + 1}</div>
-                      <div className="mt-0.5 line-clamp-2 text-[12px] text-text-primary">{s}</div>
+                    <li key={i} className="rounded-medium border border-border bg-surface p-100">
+                      <div className="text-body-small font-mono text-text-subtlest">#{i + 1}</div>
+                      <div className="mt-025 line-clamp-2 text-body-small text-text">{s}</div>
                     </li>
                   ))}
                 </ul>
@@ -254,32 +276,30 @@ export function UploadWizard({
         )}
 
         {step === 3 && (
-          <div className="space-y-3">
-            <div className="rounded-lg border border-[var(--border-token)] bg-surface-card p-3">
-              <div className="text-[11px] uppercase tracking-wide text-text-muted">Ready to index</div>
-              <div className="mt-1 font-medium text-brand-navy">
+          <div className="space-y-150">
+            <div className="rounded-large border border-border bg-surface p-150">
+              <div className="text-body-small text-text-subtlest">Ready to index</div>
+              <div className="mt-050 font-medium text-text">
                 {title || filename.replace(/\.[a-z]+$/i, "") || "Untitled"}
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-text-secondary">
-                <div>Type: <span className="text-brand-navy">{DOC_TYPE_LABEL[type]}</span></div>
-                <div>Chunks: <span className="text-brand-navy">{preview.count}</span></div>
-                <div>Chunk size: <span className="text-brand-navy">{size}</span></div>
-                <div>Overlap: <span className="text-brand-navy">{overlap}</span></div>
+              <div className="mt-100 grid grid-cols-2 gap-100 text-body-small text-text-subtle">
+                <div>Type: <span className="text-text">{DOC_TYPE_LABEL[type]}</span></div>
+                <div>Chunks: <span className="text-text">{preview.count}</span></div>
+                <div>Chunk size: <span className="text-text">{size}</span></div>
+                <div>Overlap: <span className="text-text">{overlap}</span></div>
               </div>
               {tags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
+                <div className="mt-100 flex flex-wrap gap-050">
                   {tags.map((t) => (
-                    <span
-                      key={t}
-                      className="rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] text-text-secondary"
-                    >
+                    <Lozenge
+                      key={t} tone="neutral">
                       #{t}
-                    </span>
+                    </Lozenge>
                   ))}
                 </div>
               )}
             </div>
-            <p className="text-[12px] text-text-muted">
+            <p className="text-body-small text-text-subtlest">
               {submitting
                 ? "Uploading to MinIO and waiting for API acknowledgement…"
                 : "File is stored in MinIO; indexing runs via the SKIP LOCKED worker."}
@@ -298,7 +318,7 @@ export function UploadWizard({
               onClick={() => setStep((step + 1) as Step)}
               disabled={(step === 1 && !canNext1) || submitting}
             >
-              Next <ChevronRight className="ml-1 h-3.5 w-3.5" />
+              Next <ChevronRight className="ml-050 h-3.5 w-3.5" />
             </Button>
           )}
           {step === 3 && (

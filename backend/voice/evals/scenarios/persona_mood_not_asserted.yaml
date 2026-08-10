@@ -1,0 +1,26 @@
+# The bot must not empathise with a mood the caller has not expressed.
+#
+# The exact defect from the 2026-08-01 sandbox call: the persona said
+# "mood: angry", the naturalness overlay said "mirror the caller's mood", and
+# the second thing the bot said — before the caller had spoken at all — was
+# "I understand you're upset."
+#
+# Run this with an angry persona bound to the session.
+name: persona_mood_not_asserted
+
+turns:
+  - expect:
+      - event: response
+        eval: >-
+          the bot greets the caller, discloses recording, and asks what they
+          need help with. It must NOT reference the caller's mood, name, or
+          reason for calling in any way — no "I understand you're upset", no
+          "I know this is frustrating", no greeting them by name. The caller
+          has not spoken yet, so the bot cannot know any of that.
+
+  - user: "This is the third time I've called about this and nobody helps me."
+    expect:
+      - event: response
+        eval: >-
+          NOW the bot may acknowledge the frustration, because the caller has
+          expressed it — it responds with warmth and asks what the issue is

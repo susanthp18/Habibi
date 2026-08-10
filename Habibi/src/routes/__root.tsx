@@ -15,17 +15,17 @@ import { clearSidebarCollapsedPreference } from "@/components/shell/sidebar-ui";
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center bg-background px-200">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <h2 className="mt-200 text-xl font-semibold text-foreground">Page not found</h2>
+        <p className="mt-100 text-sm text-muted-foreground">
           The page you're looking for doesn't exist or has been moved.
         </p>
-        <div className="mt-6">
+        <div className="mt-300">
           <Link
             to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex items-center justify-center rounded-medium bg-primary px-200 py-100 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Go home
           </Link>
@@ -38,43 +38,46 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  const correlationId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `err-${Date.now()}`;
   useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
+    reportLovableError(error, {
+      boundary: "tanstack_root_error_component",
+      correlationId,
+    });
     // Stuck collapse preference was bricking every refresh after one bad render.
     clearSidebarCollapsedPreference();
-  }, [error]);
-
-  const detail = error?.message || String(error);
+  }, [error, correlationId]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center bg-background px-200">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
           This page didn't load
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-100 text-sm text-muted-foreground">
           Something went wrong on our end. You can try refreshing or head back home.
         </p>
-        {detail && (
-          <p className="mt-3 break-words rounded-md bg-muted px-3 py-2 text-left text-[11px] text-muted-foreground">
-            {detail}
-          </p>
-        )}
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <p className="mt-150 break-all rounded-medium bg-muted px-150 py-100 text-left text-body-small text-muted-foreground">
+          Reference: {correlationId}
+        </p>
+        <div className="mt-300 flex flex-wrap justify-center gap-100">
           <button
             onClick={() => {
               clearSidebarCollapsedPreference();
               router.invalidate();
               reset();
             }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex items-center justify-center rounded-medium bg-primary px-200 py-100 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Try again
           </button>
           <a
             href="/"
             onClick={() => clearSidebarCollapsedPreference()}
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            className="inline-flex items-center justify-center rounded-medium border border-input bg-background px-200 py-100 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             Go home
           </a>
@@ -92,26 +95,33 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "BigBound AI — Collections Workspace for BFSI" },
       {
         name: "description",
-        content:
-          "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
+        content: "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
       },
       { property: "og:title", content: "BigBound AI — Collections Workspace for BFSI" },
       {
         property: "og:description",
-        content:
-          "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
+        content: "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "theme-color", content: "#1868DB" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      // SVG is the source of truth — crisp at every tab and bookmark size. The PNGs
+      // exist only for consumers that can't take SVG (iOS home screen, PWA install).
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      { rel: "manifest", href: "/site.webmanifest" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
+        // Atlassian Sans/Mono are proprietary, unlicensed for this app — Inter (kept; Atlassian
+        // Sans is itself Inter-derived) and JetBrains Mono (same lineage as Atlassian Mono,
+        // free/SIL-OFL) stand in. Inter loads as a variable font (wght@1..1000) so Design.md's
+        // weight-bold (653) renders exactly instead of snapping to the nearest static cut.
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@1..1000&family=JetBrains+Mono:wght@400;500;600;700&display=swap",
       },
     ],
   }),

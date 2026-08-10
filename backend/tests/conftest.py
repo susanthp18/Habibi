@@ -44,15 +44,35 @@ def db_tx(monkeypatch: pytest.MonkeyPatch):
             return getattr(connection, name)
 
     class _EngineProxy:
+        def __init__(self, engine):
+            self._engine = engine
+
         def begin(self):
             return _begin()
 
         def connect(self):
             return _ConnectCM()
 
-    monkeypatch.setattr(db, "engine", _EngineProxy())
+        def __getattr__(self, name):
+            return getattr(self._engine, name)
+
+    monkeypatch.setattr(db, "engine", _EngineProxy(db.engine))
     try:
         yield connection
     finally:
         outer.rollback()
         connection.close()
+
+
+@pytest.fixture(autouse=True)
+def _kb_model_path_off(monkeypatch):
+    """Keep the KB planner/judge out of tests unless a test opts in.
+
+    Both call Azure. Left on, the suite makes real network calls, takes minutes
+    and — worse — becomes non-deterministic: whether a retrieval is judged
+    answerable would depend on the analysis deployment being reachable from CI.
+    Tests that exercise the model path enable it explicitly and stub
+    ``azure_openai.chat_with_tools``.
+    """
+    monkeypatch.setenv("KB_PLANNER_ENABLED", "false")
+    monkeypatch.setenv("KB_JUDGE_ENABLED", "false")

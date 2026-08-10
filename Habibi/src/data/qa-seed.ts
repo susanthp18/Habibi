@@ -190,9 +190,9 @@ export function bandFor(total: number): ScoreBand {
 }
 
 export function bandColor(band: ScoreBand): { text: string; bg: string; border: string } {
-  if (band === "green") return { text: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200" };
-  if (band === "amber") return { text: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" };
-  return { text: "text-red-700", bg: "bg-red-50", border: "border-red-200" };
+  if (band === "green") return { text: "text-text-success-bolder", bg: "bg-background-success-subtler", border: "border-border-success-subtle" };
+  if (band === "amber") return { text: "text-text-warning-bolder", bg: "bg-background-warning-subtler", border: "border-border-warning-subtle" };
+  return { text: "text-text-danger-bolder", bg: "bg-background-danger-subtler", border: "border-border-danger-subtle" };
 }
 
 // ---------- seed generation ----------

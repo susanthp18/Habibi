@@ -69,18 +69,27 @@ export interface Lead {
   sourceCallId?: string;
   source: LeadSource;
   sentimentAtCapture: Sentiment;
+  /**
+   * Polarity in [-1, 1], matching agent_core/sentiment.py — negative values are
+   * real and mean the customer sounded unhappy.
+   *
+   * This was rendered as `score * 100` with a "%" suffix, which read a genuinely
+   * negative lead as "-25%". It is a polarity, not a confidence.
+   */
   sentimentScore: number;
   transcriptSnippet: string;
   eligibilityFlags: EligibilityFlag[];
-  owner: string;
-  team: Team;
-  nextFollowUpAt?: string;
+  /** Display name, or null when the lead is unassigned (bot-captured leads are). */
+  owner: string | null;
+  team: Team | string | null;
+  nextFollowUpAt?: string | null;
   followUps: FollowUp[];
   priority: Priority;
-  estimatedValue: number;
-  closedAt?: string;
-  lossReason?: string;
-  wonAmount?: number;
+  /** Null when the product has no ticket band to derive an indicative value from. */
+  estimatedValue: number | null;
+  closedAt?: string | null;
+  lossReason?: string | null;
+  wonAmount?: number | null;
   events: LeadEvent[];
 }
 
@@ -156,11 +165,44 @@ const iso = (daysAgo: number, hour = 10, min = 0) => {
 };
 const isoFuture = (daysAhead: number, hour = 10, min = 0) => iso(-daysAhead, hour, min);
 
-export function fmtMoney(n: number) {
+/**
+ * Format INR for display.
+ *
+ * Accepts null/undefined/NaN because the API legitimately returns them: a lead
+ * captured against a product with no ticket band has no indicative value. This
+ * used to be typed `number`, and a null went straight into
+ * `n.toLocaleString()` — a TypeError that took the whole board down rather than
+ * rendering one dash.
+ */
+export function fmtMoney(n: number | null | undefined) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
   if (Math.abs(n) >= 1_00_00_000) return `₹${(n / 1_00_00_000).toFixed(2)} Cr`;
   if (Math.abs(n) >= 1_00_000) return `₹${(n / 1_00_000).toFixed(2)} L`;
   if (Math.abs(n) >= 1_000) return `₹${(n / 1_000).toFixed(1)}k`;
   return `₹${n.toLocaleString("en-IN")}`;
+}
+
+/**
+ * Render sentiment polarity for display.
+ *
+ * Signed and on a -100..+100 scale so the convention is unambiguous at a
+ * glance. Showing `score * 100` with a "%" suffix implied a confidence
+ * percentage and printed "-25%" for a negative lead.
+ */
+export function fmtSentiment(score: number | null | undefined): string {
+  if (score === null || score === undefined || Number.isNaN(score)) return "—";
+  const scaled = Math.round(score * 100);
+  return scaled > 0 ? `+${scaled}` : String(scaled);
+}
+
+/** Money for arithmetic (totals, sorting) — absent means zero, not NaN. */
+export function moneyValue(n: number | null | undefined): number {
+  return n === null || n === undefined || Number.isNaN(n) ? 0 : n;
+}
+
+/** The figure a lead contributes to pipeline/closed totals. */
+export function leadValue(l: Pick<Lead, "stage" | "wonAmount" | "estimatedValue">): number {
+  return moneyValue(l.stage === "won" ? l.wonAmount ?? l.estimatedValue : l.estimatedValue);
 }
 
 export function fmtDate(iso: string) {
@@ -250,6 +292,19 @@ interface SeedInput {
   followUpNote?: string;
 }
 
+/**
+ * Seed scores were authored as 0..1 confidences, but the API returns polarity
+ * in [-1, 1] — so a "negative" mock lead carried a positive number and mock
+ * mode disagreed with live about what the same field meant. Map them onto the
+ * real scale, keeping each row consistent with its own label
+ * (negative < -0.15 < neutral < 0.15 < positive, as sentiment_label defines).
+ */
+function toPolarity(sentiment: Sentiment, score: number): number {
+  if (sentiment === "negative") return -Math.abs(score);
+  if (sentiment === "positive") return Math.abs(score);
+  return Number((score - 0.5).toFixed(2));
+}
+
 function make(input: SeedInput): Lead {
   const cust = CUSTOMERS[input.cust % CUSTOMERS.length];
   const product = productMap[input.productId];
@@ -305,7 +360,7 @@ function make(input: SeedInput): Lead {
     sourceCallId: input.source !== "agent" ? `CALL-${1000 + input.cust * 7}` : undefined,
     source: input.source,
     sentimentAtCapture: input.sentiment,
-    sentimentScore: input.score,
+    sentimentScore: toPolarity(input.sentiment, input.score),
     transcriptSnippet: snippets[input.productId] ?? "Customer expressed interest in the offer.",
     eligibilityFlags: eligFor(input.productId, input.variant),
     owner: input.owner,
@@ -432,9 +487,8 @@ export function computeMetrics(list: Lead[]): Metrics {
     lost: { count: 0, amount: 0 },
   };
   for (const l of list) {
-    const amt = l.stage === "won" ? l.wonAmount ?? l.estimatedValue : l.estimatedValue;
     perStage[l.stage].count += 1;
-    perStage[l.stage].amount += amt;
+    perStage[l.stage].amount += leadValue(l);
   }
   const openStages: LeadStage[] = ["interested", "contacted", "qualified"];
   const openLeads = openStages.reduce((s, st) => s + perStage[st].count, 0);
@@ -442,7 +496,7 @@ export function computeMetrics(list: Lead[]): Metrics {
   const wkAgo = Date.now() - 7 * 86400 * 1000;
   const wonWeekList = list.filter((l) => l.stage === "won" && l.closedAt && new Date(l.closedAt).getTime() >= wkAgo);
   const wonWeek = wonWeekList.length;
-  const wonWeekAmount = wonWeekList.reduce((s, l) => s + (l.wonAmount ?? l.estimatedValue), 0);
+  const wonWeekAmount = wonWeekList.reduce((s, l) => s + leadValue(l), 0);
   const monthAgo = Date.now() - 30 * 86400 * 1000;
   const capturedRecent = list.filter((l) => new Date(l.capturedAt).getTime() >= monthAgo);
   const wonRecent = capturedRecent.filter((l) => l.stage === "won").length;
@@ -577,7 +631,8 @@ export function createLead(input: {
     capturedAt: nowISO,
     source: input.source,
     sentimentAtCapture: "neutral",
-    sentimentScore: 0.5,
+    // Polarity, not confidence — neutral is 0.
+    sentimentScore: 0,
     transcriptSnippet: input.note,
     eligibilityFlags: eligFor(product.id, "clean"),
     owner: input.owner,

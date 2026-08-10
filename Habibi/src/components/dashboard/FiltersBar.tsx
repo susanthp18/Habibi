@@ -28,16 +28,16 @@ const rangeOptions: { value: Range; label: string }[] = [
 
 export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, onExport }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-card px-6 py-3">
+    <div className="flex flex-wrap items-center gap-100 border-b border-border bg-surface px-300 py-150">
       <div className="mr-auto">
-        <h1 className="text-lg font-semibold text-brand-navy">Executive Dashboard</h1>
-        <p className="text-xs text-text-secondary">Portfolio health at a glance</p>
+        <h1 className="text-[1.25rem] font-semibold text-text">Executive dashboard</h1>
+        <p className="text-xs text-text-subtle">Portfolio health at a glance</p>
       </div>
 
-      <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface-card px-2 py-1">
-        <CalendarDays className="h-3.5 w-3.5 text-text-secondary" />
+      <div className="flex items-center gap-075 rounded-medium border border-border bg-surface px-100 py-050">
+        <CalendarDays className="h-3.5 w-3.5 text-text-subtle" />
         <Select value={range} onValueChange={(v) => onRange(v as Range)}>
-          <SelectTrigger className="h-7 w-[150px] border-0 shadow-none focus:ring-0">
+          <SelectTrigger className="h-7 w-[9.375rem] border-0 shadow-none focus:ring-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -50,10 +50,10 @@ export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, o
         </Select>
       </div>
 
-      <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface-card px-2 py-1">
-        <Filter className="h-3.5 w-3.5 text-text-secondary" />
+      <div className="flex items-center gap-075 rounded-medium border border-border bg-surface px-100 py-050">
+        <Filter className="h-3.5 w-3.5 text-text-subtle" />
         <Select value={segment} onValueChange={(v) => onSegment(v as Segment)}>
-          <SelectTrigger className="h-7 w-[170px] border-0 shadow-none focus:ring-0">
+          <SelectTrigger className="h-7 w-[10.625rem] border-0 shadow-none focus:ring-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -65,10 +65,10 @@ export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, o
         </Select>
       </div>
 
-      <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface-card px-2 py-1">
-        <Users2 className="h-3.5 w-3.5 text-text-secondary" />
+      <div className="flex items-center gap-075 rounded-medium border border-border bg-surface px-100 py-050">
+        <Users2 className="h-3.5 w-3.5 text-text-subtle" />
         <Select value={team} onValueChange={(v) => onTeam(v as TeamFilter)}>
-          <SelectTrigger className="h-7 w-[130px] border-0 shadow-none focus:ring-0">
+          <SelectTrigger className="h-7 w-[8.125rem] border-0 shadow-none focus:ring-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -79,7 +79,7 @@ export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, o
         </Select>
       </div>
 
-      <Button variant="outline" size="sm" onClick={onExport} className="h-9 gap-1.5">
+      <Button variant="outline" size="sm" onClick={onExport} className="h-9 gap-075">
         <Download className="h-3.5 w-3.5" />
         Export
       </Button>

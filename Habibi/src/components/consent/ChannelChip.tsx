@@ -34,7 +34,7 @@ export function ChannelChip({ cc }: { cc: ChannelConsent }) {
   return (
     <span
       title={`${cc.channel} · ${cc.status.replace("_", " ")} · ${cc.usedThisWeek}/${cc.frequencyCapPerWeek} this week`}
-      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
+      className="inline-flex items-center gap-050 rounded-medium px-075 py-025 text-body-small font-semibold"
       style={{ background: tone.bg, color: tone.fg }}
     >
       <Icon className="h-3 w-3" />

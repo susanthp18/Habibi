@@ -44,15 +44,22 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id ON kb_chunks(document_id);
-CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id_chunk_index ON kb_chunks(document_id, chunk_index);
+-- UNIQUE: (document_id, chunk_index) identifies a chunk. Duplicates were
+-- reachable if an interrupted _atomic_replace_chunks left old rows behind, and
+-- retrieval then returned the same passage twice with divergent embeddings.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kb_chunks_document_id_chunk_index
+  ON kb_chunks(document_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding_hnsw
   ON kb_chunks USING hnsw (embedding vector_cosine_ops)
   WHERE embedding IS NOT NULL;
 
+-- `attempt` bounds stuck-job reclaim: a job that keeps dying mid-run is moved
+-- to 'dead' instead of being re-queued forever (see kb_ingest.reclaim_stuck_jobs).
 CREATE TABLE IF NOT EXISTS kb_index_jobs (
   id TEXT PRIMARY KEY,
   document_id TEXT NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
-  status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed')),
+  status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed','dead')),
+  attempt INTEGER NOT NULL DEFAULT 0,
   chunk_size INTEGER,
   chunk_overlap INTEGER,
   embedding_model TEXT,
@@ -94,6 +101,11 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
   persona jsonb NOT NULL DEFAULT '{}'::jsonb,
   voice jsonb NOT NULL DEFAULT '{}'::jsonb,
   guardrails jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Authored conversation graph (see backend/flow_graph.py). Empty object means
+  -- "no authored flow" — the runtime then uses the hardcoded voice/flows.py.
+  -- Lives here so it versions and publishes atomically with the prompt whose
+  -- node instructions it contains.
+  flow jsonb NOT NULL DEFAULT '{}'::jsonb,
   label TEXT,
   summary TEXT NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -121,6 +133,11 @@ CREATE TABLE IF NOT EXISTS tts_price_tiers (
   notes text NOT NULL DEFAULT '',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- tts_voice_catalog.price_tier defaults to 'standard' and FKs here, so the row
+-- must exist before any catalog insert on a fresh install.
+INSERT INTO tts_price_tiers (tier, label, approx_usd_per_1m_chars, is_premium, notes)
+VALUES ('standard', 'Standard neural', 15.0, false, 'Default tier for catalog voices')
+ON CONFLICT (tier) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS tts_voice_catalog (
   short_name text PRIMARY KEY,
@@ -179,7 +196,7 @@ CREATE TABLE IF NOT EXISTS bot_deployments (
   bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
   prompt_version_id TEXT NOT NULL REFERENCES prompt_versions(id),
   kb_snapshot_id TEXT REFERENCES kb_snapshots(id),
-  tts_voice_id TEXT REFERENCES tts_voices(id),
+  tts_voice_id TEXT,  -- Azure Speech ShortName (e.g. en-IN-AartiNeural); not FK'd to tts_voices
   environment TEXT NOT NULL CHECK (environment IN ('sandbox','production')),
   status TEXT NOT NULL CHECK (status IN ('active','rolled_back','retired')),
   published_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -192,6 +209,10 @@ CREATE TABLE IF NOT EXISTS bot_deployments (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_bot_deployments_bot_id ON bot_deployments(bot_id);
+-- At most one active deployment per bot+environment (enforced also by advisory lock on publish).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bot_deployments_bot_env_active
+  ON bot_deployments (bot_id, environment)
+  WHERE status = 'active';
 
 CREATE TABLE IF NOT EXISTS routing_rules (
   id TEXT PRIMARY KEY,
@@ -250,6 +271,9 @@ CREATE TABLE IF NOT EXISTS retrieval_logs (
   id TEXT PRIMARY KEY,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   sandbox_run_id TEXT REFERENCES sandbox_runs(id) ON DELETE SET NULL,
+  -- Which turn asked. interaction_id alone is session-grained, so "which
+  -- retrieval backed turn 4's answer" was unanswerable.
+  transcript_turn_id TEXT REFERENCES interaction_transcript(id) ON DELETE SET NULL,
   query TEXT NOT NULL,
   top_chunks jsonb NOT NULL DEFAULT '[]'::jsonb,
   latency_ms INTEGER,
@@ -257,6 +281,7 @@ CREATE TABLE IF NOT EXISTS retrieval_logs (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_retrieval_logs_interaction_id ON retrieval_logs(interaction_id);
+CREATE INDEX IF NOT EXISTS ix_retrieval_logs_turn ON retrieval_logs(transcript_turn_id);
 
 CREATE TABLE IF NOT EXISTS routing_rule_executions (
   id TEXT PRIMARY KEY,
@@ -270,3 +295,15 @@ CREATE TABLE IF NOT EXISTS routing_rule_executions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_routing_rule_executions_interaction_id ON routing_rule_executions(interaction_id);
+
+-- Sandbox Live voice session config, shared between the API process (which
+-- writes it on POST /voice/sandbox/start) and the voice worker (which reads it
+-- when the WebRTC offer arrives). These are separate containers, so a local
+-- JSON file was invisible to the reader. See backend/voice_session_store.py.
+CREATE TABLE IF NOT EXISTS voice_sandbox_sessions (
+  id TEXT PRIMARY KEY,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_voice_sandbox_sessions_updated_at ON voice_sandbox_sessions(updated_at);

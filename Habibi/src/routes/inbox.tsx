@@ -31,7 +31,7 @@ export const Route = createFileRoute("/inbox")({
 
 function friendlyInboxError(raw: string): string {
   if (raw.includes("whatsapp_window_closed")) {
-    return "Customer care window closed (24h). Free-form WhatsApp send is blocked — use an approved template later.";
+    return "WhatsApp 24h window is closed. Open WhatsApp on the customer's phone and send any message to the business number first — then reply here within 24 hours.";
   }
   if (raw.includes("take_over_required") || raw.includes("bot_still_handling")) {
     return "Take over this conversation before sending on WhatsApp.";
@@ -114,11 +114,24 @@ function InboxPage() {
     return next;
   }, [active, localSuggestions, localDraft]);
 
+  // Monotonic token + the conversation the newest request was issued for.
+  const ragRequestToken = useRef(0);
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = active?.id ?? null;
+
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["conversations"] });
   };
 
   const runRagRefresh = (conversationId: string, withDraft: boolean) => {
+    // Retrieval is slow enough that switching threads mid-flight was routine,
+    // and the older response then overwrote the newer one — one customer's KB
+    // draft rendered in another customer's thread. Only the newest request for
+    // the still-selected conversation may touch state.
+    const token = ++ragRequestToken.current;
+    const isCurrent = () =>
+      token === ragRequestToken.current && activeIdRef.current === conversationId;
+
     setRagLoading(true);
     setRagError(null);
     void refreshConversationSuggestions(conversationId, {
@@ -126,8 +139,8 @@ function InboxPage() {
       includeDraftAnswer: withDraft,
     })
       .then((res) => {
-        setLocalSuggestions(res.ragSuggestions ?? []);
-        setLocalDraft(res.draftAnswer ?? null);
+        // The thread cache patch is keyed by conversation id, so it is safe
+        // (and useful) to apply even if the user has moved on.
         if (res.thread) {
           queryClient.setQueryData(["conversations"], (prev: unknown) => {
             if (!Array.isArray(prev)) return prev;
@@ -136,12 +149,18 @@ function InboxPage() {
             );
           });
         }
+        if (!isCurrent()) return;
+        setLocalSuggestions(res.ragSuggestions ?? []);
+        setLocalDraft(res.draftAnswer ?? null);
         void invalidate();
       })
       .catch((err) => {
+        if (!isCurrent()) return;
         setRagError(friendlyInboxError((err as Error)?.message ?? "rag_refresh_failed"));
       })
-      .finally(() => setRagLoading(false));
+      .finally(() => {
+        if (isCurrent()) setRagLoading(false);
+      });
   };
 
   useEffect(() => {
@@ -213,12 +232,12 @@ function InboxPage() {
     <AppShell>
       <div className="flex h-full min-h-0 w-full overflow-hidden">
         {isLoading && (
-          <div className="grid flex-1 place-items-center text-[13px] text-text-secondary">
+          <div className="grid flex-1 place-items-center text-body text-text-subtle">
             Loading conversations…
           </div>
         )}
         {isError && (
-          <div className="grid flex-1 place-items-center text-[13px] text-danger">
+          <div className="grid flex-1 place-items-center text-body text-text-danger">
             Failed to load inbox: {(error as Error)?.message ?? "unknown error"}
           </div>
         )}
@@ -259,7 +278,7 @@ function InboxPage() {
                 />
               </div>,
               railOpen ? (
-                <div key="rail" className="h-full min-h-0 border-l border-[var(--border-token)]">
+                <div key="rail" className="h-full min-h-0 border-l border-border">
                   <ContextRail thread={displayThread} />
                 </div>
               ) : null,
@@ -267,7 +286,7 @@ function InboxPage() {
           </SplitPanes>
         )}
         {!isLoading && !isError && !displayThread && (
-          <div className="grid flex-1 place-items-center text-[13px] text-text-secondary">
+          <div className="grid flex-1 place-items-center text-body text-text-subtle">
             No conversations yet.
           </div>
         )}

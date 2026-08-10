@@ -210,7 +210,10 @@ export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): 
 
   if (!["on", "min_words", "locked"].includes(interaction.barge_in)) interaction.barge_in = "on";
   interaction.min_words = Math.min(10, Math.max(1, Number(interaction.min_words) || 3));
-  interaction.idle_timeout_secs = Math.min(30, Math.max(0, Number(interaction.idle_timeout_secs) || 0));
+  interaction.idle_timeout_secs = Math.min(
+    30,
+    Math.max(0, Number(interaction.idle_timeout_secs) || DEFAULT_AGENT_TUNING.interaction.idle_timeout_secs),
+  );
   interaction.mute = (Array.isArray(interaction.mute) ? interaction.mute : []).filter((m) =>
     ["until_first_bot_complete", "during_function_calls"].includes(m),
   );

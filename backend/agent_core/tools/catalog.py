@@ -9,6 +9,7 @@ and models that emit the old shape keep resolving — see
 from __future__ import annotations
 
 from agent_core.tools.schema import (
+    CHANNEL_MCP,
     CHANNEL_TEXT,
     CHANNEL_VOICE,
     ArgSpec,
@@ -19,6 +20,19 @@ from agent_core.tools.schema import (
 BOTH = frozenset({CHANNEL_VOICE, CHANNEL_TEXT})
 VOICE_ONLY = frozenset({CHANNEL_VOICE})
 TEXT_ONLY = frozenset({CHANNEL_TEXT})
+
+# Readable by an external agent over MCP, in addition to the bot's own channels.
+#
+# Read-only tools ONLY. Every mutating tool in this catalog writes to a bank's
+# CRM — promises, disputes, leads, notes, escalations — and on voice and text
+# those writes sit behind CallContext.identity_verified, which is what stops an
+# unverified caller moving money-adjacent state. An MCP client has no
+# verification ceremony, so that gate has no analogue and the write tools stay
+# off until one exists.
+#
+# Opt-in per spec rather than a default so adding a tool never silently exposes
+# it, and so this comment is the thing someone has to argue with.
+BOTH_AND_MCP = frozenset({CHANNEL_VOICE, CHANNEL_TEXT, CHANNEL_MCP})
 
 DISPUTE_TYPES = (
     "paid_already",
@@ -62,7 +76,9 @@ DOCUMENT_TYPES = (
 
 DOCUMENT_CHANNELS = ("whatsapp", "email", "sms")
 
-LEAD_PRIORITIES = ("low", "normal", "high")
+# Matches the leads.priority CHECK constraint. Stopping at "high" made the
+# 'urgent' the database allows unreachable from every channel.
+LEAD_PRIORITIES = ("low", "normal", "high", "urgent")
 
 CATALOG = ToolCatalog()
 _r = CATALOG.register
@@ -78,7 +94,7 @@ GET_CUSTOMER_CONTEXT = _r(
             "Authoritative customer/account snapshot: name, outstanding, DPD, DND, "
             "consent, open promises/disputes. Use for any money question."
         ),
-        channels=BOTH,
+        channels=BOTH_AND_MCP,
     )
 )
 
@@ -96,7 +112,7 @@ GET_PAYMENT_HISTORY = _r(
                 default=8,
             ),
         ),
-        channels=BOTH,
+        channels=BOTH_AND_MCP,
     )
 )
 
@@ -114,7 +130,7 @@ GET_EMI_SCHEDULE = _r(
                 default=6,
             ),
         ),
-        channels=BOTH,
+        channels=BOTH_AND_MCP,
     )
 )
 
@@ -128,6 +144,40 @@ GET_ACCOUNT_POSITION = _r(
         ),
         channels=VOICE_ONLY,
         cancel_on_interruption=True,
+    )
+)
+
+# --------------------------------------------------------------------------
+# Call intake
+# --------------------------------------------------------------------------
+
+# The bot asks what the caller needs BEFORE the verification ceremony, so that
+# verification can be framed as the means to the caller's goal rather than a
+# checkpoint they are marched through. Nothing account-specific is disclosed
+# here — this records an intention, it reads no CRM data.
+CAPTURE_CALL_GOAL = _r(
+    ToolSpec(
+        name="capture_call_goal",
+        description=(
+            "Record why the caller says they called, in their own words, and move "
+            "on to identity verification. Call this as soon as the caller has "
+            "stated what they want — never before they have spoken, and never "
+            "with a guess."
+        ),
+        args=(
+            ArgSpec(
+                name="goal_summary",
+                type="string",
+                description=(
+                    "One short phrase in the caller's own terms, e.g. 'dispute a "
+                    "late fee', 'pay the EMI today', 'ask about insurance "
+                    "coverage'. Never placeholder text."
+                ),
+                required=True,
+                aliases=("goalSummary",),
+            ),
+        ),
+        channels=VOICE_ONLY,
     )
 )
 
@@ -355,27 +405,64 @@ REQUEST_DOCUMENTS = _r(
 # Upsell
 # --------------------------------------------------------------------------
 
+# The recommender, not the model, chooses the product. This tool is the only
+# supported way to find out what may be offered: it returns a shortlist that has
+# already passed candidate generation, the compliance veto, ranking and every
+# policy gate. Deliberately no product-id list in any description below — a
+# model that knows ids a priori will eventually name one nobody approved.
+RECOMMEND_NEXT_OFFER = _r(
+    ToolSpec(
+        name="recommend_next_offer",
+        description=(
+            "Ask the offer engine what — if anything — is worth mentioning to this "
+            "customer right now. Returns at most a couple of pre-approved offers, "
+            "each with a product id and an indicative amount, or suppressed=true "
+            "meaning say nothing about products at all. Never invent a product id "
+            "and never pitch anything this tool did not return. Call it before "
+            "mentioning any product, and before closing the call."
+        ),
+        args=(),
+        channels=BOTH,
+    )
+)
+
+DECLINE_OFFER = _r(
+    ToolSpec(
+        name="decline_offer",
+        description=(
+            "Record that the customer said no to the product you just mentioned. "
+            "Call it as soon as they decline, then move on without pressing. This "
+            "is what stops us raising the same product with them again."
+        ),
+        args=(
+            ArgSpec(
+                name="reason",
+                type="string",
+                description="Short paraphrase of why they declined, if they gave one.",
+            ),
+        ),
+        channels=BOTH,
+    )
+)
+
 CHECK_PRODUCT_ELIGIBILITY = _r(
     ToolSpec(
         name="check_product_eligibility",
         description=(
-            "Evaluate eligibility for an upsell/cross-sell product using live account "
-            "DPD, consent/DND, and product rules. Bureau/KYC/income return unknown "
-            "(not fake passes). Call before capture_lead."
+            "Re-confirm eligibility for a product recommend_next_offer already "
+            "returned, using live account DPD, consent/DND and product rules. "
+            "Bureau/KYC/income return unknown (not fake passes)."
         ),
         args=(
             ArgSpec(
                 name="product_id",
                 type="string",
-                description=(
-                    "Product id, e.g. topup-loan, debt-consolidation, cc-limit-upgrade, "
-                    "bundled-insurance, personal-loan, gold-loan."
-                ),
+                description="Product id, exactly as returned by recommend_next_offer.",
                 required=True,
                 aliases=("productId",),
             ),
         ),
-        channels=BOTH,
+        channels=BOTH_AND_MCP,
     )
 )
 
@@ -391,9 +478,22 @@ CAPTURE_LEAD = _r(
             ArgSpec(
                 name="product_id",
                 type="string",
-                description="Product the customer is interested in.",
+                description=(
+                    "Product the customer is interested in — must be one "
+                    "recommend_next_offer returned."
+                ),
                 required=True,
                 aliases=("productId",),
+            ),
+            ArgSpec(
+                name="offer_id",
+                type="string",
+                description=(
+                    "The offerId from recommend_next_offer. Pass it whenever you "
+                    "have one so the captured lead is tied to the offer that was "
+                    "actually pitched."
+                ),
+                aliases=("offerId",),
             ),
             ArgSpec(
                 name="offer_amount",
@@ -405,7 +505,11 @@ CAPTURE_LEAD = _r(
             ArgSpec(
                 name="summary",
                 type="string",
-                description="Short snippet of what the customer said about their interest.",
+                description=(
+                    "What the customer actually said about their interest, in their "
+                    "own words where possible — this is the only context the "
+                    "follow-up specialist gets."
+                ),
                 aliases=("transcriptSnippet", "transcript_snippet"),
             ),
             ArgSpec(
@@ -442,7 +546,7 @@ SEARCH_KNOWLEDGE_BASE = _r(
                 required=True,
             ),
         ),
-        channels=BOTH,
+        channels=BOTH_AND_MCP,
         cancel_on_interruption=True,
         timeout_secs=20,
     )

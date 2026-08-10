@@ -6,8 +6,14 @@ import os
 import re
 from typing import Any
 
+from agent_core import lexicon
+
 # Default ceiling when channel does not pass hard_max_turns (sandbox overrides via env).
-_DEFAULT_HARD_MAX_TURNS = max(1, int(os.getenv("SANDBOX_HARD_MAX_TURNS", "3")))
+# A malformed value must not make agent_core unimportable at process start.
+try:
+    _DEFAULT_HARD_MAX_TURNS = max(1, int(os.getenv("SANDBOX_HARD_MAX_TURNS", "3")))
+except ValueError:
+    _DEFAULT_HARD_MAX_TURNS = 3
 
 
 def evaluate_guardrails(
@@ -26,8 +32,11 @@ def evaluate_guardrails(
     bot_l = (bot_text or "").lower()
     cust_l = (customer_text or "").lower()
 
+    # Whole-word match, consistent with the regex guardrails below: a substring
+    # test flags "guarantee" inside "guaranteed-issue" and, worse, fires on
+    # innocuous words that merely contain a banned term.
     for p in prohibited:
-        if p and p in bot_l:
+        if p and re.search(rf"\b{re.escape(p)}\b", bot_l):
             flags.append(f"prohibited:{p}")
 
     if guardrails.get("neverPromiseWaiver") and intent == "waiver_request":
@@ -44,10 +53,17 @@ def evaluate_guardrails(
             flags.append("rate-quoted")
 
     # Hard enforce: refuse politics / religion (customer trigger or bot engagement).
+    # Avoid bare tokens like "party" / "congress" / "god" that collide with
+    # insurance ("third party") and everyday speech.
     if guardrails.get("refusePoliticsReligion"):
         politics_re = re.compile(
-            r"\b(politic|election|minister|bjp|congress|party|religion|hindu|muslim|"
-            r"christian|temple|mosque|church|god\b|allah|bible|quran)\b",
+            r"(?:"
+            r"\b(politics?|political|election|elections|minister|bjp|"
+            r"indian\s+national\s+congress|lok\s+sabha|vidhan\s+sabha|"
+            r"religion|religious|hinduism|islam|muslim|christianity|christian|"
+            r"temple|mosque|church|allah|bible|quran)\b|"
+            r"\b(vote\s+for|political\s+party)\b"
+            r")",
             re.I,
         )
         if politics_re.search(cust_l):
@@ -60,17 +76,14 @@ def evaluate_guardrails(
     if guardrails.get("escalateLegal") and intent == "escalation":
         flags.append("auto-escalate")
     # Also trip on explicit legal language in the customer's words (not intent-only).
-    if guardrails.get("escalateLegal") and re.search(
-        r"\b(lawyer|advocate|attorney|court|lawsuit|sue\b|legal\s+action|"
-        r"consumer\s+forum|ombudsman|police\s+complaint)\b",
-        cust_l,
-    ):
+    # The pattern lives in agent_core.lexicon: the copy that used to sit here had
+    # a bare `sue\b` and no `fir` handling at all, so it disagreed with the voice
+    # channel about what counts as a legal threat — on the escalation path.
+    if guardrails.get("escalateLegal") and lexicon.is_legal_threat(cust_l):
         flags.append("auto-escalate")
-    # Word-boundary match so partial hits (e.g. "kill" in "skill") don't escalate.
-    if guardrails.get("escalateAbuse") and re.search(
-        r"\b(idiot|stupid|shut\s+up|stfu|harass|kill|fuck|asshole|bastard)\b",
-        cust_l,
-    ):
+    # Word-boundary match so partial hits ("kill" in "skill") don't escalate,
+    # with a trailing \w* so suffixed forms ("harassment", "fucked") still do.
+    if guardrails.get("escalateAbuse") and lexicon.is_abusive(cust_l):
         flags.append("auto-escalate")
 
     ceiling = hard_max_turns if hard_max_turns is not None else _DEFAULT_HARD_MAX_TURNS
@@ -87,7 +100,10 @@ def evaluate_guardrails(
         if "record" not in bot_l:
             flags.append("missing-recording-disclosure")
 
-    return flags
+    # De-dup while preserving first-seen order: "auto-escalate" can be raised by
+    # intent, legal wording and abuse detection in the same turn, and callers
+    # count flags.
+    return list(dict.fromkeys(flags))
 
 
 def should_halt(flags: list[str]) -> bool:

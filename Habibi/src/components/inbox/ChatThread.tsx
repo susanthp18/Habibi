@@ -3,8 +3,10 @@ import { Copy, Bot, Info, MoreHorizontal, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadItem } from "@/data/inbox-seed";
-import { resolveChannelMeta, sentimentColor } from "./meta";
+import { resolveChannelMeta, sentimentColor, getThreadHandoffState } from "./meta";
+import { Tag } from "@/components/ui/tag";
 import { MessageBubble } from "./MessageBubble";
+import { Lozenge } from "@/components/ui/lozenge";
 
 function isMessage(item: ThreadItem): item is Extract<ThreadItem, { sender: unknown }> {
   return (item as { kind?: string }).kind !== "system";
@@ -13,15 +15,15 @@ function isMessage(item: ThreadItem): item is Extract<ThreadItem, { sender: unkn
 function BotTypingBubble() {
   return (
     <div className="animate-fade-up flex flex-col items-start" aria-live="polite" aria-label="Bot is typing">
-      <span className="mb-0.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-brand-primary">
+      <span className="mb-025 px-050 text-body-small font-semibold text-text-brand">
         Bot
       </span>
-      <div className="inline-flex items-center gap-1 rounded-2xl rounded-bl-md border border-[var(--border-token)] bg-brand-tint px-3.5 py-2.5 shadow-card">
-        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-brand-primary" style={{ animationDelay: "0ms" }} />
-        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-brand-primary" style={{ animationDelay: "160ms" }} />
-        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-brand-primary" style={{ animationDelay: "320ms" }} />
+      <div className="inline-flex items-center gap-050 rounded-xxlarge rounded-bl-md border border-border bg-background-brand-subtlest px-200 py-150">
+        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold" style={{ animationDelay: "0ms" }} />
+        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold" style={{ animationDelay: "160ms" }} />
+        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold" style={{ animationDelay: "320ms" }} />
       </div>
-      <div className="mt-1 px-1 text-[10.5px] text-text-muted">typing…</div>
+      <div className="mt-050 px-050 text-body-small text-text-subtlest">typing…</div>
     </div>
   );
 }
@@ -44,14 +46,8 @@ export function ChatThread({
   const [menuOpen, setMenuOpen] = useState(false);
   const chan = resolveChannelMeta(thread.channel);
   const ChanIcon = chan.icon;
+  const { needsClaim, canReturnToBot, botHandling } = getThreadHandoffState(thread, Boolean(onReturnToBot));
   const botTyping = Boolean(thread.botTyping) && thread.status === "bot" && !thread.isMine;
-  const needsClaim =
-    !thread.isMine &&
-    (thread.status === "bot" || thread.status === "needs_human" || thread.status === "escalated");
-  const canReturnToBot =
-    Boolean(onReturnToBot) &&
-    thread.isMine &&
-    (thread.status === "assigned" || thread.status === "needs_human" || thread.status === "escalated");
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -71,8 +67,6 @@ export function ChatThread({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  const botHandling = thread.status === "bot" && !thread.isMine;
-
   const copyAccount = async () => {
     try {
       await navigator.clipboard.writeText(thread.accountId);
@@ -84,59 +78,50 @@ export function ChatThread({
   };
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface-app">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface">
       {/* Header */}
-      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
+      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-150 border-b border-border bg-surface px-250 py-150">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-[15px] font-semibold text-brand-navy">
+          <div className="flex items-center gap-100">
+            <h2 className="truncate heading-xsmall text-text">
               {thread.customer}
             </h2>
-            <span className="font-mono text-[11px] text-text-muted">
+            <span className="font-mono text-body-small text-text-subtlest">
               {thread.accountId}
             </span>
           </div>
-          <div className="mt-0.5 flex items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
-                chan.badge,
-              )}
-            >
-              <ChanIcon className="h-3 w-3" />
+          <div className="mt-025 flex items-center gap-100">
+            <Tag hue={chan.hue}>
+              <ChanIcon />
               {chan.label}
-            </span>
-            <span className="inline-flex items-center gap-1 text-[11.5px] text-text-secondary">
+            </Tag>
+            <span className="inline-flex items-center gap-050 text-body-small text-text-subtle">
               <span className={cn("h-1.5 w-1.5 rounded-full", sentimentColor[thread.sentiment])} />
               {thread.sentiment} sentiment
             </span>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-100">
           {botTyping ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-tint px-2.5 py-1 text-[11.5px] font-semibold text-brand-primary-dark">
-              <span className="pulse-dot h-2 w-2 rounded-full bg-brand-primary" />
+            <Lozenge tone="selected">
+              <span className="pulse-dot h-100 w-100 rounded-full bg-background-brand-bold" />
               Bot is typing…
-            </span>
+            </Lozenge>
           ) : botHandling ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-[11.5px] font-semibold text-success">
-              <span className="pulse-dot h-2 w-2 rounded-full bg-success" />
+            <Lozenge tone="success">
+              <span className="pulse-dot h-100 w-100 rounded-full bg-background-success-bold" />
               Bot is handling
-            </span>
+            </Lozenge>
           ) : thread.isMine ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-tint px-2.5 py-1 text-[11.5px] font-semibold text-brand-primary-dark">
-              You've taken over
-            </span>
+            <Lozenge tone="selected">You&apos;ve taken over</Lozenge>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-bg px-2.5 py-1 text-[11.5px] font-semibold text-warning">
-              Awaiting agent
-            </span>
+            <Lozenge tone="warning">Awaiting agent</Lozenge>
           )}
           <button
             type="button"
             onClick={onToggleRail}
-            className="grid h-8 w-8 place-items-center rounded-md text-text-secondary hover:bg-surface-sunken"
+            className="focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken"
             aria-label="Toggle customer context"
             title="Toggle customer context"
           >
@@ -147,8 +132,8 @@ export function ChatThread({
               type="button"
               onClick={() => setMenuOpen((o) => !o)}
               className={cn(
-                "grid h-8 w-8 place-items-center rounded-md text-text-secondary hover:bg-surface-sunken",
-                menuOpen && "bg-surface-sunken text-brand-primary",
+                "focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken",
+                menuOpen && "bg-surface-sunken text-text-brand",
               )}
               aria-label="More actions"
               aria-expanded={menuOpen}
@@ -156,7 +141,7 @@ export function ChatThread({
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-md border border-[var(--border-token)] bg-white py-1 shadow-pop">
+              <div className="absolute right-0 z-20 mt-050 w-52 overflow-hidden rounded-medium border border-border bg-surface py-050 shadow-overlay">
                 {needsClaim && onTakeOver && (
                   <button
                     type="button"
@@ -165,9 +150,9 @@ export function ChatThread({
                       setMenuOpen(false);
                       onTakeOver();
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-text-primary hover:bg-brand-tint disabled:opacity-50"
+                    className="focus-ring flex w-full items-center gap-100 px-150 py-100 text-left text-body-small text-text hover:bg-background-brand-subtlest disabled:opacity-50"
                   >
-                    <UserRound className="h-3.5 w-3.5 text-brand-primary" />
+                    <UserRound className="h-3.5 w-3.5 text-text-brand" />
                     Take over
                   </button>
                 )}
@@ -179,18 +164,18 @@ export function ChatThread({
                       setMenuOpen(false);
                       onReturnToBot?.();
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-text-primary hover:bg-brand-tint disabled:opacity-50"
+                    className="focus-ring flex w-full items-center gap-100 px-150 py-100 text-left text-body-small text-text hover:bg-background-brand-subtlest disabled:opacity-50"
                   >
-                    <Bot className="h-3.5 w-3.5 text-brand-primary" />
+                    <Bot className="h-3.5 w-3.5 text-text-brand" />
                     Return to bot
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => void copyAccount()}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-text-primary hover:bg-brand-tint"
+                  className="focus-ring flex w-full items-center gap-100 px-150 py-100 text-left text-body-small text-text hover:bg-background-brand-subtlest"
                 >
-                  <Copy className="h-3.5 w-3.5 text-text-muted" />
+                  <Copy className="h-3.5 w-3.5 text-text-subtlest" />
                   Copy account ID
                 </button>
               </div>
@@ -200,17 +185,17 @@ export function ChatThread({
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <div className="mx-auto flex max-w-[720px] flex-col gap-2">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-300 py-250">
+        <div className="mx-auto flex max-w-[50rem] flex-col gap-100">
           {thread.messages.map((item, idx) => {
             if (!isMessage(item)) {
               return (
-                <div key={item.id} className="my-2 flex items-center gap-2">
-                  <div className="h-px flex-1 bg-[var(--border-token)]" />
-                  <span className="rounded-full bg-surface-sunken px-2.5 py-0.5 text-[11px] text-text-secondary">
+                <div key={item.id} className="my-100 flex items-center gap-100">
+                  <div className="h-px flex-1 bg-border" />
+                  <Lozenge tone="neutral">
                     {item.text} · {item.time}
-                  </span>
-                  <div className="h-px flex-1 bg-[var(--border-token)]" />
+                  </Lozenge>
+                  <div className="h-px flex-1 bg-border" />
                 </div>
               );
             }

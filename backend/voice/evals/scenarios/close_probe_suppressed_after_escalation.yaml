@@ -1,0 +1,40 @@
+# Escalation kills the probe outright.
+#
+# A customer being handed to a human has, by definition, a problem the bot
+# could not solve. Asking "anything else I can help with?" on the way out is
+# tone-deaf; folding a product mention into it is how a complaint becomes a
+# regulatory one.
+#
+# This is enforced in two independent places, which is deliberate — the
+# suppression must not depend on the model choosing well:
+#   * arbitration returns `escalated` before scoring, so there is no offer;
+#   * `_probe_suppressed` skips the pre_close node entirely, so there is no
+#     question either.
+#
+# The bar here is stricter than the other probe scenarios: not "asks without an
+# offer", but does not ask at all.
+name: close_probe_suppressed_after_escalation
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "This charge is wrong and I've already explained it twice. I want to
+      speak to a human being, now."
+    expect:
+      - event: function_call
+        calls:
+          - name: escalate_to_human
+      - event: response
+        eval: >-
+          the bot acknowledges without arguing and tells them it is connecting
+          them to a colleague
+
+  - user: "Fine."
+    expect:
+      - event: response
+        eval: >-
+          the bot does NOT ask whether there is anything else it can help with,
+          does not name or hint at any product, and does not ask a closing
+          question of any kind — it hands over or closes

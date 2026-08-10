@@ -42,20 +42,32 @@ def test_shared_tools_are_exposed_on_both_channels(tool_name):
 
 
 def test_whatsapp_definitions_render_from_catalog():
-    """bot_tools must not hand-roll its own JSON schema any more."""
+    """bot_tools.TOOL_DEFINITIONS must be exactly what the catalog renders.
+
+    Compares the *whole* definition set — every tool, property, required list
+    and default — against CATALOG's own rendering path. Spot-checking a few
+    names and one property let schema drift (a re-added hand-rolled entry, a
+    dropped required field, a changed enum) through unnoticed, which is the
+    exact regression this module exists to prevent.
+    """
     import bot_tools
 
-    names = {t["function"]["name"] for t in bot_tools.TOOL_DEFINITIONS}
-    for required in ("create_promise_to_pay", "flag_dispute", "request_documents"):
-        assert required in names
+    # Full text-channel set, not just the names bot_tools happens to list —
+    # a spec added to the catalog for text must reach the WhatsApp runtime.
+    by_name = {t["function"]["name"]: t for t in CATALOG.openai_tools()}
+    actual_by_name = {t["function"]["name"]: t for t in bot_tools.TOOL_DEFINITIONS}
 
-    ptp = next(
-        t for t in bot_tools.TOOL_DEFINITIONS if t["function"]["name"] == "create_promise_to_pay"
+    assert set(actual_by_name) == set(by_name), (
+        f"only in bot_tools: {set(actual_by_name) - set(by_name)}; "
+        f"only in catalog: {set(by_name) - set(actual_by_name)}"
     )
-    props = ptp["function"]["parameters"]["properties"]
-    # The canonical name is snake_case on BOTH channels now.
-    assert "promise_date" in props
-    assert "promisedDate" not in props
+    for name, definition in by_name.items():
+        assert actual_by_name[name] == definition, f"{name} drifted from the catalog"
+
+    # The canonical name is snake_case on BOTH channels.
+    ptp_props = actual_by_name["create_promise_to_pay"]["function"]["parameters"]["properties"]
+    assert "promise_date" in ptp_props
+    assert "promisedDate" not in ptp_props
 
 
 def test_every_handler_has_a_spec_and_vice_versa():
@@ -163,9 +175,55 @@ def test_specs_render_as_flows_schemas():
 
 
 def test_voice_and_text_agree_on_argument_names():
-    """The regression guard: identical property names on both renderings."""
-    for name in ("create_promise_to_pay", "flag_dispute", "request_callback", "capture_lead"):
+    """The regression guard: identical property names on both renderings.
+
+    Covers every BOTH-channel tool the voice side renders from the catalog.
+    The last six were folded in later — before that they were hand-rolled
+    Pipecat direct functions whose Python signatures were a second, unchecked
+    declaration of the same contract. get_account_position is VOICE_ONLY, so it
+    has no text rendering to agree with and is covered by
+    tests/test_voice_tool_registry.py instead.
+    """
+    for name in (
+        "create_promise_to_pay",
+        "flag_dispute",
+        "request_callback",
+        "capture_lead",
+        "add_customer_note",
+        "escalate_to_human",
+        "search_knowledge_base",
+        "get_customer_context",
+        "get_payment_history",
+        "get_emi_schedule",
+    ):
         spec = CATALOG.get(name)
         openai_props = set(spec.to_openai_tool()["function"]["parameters"]["properties"])
         flows_props = set(spec.properties())
         assert openai_props == flows_props, f"{name} drifted between channels"
+
+
+def test_openai_tools_render_full_catalog() -> None:
+    tools = CATALOG.openai_tools()
+    assert len(tools) >= 9
+    for t in tools:
+        assert t["type"] == "function"
+        assert "name" in t["function"]
+        assert "parameters" in t["function"]
+        assert t["function"]["parameters"]["type"] == "object"
+
+
+def test_flows_schema_properties_match_openai() -> None:
+    async def _handler(args, flow_manager):  # pragma: no cover
+        return {}, None
+
+    for name in ("create_promise_to_pay", "flag_dispute", "request_callback"):
+        spec = CATALOG.get(name)
+        flows = spec.to_flows_schema(_handler)
+        assert set(flows.properties) == set(
+            spec.to_openai_tool()["function"]["parameters"]["properties"]
+        )
+
+
+def test_arg_defaults_applied_on_normalize() -> None:
+    out = CATALOG.normalize("get_emi_schedule", {})
+    assert out.get("limit") == 6

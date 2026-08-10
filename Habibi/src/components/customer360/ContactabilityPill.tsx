@@ -1,12 +1,12 @@
 import { Ban, CheckCircle2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Consent, Contact } from "@/data/customer360-seed";
+import { StatusChip, type ChipTone } from "./StatusChip";
 
-type Props = { consent: Consent[]; contact: Contact; className?: string };
+type Props = { consent: Consent[]; contact: Contact; className?: string; compact?: boolean };
 
-function withinWindow(pref: string): boolean {
-  // pref format "10:00–19:00 IST"
-  const m = pref.match(/(\d{1,2}):(\d{2})[–-](\d{1,2}):(\d{2})/);
+function withinWindow(pref: string | null | undefined): boolean {
+  const m = (pref || "").match(/(\d{1,2}):(\d{2})[–-](\d{1,2}):(\d{2})/);
   if (!m) return true;
   const start = Number(m[1]) * 60 + Number(m[2]);
   const end = Number(m[3]) * 60 + Number(m[4]);
@@ -15,42 +15,49 @@ function withinWindow(pref: string): boolean {
   return cur >= start && cur <= end;
 }
 
-export function ContactabilityPill({ consent, contact, className }: Props) {
+export function contactabilityState(consent: Consent[], contact: Contact) {
   const callOptedIn = consent.find((c) => c.channel === "call")?.optedIn ?? false;
   const inWindow = withinWindow(contact.preferredWindow);
   const dnd = contact.dnd;
 
-  let tone: "ok" | "warn" | "bad" = "ok";
+  let tone: ChipTone = "success";
   let label = "OK to contact";
-  let icon = <CheckCircle2 className="h-3.5 w-3.5" />;
   let sub = `Voice window · ${contact.preferredWindow}`;
 
   if (dnd || !callOptedIn) {
-    tone = "bad";
+    tone = "danger";
     label = dnd ? "DND active" : "Voice opt-out";
-    icon = <Ban className="h-3.5 w-3.5" />;
     sub = "Use WhatsApp / Email only";
   } else if (!inWindow) {
-    tone = "warn";
+    tone = "warning";
     label = "Outside contact window";
-    icon = <Clock className="h-3.5 w-3.5" />;
     sub = `Next allowed · ${contact.preferredWindow}`;
   }
 
+  return { tone, label, sub, ok: tone === "success" };
+}
+
+export function ContactabilityPill({ consent, contact, className, compact }: Props) {
+  const { tone, label, sub } = contactabilityState(consent, contact);
+  const icon =
+    tone === "danger" ? (
+      <Ban className="h-3 w-3 shrink-0" />
+    ) : tone === "warning" ? (
+      <Clock className="h-3 w-3 shrink-0" />
+    ) : (
+      <CheckCircle2 className="h-3 w-3 shrink-0" />
+    );
+
   return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium",
-        tone === "ok" && "bg-success-bg text-success border-success/20",
-        tone === "warn" && "bg-warning-bg text-warning border-warning/20",
-        tone === "bad" && "bg-danger-bg text-danger border-danger/20",
-        className,
-      )}
+    <StatusChip
+      label={compact ? label : `${label} · ${sub}`}
+      tone={tone}
+      shape="pill"
+      size="sm"
       title={sub}
+      className={cn("normal-case tracking-normal", className)}
     >
       {icon}
-      <span>{label}</span>
-      <span className="text-[10px] font-normal opacity-80">· {sub}</span>
-    </div>
+    </StatusChip>
   );
 }

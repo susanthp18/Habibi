@@ -3,7 +3,7 @@
 Sandbox Live stays on SmallWebRTC. This module is the PSTN path:
 
   Caller → Twilio number → POST /twilio/voice/incoming (API :8000)
-        → TwiML <Connect><Stream wss://VOICE_PUBLIC/ws/></Connect>
+        → TwiML <Connect><Stream wss://…/ws[/{secret}]/></Connect>
         → Pipecat runner (:7860) with ``-t twilio`` / auto-detect
 
 Human takeover defaults to Habibi Inbox (``VOICE_HANDOFF_MODE=callback_queue``).
@@ -18,7 +18,7 @@ import logging
 import os
 import re
 from typing import Any
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, quoteattr
 
 from env_loader import load_env
 
@@ -68,7 +68,29 @@ def voice_public_base_url() -> str:
     return _env("VOICE_PUBLIC_BASE_URL").rstrip("/")
 
 
+def voice_https_public_base_url() -> str:
+    """HTTPS origin for Twilio HTTP callbacks (fallback / status), not wss."""
+    base = voice_public_base_url()
+    if not base:
+        return ""
+    if base.startswith("https://"):
+        return base.rstrip("/")
+    if base.startswith("wss://"):
+        return "https://" + base[len("wss://") :].rstrip("/")
+    if base.startswith("http://"):
+        raise RuntimeError("Twilio callbacks require https PUBLIC_BASE_URL")
+    if base.startswith("ws://"):
+        raise RuntimeError("Twilio callbacks require https PUBLIC_BASE_URL")
+    return f"https://{base.rstrip('/')}"
+
+
 def media_stream_wss_url() -> str:
+    """Build the Media Streams ``wss://`` URL.
+
+    Twilio ``<Stream url>`` does **not** support query strings (error 31920).
+    When ``VOICE_WS_PROXY_SECRET`` is set, embed it as a path segment
+    ``/ws/{secret}`` so the upgrade gate can authorize without query params.
+    """
     base = voice_public_base_url()
     if not base:
         raise RuntimeError(
@@ -77,12 +99,64 @@ def media_stream_wss_url() -> str:
             "for a dedicated voice tunnel."
         )
     if base.startswith("https://"):
-        return "wss://" + base[len("https://") :] + "/ws"
-    if base.startswith("http://"):
-        return "ws://" + base[len("http://") :] + "/ws"
-    if base.startswith("wss://") or base.startswith("ws://"):
-        return base.rstrip("/") + ("/ws" if not base.rstrip("/").endswith("/ws") else "")
-    return f"wss://{base}/ws"
+        host_path = base[len("https://") :].rstrip("/")
+        if host_path.endswith("/ws"):
+            url = "wss://" + host_path
+        else:
+            url = "wss://" + host_path + "/ws"
+    elif base.startswith("http://"):
+        raise RuntimeError(
+            "Twilio Media Streams require TLS — set an https:// public base URL "
+            "(PUBLIC_BASE_URL / VOICE_PUBLIC_BASE_URL)."
+        )
+    elif base.startswith("ws://"):
+        raise RuntimeError(
+            "Twilio Media Streams require TLS — use wss://, not ws://, for the "
+            "voice public base URL."
+        )
+    elif base.startswith("wss://"):
+        url = base.rstrip("/") + ("/ws" if not base.rstrip("/").endswith("/ws") else "")
+    else:
+        url = f"wss://{base}/ws"
+
+    secret = _env("VOICE_WS_PROXY_SECRET")
+    if secret:
+        from urllib.parse import quote
+
+        # Path segment only — never ?query= (Twilio Media Streams rejects it).
+        url = url.rstrip("/") + "/" + quote(secret, safe="")
+    return url
+
+
+def stream_status_callback_url() -> str | None:
+    """Absolute HTTPS URL for ``<Stream statusCallback>`` events."""
+    try:
+        base = voice_https_public_base_url()
+    except RuntimeError:
+        return None
+    if not base:
+        return None
+    return f"{base}/twilio/voice/stream-status"
+
+
+def voice_fallback_url() -> str | None:
+    try:
+        base = voice_https_public_base_url()
+    except RuntimeError:
+        return None
+    if not base:
+        return None
+    return f"{base}/twilio/voice/fallback"
+
+
+def call_status_callback_url() -> str | None:
+    try:
+        base = voice_https_public_base_url()
+    except RuntimeError:
+        return None
+    if not base:
+        return None
+    return f"{base}/twilio/voice/call-status"
 
 
 def configured() -> bool:
@@ -95,19 +169,31 @@ def digits_only(phone: str | None) -> str:
 
 def twiml_connect_stream(*, custom: dict[str, str] | None = None) -> str:
     """TwiML that bridges the call into the Pipecat Twilio WebSocket."""
-    url = escape(media_stream_wss_url())
+    # quoteattr, matching the Parameter attributes below: escape() leaves the
+    # double-quote character untouched, so a configured URL containing one
+    # would close the attribute and inject markup into the TwiML.
+    url = quoteattr(media_stream_wss_url())
+    status_cb = stream_status_callback_url()
+    status_attrs = ""
+    if status_cb:
+        status_attrs = (
+            f" statusCallback={quoteattr(status_cb)} statusCallbackMethod={quoteattr('POST')}"
+        )
     params_xml = ""
     for key, value in (custom or {}).items():
         if value is None:
             continue
+        # quoteattr() supplies its own quoting and escapes the quote character
+        # itself — manual escape()+"..." leaves a value containing a double
+        # quote able to close the attribute and inject markup.
         params_xml += (
-            f'\n      <Parameter name="{escape(str(key))}" value="{escape(str(value))}" />'
+            f"\n      <Parameter name={quoteattr(str(key))} value={quoteattr(str(value))} />"
         )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         "<Response>\n"
         "  <Connect>\n"
-        f'    <Stream url="{url}">{params_xml}\n'
+        f"    <Stream url={url}{status_attrs}>{params_xml}\n"
         "    </Stream>\n"
         "  </Connect>\n"
         "</Response>\n"
@@ -139,20 +225,22 @@ def twiml_dial_conference(conference_name: str, *, end_on_exit: bool = False) ->
 
 
 def _client():
+    from twilio.http.http_client import TwilioHttpClient
     from twilio.rest import Client
 
     sid = account_sid()
     token = auth_token()
     if not sid or not token:
         raise RuntimeError("TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing")
-    return Client(sid, token)
+    return Client(sid, token, http_client=TwilioHttpClient(timeout=10))
 
 
 def fetch_call(call_sid: str) -> dict[str, Any]:
     call = _client().calls(call_sid).fetch()
+    from_num = getattr(call, "from_", None) or getattr(call, "_from", None)
     return {
         "callSid": call.sid,
-        "from": call.from_,
+        "from": from_num,
         "to": call.to,
         "status": call.status,
         "direction": call.direction,
@@ -199,16 +287,42 @@ def warm_transfer_to_supervisor(
     conference = f"bb-handoff-{call_sid[-12:]}"
     client = _client()
     from_number = twilio_phone()
+    # Validate before redirecting: without a from_number the supervisor dial
+    # below fails, and the customer is already parked alone in a conference
+    # with the bot's media stream torn down — a silent dead call.
+    if not from_number:
+        raise RuntimeError("TWILIO_PHONE_NUMBER missing for warm transfer")
 
-    # 1) Redirect the customer into the conference.
-    client.calls(call_sid).update(twiml=twiml_dial_conference(conference, end_on_exit=False))
-
-    # 2) Dial the supervisor into the same conference.
+    # Supervisor leg first. Redirecting the customer tears down the bot's media
+    # stream, so if the supervisor dial then failed the customer would be parked
+    # alone in an empty conference with nothing left to talk to. The supervisor
+    # hears conference hold music for the moment before the customer joins.
     agent_call = client.calls.create(
         to=target,
         from_=from_number,
         twiml=twiml_dial_conference(conference, end_on_exit=True),
     )
+
+    try:
+        client.calls(call_sid).update(
+            twiml=twiml_dial_conference(conference, end_on_exit=False)
+        )
+    except Exception:
+        # Compensate: drop the supervisor rather than leave them ringing into a
+        # conference the customer will never reach.
+        logger.exception(
+            "Twilio warm transfer: customer redirect failed call_sid=%s — "
+            "cancelling supervisor leg %s",
+            call_sid,
+            agent_call.sid,
+        )
+        try:
+            client.calls(agent_call.sid).update(status="completed")
+        except Exception:
+            logger.exception(
+                "Twilio warm transfer: could not cancel supervisor leg %s", agent_call.sid
+            )
+        raise
     logger.info(
         "Twilio warm transfer call_sid=%s supervisor=%s conference=%s agent_call=%s reason=%s",
         call_sid,
@@ -263,5 +377,6 @@ def lookup_customer_for_caller(from_number: str | None) -> dict[str, Any] | None
             "product": (acct or {}).get("product"),
         }
     except Exception:
-        logger.exception("caller CRM lookup failed for %s", phone)
+        suffix = "".join(ch for ch in str(phone or "") if ch.isdigit())[-4:]
+        logger.exception("caller CRM lookup failed for ***%s", suffix or "?")
         return None

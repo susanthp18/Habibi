@@ -13,7 +13,7 @@
 // -----------------------------------------------------------------------------
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import {
   cannedResponses as seedCanned,
@@ -23,6 +23,18 @@ import {
 import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };
+
+/** Shared across hook instances so Strict Mode remounts don't reset full-refresh cadence. */
+let conversationPollCount = 0;
+
+function formatNowLabel(): string {
+  const now = new Date();
+  const h = now.getHours();
+  const m = now.getMinutes().toString().padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hh = ((h + 11) % 12) + 1;
+  return `${hh}:${m} ${ampm}`;
+}
 
 function maxUpdatedAt(rows: Thread[]): string | null {
   let best: string | null = null;
@@ -34,10 +46,23 @@ function maxUpdatedAt(rows: Thread[]): string | null {
   return best;
 }
 
+function mergeThread(existing: Thread, delta: Thread): Thread {
+  // Delta polls may omit heavy fields; never wipe cached transcript / RAG chips.
+  const merged: Thread = { ...existing, ...delta };
+  if (delta.messages === undefined) merged.messages = existing.messages;
+  if (delta.ragSuggestions === undefined) merged.ragSuggestions = existing.ragSuggestions;
+  if (delta.ragDraftAnswer === undefined) merged.ragDraftAnswer = existing.ragDraftAnswer;
+  if (delta.context === undefined) merged.context = existing.context;
+  return merged;
+}
+
 function mergeThreads(prev: Thread[], deltas: Thread[]): Thread[] {
   if (!deltas.length) return prev;
   const byId = new Map(prev.map((t) => [t.id, t]));
-  for (const d of deltas) byId.set(d.id, d);
+  for (const d of deltas) {
+    const existing = byId.get(d.id);
+    byId.set(d.id, existing ? mergeThread(existing, d) : d);
+  }
   return Array.from(byId.values()).sort((a, b) => {
     const au = a.updatedAt || "";
     const bu = b.updatedAt || "";
@@ -59,16 +84,15 @@ export async function fetchConversations(opts?: {
 
 export function useConversations() {
   const queryClient = useQueryClient();
-  const pollCount = useRef(0);
 
   const query = useQuery({
     queryKey: ["conversations"],
     queryFn: async () => {
       if (USE_MOCK) return fetchConversations();
-      pollCount.current += 1;
+      conversationPollCount += 1;
       const prev = queryClient.getQueryData<Thread[]>(["conversations"]);
       // Full list on first fetch and every ~15th poll (~60s at 4s interval).
-      if (!prev || pollCount.current === 1 || pollCount.current % 15 === 0) {
+      if (!prev || conversationPollCount === 1 || conversationPollCount % 15 === 0) {
         return fetchConversations();
       }
       const after = maxUpdatedAt(prev);
@@ -129,12 +153,7 @@ export async function takeoverConversation(threadId: string): Promise<Thread> {
     thread.status = "assigned";
     thread.assignedUserId = "priya-nair";
     thread.isMine = true;
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes().toString().padStart(2, "0");
-    const ampm = h >= 12 ? "PM" : "AM";
-    const hh = ((h + 11) % 12) + 1;
-    const time = `${hh}:${m} ${ampm}`;
+    const time = formatNowLabel();
     thread.messages.push({
       id: `sys-${Date.now()}`,
       kind: "system",
@@ -153,12 +172,7 @@ export async function returnConversationToBot(threadId: string): Promise<Thread>
     thread.status = "bot";
     thread.assignedUserId = null;
     thread.isMine = false;
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes().toString().padStart(2, "0");
-    const ampm = h >= 12 ? "PM" : "AM";
-    const hh = ((h + 11) % 12) + 1;
-    const time = `${hh}:${m} ${ampm}`;
+    const time = formatNowLabel();
     thread.messages.push({
       id: `sys-${Date.now()}`,
       kind: "system",
@@ -177,12 +191,7 @@ export async function sendConversationMessage(
   if (USE_MOCK) {
     const thread = seedThreads.find((t) => t.id === threadId);
     if (!thread) throw new Error("conversation_not_found");
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes().toString().padStart(2, "0");
-    const ampm = h >= 12 ? "PM" : "AM";
-    const hh = ((h + 11) % 12) + 1;
-    const time = `${hh}:${m} ${ampm}`;
+    const time = formatNowLabel();
     thread.messages.push({
       id: `m-${Date.now()}`,
       sender: "agent",

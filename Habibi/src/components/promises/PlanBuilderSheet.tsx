@@ -95,30 +95,30 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[520px]">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[37.5rem]">
         <SheetHeader>
           <SheetTitle>Build payment plan</SheetTitle>
           <SheetDescription>Split the outstanding into installments. First installment auto-becomes a promise.</SheetDescription>
         </SheetHeader>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-200 space-y-150">
           <Field label="Customer">
             <Select value={customerId} onValueChange={setCustomerId}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent className="max-h-[280px]">
+              <SelectContent className="max-h-[17.5rem]">
                 {customers.map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.name} · #{c.accountId.slice(-4)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {cust && (
-              <div className="mt-1 text-[11px] text-text-muted">
-                Outstanding on file: <span className="font-medium text-text-primary">{fmtMoney(cust.outstanding)}</span>
+              <div className="mt-050 text-body-small text-text-subtlest">
+                Outstanding on file: <span className="font-medium text-text">{fmtMoney(cust.outstanding)}</span>
               </div>
             )}
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-150">
             <Field label="Plan total (₹)">
               <Input type="number" value={total} onChange={(e) => setTotal(e.target.value)} className="h-9" />
             </Field>
@@ -142,7 +142,7 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
             />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-150">
             <Field label="Start date">
               <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9" />
             </Field>
@@ -158,26 +158,26 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
             </Field>
           </div>
 
-          <div className="rounded-lg border border-[var(--border-token)] bg-surface-sunken/60 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Preview schedule</div>
-              <div className="text-[11px] text-text-muted tabular-nums">
+          <div className="rounded-large border border-border bg-surface-sunken/60 p-150">
+            <div className="mb-100 flex items-center justify-between">
+              <div className="text-body-small font-semibold text-text-subtlest">Preview schedule</div>
+              <div className="text-body-small text-text-subtlest tabular-nums">
                 {installments} × ≈{fmtMoney(Math.round(totalN / installments))}
               </div>
             </div>
-            <ol className="max-h-[240px] space-y-1 overflow-y-auto">
+            <ol className="max-h-[15rem] space-y-050 overflow-y-auto">
               {schedule.map((r) => (
-                <li key={r.index} className="flex items-center justify-between rounded bg-surface-card px-2 py-1.5 text-[12px]">
-                  <span className="tabular-nums text-text-secondary">#{r.index}</span>
-                  <span className="text-text-primary">{fmtDate(r.dueDate)}</span>
-                  <span className="tabular-nums font-medium text-brand-navy">{fmtMoney(r.amount)}</span>
+                <li key={r.index} className="flex items-center justify-between rounded bg-surface px-100 py-075 text-body-small">
+                  <span className="tabular-nums text-text-subtle">#{r.index}</span>
+                  <span className="text-text">{fmtDate(r.dueDate)}</span>
+                  <span className="tabular-nums font-medium text-text">{fmtMoney(r.amount)}</span>
                 </li>
               ))}
             </ol>
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-300 flex justify-end gap-100">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit}>Create plan</Button>
         </div>
@@ -188,8 +188,8 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1">
-      <Label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{label}</Label>
+    <div className="space-y-050">
+      <Label className="text-body-small font-semibold text-text-subtlest">{label}</Label>
       {children}
     </div>
   );

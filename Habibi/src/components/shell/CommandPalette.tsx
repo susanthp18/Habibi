@@ -100,7 +100,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                 value={`${p.label} ${p.keywords ?? ""} ${p.to}`}
                 onSelect={() => go(p.to)}
               >
-                <Icon className="h-4 w-4 text-brand-primary" />
+                <Icon className="h-4 w-4 text-text-brand" />
                 <span>{p.label}</span>
               </CommandItem>
             );
@@ -122,7 +122,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                 navigateWorkItem(navigate, w);
               }}
             >
-              <span className="font-mono text-[11px] text-text-muted">{w.id}</span>
+              <span className="font-mono text-body-small text-text-subtlest">{w.id}</span>
               <span className="truncate">
                 {w.customer} · {w.type}
               </span>
@@ -140,7 +140,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                 void navigate({ to: "/customers/$customerId", params: { customerId: c.id } });
               }}
             >
-              <Users className="h-4 w-4 text-brand-primary" />
+              <Users className="h-4 w-4 text-text-brand" />
               <span className="truncate">
                 {c.name} · {c.accountId}
               </span>

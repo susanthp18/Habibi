@@ -30,77 +30,77 @@ export function BudgetPanel({
   } | null>(null);
 
   return (
-    <div className="flex h-full min-h-[280px] max-h-full flex-col overflow-hidden rounded-lg border border-[var(--border-token)] bg-surface-card p-4">
-      <div className="mb-2 flex shrink-0 items-center justify-between">
+    <div className="flex h-full min-h-[17.5rem] max-h-full flex-col overflow-hidden rounded-large border border-border bg-surface p-200">
+      <div className="mb-100 flex shrink-0 items-center justify-between">
         <div>
-          <h3 className="text-[13px] font-semibold text-brand-navy">Budgets & alerts</h3>
-          <p className="text-[11px] text-text-secondary">Monthly caps and threshold rules per environment</p>
+          <h3 className="text-body font-semibold text-text">Budgets & alerts</h3>
+          <p className="text-body-small text-text-subtle">Monthly caps and threshold rules per environment</p>
         </div>
-        <Bell className="h-4 w-4 text-brand-primary" />
+        <Bell className="h-4 w-4 text-text-brand" />
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+      <div className="min-h-0 flex-1 space-y-150 overflow-y-auto pr-050">
         {budgets.map((b) => {
           const spent = spendByEnv[b.env] ?? 0;
           const pct = b.monthlyCapInr ? Math.round((spent / b.monthlyCapInr) * 100) : 0;
           const tone = pct < 70 ? "emerald" : pct < 90 ? "amber" : "rose";
           return (
-            <div key={b.id} className="rounded-md border border-[var(--border-token)] p-3">
-              <div className="flex items-center justify-between text-[12px]">
-                <div className="font-semibold capitalize text-brand-navy">
+            <div key={b.id} className="rounded-medium border border-border p-150">
+              <div className="flex items-center justify-between text-body-small">
+                <div className="font-semibold capitalize text-text">
                   {b.env === "production" ? "Prod" : "Sandbox"}
                 </div>
-                <div className="text-text-muted">
+                <div className="text-text-subtlest">
                   <span
                     className={cn(
                       "font-semibold",
-                      tone === "emerald" && "text-emerald-600",
-                      tone === "amber" && "text-amber-600",
-                      tone === "rose" && "text-rose-600",
+                      tone === "emerald" && "text-text-success",
+                      tone === "amber" && "text-text-warning",
+                      tone === "rose" && "text-text-danger",
                     )}
                   >
                     {inrCompact(spent)}
                   </span>
-                  <span className="mx-1">/</span>
+                  <span className="mx-050">/</span>
                   {inrCompact(b.monthlyCapInr)} · {pct}%
                 </div>
               </div>
-              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
+              <div className="mt-075 h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
                 <div
                   className={cn(
                     "h-full rounded-full",
-                    tone === "emerald" && "bg-emerald-500",
-                    tone === "amber" && "bg-amber-500",
-                    tone === "rose" && "bg-rose-500",
+                    tone === "emerald" && "bg-background-success-bold",
+                    tone === "amber" && "bg-background-warning-bold",
+                    tone === "rose" && "bg-background-danger-bold",
                   )}
                   style={{ width: `${Math.min(100, pct)}%` }}
                 />
               </div>
 
-              <div className="mt-3 space-y-1.5">
+              <div className="mt-150 space-y-075">
                 {b.rules.map((r) => (
                   <div
                     key={r.id}
-                    className="flex items-center gap-2 rounded border border-[var(--border-token)] bg-surface-app px-2 py-1.5 text-[11.5px]"
+                    className="flex items-center gap-100 rounded border border-border bg-surface px-100 py-075 text-body-small"
                   >
                     <span
                       className={cn(
-                        "rounded px-1.5 py-0.5 font-mono font-semibold text-[10px]",
-                        r.severity === "info" && "bg-brand-tint text-brand-primary-dark",
-                        r.severity === "warn" && "bg-amber-100 text-amber-700",
-                        r.severity === "critical" && "bg-rose-100 text-rose-700",
+                        "rounded px-075 py-025 font-mono font-semibold text-body-small",
+                        r.severity === "info" && "bg-background-brand-subtlest text-text-brand",
+                        r.severity === "warn" && "bg-background-warning-subtler text-text-warning-bolder",
+                        r.severity === "critical" && "bg-background-danger-subtler text-text-danger-bolder",
                       )}
                     >
                       ≥ {r.threshold}%
                     </span>
                     <span className="flex-1 truncate">{r.action}</span>
-                    <span className="max-w-[120px] truncate text-text-muted">
+                    <span className="max-w-[7.5rem] truncate text-text-subtlest">
                       {r.channels.join(" · ")}
                     </span>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-6 w-6"
+                      className="h-300 w-300"
                       disabled={saving}
                       onClick={() => setDialogFor({ budgetId: b.id, env: b.env, rule: r })}
                       aria-label="Edit rule"
@@ -110,11 +110,17 @@ export function BudgetPanel({
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-6 w-6 text-rose-600 hover:text-rose-700"
+                      className="h-300 w-300 text-text-danger hover:text-text-danger-bolder"
                       disabled={saving}
                       onClick={() => {
                         if (window.confirm(`Delete rule "${r.action}"?`)) {
-                          void onDeleteRule(b.id, r.id);
+                          void (async () => {
+                            try {
+                              await onDeleteRule(b.id, r.id);
+                            } catch {
+                              // Parent toasts the error; keep the row clickable.
+                            }
+                          })();
                         }
                       }}
                       aria-label="Delete rule"
@@ -126,28 +132,28 @@ export function BudgetPanel({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 w-full justify-start text-[11.5px]"
+                  className="h-7 w-full justify-start text-body-small"
                   disabled={saving}
                   onClick={() => setDialogFor({ budgetId: b.id, env: b.env, rule: null })}
                 >
-                  <Plus className="mr-1 h-3 w-3" /> Add threshold rule
+                  <Plus className="mr-050 h-3 w-3" /> Add threshold rule
                 </Button>
               </div>
             </div>
           );
         })}
 
-        <div className="rounded-md border border-[var(--border-token)] p-3">
-          <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-brand-navy">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Recent alerts
+        <div className="rounded-medium border border-border p-150">
+          <div className="mb-100 flex items-center gap-075 text-body-small font-semibold text-text">
+            <AlertTriangle className="h-3.5 w-3.5 text-icon-warning" /> Recent alerts
           </div>
           {alerts.length === 0 ? (
-            <p className="text-[11.5px] text-text-muted">No recent budget alerts.</p>
+            <p className="text-body-small text-text-subtlest">No recent budget alerts.</p>
           ) : (
-            <ul className="space-y-1 text-[11.5px]">
+            <ul className="space-y-050 text-body-small">
               {alerts.map((a) => (
-                <li key={a.id} className="flex items-baseline gap-2 text-text-secondary">
-                  <span className="w-[110px] shrink-0 font-mono text-[10.5px] text-text-muted">{a.when}</span>
+                <li key={a.id} className="flex items-baseline gap-100 text-text-subtle">
+                  <span className="w-[6.875rem] shrink-0 font-mono text-body-small text-text-subtlest">{a.when}</span>
                   <span>{a.message}</span>
                 </li>
               ))}

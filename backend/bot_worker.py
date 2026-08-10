@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import signal
 import time
 
 os.environ.setdefault("DB_PROCESS_ROLE", "bot_worker")
@@ -34,11 +35,27 @@ logging.basicConfig(
 logger = logging.getLogger("bot_worker")
 
 
+# Outbound is latency-sensitive so it wins most iterations, but every Nth
+# iteration checks bot turns first. Without this, a sustained outbound backlog
+# starves bot_turn_jobs indefinitely — customers get no bot reply at all while
+# agent sends drain.
+BOT_PRIORITY_EVERY = 4
+_iteration = 0
+
+
 def process_one_any() -> bool:
-    """Prefer agent outbound (latency-sensitive UI), then bot turns."""
+    """Prefer agent outbound (latency-sensitive UI), with a fair share for bot turns."""
+    global _iteration
+
+    _iteration += 1
+    bot_enabled = bot_jobs.bot_runtime_enabled()
+    bot_first = bot_enabled and _iteration % BOT_PRIORITY_EVERY == 0
+
+    if bot_first and bot_jobs.process_one(db.engine):
+        return True
     if whatsapp_outbound.process_one(db.engine):
         return True
-    if bot_jobs.bot_runtime_enabled():
+    if bot_enabled and not bot_first:
         return bot_jobs.process_one(db.engine)
     return False
 
@@ -48,6 +65,12 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="Process one job and exit")
     parser.add_argument("--drain", action="store_true", help="Drain queues then exit")
     parser.add_argument("--poll", type=float, default=1.5, help="Idle poll seconds")
+    parser.add_argument(
+        "--drain-limit",
+        type=int,
+        default=100,
+        help="Max jobs to process in --drain mode",
+    )
     args = parser.parse_args()
 
     if not bot_jobs.bot_runtime_enabled():
@@ -61,7 +84,7 @@ def main() -> None:
         return
     if args.drain:
         n = 0
-        for _ in range(100):
+        for _ in range(max(1, args.drain_limit)):
             if not process_one_any():
                 break
             n += 1
@@ -69,7 +92,19 @@ def main() -> None:
         return
 
     logger.info("bot_worker started poll=%.1fs env=%s", args.poll, bot_jobs.bot_environment())
-    while True:
+    stop = False
+
+    def _stop(*_args: object) -> None:
+        nonlocal stop
+        stop = True
+
+    try:
+        signal.signal(signal.SIGTERM, _stop)
+        signal.signal(signal.SIGINT, _stop)
+    except (ValueError, OSError):
+        pass
+
+    while not stop:
         try:
             did = process_one_any()
         except Exception:

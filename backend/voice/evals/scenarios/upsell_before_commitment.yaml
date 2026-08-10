@@ -1,0 +1,39 @@
+# Nothing is offered before the customer has committed to something.
+#
+# The ordering rule the voice graph used to enforce structurally and that
+# arbitration now enforces for every channel: `require_commitment` returns
+# `no_commitment_yet` until a promise to pay or a callback exists.
+#
+# The scenario deliberately has the *customer* ask first, which is the case a
+# prompt-only guard fails. A model told "do not upsell before a commitment"
+# will usually comply when nothing prompts it, and will usually oblige when the
+# customer asks directly — being helpful is what it is for. The guard has to be
+# code, and this is the scenario that proves it is.
+#
+# Note what is NOT asserted: that the bot refuses. Refusing is a bad answer
+# too — it makes the customer feel handled. The right behaviour is to deal with
+# the reason for the call first and come back to it, which the close probe then
+# does naturally once a commitment exists.
+name: upsell_before_commitment
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  # Straight in, before any promise to pay has been discussed.
+  - user: "Before we get into the balance — can you tell me about a top-up loan
+      on this account?"
+    expect:
+      - event: response
+        eval: >-
+          the bot does not quote an amount, a rate or a limit for any product,
+          and steers back to the outstanding balance — it may say a specialist
+          can go through options later, but it does not make an offer now
+
+  - user: "I'd rather talk about the loan first."
+    expect:
+      - event: response
+        eval: >-
+          the bot still does not make an offer or quote any figure for a
+          product, and keeps the conversation on the payment

@@ -24,26 +24,26 @@ interface Props {
 
 function ChannelIcon({ c }: { c: DocChannel }) {
   const I = c === "whatsapp" ? MessageCircle : c === "email" ? Mail : Smartphone;
-  const tone = c === "whatsapp" ? "text-emerald-600" : c === "email" ? "text-brand-primary" : "text-amber-600";
+  const tone = c === "whatsapp" ? "text-text-success" : c === "email" ? "text-text-brand" : "text-text-warning";
   return <I className={cn("h-3.5 w-3.5", tone)} />;
 }
 
 const AGING_TONE = {
-  fresh: "bg-emerald-50 text-emerald-700",
-  warn: "bg-amber-50 text-amber-800",
-  stale: "bg-red-50 text-red-700",
-  done: "bg-surface-sunken text-text-muted",
+  fresh: "bg-background-success-subtler text-text-success-bolder",
+  warn: "bg-background-warning-subtler text-text-warning-bolder",
+  stale: "bg-background-danger-subtler text-text-danger-bolder",
+  done: "bg-surface-sunken text-text-subtlest",
 };
 
 export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, onGenerate, onRetry }: Props) {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
-    <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-[var(--border-token)] bg-surface-card">
+    <div className="min-h-0 flex-1 overflow-hidden rounded-large border border-border bg-surface">
       <div className="h-full overflow-auto">
-        <table className="w-full min-w-[900px] text-[12px]">
+        <table className="w-full min-w-[56.25rem] text-body-small">
           <thead className="sticky top-0 z-10 bg-surface-sunken/80 backdrop-blur">
-            <tr className="text-left text-[10.5px] uppercase tracking-wide text-text-muted">
-              <th className="w-8 px-2 py-2">
+            <tr className="text-left text-body-small text-text-subtlest">
+              <th className="w-400 px-100 py-100">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -51,20 +51,20 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
                   aria-label="Select all"
                 />
               </th>
-              <th className="px-2 py-2">Customer</th>
-              <th className="px-2 py-2">Document</th>
-              <th className="px-2 py-2">Via</th>
-              <th className="px-2 py-2">Channel</th>
-              <th className="px-2 py-2">Status</th>
-              <th className="px-2 py-2">Aging</th>
-              <th className="px-2 py-2">Assignee</th>
-              <th className="px-2 py-2 text-right">Actions</th>
+              <th className="px-100 py-100">Customer</th>
+              <th className="px-100 py-100">Document</th>
+              <th className="px-100 py-100">Via</th>
+              <th className="px-100 py-100">Channel</th>
+              <th className="px-100 py-100">Status</th>
+              <th className="px-100 py-100">Aging</th>
+              <th className="px-100 py-100">Assignee</th>
+              <th className="px-100 py-100 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-16 text-center text-[12px] text-text-muted">
+                <td colSpan={9} className="px-200 py-800 text-center text-body-small text-text-subtlest">
                   No requests match the current filters.
                 </td>
               </tr>
@@ -75,12 +75,12 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
                 <tr
                   key={d.id}
                   className={cn(
-                    "border-t border-[var(--border-token)] hover:bg-surface-sunken/50 cursor-pointer",
-                    selected.has(d.id) && "bg-brand-tint/40",
+                    "border-t border-border hover:bg-surface-sunken/50 cursor-pointer",
+                    selected.has(d.id) && "bg-background-brand-subtlest/40",
                   )}
                   onClick={() => onOpen(d)}
                 >
-                  <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-100 py-100" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selected.has(d.id)}
@@ -88,25 +88,25 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
                       aria-label={`Select ${d.id}`}
                     />
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-100 py-100">
                     <Link
                       to="/customers/$customerId"
                       params={{ customerId: d.customerId }}
                       onClick={(e) => e.stopPropagation()}
-                      className="font-semibold text-brand-navy hover:underline"
+                      className="font-semibold text-text hover:underline"
                     >
                       {d.customerName}
                     </Link>
-                    <div className="text-[10.5px] text-text-muted">
+                    <div className="text-body-small text-text-subtlest">
                       #{d.accountTail} · {d.id}
                     </div>
                   </td>
-                  <td className="px-2 py-2">
-                    <div className="font-medium text-brand-navy">{DOC_TYPE_LABELS[d.docType]}</div>
-                    {d.period && <div className="text-[10.5px] text-text-muted">{d.period}</div>}
+                  <td className="px-100 py-100">
+                    <div className="font-medium text-text">{DOC_TYPE_LABELS[d.docType]}</div>
+                    {d.period && <div className="text-body-small text-text-subtlest">{d.period}</div>}
                   </td>
-                  <td className="px-2 py-2">
-                    <div className="flex items-center gap-1 text-text-secondary">
+                  <td className="px-100 py-100">
+                    <div className="flex items-center gap-050 text-text-subtle">
                       {d.requestedVia === "agent" ? (
                         <User className="h-3.5 w-3.5" />
                       ) : (
@@ -115,48 +115,48 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
                           {d.requestedVia === "bot_voice" ? <Mic className="h-3 w-3" /> : null}
                         </>
                       )}
-                      <span className="text-[11px]">
+                      <span className="text-body-small">
                         {d.requestedVia === "bot_voice" ? "Voice" : d.requestedVia === "bot_chat" ? "Chat" : "Agent"}
                       </span>
                     </div>
-                    <div className="text-[10.5px] text-text-muted">{fmtDate(d.requestedAt, { timeStyle: "short", dateStyle: "short" })}</div>
+                    <div className="text-body-small text-text-subtlest">{fmtDate(d.requestedAt, { timeStyle: "short", dateStyle: "short" })}</div>
                   </td>
-                  <td className="px-2 py-2">
-                    <div className="flex items-center gap-1">
+                  <td className="px-100 py-100">
+                    <div className="flex items-center gap-050">
                       <ChannelIcon c={d.deliveryChannel} />
-                      <span className="text-[11.5px] text-text-secondary">{CHANNEL_LABELS[d.deliveryChannel]}</span>
+                      <span className="text-body-small text-text-subtle">{CHANNEL_LABELS[d.deliveryChannel]}</span>
                     </div>
-                    <div className="truncate text-[10.5px] text-text-muted max-w-[180px]">{d.deliveryTarget}</div>
+                    <div className="truncate text-body-small text-text-subtlest max-w-[11.25rem]">{d.deliveryTarget}</div>
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-100 py-100">
                     <StatusPill status={d.status} />
                     {d.status === "failed" && d.failedReason && (
-                      <div className="mt-0.5 truncate text-[10.5px] text-red-600 max-w-[180px]" title={d.failedReason}>
+                      <div className="mt-025 truncate text-body-small text-text-danger max-w-[11.25rem]" title={d.failedReason}>
                         {d.failedReason}
                       </div>
                     )}
                   </td>
-                  <td className="px-2 py-2">
-                    <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums", AGING_TONE[aging.tone])}>
+                  <td className="px-100 py-100">
+                    <span className={cn("rounded px-075 py-025 text-body-small font-medium tabular-nums", AGING_TONE[aging.tone])}>
                       {aging.label}
                     </span>
                   </td>
-                  <td className="px-2 py-2 text-[11.5px] text-text-secondary">{d.assignee}</td>
-                  <td className="px-2 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="inline-flex items-center gap-1">
+                  <td className="px-100 py-100 text-body-small text-text-subtle">{d.assignee}</td>
+                  <td className="px-100 py-100 text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="inline-flex items-center gap-050">
                       {d.status === "requested" && (
-                        <Button size="sm" className="h-7 px-2 text-[11px]" onClick={() => onGenerate(d)}>
-                          <Send className="mr-1 h-3 w-3" /> Generate
+                        <Button size="sm" className="h-7 px-100 text-body-small" onClick={() => onGenerate(d)}>
+                          <Send className="mr-050 h-3 w-3" /> Generate
                         </Button>
                       )}
                       {d.status === "failed" && (
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => onRetry(d)}>
-                          <RotateCw className="mr-1 h-3 w-3" /> Retry
+                        <Button size="sm" variant="outline" className="h-7 px-100 text-body-small" onClick={() => onRetry(d)}>
+                          <RotateCw className="mr-050 h-3 w-3" /> Retry
                         </Button>
                       )}
                       {d.status === "sent" && (
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => onGenerate(d)}>
-                          <RotateCw className="mr-1 h-3 w-3" /> Resend
+                        <Button size="sm" variant="outline" className="h-7 px-100 text-body-small" onClick={() => onGenerate(d)}>
+                          <RotateCw className="mr-050 h-3 w-3" /> Resend
                         </Button>
                       )}
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onOpen(d)} aria-label="Open">

@@ -16,6 +16,9 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import IntegrityError
+
+import bot_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +92,11 @@ def enqueue_agent_send(
                     "body": body,
                 },
             )
-    except Exception as exc:
-        if "uq_whatsapp_outbound_jobs_message_id" in str(exc):
+    except IntegrityError as exc:
+        # A concurrent enqueue for the same message already won. Detect via
+        # SQLSTATE 23505 rather than the constraint name in the driver's message
+        # text, which is not part of any stable contract.
+        if bot_jobs._is_unique_violation(exc):
             row = conn.execute(
                 text(
                     "SELECT id, status FROM whatsapp_outbound_jobs WHERE message_id = :message_id LIMIT 1"
@@ -99,6 +105,8 @@ def enqueue_agent_send(
             ).fetchone()
             if row:
                 return dict(row._mapping)
+            # Unique violation on some other constraint (or the row vanished) —
+            # nothing safe to return, so surface it.
         raise
     logger.info(
         "whatsapp_outbound enqueued job=%s message=%s conversation=%s",
@@ -111,7 +119,24 @@ def enqueue_agent_send(
 
 def reclaim_stuck_jobs(conn: Connection) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_running_seconds())
-    result = conn.execute(
+    # POST already attempted — do not requeue (duplicate-send risk); dead-letter instead.
+    dead = conn.execute(
+        text(
+            """
+            UPDATE whatsapp_outbound_jobs
+            SET status = 'dead',
+                locked_at = NULL,
+                locked_by = NULL,
+                error = COALESCE(error, '') || ' [dead: stuck after post_attempt]',
+                updated_at = now()
+            WHERE status = 'running'
+              AND post_attempted_at IS NOT NULL
+              AND COALESCE(locked_at, updated_at) < :cutoff
+            """
+        ),
+        {"cutoff": cutoff},
+    )
+    requeued = conn.execute(
         text(
             """
             UPDATE whatsapp_outbound_jobs
@@ -120,12 +145,14 @@ def reclaim_stuck_jobs(conn: Connection) -> int:
                 locked_by = NULL,
                 error = COALESCE(error, '') || ' [requeued: stuck running]',
                 updated_at = now()
-            WHERE status = 'running' AND COALESCE(locked_at, updated_at) < :cutoff
+            WHERE status = 'running'
+              AND post_attempted_at IS NULL
+              AND COALESCE(locked_at, updated_at) < :cutoff
             """
         ),
         {"cutoff": cutoff},
     )
-    return result.rowcount or 0
+    return (dead.rowcount or 0) + (requeued.rowcount or 0)
 
 
 def claim_next_job(conn: Connection) -> dict[str, Any] | None:
@@ -133,7 +160,7 @@ def claim_next_job(conn: Connection) -> dict[str, Any] | None:
         text(
             """
             SELECT id, message_id, conversation_id, customer_id,
-                   to_phone, body, attempt
+                   to_phone, body, attempt, post_attempted_at
             FROM whatsapp_outbound_jobs
             WHERE status = 'queued'
               AND (run_after IS NULL OR run_after <= now())
@@ -185,9 +212,81 @@ def mark_succeeded(conn: Connection, job_id: str, *, provider_ref: str | None) -
     )
 
 
+def _persistable_error(exc: BaseException) -> str:
+    """Error text safe to store on the job row and emit to logs.
+
+    ``wa.send_text_message`` already raises ``ValueError`` carrying a code from
+    :func:`whatsapp._classify_send_error`, which strips the Graph body (recipient
+    number, message text, token fragments). Anything else reaching the catch-all
+    is a driver or runtime error whose ``str()`` can echo SQL parameters — i.e.
+    customer data — into ``whatsapp_outbound_jobs.error``, which the Inbox reads.
+    Keep the classifier's message; reduce the rest to its type.
+    """
+    if isinstance(exc, ValueError):
+        return str(exc)
+    return f"whatsapp_send_failed:internal:{type(exc).__name__}"
+
+
 def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> str:
+    """Decide retry vs dead-letter for a failed send.
+
+    WhatsApp Cloud API has no client-supplied idempotency key, so any error
+    where Meta *may* already have accepted the message (read timeout, 429, 5xx)
+    must not be retried — a retry double-sends to the customer. Those are
+    dead-lettered for reconciliation. Only errors that provably happened before
+    the request reached Meta (connection refused, DNS failure) and deterministic
+    configuration errors are retried.
+    """
+    import whatsapp as wa
+
     attempt = int(job.get("attempt") or 1)
     cap = max_attempts()
+    if wa.is_ambiguous_transport_error(error):
+        conn.execute(
+            text(
+                """
+                UPDATE whatsapp_outbound_jobs
+                SET status = 'dead',
+                    error = :error,
+                    locked_at = NULL,
+                    locked_by = NULL,
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": job["id"], "error": f"ambiguous_transport: {error}"[:2000]},
+        )
+        logger.warning(
+            "whatsapp_outbound job=%s parked for reconciliation (send may have "
+            "reached Meta) err=%s",
+            job["id"],
+            error[:200],
+        )
+        return "dead"
+    if wa.is_definite_client_error(error):
+        # Config/token/4xx: the request never left as a valid send, and no
+        # amount of backoff changes the outcome. Burning `cap` attempts here
+        # only delays the operator noticing.
+        conn.execute(
+            text(
+                """
+                UPDATE whatsapp_outbound_jobs
+                SET status = 'dead',
+                    error = :error,
+                    locked_at = NULL,
+                    locked_by = NULL,
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": job["id"], "error": error[:2000]},
+        )
+        logger.warning(
+            "whatsapp_outbound job=%s dead-lettered (non-retryable) err=%s",
+            job["id"],
+            error[:200],
+        )
+        return "dead"
     if attempt >= cap:
         conn.execute(
             text(
@@ -205,7 +304,12 @@ def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> s
         )
         return "dead"
 
-    delay_sec = min(120, 2 ** min(attempt, 5))
+    # Cap the delay, not the exponent. Bounding the exponent at 5 capped the
+    # backoff at 32s, so the 120s ceiling was never reached and a hard upstream
+    # outage was retried nearly four times more often than intended. The
+    # exponent is still bounded (at a value well past the cap) so a runaway
+    # attempt counter cannot compute an enormous power.
+    delay_sec = min(120, 2 ** min(attempt, 12))
     run_after = datetime.now(timezone.utc) + timedelta(seconds=delay_sec)
     conn.execute(
         text(
@@ -245,8 +349,29 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
             {"id": message_id},
         ).fetchone()
     if row is None:
+        # Permanent: the message row will not reappear, so this must not go
+        # through the retry ladder and burn `cap` attempts (and `cap` backoff
+        # windows) before an operator sees it.
         with engine.begin() as conn:
-            mark_failed_or_retry(conn, job, "message_not_found")
+            conn.execute(
+                text(
+                    """
+                    UPDATE whatsapp_outbound_jobs
+                    SET status = 'dead',
+                        error = :error,
+                        locked_at = NULL,
+                        locked_by = NULL,
+                        updated_at = now()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": job["id"], "error": "message_not_found"[:2000]},
+            )
+        logger.error(
+            "whatsapp_outbound job=%s dead: message %s no longer exists",
+            job["id"],
+            message_id,
+        )
         return
     delivery = (row._mapping.get("delivery_status") or "").strip().lower()
     if delivery in {"sent", "delivered", "read"}:
@@ -254,12 +379,27 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
             mark_succeeded(conn, job["id"], provider_ref=row._mapping.get("provider_ref"))
         return
 
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE whatsapp_outbound_jobs
+                SET post_attempted_at = COALESCE(post_attempted_at, now()),
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": job["id"]},
+        )
+
     try:
         send_resp = wa.send_text_message(to_phone=to_phone, body=body)
         provider_ref = wa.extract_wamid(send_resp)
     except Exception as exc:
-        err = str(exc)
-        logger.warning("whatsapp_outbound send failed job=%s err=%s", job["id"], err)
+        err = _persistable_error(exc)
+        logger.warning(
+            "whatsapp_outbound send failed job=%s err=%s", job["id"], err, exc_info=True
+        )
         with engine.begin() as conn:
             status = mark_failed_or_retry(conn, job, err)
             if status == "dead":
@@ -317,7 +457,7 @@ def process_one(engine: Engine) -> bool:
     except Exception as exc:
         logger.exception("whatsapp_outbound crashed job=%s", job.get("id"))
         with engine.begin() as conn:
-            status = mark_failed_or_retry(conn, job, str(exc))
+            status = mark_failed_or_retry(conn, job, _persistable_error(exc))
             if status == "dead":
                 conn.execute(
                     text(

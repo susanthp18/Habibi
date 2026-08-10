@@ -24,6 +24,25 @@ def upgrade() -> None:
     # inside a transaction, hence the autocommit block. Note: this fails if any
     # duplicate non-null provider_ref rows already exist — dedupe those first.
     with op.get_context().autocommit_block():
+        # A failed CREATE INDEX CONCURRENTLY leaves an *invalid* index behind.
+        # IF NOT EXISTS then treats that corpse as success on the retry, so the
+        # revision reports applied while the uniqueness guarantee — the whole
+        # point of this migration, WhatsApp webhook idempotency — is absent.
+        # Drop the invalid leftover first; valid indexes are untouched.
+        op.execute(
+            """
+            DO $$
+            BEGIN
+              IF EXISTS (
+                SELECT 1 FROM pg_class c
+                JOIN pg_index i ON i.indexrelid = c.oid
+                WHERE c.relname = 'uq_messages_provider_ref' AND NOT i.indisvalid
+              ) THEN
+                EXECUTE 'DROP INDEX uq_messages_provider_ref';
+              END IF;
+            END $$;
+            """
+        )
         op.execute(
             """
             CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_messages_provider_ref

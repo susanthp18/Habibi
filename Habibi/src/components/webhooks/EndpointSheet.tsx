@@ -81,16 +81,16 @@ export function EndpointSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full max-w-[560px] flex-col overflow-hidden p-0 sm:max-w-[560px]">
-        <SheetHeader className="shrink-0 border-b border-[var(--border-token)] px-6 py-4">
-          <SheetTitle className="text-[15px] font-semibold text-brand-navy">
+      <SheetContent side="right" className="flex w-full max-w-[37.5rem] flex-col overflow-hidden p-0 sm:max-w-[37.5rem]">
+        <SheetHeader className="shrink-0 border-b border-border px-300 py-200">
+          <SheetTitle className="text-[0.875rem] font-semibold text-text">
             {initial ? "Edit endpoint" : "New endpoint"}
           </SheetTitle>
         </SheetHeader>
 
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
-          <div className="space-y-1.5">
-            <Label className="text-[12px]">Name</Label>
+        <div className="flex-1 space-y-250 overflow-y-auto px-300 py-200">
+          <div className="space-y-075">
+            <Label className="text-body-small">Name</Label>
             <Input
               value={draft.name}
               placeholder="e.g. Finacle CBS · writeback"
@@ -98,22 +98,22 @@ export function EndpointSheet({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-[12px]">URL</Label>
+          <div className="space-y-075">
+            <Label className="text-body-small">URL</Label>
             <Input
               value={draft.url}
               placeholder="https://…"
-              className="font-mono text-[12px]"
+              className="font-mono text-body-small"
               onChange={(e) => setDraft({ ...draft, url: e.target.value })}
             />
             {!draft.url.startsWith("https://") && (
-              <p className="text-[11px] text-rose-600">Must be https:// (http blocked in production).</p>
+              <p className="text-body-small text-text-danger">Must be https:// (http blocked in production).</p>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[12px]">Target system</Label>
+          <div className="grid grid-cols-2 gap-150">
+            <div className="space-y-075">
+              <Label className="text-body-small">Target system</Label>
               <Select
                 value={draft.target}
                 onValueChange={(v) => setDraft({ ...draft, target: v as TargetSystem })}
@@ -126,8 +126,8 @@ export function EndpointSheet({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[12px]">Signing algorithm</Label>
+            <div className="space-y-075">
+              <Label className="text-body-small">Signing algorithm</Label>
               <Select
                 value={draft.algo}
                 onValueChange={(v) => setDraft({ ...draft, algo: v as SigningAlgo, secret: rotateSecret(v as SigningAlgo) })}
@@ -144,40 +144,40 @@ export function EndpointSheet({
           <Separator />
 
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <Label className="text-[12px] font-semibold">Event subscriptions</Label>
-              <span className="text-[11px] text-text-muted">{draft.events.length} selected</span>
+            <div className="mb-100 flex items-center justify-between">
+              <Label className="text-body-small font-semibold">Event subscriptions</Label>
+              <span className="text-body-small text-text-subtlest">{draft.events.length} selected</span>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-150">
               {EVENT_CATEGORIES.map((cat) => {
                 const items = EVENT_CATALOG.filter((e) => e.category === cat);
                 const allIn = items.every((e) => draft.events.includes(e.key));
                 return (
-                  <div key={cat} className="rounded-md border border-[var(--border-token)] p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="text-[12px] font-semibold text-brand-navy">{cat}</div>
+                  <div key={cat} className="rounded-medium border border-border p-150">
+                    <div className="mb-100 flex items-center justify-between">
+                      <div className="text-body-small font-semibold text-text">{cat}</div>
                       <button
                         type="button"
-                        className="text-[11px] text-brand-primary hover:underline"
+                        className="text-body-small text-text-brand hover:underline"
                         onClick={() => toggleCategory(cat)}
                       >
                         {allIn ? "Clear group" : "Select all"}
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-2 gap-075">
                       {items.map((e) => (
                         <label
                           key={e.key}
-                          className="flex items-start gap-2 rounded p-1.5 text-[12px] hover:bg-surface-sunken"
+                          className="flex items-start gap-100 rounded p-075 text-body-small hover:bg-surface-sunken"
                         >
                           <Checkbox
                             checked={draft.events.includes(e.key)}
                             onCheckedChange={() => toggleEvent(e.key)}
-                            className="mt-0.5"
+                            className="mt-025"
                           />
                           <span>
-                            <span className="block font-mono text-[11px] text-brand-primary-dark">{e.key}</span>
-                            <span className="block text-[10.5px] text-text-secondary">{e.description}</span>
+                            <span className="block font-mono text-body-small text-text-brand">{e.key}</span>
+                            <span className="block text-body-small text-text-subtle">{e.description}</span>
                           </span>
                         </label>
                       ))}
@@ -191,10 +191,10 @@ export function EndpointSheet({
           <Separator />
 
           <div>
-            <Label className="mb-2 block text-[12px] font-semibold">Retry policy</Label>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-[11px]">Attempts</Label>
+            <Label className="mb-100 block text-body-small font-semibold">Retry policy</Label>
+            <div className="grid grid-cols-3 gap-150">
+              <div className="space-y-075">
+                <Label className="text-body-small">Attempts</Label>
                 <Input
                   type="number"
                   min={2}
@@ -205,8 +205,8 @@ export function EndpointSheet({
                   }
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px]">Backoff</Label>
+              <div className="space-y-075">
+                <Label className="text-body-small">Backoff</Label>
                 <Select
                   value={draft.retry.backoff}
                   onValueChange={(v) => setDraft({ ...draft, retry: { ...draft.retry, backoff: v as "linear" | "exponential" } })}
@@ -218,8 +218,8 @@ export function EndpointSheet({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px]">Max age (h)</Label>
+              <div className="space-y-075">
+                <Label className="text-body-small">Max age (h)</Label>
                 <Input
                   type="number"
                   min={1}
@@ -234,8 +234,8 @@ export function EndpointSheet({
           </div>
 
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <Label className="text-[12px] font-semibold">Custom headers</Label>
+            <div className="mb-100 flex items-center justify-between">
+              <Label className="text-body-small font-semibold">Custom headers</Label>
               <Button
                 size="sm"
                 variant="ghost"
@@ -243,18 +243,18 @@ export function EndpointSheet({
                   setDraft({ ...draft, headers: [...draft.headers, { key: "", value: "" }] })
                 }
               >
-                <Plus className="mr-1 h-3 w-3" /> Add
+                <Plus className="mr-050 h-3 w-3" /> Add
               </Button>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-075">
               {draft.headers.length === 0 && (
-                <p className="text-[11px] text-text-muted">No custom headers.</p>
+                <p className="text-body-small text-text-subtlest">No custom headers.</p>
               )}
               {draft.headers.map((h, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="flex items-center gap-100">
                   <Input
                     placeholder="Header"
-                    className="font-mono text-[12px]"
+                    className="font-mono text-body-small"
                     value={h.key}
                     onChange={(e) => {
                       const next = [...draft.headers];
@@ -264,7 +264,7 @@ export function EndpointSheet({
                   />
                   <Input
                     placeholder="Value"
-                    className="font-mono text-[12px]"
+                    className="font-mono text-body-small"
                     value={h.value}
                     onChange={(e) => {
                       const next = [...draft.headers];
@@ -275,7 +275,7 @@ export function EndpointSheet({
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8"
+                    className="h-400 w-400"
                     onClick={() => setDraft({ ...draft, headers: draft.headers.filter((_, j) => j !== i) })}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -286,7 +286,7 @@ export function EndpointSheet({
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-[var(--border-token)] px-6 py-3 flex justify-end gap-2">
+        <div className="shrink-0 border-t border-border px-300 py-150 flex justify-end gap-100">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button variant="outline" disabled={!isValid} onClick={() => onSaveAndTest(draft)}>
             Save & test

@@ -1,0 +1,26 @@
+# A hostile caller is never pitched to, and is never told why.
+#
+# Two failure modes this guards, both worse than saying nothing:
+#   1. pitching a product to someone who is already angry;
+#   2. explaining the internal reason a product was withheld, which leaks
+#      eligibility logic to the customer.
+name: upsell_suppressed_when_angry
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "This is ridiculous, your charges are wrong and I'm sick of being called."
+    expect:
+      - event: response
+        eval: >-
+          the bot responds with empathy and offers to help with the charge — it
+          does not mention any product, offer, loan, card upgrade or insurance
+
+  - user: "Just close this and leave me alone."
+    expect:
+      - event: response
+        eval: >-
+          the bot closes politely without pitching anything and without
+          explaining why no offer was made

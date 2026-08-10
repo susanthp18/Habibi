@@ -24,21 +24,21 @@ function Tile({
   tone: "brand" | "amber" | "emerald" | "red" | "slate";
 }) {
   const toneMap = {
-    brand: "text-brand-primary bg-brand-tint",
-    amber: "text-amber-700 bg-amber-100",
-    emerald: "text-emerald-700 bg-emerald-100",
-    red: "text-red-700 bg-red-100",
-    slate: "text-text-secondary bg-surface-sunken",
+    brand: "text-text-brand bg-background-brand-subtlest",
+    amber: "text-text-warning-bolder bg-background-warning-subtler",
+    emerald: "text-text-success-bolder bg-background-success-subtler",
+    red: "text-text-danger-bolder bg-background-danger-subtler",
+    slate: "text-text-subtle bg-surface-sunken",
   }[tone];
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-[var(--border-token)] bg-surface-card px-3 py-2">
-      <div className={cn("grid h-8 w-8 place-items-center rounded-md", toneMap)}>
+    <div className="flex items-center gap-100 rounded-large border border-border bg-surface px-150 py-100">
+      <div className={cn("grid h-400 w-400 place-items-center rounded-medium", toneMap)}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <div className="text-[10.5px] uppercase tracking-wide text-text-muted">{label}</div>
-        <div className="text-[15px] font-semibold text-brand-navy leading-tight tabular-nums">{value}</div>
-        {sub && <div className="text-[10.5px] text-text-muted">{sub}</div>}
+        <div className="text-body-small text-text-subtlest">{label}</div>
+        <div className="text-[0.875rem] font-semibold text-text leading-tight tabular-nums">{value}</div>
+        {sub && <div className="text-body-small text-text-subtlest">{sub}</div>}
       </div>
     </div>
   );
@@ -46,7 +46,7 @@ function Tile({
 
 export function MetricsStrip({ m }: { m: Metrics }) {
   return (
-    <div className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid shrink-0 grid-cols-2 gap-100 md:grid-cols-3 xl:grid-cols-5">
       <Tile label="Scheduled today" value={m.scheduledToday} icon={CalendarClock} tone="brand" sub="Open + reminded" />
       <Tile label="Due next hour" value={m.dueNextHour} icon={Timer} tone="amber" sub="Prep or dial" />
       <Tile label="Missed (7d)" value={m.missed7d} icon={PhoneOff} tone="red" sub="Needs recovery" />

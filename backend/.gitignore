@@ -1,5 +1,9 @@
 .venv/
+# Every .env variant, not just the bare name: .env.production / .env.local hold
+# the same secrets and were previously tracked-by-default. Mirrors .dockerignore.
 .env
+.env.*
+!.env.example
 __pycache__/
 *.pyc
 *.db

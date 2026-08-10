@@ -73,7 +73,7 @@ export const PROVIDERS: Provider[] = [
     description: "GPT-4o Realtime deployment powering the collections bot's reasoning, RAG synthesis, and tool-calling loop through Pipecat.",
     docsUrl: "https://learn.microsoft.com/azure/ai-services/openai/",
     brandInitial: "Az",
-    brandColor: "bg-blue-100 text-blue-700",
+    brandColor: "bg-background-accent-blue-subtler text-text-accent-blue-bolder",
     capabilities: ["streaming", "tool-calling", "JSON mode", "PII masking"],
     fields: [
       { key: "endpoint", label: "Endpoint", placeholder: "https://hdfc-coll.openai.azure.com" },
@@ -105,7 +105,7 @@ export const PROVIDERS: Provider[] = [
     description: "Secondary GPT-4o endpoint used when the Azure deployment is throttled or fails a health check.",
     docsUrl: "https://platform.openai.com/docs",
     brandInitial: "Oa",
-    brandColor: "bg-emerald-100 text-emerald-700",
+    brandColor: "bg-background-success-subtler text-text-success-bolder",
     capabilities: ["streaming", "tool-calling", "fallback"],
     fields: [
       { key: "apiKey", label: "API key", secret: true, placeholder: "sk-********" },
@@ -136,7 +136,7 @@ export const PROVIDERS: Provider[] = [
     description: "Azure Speech real-time transcription feeding audio frames from Pipecat's Twilio transport into the LLM.",
     docsUrl: "https://learn.microsoft.com/azure/ai-services/speech-service/",
     brandInitial: "Az",
-    brandColor: "bg-sky-100 text-sky-700",
+    brandColor: "bg-background-accent-teal-subtler text-text-accent-teal-bolder",
     capabilities: ["streaming", "hi-IN + en-IN", "punctuation", "interim results"],
     fields: [
       { key: "speechKey", label: "Speech key", secret: true, placeholder: "********" },
@@ -172,17 +172,17 @@ export const PROVIDERS: Provider[] = [
     fields: [
       { key: "speechKey", label: "Speech key", secret: true, placeholder: "********" },
       { key: "region", label: "Region", placeholder: "centralindia" },
-      { key: "defaultVoice", label: "Default voice", placeholder: "en-IN-NeerjaNeural" },
+      { key: "defaultVoice", label: "Default voice", placeholder: "en-IN-AartiNeural" },
     ],
     perEnv: {
       sandbox: {
-        values: { speechKey: "", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
+        values: { speechKey: "", region: "centralindia", defaultVoice: "en-IN-AartiNeural" },
         region: "centralindia", health: "healthy", latencyMs: 280, enabled: true,
         usageStats: [{ label: "Characters", value: "412 K" }, { label: "Voices used", value: "4" }, { label: "Avg latency", value: "280 ms" }],
         costMonth: "$62.00", unitLabel: "chars",
       },
       production: {
-        values: { speechKey: "", region: "centralindia", defaultVoice: "en-IN-NeerjaNeural" },
+        values: { speechKey: "", region: "centralindia", defaultVoice: "en-IN-AartiNeural" },
         region: "centralindia", health: "healthy", latencyMs: 240, enabled: true,
         usageStats: [{ label: "Characters", value: "9.8 M" }, { label: "Voices used", value: "6" }, { label: "Avg latency", value: "240 ms" }],
         costMonth: "$1,480.00", unitLabel: "chars",
@@ -198,7 +198,7 @@ export const PROVIDERS: Provider[] = [
     description: "Programmable Voice as the media transport for Pipecat — receives inbound PSTN calls and streams audio to the pipeline.",
     docsUrl: "https://www.twilio.com/docs/voice",
     brandInitial: "Tw",
-    brandColor: "bg-red-100 text-red-700",
+    brandColor: "bg-background-danger-subtler text-text-danger-bolder",
     capabilities: ["SIP", "Media Streams", "PSTN", "recording"],
     fields: [
       { key: "accountSid", label: "Account SID", placeholder: "AC********" },
@@ -229,7 +229,7 @@ export const PROVIDERS: Provider[] = [
     description: "Secondary channel — template messages for callbacks/PTP reminders and inbound webhook into the same conversation store.",
     docsUrl: "https://developers.facebook.com/docs/whatsapp",
     brandInitial: "Wa",
-    brandColor: "bg-green-100 text-green-700",
+    brandColor: "bg-background-accent-green-subtler text-text-accent-green-bolder",
     capabilities: ["templates", "media", "webhooks", "opt-in"],
     fields: [
       { key: "phoneNumberId", label: "Phone number ID", placeholder: "1091234567890" },
@@ -260,7 +260,7 @@ export const PROVIDERS: Provider[] = [
     description: "Read-only mTLS bridge into the core banking system for balance, EMI schedule and payment history lookups requested by the bot.",
     docsUrl: "https://internal.hdfc/api/cbs/v2",
     brandInitial: "Cb",
-    brandColor: "bg-amber-100 text-amber-700",
+    brandColor: "bg-background-warning-subtler text-text-warning-bolder",
     capabilities: ["mTLS", "read-only", "sub-100 ms", "field-level PII redaction"],
     fields: [
       { key: "baseUrl", label: "Base URL", placeholder: "https://cbs-gw.hdfc.internal/v2" },
@@ -292,7 +292,7 @@ export const PROVIDERS: Provider[] = [
     description: "The Pipecat worker glues Twilio ↔ Azure Speech STT ↔ Azure OpenAI ↔ Azure Speech TTS together. This connector holds its base URL and the HMAC secret used to sign webhooks into this CRM.",
     docsUrl: "https://docs.pipecat.ai/",
     brandInitial: "Pc",
-    brandColor: "bg-brand-tint text-brand-primary-dark",
+    brandColor: "bg-background-brand-subtlest text-text-brand",
     capabilities: ["FastAPI", "WebRTC/SIP", "HMAC webhooks", "auto-restart on key rotate"],
     fields: [
       { key: "baseUrl", label: "Base URL", placeholder: "https://pipecat.hdfc.internal" },
@@ -381,7 +381,7 @@ const TEST_FIXTURES: Record<ProviderId, { okMessage: string; failMessage: string
   azure_speech_tts: {
     okMessage: "TTS synthesized 42-char sample in 280 ms",
     failMessage: "Quota exceeded",
-    okPayload: '{"audio":"<base64 · 32 kB>","voice":"en-IN-NeerjaNeural","chars":42}',
+    okPayload: '{"audio":"<base64 · 32 kB>","voice":"en-IN-AartiNeural","chars":42}',
     failPayload: '{"error":{"code":"429","message":"Rate limit exceeded"}}',
   },
   twilio: {
@@ -495,9 +495,9 @@ export const CATEGORY_LIST: (Category | "All")[] = ["All", "Voice AI", "Messagin
 
 export function healthTone(h: HealthStatus) {
   switch (h) {
-    case "healthy": return { dot: "bg-emerald-500", text: "text-emerald-700", label: "Healthy" };
-    case "degraded": return { dot: "bg-amber-500", text: "text-amber-700", label: "Degraded" };
-    case "down": return { dot: "bg-red-500", text: "text-red-700", label: "Down" };
-    case "unconfigured": return { dot: "bg-slate-400", text: "text-text-muted", label: "Not configured" };
+    case "healthy": return { dot: "bg-background-success-bold", text: "text-text-success-bolder", label: "Healthy" };
+    case "degraded": return { dot: "bg-background-warning-bold", text: "text-text-warning-bolder", label: "Degraded" };
+    case "down": return { dot: "bg-background-danger-bold", text: "text-text-danger-bolder", label: "Down" };
+    case "unconfigured": return { dot: "bg-background-accent-gray-subtle", text: "text-text-subtlest", label: "Not configured" };
   }
 }

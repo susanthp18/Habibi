@@ -48,6 +48,17 @@ CREATE TABLE IF NOT EXISTS unanswered_questions (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- db.record_kb_gap upserts on the question text, so the normalised form is the
+-- conflict arbiter. Without it the same question asked twice becomes two rows
+-- and hit_count never moves off 1, which is the whole signal.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_unanswered_questions_norm
+  ON unanswered_questions (tenant_id, lower(btrim(question)));
+-- The KB-gap screen sorts by hit_count within a tenant; the retention sweep
+-- filters on last_seen_at. Both were full scans while the table was seed-only.
+CREATE INDEX IF NOT EXISTS idx_unanswered_questions_tenant_hits
+  ON unanswered_questions (tenant_id, hit_count DESC);
+CREATE INDEX IF NOT EXISTS idx_unanswered_questions_last_seen
+  ON unanswered_questions (last_seen_at);
 
 CREATE TABLE IF NOT EXISTS analytics_kb_gap_links (
   id TEXT PRIMARY KEY,

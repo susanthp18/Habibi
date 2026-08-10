@@ -11,24 +11,24 @@ export function WebhooksHeader({
   onRotateAll: () => void;
 }) {
   return (
-    <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--border-token)] bg-surface-card px-6 py-3">
+    <div className="flex shrink-0 items-center justify-between gap-200 border-b border-border bg-surface px-300 py-150">
       <div>
-        <h1 className="text-[15px] font-semibold text-brand-navy">
+        <h1 className="text-[0.875rem] font-semibold text-text">
           Webhooks & Event Subscriptions
         </h1>
-        <p className="text-[12px] text-text-secondary">
+        <p className="text-body-small text-text-subtle">
           Register downstream endpoints, subscribe them to CRM events, and monitor deliveries.
         </p>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-100">
         <Button variant="outline" size="sm" onClick={onCatalog}>
-          <BookOpen className="mr-1.5 h-3.5 w-3.5" /> Event catalog
+          <BookOpen className="mr-075 h-3.5 w-3.5" /> Event catalog
         </Button>
         <Button variant="outline" size="sm" onClick={onRotateAll}>
-          <KeyRound className="mr-1.5 h-3.5 w-3.5" /> Rotate all
+          <KeyRound className="mr-075 h-3.5 w-3.5" /> Rotate all
         </Button>
         <Button size="sm" onClick={onNew}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" /> New endpoint
+          <Plus className="mr-075 h-3.5 w-3.5" /> New endpoint
         </Button>
       </div>
     </div>

@@ -24,6 +24,7 @@ import {
   useRedactionRecords,
   useRedactionRules,
 } from "@/api/redaction";
+import { Lozenge } from "@/components/ui/lozenge";
 import {
   DEFAULT_RULES,
   ENTITY_TYPES,
@@ -214,20 +215,20 @@ function RedactionPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        <header className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-          <div className="flex items-center gap-2">
-            <h1 className="text-[18px] font-semibold text-brand-navy">Redaction & Export Hub</h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-medium text-brand-primary-dark">
+        <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
+          <div className="flex items-center gap-100">
+            <h1 className="text-[1.25rem] font-semibold text-text">Redaction & export hub</h1>
+            <Lozenge tone="selected">
               <ShieldCheck className="h-3 w-3" /> Compliance Officer
-            </span>
+            </Lozenge>
             <button
               onClick={() => setRulesOpen(true)}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-2.5 py-1 text-[12px] text-text-primary hover:bg-surface-sunken"
+              className="ml-auto inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-050 text-body-small text-text hover:bg-surface-sunken"
             >
               <Settings2 className="h-3.5 w-3.5" /> Redaction rules
             </button>
           </div>
-          <p className="text-[12px] text-text-secondary">
+          <p className="text-body-small text-text-subtle">
             Auto-detect and mask PII in transcripts and audio, then ship watermarked evidence to regulators — every download logged.
           </p>
         </header>
@@ -253,37 +254,37 @@ function RedactionPage() {
             onOpen={setActiveId}
           />
 
-          <section className="flex min-h-0 flex-1 flex-col bg-surface-app">
+          <section className="flex min-h-0 flex-1 flex-col bg-surface">
             {activeForRender ? (
               <>
-                <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="text-[14px] font-semibold text-brand-navy">
+                <div className="shrink-0 border-b border-border bg-surface px-250 py-150">
+                  <div className="flex items-center gap-100">
+                    <div className="text-body font-semibold text-text">
                       {activeForRender.customer}
                     </div>
-                    <span className="text-[11px] text-text-muted">
+                    <span className="text-body-small text-text-subtlest">
                       {activeForRender.id} · {activeForRender.callId} · {formatDateTime(activeForRender.occurredAt)} · {activeForRender.handler}
                     </span>
                     <button
                       onClick={markReviewed}
-                      className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-2 py-1 text-[12px] text-text-primary hover:bg-brand-tint"
+                      className="ml-auto inline-flex items-center gap-050 rounded-medium border border-border px-100 py-050 text-body-small text-text hover:bg-background-brand-subtlest"
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       {active?.reviewed ? "Reviewed" : "Mark reviewed"}
                     </button>
                   </div>
-                  <div className="mt-2 flex items-center gap-3">
-                    <span className="text-[11px] text-text-muted">Detectors:</span>
+                  <div className="mt-100 flex items-center gap-150">
+                    <span className="text-body-small text-text-subtlest">Detectors:</span>
                     <PiiLegend active={activeTypes} onToggle={toggleRule} />
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                <div className="min-h-0 flex-1 space-y-200 overflow-y-auto px-250 py-200">
                   <AudioBeepTimeline record={activeForRender} onToggleSegment={toggleSegment} />
-                  <div className="rounded-lg border border-[var(--border-token)] bg-surface-card p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className="text-[13px] font-semibold text-brand-navy">Transcript preview</div>
-                      <div className="text-[10px] text-text-muted">
+                  <div className="rounded-large border border-border bg-surface p-200">
+                    <div className="mb-150 flex items-center justify-between">
+                      <div className="text-body font-semibold text-text">Transcript preview</div>
+                      <div className="text-body-small text-text-subtlest">
                         Click any mask to toggle · {activeForRender.findings.filter((f) => f.accepted).length} of {activeForRender.findings.length} applied
                       </div>
                     </div>
@@ -292,15 +293,15 @@ function RedactionPage() {
                 </div>
               </>
             ) : (
-              <div className="grid flex-1 place-items-center text-[13px] text-text-muted">
+              <div className="grid flex-1 place-items-center text-body text-text-subtlest">
                 Select a record to preview PII detection
               </div>
             )}
           </section>
 
-          <aside className="hidden h-full min-h-0 w-[340px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-[var(--border-token)] bg-surface-app p-3 xl:flex">
-            <div className="flex items-center gap-2 px-0.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Export</span>
+          <aside className="hidden h-full min-h-0 w-[21.25rem] shrink-0 flex-col gap-150 overflow-y-auto border-l border-border bg-surface p-150 xl:flex">
+            <div className="flex items-center gap-100 px-025">
+              <span className="text-body-small font-semibold text-text-subtlest">Export</span>
             </div>
             <ExportConfigPanel
               selectedCount={selected.size}
@@ -332,11 +333,12 @@ function RedactionPage() {
                   await patchRedactionRuleEnabled(t, next[t].enabled);
                 }
               }
-              invalidateRules();
             } catch (err) {
               toast.error("Could not update rules", {
                 description: err instanceof Error ? err.message : String(err),
               });
+            } finally {
+              invalidateRules();
             }
           })();
         }}

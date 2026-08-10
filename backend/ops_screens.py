@@ -6,6 +6,7 @@ Kept out of db.py on purpose — these are ops-admin surfaces, not CRM core.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import secrets
@@ -19,7 +20,60 @@ from sqlalchemy import text
 
 import db
 
-TENANT_ID = db.TENANT_ID
+TENANT_ID = db.TENANT_ID  # legacy alias; always prefer _tenant()
+
+
+def _tenant() -> str:
+    """Read tenant dynamically so tests/env overrides apply."""
+    return getattr(db, "TENANT_ID", None) or os.getenv("TENANT_ID") or "tenant-hdfc"
+
+
+def _validate_webhook_url(url: str) -> str:
+    """HTTPS-only public webhook targets — reject loopback / RFC1918 / link-local."""
+    raw = (url or "").strip()
+    if not raw:
+        raise ValueError("webhook_url_required")
+    parsed = urlparse(raw)
+    if parsed.scheme != "https":
+        raise ValueError("webhook_url_https_required")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise ValueError("webhook_url_host_required")
+    blocked = {
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "metadata.google.internal",
+    }
+    if host in blocked or host.endswith(".local"):
+        raise ValueError("webhook_url_private_forbidden")
+    # Literal private / loopback / link-local addresses.
+    #
+    # NOTE: hostnames are deliberately *not* resolved here — DNS at validation
+    # time is both a rebinding hazard (the name can resolve differently at send
+    # time) and a blocking network call inside a request handler. Before real
+    # webhook egress ships, the delivery worker must re-check the resolved
+    # address immediately before connecting and pin it for the request.
+    if _is_private_host_ip(host):
+        raise ValueError("webhook_url_private_forbidden")
+    return raw
+
+
+def _is_private_host_ip(host: str) -> bool:
+    """True when `host` is a literal address in a non-public range."""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+    )
+
 
 # UI event catalog → persisted event_types.name (same strings; seed may differ).
 EVENT_CATALOG: list[dict[str, str]] = [
@@ -263,7 +317,7 @@ def get_floor_snapshot() -> dict[str, Any]:
                     ORDER BY i.started_at ASC NULLS LAST
                     """
                 ),
-                {"tenant": TENANT_ID},
+                {"tenant": _tenant()},
             )
         )
         alerts = db._rows(
@@ -280,7 +334,7 @@ def get_floor_snapshot() -> dict[str, Any]:
                     LIMIT 40
                     """
                 ),
-                {"tenant": TENANT_ID},
+                {"tenant": _tenant()},
             )
         )
         queue_depth = conn.execute(
@@ -290,7 +344,7 @@ def get_floor_snapshot() -> dict[str, Any]:
                 WHERE tenant_id = :tenant AND status = 'active' AND handler_kind = 'human'
                 """
             ),
-            {"tenant": TENANT_ID},
+            {"tenant": _tenant()},
         ).scalar() or 0
 
     calls: list[dict[str, Any]] = []
@@ -347,13 +401,22 @@ def get_floor_snapshot() -> dict[str, Any]:
 
 
 def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
-    interaction_id = payload["interactionId"]
-    action = payload["action"]
+    interaction_id = (payload.get("interactionId") or "").strip()
+    action = (payload.get("action") or "").strip()
+    if not interaction_id or not action:
+        raise ValueError("interactionId_and_action_required")
     note = (payload.get("note") or "").strip() or None
+    tenant = _tenant()
     with db.engine.begin() as conn:
         row = conn.execute(
-            text("SELECT id, handler_user_id, handler_bot_id FROM interactions WHERE id = :id"),
-            {"id": interaction_id},
+            text(
+                """
+                SELECT id, handler_user_id, handler_bot_id
+                FROM interactions
+                WHERE id = :id AND tenant_id = :tenant
+                """
+            ),
+            {"id": interaction_id, "tenant": tenant},
         ).fetchone()
         if row is None:
             raise KeyError("interaction_not_found")
@@ -389,25 +452,30 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                         handler_user_id = :uid,
                         handler_bot_id = NULL,
                         updated_at = now()
-                    WHERE id = :id
+                    WHERE id = :id AND tenant_id = :tenant
                     """
                 ),
-                {"id": interaction_id, "uid": db._actor_user_id()},
+                {"id": interaction_id, "uid": db._actor_user_id(), "tenant": tenant},
             )
     return {"id": aid, "ok": True, "action": action, "interactionId": interaction_id}
 
 
 def ack_floor_alert(alert_id: str) -> dict[str, Any]:
+    tenant = _tenant()
     with db.engine.begin() as conn:
         result = conn.execute(
             text(
                 """
-                UPDATE live_alerts
+                UPDATE live_alerts la
                 SET acknowledged_by_user_id = :uid, acknowledged_at = now()
-                WHERE id = :id AND acknowledged_at IS NULL
+                FROM interactions i
+                WHERE la.id = :id
+                  AND la.acknowledged_at IS NULL
+                  AND la.interaction_id = i.id
+                  AND i.tenant_id = :tenant
                 """
             ),
-            {"id": alert_id, "uid": db._actor_user_id()},
+            {"id": alert_id, "uid": db._actor_user_id(), "tenant": tenant},
         )
         if not result.rowcount:
             raise KeyError("alert_not_found")
@@ -441,7 +509,7 @@ def list_event_types() -> list[dict[str, Any]]:
             "key": e["key"],
             "category": e["category"],
             "description": e["description"],
-            "sample": {"event": e["key"], "tenant": TENANT_ID, "at": datetime.now(timezone.utc).isoformat()},
+            "sample": {"event": e["key"], "tenant": _tenant(), "at": datetime.now(timezone.utc).isoformat()},
         }
         for e in EVENT_CATALOG
     ]
@@ -453,31 +521,14 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
             text(
                 """
                 SELECT id, target_system, url, status, signing_algorithm, secret_ref,
-                       created_at, name
+                       secret_hash, created_at, name
                 FROM webhook_endpoints
                 WHERE id = :id AND tenant_id = :tenant
                 """
             ),
-            {"id": endpoint_id, "tenant": TENANT_ID},
+            {"id": endpoint_id, "tenant": _tenant()},
         )
     )
-    if row is None:
-        # name column may not exist yet on older DBs — fall back.
-        try:
-            row = db._one(
-                conn.execute(
-                    text(
-                        """
-                        SELECT id, target_system, url, status, signing_algorithm, secret_ref, created_at
-                        FROM webhook_endpoints
-                        WHERE id = :id AND tenant_id = :tenant
-                        """
-                    ),
-                    {"id": endpoint_id, "tenant": TENANT_ID},
-                )
-            )
-        except Exception:
-            row = None
     if row is None:
         return None
 
@@ -486,7 +537,15 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
             text(
                 """
                 SELECT header_key AS key, header_value AS value
-                FROM webhook_endpoint_headers WHERE endpoint_id = :id
+                FROM webhook_endpoint_headers
+                WHERE endpoint_id = :id
+                  -- Case-insensitive and including Authorization, matching the
+                  -- write-side exclusion in _upsert_endpoint_children. The
+                  -- exact-case list let a legacy row stored as
+                  -- 'x-webhook-secret' (or any bearer token) be read back.
+                  AND lower(header_key) NOT IN (
+                        'x-webhook-secret-sha256', 'x-webhook-secret', 'authorization'
+                      )
                 ORDER BY header_key
                 """
             ),
@@ -525,6 +584,7 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
     created_ms = int(created.timestamp() * 1000) if isinstance(created, datetime) else int(time.time() * 1000)
     name = row.get("name") or row["target_system"] or endpoint_id
     secret_ref = row.get("secret_ref") or ""
+    has_secret = bool(secret_ref or row.get("secret_hash"))
     return {
         "id": row["id"],
         "name": name,
@@ -533,7 +593,7 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
         "status": row["status"],
         "events": events,
         "algo": row.get("signing_algorithm") or "HMAC-SHA256",
-        "secret": _mask_secret(bool(secret_ref)),
+        "secret": _mask_secret(has_secret),
         "secretRef": secret_ref,
         "retry": {
             "attempts": int((retry or {}).get("max_attempts") or 3),
@@ -546,25 +606,25 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
 
 
 def list_webhook_endpoints() -> list[dict[str, Any]]:
+    # No blanket try/except: swallowing a database error here rendered the
+    # Webhooks screen as "no endpoints configured", which reads as a
+    # deliberate empty state. Let it surface as a 5xx instead.
     with db.engine.connect() as conn:
-        try:
-            ids = [
-                r["id"]
-                for r in db._rows(
-                    conn.execute(
-                        text(
-                            """
-                            SELECT id FROM webhook_endpoints
-                            WHERE tenant_id = :tenant
-                            ORDER BY created_at DESC
-                            """
-                        ),
-                        {"tenant": TENANT_ID},
-                    )
+        ids = [
+            r["id"]
+            for r in db._rows(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id FROM webhook_endpoints
+                        WHERE tenant_id = :tenant
+                        ORDER BY created_at DESC
+                        """
+                    ),
+                    {"tenant": _tenant()},
                 )
-            ]
-        except Exception:
-            return []
+            )
+        ]
         return [ep for eid in ids if (ep := _endpoint_contract(conn, eid))]
 
 
@@ -595,6 +655,9 @@ def _upsert_endpoint_children(
         val = (h.get("value") or "").strip()
         if not key:
             continue
+        # Never persist signing secrets as outbound headers.
+        if key.lower() in {"x-webhook-secret-sha256", "x-webhook-secret", "authorization"}:
+            continue
         conn.execute(
             text(
                 """
@@ -624,6 +687,9 @@ def create_webhook_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     eid = payload.get("id") or f"wh_{uuid.uuid4().hex[:8]}"
     secret_plain = secrets.token_urlsafe(24)
     secret_ref = f"vault://local/{eid}"
+    secret_hash = hashlib.sha256(secret_plain.encode()).hexdigest()
+    url = _validate_webhook_url(str(payload.get("url") or ""))
+    tenant = _tenant()
     with db.engine.begin() as conn:
         # Ensure tenant exists for FK
         conn.execute(
@@ -634,75 +700,37 @@ def create_webhook_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
                 ON CONFLICT (id) DO NOTHING
                 """
             ),
-            {"id": TENANT_ID, "name": TENANT_ID},
+            {"id": tenant, "name": tenant},
         )
-        try:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO webhook_endpoints (
-                      id, tenant_id, target_system, url, status, signing_algorithm,
-                      secret_ref, name, created_at, updated_at
-                    ) VALUES (
-                      :id, :tenant, :target, :url, 'active', :algo,
-                      :secret_ref, :name, now(), now()
-                    )
-                    """
-                ),
-                {
-                    "id": eid,
-                    "tenant": TENANT_ID,
-                    "target": payload.get("target") or "Custom",
-                    "url": payload["url"],
-                    "algo": payload.get("algo") or "HMAC-SHA256",
-                    "secret_ref": secret_ref,
-                    "name": payload.get("name") or payload.get("target") or eid,
-                },
-            )
-        except Exception:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO webhook_endpoints (
-                      id, tenant_id, target_system, url, status, signing_algorithm,
-                      secret_ref, created_at, updated_at
-                    ) VALUES (
-                      :id, :tenant, :target, :url, 'active', :algo,
-                      :secret_ref, now(), now()
-                    )
-                    """
-                ),
-                {
-                    "id": eid,
-                    "tenant": TENANT_ID,
-                    "target": payload.get("target") or "Custom",
-                    "url": payload["url"],
-                    "algo": payload.get("algo") or "HMAC-SHA256",
-                    "secret_ref": secret_ref,
-                },
-            )
+        conn.execute(
+            text(
+                """
+                INSERT INTO webhook_endpoints (
+                  id, tenant_id, target_system, url, status, signing_algorithm,
+                  secret_ref, secret_hash, name, created_at, updated_at
+                ) VALUES (
+                  :id, :tenant, :target, :url, 'active', :algo,
+                  :secret_ref, :secret_hash, :name, now(), now()
+                )
+                """
+            ),
+            {
+                "id": eid,
+                "tenant": tenant,
+                "target": payload.get("target") or "Custom",
+                "url": url,
+                "algo": payload.get("algo") or "HMAC-SHA256",
+                "secret_ref": secret_ref,
+                "secret_hash": secret_hash,
+                "name": payload.get("name") or payload.get("target") or eid,
+            },
+        )
         _upsert_endpoint_children(
             conn,
             eid,
             events=list(payload.get("events") or []),
             headers=list(payload.get("headers") or []),
             retry=dict(payload.get("retry") or {}),
-        )
-        # Store hashed secret material in a header reserved for local demos only —
-        # never return raw after create except once via `secretOnce`.
-        conn.execute(
-            text(
-                """
-                INSERT INTO webhook_endpoint_headers (id, endpoint_id, header_key, header_value, created_at)
-                VALUES (:id, :eid, :k, :v, now())
-                """
-            ),
-            {
-                "id": _sid("whh"),
-                "eid": eid,
-                "k": "X-Webhook-Secret-SHA256",
-                "v": hashlib.sha256(secret_plain.encode()).hexdigest(),
-            },
         )
         ep = _endpoint_contract(conn, eid)
     assert ep is not None
@@ -714,7 +742,7 @@ def create_webhook_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
 def patch_webhook_endpoint(endpoint_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with db.engine.begin() as conn:
         sets: list[str] = []
-        params: dict[str, Any] = {"id": endpoint_id, "tenant": TENANT_ID}
+        params: dict[str, Any] = {"id": endpoint_id, "tenant": _tenant()}
         for col, key in [
             ("url", "url"),
             ("target_system", "target"),
@@ -724,38 +752,29 @@ def patch_webhook_endpoint(endpoint_id: str, payload: dict[str, Any]) -> dict[st
         ]:
             if key in payload and payload[key] is not None:
                 sets.append(f"{col} = :{key}")
-                params[key] = payload[key]
+                val = payload[key]
+                if key == "url":
+                    val = _validate_webhook_url(str(val))
+                params[key] = val
         if sets:
             sets.append("updated_at = now()")
-            try:
-                conn.execute(
-                    text(
-                        f"UPDATE webhook_endpoints SET {', '.join(sets)} "
-                        "WHERE id = :id AND tenant_id = :tenant"
-                    ),
-                    params,
-                )
-            except Exception:
-                # name column may be missing
-                sets = [s for s in sets if not s.startswith("name")]
-                if sets:
-                    conn.execute(
-                        text(
-                            f"UPDATE webhook_endpoints SET {', '.join(sets)} "
-                            "WHERE id = :id AND tenant_id = :tenant"
-                        ),
-                        params,
-                    )
+            conn.execute(
+                text(
+                    f"UPDATE webhook_endpoints SET {', '.join(sets)} "
+                    "WHERE id = :id AND tenant_id = :tenant"
+                ),
+                params,
+            )
+        cur = _endpoint_contract(conn, endpoint_id)
+        if cur is None:
+            raise KeyError("endpoint_not_found")
         if any(k in payload for k in ("events", "headers", "retry")):
-            cur = _endpoint_contract(conn, endpoint_id)
-            if cur is None:
-                raise KeyError("endpoint_not_found")
             _upsert_endpoint_children(
                 conn,
                 endpoint_id,
-                events=list(payload.get("events") if "events" in payload else cur["events"]),
-                headers=list(payload.get("headers") if "headers" in payload else cur["headers"]),
-                retry=dict(payload.get("retry") if "retry" in payload else cur["retry"]),
+                events=list(payload["events"]) if "events" in payload else list(cur.get("events") or []),
+                headers=list(payload["headers"]) if "headers" in payload else list(cur.get("headers") or []),
+                retry=dict(payload["retry"]) if "retry" in payload else dict(cur.get("retry") or {}),
             )
         ep = _endpoint_contract(conn, endpoint_id)
     if ep is None:
@@ -767,7 +786,7 @@ def delete_webhook_endpoint(endpoint_id: str) -> None:
     with db.engine.begin() as conn:
         result = conn.execute(
             text("DELETE FROM webhook_endpoints WHERE id = :id AND tenant_id = :tenant"),
-            {"id": endpoint_id, "tenant": TENANT_ID},
+            {"id": endpoint_id, "tenant": _tenant()},
         )
         if not result.rowcount:
             raise KeyError("endpoint_not_found")
@@ -776,36 +795,40 @@ def delete_webhook_endpoint(endpoint_id: str) -> None:
 def rotate_webhook_secret(endpoint_id: str) -> dict[str, Any]:
     secret_plain = secrets.token_urlsafe(24)
     secret_ref = f"vault://local/{endpoint_id}"
+    secret_hash = hashlib.sha256(secret_plain.encode()).hexdigest()
     with db.engine.begin() as conn:
         result = conn.execute(
             text(
                 """
                 UPDATE webhook_endpoints
-                SET secret_ref = :ref, updated_at = now()
+                SET secret_ref = :ref, secret_hash = :hash, updated_at = now()
                 WHERE id = :id AND tenant_id = :tenant
                 """
             ),
-            {"id": endpoint_id, "tenant": TENANT_ID, "ref": secret_ref},
+            {
+                "id": endpoint_id,
+                "tenant": _tenant(),
+                "ref": secret_ref,
+                "hash": secret_hash,
+            },
         )
         if not result.rowcount:
             raise KeyError("endpoint_not_found")
         conn.execute(
-            text("DELETE FROM webhook_endpoint_headers WHERE endpoint_id = :id AND header_key = :k"),
-            {"id": endpoint_id, "k": "X-Webhook-Secret-SHA256"},
-        )
-        conn.execute(
             text(
                 """
-                INSERT INTO webhook_endpoint_headers (id, endpoint_id, header_key, header_value, created_at)
-                VALUES (:id, :eid, :k, :v, now())
+                DELETE FROM webhook_endpoint_headers
+                WHERE endpoint_id = :id
+                  -- Case-insensitive and including Authorization, matching the
+                  -- read-side filter in _endpoint_contract. Exact-case matching
+                  -- let a legacy row stored as 'x-webhook-secret' survive a
+                  -- rotation that is supposed to invalidate the old secret.
+                  AND lower(header_key) IN (
+                        'x-webhook-secret-sha256', 'x-webhook-secret', 'authorization'
+                      )
                 """
             ),
-            {
-                "id": _sid("whh"),
-                "eid": endpoint_id,
-                "k": "X-Webhook-Secret-SHA256",
-                "v": hashlib.sha256(secret_plain.encode()).hexdigest(),
-            },
+            {"id": endpoint_id},
         )
         ep = _endpoint_contract(conn, endpoint_id)
     assert ep is not None
@@ -840,7 +863,7 @@ def _delivery_contract(row: dict[str, Any], max_attempts: int = 3) -> dict[str, 
 
 def list_webhook_deliveries(endpoint_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     with db.engine.connect() as conn:
-        params: dict[str, Any] = {"limit": limit, "tenant": TENANT_ID}
+        params: dict[str, Any] = {"limit": limit, "tenant": _tenant()}
         where = "WHERE e.tenant_id = :tenant"
         if endpoint_id:
             where += " AND d.endpoint_id = :eid"
@@ -879,12 +902,17 @@ def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[st
         ok = bool(host) and ep["status"] == "active"
         http_status = 200 if ok else 502
         status = "success" if ok else "server_err"
-        latency = 40 + (hash(endpoint_id) % 180)
+        # Deterministic digest, not hash(): PYTHONHASHSEED randomises str
+        # hashing per process, so the same endpoint produced a different
+        # persisted latency on every worker and every restart.
+        latency = 40 + (
+            int.from_bytes(hashlib.sha256(endpoint_id.encode()).digest()[:4], "big") % 180
+        )
         did = _sid("dlv")
         payload = {
             "event": key,
             "endpointId": endpoint_id,
-            "tenant": TENANT_ID,
+            "tenant": _tenant(),
             "test": True,
             "at": datetime.now(timezone.utc).isoformat(),
         }
@@ -934,11 +962,12 @@ def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
                     """
                     SELECT d.endpoint_id, et.name AS event_name, d.payload
                     FROM webhook_deliveries d
+                    JOIN webhook_endpoints e ON e.id = d.endpoint_id
                     LEFT JOIN event_types et ON et.id = d.event_type_id
-                    WHERE d.id = :id
+                    WHERE d.id = :id AND e.tenant_id = :tenant
                     """
                 ),
-                {"id": delivery_id},
+                {"id": delivery_id, "tenant": _tenant()},
             )
         )
     if row is None:
@@ -962,8 +991,51 @@ def _env_values(provider_id: str) -> dict[str, str]:
     return out
 
 
-def _provider_health(provider_id: str) -> tuple[str, int, bool]:
+def _provider_config_id(provider_id: str, environment: str) -> str:
+    """Surrogate id for a new provider_configs row.
+
+    Includes the tenant so ids stay unique across tenants; the durable identity
+    (and upsert conflict target) is (provider_id, tenant_id, environment).
+    """
+    return f"pcfg-{_tenant()}-{provider_id}-{environment}"
+
+
+def _provider_config_rows(environment: str) -> dict[str, dict[str, Any]]:
+    """All provider_configs rows for this tenant/env, keyed by provider_id.
+
+    One query for the whole screen — the per-provider variant opened a
+    connection per provider on every Integrations page load.
+    """
+    with db.engine.connect() as conn:
+        rows = db._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT provider_id, enabled, health, latency_ms
+                    FROM provider_configs
+                    WHERE tenant_id = :tenant AND environment = :env
+                    """
+                ),
+                {"tenant": _tenant(), "env": environment},
+            )
+        )
+    return {str(r["provider_id"]): dict(r) for r in rows}
+
+
+# Distinguishes "caller supplied no config data" from "the batched lookup found
+# no row for this provider". Without it, every unconfigured provider in
+# list_providers re-ran _provider_config_rows(), defeating the batching.
+_CONFIG_ROW_UNSET: Any = object()
+
+
+def _provider_health(
+    provider_id: str,
+    environment: str = "sandbox",
+    *,
+    config_row: dict[str, Any] | None = _CONFIG_ROW_UNSET,
+) -> tuple[str, int, bool]:
     meta = _PROVIDER_META[provider_id]
+    env = environment if environment in {"sandbox", "production"} else "sandbox"
     configured = all(
         (os.getenv(env_name) or "").strip()
         for field in meta["fields"]
@@ -975,21 +1047,11 @@ def _provider_health(provider_id: str) -> tuple[str, int, bool]:
     if not any(f.get("secret") for f in meta["fields"]):
         configured = any((os.getenv(v) or "").strip() for v in meta["env_map"].values())
     enabled_default = configured
-    with db.engine.connect() as conn:
-        row = db._one(
-            conn.execute(
-                text(
-                    """
-                    SELECT enabled, health, latency_ms
-                    FROM provider_configs
-                    WHERE provider_id = :pid AND tenant_id = :tenant
-                    ORDER BY environment DESC
-                    LIMIT 1
-                    """
-                ),
-                {"pid": provider_id, "tenant": TENANT_ID},
-            )
-        )
+    row = (
+        _provider_config_rows(env).get(provider_id)
+        if config_row is _CONFIG_ROW_UNSET
+        else config_row
+    )
     if row and row.get("enabled") is not None:
         enabled_default = bool(row["enabled"]) and configured
     if not configured:
@@ -1001,27 +1063,42 @@ def _provider_health(provider_id: str) -> tuple[str, int, bool]:
 
 def list_providers(environment: str = "sandbox") -> list[dict[str, Any]]:
     env = environment if environment in {"sandbox", "production"} else "sandbox"
+    # Both environments up front. `enabled`, `health` and `latency_ms` live in
+    # provider_configs keyed by (tenant, environment) and patch_provider_enabled
+    # writes one environment at a time — copying the requested env's status into
+    # both perEnv entries made a sandbox toggle read back as a production one.
+    rows_by_env = {
+        "sandbox": _provider_config_rows("sandbox"),
+        "production": _provider_config_rows("production"),
+    }
     out: list[dict[str, Any]] = []
     for pid in LIVE_PROVIDER_IDS:
         meta = _PROVIDER_META[pid]
-        health, latency, enabled = _provider_health(pid)
         values = _env_values(pid)
-        region = values.get("region") or ("centralindia" if env == "production" else "eastus")
-        per = {
-            "values": values,
-            "region": region,
-            "health": health,
-            "latencyMs": latency,
-            "enabled": enabled,
-            "usageStats": [
-                {"label": "Source", "value": "env"},
-                {"label": "Secrets", "value": "ops vault"},
-                {"label": "Editable", "value": "no"},
-            ],
-            "costMonth": "—",
-            "unitLabel": "ops",
-            "credentialsLocked": True,
-        }
+
+        def _per(for_env: str, pid: str = pid, values: dict[str, Any] = values) -> dict[str, Any]:
+            health, latency, enabled = _provider_health(
+                pid, for_env, config_row=rows_by_env[for_env].get(pid)
+            )
+            return {
+                "values": values,
+                # Credentials are process-wide env vars, so `values` is shared;
+                # only the DB-backed status is per-environment.
+                "region": values.get("region")
+                or ("centralindia" if for_env == "production" else "eastus"),
+                "health": health,
+                "latencyMs": latency,
+                "enabled": enabled,
+                "usageStats": [
+                    {"label": "Source", "value": "env"},
+                    {"label": "Secrets", "value": "ops vault"},
+                    {"label": "Editable", "value": "no"},
+                ],
+                "costMonth": "—",
+                "unitLabel": "ops",
+                "credentialsLocked": True,
+            }
+
         out.append(
             {
                 "id": pid,
@@ -1036,14 +1113,11 @@ def list_providers(environment: str = "sandbox") -> list[dict[str, Any]]:
                 "capabilities": meta["capabilities"],
                 "fields": meta["fields"],
                 "perEnv": {
-                    "sandbox": per if env == "sandbox" else {**per, "enabled": False, "health": "unconfigured"},
-                    "production": per if env == "production" else {**per, "enabled": False, "health": "unconfigured"},
+                    "sandbox": _per("sandbox"),
+                    "production": _per("production"),
                 },
             }
         )
-        # Mirror same status into both envs for simplicity (env vars are process-wide).
-        out[-1]["perEnv"]["sandbox"] = {**per}
-        out[-1]["perEnv"]["production"] = {**per}
     return out
 
 
@@ -1060,7 +1134,7 @@ def patch_provider_enabled(provider_id: str, environment: str, enabled: bool) ->
                 ON CONFLICT (id) DO NOTHING
                 """
             ),
-            {"id": TENANT_ID, "name": TENANT_ID},
+            {"id": _tenant(), "name": _tenant()},
         )
         conn.execute(
             text(
@@ -1076,7 +1150,7 @@ def patch_provider_enabled(provider_id: str, environment: str, enabled: bool) ->
                 "cat": _PROVIDER_META[provider_id]["category"],
             },
         )
-        cid = f"pcfg-{provider_id}-{env}"
+        tenant = _tenant()
         conn.execute(
             text(
                 """
@@ -1087,15 +1161,16 @@ def patch_provider_enabled(provider_id: str, environment: str, enabled: bool) ->
                   :id, :pid, :tenant, :env, '{}'::jsonb, :health,
                   0, :enabled, :cref, now(), now()
                 )
-                ON CONFLICT (id) DO UPDATE SET
+                ON CONFLICT (provider_id, tenant_id, environment) DO UPDATE SET
                   enabled = EXCLUDED.enabled,
+                  health = EXCLUDED.health,
                   updated_at = now()
                 """
             ),
             {
-                "id": cid,
+                "id": _provider_config_id(provider_id, env),
                 "pid": provider_id,
-                "tenant": TENANT_ID,
+                "tenant": tenant,
                 "env": env,
                 "health": "healthy" if enabled else "unconfigured",
                 "enabled": enabled,
@@ -1147,8 +1222,22 @@ def test_provider(provider_id: str, environment: str = "sandbox") -> dict[str, A
                 "cat": meta["category"],
             },
         )
-        cid = f"pcfg-{provider_id}-{env}"
-        conn.execute(
+        tenant = _tenant()
+        # Tenant-scoped read: keying by the surrogate id alone read (and then
+        # overwrote) whichever tenant happened to own that row.
+        existing_enabled = conn.execute(
+            text(
+                """
+                SELECT enabled FROM provider_configs
+                WHERE provider_id = :pid AND tenant_id = :tenant AND environment = :env
+                """
+            ),
+            {"pid": provider_id, "tenant": tenant, "env": env},
+        ).scalar()
+        enabled_val = bool(existing_enabled) if existing_enabled is not None else False
+        # RETURNING id: an existing row may still carry the legacy
+        # (tenant-less) surrogate id, and integration_test_logs FKs to it.
+        cid = conn.execute(
             text(
                 """
                 INSERT INTO provider_configs (
@@ -1156,24 +1245,26 @@ def test_provider(provider_id: str, environment: str = "sandbox") -> dict[str, A
                   latency_ms, enabled, credential_ref, created_at, updated_at
                 ) VALUES (
                   :id, :pid, :tenant, :env, '{}'::jsonb, :health,
-                  :lat, true, :cref, now(), now()
+                  :lat, :enabled, :cref, now(), now()
                 )
-                ON CONFLICT (id) DO UPDATE SET
+                ON CONFLICT (provider_id, tenant_id, environment) DO UPDATE SET
                   health = EXCLUDED.health,
                   latency_ms = EXCLUDED.latency_ms,
                   updated_at = now()
+                RETURNING id
                 """
             ),
             {
-                "id": cid,
+                "id": _provider_config_id(provider_id, env),
                 "pid": provider_id,
-                "tenant": TENANT_ID,
+                "tenant": tenant,
                 "env": env,
                 "health": "healthy" if ok else "degraded",
                 "lat": latency,
+                "enabled": enabled_val,
                 "cref": f"env://{provider_id}",
             },
-        )
+        ).scalar()
         conn.execute(
             text(
                 """
@@ -1211,7 +1302,7 @@ def list_provider_test_logs(provider_id: str, limit: int = 20) -> list[dict[str,
                     LIMIT :limit
                     """
                 ),
-                {"pid": provider_id, "tenant": TENANT_ID, "limit": limit},
+                {"pid": provider_id, "tenant": _tenant(), "limit": limit},
             )
         )
     out = []

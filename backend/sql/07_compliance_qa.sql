@@ -93,22 +93,33 @@ CREATE INDEX IF NOT EXISTS idx_qa_scorecard_entries_scorecard_id ON qa_scorecard
 
 CREATE TABLE IF NOT EXISTS coaching_actions (
   id TEXT PRIMARY KEY,
+  -- Explicit tenant: subject_user_id / interaction_id are all nullable, so
+  -- there is no join that reliably scopes a coaching action to its tenant.
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   subject_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   subject_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
   scorecard_id TEXT REFERENCES qa_scorecards(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   action TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open',
+  category TEXT NOT NULL DEFAULT 'General',
+  -- Screen vocabulary (migration 20260722_0022 retired open/pending/new).
+  status TEXT NOT NULL DEFAULT 'assigned'
+    CONSTRAINT ck_coaching_actions_status CHECK (status IN ('assigned','in_progress','done')),
   due_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_coaching_actions_tenant_id ON coaching_actions(tenant_id);
 
 CREATE TABLE IF NOT EXISTS calibration_sessions (
   id TEXT PRIMARY KEY,
   interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
   rubric_id TEXT NOT NULL REFERENCES qa_rubrics(id),
-  status TEXT NOT NULL DEFAULT 'open',
+  name TEXT,
+  target_scores jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Screen vocabulary (migration 20260722_0022 retired open/pending/new).
+  status TEXT NOT NULL DEFAULT 'active'
+    CONSTRAINT ck_calibration_sessions_status CHECK (status IN ('active','closed')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

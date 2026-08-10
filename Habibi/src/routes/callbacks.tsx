@@ -70,7 +70,7 @@ function CallbacksPage() {
   const [view, setView] = useState<CbView>("week");
   const [weekAnchor, setWeekAnchor] = useState<Date>(new Date());
   const autoMarked = useRef(false);
-  const deepLinkApplied = useRef(false);
+  const deepLinkKey = useRef<string | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["callbacks"] });
@@ -133,9 +133,10 @@ function CallbacksPage() {
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
 
   useEffect(() => {
-    if (deepLinkApplied.current) return;
     if (!search.id && !search.new) return;
-    deepLinkApplied.current = true;
+    const key = `${search.id ?? ""}|${search.new ? "1" : "0"}`;
+    if (deepLinkKey.current === key) return;
+    deepLinkKey.current = key;
     if (search.id) {
       setOpenId(search.id);
       setView("list");
@@ -217,19 +218,19 @@ function CallbacksPage() {
 
   return (
     <AppShell>
-      <div className="flex h-full min-h-0 flex-col gap-2.5 p-3">
-        <header className="shrink-0 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <CalendarClock className="h-5 w-5 text-brand-primary" />
+      <div className="flex h-full min-h-0 flex-col gap-150 p-150">
+        <header className="shrink-0 flex items-center justify-between gap-100">
+          <div className="flex items-center gap-100">
+            <CalendarClock className="h-250 w-250 text-text-brand" />
             <div>
-              <h1 className="text-[16px] font-semibold text-brand-navy leading-none">Callback & Scheduling Manager</h1>
-              <p className="text-[11.5px] text-text-secondary">Honour every "call me back" — DND-safe scheduling, reminders, and outcome capture.</p>
+              <h1 className="text-[1rem] font-semibold text-text leading-none">Callback & scheduling manager</h1>
+              <p className="text-body-small text-text-subtle">Honour every "call me back" — DND-safe scheduling, reminders, and outcome capture.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="text-[11px] text-text-muted">Showing {filtered.length} of {callbacksData.length}</div>
-            <Button size="sm" className="h-8 text-[12px]" onClick={() => setShowNew(true)}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> New callback
+          <div className="flex items-center gap-100">
+            <div className="text-body-small text-text-subtlest">Showing {filtered.length} of {callbacksData.length}</div>
+            <Button size="sm" className="h-400 text-body-small" onClick={() => setShowNew(true)}>
+              <Plus className="mr-050 h-3.5 w-3.5" /> New callback
             </Button>
           </div>
         </header>
@@ -244,7 +245,7 @@ function CallbacksPage() {
           myQueue={myQueue}
         />
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-100">
           <ViewToggle view={view} onChange={setView} missedCount={missedRows.length} />
         </div>
 

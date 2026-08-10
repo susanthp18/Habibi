@@ -9,12 +9,27 @@ import logging
 import re
 from typing import Any
 
-from prompt_render import KNOWN_VARIABLES, _TOKEN_RE
+from prompt_render import KNOWN_VARIABLES, SYSTEM_SAFE_VARIABLES, TOKEN_RE
 
 logger = logging.getLogger(__name__)
 
+# Deliberately narrow: this backs a compliance gate, so it must match an actual
+# *disclosure to the customer*, not any mention of recording. The previous
+# pattern accepted "record call details in the CRM" — an unrelated instruction
+# that let a prompt pass alwaysDiscloseRecording without disclosing anything.
+_SUBJECT = r"(?:this|the|your|our)\s+(?:call|conversation|chat)"
+_MODAL = r"(?:is|are|was|may\s+be|might\s+be|will\s+be|could\s+be)"
 _DISCLOSURE_RE = re.compile(
-    r"record(ing|ed)?|this\s+call\s+(is|may\s+be)\s+recorded",
+    r"(?:"
+    # "this call is / may be (being) recorded"
+    rf"\b{_SUBJECT}\s+{_MODAL}(?:\s+being)?\s+recorded\b"
+    # "we are recording this call" / "I am recording this conversation"
+    rf"|\b(?:am|are|is|will\s+be)\s+recording\s+{_SUBJECT}\b"
+    # "recorded for quality and training purposes"
+    r"|\brecorded\s+for\s+(?:quality|training|compliance|verification|monitoring)\b"
+    # "calls are recorded" (generic standing disclosure)
+    rf"|\b(?:calls|conversations|chats)\s+{_MODAL}(?:\s+being)?\s+recorded\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -24,21 +39,41 @@ def lint_prompt(
     guardrails: dict[str, Any],
     *,
     include_llm: bool = False,
+    role: str = "system",
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     text = prompt or ""
 
-    for match in _TOKEN_RE.finditer(text):
+    # System-role prompts go through render_system_prompt, which only
+    # substitutes SYSTEM_SAFE_VARIABLES. Linting them against the full
+    # KNOWN_VARIABLES set told authors that e.g. {overdue_amount} was fine when
+    # it silently renders as a literal brace token in the live system prompt.
+    allowed = SYSTEM_SAFE_VARIABLES if role == "system" else KNOWN_VARIABLES
+    for match in TOKEN_RE.finditer(text):
         name = match.group(1)
-        if name not in KNOWN_VARIABLES:
+        if name in allowed:
+            continue
+        if role == "system" and name in KNOWN_VARIABLES:
             findings.append(
                 {
                     "severity": "warn",
-                    "code": "unknown_variable",
-                    "message": f"Unknown variable {{{name}}} — will not be substituted at runtime.",
+                    "code": "crm_variable_in_system_prompt",
+                    "message": (
+                        f"{{{name}}} is a CRM field and is not substituted in a system "
+                        "prompt — move it into the untrusted CRM context card."
+                    ),
                     "span": {"start": match.start(), "end": match.end()},
                 }
             )
+            continue
+        findings.append(
+            {
+                "severity": "warn",
+                "code": "unknown_variable",
+                "message": f"Unknown variable {{{name}}} — will not be substituted at runtime.",
+                "span": {"start": match.start(), "end": match.end()},
+            }
+        )
 
     if guardrails.get("alwaysDiscloseRecording"):
         if not _DISCLOSURE_RE.search(text):
@@ -56,19 +91,27 @@ def lint_prompt(
 
     prohibited = guardrails.get("prohibited") or []
     if isinstance(prohibited, list):
-        lower = text.lower()
         for word in prohibited:
             w = str(word or "").strip()
             if not w:
                 continue
-            idx = lower.find(w.lower())
-            if idx >= 0:
+            # Whole-word match. Raw substring search flagged "rate" inside
+            # "accurate" / "corporate", so an author could not use ordinary
+            # English once a short word was on the prohibited list.
+            pattern = re.escape(w)
+            if w[:1].isalnum() or w[:1] == "_":
+                pattern = r"\b" + pattern
+            if w[-1:].isalnum() or w[-1:] == "_":
+                pattern = pattern + r"\b"
+            found = re.search(pattern, text, re.IGNORECASE)
+            if found is not None:
+                idx = found.start()
                 findings.append(
                     {
                         "severity": "error",
                         "code": "prohibited_word_in_prompt",
                         "message": f'Prohibited phrase "{w}" appears in the system prompt.',
-                        "span": {"start": idx, "end": idx + len(w)},
+                        "span": {"start": idx, "end": found.end()},
                     }
                 )
 
@@ -110,11 +153,14 @@ def _llm_checklist(prompt: str, guardrails: dict[str, Any]) -> list[dict[str, An
         )
     except Exception as exc:
         logger.warning("prompt_lint_llm_failed: %s", exc)
+        # Static message: this reaches the Prompt Studio UI, and an Azure
+        # OpenAI exception string carries the endpoint, deployment name and
+        # request id. Diagnostics stay in the log above.
         return [
             {
                 "severity": "info",
                 "code": "llm_lint_failed",
-                "message": f"LLM lint failed: {exc}",
+                "message": "LLM lint failed — see server logs.",
                 "span": None,
             }
         ]

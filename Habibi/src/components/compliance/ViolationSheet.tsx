@@ -13,6 +13,7 @@ import {
   formatWhen,
   formatAt,
 } from "@/data/compliance-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export function ViolationSheet({
   v,
@@ -51,36 +52,39 @@ export function ViolationSheet({
 
   return (
     <Sheet open={!!v} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full max-w-[560px] overflow-y-auto p-0 sm:max-w-[560px]">
-        <SheetHeader className="sticky top-0 z-10 border-b border-[var(--border-token)] bg-surface-card p-4">
-          <div className="flex items-center gap-2">
-            <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
-              style={{ background: severityBg(v.severity), color: severityColor(v.severity) }}
+      <SheetContent side="right" className="w-full max-w-[37.5rem] overflow-y-auto p-0 sm:max-w-[37.5rem]">
+        <SheetHeader className="sticky top-0 z-10 border-b border-border bg-surface p-200">
+          <div className="flex items-center gap-100">
+            <Lozenge
+              style={{
+                background: severityBg(v.severity),
+                color: severityColor(v.severity),
+                borderColor: severityColor(v.severity),
+              }}
             >
               {v.severity}
-            </span>
-            <span className="font-mono text-[10px] text-text-muted">{rule.code}</span>
-            <span className="ml-auto rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-semibold uppercase text-text-secondary">
+            </Lozenge>
+            <span className="font-mono text-body-small text-text-subtlest">{rule.code}</span>
+            <Lozenge tone="neutral" className="ml-auto">
               {statusLabel(v.status)}
-            </span>
+            </Lozenge>
           </div>
-          <SheetTitle className="text-left text-[16px] font-semibold text-brand-navy">
+          <SheetTitle className="text-left text-[1rem] font-semibold text-text">
             {rule.label}
           </SheetTitle>
-          <div className="text-[12px] text-text-secondary">{rule.description}</div>
+          <div className="text-body-small text-text-subtle">{rule.description}</div>
         </SheetHeader>
 
-        <div className="space-y-4 p-4">
+        <div className="space-y-200 p-200">
           {/* Context */}
-          <section className="rounded-md border border-[var(--border-token)] bg-surface-card p-3">
-            <div className="grid grid-cols-2 gap-2 text-[12px]">
+          <section className="rounded-medium border border-border bg-surface p-150">
+            <div className="grid grid-cols-2 gap-100 text-body-small">
               <Field label="Customer" value={v.customerName} />
               <Field label="Call ID" value={v.callId} mono />
               <Field
                 label="Actor"
                 value={
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-050">
                     {v.actor.kind === "bot" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
                     {v.actor.name}
                   </span>
@@ -89,7 +93,7 @@ export function ViolationSheet({
               <Field
                 label="Occurred"
                 value={
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-050">
                     <Clock className="h-3 w-3" /> {formatWhen(v.occurredAt)} @ {formatAt(v.atSec)}
                   </span>
                 }
@@ -100,23 +104,23 @@ export function ViolationSheet({
 
           {/* Evidence */}
           <section>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Transcript evidence</div>
-            <div className="space-y-1 rounded-md border border-[var(--border-token)] bg-surface-sunken p-3 text-[12px]">
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Transcript evidence</div>
+            <div className="space-y-050 rounded-medium border border-border bg-surface-sunken p-150 text-body-small">
               {v.evidence.preceding && <Line turn={v.evidence.preceding} muted />}
               <Line turn={v.evidence.offending} highlight />
               {v.evidence.following && <Line turn={v.evidence.following} muted />}
             </div>
-            <div className="mt-1 text-[11px] italic text-text-muted">{v.evidence.snippet}</div>
+            <div className="mt-050 text-body-small italic text-text-subtlest">{v.evidence.snippet}</div>
           </section>
 
           {/* Notes */}
           {v.notes.length > 0 && (
             <section>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Audit trail</div>
-              <ul className="space-y-1 text-[12px]">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Audit trail</div>
+              <ul className="space-y-050 text-body-small">
                 {v.notes.map((n, i) => (
-                  <li key={i} className="rounded-md border border-[var(--border-token)] bg-surface-card p-2">
-                    <div className="text-[11px] text-text-muted">{formatWhen(n.at)} · {n.author}</div>
+                  <li key={i} className="rounded-medium border border-border bg-surface p-100">
+                    <div className="text-body-small text-text-subtlest">{formatWhen(n.at)} · {n.author}</div>
                     <div>{n.text}</div>
                   </li>
                 ))}
@@ -126,14 +130,14 @@ export function ViolationSheet({
 
           {/* Actions */}
           {v.status !== "resolved" && (
-            <section className="rounded-md border border-[var(--border-token)] bg-surface-card p-3">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Action</div>
-              <div className="mb-2 flex flex-wrap gap-2">
+            <section className="rounded-medium border border-border bg-surface p-150">
+              <div className="mb-100 text-body-small font-semibold text-text-subtlest">Action</div>
+              <div className="mb-100 flex flex-wrap gap-100">
                 <select
                   value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
                   disabled={!assignees.length}
-                  className="h-8 flex-1 min-w-[160px] rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+                  className="h-400 flex-1 min-w-[10rem] rounded-medium border border-border bg-surface px-100 text-body-small"
                 >
                   {!assignees.length && <option value="">Loading reviewers…</option>}
                   {assignees.map((r) => (
@@ -143,7 +147,7 @@ export function ViolationSheet({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-8"
+                  className="h-400"
                   disabled={!assignee}
                   onClick={() => handle(() => onAssign(v.id, assignee, note || `Assigned to ${assignee}.`))}
                 >
@@ -154,9 +158,9 @@ export function ViolationSheet({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Add a note (required to resolve)…"
-                className="mb-2 min-h-[70px] text-[13px]"
+                className="mb-100 min-h-[4.375rem] text-body"
               />
-              <div className="flex flex-wrap justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-100">
                 <Button
                   variant="outline"
                   size="sm"
@@ -167,7 +171,7 @@ export function ViolationSheet({
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-brand-primary hover:bg-brand-primary-hover"
+                  className="bg-background-brand-bold hover:bg-background-brand-bold-hovered"
                   onClick={() => handle(() => onResolve(v.id, note || "Resolved after review."))}
                   disabled={!note.trim()}
                 >
@@ -177,14 +181,19 @@ export function ViolationSheet({
             </section>
           )}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-100">
             <Link
               to="/audit"
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-3 py-1.5 text-[12px] text-brand-primary hover:bg-brand-tint"
+              className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest"
             >
               <ExternalLink className="h-3.5 w-3.5" /> Open in Audit
             </Link>
-            <button className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-sunken">
+            <button
+              type="button"
+              disabled
+              title="Audio seek from compliance is not wired yet — open Audit for playback"
+              className="inline-flex cursor-not-allowed items-center gap-050 rounded-medium border border-border bg-surface-sunken px-150 py-075 text-body-small text-text-subtlest opacity-60"
+            >
               <FileAudio className="h-3.5 w-3.5" /> Jump to audio {formatAt(v.atSec)}
             </button>
           </div>
@@ -197,20 +206,20 @@ export function ViolationSheet({
 function Field({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-text-muted">{label}</div>
-      <div className={`text-[13px] text-brand-navy ${mono ? "font-mono" : ""}`}>{value}</div>
+      <div className="text-body-small text-text-subtlest">{label}</div>
+      <div className={`text-body text-text ${mono ? "font-mono" : ""}`}>{value}</div>
     </div>
   );
 }
 
 function Line({ turn, muted, highlight }: { turn: { t: number; speaker: string; text: string }; muted?: boolean; highlight?: boolean }) {
   return (
-    <div className={`flex gap-2 ${muted ? "text-text-muted" : "text-text-primary"}`}>
-      <span className="w-12 shrink-0 font-mono text-[10px] text-text-muted">{formatAt(turn.t)}</span>
-      <span className={`w-14 shrink-0 text-[11px] font-medium uppercase ${muted ? "text-text-muted" : "text-brand-navy"}`}>
+    <div className={`flex gap-100 ${muted ? "text-text-subtlest" : "text-text"}`}>
+      <span className="w-600 shrink-0 font-mono text-body-small text-text-subtlest">{formatAt(turn.t)}</span>
+      <span className={`w-14 shrink-0 text-body-small font-medium ${muted ? "text-text-subtlest" : "text-text"}`}>
         {turn.speaker}
       </span>
-      <span className={highlight ? "rounded bg-[color:var(--danger-bg)] px-1 font-medium text-[color:var(--danger)]" : ""}>
+      <span className={highlight ? "rounded bg-[color:var(--danger-bg)] px-050 font-medium text-text-danger" : ""}>
         {turn.text}
       </span>
     </div>

@@ -28,26 +28,26 @@ export function SentimentMeter({ series }: Props) {
   const gaugePct = ((current + 1) / 2) * 100;
 
   return (
-    <section className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-      <div className="flex items-center gap-6">
+    <section className="shrink-0 border-b border-border bg-surface px-250 py-150">
+      <div className="flex items-center gap-300">
         <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="text-body-small font-semibold text-text-subtlest">
             Live sentiment
           </div>
-          <div className="mt-0.5 flex items-baseline gap-2">
-            <span className="text-[20px] font-semibold" style={{ color }}>
+          <div className="mt-025 flex items-baseline gap-100">
+            <span className="text-[1.25rem] font-semibold" style={{ color }}>
               {label}
             </span>
-            <span className="tabular text-[12px] text-text-secondary">
+            <span className="tabular text-body-small text-text-subtle">
               {current >= 0 ? "+" : ""}
               {current.toFixed(2)}
             </span>
             <span
               className={cn(
-                "flex items-center gap-0.5 text-[11px] font-medium",
-                trend === "up" && "text-success",
-                trend === "down" && "text-danger",
-                trend === "flat" && "text-text-muted",
+                "flex items-center gap-025 text-body-small font-medium",
+                trend === "up" && "text-text-success",
+                trend === "down" && "text-text-danger",
+                trend === "flat" && "text-text-subtlest",
               )}
             >
               {trend === "up" && <TrendingUp className="h-3 w-3" />}
@@ -60,15 +60,15 @@ export function SentimentMeter({ series }: Props) {
         </div>
 
         {/* Gauge bar */}
-        <div className="min-w-[160px] flex-1">
-          <div className="relative h-2 w-full overflow-hidden rounded-full"
+        <div className="min-w-[10rem] flex-1">
+          <div className="relative h-100 w-full overflow-hidden rounded-full"
                style={{ background: "linear-gradient(90deg, var(--sentiment-negative) 0%, var(--sentiment-neutral) 50%, var(--sentiment-positive) 100%)" }}>
             <div
-              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-md"
+              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-raised"
               style={{ left: `${gaugePct}%`, background: color }}
             />
           </div>
-          <div className="mt-1 flex justify-between text-[10px] text-text-muted">
+          <div className="mt-050 flex justify-between text-body-small text-text-subtlest">
             <span>Negative</span>
             <span>Neutral</span>
             <span>Positive</span>

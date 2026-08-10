@@ -105,30 +105,30 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
   return (
     <div className="fixed inset-0 z-40 flex">
       <button aria-label="Close overlay" onClick={onClose} className="flex-1 bg-black/30" />
-      <aside className="flex h-full w-full max-w-[520px] flex-col bg-surface-card shadow-xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-token)] px-4 py-3">
+      <aside className="flex h-full w-full max-w-[37.5rem] flex-col bg-surface shadow-overlay">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-200 py-150">
           <div>
-            <div className="text-[15px] font-semibold text-brand-navy">New callback</div>
-            <div className="text-[11px] text-text-muted">Schedule a call, assign an owner, and queue reminders.</div>
+            <div className="text-[0.875rem] font-semibold text-text">New callback</div>
+            <div className="text-body-small text-text-subtlest">Schedule a call, assign an owner, and queue reminders.</div>
           </div>
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" className="h-400 w-400 p-0" onClick={onClose}><X className="h-4 w-4" /></Button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-[12.5px]">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="min-h-0 flex-1 space-y-150 overflow-y-auto p-200 text-body-small">
+          <div className="grid grid-cols-2 gap-150">
             <div className="col-span-2">
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Customer</div>
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={busy} className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Customer</div>
+              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={busy} className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small">
                 {custs.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.accountId}</option>)}
               </select>
             </div>
             <div className="col-span-2">
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Reason</div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Reason</div>
+              <div className="flex flex-wrap gap-075">
                 {REASONS.map((r) => (
                   <button key={r} onClick={() => setReason(r)} disabled={busy} className={cn(
-                    "rounded-md border px-2 py-1 text-[11px]",
-                    reason === r ? "border-brand-primary bg-brand-tint text-brand-primary-dark font-semibold" : "border-[var(--border-token)] text-text-secondary hover:bg-surface-sunken",
+                    "rounded-medium border px-100 py-050 text-body-small",
+                    reason === r ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold" : "border-border text-text-subtle hover:bg-surface-sunken",
                   )}>
                     {REASON_LABELS[r]}
                   </button>
@@ -136,36 +136,36 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
               </div>
             </div>
             <div>
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Date & time</div>
-              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} disabled={busy} className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]" />
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Date & time</div>
+              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} disabled={busy} className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small" />
             </div>
             <div>
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Window</div>
-              <select value={windowMins} onChange={(e) => setWindowMins(parseInt(e.target.value) as 30 | 60 | 120)} disabled={busy} className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Window</div>
+              <select value={windowMins} onChange={(e) => setWindowMins(parseInt(e.target.value) as 30 | 60 | 120)} disabled={busy} className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small">
                 <option value={30}>30 minutes</option>
                 <option value={60}>60 minutes</option>
                 <option value={120}>2 hours</option>
               </select>
             </div>
             <div>
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Queue</div>
-              <select value={queue} onChange={(e) => setQueue(e.target.value)} disabled={busy} className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Queue</div>
+              <select value={queue} onChange={(e) => setQueue(e.target.value)} disabled={busy} className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small">
                 {queues.map((q) => <option key={q} value={q}>{q}</option>)}
               </select>
             </div>
             <div>
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Assignee</div>
-              <select value={assignee} onChange={(e) => setAssignee(e.target.value)} disabled={busy} className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Assignee</div>
+              <select value={assignee} onChange={(e) => setAssignee(e.target.value)} disabled={busy} className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small">
                 {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
             <div className="col-span-2">
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Priority</div>
-              <div className="flex gap-1">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Priority</div>
+              <div className="flex gap-050">
                 {PRIORITIES.map((p) => (
                   <button key={p} onClick={() => setPriority(p)} disabled={busy} className={cn(
-                    "flex-1 rounded-md border px-1 py-1 text-[11px]",
-                    priority === p ? "border-brand-primary bg-brand-tint text-brand-primary-dark font-semibold" : "border-[var(--border-token)] text-text-secondary hover:bg-surface-sunken",
+                    "flex-1 rounded-medium border px-050 py-050 text-body-small",
+                    priority === p ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold" : "border-border text-text-subtle hover:bg-surface-sunken",
                   )}>
                     {PRIORITY_LABELS[p]}
                   </button>
@@ -173,12 +173,12 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
               </div>
             </div>
             <div className="col-span-2">
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Reminder channels</div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Reminder channels</div>
+              <div className="flex flex-wrap gap-075">
                 {CHANNELS.map((c) => (
                   <button key={c} onClick={() => toggleChannel(c)} disabled={busy} className={cn(
-                    "rounded-md border px-2 py-1 text-[11px]",
-                    reminderChannels.includes(c) ? "border-brand-primary bg-brand-tint text-brand-primary-dark font-semibold" : "border-[var(--border-token)] text-text-secondary hover:bg-surface-sunken",
+                    "rounded-medium border px-100 py-050 text-body-small",
+                    reminderChannels.includes(c) ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold" : "border-border text-text-subtle hover:bg-surface-sunken",
                   )}>
                     {CHANNEL_LABELS[c]}
                   </button>
@@ -186,22 +186,22 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
               </div>
             </div>
             <div className="col-span-2">
-              <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Notes (optional)</div>
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={busy} placeholder="What the customer said, agreed context, etc." className="min-h-[72px] w-full rounded-md border border-[var(--border-token)] bg-surface-card p-2 text-[12px]" />
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Notes (optional)</div>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={busy} placeholder="What the customer said, agreed context, etc." className="min-h-[4.5rem] w-full rounded-medium border border-border bg-surface p-100 text-body-small" />
             </div>
           </div>
 
           {isDnd && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div className="flex items-start gap-100 rounded-medium border border-border-warning bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
+              <AlertTriangle className="mt-025 h-3.5 w-3.5 shrink-0" />
               <div>This slot falls inside the customer's DND / outside their preferred window. Consider a safer time.</div>
             </div>
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-token)] px-4 py-3">
-          <Button variant="ghost" size="sm" className="h-8 text-[12px]" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button size="sm" className="h-8 text-[12px]" onClick={() => void submit()} disabled={busy}>Schedule callback</Button>
+        <div className="flex shrink-0 items-center justify-end gap-100 border-t border-border px-200 py-150">
+          <Button variant="ghost" size="sm" className="h-400 text-body-small" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button size="sm" className="h-400 text-body-small" onClick={() => void submit()} disabled={busy}>Schedule callback</Button>
         </div>
       </aside>
     </div>

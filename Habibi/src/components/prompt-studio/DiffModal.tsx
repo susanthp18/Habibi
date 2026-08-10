@@ -34,19 +34,19 @@ export function DiffModal({ open, onOpenChange, base, current }: Props) {
             <span className="font-mono">{current.label}</span>
           </DialogTitle>
         </DialogHeader>
-        <p className="text-[11px] text-text-muted">
+        <p className="text-body-small text-text-subtlest">
           Includes system prompt, persona traits, voice settings, and guardrails.
         </p>
-        <div className="rounded-md border border-[var(--border-token)] bg-surface-sunken font-mono text-[12px]">
+        <div className="rounded-medium border border-border bg-surface-sunken font-mono text-body-small">
           {lines.map((l, i) => (
             <div
               key={i}
-              className={`flex gap-2 border-b border-[var(--border-token)]/50 px-3 py-1 last:border-b-0 ${
+              className={`flex gap-100 border-b border-border/50 px-150 py-050 last:border-b-0 ${
                 l.kind === "add"
-                  ? "bg-emerald-50 text-emerald-900"
+                  ? "bg-background-success-subtler text-text-success-bolder"
                   : l.kind === "del"
-                    ? "bg-red-50 text-red-900"
-                    : "text-text-secondary"
+                    ? "bg-background-danger-subtler text-text-danger-bolder"
+                    : "text-text-subtle"
               }`}
             >
               <span className="select-none opacity-60">

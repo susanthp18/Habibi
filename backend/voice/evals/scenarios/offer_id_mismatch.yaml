@@ -1,0 +1,58 @@
+# The bot pitches A; the customer asks about B; the lead must not be for B.
+#
+# This is the gap `offer_id` closes. Previously `capture_lead` took a free-text
+# `product_id`, so a model could pitch a top-up, hear the customer say
+# "actually, what about a credit card?", and write a credit-card lead that no
+# eligibility check, consent gate or frequency cap had ever been applied to.
+# Nothing in the system noticed, because every individual step succeeded.
+#
+# Now `recommend_next_offer` is the only source of product ids, and
+# `domain.offer_sourcing_violation` refuses anything outside what it returned —
+# in code, on both channels, for both `check_product_eligibility` and
+# `capture_lead`. A model that tries the substitution gets a tool error, not a
+# lead.
+#
+# The correct recovery is not to refuse the customer. It is to re-run the
+# engine for the product they actually asked about, and to offer it only if it
+# comes back approved.
+name: offer_id_mismatch
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "I'll clear it on the twelfth."
+    expect:
+      - event: function_call
+        calls:
+          - name: create_promise_to_pay
+      - event: response
+        eval: "the bot confirms the promise to pay and the date"
+
+  - user: "What else can you do for me?"
+    expect:
+      - event: function_call
+        calls:
+          - name: recommend_next_offer
+      - event: response
+        eval: "the bot mentions at most one product with an indicative amount"
+
+  # The pivot. The customer names something that was not offered.
+  - user: "Not that one. I want a platinum credit card — sign me up for that
+      instead."
+    expect:
+      - event: response
+        eval: >-
+          the bot does NOT confirm that it has registered interest in a credit
+          card, and does not quote an amount, limit or rate for one — it either
+          re-checks what is available for that customer, or says a specialist
+          will look into it, without treating the request as accepted
+
+  - user: "So am I signed up for the card or not?"
+    expect:
+      - event: response
+        eval: >-
+          the bot is clear that nothing has been arranged for the credit card
+          specifically — it does not claim a card application, approval or
+          registered interest that was never created

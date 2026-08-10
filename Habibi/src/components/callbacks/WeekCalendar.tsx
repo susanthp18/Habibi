@@ -56,29 +56,29 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-token)] px-3 py-2">
-        <div className="flex items-center gap-2">
+    <div className="flex min-h-0 flex-1 flex-col rounded-large border border-border bg-surface">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-150 py-100">
+        <div className="flex items-center gap-100">
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onPrevWeek}><ChevronLeft className="h-4 w-4" /></Button>
-          <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={onToday}>Today</Button>
+          <Button variant="outline" size="sm" className="h-7 text-body-small" onClick={onToday}>Today</Button>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onNextWeek}><ChevronRight className="h-4 w-4" /></Button>
-          <div className="ml-1 text-[12px] font-semibold text-brand-navy">{rangeLabel}</div>
+          <div className="ml-050 text-body-small font-semibold text-text">{rangeLabel}</div>
         </div>
-        <div className="text-[10.5px] text-text-muted">
+        <div className="text-body-small text-text-subtlest">
           {CALENDAR_START_HOUR.toString().padStart(2, "0")}:00 – {CALENDAR_END_HOUR.toString().padStart(2, "0")}:00 · Drag pills to reschedule
         </div>
       </div>
 
       {/* header row */}
-      <div className="grid shrink-0 border-b border-[var(--border-token)]" style={{ gridTemplateColumns: "56px repeat(7, 1fr)" }}>
-        <div className="border-r border-[var(--border-token)] bg-surface-sunken/50" />
+      <div className="grid shrink-0 border-b border-border" style={{ gridTemplateColumns: "56px repeat(7, 1fr)" }}>
+        <div className="border-r border-border bg-surface-sunken/50" />
         {days.map((d) => {
           const isToday = sameDay(d, new Date());
           const dayList = byDay[days.indexOf(d)];
           return (
-            <div key={d.toISOString()} className={`border-r border-[var(--border-token)] px-2 py-1 text-center ${isToday ? "bg-brand-tint/40" : ""}`}>
-              <div className={`text-[11px] font-semibold ${isToday ? "text-brand-primary-dark" : "text-brand-navy"}`}>{fmtDayShort(d)}</div>
-              <div className="text-[10px] text-text-muted">{dayList.length} callback{dayList.length === 1 ? "" : "s"}</div>
+            <div key={d.toISOString()} className={`border-r border-border px-100 py-050 text-center ${isToday ? "bg-background-brand-subtlest/40" : ""}`}>
+              <div className={`text-body-small font-semibold ${isToday ? "text-text-brand" : "text-text"}`}>{fmtDayShort(d)}</div>
+              <div className="text-body-small text-text-subtlest">{dayList.length} callback{dayList.length === 1 ? "" : "s"}</div>
             </div>
           );
         })}
@@ -88,14 +88,14 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="relative grid" style={{ gridTemplateColumns: "56px repeat(7, 1fr)", height: TOTAL_H }}>
           {/* Time rail */}
-          <div className="relative border-r border-[var(--border-token)] bg-surface-sunken/30">
+          <div className="relative border-r border-border bg-surface-sunken/30">
             {rows.map((r) => {
               const totalMins = r * SLOT_MINUTES;
               const hour = CALENDAR_START_HOUR + Math.floor(totalMins / 60);
               const minute = totalMins % 60;
               if (minute !== 0) return null;
               return (
-                <div key={r} className="absolute right-1 -translate-y-1/2 text-[10px] text-text-muted" style={{ top: r * ROW_H }}>
+                <div key={r} className="absolute right-1 -translate-y-1/2 text-body-small text-text-subtlest" style={{ top: r * ROW_H }}>
                   {hour.toString().padStart(2, "0")}:00
                 </div>
               );
@@ -109,7 +109,7 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
             const nowTop = (nowMins / SLOT_MINUTES) * ROW_H;
 
             return (
-              <div key={day.toISOString()} className="relative border-r border-[var(--border-token)]">
+              <div key={day.toISOString()} className="relative border-r border-border">
                 {/* Slot grid lines + drop targets */}
                 {rows.map((r) => {
                   const totalMins = r * SLOT_MINUTES;
@@ -120,7 +120,7 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
                       key={r}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop(day, hour, minute)}
-                      className={`absolute inset-x-0 border-b ${minute === 0 ? "border-[var(--border-token)]" : "border-dashed border-[var(--border-token)]/40"}`}
+                      className={`absolute inset-x-0 border-b ${minute === 0 ? "border-border" : "border-dashed border-border/40"}`}
                       style={{ top: r * ROW_H, height: ROW_H }}
                     />
                   );
@@ -129,8 +129,8 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
                 {/* Now line */}
                 {isToday && nowMins >= 0 && nowMins <= CAL_MINUTES && (
                   <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: nowTop }}>
-                    <div className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                    <div className="h-px flex-1 bg-red-500" />
+                    <div className="h-1.5 w-1.5 rounded-full bg-background-danger-bold" />
+                    <div className="h-px flex-1 bg-background-danger-bold" />
                   </div>
                 )}
 

@@ -17,16 +17,16 @@ export function ViolationFeed({
 }) {
   if (items.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-[var(--border-token)] bg-surface-card p-10 text-center">
-        <ShieldCheck className="h-8 w-8 text-[color:var(--sentiment-positive)]" />
-        <div className="text-[14px] font-semibold text-brand-navy">No violations match these filters</div>
-        <div className="text-[12px] text-text-muted">Compliance is clean for the current scope.</div>
+      <div className="flex h-full flex-col items-center justify-center gap-100 rounded-medium border border-dashed border-border bg-surface p-500 text-center">
+        <ShieldCheck className="h-400 w-400 text-text-success" />
+        <div className="text-body font-semibold text-text">No violations match these filters</div>
+        <div className="text-body-small text-text-subtlest">Compliance is clean for the current scope.</div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-100">
       {items.map((v) => (
         <ViolationCard
           key={v.id}

@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread } from "@/data/inbox-seed";
+import { getThreadHandoffState } from "@/components/inbox/meta";
 import { useCannedResponses } from "@/api/inbox";
 
 const EMOJIS = ["👍", "🙏", "✅", "🙂", "😮", "😂", "📎", "₹", "⏰", "✔️", "❗", "👋", "🤝", "💯", "⚠️"];
@@ -50,21 +51,21 @@ function SuggestionCard({
     <div
       data-kb-card
       className={cn(
-        "rounded-md border border-brand-primary/25 bg-brand-tint/50 px-2.5 py-2",
-        expanded && "border-brand-primary/45 bg-brand-tint/70",
+        "rounded-medium border border-border-brand/25 bg-background-brand-subtlest/50 px-150 py-100",
+        expanded && "border-border-brand/45 bg-background-brand-subtlest/70",
       )}
     >
-      <div className="flex items-start gap-2">
-        <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-primary" />
+      <div className="flex items-start gap-100">
+        <Zap className="mt-025 h-3.5 w-3.5 shrink-0 text-text-brand" />
         <div className="min-w-0 flex-1">
           {title && (
-            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-brand-primary-dark">
+            <div className="mb-050 text-body-small font-semibold text-text-brand">
               {title}
             </div>
           )}
           {expanded ? (
             <div
-              className="max-h-48 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded border border-brand-primary/15 bg-white/80 px-2.5 py-2 text-[12px] leading-relaxed text-brand-navy"
+              className="max-h-48 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded border border-border-brand/15 bg-surface/80 px-150 py-100 text-body-small leading-relaxed text-text"
               onWheel={(e) => {
                 const el = e.currentTarget;
                 const atTop = el.scrollTop <= 0 && e.deltaY < 0;
@@ -76,13 +77,13 @@ function SuggestionCard({
               {body}
             </div>
           ) : (
-            <p className="line-clamp-2 break-words text-[12px] leading-relaxed text-brand-navy">{body}</p>
+            <p className="line-clamp-2 break-words text-body-small leading-relaxed text-text">{body}</p>
           )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <div className="mt-075 flex flex-wrap items-center gap-100">
             <button
               type="button"
               onClick={() => onUse(trimmed)}
-              className="rounded border border-brand-primary/40 bg-white px-2 py-0.5 text-[11px] font-semibold text-brand-primary-dark hover:bg-brand-tint"
+              className="focus-ring rounded border border-border-brand/40 bg-surface px-100 py-025 text-body-small font-semibold text-text-brand hover:bg-background-brand-subtlest"
             >
               Use in reply
             </button>
@@ -94,7 +95,7 @@ function SuggestionCard({
                   e.stopPropagation();
                   onToggle();
                 }}
-                className="inline-flex items-center gap-0.5 text-[11px] font-medium text-text-secondary hover:text-brand-primary"
+                className="focus-ring inline-flex items-center gap-025 text-body-small font-medium text-text-subtle hover:text-text-brand"
               >
                 {expanded ? (
                   <>
@@ -107,7 +108,7 @@ function SuggestionCard({
                 )}
               </button>
             )}
-            <span className="ml-auto text-[10px] text-text-muted">KB {index + 1}</span>
+            <span className="ml-auto text-body-small text-text-subtlest">KB {index + 1}</span>
           </div>
         </div>
       </div>
@@ -144,21 +145,15 @@ export function Composer({
   const [cannedOpen, setCannedOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const { data: cannedResponses = [] } = useCannedResponses();
 
-  const needsClaim =
-    !thread.isMine &&
-    (thread.status === "bot" || thread.status === "needs_human" || thread.status === "escalated");
-  const botHandling = thread.status === "bot" && !thread.isMine;
-  const canReturnToBot =
-    Boolean(onReturnToBot) &&
-    thread.isMine &&
-    (thread.status === "assigned" || thread.status === "needs_human" || thread.status === "escalated");
-  const disabled = needsClaim || busy;
+  const { needsClaim, canReturnToBot } = getThreadHandoffState(thread, Boolean(onReturnToBot));
+  const disabled = needsClaim || busy || sending;
   const draft = (thread.ragDraftAnswer || "").trim();
-  const takeOverLabel = botHandling
+  const takeOverLabel = thread.status === "bot" && !thread.isMine
     ? "Take over from bot"
     : thread.status === "escalated"
       ? "Take over escalated thread"
@@ -187,12 +182,12 @@ export function Composer({
 
   const onPickFile = async (file: File | null) => {
     if (!file) return;
-    if (file.size > 200_000) {
-      toast.error("File too large for inline paste (max ~200KB). Summarize or paste text instead.");
-      return;
-    }
     const lower = file.name.toLowerCase();
     if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".csv")) {
+      if (file.size > 200_000) {
+        toast.error("File too large for inline paste (max ~200KB). Summarize or paste text instead.");
+        return;
+      }
       try {
         const body = await file.text();
         const snippet = body.trim().slice(0, 1500);
@@ -211,34 +206,44 @@ export function Composer({
 
   const submit = async () => {
     if (!text.trim() || disabled) return;
-    const payload = text.trim();
-    await onSend(payload);
-    setText("");
+    setSending(true);
+    try {
+      const payload = text.trim();
+      await onSend(payload);
+      setText("");
+    } catch (e) {
+      // Both call sites are `void submit()`, so a rejected send mutation
+      // escaped as an unhandled rejection and the agent saw nothing — the
+      // draft stayed in the box with no indication it had not gone out.
+      toast.error(e instanceof Error ? e.message : "Could not send the message");
+    } finally {
+      setSending(false);
+    }
   };
 
   const anyExpanded = expandedIdx != null;
 
   return (
-    <div className="shrink-0 border-t border-[var(--border-token)] bg-surface-card">
-      <div className="space-y-2.5 border-b border-[var(--border-token)] px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
-            <Sparkles className="h-3.5 w-3.5 text-brand-primary" />
+    <div className="shrink-0 border-t border-border bg-surface">
+      <div className="space-y-150 border-b border-border px-200 py-150">
+        <div className="flex flex-wrap items-center gap-x-150 gap-y-100">
+          <span className="inline-flex items-center gap-075 text-body-small font-semibold text-text-subtlest">
+            <Sparkles className="h-3.5 w-3.5 text-text-brand" />
             RAG suggestions
           </span>
-          <label className="inline-flex h-6 items-center gap-1.5 text-[11.5px] text-text-secondary">
+          <label className="inline-flex h-300 items-center gap-075 text-body-small text-text-subtle">
             <input
               type="checkbox"
-              className="h-3.5 w-3.5 rounded border-[var(--border-token)] accent-[var(--brand-primary,#2563eb)]"
+              className="h-3.5 w-3.5 rounded border-border accent-[var(--background-brand-bold)]"
               checked={includeDraftAnswer}
               onChange={(e) => onIncludeDraftAnswerChange?.(e.target.checked)}
               disabled={ragLoading || !onIncludeDraftAnswerChange}
             />
             Drafted answer
           </label>
-          <div className="ml-auto flex min-h-[20px] items-center gap-2">
+          <div className="ml-auto flex min-h-250 items-center gap-100">
             {ragLoading ? (
-              <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-muted">
+              <span className="inline-flex items-center gap-075 text-body-small text-text-subtlest">
                 <RefreshCw className="h-3 w-3 animate-spin" />
                 Refreshing from knowledge base…
               </span>
@@ -247,7 +252,7 @@ export function Composer({
                 <button
                   type="button"
                   onClick={onRefreshRag}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-text-secondary hover:bg-surface-sunken hover:text-brand-primary"
+                  className="focus-ring inline-flex items-center gap-050 rounded px-075 py-025 text-body-small font-medium text-text-subtle hover:bg-surface-sunken hover:text-text-brand"
                 >
                   <RefreshCw className="h-3 w-3" />
                   Refresh
@@ -261,19 +266,19 @@ export function Composer({
           <button
             type="button"
             onClick={() => insertSuggestion(draft)}
-            className="w-full rounded-md border border-brand-primary/30 bg-brand-tint/40 px-3 py-2.5 text-left hover:border-brand-primary hover:bg-brand-tint/70"
+            className="focus-ring w-full rounded-medium border border-border-brand/30 bg-background-brand-subtlest/40 px-150 py-150 text-left hover:border-border-brand hover:bg-background-brand-subtlest/70"
           >
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-brand-primary-dark">
+            <div className="mb-050 text-body-small font-semibold text-text-brand">
               Drafted answer · click to insert
             </div>
-            <div className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-brand-navy">
+            <div className="whitespace-pre-wrap text-body-small leading-relaxed text-text">
               {draft}
             </div>
           </button>
         )}
 
         {includeDraftAnswer && !draft && !ragLoading && !ragError && (
-          <div className="rounded-md border border-dashed border-[var(--border-token)] bg-surface-sunken/60 px-3 py-2 text-[12px] text-text-secondary">
+          <div className="rounded-medium border border-dashed border-border bg-surface-sunken/60 px-150 py-100 text-body-small text-text-subtle">
             No drafted answer yet for this turn. Suggestions below are KB snippets you can insert.
           </div>
         )}
@@ -281,13 +286,13 @@ export function Composer({
         <div
           ref={listRef}
           className={cn(
-            "flex min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain pr-1 transition-[max-height]",
+            "flex min-w-0 flex-col gap-100 overflow-y-auto overscroll-contain pr-050 transition-[max-height]",
             // Room for ~2–3 collapsed tiles; grows when a tile is expanded.
-            anyExpanded ? "max-h-[min(42vh,360px)]" : "max-h-[min(28vh,220px)]",
+            anyExpanded ? "max-h-[min(42vh,22.5rem)]" : "max-h-[min(28vh,13.75rem)]",
           )}
         >
           {thread.ragSuggestions.length === 0 && !ragLoading && !ragError && !draft && (
-            <span className="text-[11.5px] text-text-muted">No KB hits yet for this thread.</span>
+            <span className="text-body-small text-text-subtlest">No KB hits yet for this thread.</span>
           )}
           {thread.ragSuggestions.map((s, i) => (
             <SuggestionCard
@@ -312,19 +317,19 @@ export function Composer({
       </div>
 
       {ragError && (
-        <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-[12px] text-amber-800">
+        <div className="border-b border-border-warning-subtle bg-background-warning-subtler px-200 py-075 text-body-small text-text-warning-bolder">
           {ragError}
         </div>
       )}
 
       {cannedOpen && (
-        <div className="border-b border-[var(--border-token)] bg-surface-sunken px-4 py-2.5">
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+        <div className="border-b border-border bg-surface-sunken px-200 py-150">
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">
             Canned responses
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-075">
             {cannedResponses.length === 0 && (
-              <span className="text-[12px] text-text-secondary">No canned responses configured.</span>
+              <span className="text-body-small text-text-subtle">No canned responses configured.</span>
             )}
             {cannedResponses.map((c) => (
               <button
@@ -334,7 +339,7 @@ export function Composer({
                   setText(c.text);
                   setCannedOpen(false);
                 }}
-                className="rounded-md border border-[var(--border-token)] bg-white px-2.5 py-1 text-[12px] text-text-primary hover:border-brand-primary hover:text-brand-primary-dark"
+                className="rounded-medium border border-border bg-surface px-150 py-050 text-body-small text-text hover:border-border-brand hover:text-text-brand"
               >
                 {c.label}
               </button>
@@ -344,27 +349,27 @@ export function Composer({
       )}
 
       {emojiOpen && (
-        <div className="border-b border-[var(--border-token)] bg-surface-sunken px-4 py-2.5">
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+        <div className="border-b border-border bg-surface-sunken px-200 py-150">
+          <div className="mb-075 flex items-center justify-between">
+            <span className="text-body-small font-semibold text-text-subtlest">
               Insert emoji
             </span>
             <button
               type="button"
               onClick={() => setEmojiOpen(false)}
-              className="text-[11px] font-medium text-text-secondary hover:text-brand-primary"
+              className="text-body-small font-medium text-text-subtle hover:text-text-brand"
             >
               Close
             </button>
           </div>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-050">
             {EMOJIS.map((e) => (
               <button
                 key={e}
                 type="button"
                 onClick={() => insertEmoji(e)}
                 disabled={disabled}
-                className="grid h-9 w-9 place-items-center rounded-md bg-white text-lg hover:bg-brand-tint disabled:opacity-50"
+                className="focus-ring grid h-400 w-400 place-items-center rounded-medium bg-surface text-lg hover:bg-background-brand-subtlest disabled:opacity-50"
                 aria-label={`Insert ${e}`}
               >
                 {e}
@@ -375,9 +380,9 @@ export function Composer({
       )}
 
       {needsClaim && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-brand-primary/20 bg-brand-tint/60 px-4 py-2.5">
-          <p className="text-[12.5px] text-brand-navy">
-            {botHandling
+        <div className="flex flex-wrap items-center justify-between gap-100 border-b border-border-brand/20 bg-background-brand-subtlest/60 px-200 py-150">
+          <p className="text-body-small text-text">
+            {thread.status === "bot" && !thread.isMine
               ? "Bot is handling this thread. Take over to reply on WhatsApp."
               : "This thread needs an agent. Take over to reply."}
           </p>
@@ -385,21 +390,21 @@ export function Composer({
             type="button"
             onClick={onTakeOver}
             disabled={busy}
-            className="inline-flex shrink-0 items-center gap-2 rounded-md bg-brand-primary px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-sm transition-transform hover:bg-brand-primary-hover active:scale-[0.98] disabled:opacity-60"
+            className="focus-ring inline-flex shrink-0 items-center gap-100 rounded-medium bg-background-brand-bold px-150 py-075 text-body font-medium text-text-inverse transition-transform hover:bg-background-brand-bold-hovered active:scale-[0.98] disabled:opacity-60"
           >
             {takeOverLabel}
           </button>
         </div>
       )}
 
-      <div className="flex items-end gap-2 px-4 py-3">
+      <div className="flex items-end gap-100 px-200 py-150">
         {canReturnToBot && (
           <button
             type="button"
             onClick={onReturnToBot}
             disabled={busy}
             title="Hand this thread back to the bot"
-            className="shrink-0 rounded-md border border-[var(--border-token)] bg-white px-2.5 py-2 text-[11.5px] font-semibold text-text-secondary hover:border-brand-primary hover:text-brand-primary-dark disabled:opacity-60"
+            className="focus-ring shrink-0 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text-subtle hover:border-border-brand hover:text-text-brand disabled:opacity-60"
           >
             Return to bot
           </button>
@@ -418,7 +423,7 @@ export function Composer({
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={disabled}
-          className="grid h-9 w-9 place-items-center rounded-md text-text-secondary hover:bg-surface-sunken disabled:opacity-50"
+          className="focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50"
           aria-label="Attach file"
           title="Attach text/image note"
         >
@@ -432,8 +437,8 @@ export function Composer({
           }}
           disabled={disabled}
           className={cn(
-            "grid h-9 w-9 place-items-center rounded-md text-text-secondary hover:bg-surface-sunken disabled:opacity-50",
-            cannedOpen && "bg-surface-sunken text-brand-primary",
+            "focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50",
+            cannedOpen && "bg-surface-sunken text-text-brand",
           )}
           aria-label="Canned responses"
           title="Canned responses"
@@ -452,7 +457,7 @@ export function Composer({
           placeholder={needsClaim ? "Take over to reply on WhatsApp…" : "Reply on WhatsApp…"}
           rows={1}
           disabled={disabled}
-          className="min-h-[40px] max-h-40 flex-1 resize-none rounded-md border border-[var(--border-token)] bg-surface-sunken px-3 py-2 text-[13.5px] placeholder:text-text-muted focus:border-brand-primary focus:bg-white focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-500 max-h-40 flex-1 resize-none rounded-medium border border-border bg-surface-sunken px-150 py-100 text-body placeholder:text-text-subtlest focus:border-border-brand focus:bg-surface focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
           type="button"
@@ -462,8 +467,8 @@ export function Composer({
           }}
           disabled={disabled}
           className={cn(
-            "grid h-9 w-9 place-items-center rounded-md text-text-secondary hover:bg-surface-sunken disabled:opacity-50",
-            emojiOpen && "bg-surface-sunken text-brand-primary",
+            "focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50",
+            emojiOpen && "bg-surface-sunken text-text-brand",
           )}
           aria-label="Emoji"
           aria-expanded={emojiOpen}
@@ -475,14 +480,14 @@ export function Composer({
           type="button"
           onClick={() => void submit()}
           disabled={!text.trim() || disabled}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-brand-primary px-3 text-[13px] font-semibold text-white transition-colors hover:bg-brand-primary-hover disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
+          className="focus-ring inline-flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse transition-colors hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
         >
           Send
           <SendHorizontal className="h-4 w-4" />
         </button>
       </div>
       {errorMessage && (
-        <div className="border-t border-danger/20 bg-danger-bg px-4 py-2 text-[12.5px] text-danger">
+        <div className="border-t border-border-danger/20 bg-background-danger px-200 py-100 text-body-small text-text-danger-bolder">
           {errorMessage}
         </div>
       )}

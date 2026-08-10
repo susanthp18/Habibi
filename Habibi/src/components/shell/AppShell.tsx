@@ -7,7 +7,7 @@ import { SidebarUiProvider } from "./sidebar-ui";
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <SidebarUiProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-surface-app">
+      <div className="flex h-screen w-full overflow-hidden bg-surface">
         <Sidebar />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <TopBar />

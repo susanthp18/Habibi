@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { RuleChips } from "./RuleChips";
 import { cn } from "@/lib/utils";
+import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
 type Props = {
   rule: Rule;
@@ -20,12 +21,12 @@ type Props = {
   onDrop: () => void;
 };
 
-const CATEGORY_STYLE: Record<string, string> = {
-  Escalation: "bg-red-50 text-red-700 border-red-200",
-  Handoff: "bg-amber-50 text-amber-700 border-amber-200",
-  Throttle: "bg-blue-50 text-blue-700 border-blue-200",
-  Compliance: "bg-violet-50 text-violet-700 border-violet-200",
-  Routing: "bg-emerald-50 text-emerald-700 border-emerald-200",
+const CATEGORY_STYLE: Record<string, LozengeTone> = {
+  Escalation: "danger",
+  Handoff: "warning",
+  Throttle: "information",
+  Compliance: "discovery",
+  Routing: "success",
 };
 
 export function RuleCard({
@@ -40,37 +41,37 @@ export function RuleCard({
       onDrop={onDrop}
       onClick={onSelect}
       className={cn(
-        "group rounded-lg border bg-surface-card p-3 transition-all cursor-pointer",
-        selected ? "border-brand-primary ring-1 ring-brand-primary/30" : "border-[var(--border-token)] hover:border-brand-primary/40",
+        "group rounded-large border bg-surface p-150 transition-all cursor-pointer",
+        selected ? "border-border-brand ring-1 ring-border-brand/30" : "border-border hover:border-border-brand/40",
         !rule.enabled && "opacity-60",
       )}
     >
-      <div className="flex items-start gap-2">
-        <div className="flex flex-col items-center gap-1 pt-0.5">
-          <GripVertical className="h-4 w-4 cursor-grab text-text-muted" />
-          <span className="rounded-md bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold text-white">
+      <div className="flex items-start gap-100">
+        <div className="flex flex-col items-center gap-050 pt-025">
+          <GripVertical className="h-4 w-4 cursor-grab text-text-subtlest" />
+          <span className="rounded-medium bg-background-brand-boldest px-075 py-025 text-body-small font-semibold text-white">
             #{priority}
           </span>
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <div className="truncate text-[13px] font-semibold text-brand-navy">{rule.name}</div>
-            <span className={cn("rounded-full border px-1.5 py-0.5 text-[10px] font-medium", CATEGORY_STYLE[rule.category])}>
+          <div className="flex items-center gap-100">
+            <div className="truncate text-body font-semibold text-text">{rule.name}</div>
+            <Lozenge tone={CATEGORY_STYLE[rule.category]}>
               {rule.category}
-            </span>
+            </Lozenge>
           </div>
           {rule.description && (
-            <div className="mt-0.5 text-[11px] text-text-secondary">{rule.description}</div>
+            <div className="mt-025 text-body-small text-text-subtle">{rule.description}</div>
           )}
-          <div className="mt-2">
+          <div className="mt-100">
             <RuleChips rule={rule} />
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2" onClick={e => e.stopPropagation()}>
-          <div className="text-[10px] text-text-muted">{rule.triggersLast24h} triggers · 24h</div>
-          <div className="flex items-center gap-1">
+        <div className="flex flex-col items-end gap-100" onClick={e => e.stopPropagation()}>
+          <div className="text-body-small text-text-subtlest">{rule.triggersLast24h} triggers · 24h</div>
+          <div className="flex items-center gap-050">
             <Switch checked={rule.enabled} onCheckedChange={onToggle} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -79,9 +80,9 @@ export function RuleCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onEdit}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                <DropdownMenuItem onClick={onDuplicate}><Copy className="mr-2 h-4 w-4" />Duplicate</DropdownMenuItem>
-                <DropdownMenuItem onClick={onDelete} className="text-red-600 focus:text-red-700"><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
+                <DropdownMenuItem onClick={onEdit}><Pencil className="mr-100 h-4 w-4" />Edit</DropdownMenuItem>
+                <DropdownMenuItem onClick={onDuplicate}><Copy className="mr-100 h-4 w-4" />Duplicate</DropdownMenuItem>
+                <DropdownMenuItem onClick={onDelete} className="text-text-danger focus:text-text-danger-bolder"><Trash2 className="mr-100 h-4 w-4" />Delete</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

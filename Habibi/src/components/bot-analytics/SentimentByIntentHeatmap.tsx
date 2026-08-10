@@ -20,30 +20,30 @@ export function SentimentByIntentHeatmap({
     ...intents.flatMap((i) => [i.sentiment.positive, i.sentiment.neutral, i.sentiment.negative]),
   );
   return (
-    <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <div className="border-b border-[var(--border-token)] px-3 py-2">
-        <div className="text-[13px] font-semibold text-brand-navy">Sentiment × Intent</div>
-        <div className="text-[11px] text-text-muted">Session counts by bucket · darker = more</div>
+    <div className="rounded-large border border-border bg-surface">
+      <div className="border-b border-border px-150 py-100">
+        <div className="text-body font-semibold text-text">Sentiment × Intent</div>
+        <div className="text-body-small text-text-subtlest">Session counts by bucket · darker = more</div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-[12px]">
-          <thead className="bg-surface-sunken text-[11px] uppercase tracking-wide text-text-muted">
+        <table className="w-full text-body-small">
+          <thead className="bg-surface-sunken text-body-small text-text-subtlest">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Intent</th>
-              <th className="px-3 py-2 text-center font-medium">Positive</th>
-              <th className="px-3 py-2 text-center font-medium">Neutral</th>
-              <th className="px-3 py-2 text-center font-medium">Negative</th>
+              <th className="px-150 py-100 text-left font-medium">Intent</th>
+              <th className="px-150 py-100 text-center font-medium">Positive</th>
+              <th className="px-150 py-100 text-center font-medium">Neutral</th>
+              <th className="px-150 py-100 text-center font-medium">Negative</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[var(--border-token)]">
+          <tbody className="divide-y divide-border">
             {intents.map((i) => {
               const dim = activeId && activeId !== i.id;
               return (
-                <tr key={i.id} className={cn(dim && "opacity-40", activeId === i.id && "bg-brand-tint/30")}>
-                  <td className="px-3 py-1.5 font-medium text-text-primary">{i.label}</td>
-                  <td className="p-1.5 text-center" style={{ background: cell(i.sentiment.positive, max, "pos") }}>{i.sentiment.positive.toLocaleString()}</td>
-                  <td className="p-1.5 text-center" style={{ background: cell(i.sentiment.neutral, max, "neu") }}>{i.sentiment.neutral.toLocaleString()}</td>
-                  <td className="p-1.5 text-center" style={{ background: cell(i.sentiment.negative, max, "neg") }}>{i.sentiment.negative.toLocaleString()}</td>
+                <tr key={i.id} className={cn(dim && "opacity-40", activeId === i.id && "bg-background-brand-subtlest/30")}>
+                  <td className="px-150 py-075 font-medium text-text">{i.label}</td>
+                  <td className="p-075 text-center" style={{ background: cell(i.sentiment.positive, max, "pos") }}>{i.sentiment.positive.toLocaleString()}</td>
+                  <td className="p-075 text-center" style={{ background: cell(i.sentiment.neutral, max, "neu") }}>{i.sentiment.neutral.toLocaleString()}</td>
+                  <td className="p-075 text-center" style={{ background: cell(i.sentiment.negative, max, "neg") }}>{i.sentiment.negative.toLocaleString()}</td>
                 </tr>
               );
             })}

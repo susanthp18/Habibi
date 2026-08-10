@@ -16,8 +16,11 @@ export default defineConfig({
     server: {
       proxy: {
         // Pipecat SmallWebRTC offer — Habibi Live voice never opens :7860 HTML.
+        // Point VOICE_RTC_TARGET at the API (http://127.0.0.1:8000) when the
+        // backend runs with VOICE_EMBEDDED_HOST=true; it serves /api/offer
+        // itself, so the same prefix rewrite applies to either target.
         "/voice-rtc": {
-          target: "http://127.0.0.1:7860",
+          target: process.env.VOICE_RTC_TARGET || "http://127.0.0.1:7860",
           changeOrigin: true,
           rewrite: (path: string) => path.replace(/^\/voice-rtc/, ""),
         },

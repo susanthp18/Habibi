@@ -41,6 +41,28 @@ PRODUCT_KEYS_COLLECTIONS = ("collections",)
 _PRODUCT_INTENTS = frozenset({"product_faq", "upsell_opportunity"})
 _PRODUCT_NODES = frozenset({"gated_upsell"})
 
+# Statuses that mean "this commitment is finished". Shared with
+# voice/memory.py, which derives cross-call open_commitments from the same
+# tables — two copies of these sets would drift and the memory card would claim
+# a promise is still open after the CRM closed it.
+#
+# Values are taken from the tables' own CHECK constraints:
+#   promises          upcoming | due_today | kept | broken | partial
+#   disputes          new | under_review | awaiting_customer | resolved | rejected
+#   document_requests requested | generating | sent | failed
+#   callbacks         scheduled | reminded | in_progress | completed | missed
+#                     | rescheduled | cancelled
+#
+# The document set previously read {"delivered", "cancelled"} — neither of which
+# is a legal status — so the filter matched nothing and every fulfilled document
+# request stayed on the CRM card as "open work" for the life of the account.
+# `partial` and `missed` are deliberately NOT closed: a part-paid promise and a
+# missed callback both still need chasing.
+CLOSED_PROMISE_STATUSES = frozenset({"kept", "broken"})
+CLOSED_DISPUTE_STATUSES = frozenset({"resolved", "rejected"})
+CLOSED_DOCUMENT_STATUSES = frozenset({"sent"})
+CLOSED_CALLBACK_STATUSES = frozenset({"completed", "cancelled"})
+
 
 def product_keys_for_intent(intent: str | None) -> list[str] | None:
     """KB corpus scope for an intent. Defaults to the collections corpus."""
@@ -105,6 +127,11 @@ class CallContext:
 
         Falls back to an identity-only context if the read fails — a degraded
         card is better than aborting a live call.
+
+        Pass ``identity_verified=True`` to actually load CRM facts. Without it
+        the context is built empty: balances, DPD and open work are the payload
+        an unverified caller must never hear, and gating the *load* (not just
+        the render) means they never enter the process in the first place.
         """
         ctx = cls(
             channel=channel,
@@ -122,6 +149,9 @@ class CallContext:
     def refresh_from_crm(self) -> None:
         """Reload customer_card + open_work from Postgres. Synchronous by design."""
         if not self.customer_id:
+            return
+        if not self.identity_verified:
+            logger.debug("CallContext refresh skipped — identity not verified")
             return
         import db
 
@@ -161,17 +191,17 @@ class CallContext:
                     "promisedDate": p.get("promisedDate"),
                     "status": p.get("status"),
                 }
-                for p in _open(customer.get("promises"), {"kept", "broken", "cancelled"})
+                for p in _open(customer.get("promises"), set(CLOSED_PROMISE_STATUSES))
             ],
             "disputes": [
                 {"id": d.get("id"), "type": d.get("type"), "status": d.get("status")}
-                for d in _open(customer.get("disputes"), {"resolved", "rejected"})
+                for d in _open(customer.get("disputes"), set(CLOSED_DISPUTE_STATUSES))
             ],
             # db.get_customer() does not carry callbacks — don't fabricate an
             # always-empty section that costs tokens on every turn.
             "documentRequests": [
                 {"id": d.get("id"), "type": d.get("type"), "status": d.get("status")}
-                for d in _open(customer.get("documents"), {"delivered", "cancelled"})
+                for d in _open(customer.get("documents"), set(CLOSED_DOCUMENT_STATUSES))
             ],
         }
 
@@ -182,6 +212,10 @@ class CallContext:
 
         Deliberately terse: every token here is spent on every subsequent turn.
         """
+        if not self.identity_verified:
+            # Belt and braces with refresh_from_crm's gate: even a card
+            # populated by some other path must not be rendered pre-verify.
+            return "NO VERIFIED CUSTOMER FACTS — identity is not verified. State nothing about this account."
         c = self.customer_card
         lines = ["VERIFIED CUSTOMER FACTS (authoritative — never invent or recompute):"]
         if c.get("name"):
@@ -226,6 +260,15 @@ class CallContext:
 
         The persona describes the *simulated customer* the tester is playing, so
         the agent knows who it is talking to. It is never a persona for the bot.
+
+        Critically, it is a **stage direction, not an observation**. It is in
+        context from turn 0, before the caller has said a word, and the voice
+        naturalness overlay tells the bot to "gently mirror the caller's mood".
+        Stated as bare fact ("mood: angry"), those two combine into a bot that
+        opens the call with "I understand you're upset." to a caller who has not
+        yet spoken — observed on a live sandbox call on 2026-08-01. So the mood
+        and temperament are labelled as the tester's script and paired with an
+        explicit prohibition on acting for them.
         """
         if not self.persona:
             return None
@@ -234,8 +277,8 @@ class CallContext:
         for key, label in (
             ("name", "name"),
             ("language", "language"),
-            ("mood", "mood"),
-            ("temperament", "temperament"),
+            ("mood", "mood they intend to play"),
+            ("temperament", "temperament they intend to play"),
             ("scenario", "scenario"),
         ):
             value = p.get(key)
@@ -246,12 +289,37 @@ class CallContext:
             bits.append(f"notes: {notes}")
         if not bits:
             return None
+        # Which name to use once the account is known. The persona name is a
+        # rehearsal label the tester typed; the CRM record is the account this
+        # call is really acting on. When they differ and nothing says which
+        # wins, the bot uses both — a live call greeted "Rahul" at the identity
+        # step and then said "Susanth, your outstanding is ₹62,400" two turns
+        # later, because verify_identity had resolved a real customer in
+        # between and every tool after it returned that customer's data.
+        authority = (
+            " The persona is only how the tester is playing the call. Once an"
+            " account is verified, the CRM record is the customer: use the name"
+            " and the details it returns, not the persona name."
+        )
+        # The prohibition is the load-bearing half. Without it the model treats
+        # the mood as something it has already witnessed and empathises with an
+        # emotion the caller has not expressed yet.
+        not_yet_observed = (
+            " You have NOT heard this caller yet. This is the tester's script,"
+            " not something you have observed. Do NOT reference their mood,"
+            " name, situation or reason for calling until they say it"
+            " themselves — greet them exactly as you would greet a caller you"
+            " know nothing about, and let them tell you why they called."
+        )
         return {
             "role": "developer",
             "content": (
-                "SANDBOX REHEARSAL — the caller is a simulated customer with "
+                "SANDBOX REHEARSAL — the tester is role-playing a customer with "
                 + "; ".join(str(b) for b in bits)
-                + ". Adapt tone and language accordingly. All CRM writes are real."
+                + ". All CRM writes are real."
+                + not_yet_observed
+                + " Once they do speak, match their actual language and mood."
+                + authority
             ),
         }
 

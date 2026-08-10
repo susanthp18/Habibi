@@ -41,6 +41,8 @@ function firstName(full: string | undefined | null): string {
   return full.trim().split(/\s+/)[0] ?? "";
 }
 
+const SHIFT_TZ = "Asia/Kolkata";
+
 /** Fixed IST shift 09:00–18:30 — live remaining clock. */
 function useShiftLine() {
   const [now, setNow] = useState(() => new Date());
@@ -49,29 +51,37 @@ function useShiftLine() {
     return () => window.clearInterval(t);
   }, []);
 
-  const today = now.toLocaleDateString(undefined, {
+  const today = now.toLocaleDateString("en-IN", {
+    timeZone: SHIFT_TZ,
     weekday: "long",
     day: "numeric",
     month: "long",
   });
 
-  const start = new Date(now);
-  start.setHours(SHIFT_START_H, SHIFT_START_M, 0, 0);
-  const end = new Date(now);
-  end.setHours(SHIFT_END_H, SHIFT_END_M, 0, 0);
+  const istClock = new Intl.DateTimeFormat("en-GB", {
+    timeZone: SHIFT_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const istHour = Number(istClock.find((p) => p.type === "hour")?.value ?? 0);
+  const istMinute = Number(istClock.find((p) => p.type === "minute")?.value ?? 0);
+  const nowMins = istHour * 60 + istMinute;
+  const startMins = SHIFT_START_H * 60 + SHIFT_START_M;
+  const endMins = SHIFT_END_H * 60 + SHIFT_END_M;
 
-  const endLabel = end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const endLabel = "6:30 PM";
 
   let shiftNote: string;
-  if (now < start) {
-    const mins = Math.max(0, Math.round((start.getTime() - now.getTime()) / 60_000));
+  if (nowMins < startMins) {
+    const mins = startMins - nowMins;
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     shiftNote = `Shift starts at 9:00 AM · in ${h > 0 ? `${h}h ` : ""}${m}m`;
-  } else if (now >= end) {
+  } else if (nowMins >= endMins) {
     shiftNote = `Shift ended at ${endLabel}`;
   } else {
-    const mins = Math.max(0, Math.round((end.getTime() - now.getTime()) / 60_000));
+    const mins = endMins - nowMins;
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     shiftNote = `Shift ends at ${endLabel} · ${h > 0 ? `${h}h ` : ""}${m}m remaining`;
@@ -91,48 +101,50 @@ function WorkspacePage() {
   return (
     <AppShell>
       <div className="h-full min-h-0 overflow-y-auto bg-[linear-gradient(180deg,rgba(231,240,254,0.35)_0%,transparent_180px)]">
-        <div className="mx-auto w-full max-w-[1440px] px-6 py-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="mx-auto w-full max-w-[90rem] px-300 py-300">
+          <div className="flex flex-wrap items-start justify-between gap-200">
             <div>
-              <h1 className="text-[26px] font-bold tracking-tight text-brand-navy">
+              <h1 className="heading-medium text-text">
                 {greeting()}, {name}
               </h1>
-              <p className="mt-1.5 text-[13px] text-text-secondary">{shiftLine}</p>
+              <p className="mt-075 text-body text-text-subtle">{shiftLine}</p>
             </div>
             <AvailabilityToggle />
           </div>
 
           {outsideWindowCount > 0 && (
-            <div className="mt-5 flex items-start gap-3 rounded-[12px] border border-warning/25 bg-warning-bg px-4 py-3 shadow-sm">
-              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-              <div className="min-w-0 text-[13px]">
-                <span className="font-semibold text-warning">
-                  {outsideWindowCount} queue item{outsideWindowCount === 1 ? " is" : "s are"} outside
-                  the allowed contact window.
+            <div className="mt-250 flex items-start gap-150 rounded-xlarge border border-border-warning/25 bg-background-warning px-200 py-150">
+              <ShieldAlert className="mt-025 h-4 w-4 shrink-0 text-text-warning" />
+              <div className="min-w-0 text-body">
+                <span className="font-semibold text-text-warning">
+                  {outsideWindowCount} queue item{outsideWindowCount === 1 ? " is" : "s are"}{" "}
+                  outside the allowed contact window.
                 </span>{" "}
-                <span className="text-text-secondary">
+                <span className="text-text-subtle">
                   Respect DND rules — reschedule or wait until the customer's permitted hours.
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => void navigate({ to: "/consent" })}
-                className="ml-auto shrink-0 rounded-md border border-warning/30 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-warning shadow-sm hover:bg-warning-bg"
+                className="ml-auto shrink-0 rounded-medium border border-border-warning/30 bg-surface px-150 py-075 text-body-small font-semibold text-text-warning hover:bg-background-warning"
               >
                 Review consent
               </button>
             </div>
           )}
 
-          <div className="mt-6">
+          <div className="mt-300">
             <StatsStrip />
           </div>
 
-          <div className="mt-6 grid gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
+          {/* items-start: columns keep their own height. Queue uses a fixed
+              row-viewport so chip switches don't resize the card. */}
+          <div className="mt-300 grid items-start gap-200 lg:grid-cols-3">
+            <div className="min-w-0 lg:col-span-2">
               <AssignedQueue />
             </div>
-            <div>
+            <div className="min-w-0">
               <RightRail />
             </div>
           </div>

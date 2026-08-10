@@ -3,13 +3,13 @@ import type { SlaTone } from "@/data/disputes-seed";
 
 export function SlaChip({ tone, label }: { tone: SlaTone; label: string }) {
   const c = {
-    ok: "bg-emerald-50 text-emerald-700",
-    warn: "bg-amber-50 text-amber-700",
-    breach: "bg-red-50 text-red-700",
-    done: "bg-surface-sunken text-text-muted",
+    ok: "bg-background-success-subtler text-text-success-bolder",
+    warn: "bg-background-warning-subtler text-text-warning-bolder",
+    breach: "bg-background-danger-subtler text-text-danger-bolder",
+    done: "bg-surface-sunken text-text-subtlest",
   }[tone];
   return (
-    <span className={cn("rounded px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums", c)}>
+    <span className={cn("rounded px-075 py-025 text-body-small font-medium tabular-nums", c)}>
       {label}
     </span>
   );

@@ -36,13 +36,13 @@ export function DeliveryLogPane({
   }, [deliveries, epId, event, status, window]);
 
   return (
-    <div className="flex min-h-0 flex-col border-t border-[var(--border-token)] bg-surface-card">
-      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-token)] px-4 py-2">
-        <span className="text-[12px] font-semibold text-brand-navy">Global delivery log</span>
-        <span className="text-[11px] text-text-muted">{filtered.length} events</span>
-        <div className="ml-auto flex items-center gap-2">
+    <div className="flex min-h-0 flex-col border-t border-border bg-surface">
+      <div className="flex shrink-0 items-center gap-100 border-b border-border px-200 py-100">
+        <span className="text-body-small font-semibold text-text">Global delivery log</span>
+        <span className="text-body-small text-text-subtlest">{filtered.length} events</span>
+        <div className="ml-auto flex items-center gap-100">
           <Select value={epId} onValueChange={setEpId}>
-            <SelectTrigger className="h-8 w-[180px] text-[12px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[11.25rem] text-body-small"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All endpoints</SelectItem>
               {endpoints.map((e) => (
@@ -51,7 +51,7 @@ export function DeliveryLogPane({
             </SelectContent>
           </Select>
           <Select value={event} onValueChange={setEvent}>
-            <SelectTrigger className="h-8 w-[180px] text-[12px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[11.25rem] text-body-small"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All events</SelectItem>
               {EVENT_CATALOG.map((e) => (
@@ -60,7 +60,7 @@ export function DeliveryLogPane({
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-8 w-[140px] text-[12px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[8.75rem] text-body-small"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="success">Success</SelectItem>
@@ -70,7 +70,7 @@ export function DeliveryLogPane({
             </SelectContent>
           </Select>
           <Select value={window} onValueChange={setWindow}>
-            <SelectTrigger className="h-8 w-[120px] text-[12px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[7.5rem] text-body-small"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="1">Last hour</SelectItem>
               <SelectItem value="24">Last 24h</SelectItem>
@@ -79,9 +79,9 @@ export function DeliveryLogPane({
           </Select>
         </div>
       </div>
-      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-075 overflow-y-auto p-150">
         {filtered.length === 0 && (
-          <div className="grid h-full place-items-center text-[12px] text-text-muted">
+          <div className="grid h-full place-items-center text-body-small text-text-subtlest">
             No deliveries match these filters.
           </div>
         )}

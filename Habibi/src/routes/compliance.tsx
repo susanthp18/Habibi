@@ -16,6 +16,7 @@ import {
   type ComplianceFilterState,
   type Violation,
 } from "@/data/compliance-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 import {
   acknowledgeViolation,
   assignViolation,
@@ -130,20 +131,20 @@ function CompliancePage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        <header className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[18px] font-semibold text-brand-navy">Compliance Risk</h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-secondary">
+        <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
+          <div className="flex flex-wrap items-center gap-100">
+            <h1 className="text-[1.25rem] font-semibold text-text">Compliance risk</h1>
+            <Lozenge tone="neutral">
               <Lock className="h-3 w-3" /> Immutable evidence
-            </span>
+            </Lozenge>
             <button
               onClick={handleExport}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-3 py-1.5 text-[12px] text-brand-primary hover:bg-brand-tint"
+              className="ml-auto inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest"
             >
               <Download className="h-3.5 w-3.5" /> Export compliance report
             </button>
           </div>
-          <p className="text-[12px] text-text-secondary">
+          <p className="text-body-small text-text-subtle">
             Every rule hit — disclosure misses, prohibited language, consent breaches — with transcript evidence, severity ranking, and resolution workflow.
           </p>
         </header>
@@ -151,9 +152,9 @@ function CompliancePage() {
         <ComplianceStatsStrip all={items} filtered={filtered} />
         <ComplianceFilters filters={filters} onChange={setFilters} all={items} resultCount={filtered.length} />
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-surface-app px-5 py-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-4 min-w-0">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">
+          <div className="grid gap-200 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="space-y-200 min-w-0">
               <ViolationTrendChart all={items} />
               <ViolationFeed
                 items={filtered}
@@ -163,7 +164,7 @@ function CompliancePage() {
                 onResolve={(id) => onResolve(id, "Resolved after review.")}
               />
             </div>
-            <aside className="space-y-4 xl:sticky xl:top-0 xl:self-start">
+            <aside className="space-y-200 xl:sticky xl:top-0 xl:self-start">
               <RuleBreakdown all={items} selectedRuleId={filters.ruleId} onSelect={setRule} />
             </aside>
           </div>

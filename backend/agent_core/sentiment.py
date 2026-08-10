@@ -2,6 +2,21 @@
 
 from __future__ import annotations
 
+import re
+from functools import lru_cache
+
+# Abuse detection lives in agent_core.lexicon — one narrowed, word-boundary
+# matched source shared with voice/safety.py, guardrails.py and bot_runtime.py.
+# The copy that used to live here matched by bare substring, so "skill" scored
+# as "kill", and "fucking"/"harassment" each tripped two lexicon entries and
+# were penalised twice for one word.
+#
+# ABUSE_LEXICON is re-exported rather than moved: agent_core.sentiment is its
+# documented import path and tests assert on it there.
+from agent_core.lexicon import ABUSE_LEXICON, abuse_hits
+
+__all__ = ["ABUSE_LEXICON", "estimate_sentiment", "sentiment_label"]
+
 _POS = (
     "thanks",
     "thank you",
@@ -32,7 +47,10 @@ _NEG = (
     "legal",
     "lawyer",
     "manager",
-    "no",
+    # "no" is deliberately absent: it is the single most common word in a
+    # cooperative collections call ("no problem", "no issue", "no, that's fine")
+    # and scoring it negative dragged neutral calls toward the sentiment-drop
+    # escalation threshold.
     "frustrated",
     "annoyed",
     "upset",
@@ -41,36 +59,29 @@ _NEG = (
     "useless",
     "scam",
 )
-# Strong abuse / hostility — force a clearly negative score.
-_ABUSE = (
-    "stfu",
-    "fuck",
-    "fucking",
-    "shit",
-    "idiot",
-    "stupid",
-    "shut up",
-    "asshole",
-    "bastard",
-    "damn you",
-    "kill yourself",
-    "harass",
-)
+
+@lru_cache(maxsize=512)
+def _word_re(word: str) -> re.Pattern[str]:
+    return re.compile(rf"\b{re.escape(word)}\b")
 
 
 def estimate_sentiment(text: str) -> float:
     raw = text or ""
     padded = f" {raw.lower()} "
     s = 0.0
+    # Word-boundary match, not a suffix-punctuation enumeration: the old
+    # `f"{w}," in padded` test scored "eyes," as the word "yes" and "shook," as
+    # "ok", which moved a customer's sentiment on words they never said.
     for w in _POS:
-        if f" {w} " in padded or f"{w}," in padded or f"{w}." in padded:
+        if _word_re(w).search(padded):
             s += 0.2
     for w in _NEG:
-        if f" {w} " in padded or f"{w}," in padded or f"{w}." in padded or f"{w}!" in padded:
+        if _word_re(w).search(padded):
             s -= 0.25
-    for w in _ABUSE:
-        if w in padded:
-            s -= 0.7
+    # Word-boundary matched via the shared lexicon, and counted once per
+    # distinct term: the old substring loop scored "fucking" twice (it contains
+    # "fuck") and matched "kill" inside "skill".
+    s -= 0.7 * abuse_hits(raw)
     if "!" in raw:
         s -= 0.15
     # ALL CAPS shouting on short messages.

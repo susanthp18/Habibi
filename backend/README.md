@@ -10,14 +10,23 @@ python -m venv .venv
 ```
 
 ## Database
+
+Create and fill `backend/.env` **first** — every `docker compose up`, including
+the database and MinIO containers, reads its credentials from it. The API,
+workers and voice runner read theirs at import time, so a missing file leaves
+every container running against defaults:
 ```
 cd backend
+cp .env.example .env      # then edit: DATABASE_URL, AZURE_OPENAI_*, TWILIO_*, WHATSAPP_*
+```
+
+Database and object store only:
+```
 docker compose up -d db minio
 ```
 
 Full stack (API + KB worker + bot worker + voice), with connection budgets baked into compose:
 ```
-cd backend
 docker compose up -d --build
 docker compose exec api alembic upgrade head
 docker compose exec api python scripts/seed_demo.py   # optional; refuses APP_ENV=production
@@ -34,9 +43,11 @@ docker compose up -d db minio
 Apply schema in order (first-time empty DB, before or instead of Alembic baseline stamp):
 ```
 Get-ChildItem sql/*.sql | Sort-Object Name | ForEach-Object {
-  docker exec -i collections_db psql -U collections -d collections -v ON_ERROR_STOP=1 -f - < $_.FullName
+  Get-Content -Raw $_.FullName | docker exec -i collections_db psql -U collections -d collections -v ON_ERROR_STOP=1 -f -
 }
 ```
+
+MinIO: set `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` in `backend/.env` before `docker compose up` (production rejects `minioadmin` defaults).
 
 Seed coherent sample data (host venv):
 ```

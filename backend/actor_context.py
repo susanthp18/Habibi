@@ -16,14 +16,15 @@ import logging
 import os
 import secrets
 import threading
+import time
 from contextvars import ContextVar
 from typing import Any
+
+from env_utils import env_float
 
 logger = logging.getLogger(__name__)
 
 _actor_var: ContextVar[str | None] = ContextVar("actor_user_id", default=None)
-
-_DEFAULT_ACTOR = (os.getenv("ACTOR_USER_ID") or "priya-nair").strip() or "priya-nair"
 
 # Cached API_KEY_MAP — env does not change mid-process. Call reload_api_key_map()
 # from tests after monkeypatching.
@@ -32,12 +33,13 @@ _api_key_map_lock = threading.Lock()
 
 
 def default_actor_user_id() -> str:
-    return _DEFAULT_ACTOR
+    """Read ACTOR_USER_ID at call time (env may change in tests)."""
+    return (os.getenv("ACTOR_USER_ID") or "priya-nair").strip() or "priya-nair"
 
 
 def get_actor_user_id() -> str:
     """Current request actor, or process default outside a request."""
-    return _actor_var.get() or _DEFAULT_ACTOR
+    return _actor_var.get() or default_actor_user_id()
 
 
 def set_actor_user_id(user_id: str | None):
@@ -101,11 +103,51 @@ def _parse_api_key_map_raw() -> dict[str, str]:
     return out
 
 
+# Bounded TTL cache for user-existence lookups. Every authenticated request hit
+# the database once (twice on the shared-key path) just to confirm the actor
+# still exists — a fixed cost on the hot path for a value that changes rarely.
+# TTL-bounded rather than permanent so a deactivated user stops resolving
+# within a bounded window; boot-time validate_configured_actors() is unaffected
+# because it runs before any request populates the cache.
+# Parsed through env_utils so a malformed value falls back instead of raising
+# during import — this module is imported by the auth middleware, so a bad
+# value here would take the whole API down at boot.
+_USER_EXISTS_TTL_S = max(1.0, env_float("ACTOR_USER_CACHE_TTL_S", 30.0))
+_USER_EXISTS_MAX = 512
+_user_exists_cache: dict[str, tuple[float, bool]] = {}
+_user_exists_lock = threading.Lock()
+
+
+def invalidate_user_exists_cache(user_id: str | None = None) -> None:
+    """Drop cached existence for one user (or all) — call after user writes."""
+    with _user_exists_lock:
+        if user_id is None:
+            _user_exists_cache.clear()
+        else:
+            _user_exists_cache.pop(user_id, None)
+
+
 def _user_exists(user_id: str) -> bool:
     """Lazy import to avoid circular import at module load."""
+    if not user_id:
+        return False
+    now = time.monotonic()
+    with _user_exists_lock:
+        hit = _user_exists_cache.get(user_id)
+        if hit is not None and now - hit[0] < _USER_EXISTS_TTL_S:
+            return hit[1]
+
     import db
 
-    return db.user_exists(user_id)
+    exists = db.user_exists(user_id)
+
+    with _user_exists_lock:
+        if len(_user_exists_cache) >= _USER_EXISTS_MAX:
+            # Cheap bound: drop the oldest entry rather than track full LRU.
+            oldest = min(_user_exists_cache, key=lambda k: _user_exists_cache[k][0])
+            _user_exists_cache.pop(oldest, None)
+        _user_exists_cache[user_id] = (now, exists)
+    return exists
 
 
 def validate_configured_actors() -> None:
@@ -115,7 +157,7 @@ def validate_configured_actors() -> None:
     typo'd map fails fast instead of per-request.
     """
     missing: list[str] = []
-    default = _DEFAULT_ACTOR
+    default = default_actor_user_id()
     if default and not _user_exists(default):
         missing.append(f"ACTOR_USER_ID={default}")
     for uid in sorted(set(parse_api_key_map().values())):
@@ -158,15 +200,18 @@ def resolve_authenticated_actor(
 
     single = (os.getenv("API_KEY") or "").strip()
     if not single:
-        # Auth disabled — still honour header in non-prod for local multi-agent demos.
+        # Auth disabled — refuse in production; honour header in non-prod only.
+        if _app_is_prod():
+            return False, None, "unauthorized"
         if actor_header and _allow_actor_header():
             header = actor_header.strip()
             if not _user_exists(header):
                 return False, None, "actor_not_found"
             return True, header, None
-        if not _user_exists(_DEFAULT_ACTOR):
+        default = default_actor_user_id()
+        if not _user_exists(default):
             return False, None, "actor_not_found"
-        return True, _DEFAULT_ACTOR, None
+        return True, default, None
 
     if not _digest_eq(provided_key, single):
         return False, None, "unauthorized"
@@ -179,6 +224,7 @@ def _resolve_shared_key_actor(actor_header: str | None) -> tuple[bool, str | Non
         if not _user_exists(header):
             return False, None, "actor_not_found"
         return True, header, None
-    if not _user_exists(_DEFAULT_ACTOR):
+    default = default_actor_user_id()
+    if not _user_exists(default):
         return False, None, "actor_not_found"
-    return True, _DEFAULT_ACTOR, None
+    return True, default, None

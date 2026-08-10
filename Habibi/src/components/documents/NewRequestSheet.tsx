@@ -68,24 +68,24 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
   return (
     <div className="fixed inset-0 z-40 flex">
       <button aria-label="Close overlay" onClick={onClose} className="flex-1 bg-black/30" />
-      <aside className="flex h-full w-full max-w-[440px] flex-col bg-surface-card shadow-xl">
-        <div className="shrink-0 flex items-center justify-between border-b border-[var(--border-token)] px-4 py-3">
+      <aside className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay">
+        <div className="shrink-0 flex items-center justify-between border-b border-border px-200 py-150">
           <div>
-            <h2 className="text-[15px] font-semibold text-brand-navy">New document request</h2>
-            <p className="text-[11px] text-text-muted">Raise a fulfilment task for a customer.</p>
+            <h2 className="text-[0.875rem] font-semibold text-text">New document request</h2>
+            <p className="text-body-small text-text-subtlest">Raise a fulfilment task for a customer.</p>
           </div>
           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-200 py-150 space-y-150">
           <Field label="Customer">
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
               disabled={!pool.length || busy}
-              className="h-9 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[13px]"
+              className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
             >
               {!pool.length && <option value="">Loading customers…</option>}
               {pool.map((c) => (
@@ -103,7 +103,7 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
                 setDocType(t);
                 setTemplateId(templatesFor(t)[0]?.id ?? "");
               }}
-              className="h-9 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[13px]"
+              className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
             >
               {(Object.keys(DOC_TYPE_LABELS) as DocType[]).map((t) => (
                 <option key={t} value={t}>{DOC_TYPE_LABELS[t]}</option>
@@ -116,7 +116,7 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
               value={templateId}
               disabled={busy}
               onChange={(e) => setTemplateId(e.target.value)}
-              className="h-9 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[13px]"
+              className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
             >
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
@@ -130,22 +130,22 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
               disabled={busy}
               onChange={(e) => setPeriod(e.target.value)}
               placeholder="e.g. May–Oct 2026"
-              className="h-9 text-[13px]"
+              className="h-9 text-body"
             />
           </Field>
 
           <Field label="Delivery channel">
-            <div className="flex gap-1.5">
+            <div className="flex gap-075">
               {(Object.keys(CHANNEL_LABELS) as DocChannel[]).map((c) => (
                 <button
                   key={c}
                   disabled={busy}
                   onClick={() => setChannel(c)}
                   className={cn(
-                    "flex-1 rounded-md border px-2 py-1.5 text-[12px]",
+                    "flex-1 rounded-medium border px-100 py-075 text-body-small",
                     channel === c
-                      ? "border-brand-primary bg-brand-tint text-brand-primary-dark font-semibold"
-                      : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+                      ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold"
+                      : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
                   )}
                 >
                   {CHANNEL_LABELS[c]}
@@ -155,10 +155,10 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
           </Field>
         </div>
 
-        <div className="shrink-0 flex justify-end gap-2 border-t border-[var(--border-token)] px-4 py-2.5">
+        <div className="shrink-0 flex justify-end gap-100 border-t border-border px-200 py-150">
           <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button size="sm" onClick={() => void submit()} disabled={busy || !pool.length}>
-            <Send className="mr-1 h-3.5 w-3.5" /> Create request
+            <Send className="mr-050 h-3.5 w-3.5" /> Create request
           </Button>
         </div>
       </aside>
@@ -169,8 +169,8 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">{label}</div>
-      <div className="mt-1">{children}</div>
+      <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
+      <div className="mt-050">{children}</div>
     </div>
   );
 }

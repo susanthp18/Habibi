@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { retrieveKb, type RetrievalResult } from "@/api/kb";
 import { Search, Sparkles, Copy, Clock, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Lozenge } from "@/components/ui/lozenge";
 
 const SAMPLES = [
   "What is NCD protector for car insurance?",
@@ -15,8 +16,8 @@ const SAMPLES = [
 ];
 
 function scoreColor(s: number) {
-  if (s >= 0.8) return "bg-emerald-500";
-  if (s >= 0.5) return "bg-brand-primary";
+  if (s >= 0.8) return "bg-background-success-bold";
+  if (s >= 0.5) return "bg-background-brand-bold";
   return "bg-text-muted";
 }
 
@@ -37,7 +38,7 @@ function highlight(text: string, terms: string[]) {
       nodes.push(<span key={`t-${key++}`}>{text.slice(last, match.index)}</span>);
     }
     nodes.push(
-      <mark key={`m-${key++}`} className="rounded bg-amber-100 px-0.5 text-brand-navy">
+      <mark key={`m-${key++}`} className="rounded bg-background-warning-subtler px-025 text-text">
         {match[0]}
       </mark>,
     );
@@ -92,24 +93,34 @@ export function TestRetrievalPanel() {
         snippet: r.snippet,
       })),
     };
-    navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
-    toast.success("Prompt payload copied to clipboard");
+    // Await the write: the success toast used to fire before (and regardless
+    // of) the clipboard result, and a rejected writeText — denied permission,
+    // non-secure context — became an unhandled rejection.
+    const write = navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+    if (!write) {
+      toast.error("Clipboard is not available in this browser");
+      return;
+    }
+    write.then(
+      () => toast.success("Prompt payload copied to clipboard"),
+      () => toast.error("Could not copy to clipboard"),
+    );
   };
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[380px_minmax(0,1fr)]">
-      <div className="space-y-3 rounded-lg border border-[var(--border-token)] bg-surface-card p-4">
+    <div className="grid grid-cols-1 gap-150 lg:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="space-y-150 rounded-large border border-border bg-surface p-200">
         <div>
-          <div className="text-[13px] font-semibold text-brand-navy">Test retrieval</div>
-          <div className="text-[11px] text-text-muted">
+          <div className="text-body font-semibold text-text">Test retrieval</div>
+          <div className="text-body-small text-text-subtlest">
             Run a live vector query against indexed HDFC policies, benefits and FAQs.
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-muted">
+          <label className="mb-050 block text-body-small font-medium text-text-subtlest">
             Query
           </label>
-          <div className="flex gap-2">
+          <div className="flex gap-100">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -118,15 +129,15 @@ export function TestRetrievalPanel() {
               disabled={loading}
             />
             <Button onClick={() => void run()} size="sm" disabled={loading || !query.trim()}>
-              {loading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Search className="mr-1 h-3.5 w-3.5" />}
+              {loading ? <Loader2 className="mr-050 h-3.5 w-3.5 animate-spin" /> : <Search className="mr-050 h-3.5 w-3.5" />}
               Run
             </Button>
           </div>
         </div>
         <div>
-          <div className="mb-1 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-text-muted">
+          <div className="mb-050 flex items-center justify-between text-body-small font-medium text-text-subtlest">
             <span>Top-K</span>
-            <span className="font-mono normal-case tracking-normal text-brand-navy">{topK}</span>
+            <span className="font-mono normal-case tracking-normal text-text">{topK}</span>
           </div>
           <Slider
             min={1}
@@ -137,10 +148,10 @@ export function TestRetrievalPanel() {
             disabled={loading}
           />
         </div>
-        <label className="flex items-center gap-2 text-[12px] text-text-secondary">
+        <label className="flex items-center gap-100 text-body-small text-text-subtle">
           <input
             type="checkbox"
-            className="rounded border-[var(--border-token)]"
+            className="rounded border-border"
             checked={includeDraft}
             onChange={(e) => setIncludeDraft(e.target.checked)}
             disabled={loading}
@@ -148,16 +159,16 @@ export function TestRetrievalPanel() {
           Generate drafted answer (Azure chat)
         </label>
         <div>
-          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+          <div className="mb-075 text-body-small font-medium text-text-subtlest">
             Try one
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-075">
             {SAMPLES.map((s) => (
               <button
                 key={s}
                 onClick={() => setQuery(s)}
                 disabled={loading}
-                className="rounded-full border border-[var(--border-token)] bg-surface-app px-2 py-1 text-[11px] text-text-secondary hover:border-brand-primary/40 hover:text-brand-primary-dark disabled:opacity-50"
+                className="rounded-full border border-border bg-surface px-100 py-050 text-body-small text-text-subtle hover:border-border-brand/40 hover:text-text-brand disabled:opacity-50"
               >
                 {s}
               </button>
@@ -165,17 +176,17 @@ export function TestRetrievalPanel() {
           </div>
         </div>
         {ran && (
-          <div className="space-y-1 border-t border-[var(--border-token)] pt-3 text-[11px] text-text-muted">
+          <div className="space-y-050 border-t border-border pt-150 text-body-small text-text-subtlest">
             <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-050">
                 <Clock className="h-3 w-3" /> {latency} ms · {results.length} hits
               </span>
               <Button size="sm" variant="ghost" onClick={copyPayload} disabled={results.length === 0}>
-                <Copy className="mr-1 h-3 w-3" /> Copy payload
+                <Copy className="mr-050 h-3 w-3" /> Copy payload
               </Button>
             </div>
             {meta.embeddingModel && (
-              <div className="font-mono text-[10px]">
+              <div className="font-mono text-body-small">
                 embed={meta.embeddingModel}
                 {meta.chatModel ? ` · chat=${meta.chatModel}` : ""}
               </div>
@@ -184,67 +195,67 @@ export function TestRetrievalPanel() {
         )}
       </div>
 
-      <div className="min-h-0 space-y-2">
+      <div className="min-h-0 space-y-100">
         {!ran ? (
-          <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border-token)] p-10 text-center">
-            <Sparkles className="h-6 w-6 text-brand-primary" />
-            <div className="text-[13px] font-medium text-brand-navy">
+          <div className="flex h-full min-h-[18.75rem] flex-col items-center justify-center gap-100 rounded-large border border-dashed border-border p-500 text-center">
+            <Sparkles className="h-300 w-300 text-text-brand" />
+            <div className="text-body font-medium text-text">
               Type a query and hit Run
             </div>
-            <div className="max-w-sm text-[11px] text-text-muted">
+            <div className="max-w-sm text-body-small text-text-subtlest">
               Results are ranked by Azure embedding cosine similarity across enabled documents + FAQs.
             </div>
           </div>
         ) : (
           <>
             {draftAnswer && (
-              <div className="rounded-lg border border-brand-primary/30 bg-brand-tint/40 p-3">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-brand-primary-dark">
+              <div className="rounded-large border border-border-brand/30 bg-background-brand-subtlest/40 p-150">
+                <div className="mb-050 text-body-small font-semibold text-text-brand">
                   Drafted answer
                 </div>
-                <div className="whitespace-pre-wrap text-[13px] leading-relaxed text-brand-navy">
+                <div className="whitespace-pre-wrap text-body leading-relaxed text-text">
                   {draftAnswer}
                 </div>
               </div>
             )}
             {results.length === 0 ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-[12px] text-amber-800">
+              <div className="rounded-large border border-border-warning-subtle bg-background-warning-subtler p-200 text-body-small text-text-warning-bolder">
                 No enabled source matched this query. Consider adding a KB doc or FAQ pair.
               </div>
             ) : (
               results.map((r, i) => (
                 <div
                   key={r.chunkId}
-                  className="rounded-lg border border-[var(--border-token)] bg-surface-card p-3"
+                  className="rounded-large border border-border bg-surface p-150"
                 >
-                  <div className="flex items-center justify-between text-[11px] text-text-muted">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-brand-navy">
+                  <div className="flex items-center justify-between text-body-small text-text-subtlest">
+                    <div className="flex min-w-0 items-center gap-100">
+                      <span className="rounded-medium bg-surface-sunken px-075 py-025 font-mono text-text">
                         #{i + 1}
                       </span>
-                      <span className="truncate font-medium text-text-secondary">{r.docTitle}</span>
+                      <span className="truncate font-medium text-text-subtle">{r.docTitle}</span>
                       <span>·</span>
                       <span className="truncate">{r.heading}</span>
                     </div>
-                    <div className="ml-2 flex shrink-0 items-center gap-2">
+                    <div className="ml-100 flex shrink-0 items-center gap-100">
                       <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-sunken">
                         <div
                           className={cn("h-full", scoreColor(r.score))}
                           style={{ width: `${Math.round(r.score * 100)}%` }}
                         />
                       </div>
-                      <span className="font-mono tabular-nums text-brand-navy">{r.score.toFixed(2)}</span>
+                      <span className="font-mono tabular-nums text-text">{r.score.toFixed(2)}</span>
                     </div>
                   </div>
-                  <div className="mt-1.5 text-[13px] leading-relaxed text-text-primary">
+                  <div className="mt-075 text-body leading-relaxed text-text">
                     {highlight(r.snippet, r.matchedTerms)}
                   </div>
                   {r.matchedTerms.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
+                    <div className="mt-100 flex flex-wrap gap-050">
                       {r.matchedTerms.map((t) => (
-                        <span key={t} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
+                        <Lozenge key={t} tone="warning">
                           {t}
-                        </span>
+                        </Lozenge>
                       ))}
                     </div>
                   )}

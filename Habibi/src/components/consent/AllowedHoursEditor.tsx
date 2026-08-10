@@ -26,20 +26,20 @@ export function AllowedHoursEditor({
   };
 
   return (
-    <div className="space-y-2 rounded-md border border-[var(--border-token)] bg-surface-card p-3">
+    <div className="space-y-100 rounded-medium border border-border bg-surface p-150">
       <div>
-        <div className="mb-1 text-[10px] uppercase tracking-wider text-text-muted">Allowed days</div>
-        <div className="flex gap-1">
+        <div className="mb-050 text-body-small text-text-subtlest">Allowed days</div>
+        <div className="flex gap-050">
           {DAYS.map((d) => {
             const on = window.days.includes(d.d);
             return (
               <button
                 key={d.d}
                 onClick={() => toggle(d.d)}
-                className={`h-7 w-7 rounded-md border text-[11px] font-semibold transition-colors ${
+                className={`h-7 w-7 rounded-medium border text-body-small font-semibold transition-colors ${
                   on
-                    ? "border-brand-primary bg-brand-primary text-white"
-                    : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken"
+                    ? "border-border-brand bg-background-brand-bold text-white"
+                    : "border-border bg-surface text-text-subtle hover:bg-surface-sunken"
                 }`}
               >
                 {d.label}
@@ -48,13 +48,13 @@ export function AllowedHoursEditor({
           })}
         </div>
       </div>
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-150">
         <div>
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-text-muted">Start</div>
+          <div className="mb-050 text-body-small text-text-subtlest">Start</div>
           <select
             value={window.startHour}
             onChange={(e) => onChange({ ...window, startHour: Number(e.target.value) })}
-            className="h-7 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+            className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
           >
             {Array.from({ length: 24 }, (_, i) => (
               <option key={i} value={i}>{String(i).padStart(2, "0")}:00</option>
@@ -62,18 +62,18 @@ export function AllowedHoursEditor({
           </select>
         </div>
         <div>
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-text-muted">End</div>
+          <div className="mb-050 text-body-small text-text-subtlest">End</div>
           <select
             value={window.endHour}
             onChange={(e) => onChange({ ...window, endHour: Number(e.target.value) })}
-            className="h-7 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+            className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
           >
             {Array.from({ length: 24 }, (_, i) => (
               <option key={i} value={i}>{String(i).padStart(2, "0")}:00</option>
             ))}
           </select>
         </div>
-        <div className="text-[11px] text-text-muted">Timezone: {timezone}</div>
+        <div className="text-body-small text-text-subtlest">Timezone: {timezone}</div>
       </div>
     </div>
   );

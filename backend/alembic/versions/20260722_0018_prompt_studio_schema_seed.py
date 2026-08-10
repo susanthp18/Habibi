@@ -4,6 +4,13 @@ Aligns prompt_versions / persona_presets / tts_voices / bot_deployments with
 Habibi prompt-studio-seed.ts. Maintains live-config invariant:
   active prod deployment.prompt_version_id == single published prompt version.
 
+DOWNGRADE IS ONE-WAY for the seeded data. upgrade() deletes the legacy prompt
+versions, voices, persona presets and deployments and retargets the foreign
+keys that pointed at them, without snapshotting the originals. downgrade()
+therefore removes the rows this revision inserted and reverses the schema
+changes, but the pre-existing legacy rows and their FK targets are NOT
+restored — recovering those needs a database restore taken before the upgrade.
+
 Revision ID: 20260722_0018
 Revises: 20260722_0017
 Create Date: 2026-07-22
@@ -217,19 +224,35 @@ def upgrade() -> None:
 
     conn = op.get_bind()
 
-    # Authors used by version history
+    # Authors used by version history. `team_id` FKs to teams — a partially
+    # seeded database may not have the hard-coded 'supervisors' team, which
+    # made this insert fail the whole revision. Resolve an existing team for
+    # the tenant, falling back to NULL rather than inventing one.
+    team_id = conn.execute(
+        sa.text(
+            """
+            SELECT id FROM teams
+            WHERE tenant_id = :tenant_id
+            ORDER BY (id = 'supervisors') DESC, id
+            LIMIT 1
+            """
+        ),
+        {"tenant_id": TENANT_ID},
+    ).scalar()
+
     for user_id, name in (("anita-rao", "Anita Rao"), ("vikram-shah", "Vikram Shah")):
         conn.execute(
             sa.text(
                 """
                 INSERT INTO users (id, tenant_id, team_id, name, email, status)
-                VALUES (:id, :tenant_id, 'supervisors', :name, :email, 'active')
+                VALUES (:id, :tenant_id, :team_id, :name, :email, 'active')
                 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
                 """
             ),
             {
                 "id": user_id,
                 "tenant_id": TENANT_ID,
+                "team_id": team_id,
                 "name": name,
                 "email": f"{user_id}@hdfc.example",
             },
@@ -292,6 +315,9 @@ def upgrade() -> None:
                 )
                 ON CONFLICT (id) DO UPDATE SET
                   author_user_id = EXCLUDED.author_user_id,
+                  -- Existing rows must also land on the computed archived/draft
+                  -- state; the v1_4 publish step below still overrides it.
+                  status = EXCLUDED.status,
                   prompt = EXCLUDED.prompt,
                   persona = EXCLUDED.persona,
                   voice = EXCLUDED.voice,

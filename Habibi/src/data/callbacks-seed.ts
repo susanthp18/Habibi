@@ -2,6 +2,7 @@
 // Mutable in-memory store — mirrors the documents/disputes-seed pattern.
 
 import { customers as _customers } from "./customer360-seed";
+import type { LozengeTone } from "@/components/ui/lozenge";
 
 export type CbStatus =
   | "scheduled"
@@ -82,14 +83,14 @@ export const STATUS_LABELS: Record<CbStatus, string> = {
   cancelled: "Cancelled",
 };
 
-export const STATUS_TONE: Record<CbStatus, string> = {
-  scheduled: "bg-brand-tint text-brand-primary-dark",
-  reminded: "bg-indigo-100 text-indigo-800",
-  in_progress: "bg-amber-100 text-amber-800",
-  completed: "bg-emerald-100 text-emerald-800",
-  missed: "bg-red-100 text-red-700",
-  rescheduled: "bg-slate-100 text-slate-700",
-  cancelled: "bg-slate-100 text-slate-500",
+export const STATUS_TONE: Record<CbStatus, LozengeTone> = {
+  scheduled: "selected",
+  reminded: "discovery",
+  in_progress: "warning",
+  completed: "success",
+  missed: "danger",
+  rescheduled: "neutral",
+  cancelled: "neutral",
 };
 
 export const REASON_LABELS: Record<CbReason, string> = {

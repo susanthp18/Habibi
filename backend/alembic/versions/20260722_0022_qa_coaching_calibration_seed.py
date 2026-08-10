@@ -15,6 +15,8 @@ from typing import Sequence, Union
 
 from alembic import op
 from seed_guard import seed_demo_enabled
+
+TENANT_ID = "hdfc.retail"
 import sqlalchemy as sa
 
 
@@ -46,7 +48,13 @@ def upgrade() -> None:
         )
     )
 
-    # Legacy status vocabulary → screen vocabulary
+    # --- One-way vocabulary change (intentionally global, not demo-only) -----
+    # coaching_actions.status and calibration_sessions.status move from the
+    # legacy open/pending/new vocabulary to the one the API and screens use.
+    # This is deliberately NOT reversible: the mapping is many-to-one, so the
+    # original value cannot be recovered. To make the new vocabulary the actual
+    # contract (rather than a one-off data edit that new rows immediately
+    # violate), the column defaults are retargeted and CHECK constraints added.
     conn.execute(
         sa.text(
             """
@@ -71,6 +79,58 @@ def upgrade() -> None:
             UPDATE calibration_sessions
             SET name = coalesce(nullif(name, ''), 'Calibration · ' || interaction_id)
             WHERE name IS NULL OR name = ''
+            """
+        )
+    )
+    # Anything still outside the new vocabulary is coerced so the constraints
+    # below can be created without failing an existing deployment.
+    conn.execute(
+        sa.text(
+            """
+            UPDATE coaching_actions
+            SET status = 'assigned'
+            WHERE status NOT IN ('assigned', 'in_progress', 'done')
+            """
+        )
+    )
+    conn.execute(
+        sa.text(
+            """
+            UPDATE calibration_sessions
+            SET status = CASE
+                  WHEN lower(status) IN ('closed', 'done', 'completed') THEN 'closed'
+                  ELSE 'active' END
+            WHERE status NOT IN ('active', 'closed')
+            """
+        )
+    )
+    conn.execute(sa.text("ALTER TABLE coaching_actions ALTER COLUMN status SET DEFAULT 'assigned'"))
+    conn.execute(
+        sa.text("ALTER TABLE calibration_sessions ALTER COLUMN status SET DEFAULT 'active'")
+    )
+    conn.execute(
+        sa.text("ALTER TABLE coaching_actions DROP CONSTRAINT IF EXISTS ck_coaching_actions_status")
+    )
+    conn.execute(
+        sa.text(
+            """
+            ALTER TABLE coaching_actions
+              ADD CONSTRAINT ck_coaching_actions_status
+              CHECK (status IN ('assigned', 'in_progress', 'done'))
+            """
+        )
+    )
+    conn.execute(
+        sa.text(
+            "ALTER TABLE calibration_sessions DROP CONSTRAINT IF EXISTS ck_calibration_sessions_status"
+        )
+    )
+    conn.execute(
+        sa.text(
+            """
+            ALTER TABLE calibration_sessions
+              ADD CONSTRAINT ck_calibration_sessions_status
+              CHECK (status IN ('active', 'closed'))
             """
         )
     )
@@ -201,11 +261,11 @@ def upgrade() -> None:
             sa.text(
                 """
                 INSERT INTO coaching_actions (
-                  id, subject_user_id, subject_bot_id, scorecard_id, interaction_id,
-                  action, category, status, due_at
+                  id, tenant_id, subject_user_id, subject_bot_id, scorecard_id,
+                  interaction_id, action, category, status, due_at
                 ) VALUES (
-                  :id, :subject_user_id, :subject_bot_id, :scorecard_id, :interaction_id,
-                  :action, :category, :status, CAST(:due_at AS timestamptz)
+                  :id, :tenant_id, :subject_user_id, :subject_bot_id, :scorecard_id,
+                  :interaction_id, :action, :category, :status, CAST(:due_at AS timestamptz)
                 )
                 ON CONFLICT (id) DO UPDATE SET
                   action = EXCLUDED.action,
@@ -219,7 +279,7 @@ def upgrade() -> None:
                   updated_at = now()
                 """
             ),
-            row,
+            {**row, "tenant_id": TENANT_ID},
         )
 
     # Notes via activity_events (same pattern as disputes / violations)
@@ -317,15 +377,6 @@ def upgrade() -> None:
     ]
 
     # Retarget legacy calibration-1 → cal-1 shape if present
-    conn.execute(
-        sa.text(
-            """
-            UPDATE calibration_sessions
-            SET id = id  -- no-op keep
-            WHERE id = 'calibration-1'
-            """
-        )
-    )
     legacy = conn.execute(
         sa.text("SELECT id FROM calibration_sessions WHERE id = 'calibration-1'")
     ).fetchone()
@@ -440,15 +491,103 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse the seeded side effects and the schema additions.
+
+    PARTIALLY ONE-WAY, by design: the legacy status vocabulary
+    (open/pending/new → assigned/active) is a many-to-one mapping applied to
+    every row regardless of the demo flag, and the original per-row values were
+    not snapshotted. Those cannot be restored. Everything the migration
+    *created* — seed rows, activity notes, mutated calibration-1, coach-1 — is
+    reversed below, and the vocabulary CHECK constraints and defaults are
+    dropped so the older application version can write its own values again.
+    """
     conn = op.get_bind()
+
+    # Seeded coaching rows + their activity notes.
     for cid in ("coach-2", "coach-3", "coach-4", "coach-5", "coach-6"):
+        conn.execute(
+            sa.text(
+                """
+                DELETE FROM activity_events
+                WHERE entity_type = 'coaching_action' AND entity_id = :id
+                  AND id = :act_id
+                """
+            ),
+            {"id": cid, "act_id": f"ACT-COACH-{cid}"},
+        )
         conn.execute(sa.text("DELETE FROM coaching_actions WHERE id = :id"), {"id": cid})
+    conn.execute(
+        sa.text(
+            """
+            DELETE FROM activity_events
+            WHERE entity_type = 'coaching_action' AND id = 'ACT-COACH-coach-1'
+            """
+        )
+    )
+
+    # Drop the vocabulary constraints FIRST: the restores below write the
+    # legacy 'open' status, which ck_coaching_actions_status
+    # ('assigned','in_progress','done') and ck_calibration_sessions_status
+    # ('active','closed') both reject — the downgrade aborted on a CHECK
+    # violation before it could reach the DROP at the end.
+    conn.execute(
+        sa.text("ALTER TABLE coaching_actions DROP CONSTRAINT IF EXISTS ck_coaching_actions_status")
+    )
+    conn.execute(
+        sa.text(
+            "ALTER TABLE calibration_sessions DROP CONSTRAINT IF EXISTS ck_calibration_sessions_status"
+        )
+    )
+
+    # coach-1 was enriched in place — restore its pre-migration shape.
+    conn.execute(
+        sa.text(
+            """
+            UPDATE coaching_actions
+            SET action = CASE
+                  WHEN action = 'Read mini-Miranda before discussing dues'
+                    THEN 'Review disclosure phrasing'
+                  ELSE action
+                END,
+                status = 'open',
+                updated_at = now()
+            WHERE id = 'coach-1'
+            """
+        )
+    )
+
     for sid in ("cal-1", "cal-2"):
         conn.execute(
             sa.text("DELETE FROM calibration_reviewer_scores WHERE session_id = :id"),
             {"id": sid},
         )
         conn.execute(sa.text("DELETE FROM calibration_sessions WHERE id = :id"), {"id": sid})
+
+    # calibration-1 was mutated in place (name/status/target_scores/interaction).
+    # Reviewer scores attached to it by this migration go too.
+    conn.execute(
+        sa.text(
+            """
+            DELETE FROM calibration_reviewer_scores
+            WHERE session_id = 'calibration-1' AND id = 'calibration-1-priya-nair'
+            """
+        )
+    )
+    conn.execute(
+        sa.text(
+            """
+            UPDATE calibration_sessions
+            SET status = 'open', updated_at = now()
+            WHERE id = 'calibration-1'
+            """
+        )
+    )
+
+    conn.execute(sa.text("ALTER TABLE coaching_actions ALTER COLUMN status SET DEFAULT 'open'"))
+    conn.execute(
+        sa.text("ALTER TABLE calibration_sessions ALTER COLUMN status SET DEFAULT 'open'")
+    )
+
     conn.execute(
         sa.text("ALTER TABLE coaching_actions DROP COLUMN IF EXISTS category")
     )

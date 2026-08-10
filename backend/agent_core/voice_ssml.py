@@ -6,6 +6,7 @@ Live voice uses Pipecat AzureTTSService with the same prosody params.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from azure_speech import build_ssml, resolve_azure_voice_name
@@ -17,6 +18,20 @@ def _coalesce(*vals: Any) -> Any:
         if v is not None:
             return v
     return vals[-1]
+
+
+def _num(*vals: Any, default: float) -> float:
+    """First value that coerces to a finite float, else ``default``."""
+    for v in vals:
+        if v is None:
+            continue
+        try:
+            n = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(n):
+            return n
+    return default
 
 
 def voice_params_from_config(
@@ -40,10 +55,14 @@ def voice_params_from_config(
     return {
         "voiceId": voice_id,
         "voiceName": azure_name,
-        "speed": float(_coalesce(cfg.get("speed"), pv.get("speed"), 1.0)),
-        "pitch": int(_coalesce(cfg.get("pitch"), pv.get("pitch"), 0)),
-        "warmth": int(_coalesce(cfg.get("warmth"), pv.get("warmth"), 60)),
-        "pauseMs": int(_coalesce(cfg.get("pauseMs"), pv.get("pauseMs"), 300)),
+        # Deployment config and prompt-version `voice` are both persisted jsonb,
+        # so a hand-edited or legacy row can carry "1.1" — or "fast". Raw
+        # float()/int() raised out of prompt rendering; fall back like the rest
+        # of the tuning surface does.
+        "speed": _num(cfg.get("speed"), pv.get("speed"), default=1.0),
+        "pitch": int(_num(cfg.get("pitch"), pv.get("pitch"), default=0)),
+        "warmth": int(_num(cfg.get("warmth"), pv.get("warmth"), default=60)),
+        "pauseMs": int(_num(cfg.get("pauseMs"), pv.get("pauseMs"), default=300)),
     }
 
 

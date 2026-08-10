@@ -21,14 +21,14 @@ const ResizableHandle = ({
 }) => (
   <Separator
     className={cn(
-      "relative flex w-1.5 items-center justify-center bg-[var(--border-token)] transition-colors hover:bg-brand-primary/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[separator=active]:bg-brand-primary/50 after:absolute after:inset-y-0 after:left-1/2 after:w-3 after:-translate-x-1/2 data-[panel-group-direction=vertical]:h-1.5 data-[panel-group-direction=vertical]:w-full data-[panel-group-direction=vertical]:after:left-0 data-[panel-group-direction=vertical]:after:h-3 data-[panel-group-direction=vertical]:after:w-full data-[panel-group-direction=vertical]:after:-translate-y-1/2 data-[panel-group-direction=vertical]:after:translate-x-0",
+      "relative flex w-1.5 items-center justify-center bg-border transition-colors hover:bg-background-brand-bold/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[separator=active]:bg-background-brand-bold/50 after:absolute after:inset-y-0 after:left-1/2 after:w-3 after:-translate-x-1/2 data-[panel-group-direction=vertical]:h-1.5 data-[panel-group-direction=vertical]:w-full data-[panel-group-direction=vertical]:after:left-0 data-[panel-group-direction=vertical]:after:h-3 data-[panel-group-direction=vertical]:after:w-full data-[panel-group-direction=vertical]:after:-translate-y-1/2 data-[panel-group-direction=vertical]:after:translate-x-0",
       className,
     )}
     {...props}
   >
     {withHandle && (
-      <div className="z-10 flex h-8 w-3 items-center justify-center rounded-sm border border-[var(--border-token)] bg-white shadow-sm">
-        <GripVertical className="h-3 w-3 text-text-muted" />
+      <div className="z-10 flex h-400 w-3 items-center justify-center rounded-small border border-border bg-surface shadow-raised">
+        <GripVertical className="h-3 w-3 text-text-subtle" />
       </div>
     )}
   </Separator>

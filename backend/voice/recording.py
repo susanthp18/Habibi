@@ -37,8 +37,9 @@ def _interleave_stereo(user_pcm: bytes, bot_pcm: bytes) -> bytes:
     """Pack mono user + mono bot into interleaved stereo (user L / bot R)."""
     n = max(len(user_pcm), len(bot_pcm))
     n -= n % 2
-    u = user_pcm.ljust(n, b"\x00")
-    b = bot_pcm.ljust(n, b"\x00")
+    # Truncate explicitly — bytes.ljust does not shorten oversized buffers.
+    u = user_pcm[:n].ljust(n, b"\x00")
+    b = bot_pcm[:n].ljust(n, b"\x00")
     ua = np.frombuffer(u, dtype="<i2")
     ba = np.frombuffer(b, dtype="<i2")
     stereo = np.empty(ua.size * 2, dtype="<i2")
@@ -118,12 +119,10 @@ def attach_recording_handlers(
         ix = session.interaction_id
         if not ix or (not user_audio and not bot_audio):
             return
-        # One audio row per call: the buffer emits the full track once at stop, so
-        # guard against a duplicate row if the callback ever fires again (restart /
-        # non-zero buffer_size). The fixed {interaction_id}.wav key is overwritten
-        # in place; only the DB insert would otherwise duplicate.
+        # Atomic claim before awaiting upload — prevents duplicate concurrent uploads.
         if session.extra.get("audio_media_id"):
             return
+        session.extra["audio_media_id"] = "__uploading__"
         try:
             stereo = _interleave_stereo(user_audio or b"", bot_audio or b"")
             result = await asyncio.to_thread(
@@ -137,12 +136,15 @@ def attach_recording_handlers(
                 session.extra["audio_media_id"] = result.get("mediaId")
                 if on_uploaded:
                     on_uploaded(result)
+            else:
+                session.extra.pop("audio_media_id", None)
             logger.info(
                 "track audio uploaded · interaction=%s · ref=%s",
                 ix,
                 (result or {}).get("storageRef"),
             )
         except Exception:
+            session.extra.pop("audio_media_id", None)
             logger.exception("track audio upload failed")
 
     @audiobuffer.event_handler("on_audio_data")
@@ -153,6 +155,7 @@ def attach_recording_handlers(
             return
         if session.extra.get("audio_media_id"):
             return
+        session.extra["audio_media_id"] = "__uploading__"
         try:
             result = await asyncio.to_thread(
                 upload_recording,
@@ -165,10 +168,13 @@ def attach_recording_handlers(
                 session.extra["audio_media_id"] = result.get("mediaId")
                 if on_uploaded:
                     on_uploaded(result)
+            else:
+                session.extra.pop("audio_media_id", None)
             logger.info(
                 "composite audio uploaded · interaction=%s · ref=%s",
                 ix,
                 (result or {}).get("storageRef"),
             )
         except Exception:
+            session.extra.pop("audio_media_id", None)
             logger.exception("composite audio upload failed")

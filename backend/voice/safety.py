@@ -11,30 +11,21 @@ import unicodedata
 from difflib import SequenceMatcher
 from typing import Any
 
+from agent_core import lexicon
+
 # Rolling windows / thresholds (collections voice).
 LOOP_WINDOW = 3
 LOOP_SIMILARITY = 0.92
 SENTIMENT_WINDOW = 4
 SENTIMENT_COLLAPSE = -0.45
 
-_ABUSE_RE = re.compile(
-    r"\b("
-    r"idiot|stupid|shut\s*up|stfu|harass|kill\s*(you|yourself)?|"
-    r"fuck(?:ing)?|asshole|bastard|motherfucker|bloody\s+hell|"
-    r"go\s+to\s+hell|son\s+of\s+a\s+bitch"
-    r")\b",
-    re.I,
-)
-
-_LEGAL_RE = re.compile(
-    r"\b("
-    r"lawyer|advocate|attorney|solicitor|"
-    r"court|lawsuit|sue\s+you|suing|legal\s+action|"
-    r"consumer\s+forum|ombudsman|cyber\s*cell|"
-    r"police\s+complaint|fir\b|rbi\s+complaint"
-    r")\b",
-    re.I,
-)
+# These patterns moved to agent_core/lexicon.py so the text channel, the
+# guardrail evaluator and the sentiment scorer stop carrying divergent copies —
+# all four feed compliance escalation, and they disagreed. The two narrowings
+# this module contributed (an explicit target for `kill`; police context for
+# `fir`, the Hinglish फिर) survived the merge as the canonical form.
+_ABUSE_RE = lexicon.ABUSE_RE
+_LEGAL_RE = lexicon.LEGAL_RE
 
 _HOLD_RE = re.compile(
     r"\b("
@@ -68,7 +59,7 @@ _INDIC_SCRIPT_RE = re.compile(
 
 _HINDI_LATIN_RE = re.compile(
     r"\b(namaste|haan|nahi|nahin|kya|aap|mujhe|mera|bahut|theek|"
-    r"accha|samajh|paisa|payment|kitna)\b",
+    r"accha|samajh|paisa|kitna)\b",
     re.I,
 )
 
@@ -135,7 +126,9 @@ def detect_language_signal(text: str) -> str | None:
         if re.search(r"[\u0900-\u097F]", raw):
             return "hi-IN"
         return "other"
-    if _HINDI_LATIN_RE.search(raw) and len(_norm_bot_text(raw).split()) <= 12:
+    markers = {m.group(0).lower() for m in _HINDI_LATIN_RE.finditer(raw)}
+    # Require at least two distinct Hindi-Latin markers to avoid English FPs.
+    if len(markers) >= 2 and len(_norm_bot_text(raw).split()) <= 12:
         return "hi-IN"
     return None
 

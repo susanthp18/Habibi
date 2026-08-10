@@ -2,17 +2,17 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 import type { EscalationReason } from "@/data/bot-analytics-seed";
 
-const COLORS = ["#2563eb", "#0ea5e9", "#06b6d4", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"];
+const COLORS = ["#357DE8", "#82B536", "#BF63F3", "#F68909", "#1558BC", "#964AC0", "#42B2D7"];
 
 export function EscalationReasons({ reasons }: { reasons: EscalationReason[] }) {
   const total = reasons.reduce((a, r) => a + r.count, 0);
   return (
-    <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <div className="border-b border-[var(--border-token)] px-3 py-2">
-        <div className="text-[13px] font-semibold text-brand-navy">Escalation reasons</div>
-        <div className="text-[11px] text-text-muted">{total.toLocaleString()} escalations · trend vs prior period</div>
+    <div className="rounded-large border border-border bg-surface">
+      <div className="border-b border-border px-150 py-100">
+        <div className="text-body font-semibold text-text">Escalation reasons</div>
+        <div className="text-body-small text-text-subtlest">{total.toLocaleString()} escalations · trend vs prior period</div>
       </div>
-      <div className="grid gap-3 p-3 md:grid-cols-[180px_1fr]">
+      <div className="grid gap-150 p-150 md:grid-cols-[180px_1fr]">
         <div className="h-44">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -25,18 +25,18 @@ export function EscalationReasons({ reasons }: { reasons: EscalationReason[] }) 
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <ul className="space-y-1 text-[12px]">
+        <ul className="space-y-050 text-body-small">
           {reasons.map((r, i) => {
             const pct = total ? (r.count / total) * 100 : 0;
             const Trend = r.trendDelta > 1 ? ArrowUp : r.trendDelta < -1 ? ArrowDown : Minus;
             const bad = r.trendDelta > 1;
             return (
-              <li key={r.id} className="flex items-center gap-2">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: COLORS[i % COLORS.length] }} />
-                <span className="flex-1 truncate text-text-primary">{r.label}</span>
-                <span className="text-text-secondary tabular-nums">{r.count}</span>
-                <span className="w-10 text-right text-text-muted tabular-nums">{pct.toFixed(0)}%</span>
-                <span className={`inline-flex w-14 items-center justify-end gap-0.5 text-[11px] ${bad ? "text-red-700" : r.trendDelta < -1 ? "text-emerald-700" : "text-text-muted"}`}>
+              <li key={r.id} className="flex items-center gap-100">
+                <span className="inline-block h-2.5 w-2.5 rounded-small" style={{ background: COLORS[i % COLORS.length] }} />
+                <span className="flex-1 truncate text-text">{r.label}</span>
+                <span className="text-text-subtle tabular-nums">{r.count}</span>
+                <span className="w-500 text-right text-text-subtlest tabular-nums">{pct.toFixed(0)}%</span>
+                <span className={`inline-flex w-14 items-center justify-end gap-025 text-body-small ${bad ? "text-text-danger-bolder" : r.trendDelta < -1 ? "text-text-success-bolder" : "text-text-subtlest"}`}>
                   <Trend className="h-3 w-3" />
                   {Math.abs(r.trendDelta)}%
                 </span>
@@ -44,7 +44,7 @@ export function EscalationReasons({ reasons }: { reasons: EscalationReason[] }) 
             );
           })}
           {!reasons.length && (
-            <li className="text-text-muted">No escalations in this range.</li>
+            <li className="text-text-subtlest">No escalations in this range.</li>
           )}
         </ul>
       </div>

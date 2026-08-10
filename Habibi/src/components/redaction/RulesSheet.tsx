@@ -21,7 +21,7 @@ export function RulesSheet({ open, onOpenChange, rules, onChange }: Props) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[420px] sm:w-[480px] overflow-y-auto">
+      <SheetContent side="right" className="w-[26.25rem] sm:w-[30rem] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Redaction rules</SheetTitle>
           <SheetDescription>
@@ -29,15 +29,15 @@ export function RulesSheet({ open, onOpenChange, rules, onChange }: Props) {
           </SheetDescription>
         </SheetHeader>
 
-        <div className="mt-4 space-y-4 px-1 pb-6">
+        <div className="mt-200 space-y-200 px-050 pb-300">
           <div>
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Preset policy</div>
-            <div className="flex gap-1.5">
+            <div className="mb-075 text-body-small font-semibold text-text-subtlest">Preset policy</div>
+            <div className="flex gap-075">
               {(["strict", "balanced", "minimal"] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => setPolicy(m)}
-                  className="flex-1 rounded-md border border-[var(--border-token)] px-2 py-1.5 text-[12px] capitalize text-text-primary hover:bg-brand-tint"
+                  className="flex-1 rounded-medium border border-border px-100 py-075 text-body-small capitalize text-text hover:bg-background-brand-subtlest"
                 >
                   {m}
                 </button>
@@ -45,32 +45,32 @@ export function RulesSheet({ open, onOpenChange, rules, onChange }: Props) {
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-100">
             {ENTITY_TYPES.map((t) => {
               const r = rules[t];
               return (
-                <div key={t} className="rounded-lg border border-[var(--border-token)] p-3">
-                  <div className="flex items-center gap-2">
+                <div key={t} className="rounded-large border border-border p-150">
+                  <div className="flex items-center gap-100">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: ENTITY_COLORS[t] }} />
-                    <span className="text-[13px] font-semibold text-brand-navy">{r.label}</span>
-                    <label className="ml-auto inline-flex cursor-pointer items-center gap-1 text-[11px] text-text-secondary">
+                    <span className="text-body font-semibold text-text">{r.label}</span>
+                    <label className="ml-auto inline-flex cursor-pointer items-center gap-050 text-body-small text-text-subtle">
                       <input
                         type="checkbox"
                         checked={r.enabled}
                         onChange={(e) => onChange({ ...rules, [t]: { ...r, enabled: e.target.checked } })}
-                        className="h-3.5 w-3.5 accent-[var(--brand-primary)]"
+                        className="h-3.5 w-3.5 accent-[var(--background-brand-bold)]"
                       />
                       {r.enabled ? "Enabled" : "Disabled"}
                     </label>
                   </div>
-                  <div className="mt-2">
-                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  <div className="mt-100">
+                    <label className="mb-050 block text-body-small font-semibold text-text-subtlest">
                       Replacement pattern
                     </label>
                     <input
                       value={r.replacement}
                       onChange={(e) => onChange({ ...rules, [t]: { ...r, replacement: e.target.value } })}
-                      className="w-full rounded-md border border-[var(--border-token)] bg-surface-sunken px-2 py-1 font-mono text-[12px] focus:border-brand-primary focus:outline-none"
+                      className="w-full rounded-medium border border-border bg-surface-sunken px-100 py-050 font-mono text-body-small focus:border-border-brand focus:outline-none"
                     />
                   </div>
                 </div>

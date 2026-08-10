@@ -1,7 +1,8 @@
 import { Bot, User, Mic, MessageSquare, ShieldCheck, ShieldAlert, CalendarClock, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fmtMoney, fmtRelative, SOURCE_LABELS, type Lead, type Sentiment } from "@/data/upsell-seed";
+import { fmtMoney, fmtRelative, leadValue, SOURCE_LABELS, type Lead, type Sentiment } from "@/data/upsell-seed";
 import { cn } from "@/lib/utils";
+import { Lozenge } from "@/components/ui/lozenge";
 
 interface Props {
   lead: Lead;
@@ -9,15 +10,15 @@ interface Props {
 }
 
 const sentimentDot: Record<Sentiment, string> = {
-  positive: "bg-emerald-500",
-  neutral: "bg-slate-400",
-  negative: "bg-red-500",
+  positive: "bg-background-success-bold",
+  neutral: "bg-background-accent-gray-subtle",
+  negative: "bg-background-danger-bold",
 };
 
 const priorityDot: Record<Lead["priority"], string> = {
-  low: "bg-slate-300",
-  normal: "bg-brand-primary",
-  high: "bg-amber-500",
+  low: "bg-background-accent-gray-subtle",
+  normal: "bg-background-brand-bold",
+  high: "bg-background-warning-bold",
 };
 
 export function LeadCard({ lead: l, onOpen }: Props) {
@@ -33,86 +34,82 @@ export function LeadCard({ lead: l, onOpen }: Props) {
         e.dataTransfer.setData("text/plain", l.id);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="group rounded-md border border-[var(--border-token)] bg-surface-card p-2.5 shadow-[var(--shadow-soft)] transition-shadow hover:shadow-md"
+      className="group rounded-medium border border-border bg-surface p-150 shadow-raised transition-shadow"
     >
       <button onClick={() => onOpen(l)} className="w-full text-left">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start justify-between gap-100">
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-075">
               <span className={cn("h-1.5 w-1.5 rounded-full", priorityDot[l.priority])} aria-hidden />
-              <div className="truncate text-[13px] font-semibold text-brand-navy">{l.customerName}</div>
+              <div className="truncate text-body font-semibold text-text">{l.customerName}</div>
             </div>
-            <div className="text-[11px] text-text-muted">#{l.accountTail} · {l.id}</div>
+            <div className="text-body-small text-text-subtlest">#{l.accountTail} · {l.id}</div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="text-[14px] font-semibold text-brand-navy tabular-nums">
-              {fmtMoney(l.stage === "won" ? l.wonAmount ?? l.estimatedValue : l.estimatedValue)}
+            <div className="text-body font-semibold text-text tabular-nums">
+              {fmtMoney(leadValue(l))}
             </div>
-            <div className="text-[10.5px] text-text-muted">{l.offer.indicativeROI}</div>
+            <div className="text-body-small text-text-subtlest">{l.offer.indicativeROI}</div>
           </div>
         </div>
 
-        <div className="mt-2 flex items-center gap-1.5">
-          <span className="rounded bg-brand-tint px-1.5 py-0.5 text-[10.5px] font-medium text-brand-primary-dark">
+        <div className="mt-100 flex items-center gap-075">
+          <span className="rounded bg-background-brand-subtlest px-075 py-025 text-body-small font-medium text-text-brand">
             {l.offer.label}
           </span>
-          <span className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-text-secondary">
+          <span className="inline-flex items-center gap-050 rounded bg-surface-sunken px-075 py-025 text-body-small text-text-subtle">
             {l.source.startsWith("bot") ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
             <SIcon className="h-3 w-3" />
             {SOURCE_LABELS[l.source]}
           </span>
         </div>
 
-        <p className="mt-2 line-clamp-2 rounded bg-surface-sunken/60 px-2 py-1.5 text-[11.5px] italic text-text-secondary">
+        <p className="mt-100 line-clamp-2 rounded bg-surface-sunken/60 px-100 py-075 text-body-small italic text-text-subtle">
           “{l.transcriptSnippet}”
         </p>
 
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
+        <div className="mt-100 flex items-center justify-between gap-100">
+          <div className="flex items-center gap-075">
             <span className={cn("h-1.5 w-1.5 rounded-full", sentimentDot[l.sentimentAtCapture])} aria-hidden />
-            <span className="text-[10.5px] text-text-muted capitalize">{l.sentimentAtCapture} @ capture</span>
+            <span className="text-body-small text-text-subtlest capitalize">{l.sentimentAtCapture} @ capture</span>
           </div>
           {failing > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-400 bg-amber-50 px-1.5 py-0.5 text-[10.5px] text-amber-700">
+            <Lozenge tone="warning" className="border-border-warning">
               <ShieldAlert className="h-3 w-3" /> {failing} flag{failing > 1 ? "s" : ""}
-            </span>
+            </Lozenge>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10.5px] text-emerald-700">
+            <Lozenge tone="success" className="border-border-success">
               <ShieldCheck className="h-3 w-3" /> Eligible
-            </span>
+            </Lozenge>
           )}
         </div>
 
-        <div className="mt-2 flex items-center justify-between">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10.5px]",
-              owner === "Unassigned"
-                ? "border-dashed border-[var(--border-token)] text-text-muted"
-                : "border-[var(--border-token)] text-text-secondary",
-            )}
+        <div className="mt-100 flex items-center justify-between">
+          <Lozenge
+            tone="neutral"
+            className={cn(owner === "Unassigned" && "border-dashed")}
             title={owner}
           >
-            <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-tint text-[9px] font-semibold text-brand-primary-dark">
+            <span className="grid h-4 w-4 place-items-center rounded-full bg-background-brand-subtlest text-body-small font-semibold text-text-brand">
               {initials}
             </span>
             {owner === "Unassigned" ? "Unassigned" : owner.split(" ")[0]}
-          </span>
+          </Lozenge>
           {l.nextFollowUpAt ? (
-            <span className="inline-flex items-center gap-1 text-[10.5px] text-text-secondary">
+            <span className="inline-flex items-center gap-050 text-body-small text-text-subtle">
               <CalendarClock className="h-3 w-3" /> {fmtRelative(l.nextFollowUpAt)}
             </span>
           ) : (
-            <span className="text-[10.5px] text-text-muted">Captured {fmtRelative(l.capturedAt)}</span>
+            <span className="text-body-small text-text-subtlest">Captured {fmtRelative(l.capturedAt)}</span>
           )}
         </div>
       </button>
 
-      <div className="mt-2 flex items-center gap-1 border-t border-[var(--border-token)] pt-2 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="mt-100 flex items-center gap-050 border-t border-border pt-100 opacity-0 transition-opacity group-hover:opacity-100">
         <Button
           size="sm"
           variant="ghost"
-          className="ml-auto h-6 w-6 p-0"
+          className="ml-auto h-300 w-300 p-0"
           onClick={(e) => {
             e.stopPropagation();
             onOpen(l);

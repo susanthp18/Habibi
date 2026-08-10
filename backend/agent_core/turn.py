@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from prompt_render import render_prompt
+from prompt_render import format_untrusted_crm_card, render_system_prompt
 
-from agent_core.intent import classify_intent
 from agent_core.prompt import build_system_prompt, default_context
-from agent_core.sentiment import estimate_sentiment, sentiment_label
+from agent_core.understanding import analyze_turn
 
 CHAT_TEMPERATURE = 0.2
 DEFAULT_TOP_K = 3
@@ -38,10 +37,18 @@ def assemble_turn_messages(
     sentiment_label, context.
     """
     ctx = default_context(context if isinstance(context, dict) else None)
-    rendered = render_prompt(prompt_template, ctx)
-    intent, intent_scores = classify_intent(customer_text)
-    sentiment = estimate_sentiment(customer_text)
-    sent_label = sentiment_label(sentiment)
+    # System policy: static tokens only. CRM fields ride a delimited developer card.
+    rendered = render_system_prompt(prompt_template, ctx)
+    # Sandbox only, and the sandbox already makes two Azure calls per turn
+    # (retrieval embedding + the reply), so one more is in keeping. It is also
+    # the surface where the Inspector's Intent and Sentiment tabs are read, so
+    # a Hinglish turn shown as out_of_scope / 0.00 here is the most visible
+    # form of the bug this replaces. Degrades to the keyword classifiers.
+    understanding = analyze_turn(customer_text, channel="sandbox_text")
+    intent = understanding.intent
+    intent_scores = understanding.intent_scores
+    sentiment = understanding.sentiment
+    sent_label = understanding.sentiment_label
 
     messages: list[dict[str, str]] = [
         {
@@ -52,9 +59,14 @@ def assemble_turn_messages(
                 guardrails=guardrails,
                 context_blocks=list(context_blocks or []),
             ),
-        }
+        },
+        {
+            "role": "developer",
+            "content": format_untrusted_crm_card(ctx),
+        },
     ]
-    for h in (history or [])[-history_limit:]:
+    recent_history = (history or [])[-history_limit:] if history_limit > 0 else []
+    for h in recent_history:
         if not isinstance(h, dict):
             continue
         role = h.get("role")

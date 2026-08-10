@@ -1,0 +1,55 @@
+# The close probe finds real interest and converts it into a lead.
+#
+# The mirror of close_probe_declines. Together they are the pair that makes the
+# probe measurable: the funnel has to distinguish "asked and declined" from
+# "asked and converted" from "never asked", and only the third is free.
+#
+# The ordering assertion matters most. `recommend_next_offer` must have run
+# before any product is named, because that call is where consent, eligibility,
+# frequency caps and cool-downs are applied. A model that names a product first
+# has made a decision nobody approved, and capture_lead will refuse it —
+# `domain.offer_sourcing_violation` enforces in code what the prompt asks for.
+name: close_probe_converts
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  # The probe is gated on a commitment. Nothing is offered before one exists.
+  - user: "Yes, I'll pay the full amount on the tenth."
+    expect:
+      - event: function_call
+        calls:
+          - name: create_promise_to_pay
+      - event: response
+        eval: "the bot confirms the promise to pay and the date"
+
+  - user: "That's sorted then, thanks."
+    expect:
+      - event: response
+        eval: >-
+          the bot asks exactly one closing question about whether there is
+          anything else it can help with — it does not read a list of options
+
+  - user: "Actually, yes — I've been thinking about consolidating my other
+      balances. What could you do for me there?"
+    expect:
+      - event: function_call
+        calls:
+          - name: recommend_next_offer
+      - event: response
+        eval: >-
+          the bot mentions at most one product, with an indicative amount
+          presented as indicative, and does not promise approval, an interest
+          rate or a credit limit
+
+  - user: "That sounds useful. Please have someone call me about it."
+    expect:
+      - event: function_call
+        calls:
+          - name: capture_lead
+      - event: response
+        eval: >-
+          the bot confirms a specialist will follow up, then closes — it does
+          not ask the closing question a second time

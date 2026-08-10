@@ -51,6 +51,10 @@ _SANDBOX_TOOL_NAMES = (
     "request_documents",
 )
 _SANDBOX_MAX_TOOL_ITERS = 4
+# Ceiling on a single tool result as handed back to the model. Generous enough
+# for a full KB passage, bounded so one wide result cannot dominate the context
+# for the rest of the loop.
+_SANDBOX_MAX_TOOL_RESULT_CHARS = 4000
 
 
 def _sandbox_tools_enabled(payload: dict[str, Any], context: dict[str, Any] | None) -> bool:
@@ -96,7 +100,9 @@ def _run_sandbox_tool_loop(
     total_latency = 0
     bot_text = ""
 
+    tools_pending = False
     for _ in range(_SANDBOX_MAX_TOOL_ITERS):
+        tools_pending = False
         chat = azure_openai.chat_with_tools(
             working,
             tools=tools,
@@ -136,15 +142,61 @@ def _run_sandbox_tool_loop(
         for c in calls:
             name = c.get("name") or ""
             args_json = c.get("arguments") or "{}"
-            ok, result, _ms = execute_tool(ctx, name, args_json)
+            try:
+                ok, result, tool_ms = execute_tool(ctx, name, args_json)
+                # Tool round-trips are real turn latency — dropping them made
+                # sandbox latencyMs understate what a live caller experiences.
+                total_latency += int(tool_ms or 0)
+            except Exception as exc:
+                logger.exception("sandbox tool %s failed", name)
+                ok = False
+                result = {"error": f"tool_failed:{type(exc).__name__}"}
+            # Serialize once, and bound what goes into the prompt. An unbounded
+            # tool result (a wide KB hit, a long payment history) was appended
+            # verbatim and then re-sent on every subsequent loop iteration, so
+            # the tokens compounded per iteration.
+            serialized = json.dumps(result if isinstance(result, dict) else {"result": result})
+            if len(serialized) > _SANDBOX_MAX_TOOL_RESULT_CHARS:
+                serialized = (
+                    serialized[:_SANDBOX_MAX_TOOL_RESULT_CHARS] + "…[truncated]"
+                )
+            # The Inspector keeps the structured result; only the model-visible
+            # copy is bounded (the response shape is part of the sandbox API).
             tool_trace.append({"name": name, "ok": ok, "result": result})
             working.append(
                 {
                     "role": "tool",
                     "tool_call_id": c.get("id") or name,
-                    "content": json.dumps(result if isinstance(result, dict) else {"result": result}),
+                    "content": serialized,
                 }
             )
+        tools_pending = True
+
+    if tools_pending:
+        # The iteration budget ran out with tool results appended but never fed
+        # back to the model: the tools really ran (a promise row was written),
+        # yet the reply was whatever the model said *before* them — or the
+        # generic fallback. One tool-free completion turns the results into the
+        # answer the customer is owed.
+        try:
+            final = azure_openai.chat_with_tools(
+                working,
+                tools=None,
+                temperature=temperature,
+                max_completion_tokens=max_tokens,
+            )
+            total_latency += int(final.get("latencyMs") or 0)
+            total_tokens += int(
+                final.get("totalTokens")
+                or ((final.get("promptTokens") or 0) + (final.get("completionTokens") or 0))
+                or 0
+            )
+            content = (final.get("content") or "").strip()
+            if content:
+                bot_text = content
+        except Exception:
+            logger.exception("sandbox final completion after tool budget failed")
+
     if not bot_text:
         bot_text = "I understand. Let me help you with that."
     return bot_text, total_latency, max(1, total_tokens), tool_trace
@@ -365,6 +417,8 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     guardrails = version["guardrails"] if isinstance(version.get("guardrails"), dict) else {}
     max_turns = int(guardrails.get("maxTurns") or 0)
     effective_max = min(_HARD_MAX_TURNS, max_turns) if max_turns else _HARD_MAX_TURNS
+    # Cheap fail-fast so we don't pay for an LLM call on an already-capped run.
+    # The authoritative check runs under the row lock in the persist transaction.
     if prior_customers >= effective_max:
         raise ValueError(f"sandbox_max_turns:{effective_max}")
 
@@ -503,6 +557,45 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     bot_turn_id = f"{run_id}-T{bot_turn_index}"
 
     with db.engine.begin() as conn:
+        run_locked = conn.execute(
+            text(
+                """
+                SELECT id, status,
+                       COALESCE(aggregate_latency_ms, 0) AS aggregate_latency_ms,
+                       COALESCE(aggregate_tokens, 0) AS aggregate_tokens
+                FROM sandbox_runs
+                WHERE id = :id
+                FOR UPDATE
+                """
+            ),
+            {"id": run_id},
+        ).mappings().first()
+        if not run_locked or run_locked["status"] != "running":
+            raise ValueError(f"sandbox_run_not_active: {run_locked['status'] if run_locked else 'missing'}")
+
+        # Counts and the derived turn ids are read *under* the run row lock, so
+        # two concurrent appends to the same run serialise instead of both
+        # computing the same turn_index and colliding on the primary key.
+        counts = conn.execute(
+            text(
+                """
+                SELECT COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE speaker = 'customer') AS customers
+                FROM sandbox_run_turns WHERE run_id = :id
+                """
+            ),
+            {"id": run_id},
+        ).mappings().first()
+        turn_count = int((counts or {}).get("total") or 0)
+        prior_customers = int((counts or {}).get("customers") or 0)
+        # Authoritative cap check — the pre-check above raced.
+        if prior_customers >= effective_max:
+            raise ValueError(f"sandbox_max_turns:{effective_max}")
+        customer_turn_index = turn_count
+        bot_turn_index = customer_turn_index + 1
+        customer_turn_id = f"{run_id}-T{customer_turn_index}"
+        bot_turn_id = f"{run_id}-T{bot_turn_index}"
+
         conn.execute(
             text(
                 """
@@ -590,8 +683,8 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             {
                 "id": run_id,
                 "status": "completed" if halted else "running",
-                "lat": int(run["aggregate_latency_ms"] or 0) + latency_ms,
-                "tok": int(run["aggregate_tokens"] or 0) + tokens,
+                "lat": int(run_locked["aggregate_latency_ms"] or 0) + latency_ms,
+                "tok": int(run_locked["aggregate_tokens"] or 0) + tokens,
             },
         )
 

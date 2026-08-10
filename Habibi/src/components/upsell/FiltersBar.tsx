@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import {
   SOURCE_LABELS,
   TEAM_OPTIONS,
-  products,
+  products as seedProducts,
   type Filters,
   type LeadSource,
   type Priority,
+  type Product,
   type Sentiment,
 } from "@/data/upsell-seed";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,8 @@ interface Props {
   onPatch: (p: Partial<Filters>) => void;
   onReset: () => void;
   owners: string[];
+  /** Live catalog from GET /products; falls back to the seed while loading. */
+  products?: Product[];
 }
 
 const SENTIMENTS: Sentiment[] = ["positive", "neutral", "negative"];
@@ -24,18 +27,19 @@ const PRIORITIES: Priority[] = ["high", "normal", "low"];
 const SOURCES = Object.keys(SOURCE_LABELS) as LeadSource[];
 
 const sentimentTone: Record<Sentiment, string> = {
-  positive: "border-emerald-400 bg-emerald-50 text-emerald-700",
-  neutral: "border-slate-300 bg-slate-50 text-slate-700",
-  negative: "border-red-400 bg-red-50 text-red-700",
+  positive: "border-border-success bg-background-success-subtler text-text-success-bolder",
+  neutral: "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
+  negative: "border-border-danger bg-background-danger-subtler text-text-danger-bolder",
 };
 
 const priorityTone: Record<Priority, string> = {
-  high: "border-amber-500 bg-amber-50 text-amber-700",
-  normal: "border-brand-primary bg-brand-tint text-brand-primary-dark",
-  low: "border-slate-300 bg-slate-50 text-slate-700",
+  high: "border-border-warning bg-background-warning-subtler text-text-warning-bolder",
+  normal: "border-border-brand bg-background-brand-subtlest text-text-brand",
+  low: "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
 };
 
-export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
+export function FiltersBar({ filters, onPatch, onReset, owners, products }: Props) {
+  const productOptions = products && products.length > 0 ? products : seedProducts;
   const active =
     !!filters.search ||
     filters.team !== "all" ||
@@ -56,21 +60,21 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-token)] bg-surface-card p-2">
-      <div className="relative min-w-[220px] flex-1">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+    <div className="flex flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
+      <div className="relative min-w-[13.75rem] flex-1">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
         <Input
           value={filters.search}
           onChange={(e) => onPatch({ search: e.target.value })}
           placeholder="Search customer, account, product, snippet, lead ID…"
-          className="h-8 pl-7 text-[12px]"
+          className="h-400 pl-400 text-body-small"
         />
       </div>
 
       <select
         value={filters.team}
         onChange={(e) => onPatch({ team: e.target.value as Filters["team"] })}
-        className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
         <option value="all">All teams</option>
         {TEAM_OPTIONS.map((t) => (
@@ -81,7 +85,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
       <select
         value={filters.owner}
         onChange={(e) => onPatch({ owner: e.target.value })}
-        className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
         <option value="all">All owners</option>
         {owners.map((o) => (
@@ -92,10 +96,10 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
       <select
         value={filters.productId}
         onChange={(e) => onPatch({ productId: e.target.value })}
-        className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
         <option value="all">All products</option>
-        {products.map((p) => (
+        {productOptions.map((p) => (
           <option key={p.id} value={p.id}>{p.name}</option>
         ))}
       </select>
@@ -103,7 +107,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
       <select
         value={filters.source}
         onChange={(e) => onPatch({ source: e.target.value as Filters["source"] })}
-        className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
         <option value="all">All sources</option>
         {SOURCES.map((s) => (
@@ -111,7 +115,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
         ))}
       </select>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-050">
         {SENTIMENTS.map((s) => {
           const on = filters.sentiments.includes(s);
           return (
@@ -119,8 +123,8 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
               key={s}
               onClick={() => toggleSentiment(s)}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[11px] capitalize transition-colors",
-                on ? sentimentTone[s] : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+                "rounded-full border px-150 py-050 text-body-small capitalize transition-colors",
+                on ? sentimentTone[s] : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {s}
@@ -129,7 +133,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
         })}
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-050">
         {PRIORITIES.map((p) => {
           const on = filters.priorities.includes(p);
           return (
@@ -137,8 +141,8 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
               key={p}
               onClick={() => togglePriority(p)}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[11px] capitalize transition-colors",
-                on ? priorityTone[p] : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+                "rounded-full border px-150 py-050 text-body-small capitalize transition-colors",
+                on ? priorityTone[p] : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {p}
@@ -150,18 +154,18 @@ export function FiltersBar({ filters, onPatch, onReset, owners }: Props) {
       <button
         onClick={() => onPatch({ myQueue: !filters.myQueue })}
         className={cn(
-          "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+          "rounded-full border px-150 py-050 text-body-small transition-colors",
           filters.myQueue
-            ? "border-brand-primary bg-brand-primary text-white"
-            : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+            ? "border-border-brand bg-background-brand-bold text-white"
+            : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
         )}
       >
         My leads
       </button>
 
       {active && (
-        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={onReset}>
-          <X className="mr-1 h-3 w-3" /> Reset
+        <Button size="sm" variant="ghost" className="h-7 px-100 text-body-small" onClick={onReset}>
+          <X className="mr-050 h-3 w-3" /> Reset
         </Button>
       )}
     </div>

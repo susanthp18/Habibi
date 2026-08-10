@@ -13,11 +13,14 @@ import {
   Lock,
   ExternalLink,
 } from "lucide-react";
+import { Lozenge } from "@/components/ui/lozenge";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { TurnTraceView } from "@/components/trace/TurnTraceView";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AudioPlayer } from "./AudioPlayer";
+import { CallCostPanel } from "./CallCostPanel";
 import { SentimentTimeline } from "./SentimentTimeline";
 import { TranscriptView } from "./TranscriptView";
 import {
@@ -93,13 +96,13 @@ export function CallDetailDrawer({ call, onClose }: Props) {
     <Sheet open={!!call} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
         side="right"
-        className="flex w-full max-w-none flex-col gap-0 p-0 sm:max-w-[720px]"
+        className="flex w-full max-w-none flex-col gap-0 p-0 sm:max-w-[50rem]"
       >
         {/* Header */}
-        <div className="shrink-0 border-b border-[var(--border-token)] px-5 py-3">
-          <div className="flex items-start justify-between gap-3">
+        <div className="shrink-0 border-b border-border px-250 py-150">
+          <div className="flex items-start justify-between gap-150">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[12px] text-text-muted">
+              <div className="flex items-center gap-100 text-body-small text-text-subtlest">
                 <ChIcon className="h-3.5 w-3.5" />
                 <span className="capitalize">{call.channel}</span>
                 <span>·</span>
@@ -107,46 +110,46 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                 <span>·</span>
                 <span className="font-mono">{formatDuration(call.duration)}</span>
                 <span>·</span>
-                <span className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px]">
+                <span className="inline-flex items-center gap-050 rounded bg-surface-sunken px-075 py-025 font-mono text-body-small">
                   <Lock className="h-3 w-3" /> immutable
                 </span>
               </div>
-              <div className="mt-1 flex items-center gap-2">
-                <h2 className="truncate text-[16px] font-semibold text-brand-navy">
+              <div className="mt-050 flex items-center gap-100">
+                <h2 className="truncate text-[0.875rem] font-semibold text-text">
                   {call.customerName}
                 </h2>
-                <span className="text-[12px] text-text-secondary">{call.phoneMasked}</span>
-                <span className="text-[12px] text-text-muted">· {call.accountId}</span>
+                <span className="text-body-small text-text-subtle">{call.phoneMasked}</span>
+                <span className="text-body-small text-text-subtlest">· {call.accountId}</span>
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
-                <span className="rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-medium text-brand-primary-dark">
+              <div className="mt-075 flex flex-wrap items-center gap-100 text-body-small">
+                <Lozenge tone="selected">
                   {call.disposition}
-                </span>
+                </Lozenge>
                 {call.handledBy.kind === "bot" && (
-                  <span className="inline-flex items-center gap-1 text-text-secondary">
+                  <span className="inline-flex items-center gap-050 text-text-subtle">
                     <Bot className="h-3.5 w-3.5" /> {call.handledBy.bot}
                   </span>
                 )}
                 {call.handledBy.kind === "human" && (
-                  <span className="inline-flex items-center gap-1 text-text-secondary">
+                  <span className="inline-flex items-center gap-050 text-text-subtle">
                     <User className="h-3.5 w-3.5" /> {call.handledBy.agent}
                   </span>
                 )}
                 {call.handledBy.kind === "handoff" && (
-                  <span className="inline-flex items-center gap-1 text-text-secondary">
+                  <span className="inline-flex items-center gap-050 text-text-subtle">
                     <ArrowLeftRight className="h-3.5 w-3.5" /> {call.handledBy.bot} → {call.handledBy.agent}
                   </span>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              <Button asChild variant="outline" size="sm" className="h-8 gap-1 text-[12px]">
+            <div className="flex items-center gap-050">
+              <Button asChild variant="outline" size="sm" className="h-400 gap-050 text-body-small">
                 <Link to="/customers/$customerId" params={{ customerId: call.customerId }}>
                   Customer 360
                   <ExternalLink className="h-3 w-3" />
                 </Link>
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+              <Button variant="ghost" size="icon" className="h-400 w-400" onClick={onClose}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -154,7 +157,7 @@ export function CallDetailDrawer({ call, onClose }: Props) {
         </div>
 
         {/* Player + sentiment */}
-        <div className="shrink-0 space-y-3 border-b border-[var(--border-token)] bg-surface-sunken px-5 py-3">
+        <div className="shrink-0 space-y-150 border-b border-border bg-surface-sunken px-250 py-150">
           <AudioPlayer
             duration={call.duration}
             currentTime={currentTime}
@@ -176,51 +179,66 @@ export function CallDetailDrawer({ call, onClose }: Props) {
 
         {/* Tabs */}
         <Tabs defaultValue="transcript" className="flex min-h-0 flex-1 flex-col">
-          <TabsList className="mx-5 mt-3 shrink-0 self-start">
+          <TabsList className="mx-250 mt-150 shrink-0 self-start">
             <TabsTrigger value="transcript">Transcript</TabsTrigger>
             <TabsTrigger value="summary">Summary</TabsTrigger>
             <TabsTrigger value="disclosures">
               Disclosures
-              <span className="ml-1.5 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-mono">
+              <Lozenge tone="neutral" className="ml-075 font-mono">
                 {disclosuresRead}/{call.disclosures.length}
-              </span>
+              </Lozenge>
             </TabsTrigger>
+            <TabsTrigger value="trace">Trace</TabsTrigger>
+            <TabsTrigger value="cost">Cost</TabsTrigger>
             <TabsTrigger value="meta">Metadata</TabsTrigger>
           </TabsList>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-250 py-150">
             <TabsContent value="transcript" className="mt-0">
               <TranscriptView turns={call.transcript} currentTime={currentTime} onSeek={setCurrentTime} />
             </TabsContent>
 
-            <TabsContent value="summary" className="mt-0 space-y-3">
-              <div className="rounded-md border border-[var(--border-token)] bg-surface-card p-3 text-[13px] leading-relaxed text-text-primary">
+            {/* Per-turn timeline: which tools ran, what was retrieved and where
+                the latency went. Until now this was three unjoinable tables. */}
+            <TabsContent value="trace" className="mt-0">
+              <TurnTraceView interactionId={call.id} />
+            </TabsContent>
+
+            {/* Measured spend for this one call, split by service and model.
+                Replaces having no per-call figure at all — the billing KPI was
+                total spend divided by call count. */}
+            <TabsContent value="cost" className="mt-0">
+              <CallCostPanel interactionId={call.id} />
+            </TabsContent>
+
+            <TabsContent value="summary" className="mt-0 space-y-150">
+              <div className="rounded-medium border border-border bg-surface p-150 text-body leading-relaxed text-text">
                 {call.summary}
               </div>
               <div>
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Tags</div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Tags</div>
+                <div className="flex flex-wrap gap-075">
                   {call.tags.length === 0 ? (
-                    <span className="text-[12px] text-text-muted">No tags.</span>
+                    <span className="text-body-small text-text-subtlest">No tags.</span>
                   ) : (
                     call.tags.map((t) => (
-                      <span key={t} className="rounded-full bg-brand-tint px-2 py-0.5 text-[11px] text-brand-primary-dark">
+                      <Lozenge key={t} tone="selected">
                         #{t}
-                      </span>
+                      </Lozenge>
                     ))
                   )}
                 </div>
               </div>
               <div>
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Flags</div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Flags</div>
+                <div className="flex flex-wrap gap-075">
                   {call.flags.length === 0 ? (
-                    <span className="text-[12px] text-[var(--success)]">Clean call — no flags.</span>
+                    <span className="text-body-small text-text-success">Clean call — no flags.</span>
                   ) : (
                     call.flags.map((f) => (
-                      <span key={f} className="rounded-full bg-[var(--danger-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--danger)]">
+                      <Lozenge key={f} tone="danger">
                         {f}
-                      </span>
+                      </Lozenge>
                     ))
                   )}
                 </div>
@@ -228,36 +246,36 @@ export function CallDetailDrawer({ call, onClose }: Props) {
             </TabsContent>
 
             <TabsContent value="disclosures" className="mt-0">
-              <ul className="divide-y divide-[var(--border-token)] rounded-md border border-[var(--border-token)] bg-surface-card">
+              <ul className="divide-y divide-border rounded-medium border border-border bg-surface">
                 {call.disclosures.map((d) => (
-                  <li key={d.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <div className="flex items-center gap-2">
+                  <li key={d.id} className="flex items-center justify-between gap-150 px-150 py-100">
+                    <div className="flex items-center gap-100">
                       {d.read ? (
-                        <ShieldCheck className="h-4 w-4 text-[var(--success)]" />
+                        <ShieldCheck className="h-4 w-4 text-text-success" />
                       ) : (
-                        <ShieldX className="h-4 w-4 text-[var(--danger)]" />
+                        <ShieldX className="h-4 w-4 text-text-danger" />
                       )}
-                      <span className="text-[13px] text-text-primary">{d.label}</span>
+                      <span className="text-body text-text">{d.label}</span>
                     </div>
-                    <div className="text-[11px]">
+                    <div className="text-body-small">
                       {d.read ? (
-                        <span className="font-mono text-text-secondary">at {formatDuration(d.atSec ?? 0)}</span>
+                        <span className="font-mono text-text-subtle">at {formatDuration(d.atSec ?? 0)}</span>
                       ) : (
-                        <span className="font-medium text-[var(--danger)]">Missed</span>
+                        <span className="font-medium text-text-danger">Missed</span>
                       )}
                     </div>
                   </li>
                 ))}
               </ul>
               {call.disclosures.some((d) => !d.read) && (
-                <div className="mt-2 rounded-md bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--danger)]">
+                <div className="mt-100 rounded-medium bg-[var(--danger-bg)] px-150 py-100 text-body-small text-text-danger">
                   Missed disclosures on this call may fail compliance review.
                 </div>
               )}
             </TabsContent>
 
             <TabsContent value="meta" className="mt-0">
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
+              <dl className="grid grid-cols-2 gap-x-300 gap-y-100 text-body">
                 <MetaRow k="Call ID" v={call.id} mono />
                 <MetaRow k="Log hash" v={`sha256:${call.hash}…`} mono />
                 <MetaRow k="Direction" v={call.direction} />
@@ -278,9 +296,9 @@ export function CallDetailDrawer({ call, onClose }: Props) {
 
 function MetaRow({ k, v, mono, full }: { k: string; v: string; mono?: boolean; full?: boolean }) {
   return (
-    <div className={cn("border-b border-[var(--border-token)] pb-1.5", full && "col-span-2")}>
-      <dt className="text-[11px] uppercase tracking-wide text-text-muted">{k}</dt>
-      <dd className={cn("text-text-primary", mono && "font-mono text-[12px]")}>{v}</dd>
+    <div className={cn("border-b border-border pb-075", full && "col-span-2")}>
+      <dt className="text-body-small text-text-subtlest">{k}</dt>
+      <dd className={cn("text-text", mono && "font-mono text-body-small")}>{v}</dd>
     </div>
   );
 }

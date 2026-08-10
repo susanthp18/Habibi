@@ -15,13 +15,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import db
 from env_loader import load_env
-import storage
+
+# db/storage read DATABASE_URL and the MinIO settings at import time — .env has
+# to be in os.environ before those modules initialise.
+load_env()
+
+import db  # noqa: E402
+import storage  # noqa: E402
 
 
 def main() -> None:
-    load_env()
     parser = argparse.ArgumentParser(description="Backfill KB disk sources into MinIO")
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()

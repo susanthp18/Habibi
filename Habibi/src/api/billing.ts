@@ -33,6 +33,22 @@ export type BillingTenantBreakdown = {
 
 export type BillingBudget = Budget & { id: string; month: string };
 
+/**
+ * Spend for one (service, model) pair. billing_services has a single blended
+ * `llm_chat` row, so this is the only place a gpt-5 turn can be distinguished
+ * from a gpt-4o-mini one — they price roughly 8x apart.
+ */
+export type BillingModelSpend = {
+  serviceId: string;
+  serviceName: string;
+  unit: string;
+  color: string;
+  model: string;
+  units: number;
+  costInr: number;
+  calls: number;
+};
+
 export type BillingOverview = {
   asOf: string;
   period: Period;
@@ -55,6 +71,15 @@ export type BillingOverview = {
   invoices: Invoice[];
   tenantBreakdown: BillingTenantBreakdown[];
   serviceTenantSpend: Record<string, Record<string, number>>;
+  /**
+   * Measured cost per call, averaged over calls carrying attributed usage.
+   * Distinct from `costPerCall`, which divides all spend by resolved calls —
+   * an allocation. 0 with `attributedCalls === 0` means the window predates
+   * metering, not that calls were free.
+   */
+  attributedCostPerCall: number;
+  attributedCalls: number;
+  modelSpend: BillingModelSpend[];
 };
 
 export async function fetchBilling(

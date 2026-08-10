@@ -6,119 +6,798 @@
 
 /*
  * BigBound AI — Design System
- * WhatsApp/Facebook aesthetic: clean, blue-and-white, high-trust, dense-but-calm.
+ * Token-for-token port of Design.md (Atlassian Design System manifest, revision 0.0.7, theme: light).
+ * Every hex value below is copied verbatim from Design.md's `colors:` / `typography:` / `rounded:` /
+ * `spacing:` / `borders:` / `surfaces:` / `motion:` YAML — do not hand-tune a value here without
+ * updating Design.md first. `rovo-*` tokens are intentionally omitted (unused AI sub-brand).
  */
 
 :root {
-  /* Brand */
-  --brand-primary: #1877f2;
-  --brand-primary-hover: #166fe5;
-  --brand-primary-dark: #0a4da6;
-  --brand-navy: #0b2447;
-  --brand-tint: #e7f0fe;
+  /* ---- Neutrals & surfaces (text) ---- */
+  --text: #292a2e;
+  --text-accent-lime: #4c6b1f;
+  --text-accent-lime-bolder: #37471f;
+  --text-accent-red: #ae2e24;
+  --text-accent-red-bolder: #5d1f1a;
+  --text-accent-orange: #9e4c00;
+  --text-accent-orange-bolder: #693200;
+  --text-accent-yellow: #7f5f01;
+  --text-accent-yellow-bolder: #533f04;
+  --text-accent-green: #216e4e;
+  --text-accent-green-bolder: #164b35;
+  --text-accent-teal: #206a83;
+  --text-accent-teal-bolder: #164555;
+  --text-accent-blue: #1558bc;
+  --text-accent-blue-bolder: #123263;
+  --text-accent-purple: #803fa5;
+  --text-accent-purple-bolder: #48245d;
+  --text-accent-magenta: #943d73;
+  --text-accent-magenta-bolder: #50253f;
+  --text-accent-gray: #505258;
+  --text-accent-gray-bolder: #1e1f21;
+  --text-code-accent-1: #943d73;
+  --text-code-accent-2: #1558bc;
+  --text-code-comments: #505258;
+  --text-code-default: #505258;
+  --text-code-functions: #216e4e;
+  --text-code-gutter: #6b6e76;
+  --text-code-keywords: #ae2e24;
+  --text-code-numbers: #7f5f01;
+  --text-code-operators: #292a2e;
+  --text-code-strings: #4c6b1f;
+  --text-code-tags: #9e4c00;
+  --text-disabled: #080f214a;
+  --text-inverse: #ffffff;
+  --text-selected: #1868db;
+  --text-brand: #1868db;
+  --text-danger: #ae2e24;
+  --text-danger-bolder: #5d1f1a;
+  --text-warning: #9e4c00;
+  --text-warning-inverse: #292a2e;
+  --text-warning-bolder: #693200;
+  --text-success: #4c6b1f;
+  --text-success-bolder: #37471f;
+  --text-discovery: #803fa5;
+  --text-discovery-bolder: #48245d;
+  --text-information: #1558bc;
+  --text-information-bolder: #123263;
+  --text-subtlest: #6b6e76;
+  --text-subtle: #505258;
 
-  /* Surfaces & text */
-  --surface-app: #f0f2f5;
-  --surface-card: #ffffff;
-  --surface-sunken: #f7f9fb;
-  --border-token: #e4e6eb;
-  --text-primary: #1c1e21;
-  --text-secondary: #65676b;
-  --text-muted: #8a8d91;
+  /* ---- Links ---- */
+  --link: #1868db;
+  --link-pressed: #1558bc;
+  --link-visited: #803fa5;
+  --link-visited-pressed: #48245d;
 
-  /* Semantic */
-  --success: #2e7d32;
-  --success-bg: #e6f4ea;
-  --warning: #f9a825;
-  --warning-bg: #fef6e0;
-  --danger: #d93025;
-  --danger-bg: #fce8e6;
-  --info: #1877f2;
-  --sentiment-positive: #2e7d32;
-  --sentiment-neutral: #f9a825;
-  --sentiment-negative: #d93025;
+  /* ---- Icons ---- */
+  --icon: #292a2e;
+  --icon-accent-lime: #6a9a23;
+  --icon-accent-red: #c9372c;
+  --icon-accent-orange: #e06c00;
+  --icon-accent-yellow: #b38600;
+  --icon-accent-green: #22a06b;
+  --icon-accent-teal: #2898bd;
+  --icon-accent-blue: #357de8;
+  --icon-accent-purple: #af59e1;
+  --icon-accent-magenta: #cd519d;
+  --icon-accent-gray: #7d818a;
+  --icon-disabled: #080f214a;
+  --icon-inverse: #ffffff;
+  --icon-selected: #1868db;
+  --icon-brand: #1868db;
+  --icon-danger: #c9372c;
+  --icon-warning: #e06c00;
+  --icon-warning-inverse: #292a2e;
+  --icon-success: #6a9a23;
+  --icon-discovery: #af59e1;
+  --icon-information: #357de8;
+  --icon-subtlest: #6b6e76;
+  --icon-subtle: #505258;
 
-  /* Radius */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 16px;
-  --r-full: 999px;
+  /* ---- Borders ---- */
+  --border: #0b120e24;
+  --border-accent-lime: #6a9a23;
+  --border-accent-lime-subtle: #b3df72;
+  --border-accent-red: #e2483d;
+  --border-accent-red-subtle: #fd9891;
+  --border-accent-orange: #e06c00;
+  --border-accent-orange-subtle: #fbc828;
+  --border-accent-yellow: #b38600;
+  --border-accent-yellow-subtle: #eed12b;
+  --border-accent-green: #22a06b;
+  --border-accent-green-subtle: #7ee2b8;
+  --border-accent-teal: #2898bd;
+  --border-accent-teal-subtle: #9dd9ee;
+  --border-accent-blue: #357de8;
+  --border-accent-blue-subtle: #8fb8f6;
+  --border-accent-purple: #af59e1;
+  --border-accent-purple-subtle: #d8a0f7;
+  --border-accent-magenta: #cd519d;
+  --border-accent-magenta-subtle: #f797d2;
+  --border-accent-gray: #7d818a;
+  --border-accent-gray-subtle: #b7b9be;
+  --border-code: #0b120e24;
+  --border-disabled: #0515240f;
+  --border-focused: #4688ec;
+  --border-input: #8c8f97;
+  --border-inverse: #ffffff;
+  --border-selected: #1868db;
+  --border-brand: #1868db;
+  --border-danger: #e2483d;
+  --border-danger-subtle: #fd9891;
+  --border-warning: #e06c00;
+  --border-warning-subtle: #fbc828;
+  --border-success: #6a9a23;
+  --border-success-subtle: #b3df72;
+  --border-discovery: #af59e1;
+  --border-discovery-subtle: #d8a0f7;
+  --border-information: #357de8;
+  --border-information-subtle: #8fb8f6;
+  --border-bold: #7d818a;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.12);
+  /* ---- Backgrounds: accent ramp (10 hues x 4 lightness steps) ---- */
+  --background-accent-lime-subtlest: #effed6;
+  --background-accent-lime-subtler: #d3f1a7;
+  --background-accent-lime-subtle: #94c748;
+  --background-accent-lime-bolder: #5b7f24;
+  --background-accent-red-subtlest: #ffeceb;
+  --background-accent-red-subtler: #ffd5d2;
+  --background-accent-red-subtle: #f87168;
+  --background-accent-red-bolder: #c9372c;
+  --background-accent-orange-subtlest: #fff5db;
+  --background-accent-orange-subtler: #fce4a6;
+  --background-accent-orange-subtle: #fca700;
+  --background-accent-orange-bolder: #bd5b00;
+  --background-accent-yellow-subtlest: #fef7c8;
+  --background-accent-yellow-subtler: #f5e989;
+  --background-accent-yellow-subtle: #eed12b;
+  --background-accent-yellow-bolder: #946f00;
+  --background-accent-green-subtlest: #dcfff1;
+  --background-accent-green-subtler: #baf3db;
+  --background-accent-green-subtle: #4bce97;
+  --background-accent-green-bolder: #1f845a;
+  --background-accent-teal-subtlest: #e7f9ff;
+  --background-accent-teal-subtler: #c6edfb;
+  --background-accent-teal-subtle: #6cc3e0;
+  --background-accent-teal-bolder: #227d9b;
+  --background-accent-blue-subtlest: #e9f2fe;
+  --background-accent-blue-subtler: #cfe1fd;
+  --background-accent-blue-subtle: #669df1;
+  --background-accent-blue-bolder: #1868db;
+  --background-accent-purple-subtlest: #f8eefe;
+  --background-accent-purple-subtler: #eed7fc;
+  --background-accent-purple-subtle: #c97cf4;
+  --background-accent-purple-bolder: #964ac0;
+  --background-accent-magenta-subtlest: #ffecf8;
+  --background-accent-magenta-subtler: #fdd0ec;
+  --background-accent-magenta-subtle: #e774bb;
+  --background-accent-magenta-bolder: #ae4787;
+  --background-accent-gray-subtlest: #f0f1f2;
+  --background-accent-gray-subtler: #dddee1;
+  --background-accent-gray-subtle: #8c8f97;
+  --background-accent-gray-bolder: #6b6e76;
 
-  /* shadcn compatibility — mapped to brand */
-  --radius: 0.625rem;
-  --background: #f0f2f5;
-  --foreground: #1c1e21;
-  --card: #ffffff;
-  --card-foreground: #1c1e21;
-  --popover: #ffffff;
-  --popover-foreground: #1c1e21;
-  --primary: #1877f2;
-  --primary-foreground: #ffffff;
-  --secondary: #f7f9fb;
-  --secondary-foreground: #0b2447;
-  --muted: #f7f9fb;
-  --muted-foreground: #65676b;
-  --accent: #e7f0fe;
-  --accent-foreground: #0b2447;
-  --destructive: #d93025;
-  --destructive-foreground: #ffffff;
-  --border: #e4e6eb;
-  --input: #e4e6eb;
-  --ring: #1877f2;
-  --chart-1: #1877f2;
-  --chart-2: #2e7d32;
-  --chart-3: #f9a825;
-  --chart-4: #d93025;
-  --chart-5: #0a4da6;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #1c1e21;
-  --sidebar-primary: #1877f2;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e7f0fe;
-  --sidebar-accent-foreground: #0b2447;
-  --sidebar-border: #e4e6eb;
-  --sidebar-ring: #1877f2;
+  /* ---- Backgrounds: code ---- */
+  --background-code-added-highlight: #dcfff1;
+  --background-code-added-line: #baf3db66;
+  --background-code-default: #ffffff;
+  --background-code-gutter: #f0f1f2;
+  --background-code-highlight: #f0f1f2;
+  --background-code-removed-highlight: #ffeceb;
+  --background-code-removed-line: #ffd5d266;
+
+  /* ---- Backgrounds: neutral / input / inverse ---- */
+  --background-disabled: #0515240f;
+  --background-input: #ffffff;
+  --background-input-hovered: #f8f8f8;
+  --background-input-pressed: #ffffff;
+  --background-inverse-subtle: #00000029;
+  --background-inverse-subtle-hovered: #0000003d;
+  --background-inverse-subtle-pressed: #00000052;
+  --background-neutral: #0515240f;
+  --background-neutral-hovered: #0b120e24;
+  --background-neutral-pressed: #080f214a;
+  --background-neutral-subtle: #00000000;
+  --background-neutral-subtle-hovered: #0515240f;
+  --background-neutral-subtle-pressed: #0b120e24;
+  --background-neutral-bold: #292a2e;
+  --background-neutral-bold-hovered: #3b3d42;
+  --background-neutral-bold-pressed: #505258;
+
+  /* ---- Backgrounds: selected / brand ---- */
+  --background-selected: #e9f2fe;
+  --background-selected-hovered: #cfe1fd;
+  --background-selected-pressed: #8fb8f6;
+  --background-selected-bold: #1868db;
+  --background-selected-bold-hovered: #1558bc;
+  --background-selected-bold-pressed: #123263;
+  --background-brand-subtlest: #e9f2fe;
+  --background-brand-subtlest-hovered: #cfe1fd;
+  --background-brand-subtlest-pressed: #adcbfb;
+  --background-brand-bold: #1868db;
+  --background-brand-bold-hovered: #1558bc;
+  --background-brand-bold-pressed: #144794;
+  --background-brand-boldest: #1c2b42;
+  --background-brand-boldest-hovered: #123263;
+  --background-brand-boldest-pressed: #144794;
+
+  /* ---- Backgrounds: semantic roles (danger/warning/success/discovery/information) ---- */
+  --background-danger: #ffeceb;
+  --background-danger-hovered: #ffd5d2;
+  --background-danger-pressed: #ffb8b2;
+  --background-danger-subtler: #ffd5d2;
+  --background-danger-subtler-hovered: #ffb8b2;
+  --background-danger-subtler-pressed: #fd9891;
+  --background-danger-subtle: #fd9891;
+  --background-danger-bold: #c9372c;
+  --background-danger-bold-hovered: #ae2e24;
+  --background-danger-bold-pressed: #872821;
+  --background-warning: #fff5db;
+  --background-warning-hovered: #fce4a6;
+  --background-warning-pressed: #fbd779;
+  --background-warning-subtler: #fce4a6;
+  --background-warning-subtler-hovered: #fbd779;
+  --background-warning-subtler-pressed: #fbc828;
+  --background-warning-subtle: #fbd779;
+  --background-warning-bold: #fbc828;
+  --background-warning-bold-hovered: #fca700;
+  --background-warning-bold-pressed: #f68909;
+  --background-success: #effed6;
+  --background-success-hovered: #d3f1a7;
+  --background-success-pressed: #bde97c;
+  --background-success-subtler: #d3f1a7;
+  --background-success-subtler-hovered: #bde97c;
+  --background-success-subtler-pressed: #b3df72;
+  --background-success-subtle: #b3df72;
+  --background-success-bold: #5b7f24;
+  --background-success-bold-hovered: #4c6b1f;
+  --background-success-bold-pressed: #3f5224;
+  --background-discovery: #f8eefe;
+  --background-discovery-hovered: #eed7fc;
+  --background-discovery-pressed: #e3bdfa;
+  --background-discovery-subtler: #eed7fc;
+  --background-discovery-subtler-hovered: #e3bdfa;
+  --background-discovery-subtler-pressed: #d8a0f7;
+  --background-discovery-subtle: #d8a0f7;
+  --background-discovery-bold: #964ac0;
+  --background-discovery-bold-hovered: #803fa5;
+  --background-discovery-bold-pressed: #673286;
+  --background-information: #e9f2fe;
+  --background-information-hovered: #cfe1fd;
+  --background-information-pressed: #adcbfb;
+  --background-information-subtler: #cfe1fd;
+  --background-information-subtler-hovered: #adcbfb;
+  --background-information-subtler-pressed: #8fb8f6;
+  --background-information-subtle: #8fb8f6;
+  --background-information-bold: #1868db;
+  --background-information-bold-hovered: #1558bc;
+  --background-information-bold-pressed: #144794;
+
+  /* ---- Chart tokens ---- */
+  --chart-categorical-1: #357de8;
+  --chart-categorical-2: #82b536;
+  --chart-categorical-3: #bf63f3;
+  --chart-categorical-4: #f68909;
+  --chart-categorical-5: #1558bc;
+  --chart-categorical-6: #964ac0;
+  --chart-categorical-7: #42b2d7;
+  --chart-categorical-8: #bd5b00;
+  --chart-lime-bold: #6a9a23;
+  --chart-lime-bolder: #5b7f24;
+  --chart-lime-boldest: #4c6b1f;
+  --chart-neutral: #8c8f97;
+  --chart-neutral-hovered: #7d818a;
+  --chart-red-bold: #f15b50;
+  --chart-red-bolder: #e2483d;
+  --chart-red-boldest: #ae2e24;
+  --chart-orange-bold: #e06c00;
+  --chart-orange-bolder: #bd5b00;
+  --chart-orange-boldest: #7a3b00;
+  --chart-yellow-bold: #b38600;
+  --chart-yellow-bolder: #946f00;
+  --chart-yellow-boldest: #7f5f01;
+  --chart-green-bold: #22a06b;
+  --chart-green-bolder: #1f845a;
+  --chart-green-boldest: #216e4e;
+  --chart-teal-bold: #2898bd;
+  --chart-teal-bolder: #227d9b;
+  --chart-teal-boldest: #206a83;
+  --chart-blue-bold: #4688ec;
+  --chart-blue-bolder: #357de8;
+  --chart-blue-boldest: #1558bc;
+  --chart-purple-bold: #bf63f3;
+  --chart-purple-bolder: #af59e1;
+  --chart-purple-boldest: #803fa5;
+  --chart-magenta-bold: #da62ac;
+  --chart-magenta-bolder: #cd519d;
+  --chart-magenta-boldest: #943d73;
+  --chart-gray-bold: #8c8f97;
+  --chart-gray-bolder: #7d818a;
+  --chart-gray-boldest: #505258;
+  --chart-brand: #357de8;
+  --chart-danger: #e2483d;
+  --chart-danger-bold: #872821;
+  --chart-warning: #f68909;
+  --chart-warning-bold: #bd5b00;
+  --chart-success: #82b536;
+  --chart-success-bold: #5b7f24;
+  --chart-discovery: #bf63f3;
+  --chart-discovery-bold: #803fa5;
+  --chart-information: #357de8;
+  --chart-information-bold: #1558bc;
+
+  /* ---- Interaction / skeleton / blanket ---- */
+  --interaction-hovered: #00000029;
+  --interaction-pressed: #00000052;
+  --skeleton: #0515240f;
+  --skeleton-subtle: #17171708;
+  --blanket: #050c1f75;
+  --blanket-selected: #388bff14;
+  --blanket-danger: #ef5c4814;
+
+  /* ---- Surfaces (elevation planes) ---- */
+  --surface: #ffffff;
+  --surface-hovered: #f0f1f2;
+  --surface-pressed: #dddee1;
+  --surface-sunken: #f8f8f8;
+  --surface-raised: #ffffff;
+  --surface-raised-hovered: #f0f1f2;
+  --surface-raised-pressed: #dddee1;
+  --surface-overlay: #ffffff;
+  --surface-overlay-hovered: #f0f1f2;
+  --surface-overlay-pressed: #dddee1;
+  --surface-container: #17171708;
+  --surface-container-hovered: #0515240f;
+  --surface-container-pressed: #0b120e24;
+
+  --shadow-raised: 0px 1px 1px #1e1f2140, 0px 0px 1px #1e1f214f;
+  --shadow-overlay: 0px 8px 12px #1e1f2126, 0px 0px 1px #1e1f214f;
+  --shadow-overflow: 0px 0px 8px #1e1f2129, 0px 0px 1px #1e1f211f;
+
+  /* ---- Radius (t-shirt scale, Design.md `rounded:`) ---- */
+  --radius-token-xsmall: 0.125rem; /* 2px  — badges, checkboxes, avatar labels, kbd */
+  --radius-token-small: 0.25rem; /* 4px  — lozenges, tags, timestamps, tooltips, compact buttons */
+  --radius-token-medium: 0.375rem; /* 6px  — buttons, inputs, selects, nav items, smart links */
+  --radius-token-large: 0.5rem; /* 8px  — cards, in-page containers, dropdown menus, floating UI */
+  --radius-token-xlarge: 0.75rem; /* 12px — modal dialogs, Kanban columns, large containers, tables */
+  --radius-token-xxlarge: 1rem; /* 16px — video players only */
+  --radius-token-full: 624.9375rem; /* pill — avatars, pills, user UI, emoji reactions */
+  --radius-token-tile: 25%; /* tile components only */
+
+  /* ---- Border width scale ---- */
+  --border-width-default: 0.0625rem; /* 1px — resting borders */
+  --border-width-selected: 0.125rem; /* 2px — selected state */
+  --border-width-focused: 0.125rem; /* 2px — focus ring */
+
+  /* ---- Spacing (8px-base scale, Design.md `spacing:`) ---- */
+  --space-0: 0rem;
+  --space-025: 0.125rem;
+  --space-050: 0.25rem;
+  --space-075: 0.375rem;
+  --space-100: 0.5rem;
+  --space-150: 0.75rem;
+  --space-200: 1rem;
+  --space-250: 1.25rem;
+  --space-300: 1.5rem;
+  --space-400: 2rem;
+  --space-500: 2.5rem;
+  --space-600: 3rem;
+  --space-800: 4rem;
+  --space-1000: 5rem;
+  --space-negative-025: -0.125rem;
+  --space-negative-050: -0.25rem;
+  --space-negative-075: -0.375rem;
+  --space-negative-100: -0.5rem;
+  --space-negative-150: -0.75rem;
+  --space-negative-200: -1rem;
+  --space-negative-250: -1.25rem;
+  --space-negative-300: -1.5rem;
+  --space-negative-400: -2rem;
+
+  /* ---- Motion (Design.md `motion:`) ---- */
+  --motion-duration-instant: 0ms;
+  --motion-duration-xxshort: 50ms;
+  --motion-duration-xshort: 100ms;
+  --motion-duration-short: 150ms;
+  --motion-duration-medium: 200ms;
+  --motion-duration-long: 250ms;
+  --motion-duration-xlong: 400ms;
+  --motion-duration-xxlong: 600ms;
+  --motion-easing-in-practical: cubic-bezier(0.6, 0, 0.8, 0.6);
+  --motion-easing-inout-bold: cubic-bezier(0.4, 0, 0, 1);
+  --motion-easing-out-practical: cubic-bezier(0.4, 1, 0.6, 1);
+  --motion-easing-out-bold: cubic-bezier(0, 0.4, 0, 1);
+
+  /* ---- shadcn/Radix compatibility vars — repointed at the tokens above ---- */
+  --radius: var(--radius-token-medium);
+  --background: var(--surface);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface-overlay);
+  --popover-foreground: var(--text);
+  --primary: var(--background-brand-bold);
+  --primary-foreground: var(--text-inverse);
+  --secondary: var(--background-neutral-subtle);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-sunken);
+  --muted-foreground: var(--text-subtle);
+  --accent: var(--background-brand-subtlest);
+  --accent-foreground: var(--text-brand);
+  --destructive: var(--background-danger-bold);
+  --destructive-foreground: var(--text-inverse);
+  --border-default: var(--border);
+  --input: var(--border-input);
+  --ring: var(--border-focused);
+  --chart-1: var(--chart-categorical-1);
+  --chart-2: var(--chart-categorical-2);
+  --chart-3: var(--chart-categorical-3);
+  --chart-4: var(--chart-categorical-4);
+  --chart-5: var(--chart-categorical-5);
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--text);
+  --sidebar-primary: var(--background-brand-bold);
+  --sidebar-primary-foreground: var(--text-inverse);
+  --sidebar-accent: var(--background-brand-subtlest);
+  --sidebar-accent-foreground: var(--text-brand);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--border-focused);
+
+  /* ---- Sentiment tokens ----
+   * A distinct domain concept (call/message sentiment analysis: positive/neutral/negative),
+   * not a UI role — kept as its own named family rather than folded into text-success/warning/
+   * danger, though the values are those same tokens so sentiment colors stay in sync with the
+   * rest of the semantic palette. */
+  --sentiment-positive: var(--text-success);
+  --sentiment-neutral: var(--text-warning);
+  --sentiment-negative: var(--text-danger);
 }
 
 @theme inline {
-  --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
-  --font-mono: "Roboto Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular,
-    monospace;
-
-  --radius-sm: var(--r-sm);
-  --radius-md: var(--r-md);
-  --radius-lg: var(--r-lg);
-  --radius-xl: 20px;
-  --radius-2xl: 24px;
-
-  --color-brand-primary: var(--brand-primary);
-  --color-brand-primary-hover: var(--brand-primary-hover);
-  --color-brand-primary-dark: var(--brand-primary-dark);
-  --color-brand-navy: var(--brand-navy);
-  --color-brand-tint: var(--brand-tint);
-  --color-surface-app: var(--surface-app);
-  --color-surface-card: var(--surface-card);
-  --color-surface-sunken: var(--surface-sunken);
-  --color-text-primary: var(--text-primary);
-  --color-text-secondary: var(--text-secondary);
-  --color-text-muted: var(--text-muted);
-  --color-success: var(--success);
-  --color-success-bg: var(--success-bg);
-  --color-warning: var(--warning);
-  --color-warning-bg: var(--warning-bg);
-  --color-danger: var(--danger);
-  --color-danger-bg: var(--danger-bg);
-  --color-info: var(--info);
   --color-sentiment-positive: var(--sentiment-positive);
   --color-sentiment-neutral: var(--sentiment-neutral);
   --color-sentiment-negative: var(--sentiment-negative);
 
+  /* ---- Fonts ----
+   * Atlassian Sans / Atlassian Mono are Atlassian's proprietary in-house typefaces with no
+   * legitimate free distribution. Inter is kept (Atlassian Sans is itself Inter-derived) and
+   * JetBrains Mono replaces Roboto Mono (same lineage as Atlassian Mono, free/SIL-OFL). Type
+   * scale sizes/weights/line-heights below are ported from Design.md unchanged. */
+  --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Roboto Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* ---- Radius utility hooks (rounded-xsmall … rounded-full / rounded-tile) ---- */
+  --radius-xsmall: var(--radius-token-xsmall);
+  --radius-small: var(--radius-token-small);
+  --radius-medium: var(--radius-token-medium);
+  --radius-large: var(--radius-token-large);
+  --radius-xlarge: var(--radius-token-xlarge);
+  --radius-xxlarge: var(--radius-token-xxlarge);
+  --radius-full: var(--radius-token-full);
+  --radius-tile: var(--radius-token-tile);
+  /* shadcn-compat aliases still used by a handful of untouched primitives */
+  --radius-sm: var(--radius-token-small);
+  --radius-md: var(--radius-token-medium);
+  --radius-lg: var(--radius-token-large);
+  --radius-xl: var(--radius-token-xlarge);
+  --radius-2xl: var(--radius-token-xxlarge);
+
+  /* ---- Spacing utility hooks (p-100, gap-200, etc.) ---- */
+  --spacing-0: var(--space-0);
+  --spacing-025: var(--space-025);
+  --spacing-050: var(--space-050);
+  --spacing-075: var(--space-075);
+  --spacing-100: var(--space-100);
+  --spacing-150: var(--space-150);
+  --spacing-200: var(--space-200);
+  --spacing-250: var(--space-250);
+  --spacing-300: var(--space-300);
+  --spacing-400: var(--space-400);
+  --spacing-500: var(--space-500);
+  --spacing-600: var(--space-600);
+  --spacing-800: var(--space-800);
+  --spacing-1000: var(--space-1000);
+
+  /* ---- Color utility hooks — one 1:1 mapping per Design.md token, so classes like
+   * text-text-subtle / bg-background-brand-bold / border-border-danger work natively. ---- */
+  --color-text: var(--text);
+  --color-text-accent-lime: var(--text-accent-lime);
+  --color-text-accent-lime-bolder: var(--text-accent-lime-bolder);
+  --color-text-accent-red: var(--text-accent-red);
+  --color-text-accent-red-bolder: var(--text-accent-red-bolder);
+  --color-text-accent-orange: var(--text-accent-orange);
+  --color-text-accent-orange-bolder: var(--text-accent-orange-bolder);
+  --color-text-accent-yellow: var(--text-accent-yellow);
+  --color-text-accent-yellow-bolder: var(--text-accent-yellow-bolder);
+  --color-text-accent-green: var(--text-accent-green);
+  --color-text-accent-green-bolder: var(--text-accent-green-bolder);
+  --color-text-accent-teal: var(--text-accent-teal);
+  --color-text-accent-teal-bolder: var(--text-accent-teal-bolder);
+  --color-text-accent-blue: var(--text-accent-blue);
+  --color-text-accent-blue-bolder: var(--text-accent-blue-bolder);
+  --color-text-accent-purple: var(--text-accent-purple);
+  --color-text-accent-purple-bolder: var(--text-accent-purple-bolder);
+  --color-text-accent-magenta: var(--text-accent-magenta);
+  --color-text-accent-magenta-bolder: var(--text-accent-magenta-bolder);
+  --color-text-accent-gray: var(--text-accent-gray);
+  --color-text-accent-gray-bolder: var(--text-accent-gray-bolder);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-selected: var(--text-selected);
+  --color-text-brand: var(--text-brand);
+  --color-text-danger: var(--text-danger);
+  --color-text-danger-bolder: var(--text-danger-bolder);
+  --color-text-warning: var(--text-warning);
+  --color-text-warning-inverse: var(--text-warning-inverse);
+  --color-text-warning-bolder: var(--text-warning-bolder);
+  --color-text-success: var(--text-success);
+  --color-text-success-bolder: var(--text-success-bolder);
+  --color-text-discovery: var(--text-discovery);
+  --color-text-discovery-bolder: var(--text-discovery-bolder);
+  --color-text-information: var(--text-information);
+  --color-text-information-bolder: var(--text-information-bolder);
+  --color-text-subtlest: var(--text-subtlest);
+  --color-text-subtle: var(--text-subtle);
+  --color-text-code-accent-1: var(--text-code-accent-1);
+  --color-text-code-accent-2: var(--text-code-accent-2);
+  --color-text-code-comments: var(--text-code-comments);
+  --color-text-code-default: var(--text-code-default);
+  --color-text-code-functions: var(--text-code-functions);
+  --color-text-code-gutter: var(--text-code-gutter);
+  --color-text-code-keywords: var(--text-code-keywords);
+  --color-text-code-numbers: var(--text-code-numbers);
+  --color-text-code-operators: var(--text-code-operators);
+  --color-text-code-strings: var(--text-code-strings);
+  --color-text-code-tags: var(--text-code-tags);
+
+  --color-link: var(--link);
+  --color-link-pressed: var(--link-pressed);
+  --color-link-visited: var(--link-visited);
+  --color-link-visited-pressed: var(--link-visited-pressed);
+
+  --color-icon: var(--icon);
+  --color-icon-accent-lime: var(--icon-accent-lime);
+  --color-icon-accent-red: var(--icon-accent-red);
+  --color-icon-accent-orange: var(--icon-accent-orange);
+  --color-icon-accent-yellow: var(--icon-accent-yellow);
+  --color-icon-accent-green: var(--icon-accent-green);
+  --color-icon-accent-teal: var(--icon-accent-teal);
+  --color-icon-accent-blue: var(--icon-accent-blue);
+  --color-icon-accent-purple: var(--icon-accent-purple);
+  --color-icon-accent-magenta: var(--icon-accent-magenta);
+  --color-icon-accent-gray: var(--icon-accent-gray);
+  --color-icon-disabled: var(--icon-disabled);
+  --color-icon-inverse: var(--icon-inverse);
+  --color-icon-selected: var(--icon-selected);
+  --color-icon-brand: var(--icon-brand);
+  --color-icon-danger: var(--icon-danger);
+  --color-icon-warning: var(--icon-warning);
+  --color-icon-warning-inverse: var(--icon-warning-inverse);
+  --color-icon-success: var(--icon-success);
+  --color-icon-discovery: var(--icon-discovery);
+  --color-icon-information: var(--icon-information);
+  --color-icon-subtlest: var(--icon-subtlest);
+  --color-icon-subtle: var(--icon-subtle);
+
+  --color-border: var(--border);
+  --color-border-accent-lime: var(--border-accent-lime);
+  --color-border-accent-lime-subtle: var(--border-accent-lime-subtle);
+  --color-border-accent-red: var(--border-accent-red);
+  --color-border-accent-red-subtle: var(--border-accent-red-subtle);
+  --color-border-accent-orange: var(--border-accent-orange);
+  --color-border-accent-orange-subtle: var(--border-accent-orange-subtle);
+  --color-border-accent-yellow: var(--border-accent-yellow);
+  --color-border-accent-yellow-subtle: var(--border-accent-yellow-subtle);
+  --color-border-accent-green: var(--border-accent-green);
+  --color-border-accent-green-subtle: var(--border-accent-green-subtle);
+  --color-border-accent-teal: var(--border-accent-teal);
+  --color-border-accent-teal-subtle: var(--border-accent-teal-subtle);
+  --color-border-accent-blue: var(--border-accent-blue);
+  --color-border-accent-blue-subtle: var(--border-accent-blue-subtle);
+  --color-border-accent-purple: var(--border-accent-purple);
+  --color-border-accent-purple-subtle: var(--border-accent-purple-subtle);
+  --color-border-accent-magenta: var(--border-accent-magenta);
+  --color-border-accent-magenta-subtle: var(--border-accent-magenta-subtle);
+  --color-border-accent-gray: var(--border-accent-gray);
+  --color-border-accent-gray-subtle: var(--border-accent-gray-subtle);
+  --color-border-code: var(--border-code);
+  --color-border-disabled: var(--border-disabled);
+  --color-border-focused: var(--border-focused);
+  --color-border-input: var(--border-input);
+  --color-border-inverse: var(--border-inverse);
+  --color-border-selected: var(--border-selected);
+  --color-border-brand: var(--border-brand);
+  --color-border-danger: var(--border-danger);
+  --color-border-danger-subtle: var(--border-danger-subtle);
+  --color-border-warning: var(--border-warning);
+  --color-border-warning-subtle: var(--border-warning-subtle);
+  --color-border-success: var(--border-success);
+  --color-border-success-subtle: var(--border-success-subtle);
+  --color-border-discovery: var(--border-discovery);
+  --color-border-discovery-subtle: var(--border-discovery-subtle);
+  --color-border-information: var(--border-information);
+  --color-border-information-subtle: var(--border-information-subtle);
+  --color-border-bold: var(--border-bold);
+
+  --color-background-accent-lime-subtlest: var(--background-accent-lime-subtlest);
+  --color-background-accent-lime-subtler: var(--background-accent-lime-subtler);
+  --color-background-accent-lime-subtle: var(--background-accent-lime-subtle);
+  --color-background-accent-lime-bolder: var(--background-accent-lime-bolder);
+  --color-background-accent-red-subtlest: var(--background-accent-red-subtlest);
+  --color-background-accent-red-subtler: var(--background-accent-red-subtler);
+  --color-background-accent-red-subtle: var(--background-accent-red-subtle);
+  --color-background-accent-red-bolder: var(--background-accent-red-bolder);
+  --color-background-accent-orange-subtlest: var(--background-accent-orange-subtlest);
+  --color-background-accent-orange-subtler: var(--background-accent-orange-subtler);
+  --color-background-accent-orange-subtle: var(--background-accent-orange-subtle);
+  --color-background-accent-orange-bolder: var(--background-accent-orange-bolder);
+  --color-background-accent-yellow-subtlest: var(--background-accent-yellow-subtlest);
+  --color-background-accent-yellow-subtler: var(--background-accent-yellow-subtler);
+  --color-background-accent-yellow-subtle: var(--background-accent-yellow-subtle);
+  --color-background-accent-yellow-bolder: var(--background-accent-yellow-bolder);
+  --color-background-accent-green-subtlest: var(--background-accent-green-subtlest);
+  --color-background-accent-green-subtler: var(--background-accent-green-subtler);
+  --color-background-accent-green-subtle: var(--background-accent-green-subtle);
+  --color-background-accent-green-bolder: var(--background-accent-green-bolder);
+  --color-background-accent-teal-subtlest: var(--background-accent-teal-subtlest);
+  --color-background-accent-teal-subtler: var(--background-accent-teal-subtler);
+  --color-background-accent-teal-subtle: var(--background-accent-teal-subtle);
+  --color-background-accent-teal-bolder: var(--background-accent-teal-bolder);
+  --color-background-accent-blue-subtlest: var(--background-accent-blue-subtlest);
+  --color-background-accent-blue-subtler: var(--background-accent-blue-subtler);
+  --color-background-accent-blue-subtle: var(--background-accent-blue-subtle);
+  --color-background-accent-blue-bolder: var(--background-accent-blue-bolder);
+  --color-background-accent-purple-subtlest: var(--background-accent-purple-subtlest);
+  --color-background-accent-purple-subtler: var(--background-accent-purple-subtler);
+  --color-background-accent-purple-subtle: var(--background-accent-purple-subtle);
+  --color-background-accent-purple-bolder: var(--background-accent-purple-bolder);
+  --color-background-accent-magenta-subtlest: var(--background-accent-magenta-subtlest);
+  --color-background-accent-magenta-subtler: var(--background-accent-magenta-subtler);
+  --color-background-accent-magenta-subtle: var(--background-accent-magenta-subtle);
+  --color-background-accent-magenta-bolder: var(--background-accent-magenta-bolder);
+  --color-background-accent-gray-subtlest: var(--background-accent-gray-subtlest);
+  --color-background-accent-gray-subtler: var(--background-accent-gray-subtler);
+  --color-background-accent-gray-subtle: var(--background-accent-gray-subtle);
+  --color-background-accent-gray-bolder: var(--background-accent-gray-bolder);
+
+  --color-background-code-added-highlight: var(--background-code-added-highlight);
+  --color-background-code-added-line: var(--background-code-added-line);
+  --color-background-code-default: var(--background-code-default);
+  --color-background-code-gutter: var(--background-code-gutter);
+  --color-background-code-highlight: var(--background-code-highlight);
+  --color-background-code-removed-highlight: var(--background-code-removed-highlight);
+  --color-background-code-removed-line: var(--background-code-removed-line);
+
+  --color-background-disabled: var(--background-disabled);
+  --color-background-input: var(--background-input);
+  --color-background-input-hovered: var(--background-input-hovered);
+  --color-background-input-pressed: var(--background-input-pressed);
+  --color-background-inverse-subtle: var(--background-inverse-subtle);
+  --color-background-inverse-subtle-hovered: var(--background-inverse-subtle-hovered);
+  --color-background-inverse-subtle-pressed: var(--background-inverse-subtle-pressed);
+  --color-background-neutral: var(--background-neutral);
+  --color-background-neutral-hovered: var(--background-neutral-hovered);
+  --color-background-neutral-pressed: var(--background-neutral-pressed);
+  --color-background-neutral-subtle: var(--background-neutral-subtle);
+  --color-background-neutral-subtle-hovered: var(--background-neutral-subtle-hovered);
+  --color-background-neutral-subtle-pressed: var(--background-neutral-subtle-pressed);
+  --color-background-neutral-bold: var(--background-neutral-bold);
+  --color-background-neutral-bold-hovered: var(--background-neutral-bold-hovered);
+  --color-background-neutral-bold-pressed: var(--background-neutral-bold-pressed);
+
+  --color-background-selected: var(--background-selected);
+  --color-background-selected-hovered: var(--background-selected-hovered);
+  --color-background-selected-pressed: var(--background-selected-pressed);
+  --color-background-selected-bold: var(--background-selected-bold);
+  --color-background-selected-bold-hovered: var(--background-selected-bold-hovered);
+  --color-background-selected-bold-pressed: var(--background-selected-bold-pressed);
+  --color-background-brand-subtlest: var(--background-brand-subtlest);
+  --color-background-brand-subtlest-hovered: var(--background-brand-subtlest-hovered);
+  --color-background-brand-subtlest-pressed: var(--background-brand-subtlest-pressed);
+  --color-background-brand-bold: var(--background-brand-bold);
+  --color-background-brand-bold-hovered: var(--background-brand-bold-hovered);
+  --color-background-brand-bold-pressed: var(--background-brand-bold-pressed);
+  --color-background-brand-boldest: var(--background-brand-boldest);
+  --color-background-brand-boldest-hovered: var(--background-brand-boldest-hovered);
+  --color-background-brand-boldest-pressed: var(--background-brand-boldest-pressed);
+
+  --color-background-danger: var(--background-danger);
+  --color-background-danger-hovered: var(--background-danger-hovered);
+  --color-background-danger-pressed: var(--background-danger-pressed);
+  --color-background-danger-subtler: var(--background-danger-subtler);
+  --color-background-danger-subtler-hovered: var(--background-danger-subtler-hovered);
+  --color-background-danger-subtler-pressed: var(--background-danger-subtler-pressed);
+  --color-background-danger-subtle: var(--background-danger-subtle);
+  --color-background-danger-bold: var(--background-danger-bold);
+  --color-background-danger-bold-hovered: var(--background-danger-bold-hovered);
+  --color-background-danger-bold-pressed: var(--background-danger-bold-pressed);
+  --color-background-warning: var(--background-warning);
+  --color-background-warning-hovered: var(--background-warning-hovered);
+  --color-background-warning-pressed: var(--background-warning-pressed);
+  --color-background-warning-subtler: var(--background-warning-subtler);
+  --color-background-warning-subtler-hovered: var(--background-warning-subtler-hovered);
+  --color-background-warning-subtler-pressed: var(--background-warning-subtler-pressed);
+  --color-background-warning-subtle: var(--background-warning-subtle);
+  --color-background-warning-bold: var(--background-warning-bold);
+  --color-background-warning-bold-hovered: var(--background-warning-bold-hovered);
+  --color-background-warning-bold-pressed: var(--background-warning-bold-pressed);
+  --color-background-success: var(--background-success);
+  --color-background-success-hovered: var(--background-success-hovered);
+  --color-background-success-pressed: var(--background-success-pressed);
+  --color-background-success-subtler: var(--background-success-subtler);
+  --color-background-success-subtler-hovered: var(--background-success-subtler-hovered);
+  --color-background-success-subtler-pressed: var(--background-success-subtler-pressed);
+  --color-background-success-subtle: var(--background-success-subtle);
+  --color-background-success-bold: var(--background-success-bold);
+  --color-background-success-bold-hovered: var(--background-success-bold-hovered);
+  --color-background-success-bold-pressed: var(--background-success-bold-pressed);
+  --color-background-discovery: var(--background-discovery);
+  --color-background-discovery-hovered: var(--background-discovery-hovered);
+  --color-background-discovery-pressed: var(--background-discovery-pressed);
+  --color-background-discovery-subtler: var(--background-discovery-subtler);
+  --color-background-discovery-subtler-hovered: var(--background-discovery-subtler-hovered);
+  --color-background-discovery-subtler-pressed: var(--background-discovery-subtler-pressed);
+  --color-background-discovery-subtle: var(--background-discovery-subtle);
+  --color-background-discovery-bold: var(--background-discovery-bold);
+  --color-background-discovery-bold-hovered: var(--background-discovery-bold-hovered);
+  --color-background-discovery-bold-pressed: var(--background-discovery-bold-pressed);
+  --color-background-information: var(--background-information);
+  --color-background-information-hovered: var(--background-information-hovered);
+  --color-background-information-pressed: var(--background-information-pressed);
+  --color-background-information-subtler: var(--background-information-subtler);
+  --color-background-information-subtler-hovered: var(--background-information-subtler-hovered);
+  --color-background-information-subtler-pressed: var(--background-information-subtler-pressed);
+  --color-background-information-subtle: var(--background-information-subtle);
+  --color-background-information-bold: var(--background-information-bold);
+  --color-background-information-bold-hovered: var(--background-information-bold-hovered);
+  --color-background-information-bold-pressed: var(--background-information-bold-pressed);
+
+  --color-chart-categorical-1: var(--chart-categorical-1);
+  --color-chart-categorical-2: var(--chart-categorical-2);
+  --color-chart-categorical-3: var(--chart-categorical-3);
+  --color-chart-categorical-4: var(--chart-categorical-4);
+  --color-chart-categorical-5: var(--chart-categorical-5);
+  --color-chart-categorical-6: var(--chart-categorical-6);
+  --color-chart-categorical-7: var(--chart-categorical-7);
+  --color-chart-categorical-8: var(--chart-categorical-8);
+  --color-chart-brand: var(--chart-brand);
+  --color-chart-danger: var(--chart-danger);
+  --color-chart-danger-bold: var(--chart-danger-bold);
+  --color-chart-warning: var(--chart-warning);
+  --color-chart-warning-bold: var(--chart-warning-bold);
+  --color-chart-success: var(--chart-success);
+  --color-chart-success-bold: var(--chart-success-bold);
+  --color-chart-discovery: var(--chart-discovery);
+  --color-chart-discovery-bold: var(--chart-discovery-bold);
+  --color-chart-information: var(--chart-information);
+  --color-chart-information-bold: var(--chart-information-bold);
+  --color-chart-neutral: var(--chart-neutral);
+  --color-chart-neutral-hovered: var(--chart-neutral-hovered);
+
+  --color-interaction-hovered: var(--interaction-hovered);
+  --color-interaction-pressed: var(--interaction-pressed);
+  --color-skeleton: var(--skeleton);
+  --color-skeleton-subtle: var(--skeleton-subtle);
+  --color-blanket: var(--blanket);
+  --color-blanket-selected: var(--blanket-selected);
+  --color-blanket-danger: var(--blanket-danger);
+
+  --color-surface: var(--surface);
+  --color-surface-hovered: var(--surface-hovered);
+  --color-surface-pressed: var(--surface-pressed);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-raised-hovered: var(--surface-raised-hovered);
+  --color-surface-raised-pressed: var(--surface-raised-pressed);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-overlay-hovered: var(--surface-overlay-hovered);
+  --color-surface-overlay-pressed: var(--surface-overlay-pressed);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-hovered: var(--surface-container-hovered);
+  --color-surface-container-pressed: var(--surface-container-pressed);
+
+  /* shadcn-compat hooks */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -135,7 +814,6 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -153,21 +831,161 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* ---- Utilities ---- */
+
 @utility tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
 
-@utility shadow-card {
-  box-shadow: var(--shadow-sm);
+/* Elevation — exactly the 3 planes Design.md defines. Default plane gets a border, no shadow. */
+@utility shadow-raised {
+  box-shadow: var(--shadow-raised);
+}
+@utility shadow-overlay {
+  box-shadow: var(--shadow-overlay);
+}
+@utility shadow-overflow {
+  box-shadow: var(--shadow-overflow);
 }
 
-@utility shadow-pop {
-  box-shadow: var(--shadow-md);
+/* Border-width utilities (Design.md borders scale) */
+@utility border-width-default {
+  border-width: var(--border-width-default);
+}
+@utility border-width-selected {
+  border-width: var(--border-width-selected);
+}
+@utility border-width-focused {
+  border-width: var(--border-width-focused);
 }
 
-@utility shadow-float {
-  box-shadow: var(--shadow-lg);
+/* Shared focus-ring recipe (Design.md Shapes → Focus ring): 2px border-focused ring, 2px
+ * offset. Radius is set per-component by pairing this with the matching rounded-* utility
+ * one step up (e.g. a radius-medium control pairs with focus:rounded-large). */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    outline: var(--border-width-focused) solid var(--border-focused);
+    outline-offset: 2px;
+  }
+}
+
+/* Motion tokens as utilities so call sites read as intentional token choices, not raw values. */
+@utility duration-token-instant {
+  transition-duration: var(--motion-duration-instant);
+}
+@utility duration-token-xxshort {
+  transition-duration: var(--motion-duration-xxshort);
+}
+@utility duration-token-xshort {
+  transition-duration: var(--motion-duration-xshort);
+}
+@utility duration-token-short {
+  transition-duration: var(--motion-duration-short);
+}
+@utility duration-token-medium {
+  transition-duration: var(--motion-duration-medium);
+}
+@utility duration-token-long {
+  transition-duration: var(--motion-duration-long);
+}
+@utility duration-token-xlong {
+  transition-duration: var(--motion-duration-xlong);
+}
+@utility duration-token-xxlong {
+  transition-duration: var(--motion-duration-xxlong);
+}
+@utility ease-token-in-practical {
+  transition-timing-function: var(--motion-easing-in-practical);
+}
+@utility ease-token-inout-bold {
+  transition-timing-function: var(--motion-easing-inout-bold);
+}
+@utility ease-token-out-practical {
+  transition-timing-function: var(--motion-easing-out-practical);
+}
+@utility ease-token-out-bold {
+  transition-timing-function: var(--motion-easing-out-bold);
+}
+
+/* ---- Type scale (Design.md `typography:`) — each token bundles size + weight + line-height
+ * together, never split, per Design.md's "never make a heading lighter/heavier than the
+ * token" rule. weight-bold is literally 653 (Atlassian variable-font bold), not Tailwind's
+ * font-bold (700). ---- */
+@utility heading-xxlarge {
+  font-size: 2rem;
+  font-weight: 653;
+  line-height: 2.25rem;
+}
+@utility heading-xlarge {
+  font-size: 1.75rem;
+  font-weight: 653;
+  line-height: 2rem;
+}
+@utility heading-large {
+  font-size: 1.5rem;
+  font-weight: 653;
+  line-height: 1.75rem;
+}
+@utility heading-medium {
+  font-size: 1.25rem;
+  font-weight: 653;
+  line-height: 1.5rem;
+}
+@utility heading-small {
+  font-size: 1rem;
+  font-weight: 653;
+  line-height: 1.25rem;
+}
+@utility heading-xsmall {
+  font-size: 0.875rem;
+  font-weight: 653;
+  line-height: 1.25rem;
+}
+@utility heading-xxsmall {
+  font-size: 0.75rem;
+  font-weight: 653;
+  line-height: 1rem;
+}
+@utility text-body-large {
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.5rem;
+}
+@utility text-body {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+}
+@utility text-body-small {
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1rem;
+}
+@utility metric-large {
+  font-size: 1.75rem;
+  font-weight: 653;
+  line-height: 2rem;
+}
+@utility metric-medium {
+  font-size: 1.5rem;
+  font-weight: 653;
+  line-height: 1.75rem;
+}
+@utility metric-small {
+  font-size: 1rem;
+  font-weight: 653;
+  line-height: 1.25rem;
+}
+@utility text-code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  font-weight: 400;
+  line-height: 1;
+}
+@utility font-weight-bold-token {
+  font-weight: 653;
 }
 
 @layer base {
@@ -176,92 +994,86 @@
   }
   html,
   body {
-    background-color: var(--surface-app);
-    color: var(--text-primary);
+    /* Design.md: surface (#FFFFFF) is the page canvas everywhere — never surface-sunken. */
+    background-color: var(--surface);
+    color: var(--text);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
-  h1,
-  h2,
-  h3 {
-    color: var(--brand-navy);
-  }
+  /* Headings use the neutral text token by default (Design.md: color comes from context,
+   * not a global brand tint) — size/weight from the heading-* utilities carries hierarchy. */
 }
 
 /*
  * Scrollbars — unlayered so they win over Tailwind preflight / @layer base.
- * Soft blue-gray aligned to brand primary / tint (not OS default chrome).
  */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #8fa4c2 var(--brand-tint);
+  scrollbar-color: var(--icon-subtlest) var(--background-brand-subtlest);
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-track {
-  background-color: var(--brand-tint);
+  background-color: var(--background-brand-subtlest);
 }
 *::-webkit-scrollbar-thumb {
-  background-color: #8fa4c2;
-  border-radius: var(--r-full);
-  border: 2px solid var(--brand-tint);
+  background-color: var(--icon-subtlest);
+  border-radius: var(--radius-full);
+  border: 2px solid var(--background-brand-subtlest);
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: var(--brand-primary);
+  background-color: var(--background-brand-bold);
 }
 *::-webkit-scrollbar-corner {
-  background-color: var(--brand-tint);
+  background-color: var(--background-brand-subtlest);
 }
 
-/* BigBound dialer mark — circular softphone logo */
-@keyframes bb-dial-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* BigBound monogram mark.
+   One gesture only: the trend line draws itself once on mount. No looping pulse, no
+   travelling sheen, no glow — this sits at 28px beside the product name in the sidebar
+   and anything repeating there reads as a notification, not as brand. */
+.bb-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
 }
 
-@keyframes bb-dial-pulse {
-  0%,
-  100% {
-    opacity: 0.32;
-    transform: scale(0.9);
-  }
-  50% {
-    opacity: 0.95;
-    transform: scale(1.14);
-  }
-}
-
-.bb-dialer__ring,
-.bb-dialer__pulse {
-  transform-box: view-box;
-  transform-origin: 20px 19.2px;
+/* Static baseline: fully drawn. Motion only ever adds to this, so a reduced-motion
+   user and a mid-animation interrupt both land on a complete mark. */
+.bb-mark__trend {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .bb-dialer--live .bb-dialer__ring {
-    animation: bb-dial-spin 16s linear infinite;
+  .bb-mark--live .bb-mark__trend {
+    animation: bb-trend-draw var(--motion-duration-xlong) cubic-bezier(0.33, 1, 0.68, 1) both;
   }
-  .bb-dialer--live .bb-dialer__pulse {
-    animation: bb-dial-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes bb-trend-draw {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
   }
 }
 
 @keyframes pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.55);
+    box-shadow: 0 0 0 0 var(--background-success-bold);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(46, 125, 50, 0);
+    box-shadow: 0 0 0 8px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
@@ -276,15 +1088,15 @@
   }
 }
 
-@keyframes typing-bounce {
+/* Typing indicator — was a translateY "bounce" (Design.md bans bounce/elastic easing in
+ * product UI). Re-expressed as an opacity pulse using the inout-bold token; still a
+ * legitimate transient-state animation, just no longer springy. */
+@keyframes typing-pulse {
   0%,
-  60%,
   100% {
-    transform: translateY(0);
-    opacity: 0.45;
+    opacity: 0.35;
   }
-  30% {
-    transform: translateY(-3px);
+  50% {
     opacity: 1;
   }
 }
@@ -298,7 +1110,7 @@
 }
 
 @utility typing-dot {
-  animation: typing-bounce 1.05s ease-in-out infinite;
+  animation: typing-pulse var(--motion-duration-xlong) var(--motion-easing-inout-bold) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

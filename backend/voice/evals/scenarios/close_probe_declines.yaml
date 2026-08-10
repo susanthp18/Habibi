@@ -1,0 +1,34 @@
+# Before hanging up, the bot asks whether there is anything else.
+#
+# Asked ONCE, and the "no" must end the call rather than starting a second
+# attempt. The distinction this scenario protects is between "asked and
+# declined" and "never asked" — without the probe the funnel cannot tell them
+# apart, and without the once-only guard the close becomes a loop.
+name: close_probe_declines
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "I've paid it already this morning, so that's all I needed. Thanks."
+    expect:
+      - event: response
+        eval: "the bot acknowledges and does not argue"
+
+  - user: "That's everything, thanks."
+    expect:
+      - event: response
+        eval: >-
+          the bot asks exactly one closing question about whether there is
+          anything else it can help with — it does not read a list of options
+
+  - user: "No, nothing else."
+    expect:
+      - event: function_call
+        calls:
+          - name: end_call
+      - event: response
+        eval: >-
+          the bot thanks them and says goodbye without asking anything further
+          and without repeating the question

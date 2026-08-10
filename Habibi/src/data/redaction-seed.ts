@@ -97,18 +97,18 @@ export const ENTITY_TYPES: PiiEntityType[] = [
   "card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom",
 ];
 
-// Colors reuse existing tokens; hue per type kept subtle.
+// Design.md accent ramp, "-bolder" tier — one distinct hue per PII type.
 export const ENTITY_COLORS: Record<PiiEntityType, string> = {
-  card:    "#d93025",
-  pan:     "#0a4da6",
-  phone:   "#1877f2",
-  email:   "#7c3aed",
-  address: "#0891b2",
-  dob:     "#b45309",
-  account: "#2e7d32",
-  ifsc:    "#65676b",
-  aadhaar: "#be185d",
-  custom:  "#8a8d91",
+  card:    "#C9372C", // accent-red-bolder
+  pan:     "#1868DB", // accent-blue-bolder
+  phone:   "#227D9B", // accent-teal-bolder
+  email:   "#964AC0", // accent-purple-bolder
+  address: "#BD5B00", // accent-orange-bolder
+  dob:     "#946F00", // accent-yellow-bolder
+  account: "#1F845A", // accent-green-bolder
+  ifsc:    "#6B6E76", // accent-gray-bolder
+  aadhaar: "#AE4787", // accent-magenta-bolder
+  custom:  "#5B7F24", // accent-lime-bolder
 };
 
 const AUDIO_ELIGIBLE: PiiEntityType[] = ["card", "phone", "account", "aadhaar", "dob"];

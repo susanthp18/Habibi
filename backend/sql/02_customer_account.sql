@@ -1,3 +1,9 @@
+-- Catalog shared by accounts (what the customer holds) and the upsell engine
+-- (what we may offer). The NBO columns below are what let a recommender rank
+-- products without hardcoding a list in a tool description: `ticket_min/max`
+-- bound the suggested amount, `roi_numeric` and `margin_score` make offers
+-- comparable, `channels` keeps a branch-only product off the voice bot, and
+-- `is_active` is the kill switch that does not need a deploy.
 CREATE TABLE IF NOT EXISTS products (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -5,9 +11,20 @@ CREATE TABLE IF NOT EXISTS products (
   ticket_min numeric(14,2),
   ticket_max numeric(14,2),
   roi TEXT,
+  category TEXT,
+  family TEXT,
+  description TEXT,
+  -- roi TEXT stays for display ("10.75% p.a."); roi_numeric is the rankable one.
+  roi_numeric numeric(6,3),
+  tenor_months_min INTEGER,
+  tenor_months_max INTEGER,
+  margin_score numeric(5,3) NOT NULL DEFAULT 0.500,
+  is_active boolean NOT NULL DEFAULT true,
+  channels TEXT[] NOT NULL DEFAULT ARRAY['voice','whatsapp','agent']::TEXT[],
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 
 CREATE TABLE IF NOT EXISTS product_eligibility_rules (
   id TEXT PRIMARY KEY,
@@ -77,6 +94,14 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE INDEX IF NOT EXISTS idx_accounts_customer_id ON accounts(customer_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_product_id ON accounts(product_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status);
+-- Identity verification resolves a customer from the last 4 account digits
+-- (capture.find_customer_by_account_tail). Without these expression indexes
+-- the lookup is a full scan that recomputes RIGHT/regexp_replace per row, on
+-- the latency-critical path of a live call.
+CREATE INDEX IF NOT EXISTS idx_accounts_digit_tail4
+  ON accounts ((RIGHT(regexp_replace(id, '[^0-9]', '', 'g'), 4)));
+CREATE INDEX IF NOT EXISTS idx_accounts_id_tail4
+  ON accounts ((RIGHT(id, 4)));
 
 CREATE TABLE IF NOT EXISTS ledger_entries (
   id TEXT PRIMARY KEY,

@@ -67,16 +67,18 @@ export function usePatchPresence() {
 }
 
 /** UI toggle keys ↔ API status. */
-export type AvailabilityUi = "available" | "break" | "wrap";
+export type AvailabilityUi = "available" | "break" | "wrap" | "offline";
 
 export function uiToPresence(ui: AvailabilityUi): PresenceStatus {
   if (ui === "break") return "on_break";
   if (ui === "wrap") return "wrap_up";
+  if (ui === "offline") return "offline";
   return "available";
 }
 
 export function presenceToUi(status: PresenceStatus | undefined | null): AvailabilityUi {
   if (status === "on_break") return "break";
   if (status === "wrap_up") return "wrap";
+  if (status === "offline") return "offline";
   return "available";
 }

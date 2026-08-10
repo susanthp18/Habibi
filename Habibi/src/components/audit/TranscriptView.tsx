@@ -10,10 +10,10 @@ interface Props {
 }
 
 const SPEAKER_META = {
-  bot: { icon: Bot, label: "Bot", tone: "text-brand-primary-dark bg-brand-tint" },
-  agent: { icon: Headphones, label: "Agent", tone: "text-text-primary bg-surface-sunken" },
-  customer: { icon: User, label: "Customer", tone: "text-[var(--success)] bg-[var(--success-bg)]" },
-  system: { icon: Info, label: "System", tone: "text-text-muted bg-surface-sunken" },
+  bot: { icon: Bot, label: "Bot", tone: "text-text-brand bg-background-brand-subtlest" },
+  agent: { icon: Headphones, label: "Agent", tone: "text-text bg-surface-sunken" },
+  customer: { icon: User, label: "Customer", tone: "text-text-success bg-[var(--success-bg)]" },
+  system: { icon: Info, label: "System", tone: "text-text-subtlest bg-surface-sunken" },
 } as const;
 
 export function TranscriptView({ turns, currentTime, onSeek }: Props) {
@@ -32,7 +32,7 @@ export function TranscriptView({ turns, currentTime, onSeek }: Props) {
   }, [activeIndex]);
 
   return (
-    <div ref={containerRef} className="space-y-1.5">
+    <div ref={containerRef} className="space-y-075">
       {turns.map((turn, i) => {
         const meta = SPEAKER_META[turn.speaker];
         const Icon = meta.icon;
@@ -43,21 +43,21 @@ export function TranscriptView({ turns, currentTime, onSeek }: Props) {
             data-idx={i}
             onClick={() => onSeek(turn.t)}
             className={cn(
-              "flex w-full items-start gap-2 rounded-md border border-transparent p-2 text-left transition-colors",
+              "flex w-full items-start gap-100 rounded-medium border border-transparent p-100 text-left transition-colors",
               active
-                ? "border-brand-primary/40 bg-brand-tint"
+                ? "border-border-brand/40 bg-background-brand-subtlest"
                 : "hover:bg-surface-sunken",
             )}
           >
-            <span className={cn("mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full", meta.tone)}>
+            <span className={cn("mt-025 inline-flex h-300 w-300 shrink-0 items-center justify-center rounded-full", meta.tone)}>
               <Icon className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="mb-0.5 flex items-center gap-2 text-[11px]">
-                <span className="font-semibold text-text-primary">{meta.label}</span>
-                <span className="font-mono text-text-muted">{formatDuration(turn.t)}</span>
+              <div className="mb-025 flex items-center gap-100 text-body-small">
+                <span className="font-semibold text-text">{meta.label}</span>
+                <span className="font-mono text-text-subtlest">{formatDuration(turn.t)}</span>
               </div>
-              <div className={cn("text-[13px] leading-snug", turn.speaker === "system" ? "italic text-text-muted" : "text-text-primary")}>
+              <div className={cn("text-body leading-snug", turn.speaker === "system" ? "italic text-text-subtlest" : "text-text")}>
                 {turn.text}
               </div>
             </div>

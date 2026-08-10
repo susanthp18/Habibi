@@ -1,34 +1,32 @@
 import { inrCompact, type Invoice } from "@/data/billing-seed";
-import { cn } from "@/lib/utils";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export function InvoiceList({ invoices }: { invoices: Invoice[] }) {
   return (
-    <div className="flex h-full flex-col rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <div className="border-b border-[var(--border-token)] px-4 py-2">
-        <h3 className="text-[13px] font-semibold text-brand-navy">Invoice history</h3>
-        <p className="text-[11px] text-text-secondary">Production billing cycles</p>
+    <div className="flex h-full flex-col rounded-large border border-border bg-surface">
+      <div className="border-b border-border px-200 py-100">
+        <h3 className="text-body font-semibold text-text">Invoice history</h3>
+        <p className="text-body-small text-text-subtle">Production billing cycles</p>
       </div>
-      <div className="divide-y divide-[var(--border-token)]">
+      <div className="divide-y divide-border">
         {invoices.length === 0 ? (
-          <div className="px-4 py-6 text-[12px] text-text-muted">No invoices yet.</div>
+          <div className="px-200 py-300 text-body-small text-text-subtlest">No invoices yet.</div>
         ) : (
           invoices.map((inv) => (
-            <div key={inv.id} className="flex items-center gap-3 px-4 py-3 text-[12px]">
+            <div key={inv.id} className="flex items-center gap-150 px-200 py-150 text-body-small">
               <div className="min-w-0 flex-1">
-                <div className="font-semibold text-brand-navy">{inv.month}</div>
-                <div className="font-mono text-[10.5px] text-text-muted">{inv.id}</div>
+                <div className="font-semibold text-text">{inv.month}</div>
+                <div className="font-mono text-body-small text-text-subtlest">{inv.id}</div>
               </div>
-              <span
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-[10.5px] font-semibold capitalize",
-                  inv.status === "paid" && "bg-emerald-100 text-emerald-700",
-                  inv.status === "pending" && "bg-amber-100 text-amber-700",
-                  inv.status === "draft" && "bg-surface-sunken text-text-secondary",
-                )}
+              <Lozenge
+                tone={
+                  inv.status === "paid" ? "success" : inv.status === "pending" ? "warning" : "neutral"
+                }
+                className="capitalize"
               >
                 {inv.status}
-              </span>
-              <span className="w-20 text-right font-mono font-semibold text-brand-navy">
+              </Lozenge>
+              <span className="w-1000 text-right font-mono font-semibold text-text">
                 {inv.amountInr > 0 ? inrCompact(inv.amountInr) : "—"}
               </span>
             </div>

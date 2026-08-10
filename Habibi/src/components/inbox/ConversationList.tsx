@@ -2,7 +2,9 @@ import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadStatus } from "@/data/inbox-seed";
 import { Avatar, resolveChannelMeta, chipStatus, slaColor, statusMeta } from "./meta";
+import { Badge } from "@/components/ui/badge";
 import { useMemo, useState } from "react";
+import { Lozenge } from "@/components/ui/lozenge";
 
 type Filter = "all" | ThreadStatus | "mine";
 
@@ -60,40 +62,39 @@ export function ConversationList({
   }, [threads, q, filter]);
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col border-r border-[var(--border-token)] bg-surface-card">
-      <div className="shrink-0 border-b border-[var(--border-token)] px-3 py-3">
-        <h2 className="mb-2 text-[15px] font-semibold text-brand-navy">Inbox</h2>
+    <aside className="flex h-full min-h-0 w-full flex-col border-r border-border bg-surface">
+      <div className="shrink-0 border-b border-border px-150 py-150">
+        <h2 className="mb-100 heading-xsmall text-text">Inbox</h2>
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search customer, account, message"
-            className="w-full rounded-md border border-[var(--border-token)] bg-surface-sunken py-2 pl-8 pr-2 text-[13px] placeholder:text-text-muted focus:border-brand-primary focus:bg-white focus:outline-none"
+            className="focus-ring h-9 w-full rounded-medium border border-border-input bg-background-input py-075 pl-400 pr-100 text-body transition-colors duration-token-short placeholder:text-text-subtlest hover:bg-background-input-hovered focus:border-border-focused focus:bg-background-input-pressed"
           />
         </div>
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <div className="mt-150 flex flex-wrap gap-075">
           {filters.map((f) => (
             <button
               key={f.key}
               type="button"
               onClick={() => setFilter(f.key)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "focus-ring inline-flex items-center gap-075 rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
                 filter === f.key
-                  ? "border-brand-primary bg-brand-tint text-brand-primary-dark"
-                  : "border-[var(--border-token)] bg-white text-text-secondary hover:bg-surface-sunken",
+                  ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                  : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {f.label}
-              <span
+              <Badge
                 className={cn(
-                  "rounded-full px-1.5 text-[10px] font-semibold",
-                  filter === f.key ? "bg-white text-brand-primary" : "bg-surface-sunken text-text-secondary",
+                  filter === f.key ? "bg-surface text-text-brand" : "bg-surface-sunken text-text-subtle",
                 )}
               >
                 {counts[f.key]}
-              </span>
+              </Badge>
             </button>
           ))}
         </div>
@@ -101,14 +102,15 @@ export function ConversationList({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {filtered.length === 0 && (
-          <div className="p-6 text-center text-[13px] text-text-secondary">
+          <div className="p-300 text-center text-body text-text-subtle">
             No conversations match.
           </div>
         )}
         <ul>
           {filtered.map((t, i) => {
             const isActive = t.id === activeId;
-            const ChanIcon = resolveChannelMeta(t.channel).icon;
+            const chan = resolveChannelMeta(t.channel);
+            const ChanIcon = chan.icon;
             const chip = chipStatus(t);
             return (
               <li key={t.id}>
@@ -117,29 +119,32 @@ export function ConversationList({
                   onClick={() => onSelect(t.id)}
                   style={{ animationDelay: `${i * 25}ms` }}
                   className={cn(
-                    "animate-fade-up relative flex w-full gap-3 border-b border-[var(--border-token)] px-3 py-3 text-left transition-colors",
-                    isActive ? "bg-brand-tint" : "hover:bg-surface-sunken",
+                    "focus-ring animate-fade-up relative flex w-full gap-150 border-b border-border px-150 py-150 text-left transition-colors",
+                    isActive ? "bg-background-brand-subtlest" : "hover:bg-surface-sunken",
                   )}
                 >
                   {isActive && (
-                    <span className="absolute inset-y-0 left-0 w-[3px] bg-brand-primary" />
+                    <span className="absolute inset-y-0 left-0 w-050 bg-background-brand-bold" />
                   )}
                   <Avatar name={t.customer} size={40} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <ChanIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                      <span className="truncate text-[13px] font-semibold text-text-primary">
+                    <div className="flex items-center gap-075">
+                      <ChanIcon
+                        className="h-3.5 w-3.5 shrink-0 text-text-subtlest"
+                        aria-hidden="true"
+                      />
+                      <span className="truncate text-body font-semibold text-text">
                         {t.customer}
                       </span>
-                      <span className="ml-auto whitespace-nowrap text-[11px] text-text-muted">
+                      <span className="ml-auto whitespace-nowrap text-body-small text-text-subtlest">
                         {t.lastTime}
                       </span>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-1.5">
+                    <div className="mt-025 flex items-center gap-075">
                       <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", slaColor[t.sla])} />
-                      <p className="min-w-0 truncate text-[12px] text-text-secondary">
+                      <p className="min-w-0 truncate text-body-small text-text-subtle">
                         {t.botTyping ? (
-                          <span className="font-medium text-brand-primary">Bot is typing…</span>
+                          <span className="font-medium text-text-brand">Bot is typing…</span>
                         ) : (
                           <>
                             {t.lastFrom === "bot"
@@ -152,22 +157,15 @@ export function ConversationList({
                         )}
                       </p>
                     </div>
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <span
-                        className={cn(
-                          "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                          statusMeta[chip].className,
-                        )}
-                      >
-                        {statusMeta[chip].label}
-                      </span>
-                      <span className="font-mono text-[10px] text-text-muted">
+                    <div className="mt-075 flex items-center gap-075">
+                      <Lozenge tone={statusMeta[chip].tone}>{statusMeta[chip].label}</Lozenge>
+                      <span className="font-mono text-body-small text-text-subtlest">
                         {t.accountId}
                       </span>
                       {t.unread > 0 && (
-                        <span className="ml-auto rounded-full bg-brand-primary px-1.5 py-0.5 text-[10px] font-semibold text-white tabular">
+                        <Badge className="ml-auto bg-background-brand-bold text-text-inverse tabular">
                           {t.unread}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   </div>

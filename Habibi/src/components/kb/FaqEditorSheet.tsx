@@ -12,6 +12,17 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FaqPair, KbDocument } from "@/data/kb-seed";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 const BASE_INTENTS = [
   "late-fee",
@@ -54,6 +65,7 @@ export function FaqEditorSheet({
   const [linkedDocId, setLinkedDocId] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const intents = Array.from(new Set([...BASE_INTENTS, faq?.intent].filter(Boolean) as string[]));
   const canDelete = Boolean(faq?.id && onDelete);
@@ -66,7 +78,12 @@ export function FaqEditorSheet({
     setLinkedDocId(faq?.linkedDocId ?? "");
     setSaving(false);
     setDeleting(false);
-  }, [open, faq]);
+    setConfirmDelete(false);
+    // Keyed on the FAQ's identity, not the object reference: the list is
+    // polled, so an unchanged FAQ arriving as a fresh object wiped whatever the
+    // user had typed into the open sheet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, faq?.id]);
 
   const save = async () => {
     if (!question.trim() || !answer.trim() || saving || deleting) return;
@@ -82,6 +99,10 @@ export function FaqEditorSheet({
           linkedDocId: linkedDocId || undefined,
         }),
       );
+    } catch (e) {
+      // remove() already surfaced its failures; save() rejected silently, so a
+      // failed write looked identical to a successful one.
+      toast.error(e instanceof Error ? e.message : "Failed to save FAQ");
     } finally {
       setSaving(false);
     }
@@ -89,12 +110,13 @@ export function FaqEditorSheet({
 
   const remove = async () => {
     if (!faq?.id || !onDelete || deleting || saving) return;
-    if (!window.confirm("Delete this FAQ pair? Linked analytics gaps will keep their question but lose the FAQ link.")) {
-      return;
-    }
     setDeleting(true);
     try {
       await Promise.resolve(onDelete(faq.id));
+      setConfirmDelete(false);
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete FAQ");
     } finally {
       setDeleting(false);
     }
@@ -106,7 +128,7 @@ export function FaqEditorSheet({
         <SheetHeader>
           <SheetTitle>{faq?.id ? "Edit FAQ" : "New FAQ pair"}</SheetTitle>
         </SheetHeader>
-        <div className="mt-4 space-y-4 overflow-y-auto pr-1">
+        <div className="mt-200 space-y-200 overflow-y-auto pr-050">
           <div>
             <Label>Question</Label>
             <Input
@@ -124,7 +146,7 @@ export function FaqEditorSheet({
               placeholder="Concise, factual answer the bot will use as retrieval augment."
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-150">
             <div>
               <Label>Intent</Label>
               <Select value={intent} onValueChange={setIntent}>
@@ -150,12 +172,12 @@ export function FaqEditorSheet({
             </div>
           </div>
         </div>
-        <SheetFooter className="mt-4 flex-row justify-between gap-2 sm:justify-between">
+        <SheetFooter className="mt-200 flex-row justify-between gap-100 sm:justify-between">
           {canDelete ? (
             <Button
               variant="outline"
-              className="border-danger/40 text-danger hover:bg-danger-bg"
-              onClick={() => void remove()}
+              className="border-border-danger/40 text-text-danger hover:bg-background-danger"
+              onClick={() => setConfirmDelete(true)}
               disabled={saving || deleting}
             >
               {deleting ? "Deleting…" : "Delete"}
@@ -163,7 +185,7 @@ export function FaqEditorSheet({
           ) : (
             <span />
           )}
-          <div className="flex gap-2">
+          <div className="flex gap-100">
             <Button variant="outline" onClick={onClose} disabled={saving || deleting}>
               Cancel
             </Button>
@@ -175,6 +197,29 @@ export function FaqEditorSheet({
             </Button>
           </div>
         </SheetFooter>
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this FAQ pair?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Linked analytics gaps will keep their question but lose the FAQ link.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
+                disabled={deleting}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void remove();
+                }}
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
   );

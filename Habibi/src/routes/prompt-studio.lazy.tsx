@@ -7,6 +7,9 @@ import { PromptEditor } from "@/components/prompt-studio/PromptEditor";
 import { PersonaSliders } from "@/components/prompt-studio/PersonaSliders";
 import { VoicePanel } from "@/components/prompt-studio/VoicePanel";
 import { GuardrailsPanel } from "@/components/prompt-studio/GuardrailsPanel";
+import { Button } from "@/components/ui/button";
+import { FlowCanvas } from "@/components/flow/FlowCanvas";
+import { emptyGraph, isEmptyGraph, type FlowGraph } from "@/api/flow";
 import { VersionHistory } from "@/components/prompt-studio/VersionHistory";
 import { DiffModal } from "@/components/prompt-studio/DiffModal";
 import { PublishDialog } from "@/components/prompt-studio/PublishDialog";
@@ -35,18 +38,24 @@ import {
   type PromptVersion,
   type VoiceConfig,
 } from "@/data/prompt-studio-seed";
-import { FileText, Sparkles, Volume2, ShieldAlert } from "lucide-react";
+import { FileText, Sparkles, Volume2, ShieldAlert, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createLazyFileRoute("/prompt-studio")({
   component: PromptStudioPage,
 });
 
-type Tab = "prompt" | "persona" | "voice" | "guardrails";
+type Tab = "prompt" | "flow" | "persona" | "voice" | "guardrails";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function fingerprint(p: string, persona: PersonaState, voice: VoiceConfig, g: Guardrails) {
-  return JSON.stringify({ p, persona, voice, g });
+function fingerprint(
+  p: string,
+  persona: PersonaState,
+  voice: VoiceConfig,
+  g: Guardrails,
+  flow: FlowGraph | null,
+) {
+  return JSON.stringify({ p, persona, voice, g, flow });
 }
 
 function PromptStudioPage() {
@@ -74,6 +83,10 @@ function PromptStudioPage() {
   const [activePresetId, setActivePresetId] = useState<string>("custom");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lintFindings, setLintFindings] = useState<PromptLintFinding[]>([]);
+  // null until the version loads, so an autosave that fires before the flow is
+  // known omits it entirely rather than overwriting a stored graph with {}.
+  const [flow, setFlow] = useState<FlowGraph | null>(null);
+  const [flowValid, setFlowValid] = useState(true);
 
   const [tab, setTab] = useState<Tab>("prompt");
   const [diffOpen, setDiffOpen] = useState(false);
@@ -110,12 +123,14 @@ function PromptStudioPage() {
       setPersona(start.persona ?? DEFAULT_PERSONA);
       setVoice(start.voice ?? DEFAULT_VOICE);
       setGuardrails(start.guardrails ?? DEFAULT_GUARDRAILS);
+      setFlow(start.flow ?? null);
       setDraftId(newestDraft?.id ?? null);
       lastSavedFp.current = fingerprint(
         start.prompt,
         start.persona ?? DEFAULT_PERSONA,
         start.voice ?? DEFAULT_VOICE,
         start.guardrails ?? DEFAULT_GUARDRAILS,
+        start.flow ?? null,
       );
       setHydrated(true);
       // Allow autosave after paint.
@@ -140,15 +155,18 @@ function PromptStudioPage() {
   const dirty = useMemo(() => {
     if (!published) return false;
     return (
-      fingerprint(prompt, persona, voice, guardrails) !==
+      fingerprint(prompt, persona, voice, guardrails, flow) !==
       fingerprint(
         published.prompt,
         published.persona ?? DEFAULT_PERSONA,
         published.voice ?? DEFAULT_VOICE,
         published.guardrails ?? DEFAULT_GUARDRAILS,
+        published.flow ?? null,
       )
     );
-  }, [prompt, persona, voice, guardrails, published]);
+    // `flow` belongs here: without it a canvas edit never recomputes `dirty`,
+    // so the debounced autosave never fires and the graph is lost on navigate.
+  }, [prompt, persona, voice, guardrails, flow, published]);
 
   const nextLabel = nextVersionLabel(published?.label ?? "v1.0");
   const personaLabel =
@@ -169,7 +187,7 @@ function PromptStudioPage() {
       setSaveStatus((s) => (s === "saving" ? s : "idle"));
       return;
     }
-    const fp = fingerprint(prompt, persona, voice, guardrails);
+    const fp = fingerprint(prompt, persona, voice, guardrails, flow);
     if (fp === lastSavedFp.current) return;
 
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
@@ -184,10 +202,11 @@ function PromptStudioPage() {
             persona,
             voice,
             guardrails,
+            flow: flow ?? undefined,
             summary: "draft autosave",
           });
           setDraftId(draft.id);
-          lastSavedFp.current = fingerprint(draft.prompt, draft.persona, draft.voice, draft.guardrails);
+          lastSavedFp.current = fingerprint(draft.prompt, draft.persona, draft.voice, draft.guardrails, draft.flow ?? null);
           setSaveStatus("saved");
         } catch {
           setSaveStatus("error");
@@ -203,6 +222,7 @@ function PromptStudioPage() {
     persona,
     voice,
     guardrails,
+    flow,
     dirty,
     hydrated,
     draftId,
@@ -225,7 +245,8 @@ function PromptStudioPage() {
     setPersona(v.persona);
     setVoice(v.voice);
     setGuardrails(v.guardrails);
-    lastSavedFp.current = fingerprint(v.prompt, v.persona, v.voice, v.guardrails);
+    setFlow(v.flow ?? null);
+    lastSavedFp.current = fingerprint(v.prompt, v.persona, v.voice, v.guardrails, v.flow ?? null);
     setLintFindings([]);
     setSaveStatus("saved");
     window.setTimeout(() => {
@@ -246,7 +267,14 @@ function PromptStudioPage() {
           setPersona(live.persona);
           setVoice(live.voice);
           setGuardrails(live.guardrails);
-          lastSavedFp.current = fingerprint(live.prompt, live.persona, live.voice, live.guardrails);
+          setFlow(live.flow ?? null);
+          lastSavedFp.current = fingerprint(
+            live.prompt,
+            live.persona,
+            live.voice,
+            live.guardrails,
+            live.flow ?? null,
+          );
           setSaveStatus("idle");
           window.setTimeout(() => {
             skipAutosave.current = false;
@@ -287,11 +315,13 @@ function PromptStudioPage() {
       setPersona(publishedRow.persona);
       setVoice(publishedRow.voice);
       setGuardrails(publishedRow.guardrails);
+      setFlow(publishedRow.flow ?? null);
       lastSavedFp.current = fingerprint(
         publishedRow.prompt,
         publishedRow.persona,
         publishedRow.voice,
         publishedRow.guardrails,
+        publishedRow.flow ?? null,
       );
       setSaveStatus("idle");
       setLintFindings([]);
@@ -320,7 +350,14 @@ function PromptStudioPage() {
         setPersona(live.persona);
         setVoice(live.voice);
         setGuardrails(live.guardrails);
-        lastSavedFp.current = fingerprint(live.prompt, live.persona, live.voice, live.guardrails);
+        setFlow(live.flow ?? null);
+        lastSavedFp.current = fingerprint(
+          live.prompt,
+          live.persona,
+          live.voice,
+          live.guardrails,
+          live.flow ?? null,
+        );
         window.setTimeout(() => {
           skipAutosave.current = false;
         }, 0);
@@ -362,7 +399,7 @@ function PromptStudioPage() {
           summary: "sandbox try",
         });
         setDraftId(draft.id);
-        lastSavedFp.current = fingerprint(draft.prompt, draft.persona, draft.voice, draft.guardrails);
+        lastSavedFp.current = fingerprint(draft.prompt, draft.persona, draft.voice, draft.guardrails, draft.flow ?? null);
         versionId = draft.id;
       }
       if (!versionId) {
@@ -380,6 +417,7 @@ function PromptStudioPage() {
 
   const TABS: Array<{ key: Tab; label: string; icon: typeof FileText }> = [
     { key: "prompt", label: "System Prompt", icon: FileText },
+    { key: "flow", label: "Flow", icon: Workflow },
     { key: "persona", label: "Persona", icon: Sparkles },
     { key: "voice", label: "Voice (TTS)", icon: Volume2 },
     { key: "guardrails", label: "Guardrails", icon: ShieldAlert },
@@ -410,16 +448,16 @@ function PromptStudioPage() {
         />
 
         {showGapBanner && (
-          <div className="mx-5 mt-3 flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+          <div className="mx-250 mt-150 flex items-start justify-between gap-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
             <div>
-              <div className="font-semibold text-amber-950">Fixing unanswered question</div>
-              <div className="mt-0.5 text-amber-900/90">
+              <div className="font-semibold text-text-warning-bolder">Fixing unanswered question</div>
+              <div className="mt-025 text-text-warning-bolder/90">
                 {gapNote || "Review the system prompt for this coverage gap."}
                 {unansweredId ? (
-                  <span className="ml-1 font-mono text-[11px] text-amber-800/70">({unansweredId})</span>
+                  <span className="ml-050 font-mono text-body-small text-text-warning-bolder/70">({unansweredId})</span>
                 ) : null}
               </div>
-              <div className="mt-1 text-[11px] text-amber-800/80">
+              <div className="mt-050 text-body-small text-text-warning-bolder/80">
                 Banner only — edit the prompt yourself; nothing is auto-injected.
               </div>
             </div>
@@ -429,15 +467,15 @@ function PromptStudioPage() {
                 setGapBannerDismissed(true);
                 void navigate({ to: "/prompt-studio", search: {} });
               }}
-              className="shrink-0 rounded border border-amber-300 px-2 py-0.5 text-[11px] hover:bg-amber-100"
+              className="shrink-0 rounded border border-border-warning px-100 py-025 text-body-small hover:bg-background-warning-subtler"
             >
               Dismiss
             </button>
           </div>
         )}
 
-        <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5">
-          <div className="flex gap-1">
+        <div className="shrink-0 border-b border-border bg-surface px-250">
+          <div className="flex gap-050">
             {TABS.map((t) => {
               const Icon = t.icon;
               return (
@@ -445,10 +483,10 @@ function PromptStudioPage() {
                   key={t.key}
                   onClick={() => setTab(t.key)}
                   className={cn(
-                    "inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[12.5px]",
+                    "inline-flex items-center gap-075 border-b-2 px-150 py-100 text-body-small",
                     tab === t.key
-                      ? "border-brand-primary font-semibold text-brand-primary-dark"
-                      : "border-transparent text-text-secondary hover:text-text-primary",
+                      ? "border-border-brand font-semibold text-text-brand"
+                      : "border-transparent text-text-subtle hover:text-text",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -460,14 +498,14 @@ function PromptStudioPage() {
         </div>
 
         {loading ? (
-          <div className="p-5 text-[13px] text-text-muted">Loading prompt studio…</div>
+          <div className="p-250 text-body text-text-subtlest">Loading prompt studio…</div>
         ) : versionsQuery.isError ? (
-          <div className="p-5 text-[13px] text-rose-700">
+          <div className="p-250 text-body text-text-danger-bolder">
             Failed to load prompt versions. Check the API / mock toggle.
           </div>
         ) : (
           <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[1fr_320px]">
-            <div className="min-h-0 overflow-y-auto p-5">
+            <div className="min-h-0 overflow-y-auto p-250">
               {tab === "prompt" && (
                 <PromptEditor
                   value={prompt}
@@ -492,6 +530,42 @@ function PromptStudioPage() {
               {tab === "guardrails" && (
                 <GuardrailsPanel value={guardrails} onChange={setGuardrails} />
               )}
+              {tab === "flow" && (
+                <div className="h-[36rem] min-h-0">
+                  {isEmptyGraph(flow) ? (
+                    // An empty flow is meaningful, not missing: the runtime reads
+                    // it as "use the built-in collections script". Seeding a graph
+                    // on load would silently change what this version does, so it
+                    // takes an explicit action.
+                    <div className="flex h-full flex-col items-center justify-center gap-150 rounded-medium border border-dashed border-border text-center">
+                      <div className="max-w-md space-y-075 px-200">
+                        <h3 className="text-body font-semibold text-text">
+                          No authored flow
+                        </h3>
+                        <p className="text-body-small leading-relaxed text-text-subtle">
+                          This version uses the built-in collections script.
+                          Build a flow here to define the conversation as a graph
+                          instead — it publishes and rolls back with this prompt
+                          version, and runs when{" "}
+                          <code className="font-mono text-text-subtlest">
+                            VOICE_FLOW_GRAPH=db
+                          </code>
+                          .
+                        </p>
+                      </div>
+                      <Button variant="outline" onClick={() => setFlow(emptyGraph())}>
+                        <Workflow className="mr-050 h-4 w-4" /> Start a flow
+                      </Button>
+                    </div>
+                  ) : (
+                    <FlowCanvas
+                      graph={flow as FlowGraph}
+                      onChange={setFlow}
+                      onValidation={(r) => setFlowValid(r.ok)}
+                    />
+                  )}
+                </div>
+              )}
             </div>
             <div className="hidden min-h-0 xl:block">
               <VersionHistory
@@ -505,7 +579,7 @@ function PromptStudioPage() {
                 }}
                 onRestore={(v) => void restore(v)}
                 onLoadDraft={loadDraft}
-                onDiscardDraft={(v) => void discardDraft(v)}
+                onDiscardDraft={(v) => discardDraft(v)}
                 onRollback={() => void onRollback()}
                 rollbackBusy={rollbackMutation.isPending}
               />
@@ -536,7 +610,7 @@ function PromptStudioPage() {
         />
 
         {busy && (
-          <div className="pointer-events-none fixed bottom-4 right-4 rounded-md bg-brand-navy/90 px-3 py-1.5 text-[11px] text-white shadow-lg">
+          <div className="pointer-events-none fixed bottom-4 right-4 rounded-medium bg-background-brand-boldest/90 px-150 py-075 text-body-small text-white shadow-overlay">
             Saving…
           </div>
         )}

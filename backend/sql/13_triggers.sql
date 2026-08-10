@@ -19,6 +19,10 @@ DECLARE
     'permissions',
     'products',
     'product_eligibility_rules',
+    'product_campaigns',
+    -- leads was missing: every lead row reported the updated_at it was
+    -- inserted with, so "stale lead" reporting could never work.
+    'leads',
     'customers',
     'customer_notes',
     'accounts',

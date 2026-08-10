@@ -66,6 +66,7 @@ def test_account_tail_refuses_letters():
 
 
 def _ctx(**kw) -> CallContext:
+    kw.setdefault("identity_verified", True)
     ctx = CallContext(channel="sandbox_live", **kw)
     ctx.customer_card = {
         "name": "Ravi Kumar",
@@ -96,7 +97,7 @@ def test_crm_card_message_is_a_developer_message():
 
 def test_crm_card_omits_missing_fields():
     """A partial CRM read must not emit 'Outstanding: None'."""
-    ctx = CallContext(channel="voice")
+    ctx = CallContext(channel="voice", identity_verified=True)
     ctx.customer_card = {"name": "Asha"}
     card = ctx.crm_card()
     assert "Asha" in card
@@ -140,3 +141,26 @@ def test_delta_message_is_short_and_tagged():
     msg = CallContext(channel="voice").delta_message("promise PR-1 created")
     assert msg["role"] == "developer"
     assert msg["content"].startswith("CRM UPDATE:")
+
+
+def test_crm_card_withholds_facts_until_identity_is_verified():
+    """An unverified caller must never be read balances or open work."""
+    ctx = CallContext(channel="voice")
+    ctx.customer_card = {"name": "Ravi Kumar", "outstanding": 48200, "accountTail": "7410"}
+    card = ctx.crm_card()
+    assert "48,200" not in card
+    assert "7410" not in card
+    assert "not verified" in card.lower()
+
+
+def test_refresh_from_crm_is_a_noop_until_verified(monkeypatch):
+    ctx = CallContext(channel="voice", customer_id="CUST-1")
+
+    def _boom(_cid):  # pragma: no cover - must never be reached
+        raise AssertionError("CRM must not be read before verification")
+
+    import db
+
+    monkeypatch.setattr(db, "get_customer", _boom)
+    ctx.refresh_from_crm()
+    assert ctx.customer_card == {}

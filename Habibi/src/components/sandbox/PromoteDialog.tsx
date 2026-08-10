@@ -35,8 +35,8 @@ export function PromoteDialog({
         <DialogHeader>
           <DialogTitle>Promote to Production?</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 text-[13px]">
-          <div className="rounded-md border border-[var(--border-token)] bg-surface-sunken p-3 text-text-secondary">
+        <div className="space-y-150 text-body">
+          <div className="rounded-medium border border-border bg-surface-sunken p-150 text-text-subtle">
             Prompt: <span className="font-mono">{promptLabel}</span>
             <br />
             KB: <span className="font-mono">{kbLabel}</span>
@@ -50,7 +50,7 @@ export function PromoteDialog({
             Last tested with: <span className="italic">{scenarioLabel}</span>
           </div>
           <div>
-            <label className="text-[11px] font-semibold uppercase text-text-muted">
+            <label className="text-body-small font-semibold text-text-subtlest">
               Type <span className="font-mono">PROMOTE</span> to confirm
             </label>
             <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="PROMOTE" />

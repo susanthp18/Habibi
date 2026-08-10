@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import random
 import re
 import tempfile
 import time
@@ -27,6 +28,22 @@ logger = logging.getLogger(__name__)
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "tts"
 _MAX_TEXT_CHARS = 500
 _DEFAULT_VOICE = "en-IN-AartiNeural"
+_MAX_TTS_CACHE_BYTES = int(os.getenv("AZURE_TTS_CACHE_MAX_BYTES") or str(200 * 1024 * 1024))
+# Age cap as well as size cap: an instance whose traffic drops below the size
+# threshold would otherwise keep synthesized customer-facing audio on disk
+# indefinitely.
+_MAX_TTS_CACHE_AGE_S = max(
+    3600, int(os.getenv("AZURE_TTS_CACHE_MAX_AGE_S") or str(14 * 24 * 3600))
+)
+# Sweep at most this often, so a cache-hit path does not stat the whole dir on
+# every request.
+_TTS_SWEEP_INTERVAL_S = 300.0
+_tts_last_sweep = 0.0
+_tts_sweep_lock = threading.Lock()
+
+_SPEECH_SEM = threading.BoundedSemaphore(
+    max(1, int(os.getenv("AZURE_SPEECH_MAX_CONCURRENCY") or "8"))
+)
 
 # Shared sync httpx client — keep-alive to Azure Speech (TTS 30s / STT 45s).
 _http_client: httpx.Client | None = None
@@ -299,6 +316,147 @@ def _cache_path(key: str) -> Path:
     return _CACHE_DIR / f"{key}.mp3"
 
 
+def _evict_tts_cache() -> None:
+    """Bound the on-disk TTS cache by age first, then total size (LRU by mtime)."""
+    try:
+        files = [p for p in _CACHE_DIR.glob("*.mp3") if p.is_file()]
+    except OSError:
+        return
+
+    now = time.time()
+    total = 0
+    live: list[tuple[float, int, Path]] = []
+    for path in files:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if now - stat.st_mtime > _MAX_TTS_CACHE_AGE_S:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+        live.append((stat.st_mtime, stat.st_size, path))
+        total += stat.st_size
+
+    if total <= _MAX_TTS_CACHE_BYTES:
+        return
+    live.sort(key=lambda item: item[0])
+    for _mtime, size, path in live:
+        if total <= _MAX_TTS_CACHE_BYTES:
+            break
+        try:
+            path.unlink(missing_ok=True)
+            total -= size
+        except OSError:
+            continue
+
+
+def _maybe_sweep_tts_cache() -> None:
+    """Throttled sweep so eviction also runs on cache-hit-only workloads."""
+    global _tts_last_sweep
+
+    now = time.monotonic()
+    if now - _tts_last_sweep < _TTS_SWEEP_INTERVAL_S:
+        return
+    with _tts_sweep_lock:
+        if now - _tts_last_sweep < _TTS_SWEEP_INTERVAL_S:
+            return
+        _tts_last_sweep = now
+    try:
+        _evict_tts_cache()
+    except Exception:
+        logger.debug("tts cache sweep failed", exc_info=True)
+
+
+_SPEECH_RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+_SPEECH_MAX_RETRIES = max(0, int(os.getenv("AZURE_SPEECH_MAX_RETRIES") or "2"))
+_SPEECH_RETRY_MAX_SLEEP_S = 10.0
+
+
+def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:
+    """Honour Retry-After when Azure sends it, else exponential backoff + jitter.
+
+    Jitter matters here because every worker throttled by the same Azure region
+    retries on the same schedule otherwise, re-creating the burst that caused
+    the 429. Retry-After is honoured exactly (Azure's instruction wins) but
+    still gets a small positive jitter for the same reason.
+    """
+    raw = (resp.headers.get("retry-after") or "").strip()
+    if raw:
+        try:
+            base = min(_SPEECH_RETRY_MAX_SLEEP_S, max(0.0, float(raw)))
+            return min(_SPEECH_RETRY_MAX_SLEEP_S, base + random.uniform(0.0, 0.25))
+        except ValueError:
+            pass
+    base = min(_SPEECH_RETRY_MAX_SLEEP_S, 0.5 * (2**attempt))
+    # Full jitter: uniform over [0, base] — standard AWS-style decorrelation.
+    return random.uniform(0.0, base)
+
+
+class _SpeechRetryable(Exception):
+    """A 429/5xx from Azure Speech, raised so the breaker counts it as a failure.
+
+    ``httpx`` returns those as ordinary responses, so the breaker saw a clean
+    success on every throttled or server-errored attempt and could never open —
+    the opposite of what the retry loop's docstring promised.
+    """
+
+    def __init__(self, response: httpx.Response) -> None:
+        super().__init__(f"azure_speech_status_{response.status_code}")
+        self.response = response
+
+
+def _speech_call(fn, *, raise_on_retryable: bool = False):
+    """Concurrency semaphore + circuit breaker around one Azure Speech HTTP call."""
+    import circuit_breaker
+
+    def _guarded():
+        resp = fn()
+        if raise_on_retryable and resp.status_code in _SPEECH_RETRY_STATUSES:
+            raise _SpeechRetryable(resp)
+        return resp
+
+    if not _SPEECH_SEM.acquire(timeout=10.0):
+        raise RuntimeError("azure_speech_concurrency_saturated")
+    try:
+        return circuit_breaker.get_breaker("azure_speech").call(_guarded)
+    finally:
+        _SPEECH_SEM.release()
+
+
+def _speech_call_with_retry(fn, *, label: str) -> httpx.Response:
+    """Bounded retry for idempotent Speech requests on 429/5xx.
+
+    Azure Speech throttles aggressively under burst; surfacing the first 429 to
+    the caller drops a live call turn that a sub-second retry would have served.
+    Retries stop at _SPEECH_MAX_RETRIES so a hard outage still fails fast and
+    the circuit breaker (which sees each attempt) can open.
+    """
+    last: httpx.Response | None = None
+    for attempt in range(_SPEECH_MAX_RETRIES + 1):
+        try:
+            return _speech_call(fn, raise_on_retryable=True)
+        except _SpeechRetryable as exc:
+            resp = exc.response
+        last = resp
+        if attempt == _SPEECH_MAX_RETRIES:
+            break
+        delay = _retry_after_seconds(resp, attempt)
+        logger.warning(
+            "azure_speech %s status=%s retrying in %.2fs (attempt %s/%s)",
+            label,
+            resp.status_code,
+            delay,
+            attempt + 1,
+            _SPEECH_MAX_RETRIES,
+        )
+        time.sleep(delay)
+    assert last is not None
+    return last
+
+
 def synthesize(
     text: str,
     *,
@@ -319,16 +477,23 @@ def synthesize(
         pause_ms=pause_ms,
     )
     path = _cache_path(key)
-    if path.exists() and path.stat().st_size > 0:
-        return {
-            "audio": path.read_bytes(),
-            "contentType": "audio/mpeg",
-            "cacheHit": True,
-            "cacheKey": key,
-            "voiceName": voice,
-            "latencyMs": 0,
-            "chars": len(text or ""),
-        }
+    _maybe_sweep_tts_cache()
+    # exists() → read_bytes() is not atomic, and _maybe_sweep_tts_cache() above
+    # can evict this very entry in between. Treat the race as a miss and
+    # synthesize rather than raising FileNotFoundError at the caller.
+    try:
+        if path.exists() and path.stat().st_size > 0:
+            return {
+                "audio": path.read_bytes(),
+                "contentType": "audio/mpeg",
+                "cacheHit": True,
+                "cacheKey": key,
+                "voiceName": voice,
+                "latencyMs": 0,
+                "chars": len(text or ""),
+            }
+    except (FileNotFoundError, OSError):
+        logger.debug("tts cache entry vanished mid-read key=%s", key)
 
     ssml = build_ssml(
         text,
@@ -344,16 +509,21 @@ def synthesize(
     url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
 
     def _post(ssml_body: str) -> httpx.Response:
-        return _http().post(
-            url,
-            headers={
-                "Ocp-Apim-Subscription-Key": key_header,
-                "Content-Type": "application/ssml+xml",
-                "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
-                "User-Agent": "collections-agent-ps4",
-            },
-            content=ssml_body.encode("utf-8"),
-            timeout=30.0,
+        # Synthesis is idempotent (same SSML → same audio), so retrying a 429/5xx
+        # cannot produce a duplicate side effect.
+        return _speech_call_with_retry(
+            lambda: _http().post(
+                url,
+                headers={
+                    "Ocp-Apim-Subscription-Key": key_header,
+                    "Content-Type": "application/ssml+xml",
+                    "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
+                    "User-Agent": "collections-agent-ps4",
+                },
+                content=ssml_body.encode("utf-8"),
+                timeout=30.0,
+            ),
+            label="tts",
         )
 
     t0 = time.perf_counter()
@@ -390,6 +560,7 @@ def synthesize(
         with os.fdopen(fd, "wb") as fh:
             fh.write(audio)
         os.replace(tmp_name, path)
+        _evict_tts_cache()
     except Exception:
         try:
             os.unlink(tmp_name)
@@ -475,16 +646,21 @@ def transcribe(
     )
 
     t0 = time.perf_counter()
-    resp = _http().post(
-        url,
-        headers={
-            "Ocp-Apim-Subscription-Key": key_header,
-            "Content-Type": ct,
-            "Accept": "application/json",
-            "User-Agent": "collections-agent-ps5e",
-        },
-        content=audio,
-        timeout=45.0,
+    # Recognition is idempotent — the same bytes yield the same transcript and
+    # nothing is persisted server-side, so a 429/5xx retry is safe.
+    resp = _speech_call_with_retry(
+        lambda: _http().post(
+            url,
+            headers={
+                "Ocp-Apim-Subscription-Key": key_header,
+                "Content-Type": ct,
+                "Accept": "application/json",
+                "User-Agent": "collections-agent-ps5e",
+            },
+            content=audio,
+            timeout=45.0,
+        ),
+        label="stt",
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -513,9 +689,20 @@ def transcribe(
     try:
         import usage_meter
 
+        minutes = None
+        raw_duration = payload.get("Duration")
+        try:
+            # Azure Speech Duration is in 100-nanosecond ticks.
+            ticks = int(raw_duration) if raw_duration is not None else 0
+            if ticks > 0:
+                minutes = ticks / 10_000_000.0 / 60.0
+        except (TypeError, ValueError):
+            minutes = None
+
         usage_meter.record_stt_usage(
             audio_bytes=len(audio),
             content_type=ct,
+            minutes=minutes,
             language=lang,
             source_ref="azure_speech.transcribe",
         )

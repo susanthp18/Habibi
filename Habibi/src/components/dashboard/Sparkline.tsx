@@ -11,7 +11,7 @@ export function Sparkline({
   data,
   width = 120,
   height = 32,
-  stroke = "var(--brand-primary)",
+  stroke = "var(--background-brand-bold)",
   fill = "rgba(24, 119, 242, 0.12)",
   className,
 }: Props) {

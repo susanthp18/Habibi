@@ -42,24 +42,26 @@ export function ServiceDrawer({
       ...t,
       spend: serviceTenantSpend[t.id] ?? 0,
     }))
-    .sort((a, b) => b.spend - a.spend);
-  const tenantTotal = tenantRows.reduce((s, t) => s + t.spend, 0);
+    .filter((t) => t.spend > 0)
+    .sort((a, b) => b.spend - a.spend)
+    .slice(0, 10);
+  const tenantTotal = tenants.reduce((s, t) => s + (serviceTenantSpend[t.id] ?? 0), 0);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full max-w-[520px] flex-col overflow-hidden p-0 sm:max-w-[520px]">
-        <SheetHeader className="shrink-0 border-b border-[var(--border-token)] px-6 py-4">
-          <SheetTitle className="flex items-center gap-2 text-[15px] font-semibold text-brand-navy">
-            <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: service.color }} />
+      <SheetContent side="right" className="flex w-full max-w-[37.5rem] flex-col overflow-hidden p-0 sm:max-w-[37.5rem]">
+        <SheetHeader className="shrink-0 border-b border-border px-300 py-200">
+          <SheetTitle className="flex items-center gap-100 text-[0.875rem] font-semibold text-text">
+            <span className="h-3 w-3 rounded-small" style={{ backgroundColor: service.color }} />
             {service.name}
           </SheetTitle>
-          <p className="text-[11px] text-text-secondary">
+          <p className="text-body-small text-text-subtle">
             {service.provider} · {service.category} · {inr(service.unitCostInr)} per {service.unit}
           </p>
         </SheetHeader>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-          <div className="grid grid-cols-3 gap-3">
+        <div className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200">
+          <div className="grid grid-cols-3 gap-150">
             <Tile label="Spend" value={inrCompact(cost)} />
             <Tile
               label="Usage"
@@ -73,7 +75,7 @@ export function ServiceDrawer({
           </div>
 
           <div>
-            <div className="mb-1 text-[12px] font-semibold text-brand-navy">Daily spend</div>
+            <div className="mb-050 text-body-small font-semibold text-text">Daily spend</div>
             <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={series} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
@@ -89,8 +91,8 @@ export function ServiceDrawer({
                     contentStyle={{
                       fontSize: 11,
                       borderRadius: 8,
-                      border: "1px solid var(--border-token)",
-                      background: "var(--surface-card)",
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
                     }}
                     formatter={(v: number) => inrCompact(v)}
                   />
@@ -107,16 +109,16 @@ export function ServiceDrawer({
           </div>
 
           <div>
-            <div className="mb-1 text-[12px] font-semibold text-brand-navy">Top tenants driving this cost</div>
-            <div className="space-y-1.5">
+            <div className="mb-050 text-body-small font-semibold text-text">Top tenants driving this cost</div>
+            <div className="space-y-075">
               {tenantRows.map((t) => (
                 <div
                   key={t.id}
-                  className="flex items-center gap-2 rounded-md border border-[var(--border-token)] px-3 py-2 text-[12px]"
+                  className="flex items-center gap-100 rounded-medium border border-border px-150 py-100 text-body-small"
                 >
-                  <span className="flex-1 truncate font-medium text-brand-navy">{t.name}</span>
-                  <span className="font-mono text-text-secondary">{inrCompact(t.spend)}</span>
-                  <span className="w-14 text-right text-[10.5px] text-text-muted">
+                  <span className="flex-1 truncate font-medium text-text">{t.name}</span>
+                  <span className="font-mono text-text-subtle">{inrCompact(t.spend)}</span>
+                  <span className="w-14 text-right text-body-small text-text-subtlest">
                     {tenantTotal > 0 ? ((t.spend / tenantTotal) * 100).toFixed(0) : 0}%
                   </span>
                 </div>
@@ -131,14 +133,14 @@ export function ServiceDrawer({
 
 function Tile({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
   return (
-    <div className="rounded-md border border-[var(--border-token)] p-3">
-      <div className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted">{label}</div>
+    <div className="rounded-medium border border-border p-150">
+      <div className="text-body-small font-medium text-text-subtlest">{label}</div>
       <div
         className={cn(
-          "mt-1 text-[16px] font-semibold",
-          tone === "good" && "text-emerald-600",
-          tone === "bad" && "text-rose-600",
-          !tone && "text-brand-navy",
+          "mt-050 text-[1rem] font-semibold",
+          tone === "good" && "text-text-success",
+          tone === "bad" && "text-text-danger",
+          !tone && "text-text",
         )}
       >
         {value}

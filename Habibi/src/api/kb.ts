@@ -410,17 +410,24 @@ export async function pollKbIndexJob(
   throw new Error(`index job ${jobId} timed out`);
 }
 
-/** Poll many index jobs in parallel; returns settled results (never throws). */
+/** Poll many index jobs with bounded concurrency; returns settled results (never throws). */
 export async function pollKbIndexJobs(
   jobIds: string[],
-  opts: { intervalMs?: number; timeoutMs?: number } = {},
+  opts: { intervalMs?: number; timeoutMs?: number; concurrency?: number } = {},
 ): Promise<{ succeeded: number; failed: number; timedOut: number; jobs: KbIndexJob[] }> {
-  const jobs = await Promise.all(
-    jobIds.map(async (id) => {
+  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 4, jobIds.length || 1));
+  const jobs: KbIndexJob[] = new Array(jobIds.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < jobIds.length) {
+      const i = cursor;
+      cursor += 1;
+      const id = jobIds[i]!;
       try {
-        return await pollKbIndexJob(id, opts);
+        jobs[i] = await pollKbIndexJob(id, opts);
       } catch {
-        return {
+        jobs[i] = {
           id,
           documentId: "",
           status: "failed",
@@ -434,8 +441,11 @@ export async function pollKbIndexJobs(
           updatedAt: new Date().toISOString(),
         } satisfies KbIndexJob;
       }
-    }),
-  );
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, jobIds.length) }, () => worker()));
+
   let succeeded = 0;
   let failed = 0;
   let timedOut = 0;
@@ -455,8 +465,10 @@ export function previewChunksFromText(
   text: string,
   chunkSize: number,
   overlap: number,
+  maxChars = 500_000,
 ): { count: number; samples: string[] } {
-  const tokens = (text || "").trim().split(/\s+/).filter(Boolean);
+  const bounded = (text || "").slice(0, maxChars);
+  const tokens = bounded.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return { count: 0, samples: [] };
   const size = Math.max(1, chunkSize);
   const ov = Math.max(0, Math.min(overlap, size - 1));

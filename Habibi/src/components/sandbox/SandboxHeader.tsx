@@ -1,7 +1,14 @@
-import { Download, RotateCcw, Rocket } from "lucide-react";
+import { ChevronDown, Download, RotateCcw, Rocket } from "lucide-react";
 import type { PromptVersion } from "@/data/prompt-studio-seed";
 import type { Scenario } from "@/data/sandbox-seed";
 import { cn } from "@/lib/utils";
+import { Lozenge } from "@/components/ui/lozenge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export type SandboxMode = "text" | "live";
 
@@ -25,42 +32,48 @@ type Props = {
   statusLabel?: string;
   onReset: () => void;
   onExport: () => void;
+  /** CRM interaction backing the current call; gates the server-side exports. */
+  interactionId?: string | null;
+  onExportReport?: (format: "md" | "json") => void;
   onPromote: () => void;
 };
 
 export function SandboxHeader(p: Props) {
-  const activePrompt =
-    p.promptVersions.find((v) => v.id === p.promptVersionId) ?? p.promptVersions[0];
+  const activePrompt = p.promptVersions.find((v) => v.id === p.promptVersionId);
   const remaining = Math.max(0, p.turnsMax - p.turnsUsed);
   return (
-    <header className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-[18px] font-semibold text-brand-navy">Call Simulation Sandbox</h1>
-        <span className="rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-medium text-brand-primary-dark">
+    <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
+      <div className="flex flex-wrap items-center gap-100">
+        <h1 className="text-[1.25rem] font-semibold text-text">Call simulation sandbox</h1>
+        <Lozenge tone="selected">
           Safe pre-prod harness
-        </span>
+        </Lozenge>
         {activePrompt && activePrompt.status !== "published" && (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+          <Lozenge tone="warning">
             Testing draft
-          </span>
+          </Lozenge>
         )}
         {p.statusLabel && (
-          <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-secondary">
+          <Lozenge tone="neutral">
             {p.statusLabel}
-          </span>
+          </Lozenge>
         )}
 
-        <div className="inline-flex rounded-md border border-[var(--border-token)] p-0.5 text-[11.5px]">
+        <div className="inline-flex rounded-medium border border-border p-025 text-body-small">
           <button
             type="button"
             onClick={() => p.onMode("text")}
             className={cn(
-              "rounded px-2.5 py-1 font-medium",
+              "rounded px-150 py-050 font-medium",
               p.mode === "text"
-                ? "bg-brand-primary text-white"
-                : "text-text-secondary hover:bg-surface-sunken",
+                ? "bg-background-brand-bold text-white"
+                : "text-text-subtle hover:bg-surface-sunken",
             )}
-            title="Rehearse prompts and KB without writing CRM rows"
+            // Was "without writing CRM rows", which is not true: when a
+            // customer is pinned to the run, sandbox_runtime enables the write
+            // tools and create_promise_to_pay / flag_dispute / capture_lead go
+            // straight to domain.*, exactly as they do on a live call.
+            title="Text-only: same prompt and KB, no voice pipeline and no call flow. Still writes CRM rows when a customer is pinned."
           >
             Prompt rehearsal
           </button>
@@ -77,10 +90,10 @@ export function SandboxHeader(p: Props) {
                 : "Live CRM call — start voice worker first (python -m voice.bot)"
             }
             className={cn(
-              "rounded px-2.5 py-1 font-medium",
+              "rounded px-150 py-050 font-medium",
               p.mode === "live"
-                ? "bg-brand-primary text-white"
-                : "text-text-secondary hover:bg-surface-sunken",
+                ? "bg-background-brand-bold text-white"
+                : "text-text-subtle hover:bg-surface-sunken",
               !p.liveEnabled && "cursor-not-allowed opacity-50",
             )}
           >
@@ -88,21 +101,14 @@ export function SandboxHeader(p: Props) {
           </button>
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-100">
           {p.mode === "text" && (
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                remaining <= 0
-                  ? "bg-red-50 text-red-700"
-                  : remaining === 1
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-surface-sunken text-text-secondary",
-              )}
+            <Lozenge
+              tone={remaining <= 0 ? "danger" : remaining === 1 ? "warning" : "neutral"}
               title="Customer→bot exchanges left in this text run"
             >
               {remaining}/{p.turnsMax} turns left
-            </span>
+            </Lozenge>
           )}
           <Select
             label="Prompt"
@@ -128,30 +134,78 @@ export function SandboxHeader(p: Props) {
           <button
             type="button"
             onClick={p.onReset}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-2.5 py-1.5 text-[12px] hover:bg-surface-sunken"
+            className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small hover:bg-surface-sunken"
           >
             <RotateCcw className="h-3.5 w-3.5" /> Reset
           </button>
-          <button
-            type="button"
-            onClick={p.onExport}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-2.5 py-1.5 text-[12px] hover:bg-surface-sunken"
-          >
-            <Download className="h-3.5 w-3.5" /> Export
-          </button>
+          {/* Three renderings of one call. The report is the one to reach for
+              when you want a second opinion from another model — it carries the
+              latency split, the tool calls and the guardrail flags, which the
+              turn dump never did. Both server exports need a live interaction. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small hover:bg-surface-sunken"
+              >
+                <Download className="h-3.5 w-3.5" /> Export
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuItem
+                disabled={!p.interactionId}
+                onSelect={() => p.onExportReport?.("md")}
+              >
+                <div>
+                  <div className="font-medium">Full call report (Markdown)</div>
+                  <div className="text-body-small text-text-subtlest">
+                    Transcript, latency by stage, tools, guardrails — paste into a model
+                  </div>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!p.interactionId}
+                onSelect={() => p.onExportReport?.("json")}
+              >
+                <div>
+                  <div className="font-medium">Full call data (JSON)</div>
+                  <div className="text-body-small text-text-subtlest">
+                    Same record, machine-readable
+                  </div>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={p.onExport}>
+                <div>
+                  <div className="font-medium">Turns only (JSON)</div>
+                  <div className="text-body-small text-text-subtlest">
+                    What is on screen — works without a call
+                  </div>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             type="button"
             onClick={p.onPromote}
-            className="inline-flex items-center gap-1 rounded-md bg-brand-primary px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-brand-primary-dark"
+            className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
           >
             <Rocket className="h-3.5 w-3.5" /> Promote to Production
           </button>
         </div>
       </div>
-      <p className="mt-1.5 text-[12px] text-text-secondary">
-        Rehearse the collections bot before production. Prompt rehearsal spends chat tokens only.
-        Live CRM call is a real duplex session via Pipecat — it writes real CRM rows (interactions,
-        promises, leads) against the prompt and knowledge you selected.
+      {/* The two modes are different runtimes, not two skins on one. Saying so
+          matters: a prompt that rehearses cleanly can still misbehave on a
+          call, because rehearsal never executes the flow graph's node prompts —
+          which is where greeting, verification and hub behaviour actually live. */}
+      <p className="mt-075 text-body-small text-text-subtle">
+        <span className="font-medium text-text-subtle">Prompt rehearsal</span> replays the prompt
+        and knowledge base over text, one turn at a time — it does not run the call flow, voice
+        pipeline, or identity verification, so greeting and turn-taking behaviour cannot be tested
+        here.{" "}
+        <span className="font-medium text-text-subtle">Live CRM call</span> is a real duplex session
+        via Pipecat that exercises the full flow graph. Both write real CRM rows (interactions,
+        promises, leads) when a customer is pinned.
       </p>
     </header>
   );
@@ -169,12 +223,12 @@ function Select({
   options: Array<{ value: string; label: string }>;
 }) {
   return (
-    <label className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1 text-[11.5px] text-text-secondary">
-      <span className="text-text-muted">{label}</span>
+    <label className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-100 py-050 text-body-small text-text-subtle">
+      <span className="text-text-subtlest">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-transparent text-text-primary focus:outline-none"
+        className="bg-transparent text-text focus:outline-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

@@ -1,8 +1,28 @@
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { INTENT_LABEL, type SandboxTurn } from "@/data/sandbox-seed";
+import { TurnTraceView } from "@/components/trace/TurnTraceView";
 
-export function TraceTab({ turns }: { turns: SandboxTurn[] }) {
+/**
+ * Server-backed when an interaction id is available, client-derived otherwise.
+ *
+ * The derived view is not a fallback for a failed fetch — it is the correct
+ * view for a text sandbox run, which has no interaction and therefore no
+ * persisted trace, and for a live call before its rows are written. Keeping
+ * both means the tab never regresses for the case it already handled.
+ */
+export function TraceTab({
+  turns,
+  interactionId,
+}: {
+  turns: SandboxTurn[];
+  interactionId?: string | null;
+}) {
+  if (interactionId) return <TurnTraceView interactionId={interactionId} />;
+  return <DerivedTrace turns={turns} />;
+}
+
+function DerivedTrace({ turns }: { turns: SandboxTurn[] }) {
   const events: Array<{ ts: number; text: string }> = [];
   turns.forEach((t, i) => {
     if (t.role === "customer") {
@@ -25,7 +45,7 @@ export function TraceTab({ turns }: { turns: SandboxTurn[] }) {
 
   if (events.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-[var(--border-token)] p-6 text-center text-[12px] text-text-muted">
+      <div className="rounded-medium border border-dashed border-border p-300 text-center text-body-small text-text-subtlest">
         Trace events appear here as the conversation runs.
       </div>
     );
@@ -35,11 +55,11 @@ export function TraceTab({ turns }: { turns: SandboxTurn[] }) {
     <div>
       <button
         onClick={copy}
-        className="mb-2 inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-2 py-0.5 text-[11px] hover:bg-surface-sunken"
+        className="mb-100 inline-flex items-center gap-050 rounded-medium border border-border px-100 py-025 text-body-small hover:bg-surface-sunken"
       >
         <Copy className="h-3 w-3" /> Copy
       </button>
-      <pre className="whitespace-pre-wrap rounded-md border border-[var(--border-token)] bg-surface-sunken p-2 font-mono text-[10.5px] leading-relaxed text-text-secondary">
+      <pre className="whitespace-pre-wrap rounded-medium border border-border bg-surface-sunken p-100 font-mono text-body-small leading-relaxed text-text-subtle">
         {events.map((e) => e.text).join("\n")}
       </pre>
     </div>

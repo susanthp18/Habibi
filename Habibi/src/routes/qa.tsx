@@ -25,6 +25,7 @@ import {
   useRubric,
   useScorecards,
 } from "@/api/qa";
+import { Lozenge } from "@/components/ui/lozenge";
 import {
   defaultRubric,
   agentStats,
@@ -201,34 +202,34 @@ function QaPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        <header className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[18px] font-semibold text-brand-navy">QA Scorecards & Coaching</h1>
-            <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-secondary">QA Lead workspace</span>
-            <div className="ml-auto flex items-center gap-2">
+        <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
+          <div className="flex flex-wrap items-center gap-100">
+            <h1 className="text-[1.25rem] font-semibold text-text">QA scorecards & coaching</h1>
+            <Lozenge tone="neutral">QA Lead workspace</Lozenge>
+            <div className="ml-auto flex items-center gap-100">
               <button
                 onClick={() => setRubricOpen(true)}
-                className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-3 py-1.5 text-[12px] text-text-primary hover:bg-surface-sunken"
+                className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" /> Edit rubric
               </button>
               <button
                 onClick={() => setTab("calibration")}
-                className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-3 py-1.5 text-[12px] text-text-primary hover:bg-surface-sunken"
+                className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
               >
                 <Scale className="h-3.5 w-3.5" /> Calibrate
               </button>
             </div>
           </div>
-          <p className="text-[12px] text-text-secondary">
+          <p className="text-body-small text-text-subtle">
             Weighted rubric scoring (empathy, resolution, compliance, script, upsell) — AI-assisted drafts, human sign-off, then drives coaching.
           </p>
         </header>
 
         <QaStatsStrip scorecards={scorecards} coaching={coaching} calibrations={calibrations} rubric={rubric} />
 
-        <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5">
-          <div className="flex gap-1">
+        <div className="shrink-0 border-b border-border bg-surface px-250">
+          <div className="flex gap-050">
             {TABS.map((t) => {
               const Icon = t.icon;
               return (
@@ -236,18 +237,18 @@ function QaPage() {
                   key={t.key}
                   onClick={() => setTab(t.key)}
                   className={cn(
-                    "inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[12.5px]",
+                    "inline-flex items-center gap-075 border-b-2 px-150 py-100 text-body-small",
                     tab === t.key
-                      ? "border-brand-primary text-brand-primary-dark font-semibold"
-                      : "border-transparent text-text-secondary hover:text-text-primary",
+                      ? "border-border-brand text-text-brand font-semibold"
+                      : "border-transparent text-text-subtle hover:text-text",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {t.label}
                   {t.count !== undefined && (
                     <span className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[10px]",
-                      tab === t.key ? "bg-brand-tint text-brand-primary-dark" : "bg-surface-sunken text-text-muted",
+                      "rounded-full px-075 py-025 text-body-small",
+                      tab === t.key ? "bg-background-brand-subtlest text-text-brand" : "bg-surface-sunken text-text-subtlest",
                     )}>{t.count}</span>
                   )}
                 </button>
@@ -256,7 +257,7 @@ function QaPage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden bg-surface-app">
+        <div className="min-h-0 flex-1 overflow-hidden bg-surface">
           {tab === "queue" && (
             <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)]">
               <ScoringQueue scorecards={scorecards} activeId={activeScoreId} onSelect={setActiveScoreId} rubric={rubric} />
@@ -272,8 +273,8 @@ function QaPage() {
           )}
 
           {tab === "trends" && (
-            <div className="h-full min-h-0 overflow-y-auto p-5">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="h-full min-h-0 overflow-y-auto p-250">
+              <div className="grid gap-200 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <AgentTrendsTable stats={stats} activeAgent={activeAgent ?? stats[0]?.agentId ?? null} onSelect={setActiveAgent} />
                 <AgentTrendCard stat={activeStat} />
               </div>
@@ -281,13 +282,13 @@ function QaPage() {
           )}
 
           {tab === "calibration" && (
-            <div className="h-full min-h-0 overflow-y-auto p-5">
+            <div className="h-full min-h-0 overflow-y-auto p-250">
               <CalibrationView sessions={calibrations} onClose={closeCalibration} />
             </div>
           )}
 
           {tab === "coaching" && (
-            <div className="h-full min-h-0 overflow-y-auto p-5">
+            <div className="h-full min-h-0 overflow-y-auto p-250">
               <CoachingBoard
                 actions={coaching}
                 onMove={moveCoaching}

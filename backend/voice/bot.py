@@ -12,7 +12,9 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -30,12 +32,16 @@ from loguru import logger
 from agent_core import default_context, default_tuning, load_active_bundle, voice_params_from_config
 from prompt_render import render_prompt
 from voice import config as voice_config
+from voice.context_edit import CRM_CARD_PREFIX, replace_developer_block
 from voice.crm_sink import CrmSink, bind_session_start
 from voice.flows import build_collections_flow
 from voice.latency import KeepAliveAzureLLMService, prewarm_llm_connection
 from voice.natural import build_voice_system_prompt, filler_for_function_names
 from voice.recording import attach_recording_handlers
 from voice.session import VoiceSession
+from voice import log_bridge
+from voice.spoken_text import SpokenTextFilter
+from voice.turn_probe import SpokeThisResponseProbe
 from voice.tuning_apply import (
     apply_live_tuning_delta,
     build_llm_settings_kwargs,
@@ -135,16 +141,92 @@ _MAX_CALL_DURATION_SECS = 10 * 60
 # Worker-level silence backstop under the aggregator idle ladder.
 _WORKER_IDLE_TIMEOUT_SECS = 180
 
-# Strong refs for fire-and-forget tasks — the loop only holds a weak ref, so
-# without this a prewarm task can be GC'd mid-flight and silently cancelled.
-_BG_TASKS: set[asyncio.Task] = set()
+# In-call context summarisation prompt. Pipecat's default is generic and, in
+# session VS-0D653BF9C3, produced a summary asserting the account was
+# unresolved while a get_account_position result saying otherwise was still in
+# the same context window — and the model repeated the summary. The rules below
+# are the same shape as voice/memory.py's cross-call summariser: preserve
+# commitments verbatim, never conclude anything about resolution.
+_CONTEXT_SUMMARY_PROMPT = (
+    "Summarise this collections call so far for the agent handling the rest of "
+    "it.\n"
+    "PRESERVE VERBATIM: every promise-to-pay (amount and date), every dispute "
+    "raised, every callback booked, every document requested, and the caller's "
+    "stated constraints or preferences.\n"
+    "NEVER state or imply that anything was resolved, approved, waived, "
+    "closed, cleared, settled, cancelled or refunded. Never restate a balance "
+    "or due amount — those are held authoritatively elsewhere in the context "
+    "and your text must not compete with them.\n"
+    "If a tool result appears later in the conversation than something you are "
+    "summarising, the tool result wins.\n"
+    "Be factual and brief. Do not add advice or next steps."
+)
 
 
-def _spawn_bg(coro) -> asyncio.Task:
-    task = asyncio.create_task(coro)
-    _BG_TASKS.add(task)
-    task.add_done_callback(_BG_TASKS.discard)
-    return task
+async def _drain_tasks(tasks: set[asyncio.Task], *, label: str, timeout: float = 2.0) -> None:
+    """Settle a call's fire-and-forget tasks, then cancel whatever is left.
+
+    Mirrors voice.tools.drain_background_tasks. Best-effort work must not hold
+    up the hangup path, but it also must not be abandoned pending — that is
+    what logs "Task was destroyed but it is pending!" at interpreter exit.
+    """
+    pending = [t for t in tasks if not t.done()]
+    if not pending:
+        return
+    done, still_pending = await asyncio.wait(pending, timeout=timeout)
+    for task in still_pending:
+        task.cancel()
+    if still_pending:
+        await asyncio.gather(*still_pending, return_exceptions=True)
+    for task in done:
+        if not task.cancelled() and task.exception() is not None:
+            logger.debug("{} task failed: {}", label, task.exception())
+
+
+def _sandbox_session_id_from(runner_args, is_session_id) -> str | None:
+    """Pull the Sandbox Live session id out of the transport's request data.
+
+    The browser sends it as SmallWebRTC ``requestData``, which the runner puts on
+    ``runner_args.body``; the ``/start`` runner path nests the same dict one level
+    deeper under ``body``, and a client that posts raw JSON leaves it a string.
+    All three shapes are accepted.
+
+    ``runner_args.session_id`` is deliberately *validated*, not trusted: the
+    embedded host (:mod:`voice.host`) sets it to our ``VS-`` id, but the
+    standalone ``pipecat.runner`` mints ``str(uuid4())`` for every offer. Taking
+    that as a sandbox id raised ``invalid_session_id`` on every single call and
+    dropped the whole Live configuration.
+    """
+    body = getattr(runner_args, "body", None)
+    if isinstance(body, (str, bytes)):
+        try:
+            body = json.loads(body)
+        except (ValueError, TypeError):
+            body = None
+
+    seen: list[str] = []
+    for source in (body, (body or {}).get("body") if isinstance(body, dict) else None):
+        if not isinstance(source, dict):
+            continue
+        for key in ("sessionId", "session_id"):
+            value = source.get(key)
+            if isinstance(value, str) and value:
+                seen.append(value)
+
+    transport_sid = getattr(runner_args, "session_id", None)
+    if isinstance(transport_sid, str) and transport_sid:
+        seen.append(transport_sid)
+
+    for candidate in seen:
+        if is_session_id(candidate):
+            return candidate
+    if seen:
+        # A non-canonical id here is a client bug worth naming, not silence.
+        logger.warning(
+            "ignoring non-sandbox session identifiers on this connection: {}",
+            ", ".join(sorted(set(seen))),
+        )
+    return None
 
 
 async def run_bot(transport, runner_args) -> None:
@@ -183,11 +265,24 @@ async def run_bot(transport, runner_args) -> None:
 
     import db as _db
 
+    # Strong refs for this call's fire-and-forget tasks — the loop only holds a
+    # weak ref, so without this a prewarm task can be GC'd mid-flight and
+    # silently cancelled. Per-call (not module-level) so an embedded host running
+    # two calls cannot have one teardown reach into the other's tasks, and so the
+    # set dies with the call instead of accumulating for the process lifetime.
+    bg_tasks: set[asyncio.Task] = set()
+
+    def _spawn_bg(coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        bg_tasks.add(task)
+        task.add_done_callback(bg_tasks.discard)
+        return task
+
     # Prefer Sandbox Live session config (written by POST /voice/sandbox/start).
-    # Session id arrives via SmallWebRTC request_data → runner_args.body (or
-    # runner_args.session_id). Never use a shared "latest" pointer — that races.
+    # Session id arrives via SmallWebRTC request_data → runner_args.body. Never
+    # use a shared "latest" pointer — that races between concurrent calls.
     sandbox_session = None
-    _vsb = None
+    _store = None
     call_data = getattr(runner_args, "call_data", None)
     transport_type = (
         getattr(runner_args, "transport_type", None)
@@ -197,27 +292,43 @@ async def run_bot(transport, runner_args) -> None:
     if not transport_type and call_data is not None:
         transport_type = "twilio"
     is_twilio = str(transport_type).lower() in {"twilio", "telnyx", "plivo", "exotel"}
+    sandbox_load_error: str | None = None
     try:
-        import voice_sandbox as _vsb
-
-        body = getattr(runner_args, "body", None)
-        sid = None
-        if isinstance(body, dict):
-            sid = body.get("sessionId") or body.get("session_id")
-        if not sid:
-            sid = getattr(runner_args, "session_id", None)
-        if sid:
-            sandbox_session = _vsb.read_session(str(sid))
-            if not sandbox_session:
-                logger.warning("voice sandbox session not found: %s", sid)
-        elif not is_twilio:
-            logger.warning(
-                "No sessionId in runner_args.body — sandbox Live config unavailable"
-            )
+        import voice_session_store as _store
     except Exception:
-        logger.exception("failed to load voice sandbox session")
-        sandbox_session = None
-        _vsb = None
+        logger.exception("voice session store unimportable — Live config unavailable")
+        sandbox_load_error = "store_unimportable"
+
+    if _store is not None:
+        sid = _sandbox_session_id_from(runner_args, _store.is_session_id)
+        if sid:
+            try:
+                sandbox_session = _store.read(sid)
+                if not sandbox_session:
+                    # The API minted this id, so an empty read means the two
+                    # processes are not looking at the same store.
+                    sandbox_load_error = "session_not_found"
+                    logger.error(
+                        "voice sandbox session {} not found in {} store — Live call will "
+                        "run with the production bundle, not the sandbox config",
+                        sid,
+                        _store.backend(),
+                    )
+            except _store.SessionStoreUnavailable:
+                sandbox_load_error = "store_unavailable"
+                logger.exception("voice sandbox session store unavailable for {}", sid)
+            except ValueError:
+                # Guarded by is_session_id above; only reachable if the two
+                # validators ever diverge.
+                sandbox_load_error = "invalid_session_id"
+                logger.exception("rejected malformed sandbox session id {}", sid)
+        elif not is_twilio:
+            sandbox_load_error = "no_session_id"
+            logger.warning(
+                "No sandbox sessionId in the WebRTC offer — the client must connect with "
+                "webrtcRequestParams.requestData = {{sessionId}}. Falling back to the "
+                "production bundle; persona / KB snapshot / tuning will not apply."
+            )
 
     try:
         if sandbox_session and sandbox_session.get("promptVersionId"):
@@ -353,6 +464,10 @@ async def run_bot(transport, runner_args) -> None:
         region=speech_region,
         settings=build_tts_settings(tuning),
         text_aggregation_mode=text_aggregation_mode(tuning),
+        # Parentheses and markdown are unspeakable, and Azure's word-boundary
+        # events skip them — which made the sequencer emit the same span twice
+        # and duplicated it into the transcript. See voice/spoken_text.py.
+        text_filters=[SpokenTextFilter()],
     )
     llm = KeepAliveAzureLLMService(
         api_key=voice_config.azure_openai_voice_api_key(),
@@ -367,9 +482,32 @@ async def run_bot(transport, runner_args) -> None:
         ),
     )
 
-    # Mask CRM/tool latency with a short spoken filler (plan §6).
+    # Name the models the meter will attribute spend to. Pipecat reports a model
+    # on most usage metrics, but not on all of them, and the TTS metric names the
+    # service rather than the neural voice that is actually priced — so the
+    # resolved config is the reliable source.
+    sink.usage.configure(
+        llm_model=deployment,
+        tts_voice=(tuning.get("tts") or {}).get("voice"),
+        stt_language=(tuning.get("stt") or {}).get("language") or "en-IN",
+    )
+
+    # Interlock between the two ways of covering tool latency, and the
+    # authoritative bot-turn tap — see voice/turn_probe.py. Constructed here so
+    # the filler handler below can close over it.
+    #
+    # record_bot_turn only enqueues, so awaiting it on the pipeline task is
+    # safe; the CRM write happens on the sink's own drain.
+    spoke_probe = SpokeThisResponseProbe(on_bot_turn=sink.record_bot_turn)
+
+    # Mask CRM/tool latency with a short spoken filler (plan §6) — but only when
+    # the model did NOT already acknowledge in this same response. The role
+    # message now asks for acknowledge-then-call, so on the good path the
+    # caller is already hearing something and this filler would talk over it.
     @llm.event_handler("on_function_calls_started")
     async def _on_function_calls_started(service, function_calls):
+        if spoke_probe.spoke_this_response:
+            return
         names = []
         for call in function_calls or []:
             names.append(
@@ -397,11 +535,19 @@ async def run_bot(transport, runner_args) -> None:
         # Disabled by default: filter_incomplete_user_turns injects ✓ / ◐ into the
         # LLM context (seen in logs as assistant content '◐'). Enable via
         # VOICE_FILTER_INCOMPLETE_TURNS=1 after India-EN prompt soak tests.
-        "filter_incomplete_user_turns": (
-            (os.getenv("VOICE_FILTER_INCOMPLETE_TURNS") or "").strip().lower()
-            in {"1", "true", "yes", "on"}
-        ),
+        "filter_incomplete_user_turns": voice_config.voice_filter_incomplete_turns(),
         "user_turn_stop_timeout": 5.0,
+        # A Flows node transition swaps the advertised tool set, and the model
+        # otherwise gets no signal that its capabilities changed — it can keep
+        # reaching for a tool the previous node had. This appends a developer
+        # message describing the delta when LLMSetToolsFrame fires.
+        #
+        # Set on BOTH aggregators rather than reasoning about frame direction:
+        # pipecat's _maybe_add_tool_change_messages is dedupe-safe across the
+        # pair (whichever sees the frame first computes a real diff; by the time
+        # the other sees it the context already reflects the new tools, so its
+        # diff is empty).
+        "add_tool_change_messages": voice_config.voice_tool_change_messages(),
     }
     if idle_timeout is not None:
         user_params_kwargs["user_idle_timeout"] = idle_timeout
@@ -416,6 +562,7 @@ async def run_bot(transport, runner_args) -> None:
         context,
         user_params=LLMUserAggregatorParams(**user_params_kwargs),
         assistant_params=LLMAssistantAggregatorParams(
+            add_tool_change_messages=voice_config.voice_tool_change_messages(),
             enable_auto_context_summarization=True,
             auto_context_summarization_config=LLMAutoContextSummarizationConfig(
                 max_context_tokens=8000,
@@ -423,6 +570,14 @@ async def run_bot(transport, runner_args) -> None:
                 summary_config=LLMContextSummaryConfig(
                     target_context_tokens=4000,
                     min_messages_after_summary=6,
+                    # A collections-specific prompt, for the same reason
+                    # customer_memory has one: the generic summariser is what
+                    # produced the VS-0D653BF9C3 contradiction. Open
+                    # commitments must survive verbatim, and the summary must
+                    # never editorialise about whether anything was resolved —
+                    # the CRM card and live tool results are authoritative and
+                    # the summary sits in the same window as both.
+                    summarization_prompt=_CONTEXT_SUMMARY_PROMPT,
                 ),
             ),
         ),
@@ -431,7 +586,7 @@ async def run_bot(transport, runner_args) -> None:
     assistant_aggregator = context_aggregator.assistant()
     sink.attach_aggregators(user_aggregator, assistant_aggregator)
 
-    from voice.kb_enrich import KbEnrichProcessor
+    from voice.kb_enrich import KbCache, KbEnrichProcessor, KbSpeculationProcessor
 
     # Sandbox Live is the only surface with a UI listening for domain events; a
     # PSTN call has no client to render chips, so the emitter simply stays
@@ -451,6 +606,24 @@ async def run_bot(transport, runner_args) -> None:
             return
         await user_aggregator.push_frame(LLMMessagesAppendFrame(messages, run_llm=False))
 
+    async def _replace_developer(prefix: str, message: dict[str, str]) -> None:
+        """Re-inject a developer block, evicting the previous one first.
+
+        ``_inject_developer`` is append-only, which is right for one-shot deltas
+        but wrong for the CRM card: refreshing it after every write would leave N
+        cards in context, and once auto-summarisation folds them together the
+        model can assert a stale balance over a fresh one. Same failure class as
+        the VS-0D653BF9C3 incident noted above.
+        """
+        if not message:
+            return
+        replace_developer_block(
+            context.get_messages,
+            context.set_messages,
+            prefix=prefix,
+            message=message,
+        )
+
     # ToolState is created inside build_collections_flow below; the getter reads
     # it lazily so KB corpus scope can follow the live Flows node.
     _flow_holder: dict[str, object] = {}
@@ -459,14 +632,26 @@ async def run_bot(transport, runner_args) -> None:
         from agent_core.context import product_keys_for_node
 
         state = _flow_holder.get("state")
+        # Explicit scope wins. product_keys_for_node keys off _PRODUCT_NODES =
+        # {"gated_upsell"}; under VOICE_FLOW_GRAPH=hub that node does not exist,
+        # so without this an insurance question would be answered out of the
+        # collections corpus. `None` means "no hard product filter" — let
+        # kb_retrieve steer by query tokens.
+        if getattr(state, "product_scope", None) == "product":
+            return None
         return product_keys_for_node(getattr(state, "current_node", None))
 
-    kb_enrich = KbEnrichProcessor(
+    # One cache, two processors. The speculator sits upstream of the user
+    # aggregator (which swallows InterimTranscriptionFrame) and starts retrieval
+    # while the caller is still talking; the injector stays where it was and
+    # resolves through the cache with a bounded wait.
+    kb_cache = KbCache(
         interaction_id_getter=lambda: session.interaction_id,
         product_keys_getter=_current_product_keys,
         kb_snapshot_id=kb_snapshot_id,
-        emitter=emitter,
     )
+    kb_speculator = KbSpeculationProcessor(kb_cache)
+    kb_enrich = KbEnrichProcessor(kb_cache, emitter=emitter)
 
     # Silence ladder (§6) — escalate nudge → direct → close.
     idle_strikes = 0
@@ -487,6 +672,9 @@ async def run_bot(transport, runner_args) -> None:
             return False
         ending = True
         session.extra["ending"] = True
+        # Read back by on_pipeline_finished so the finalized interaction records
+        # why the call ended rather than a generic "bot_ended".
+        session.extra.setdefault("ending_reason", reason)
         if duration_task is not None and not duration_task.done():
             duration_task.cancel()
         return True
@@ -513,10 +701,35 @@ async def run_bot(transport, runner_args) -> None:
         await emitter.lifecycle(phase="idle", reason=f"{step}:{idle_strikes}")
 
         if step == "nudge":
-            msg = {
-                "role": "developer",
-                "content": "The user has gone quiet. Politely and briefly ask if they're still there.",
-            }
+            # Goal-aware re-engagement. "Are you still there?" treats silence as
+            # a connection problem; when we know why they called, the useful
+            # move is to pick that thread back up. Rungs 2 and 3 stay generic —
+            # by then silence probably IS a dropped caller.
+            goal = (getattr(session, "call_goal", None) or "").strip()
+            # The length and no-restating clauses are load-bearing. Without
+            # them the model treated the nudge as a fresh prompt and re-answered
+            # its own previous turn almost verbatim — twice on call
+            # VS-6B252E0479 — which is what the caller experienced as the bot
+            # repeating itself.
+            brevity = (
+                " Say at most fifteen words. Do NOT restate, re-summarise or "
+                "rephrase anything you have already told them — they heard it. "
+                "Ask one short question and stop."
+            )
+            content = (
+                (
+                    f"The caller has gone quiet. They called about: {goal}. "
+                    "Warmly pick that thread back up with one short question "
+                    "that helps them move it forward — do not simply ask if "
+                    "they are still there." + brevity
+                )
+                if goal
+                else (
+                    "The caller has gone quiet. Politely ask if they're still "
+                    "there." + brevity
+                )
+            )
+            msg = {"role": "developer", "content": content}
             await aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
             return
         if step == "direct":
@@ -551,12 +764,7 @@ async def run_bot(transport, runner_args) -> None:
     # Optional chunked buffer for long calls: VOICE_AUDIO_BUFFER_SECS=30
     # Turn audio feeds Inspector playback (VOICE_TURN_AUDIO=1, default on for sandbox).
     _buf_secs = (os.getenv("VOICE_AUDIO_BUFFER_SECS") or "").strip()
-    _turn_audio = (os.getenv("VOICE_TURN_AUDIO") or ("1" if sandbox_session else "0")).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    _turn_audio = voice_config.voice_turn_audio(sandbox=bool(sandbox_session))
     _audiobuf_kwargs: dict[str, Any] = {
         "num_channels": 2,
         "auto_start_recording": False,
@@ -598,17 +806,56 @@ async def run_bot(transport, runner_args) -> None:
             except Exception:
                 logger.debug("turn.audio emit failed", exc_info=True)
 
+        # First positional is the AudioBufferProcessor itself — pipecat's
+        # _call_event_handler prepends it, exactly as the on_audio_data /
+        # on_track_audio_data handlers in voice/recording.py already expect.
+        # Declaring only (audio, sample_rate, num_channels) raised
+        # "takes 3 positional arguments but 4 were given" on *every* turn, and
+        # because pipecat swallows handler exceptions the only symptom was that
+        # per-turn audio silently never reached the Inspector.
         @audiobuffer.event_handler("on_user_turn_audio_data")
-        async def _on_user_turn_audio(buffer, sample_rate, num_channels):
-            await _emit_turn_audio("user", buffer, sample_rate, num_channels)
+        async def _on_user_turn_audio(buffer, audio, sample_rate, num_channels):  # noqa: ANN001
+            await _emit_turn_audio("user", audio, sample_rate, num_channels)
 
         @audiobuffer.event_handler("on_bot_turn_audio_data")
-        async def _on_bot_turn_audio(buffer, sample_rate, num_channels):
-            await _emit_turn_audio("bot", buffer, sample_rate, num_channels)
+        async def _on_bot_turn_audio(buffer, audio, sample_rate, num_channels):  # noqa: ANN001
+            await _emit_turn_audio("bot", audio, sample_rate, num_channels)
 
     async def _start_recording() -> None:
         await audiobuffer.start_recording()
         logger.info("Recording started · session={}", session.session_id)
+
+    def _on_upsell_engaged() -> None:
+        """Activate the insurance specialist when the caller engages a pitch.
+
+        Under the legacy graph this is a ``gated_upsell`` node pre_action. A
+        merged hub has no node-entry hook, so the eligibility handler calls this
+        instead — which is arguably more accurate: it fires when the caller
+        actually engages, not when the graph says they have.
+        """
+
+        async def _run() -> None:
+            try:
+                from voice import mesh_bus
+
+                role = await mesh_bus.activate_and_publish(
+                    "insurance",
+                    session_id=session.session_id,
+                    customer_id=session.customer_id,
+                    interaction_id=session.interaction_id,
+                    bot_id=bot_id,
+                )
+                logger.info(
+                    "mesh role after upsell engagement → {} · session={}",
+                    role,
+                    session.session_id,
+                )
+            except Exception:
+                logger.exception("upsell mesh activation failed (non-fatal)")
+
+        from voice.tools import spawn_session_task
+
+        spawn_session_task(session.session_id, _run())
 
     _tool_state, _tools, initial_node, global_fns = build_collections_flow(
         session,
@@ -618,11 +865,48 @@ async def run_bot(transport, runner_args) -> None:
         emitter=emitter,
         kb_snapshot_id=kb_snapshot_id,
         inject_developer=_inject_developer,
+        replace_developer=_replace_developer,
         persona=sandbox_persona,
         channel="sandbox_live" if sandbox_session else "voice",
         on_kb_tool_used=kb_enrich.suppress,
+        spoke_this_response=lambda: spoke_probe.spoke_this_response,
+        on_upsell_engaged=_on_upsell_engaged,
         sink=sink,
     )
+
+    # VOICE_FLOW_GRAPH=db swaps in the graph authored in Prompt Studio. Built
+    # after the hardcoded flow rather than instead of it, so any failure — no
+    # authored graph on this deployment, a graph that no longer compiles — keeps
+    # the call on the flow that was already working. The cost is building both,
+    # which is pure object construction with no I/O.
+    _authored = bundle.get("flow")
+    if _authored and voice_config.voice_flow_graph() == "db":
+        try:
+            from voice.flows_dynamic import build_authored_flow
+
+            _tool_state, _tools, initial_node, global_fns = build_authored_flow(
+                session,
+                _authored,
+                role_message=system_instruction,
+                bot_id=bot_id,
+                start_recording=_start_recording,
+                emitter=emitter,
+                kb_snapshot_id=kb_snapshot_id,
+                inject_developer=_inject_developer,
+                replace_developer=_replace_developer,
+                persona=sandbox_persona,
+                channel="sandbox_live" if sandbox_session else "voice",
+                on_kb_tool_used=kb_enrich.suppress,
+                spoke_this_response=lambda: spoke_probe.spoke_this_response,
+                on_upsell_engaged=_on_upsell_engaged,
+                sink=sink,
+            )
+            logger.info("voice flow: using authored graph from prompt version")
+        except Exception:
+            logger.exception(
+                "authored flow failed to compile — falling back to the built-in flow"
+            )
+
     _flow_holder["state"] = _tool_state
 
     # Outbound Twilio only — VoicemailDetector between STT and user agg, gate after TTS.
@@ -654,14 +938,50 @@ async def run_bot(transport, runner_args) -> None:
         logger.exception("AMD setup failed — continuing without voicemail detection")
         voicemail_detector = None
 
+    # Telephony only — partner-IVR traversal on outbound, keypad capture inbound
+    # (voice plan §2.10). The navigator wraps `llm`, so it takes that stage's
+    # slot and everything downstream (Flows, RTVI, CrmSink) is untouched.
+    ivr_navigator = None
+    dtmf_aggregator = None
+    try:
+        from voice import ivr as ivr_mod
+
+        if ivr_mod.should_enable_ivr(session.extra, is_twilio=is_twilio):
+            ivr_navigator = ivr_mod.build_ivr_navigator(
+                llm=llm, session_extra=session.extra
+            )
+            if ivr_navigator is not None:
+                logger.info("IVR navigation enabled · session={}", session.session_id)
+        if ivr_mod.should_enable_dtmf_input(is_twilio=is_twilio):
+            dtmf_aggregator = ivr_mod.build_dtmf_aggregator()
+            if dtmf_aggregator is not None:
+                logger.info("DTMF keypad input enabled · session={}", session.session_id)
+    except Exception:
+        logger.exception("IVR setup failed — continuing without IVR/DTMF")
+        ivr_navigator = None
+        dtmf_aggregator = None
+
     pipeline_stages: list[Any] = [transport.input(), stt]
+    if dtmf_aggregator is not None:
+        # After STT so aggregated digits join the same text stream the user
+        # aggregator consumes, and before it so they land in the right turn.
+        pipeline_stages.append(dtmf_aggregator)
     if voicemail_detector is not None:
         pipeline_stages.append(voicemail_detector.detector())
     pipeline_stages.extend(
         [
+            # Must precede the user aggregator: LLMUserAggregator consumes
+            # InterimTranscriptionFrame and does not push it downstream, so
+            # nothing after it can start retrieval before the turn closes.
+            # Placed after the voicemail detector so an answering-machine
+            # greeting never burns an embed.
+            kb_speculator,
             context_aggregator.user(),
             kb_enrich,
-            llm,
+            ivr_navigator if ivr_navigator is not None else llm,
+            # Between llm and tts: sees the response's text frames before they
+            # are spoken, which is what the filler interlock needs.
+            spoke_probe,
             tts,
         ]
     )
@@ -681,14 +1001,94 @@ async def run_bot(transport, runner_args) -> None:
     if metrics_obs is not None:
         observers.append(metrics_obs)
 
+    # Per-service latency attribution. Prerequisite (enable_metrics=True) is
+    # already set on PipelineParams below. The observer is passive — it only
+    # reads pushed frames — so the handlers here must stay off the audio path:
+    # the sink call is in-memory and the RTVI emit is fire-and-forget.
+    if voice_config.voice_latency_observer():
+        try:
+            from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
+
+            from voice.tools import spawn_session_task
+
+            latency_obs = UserBotLatencyObserver()
+
+            @latency_obs.event_handler("on_latency_breakdown")
+            async def _on_latency_breakdown(_obs, breakdown):  # noqa: ANN001
+                try:
+                    sink.record_latency_breakdown(breakdown)
+                    spawn_session_task(
+                        session.session_id,
+                        emitter.send(
+                            "latency.breakdown",
+                            sink.latency_breakdown_payload(breakdown),
+                        ),
+                    )
+                except Exception:
+                    logger.exception("latency breakdown handler failed")
+
+            @latency_obs.event_handler("on_latency_measured")
+            async def _on_latency_measured(_obs, latency_seconds):  # noqa: ANN001
+                try:
+                    sink.record_user_bot_latency_ms(float(latency_seconds) * 1000.0)
+                except Exception:
+                    logger.debug("latency measure handler failed", exc_info=True)
+
+            @latency_obs.event_handler("on_first_bot_speech_latency")
+            async def _on_first_bot_speech(_obs, latency_seconds):  # noqa: ANN001
+                # loguru formats with {}, not printf — the %s version printed
+                # the format string literally and dropped both values.
+                logger.info(
+                    "first bot speech · session={} · {:.3f}s",
+                    session.session_id,
+                    float(latency_seconds),
+                )
+
+            observers.append(latency_obs)
+        except Exception:
+            logger.exception("latency observer unavailable — continuing without it")
+
+    if voice_config.voice_startup_timing():
+        try:
+            from pipecat.observers.startup_timing_observer import StartupTimingObserver
+
+            startup_obs = StartupTimingObserver()
+
+            @startup_obs.event_handler("on_startup_timing_report")
+            async def _on_startup_timing(_obs, report):  # noqa: ANN001
+                logger.info("startup timing · session={} · {}", session.session_id, report)
+
+            @startup_obs.event_handler("on_transport_timing_report")
+            async def _on_transport_timing(_obs, report):  # noqa: ANN001
+                logger.info("transport timing · session={} · {}", session.session_id, report)
+
+            observers.append(startup_obs)
+        except Exception:
+            logger.exception("startup timing observer unavailable")
+
     # Sandbox gets FULL function-call reporting so the Inspector can show tool
-    # args and results. A production call reports NAME only: verify_identity
-    # args are the caller's mobile digits and must not be shipped to a client
-    # (voice plan §2.2 / docs: RTVIFunctionCallReportLevel).
-    report_level = (
-        RTVIFunctionCallReportLevel.FULL
+    # args and results. A production call reports NAME only (voice plan §2.2 /
+    # docs: RTVIFunctionCallReportLevel).
+    #
+    # This is a *map* of function name → level with "*" as the default, not a
+    # bare level: RTVIObserver looks the function up with `levels.get("*", …)`,
+    # so passing the enum itself raised AttributeError inside the observer's
+    # task on the first tool call of every call, and no llm-function-call-*
+    # event ever reached the client.
+    #
+    # verify_identity is pinned one notch tighter than the default in both
+    # environments — its arguments are the caller's mobile digits, which must
+    # not be shipped to a browser even in a rehearsal.
+    report_levels = (
+        {
+            "*": RTVIFunctionCallReportLevel.FULL,
+            "verify_identity": RTVIFunctionCallReportLevel.NAME,
+        }
         if sandbox_session
-        else RTVIFunctionCallReportLevel.NAME
+        else {
+            "*": RTVIFunctionCallReportLevel.NAME,
+            "verify_identity": RTVIFunctionCallReportLevel.NONE,
+        }
     )
 
     # cancel_on_idle_timeout=False so we can speak a farewell first
@@ -708,22 +1108,38 @@ async def run_bot(transport, runner_args) -> None:
         idle_timeout_secs=_WORKER_IDLE_TIMEOUT_SECS,
         cancel_on_idle_timeout=False,
         rtvi_observer_params=RTVIObserverParams(
-            function_call_report_level=report_level,
+            function_call_report_level=report_levels,
         ),
     )
 
     if voicemail_detector is not None:
         try:
-            from voice.amd import attach_voicemail_handlers
-
             await attach_voicemail_handlers(
                 voicemail_detector=voicemail_detector,
                 session=session,
                 sink=sink,
                 worker=worker,
+                # Deployment persona (the bot's own identity), not sandboxPersona
+                # (the simulated caller) — the voicemail says who is calling.
+                persona=bundle.get("persona") if isinstance(bundle.get("persona"), dict) else None,
+                tuning=tuning,
             )
         except Exception:
             logger.exception("AMD handlers failed")
+
+    if ivr_navigator is not None:
+        try:
+            from voice.ivr import attach_ivr_handlers
+
+            await attach_ivr_handlers(
+                navigator=ivr_navigator,
+                session=session,
+                sink=sink,
+                worker=worker,
+                emitter=emitter,
+            )
+        except Exception:
+            logger.exception("IVR handlers failed")
 
     flow_manager = FlowManager(
         llm=llm,
@@ -758,7 +1174,11 @@ async def run_bot(transport, runner_args) -> None:
             from voice import mesh_bus
 
             role = await mesh_bus.activate_and_publish(
-                "insurance", session_id=session.session_id
+                "insurance",
+                session_id=session.session_id,
+                customer_id=session.customer_id,
+                interaction_id=session.interaction_id,
+                bot_id=bot_id,
             )
             logger.info("mesh role after upsell hop → {} · session={}", role, session.session_id)
         except Exception:
@@ -822,18 +1242,26 @@ async def run_bot(transport, runner_args) -> None:
         """Mid-call language handling within AgentTuning.stt.fallback_languages (edge #16)."""
         from pipecat.frames.frames import STTUpdateSettingsFrame
 
-        from voice.tuning_apply import _language
+        from voice.tuning_apply import normalize_language
 
         if action.get("action") == "switch" and action.get("language"):
-            lang = str(action["language"])
+            requested = str(action["language"])
+            # The sink stores what STT was actually set to. Storing the raw
+            # request instead made the next resolve_language_action compare an
+            # un-normalised current_language against normalised fallbacks and
+            # re-trigger a switch that had already happened.
+            lang = normalize_language(requested)
             try:
                 await worker.queue_frame(
-                    STTUpdateSettingsFrame(
-                        delta=AzureSTTService.Settings(language=_language(lang))
-                    )
+                    STTUpdateSettingsFrame(delta=AzureSTTService.Settings(language=lang))
                 )
-                sink._stt_language = lang
-                logger.info("STT language switched · session={} · lang={}", session.session_id, lang)
+                sink.set_stt_language(lang)
+                logger.info(
+                    "STT language switched · session={} · requested={} · lang={}",
+                    session.session_id,
+                    requested,
+                    lang,
+                )
             except Exception:
                 logger.exception("STT language switch failed")
                 msg = {
@@ -855,10 +1283,33 @@ async def run_bot(transport, runner_args) -> None:
         }
         await user_aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
 
+    async def _live_correction(correction) -> None:
+        """Inject one self-correction directive for the next turn.
+
+        run_llm=False is the whole point: the turn that went wrong has already
+        been spoken, so this must not trigger inference and make the bot
+        announce its own mistake. It sits in context and steers the next reply,
+        exactly like the CRM card and the post-write deltas.
+        """
+        try:
+            await _inject_developer([correction.to_message()])
+            await emitter.lifecycle(phase="self_correction", reason=correction.kind)
+        except Exception:
+            logger.debug("self-correction injection failed", exc_info=True)
+
+    async def _live_turn(payload: dict) -> None:
+        """Stream one turn's classification and timings to the Inspector."""
+        try:
+            await emitter.turn_analysis(payload)
+        except Exception:
+            logger.debug("turn analysis emit failed", exc_info=True)
+
     sink.configure_live_handlers(
         on_escalate=_live_escalate,
         on_hold=_live_hold,
         on_language=_live_language,
+        on_correction=_live_correction,
+        on_turn=_live_turn,
         stt_language=str((tuning.get("stt") or {}).get("language") or "en-IN"),
         fallback_languages=list((tuning.get("stt") or {}).get("fallback_languages") or ["hi-IN", "en-IN"]),
     )
@@ -957,7 +1408,7 @@ async def run_bot(transport, runner_args) -> None:
                 bind_session_start,
                 session,
                 deployment_id=bundle.get("deploymentId"),
-                transport="smallwebrtc",
+                transport=transport_name,
                 bot_id=bot_id,
             )
             await sink.start()
@@ -969,22 +1420,43 @@ async def run_bot(transport, runner_args) -> None:
             # Deep-link keys for Sandbox → Customer 360. voiceSessionId equals
             # sessionId after unification; both written so clients can rely on
             # either field without guessing.
-            if _vsb is not None and sandbox_session and sandbox_session.get("sessionId"):
+            if _store is not None and sandbox_session and sandbox_session.get("sessionId"):
+
+                def _bind_ids(cur: dict[str, Any]) -> dict[str, Any]:
+                    return {
+                        **cur,
+                        "voiceSessionId": session.session_id,
+                        "interactionId": row["interactionId"],
+                        # A stop that landed first is terminal — re-marking the
+                        # session live would resurrect a closed run.
+                        "status": "live" if cur.get("status") != "stopped" else "stopped",
+                        "updatedAt": time.time(),
+                    }
+
                 try:
-                    _vsb.patch_session(
-                        str(sandbox_session["sessionId"]),
-                        {
-                            "voiceSessionId": session.session_id,
-                            "interactionId": row["interactionId"],
-                            "status": "live",
-                        },
+                    # to_thread like bind_session_start above: the store is a
+                    # Postgres round-trip now, and this runs on the connect path
+                    # where blocking the loop delays the greeting.
+                    await asyncio.to_thread(
+                        _store.mutate, str(sandbox_session["sessionId"]), _bind_ids
                     )
                 except Exception:
                     logger.exception("sandbox session CRM id patch failed (non-fatal)")
         except Exception:
             logger.exception("Failed to start CRM persistence — call continues without DB")
 
+        await emitter.session_bound(
+            interaction_id=session.interaction_id,
+            customer_id=session.customer_id,
+        )
         await emitter.lifecycle(phase="connected", reason=session.session_id)
+
+        # A Live call that silently ran the production bundle looked identical
+        # in the UI to one that honoured the Tuning Studio. Say so instead.
+        if sandbox_load_error and not is_twilio:
+            await emitter.lifecycle(
+                phase="sandbox_config_unavailable", reason=sandbox_load_error
+            )
 
         # Persona describes the simulated caller the tester is playing. It was
         # written into the session file but never read — the bot had no idea who
@@ -1024,14 +1496,53 @@ async def run_bot(transport, runner_args) -> None:
             logger.exception("FlowManager initialize failed (FlowError)")
             await worker.queue_frame(EndFrame())
         except Exception:
+            # Same terminal outcome as the FlowError branch: without a flow the
+            # call is connected but deaf, and the caller sits on silence until
+            # they hang up (still billed for the leg).
             logger.exception("FlowManager initialize failed")
+            await worker.queue_frame(EndFrame())
 
-    @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, client):
-        logger.info("Client disconnected · session={}", session.session_id)
-        await emitter.lifecycle(phase="ended", reason="client_disconnected")
-        if duration_task is not None and not duration_task.done():
-            duration_task.cancel()
+    finalized = False
+
+    async def _finalize_call(reason: str) -> None:
+        """Close out the call exactly once, whoever ended it.
+
+        This used to live inline in ``on_client_disconnected``, which fires only
+        when the *remote* peer goes away. A call the bot itself ends — a
+        terminal Flows node with an ``end_conversation`` post-action, the
+        ``end_call`` tool, the idle ladder, the duration cap — tears down via
+        EndFrame and never reaches that handler, so none of this ran: the
+        interaction stayed ``active`` forever with no ended_at, duration,
+        summary or disposition, no transcript export was written, and the
+        worker, its shared-runner registry entry, the mesh session and the
+        RTVI task set all leaked.
+
+        Reached from both ``on_client_disconnected`` and ``on_pipeline_finished``
+        so either ending wins; ``finalized`` makes the loser a no-op (the
+        disconnect path calls ``worker.cancel()`` below, which re-enters here
+        through the pipeline event).
+        """
+        nonlocal finalized
+        if finalized:
+            return
+        finalized = True
+        logger.info(
+            "Finalizing call · session={} · reason={}", session.session_id, reason
+        )
+        # Every step is guarded, including the first two. The RTVI transport is
+        # usually already gone by the time this runs, so an unguarded lifecycle
+        # emit raised straight out of the handler and skipped worker.cancel() /
+        # release_worker() below — leaking a worker and a shared-runner registry
+        # entry on every disconnected call.
+        try:
+            await emitter.lifecycle(phase="ended", reason=reason)
+        except Exception:
+            logger.exception("lifecycle emit on disconnect failed")
+        try:
+            if duration_task is not None and not duration_task.done():
+                duration_task.cancel()
+        except Exception:
+            logger.exception("duration task cancel failed")
         try:
             if getattr(audiobuffer, "is_recording", None) and audiobuffer.is_recording():
                 await audiobuffer.stop_recording()
@@ -1040,10 +1551,77 @@ async def run_bot(transport, runner_args) -> None:
         except Exception:
             logger.exception("stop_recording failed")
         try:
+            # Hit rate is the only evidence that can justify flipping
+            # KB_ENRICH_FALLBACK to spec_only later, so log it per call.
+            logger.info(
+                "kb speculation · session={} · {}", session.session_id, kb_cache.stats()
+            )
+        except Exception:
+            logger.debug("kb stats log failed", exc_info=True)
+        try:
             await sink.stop(final_status="completed")
         except Exception:
             logger.exception("CRM sink stop failed")
-        await worker.cancel()
+        try:
+            from voice.tools import drain_background_tasks, release_session_tasks
+
+            # Scoped to THIS call: an embedded host runs concurrent sessions in
+            # one process, and an unscoped drain cancelled the other call's
+            # in-flight emits.
+            await drain_background_tasks(session.session_id)
+            release_session_tasks(session.session_id)
+        except Exception:
+            logger.exception("rtvi emit drain failed")
+        try:
+            await _drain_tasks(bg_tasks, label="voice bg")
+        except Exception:
+            logger.exception("background task drain failed")
+        try:
+            from voice.mesh import release_session
+
+            release_session(session.session_id)
+        except Exception:
+            logger.exception("mesh session release failed")
+        try:
+            await worker.cancel()
+        except Exception:
+            logger.exception("worker cancel failed")
+        # A shared runner keeps a registry entry per worker for its whole life
+        # and has no public detach, so an embedded host would accumulate one
+        # dead entry per call until the API process is restarted.
+        shared = getattr(runner_args, "shared_runner", None)
+        if shared is not None:
+            try:
+                from voice.host import release_worker
+
+                await release_worker(shared, worker)
+            except Exception:
+                logger.exception("shared runner release failed")
+
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        logger.info("Client disconnected · session={}", session.session_id)
+        await _finalize_call("client_disconnected")
+
+    @worker.event_handler("on_pipeline_finished")
+    async def on_pipeline_finished(worker_ref, frame):
+        # The bot-initiated ending. Terminal Flows nodes, end_call, the idle
+        # ladder and the duration cap all converge on EndFrame, which reaches
+        # here but never reaches on_client_disconnected. `ending_reason` is set
+        # by whichever path claimed the end so the interaction records *why* it
+        # ended rather than a generic "bot_ended".
+        await _finalize_call(str(session.extra.get("ending_reason") or "bot_ended"))
+
+    # Embedded host (voice/host.py): a single long-lived runner owns every call,
+    # so this session must join it instead of standing up a runner that owns the
+    # process — a per-call runner would install signal handlers on the API's
+    # event loop and end when its one worker finished.
+    shared_runner = getattr(runner_args, "shared_runner", None)
+    if shared_runner is not None:
+        await shared_runner.add_workers(worker)
+        # add_workers starts the worker on an already-running runner; the call
+        # then lives until disconnect/idle cancels it above.
+        return
 
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     await runner.add_workers(worker)
@@ -1087,6 +1665,9 @@ def _ensure_utf8_stdio() -> None:
 
 if __name__ == "__main__":
     _ensure_utf8_stdio()
+    # Before anything imports and starts logging: without this the product's
+    # standard-library loggers never reach loguru's sink. See voice/log_bridge.py.
+    log_bridge.install()
     from pipecat.runner.run import main
 
     main()

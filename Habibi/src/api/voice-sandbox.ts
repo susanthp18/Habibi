@@ -74,5 +74,7 @@ export async function fetchTuningPresets(): Promise<
     const { AGENT_TUNING_PRESETS } = await import("@/data/agent-tuning");
     return mockDelay(AGENT_TUNING_PRESETS);
   }
-  return apiGet("/sandbox/tuning/presets");
+  return apiGet<Array<{ id: string; label: string; summary: string; tuning: AgentTuning }>>(
+    "/sandbox/tuning/presets",
+  );
 }

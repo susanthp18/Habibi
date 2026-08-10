@@ -57,10 +57,10 @@ export type AlertEvent = {
 };
 
 export const CATEGORY_COLORS: Record<ServiceCategory, string> = {
-  LLM: "#3b82f6",
-  Voice: "#f97316",
-  Messaging: "#22c55e",
-  Infra: "#64748b",
+  LLM: "#357DE8",
+  Voice: "#F68909",
+  Messaging: "#82B536",
+  Infra: "#964AC0",
 };
 
 export function sumRange(rows: DayPoint[], serviceId?: string): number {

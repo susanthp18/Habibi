@@ -205,24 +205,57 @@ def run_sync(
         rows = [normalize_azure_voice(v) for v in fetched]
         rows = [r for r in rows if r]
         seen = {r["short_name"] for r in rows}
+        # Soft-removal is only trustworthy when `fetched` is a complete Azure
+        # listing. The bundled azure_tts_voices.json fallback is a partial
+        # snapshot — marking everything outside it as removed would empty the
+        # voice picker the moment the Azure call fails.
+        full_fetch = effective_source == "azure"
 
         upserted = 0
         unchanged = 0
         with engine.begin() as conn:
-            for r in rows:
-                existing = (
-                    conn.execute(
-                        text(
-                            """
-                            SELECT short_name, display_name, status, price_tier, removed_at
-                            FROM tts_voice_catalog WHERE short_name = :sn
-                            """
-                        ),
-                        {"sn": r["short_name"]},
+            # One prefetch instead of a SELECT per voice: the Azure catalog is
+            # ~600 rows and this ran on every sync.
+            prior = {
+                str(row["short_name"]): dict(row)
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT short_name, display_name, status, price_tier, removed_at
+                        FROM tts_voice_catalog
+                        """
                     )
-                    .mappings()
-                    .first()
                 )
+                .mappings()
+                .all()
+            }
+            # Classify against the prefetch first, then write every row in one
+            # executemany: the per-row execute() was ~600 round-trips per sync.
+            params: list[dict[str, Any]] = []
+            for r in rows:
+                existing = prior.get(r["short_name"])
+                params.append(
+                    {
+                        **r,
+                        "styles": json.dumps(r["styles"]),
+                        "model_series": json.dumps(r["model_series"]),
+                        "personalities": json.dumps(r["personalities"]),
+                        "scenarios": json.dumps(r["scenarios"]),
+                        "raw": json.dumps(r["raw"]),
+                    }
+                )
+                if existing is None or existing.get("removed_at") is not None:
+                    upserted += 1
+                elif (
+                    existing.get("display_name") != r["display_name"]
+                    or existing.get("status") != r["status"]
+                    or existing.get("price_tier") != r["price_tier"]
+                ):
+                    upserted += 1
+                else:
+                    unchanged += 1
+
+            if params:
                 conn.execute(
                     text(
                         """
@@ -261,28 +294,17 @@ def run_sync(
                           removed_at = NULL
                         """
                     ),
-                    {
-                        **r,
-                        "styles": json.dumps(r["styles"]),
-                        "model_series": json.dumps(r["model_series"]),
-                        "personalities": json.dumps(r["personalities"]),
-                        "scenarios": json.dumps(r["scenarios"]),
-                        "raw": json.dumps(r["raw"]),
-                    },
+                    params,
                 )
-                if existing is None or existing.get("removed_at") is not None:
-                    upserted += 1
-                elif (
-                    existing.get("display_name") != r["display_name"]
-                    or existing.get("status") != r["status"]
-                    or existing.get("price_tier") != r["price_tier"]
-                ):
-                    upserted += 1
-                else:
-                    unchanged += 1
 
             soft_removed = 0
-            if seen:
+            # Guard against a truncated fetch wiping the catalog: require a full
+            # Azure listing AND a result set that is not a large regression on
+            # what we already had. A genuine Azure deprecation removes a handful
+            # of voices, never 20%+ in one run.
+            live_prior = sum(1 for row in prior.values() if row.get("removed_at") is None)
+            plausible = live_prior == 0 or len(seen) >= live_prior * 0.8
+            if seen and full_fetch and plausible:
                 result = conn.execute(
                     text(
                         """
@@ -295,6 +317,13 @@ def run_sync(
                     {"names": list(seen)},
                 )
                 soft_removed = int(result.rowcount or 0)
+            elif seen and not plausible:
+                logger.warning(
+                    "tts catalog soft-removal skipped: fetched %s voices vs %s live "
+                    "in catalog — refusing to mark the difference removed",
+                    len(seen),
+                    live_prior,
+                )
 
             conn.execute(
                 text(
@@ -344,17 +373,23 @@ def run_sync(
     except Exception as exc:
         error = str(exc)
         logger.exception("tts catalog sync failed run=%s", run_id)
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    UPDATE tts_voice_sync_runs
-                    SET finished_at = now(), error = :error
-                    WHERE id = :id
-                    """
-                ),
-                {"id": run_id, "error": error[:2000]},
-            )
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE tts_voice_sync_runs
+                        SET finished_at = now(), error = :error
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": run_id, "error": error[:2000]},
+                )
+        except Exception:
+            # The sync usually failed *because* the database is unreachable;
+            # letting the bookkeeping write raise here would replace the real
+            # error with a secondary one and skip the documented summary.
+            logger.exception("tts sync run bookkeeping update failed run=%s", run_id)
         return {
             "id": run_id,
             "source": source,

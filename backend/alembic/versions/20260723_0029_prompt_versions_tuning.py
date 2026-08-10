@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Sequence, Union
 
+import sqlalchemy as sa
 from alembic import op
 from seed_guard import seed_demo_enabled
 
@@ -68,15 +69,20 @@ def upgrade() -> None:
     if not seed_demo_enabled():
         return
 
-    payload = json.dumps(_DEFAULT_TUNING).replace("'", "''")
-    op.execute(
-        f"""
-        UPDATE prompt_versions
-        SET tuning = '{payload}'::jsonb,
-            updated_at = now()
-        WHERE tuning = '{{}}'::jsonb
-           OR tuning IS NULL
-        """
+    # Bound parameter rather than f-string + manual quote doubling: hand-rolled
+    # escaping of a JSON literal into SQL is exactly the class of bug that
+    # breaks on the first payload containing a backslash.
+    op.get_bind().execute(
+        sa.text(
+            """
+            UPDATE prompt_versions
+            SET tuning = CAST(:payload AS jsonb),
+                updated_at = now()
+            WHERE tuning = '{}'::jsonb
+               OR tuning IS NULL
+            """
+        ),
+        {"payload": json.dumps(_DEFAULT_TUNING)},
     )
 
 

@@ -7,23 +7,21 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
+import { Lozenge } from "@/components/ui/lozenge";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread } from "@/data/inbox-seed";
 import { Avatar, sentimentColor } from "./meta";
+import { Badge } from "@/components/ui/badge";
 
-const riskStyle = {
-  High: "bg-danger-bg text-danger",
-  Medium: "bg-warning-bg text-warning",
-  Low: "bg-success-bg text-success",
-} as const;
+const riskTone = { High: "danger", Medium: "warning", Low: "success" } as const;
 
-const promiseStyle = {
-  Kept: "bg-success-bg text-success",
-  Broken: "bg-danger-bg text-danger",
-  Pending: "bg-brand-tint text-brand-primary-dark",
-  Partial: "bg-warning-bg text-warning",
+const promiseTone = {
+  Kept: "success",
+  Broken: "danger",
+  Pending: "selected",
+  Partial: "warning",
 } as const;
 
 export function ContextRail({ thread }: { thread: Thread }) {
@@ -50,122 +48,99 @@ export function ContextRail({ thread }: { thread: Thread }) {
   };
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto bg-surface-app p-3">
-      <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <div className="flex items-start gap-3">
+    <aside className="flex h-full min-h-0 w-full flex-col gap-150 overflow-y-auto bg-surface p-150">
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <div className="flex items-start gap-150">
           <Avatar name={thread.customer} size={44} />
           <div className="min-w-0">
             {customerId ? (
               <Link
                 to="/customers/$customerId"
                 params={{ customerId }}
-                className="truncate text-[14px] font-semibold text-brand-navy hover:underline"
+                className="truncate text-body font-semibold text-text hover:underline"
               >
                 {thread.customer}
               </Link>
             ) : (
-              <div className="truncate text-[14px] font-semibold text-brand-navy">
+              <div className="truncate text-body font-semibold text-text">
                 {thread.customer}
               </div>
             )}
-            <div className="font-mono text-[11px] text-text-muted">{thread.accountId}</div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span
-                className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                  riskStyle[c.riskLevel],
-                )}
-              >
-                {c.riskLevel} risk
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                  c.contactableNow ? "bg-success-bg text-success" : "bg-danger-bg text-danger",
-                )}
-              >
-                {c.contactableNow ? (
-                  <ShieldCheck className="h-3 w-3" />
-                ) : (
-                  <ShieldAlert className="h-3 w-3" />
-                )}
+            <div className="font-mono text-body-small text-text-subtlest">{thread.accountId}</div>
+            <div className="mt-075 flex flex-wrap items-center gap-075">
+              <Lozenge tone={riskTone[c.riskLevel]}>{c.riskLevel} risk</Lozenge>
+              <Lozenge tone={c.contactableNow ? "success" : "danger"}>
+                {c.contactableNow ? <ShieldCheck /> : <ShieldAlert />}
                 {c.contactableNow ? "Contactable now" : "Not contactable"}
-              </span>
+              </Lozenge>
             </div>
-            <div className="mt-1 text-[11px] text-text-secondary">Window: {c.contactWindow}</div>
+            <div className="mt-050 text-body-small text-text-subtle">Window: {c.contactWindow}</div>
           </div>
         </div>
       </div>
 
-      <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <div className="text-body-small font-semibold text-text-subtlest">
           Outstanding
         </div>
-        <div className="mt-1 font-mono text-[22px] font-bold text-brand-navy tabular">
+        <div className="mt-050 font-mono metric-medium text-text tabular">
           ₹{c.outstanding.toLocaleString("en-IN")}
         </div>
-        <div className="text-[12px] text-text-secondary">{c.outstandingAging}</div>
+        <div className="text-body-small text-text-subtle">{c.outstandingAging}</div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-3 shadow-card">
-          <div className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+      <div className="grid grid-cols-2 gap-150">
+        <div className="rounded-xlarge border border-border bg-surface p-200">
+          <div className="text-body-small font-semibold text-text-subtlest">
             Next EMI
           </div>
-          <div className="mt-1 font-mono text-[15px] font-semibold text-text-primary tabular">
+          <div className="mt-050 font-mono text-body font-weight-bold-token text-text tabular">
             {c.nextEmiAmount ? `₹${c.nextEmiAmount.toLocaleString("en-IN")}` : "—"}
           </div>
-          <div className="text-[11px] text-text-secondary">{c.nextEmiDate}</div>
+          <div className="text-body-small text-text-subtle">{c.nextEmiDate}</div>
         </div>
-        <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-3 shadow-card">
-          <div className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+        <div className="rounded-xlarge border border-border bg-surface p-200">
+          <div className="text-body-small font-semibold text-text-subtlest">
             Last promise
           </div>
           {c.lastPromise ? (
             <>
-              <div className="mt-1 font-mono text-[15px] font-semibold text-text-primary tabular">
+              <div className="mt-050 font-mono text-body font-weight-bold-token text-text tabular">
                 ₹{c.lastPromise.amount.toLocaleString("en-IN")}
               </div>
-              <div className="flex items-center gap-1 text-[11px] text-text-secondary">
+              <div className="flex items-center gap-050 text-body-small text-text-subtle">
                 <span>{c.lastPromise.date}</span>
-                <span
-                  className={cn(
-                    "ml-auto rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold",
-                    promiseStyle[c.lastPromise.status],
-                  )}
-                >
+                <Lozenge tone={promiseTone[c.lastPromise.status]} className="ml-auto">
                   {c.lastPromise.status}
-                </span>
+                </Lozenge>
               </div>
             </>
           ) : (
-            <div className="mt-1 text-[12px] text-text-secondary">None on file</div>
+            <div className="mt-050 text-body-small text-text-subtle">None on file</div>
           )}
         </div>
       </div>
 
-      <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <div className="mb-100 flex items-center justify-between">
+          <span className="text-body-small font-semibold text-text-subtlest">
             Open disputes
           </span>
-          <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-            {c.openDisputes.length}
-          </span>
+          <Badge>{c.openDisputes.length}</Badge>
         </div>
         {c.openDisputes.length === 0 ? (
-          <div className="text-[12px] text-text-secondary">No open disputes.</div>
+          <div className="text-body-small text-text-subtle">No open disputes.</div>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="space-y-075">
             {c.openDisputes.map((d) => (
               <li
                 key={d.id}
-                className="flex items-start gap-2 rounded-md border border-[var(--border-token)] bg-surface-sunken px-2.5 py-1.5"
+                className="flex items-start gap-100 rounded-medium border border-border bg-surface-sunken px-150 py-075"
               >
-                <AlertOctagon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                <AlertOctagon className="mt-025 h-3.5 w-3.5 shrink-0 text-text-warning" />
                 <div className="min-w-0">
-                  <div className="font-mono text-[10.5px] text-text-muted">{d.id}</div>
-                  <div className="text-[12px] text-text-primary">{d.summary}</div>
+                  <div className="font-mono text-body-small text-text-subtlest">{d.id}</div>
+                  <div className="text-body-small text-text">{d.summary}</div>
                 </div>
               </li>
             ))}
@@ -173,23 +148,23 @@ export function ContextRail({ thread }: { thread: Thread }) {
         )}
       </div>
 
-      <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <div className="mb-100 text-body-small font-semibold text-text-subtlest">
           Recent interactions
         </div>
-        <ul className="space-y-2">
+        <ul className="space-y-100">
           {c.recentInteractions.map((r) => {
             const Icon = r.kind === "call" ? Phone : MessageCircle;
             return (
-              <li key={r.id} className="flex items-start gap-2">
-                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
+              <li key={r.id} className="flex items-start gap-100">
+                <Icon className="mt-025 h-3.5 w-3.5 shrink-0 text-text-subtlest" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] text-text-primary">{r.summary}</div>
-                  <div className="text-[11px] text-text-secondary">{r.when}</div>
+                  <div className="truncate text-body-small text-text">{r.summary}</div>
+                  <div className="text-body-small text-text-subtle">{r.when}</div>
                 </div>
                 <span
                   className={cn(
-                    "mt-1 h-2 w-2 shrink-0 rounded-full",
+                    "mt-050 h-100 w-100 shrink-0 rounded-full",
                     sentimentColor[r.sentiment],
                   )}
                   title={`${r.sentiment} sentiment`}
@@ -200,15 +175,15 @@ export function ContextRail({ thread }: { thread: Thread }) {
         </ul>
       </div>
 
-      <div className="rounded-[10px] border border-[var(--border-token)] bg-surface-card p-4 shadow-card">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted">
+      <div className="rounded-xlarge border border-border bg-surface p-200">
+        <div className="mb-100 text-body-small font-semibold text-text-subtlest">
           Quick actions
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-100">
           <button
             type="button"
             onClick={openCustomer360}
-            className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-md bg-brand-primary px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-brand-primary-hover active:scale-[0.98]"
+            className="focus-ring col-span-2 inline-flex items-center justify-center gap-075 rounded-medium bg-background-brand-bold px-150 py-100 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered active:scale-[0.98]"
           >
             Open full Customer 360
             <ExternalLink className="h-3.5 w-3.5" />
@@ -216,17 +191,17 @@ export function ContextRail({ thread }: { thread: Thread }) {
           <button
             type="button"
             onClick={openCreatePtp}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[var(--border-token)] bg-white px-2.5 py-2 text-[12px] font-medium text-text-primary hover:bg-brand-tint hover:text-brand-primary-dark"
+            className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
           >
-            <HandCoins className="h-3.5 w-3.5 text-brand-primary" />
+            <HandCoins className="h-3.5 w-3.5 text-text-brand" />
             Create PTP
           </button>
           <button
             type="button"
             onClick={openRaiseDispute}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[var(--border-token)] bg-white px-2.5 py-2 text-[12px] font-medium text-text-primary hover:bg-brand-tint hover:text-brand-primary-dark"
+            className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
           >
-            <AlertOctagon className="h-3.5 w-3.5 text-brand-primary" />
+            <AlertOctagon className="h-3.5 w-3.5 text-text-brand" />
             Raise dispute
           </button>
         </div>

@@ -207,23 +207,23 @@ function DocumentsPage() {
 
   return (
     <AppShell>
-      <div className="flex h-full min-h-0 flex-col gap-2.5 p-3">
+      <div className="flex h-full min-h-0 flex-col gap-150 p-150">
         <header className="shrink-0 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-brand-primary" />
+          <div className="flex items-center gap-100">
+            <FileText className="h-250 w-250 text-text-brand" />
             <div>
-              <h1 className="text-[16px] font-semibold text-brand-navy leading-none">Document Fulfilment Desk</h1>
-              <p className="text-[11.5px] text-text-secondary">
+              <h1 className="text-[1rem] font-semibold text-text leading-none">Document fulfilment desk</h1>
+              <p className="text-body-small text-text-subtle">
                 Bot captures requests, humans fulfil. Generate, deliver, and audit every document.
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="text-[11px] text-text-muted">
+          <div className="flex items-center gap-100">
+            <div className="text-body-small text-text-subtlest">
               Showing {filtered.length} of {items.length}
             </div>
-            <Button size="sm" className="h-8 text-[12px]" onClick={() => setShowNew(true)}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> New request
+            <Button size="sm" className="h-400 text-body-small" onClick={() => setShowNew(true)}>
+              <Plus className="mr-050 h-3.5 w-3.5" /> New request
             </Button>
           </div>
         </header>

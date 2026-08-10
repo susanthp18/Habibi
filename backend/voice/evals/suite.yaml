@@ -1,0 +1,25 @@
+# Pipecat eval suite manifest — collections happy paths.
+#
+# Run (from backend/, venv active, Azure voice env set):
+#   python scripts/run_voice_evals.py
+#   # or directly: pipecat eval run voice/evals/scenarios/<name>.yaml -v
+#
+# Scenarios exercise the shared domain tools through the voice bot entrypoint.
+# Keep them short — these are smoke evals, not conversation soak tests.
+concurrency: 2
+runs_dir: .cache/eval-runs
+record: false
+scenarios_dir: scenarios
+spawn: "{python} {bot} -t eval --port {port}"
+
+suite:
+  # Manifest-relative, like scenarios_dir — Pipecat resolves `bot` against this
+  # file's directory, not the working directory.
+  - bot: ../bot.py
+    scenarios:
+      - promise_to_pay_happy
+      - dispute_paid_already
+      - upsell_lead_capture
+      - upsell_suppressed_when_angry
+      - close_probe_declines
+      - escalate_honest_handoff

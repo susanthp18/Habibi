@@ -40,27 +40,27 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-token)] bg-surface-card p-2">
-      <div className="relative min-w-[220px] flex-1">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+    <div className="flex flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
+      <div className="relative min-w-[13.75rem] flex-1">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
         <Input
           value={filters.search}
           onChange={(e) => onPatch({ search: e.target.value })}
           placeholder="Search customer, account, snippet, dispute ID…"
-          className="h-8 pl-7 text-[12px]"
+          className="h-400 pl-400 text-body-small"
         />
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-050">
         {SOURCES.map((s) => (
           <button
             key={s}
             onClick={() => toggleSource(s)}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+              "rounded-full border px-150 py-050 text-body-small transition-colors",
               filters.sources.includes(s)
-                ? "border-brand-primary bg-brand-tint text-brand-primary-dark"
-                : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+                ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
             )}
           >
             {SOURCE_LABELS[s]}
@@ -68,20 +68,20 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
         ))}
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-050">
         {(["all", "at_risk", "breached"] as const).map((s) => (
           <button
             key={s}
             onClick={() => onPatch({ sla: s })}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+              "rounded-full border px-150 py-050 text-body-small transition-colors",
               filters.sla === s
                 ? s === "breached"
-                  ? "border-red-500 bg-red-50 text-red-700"
+                  ? "border-border-danger bg-background-danger-subtler text-text-danger-bolder"
                   : s === "at_risk"
-                    ? "border-amber-500 bg-amber-50 text-amber-700"
-                    : "border-brand-primary bg-brand-tint text-brand-primary-dark"
-                : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+                    ? "border-border-warning bg-background-warning-subtler text-text-warning-bolder"
+                    : "border-border-brand bg-background-brand-subtlest text-text-brand"
+                : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
             )}
           >
             SLA · {s === "all" ? "All" : s === "at_risk" ? "At risk" : "Breached"}
@@ -92,7 +92,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
       <select
         value={filters.amount}
         onChange={(e) => onPatch({ amount: e.target.value as Filters["amount"] })}
-        className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
         <option value="any">Any amount</option>
         <option value="lt5">Under ₹5k</option>
@@ -103,7 +103,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
       <select
         value={filters.assignee}
         onChange={(e) => onPatch({ assignee: e.target.value })}
-        className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
         <option value="all">All assignees</option>
         {assignees.map((a) => (
@@ -116,22 +116,22 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
       <button
         onClick={() => onPatch({ myQueue: !filters.myQueue })}
         className={cn(
-          "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+          "rounded-full border px-150 py-050 text-body-small transition-colors",
           filters.myQueue
-            ? "border-brand-primary bg-brand-primary text-white"
-            : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+            ? "border-border-brand bg-background-brand-bold text-white"
+            : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
         )}
       >
         My queue
       </button>
 
       <details className="relative">
-        <summary className="cursor-pointer list-none rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-sunken">
+        <summary className="cursor-pointer list-none rounded-medium border border-border bg-surface px-100 py-050 text-body-small text-text-subtle hover:bg-surface-sunken">
           Type {filters.types.length > 0 && `(${filters.types.length})`}
         </summary>
-        <div className="absolute right-0 z-20 mt-1 w-56 rounded-md border border-[var(--border-token)] bg-surface-card p-2 shadow-lg">
+        <div className="absolute right-0 z-20 mt-050 w-56 rounded-medium border border-border bg-surface p-100 shadow-overlay">
           {TYPES.map((t) => (
-            <label key={t} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[12px] hover:bg-surface-sunken">
+            <label key={t} className="flex cursor-pointer items-center gap-100 rounded px-100 py-050 text-body-small hover:bg-surface-sunken">
               <input
                 type="checkbox"
                 checked={filters.types.includes(t)}
@@ -144,8 +144,8 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
       </details>
 
       {active && (
-        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={onReset}>
-          <X className="mr-1 h-3 w-3" /> Reset
+        <Button size="sm" variant="ghost" className="h-7 px-100 text-body-small" onClick={onReset}>
+          <X className="mr-050 h-3 w-3" /> Reset
         </Button>
       )}
     </div>

@@ -315,6 +315,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not seed_demo_enabled():
+        return
     conn = op.get_bind()
     for turn_id, text in _ORIGINAL_TURNS.items():
         conn.execute(

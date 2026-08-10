@@ -20,14 +20,14 @@ export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props)
 
   if (saved) {
     return (
-      <div className="shrink-0 border-t border-[var(--border-token)] bg-success-bg px-5 py-3">
-        <div className="flex items-center gap-3">
-          <CheckCircle2 className="h-5 w-5 text-success" />
+      <div className="shrink-0 border-t border-border bg-background-success px-250 py-150">
+        <div className="flex items-center gap-150">
+          <CheckCircle2 className="h-250 w-250 text-text-success" />
           <div className="flex-1">
-            <div className="text-[13px] font-semibold text-success">
+            <div className="text-body font-semibold text-text-success">
               Wrap-up saved · pushed to CRM
             </div>
-            <div className="text-[11px] text-text-secondary">
+            <div className="text-body-small text-text-subtle">
               Disposition <span className="font-semibold">{disposition}</span> · PTP flagged for
               tracking · summary written to Audit Trail.
             </div>
@@ -35,7 +35,7 @@ export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props)
           <button
             type="button"
             onClick={onClose}
-            className="text-[11px] font-semibold text-text-secondary hover:text-text-primary"
+            className="text-body-small font-semibold text-text-subtle hover:text-text"
           >
             Dismiss
           </button>
@@ -45,52 +45,52 @@ export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props)
   }
 
   return (
-    <div className="shrink-0 border-t border-[var(--border-token)] bg-surface-card px-5 py-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-brand-navy">
-          <FileText className="h-3.5 w-3.5 text-brand-primary" />
+    <div className="shrink-0 border-t border-border bg-surface px-250 py-150">
+      <div className="mb-100 flex items-center justify-between">
+        <div className="flex items-center gap-075 text-body-small font-semibold text-text">
+          <FileText className="h-3.5 w-3.5 text-text-brand" />
           Post-call wrap-up
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="grid h-6 w-6 place-items-center rounded-md text-text-muted hover:bg-surface-sunken"
+          className="grid h-300 w-300 place-items-center rounded-medium text-text-subtlest hover:bg-surface-sunken"
           aria-label="Close wrap-up"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[220px_1fr_auto]">
+      <div className="grid gap-150 md:grid-cols-[220px_1fr_auto]">
         <div>
-          <label className="text-[11px] font-medium text-text-secondary">Disposition</label>
+          <label className="text-body-small font-medium text-text-subtle">Disposition</label>
           <select
             value={disposition}
             onChange={(e) => setDisposition(e.target.value)}
-            className="mt-1 h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px] text-text-primary focus:border-brand-primary focus:outline-none"
+            className="mt-050 h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small text-text focus:border-border-brand focus:outline-none"
           >
             {dispositions.map((d) => (
               <option key={d}>{d}</option>
             ))}
           </select>
-          <label className="mt-2 flex items-center gap-1.5 text-[11px] text-text-secondary">
+          <label className="mt-100 flex items-center gap-075 text-body-small text-text-subtle">
             <input
               type="checkbox"
               checked={ptp}
               onChange={(e) => setPtp(e.target.checked)}
-              className="h-3.5 w-3.5 accent-[var(--brand-primary)]"
+              className="h-3.5 w-3.5 accent-[var(--background-brand-bold)]"
             />
             Log Promise-to-Pay
           </label>
         </div>
 
         <div>
-          <label className="text-[11px] font-medium text-text-secondary">Notes (CRM writeback)</label>
+          <label className="text-body-small font-medium text-text-subtle">Notes (CRM writeback)</label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            className="mt-1 w-full resize-none rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1.5 text-[12px] text-text-primary focus:border-brand-primary focus:outline-none"
+            className="mt-050 w-full resize-none rounded-medium border border-border bg-surface px-100 py-075 text-body-small text-text focus:border-border-brand focus:outline-none"
           />
         </div>
 
@@ -98,7 +98,7 @@ export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props)
           <button
             type="button"
             onClick={() => onSave({ disposition, notes, ptp })}
-            className="flex h-8 items-center gap-1.5 rounded-md bg-brand-primary px-3 text-[12px] font-semibold text-white hover:bg-brand-primary-hover"
+            className="flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body-small font-semibold text-white hover:bg-background-brand-bold-hovered"
           >
             <Save className="h-3.5 w-3.5" />
             Save & writeback

@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
-# Repo root: Hackathon/
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# Repo root: Hackathon/ (backend/scripts → parents[2]). In Docker the app lives
+# at /app, so parents[2] is `/` — set SOURCE_DB_ROOT=/source_db (compose
+# bind-mount of ../source_db) so ingest/reindex resolve corpus files.
+_REPO_DEFAULT = Path(__file__).resolve().parents[2]
+_SOURCE_OVERRIDE = (os.getenv("SOURCE_DB_ROOT") or "").strip()
+REPO_ROOT = Path(_SOURCE_OVERRIDE).resolve() if _SOURCE_OVERRIDE else _REPO_DEFAULT
 
 
 @dataclass(frozen=True)
 class CorpusProduct:
     product_key: str
     title: str
-    policy: str  # relative to REPO_ROOT
+    policy: str  # relative to REPO_ROOT (or absolute under SOURCE_DB_ROOT)
     faq: str
     benefits: str
 
@@ -98,11 +103,25 @@ class CorpusManifestError(FileNotFoundError):
 
 
 def resolve_path(rel: str) -> Path:
-    return (REPO_ROOT / rel).resolve()
+    """Resolve a manifest-relative path.
+
+    Manifest entries are ``source_db/...`` relative to the Hackathon repo root.
+    When ``SOURCE_DB_ROOT`` points at the mounted corpus directory itself
+    (``/source_db``), strip the leading ``source_db/`` segment.
+    """
+    p = Path(rel)
+    if _SOURCE_OVERRIDE and p.parts and p.parts[0] == "source_db":
+        p = Path(*p.parts[1:]) if len(p.parts) > 1 else Path(".")
+        return (REPO_ROOT / p).resolve()
+    return (_REPO_DEFAULT / rel).resolve()
 
 
 def validate_manifest(manifest: list[CorpusProduct] = CORPUS_MANIFEST) -> list[tuple[CorpusProduct, dict[str, Path]]]:
-    """Ensure every listed file exists and is non-empty. Raises CorpusManifestError on first gap."""
+    """Ensure every listed file exists and is non-empty.
+
+    Every entry is checked; a single ``CorpusManifestError`` then reports all
+    missing/empty files at once (it does not stop at the first gap).
+    """
     resolved: list[tuple[CorpusProduct, dict[str, Path]]] = []
     errors: list[str] = []
     for product in manifest:

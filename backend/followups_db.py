@@ -7,10 +7,14 @@ Imported at the bottom of db.py so call sites stay `db.*`.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
+
+# Operating timezone for operator-facing time labels. Fixed offset, same as
+# db._IST — India has no DST, so this needs no tz database at runtime.
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 # Re-use helpers/engine from db — imported lazily inside functions to avoid cycles
 # when this module is loaded from db.py itself.
@@ -30,12 +34,27 @@ _COACH_STATUSES = frozenset({"assigned", "in_progress", "done"})
 
 
 def _coach_status(raw: str | None) -> str:
+    """Normalize known coaching statuses; unknown → assigned (read path)."""
     s = (raw or "").strip().lower()
     if s in {"done", "completed", "closed"}:
         return "done"
     if s in {"in_progress", "in-progress", "progress"}:
         return "in_progress"
+    if s in {"assigned"}:
+        return "assigned"
     return "assigned"
+
+
+def _require_coach_status(raw: str | None) -> str:
+    """Validate write payloads — reject unknown verbs like complete/canceled."""
+    s = (raw or "").strip().lower()
+    if s in {"done", "completed", "closed"}:
+        return "done"
+    if s in {"in_progress", "in-progress", "progress"}:
+        return "in_progress"
+    if s in {"assigned"}:
+        return "assigned"
+    raise ValueError("invalid_coaching_status")
 
 
 def _scores_to_entries(scores: Any, criterion_ids: list[str]) -> list[dict[str, Any]]:
@@ -172,9 +191,11 @@ def list_coaching_actions() -> list[dict[str, Any]]:
                     FROM coaching_actions ca
                     LEFT JOIN users u ON u.id = ca.subject_user_id
                     LEFT JOIN bots b ON b.id = ca.subject_bot_id
+                    WHERE ca.tenant_id = :tenant
                     ORDER BY ca.created_at DESC, ca.id
                     """
-                )
+                ),
+                {"tenant": d.TENANT_ID},
             )
         )
         notes = _coaching_notes_grouped(conn, [r["id"] for r in rows])
@@ -191,10 +212,20 @@ def create_coaching_action(payload: dict[str, Any]) -> dict[str, Any]:
         scorecard_id = payload.get("scorecardId")
         interaction_id = payload.get("callId")
         if scorecard_id:
+            # Tenant-scoped through the interaction, like every other QA read:
+            # an unscoped lookup let a coaching action be attached to another
+            # tenant's scorecard (and copy its interaction_id) by id alone.
             sc = d._one(
                 conn.execute(
-                    text("SELECT id, interaction_id FROM qa_scorecards WHERE id = :id"),
-                    {"id": scorecard_id},
+                    text(
+                        """
+                        SELECT sc.id, sc.interaction_id
+                        FROM qa_scorecards sc
+                        JOIN interactions i ON i.id = sc.interaction_id
+                        WHERE sc.id = :id AND i.tenant_id = :tenant_id
+                        """
+                    ),
+                    {"id": scorecard_id, "tenant_id": d.TENANT_ID},
                 )
             )
             if sc is None:
@@ -213,16 +244,17 @@ def create_coaching_action(payload: dict[str, Any]) -> dict[str, Any]:
             text(
                 """
                 INSERT INTO coaching_actions (
-                  id, subject_user_id, subject_bot_id, scorecard_id, interaction_id,
-                  action, category, status, due_at
+                  id, tenant_id, subject_user_id, subject_bot_id, scorecard_id,
+                  interaction_id, action, category, status, due_at
                 ) VALUES (
-                  :id, :uid, :bid, :sid, :iid,
-                  :action, :category, 'assigned', CAST(:due AS timestamptz)
+                  :id, :tenant, :uid, :bid, :sid,
+                  :iid, :action, :category, 'assigned', CAST(:due AS timestamptz)
                 )
                 """
             ),
             {
                 "id": cid,
+                "tenant": d.TENANT_ID,
                 "uid": user_id,
                 "bid": bot_id,
                 "sid": scorecard_id,
@@ -263,18 +295,19 @@ def patch_coaching_action(action_id: str, payload: dict[str, Any]) -> dict[str, 
     with d.engine.begin() as conn:
         existing = d._one(
             conn.execute(
-                text("SELECT id, status FROM coaching_actions WHERE id = :id"),
-                {"id": action_id},
+                text(
+                    "SELECT id, status FROM coaching_actions "
+                    "WHERE id = :id AND tenant_id = :tenant"
+                ),
+                {"id": action_id, "tenant": d.TENANT_ID},
             )
         )
         if existing is None:
             raise KeyError("coaching_action_not_found")
         sets: list[str] = []
-        params: dict[str, Any] = {"id": action_id}
+        params: dict[str, Any] = {"id": action_id, "tenant": d.TENANT_ID}
         if "status" in payload and payload["status"] is not None:
-            st = _coach_status(str(payload["status"]))
-            if st not in _COACH_STATUSES:
-                raise ValueError("invalid_coaching_status")
+            st = _require_coach_status(str(payload["status"]))
             sets.append("status = :status")
             params["status"] = st
         if "title" in payload and payload["title"] is not None:
@@ -289,7 +322,10 @@ def patch_coaching_action(action_id: str, payload: dict[str, Any]) -> dict[str, 
         if sets:
             sets.append("updated_at = now()")
             conn.execute(
-                text(f"UPDATE coaching_actions SET {', '.join(sets)} WHERE id = :id"),
+                text(
+                    f"UPDATE coaching_actions SET {', '.join(sets)} "
+                    "WHERE id = :id AND tenant_id = :tenant"
+                ),
                 params,
             )
             d._activity(
@@ -331,23 +367,56 @@ def _cal_status(raw: str | None) -> str:
     return "active"
 
 
+def _require_cal_status(raw: str | None) -> str:
+    """Strict variant for the PATCH path.
+
+    ``_cal_status`` coerces anything it does not recognise to "active", which is
+    right when reading a legacy row but wrong on a write: PATCH status=cancelled
+    silently re-opened the session instead of failing, and the caller was told
+    the update had succeeded.
+    """
+    s = (raw or "").strip().lower()
+    if s in {"closed", "done", "completed"}:
+        return "closed"
+    if s in {"active", "open", "in_review"}:
+        return "active"
+    raise ValueError(f"invalid_calibration_status: {raw}")
+
+
+# calibration_sessions has no tenant column of its own — it reaches the tenant
+# through the interaction it calibrates, so every read and write goes through
+# this join. Without it the QA calibration screen is cross-tenant readable and
+# patchable by id.
+_CALIBRATION_SESSION_SELECT = """
+    SELECT cs.*,
+           c.name AS customer_name
+    FROM calibration_sessions cs
+    JOIN interactions i ON i.id = cs.interaction_id
+    JOIN customers c ON c.id = i.customer_id
+    WHERE i.tenant_id = :tenant_id
+"""
+
+
+def get_calibration_session(session_id: str) -> dict[str, Any] | None:
+    """Single session with its criterion/reviewer data — no list-wide scan."""
+    sessions = _calibration_sessions(
+        _CALIBRATION_SESSION_SELECT + " AND cs.id = :session_id",
+        {"session_id": session_id, "tenant_id": _db().TENANT_ID},
+    )
+    return sessions[0] if sessions else None
+
+
 def list_calibration_sessions() -> list[dict[str, Any]]:
+    return _calibration_sessions(
+        _CALIBRATION_SESSION_SELECT + " ORDER BY cs.created_at DESC, cs.id",
+        {"tenant_id": _db().TENANT_ID},
+    )
+
+
+def _calibration_sessions(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     d = _db()
     with d.engine.connect() as conn:
-        sessions = d._rows(
-            conn.execute(
-                text(
-                    """
-                    SELECT cs.*,
-                           c.name AS customer_name
-                    FROM calibration_sessions cs
-                    JOIN interactions i ON i.id = cs.interaction_id
-                    JOIN customers c ON c.id = i.customer_id
-                    ORDER BY cs.created_at DESC, cs.id
-                    """
-                )
-            )
-        )
+        sessions = d._rows(conn.execute(text(sql), params))
         if not sessions:
             return []
         ids = [s["id"] for s in sessions]
@@ -366,12 +435,17 @@ def list_calibration_sessions() -> list[dict[str, Any]]:
                 {"ids": ids},
             )
         )
+        # Session → rubric, built once. The per-reviewer `next(...)` scan was
+        # O(reviewers × sessions), and worse: when a session's rubric_id was
+        # NULL it returned None rather than the "rubric-v1" default (the
+        # generator *found* the session, the value was just null), so those
+        # reviewers were scored against an empty criterion set while the
+        # session block below coalesced correctly.
+        rubric_by_session = {s["id"]: (s["rubric_id"] or "rubric-v1") for s in sessions}
         by_session: dict[str, list[dict[str, Any]]] = {i: [] for i in ids}
         for r in reviewers:
             rid = r["session_id"]
-            rubric_id = next(
-                (s["rubric_id"] for s in sessions if s["id"] == rid), "rubric-v1"
-            )
+            rubric_id = rubric_by_session.get(rid, "rubric-v1")
             if rubric_id not in criterion_cache:
                 criterion_cache[rubric_id] = _criterion_ids(conn, rubric_id)
             by_session.setdefault(rid, []).append(
@@ -414,14 +488,21 @@ def patch_calibration_session(
     with d.engine.begin() as conn:
         existing = d._one(
             conn.execute(
-                text("SELECT id FROM calibration_sessions WHERE id = :id"),
-                {"id": session_id},
+                text(
+                    """
+                    SELECT cs.id
+                    FROM calibration_sessions cs
+                    JOIN interactions i ON i.id = cs.interaction_id
+                    WHERE cs.id = :id AND i.tenant_id = :tenant_id
+                    """
+                ),
+                {"id": session_id, "tenant_id": d.TENANT_ID},
             )
         )
         if existing is None:
             raise KeyError("calibration_session_not_found")
         if "status" in payload and payload["status"] is not None:
-            st = _cal_status(str(payload["status"]))
+            st = _require_cal_status(str(payload["status"]))
             conn.execute(
                 text(
                     """
@@ -440,11 +521,11 @@ def patch_calibration_session(
                 "Calibration session updated",
                 note=st,
             )
-    # Re-read via list mapper
-    for row in list_calibration_sessions():
-        if row["id"] == session_id:
-            return row
-    raise KeyError("calibration_session_not_found")
+    # Re-read via the same mapper, single row.
+    row = get_calibration_session(session_id)
+    if row is None:
+        raise KeyError("calibration_session_not_found")
+    return row
 
 
 # ---------------------------------------------------------------------------
@@ -620,11 +701,10 @@ def patch_redaction_rule(pii_type: str, payload: dict[str, Any]) -> dict[str, An
             text(f"UPDATE redaction_rule_configs SET {', '.join(sets)} WHERE id = :id"),
             params,
         )
-    rules = d.list_redaction_rules()
-    for r in rules:
-        if r["piiType"] == pii_type:
-            return r
-    raise KeyError("redaction_rule_not_found")
+    rule = d.get_redaction_rule(pii_type)
+    if rule is None:
+        raise KeyError("redaction_rule_not_found")
+    return rule
 
 
 def _parse_scope_blob(raw: Any) -> dict[str, Any]:
@@ -679,9 +759,18 @@ def list_export_jobs() -> list[dict[str, Any]]:
                     SELECT ej.*, u.name AS actor_name
                     FROM export_jobs ej
                     LEFT JOIN users u ON u.id = ej.actor_user_id
+                    WHERE EXISTS (
+                      SELECT 1
+                      FROM export_job_records ejr
+                      JOIN redaction_records r ON r.id = ejr.redaction_id
+                      JOIN interactions i ON i.id = r.interaction_id
+                      WHERE ejr.export_job_id = ej.id
+                        AND i.tenant_id = :tenant
+                    )
                     ORDER BY ej.created_at DESC, ej.id DESC
                     """
-                )
+                ),
+                {"tenant": d.TENANT_ID},
             )
         )
         if not rows:
@@ -812,8 +901,23 @@ def patch_export_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with d.engine.begin() as conn:
         row = d._one(
             conn.execute(
-                text("SELECT id, scope, status FROM export_jobs WHERE id = :id"),
-                {"id": job_id},
+                text(
+                    """
+                    SELECT ej.id, ej.scope, ej.status
+                    FROM export_jobs ej
+                    WHERE ej.id = :id
+                      AND EXISTS (
+                        SELECT 1
+                        FROM export_job_records ejr
+                        JOIN redaction_records r ON r.id = ejr.redaction_id
+                        JOIN interactions i ON i.id = r.interaction_id
+                        WHERE ejr.export_job_id = ej.id
+                          AND i.tenant_id = :tenant
+                      )
+                    FOR UPDATE OF ej
+                    """
+                ),
+                {"id": job_id, "tenant": d.TENANT_ID},
             )
         )
         if row is None:
@@ -948,10 +1052,10 @@ def create_routing_rule(payload: dict[str, Any]) -> dict[str, Any]:
         )
         _append_routing_audit(conn, rule_id, name, "created", "Rule created")
         created_id = rule_id
-    for r in d.list_routing_rules():
-        if r["id"] == created_id:
-            return r
-    raise KeyError("routing_rule_not_found")
+    created = d.get_routing_rule(created_id)
+    if created is None:
+        raise KeyError("routing_rule_not_found")
+    return created
 
 
 def patch_routing_rule(rule_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1026,17 +1130,21 @@ def patch_routing_rule(rule_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             " · ".join(summary_bits) or "Updated",
         )
         patched_id = rule_id
-    for r in d.list_routing_rules():
-        if r["id"] == patched_id:
-            return r
-    raise KeyError("routing_rule_not_found")
+    patched = d.get_routing_rule(patched_id)
+    if patched is None:
+        raise KeyError("routing_rule_not_found")
+    return patched
 
 
 def reorder_routing_rules(ordered_ids: list[str]) -> list[dict[str, Any]]:
     d = _db()
     with d.engine.begin() as conn:
+        # Count matched rows, not submitted ids: the UPDATE is tenant-scoped, so
+        # an id from another tenant (or a deleted rule) updates nothing. The
+        # audit trail must record what actually changed.
+        updated = 0
         for i, rid in enumerate(ordered_ids):
-            conn.execute(
+            result = conn.execute(
                 text(
                     """
                     UPDATE routing_rules
@@ -1046,13 +1154,14 @@ def reorder_routing_rules(ordered_ids: list[str]) -> list[dict[str, Any]]:
                 ),
                 {"id": rid, "p": (i + 1) * 10, "tenant": d.TENANT_ID},
             )
-        if ordered_ids:
+            updated += int(result.rowcount or 0)
+        if updated:
             _append_routing_audit(
                 conn,
                 ordered_ids[0],
                 "library",
                 "reordered",
-                f"Reordered {len(ordered_ids)} rules",
+                f"Reordered {updated} rules",
             )
     return d.list_routing_rules()
 
@@ -1304,12 +1413,13 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                     WHERE lower(coalesce(cb.status,'')) NOT IN ('completed','cancelled','done','closed')
                       AND cb.scheduled_at IS NOT NULL
                       AND cb.scheduled_at >= now() - interval '1 hour'
+                      AND c.tenant_id = :tenant
                       {cb_clause}
                     ORDER BY cb.scheduled_at ASC
                     LIMIT 1
                     """
                 ),
-                cb_params,
+                {**cb_params, "tenant": d.TENANT_ID},
             )
         )
         next_cb = None
@@ -1325,10 +1435,10 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                 if getattr(sched, "tzinfo", None) is None:
                     sched = sched.replace(tzinfo=timezone.utc)
                 mins = int((sched - now).total_seconds() // 60)
-                try:
-                    time_label = sched.astimezone().strftime("%I:%M %p").lstrip("0")
-                except Exception:
-                    time_label = str(sched)
+                # Fixed offset, matching db._IST: India observes no DST, so this
+                # needs no tzdata. The ZoneInfo lookup silently fell back to a
+                # raw ISO timestamp on any image without the tz database.
+                time_label = sched.astimezone(_IST).strftime("%I:%M %p").lstrip("0")
                 next_cb = {
                     "id": cb["id"],
                     "customer": cb["customer_name"] or "Unknown",
@@ -1354,12 +1464,13 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                     FROM work_items w
                     JOIN customers c ON c.id = w.customer_id
                     WHERE w.sla_due_at IS NOT NULL
+                      AND c.tenant_id = :tenant
                       {wi_clause}
                     ORDER BY w.sla_due_at ASC
                     LIMIT 8
                     """
                 ),
-                wi_params,
+                {**wi_params, "tenant": d.TENANT_ID},
             )
         )
         sla_countdowns: list[dict[str, Any]] = []
@@ -1394,10 +1505,11 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                     JOIN customers c ON c.id = cb.customer_id
                     WHERE lower(coalesce(cb.status,'')) NOT IN ('completed','cancelled','done','closed')
                       AND cb.scheduled_at IS NOT NULL
+                      AND c.tenant_id = :tenant
                       {cb_clause}
                     """
                 ),
-                cb_params,
+                {**cb_params, "tenant": d.TENANT_ID},
             )
         )
         for row in open_cbs:

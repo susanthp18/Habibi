@@ -49,7 +49,7 @@ export async function setProviderEnabled(
     await mockDelay(undefined);
     const p = PROVIDERS.find((x) => x.id === providerId);
     if (!p) throw new Error("provider_not_found");
-    return {
+    const next: Provider = {
       ...p,
       perEnv: {
         ...p.perEnv,
@@ -64,6 +64,9 @@ export async function setProviderEnabled(
         },
       },
     };
+    const idx = PROVIDERS.findIndex((x) => x.id === providerId);
+    if (idx >= 0) PROVIDERS[idx] = next;
+    return next;
   }
   return apiPatch<Provider>(`/providers/${providerId}/configs/${env}`, { enabled });
 }

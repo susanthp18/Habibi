@@ -26,22 +26,22 @@ export function MaskedInput({ value, onChange, onRotate, placeholder }: Props) {
   };
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-050">
       <Input
-        className="h-8 flex-1 font-mono text-[11px]"
+        className="h-400 flex-1 font-mono text-body-small"
         value={revealed ? value : mask(value)}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         readOnly={!revealed}
       />
-      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setRevealed(v => !v)} title={revealed ? "Hide" : "Reveal"}>
+      <Button variant="ghost" size="icon" className="h-400 w-400" onClick={() => setRevealed(v => !v)} title={revealed ? "Hide" : "Reveal"}>
         {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
       </Button>
-      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={copy} title="Copy">
-        {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+      <Button variant="ghost" size="icon" className="h-400 w-400" onClick={copy} title="Copy">
+        {copied ? <Check className="h-3.5 w-3.5 text-text-success" /> : <Copy className="h-3.5 w-3.5" />}
       </Button>
       {onRotate && (
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onRotate} title="Rotate">
+        <Button variant="ghost" size="icon" className="h-400 w-400" onClick={onRotate} title="Rotate">
           <RotateCw className="h-3.5 w-3.5" />
         </Button>
       )}

@@ -1,0 +1,18 @@
+# Caller disputes the balance; the bot must raise a paid_already dispute.
+name: dispute_paid_already
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "I already paid this last week."
+    expect:
+      # Argument assertions live inside the call entry — `args` is matched
+      # against the arguments the model actually emitted.
+      - event: function_call
+        calls:
+          - name: flag_dispute
+            args: { dispute_type: paid_already }
+      - event: response
+        eval: "the bot confirms a dispute was raised and gives a next step"

@@ -18,8 +18,8 @@ interface Props {
 
 export function FiltersBar({ filters, onChange, owners, counts }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-token)] bg-surface-card px-3 py-2">
-      <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center gap-100 rounded-large border border-border bg-surface px-150 py-100">
+      <div className="flex items-center gap-050">
         <StatusChip
           active={filters.status === "all"}
           onClick={() => onChange({ status: "all" })}
@@ -36,10 +36,10 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         ))}
       </div>
 
-      <div className="mx-1 h-6 w-px bg-[var(--border-token)]" />
+      <div className="mx-050 h-300 w-px bg-border" />
 
       <Select value={filters.source} onValueChange={(v) => onChange({ source: v as Filters["source"] })}>
-        <SelectTrigger className="h-8 w-[130px] text-[12px]">
+        <SelectTrigger className="h-400 w-[8.125rem] text-body-small">
           <SelectValue placeholder="Source" />
         </SelectTrigger>
         <SelectContent>
@@ -51,7 +51,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
       </Select>
 
       <Select value={filters.aging} onValueChange={(v) => onChange({ aging: v as Filters["aging"] })}>
-        <SelectTrigger className="h-8 w-[130px] text-[12px]">
+        <SelectTrigger className="h-400 w-[8.125rem] text-body-small">
           <SelectValue placeholder="Aging" />
         </SelectTrigger>
         <SelectContent>
@@ -64,7 +64,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
       </Select>
 
       <Select value={filters.amount} onValueChange={(v) => onChange({ amount: v as Filters["amount"] })}>
-        <SelectTrigger className="h-8 w-[140px] text-[12px]">
+        <SelectTrigger className="h-400 w-[8.75rem] text-body-small">
           <SelectValue placeholder="Amount" />
         </SelectTrigger>
         <SelectContent>
@@ -76,7 +76,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
       </Select>
 
       <Select value={filters.owner} onValueChange={(v) => onChange({ owner: v })}>
-        <SelectTrigger className="h-8 w-[140px] text-[12px]">
+        <SelectTrigger className="h-400 w-[8.75rem] text-body-small">
           <SelectValue placeholder="Owner" />
         </SelectTrigger>
         <SelectContent>
@@ -89,13 +89,13 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         </SelectContent>
       </Select>
 
-      <div className="relative ml-auto min-w-[200px] flex-1 md:max-w-xs">
-        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+      <div className="relative ml-auto min-w-[12.5rem] flex-1 md:max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
         <Input
           placeholder="Search customer, account, PTP id"
           value={filters.search}
           onChange={(e) => onChange({ search: e.target.value })}
-          className="h-8 pl-8 text-[12px]"
+          className="h-400 pl-400 text-body-small"
         />
       </div>
     </div>
@@ -115,22 +115,22 @@ function StatusChip({
 }) {
   const toneRing = tone
     ? {
-        upcoming: "ring-brand-primary/30",
-        due_today: "ring-amber-400/40",
-        kept: "ring-emerald-400/40",
-        broken: "ring-red-400/40",
-        partial: "ring-orange-400/40",
+        upcoming: "ring-border-brand/30",
+        due_today: "ring-border-border-warning/40",
+        kept: "ring-border-border-success/40",
+        broken: "ring-border-border-danger/40",
+        partial: "ring-border-border-warning/40",
       }[tone]
-    : "ring-brand-primary/30";
+    : "ring-border-brand/30";
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-full px-3 py-1 text-[12px] font-medium transition-colors",
+        "rounded-full px-150 py-050 text-body-small font-medium transition-colors",
         active
-          ? `bg-brand-tint text-brand-primary-dark ring-1 ${toneRing}`
-          : "text-text-secondary hover:bg-surface-sunken",
+          ? `bg-background-brand-subtlest text-text-brand ring-1 ${toneRing}`
+          : "text-text-subtle hover:bg-surface-sunken",
       )}
     >
       {label}

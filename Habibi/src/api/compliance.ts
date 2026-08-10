@@ -44,6 +44,43 @@ async function postNote(id: string, note: string): Promise<void> {
   await apiPost(`/violations/${id}/notes`, { text });
 }
 
+/** PATCH status then POST note — rollback status if note fails (no combined backend endpoint). */
+async function patchStatusThenNote(
+  v: Violation,
+  patch: { status: ViolationStatus; assigneeUserId?: string },
+  note: string,
+): Promise<void> {
+  const prevStatus = v.status;
+  // assignViolation sends assigneeUserId alongside status, so the rollback has
+  // to restore both — reverting status alone left the violation reassigned to
+  // whoever the failed call named. The client model carries the assignee's
+  // display name, so resolve it back to an id (and clear the field outright
+  // when there was no previous assignee).
+  const prevAssignee = v.assignee;
+  await apiPatch(`/violations/${v.id}`, patch);
+  try {
+    await postNote(v.id, note);
+  } catch (noteErr) {
+    const detail = noteErr instanceof Error ? noteErr.message : "note failed";
+    try {
+      const rollback: { status: ViolationStatus; assigneeUserId?: string | null } = {
+        status: prevStatus,
+      };
+      if (patch.assigneeUserId !== undefined) {
+        rollback.assigneeUserId = prevAssignee
+          ? (await resolveActor(prevAssignee)).id
+          : null;
+      }
+      await apiPatch(`/violations/${v.id}`, rollback);
+    } catch {
+      throw new Error(
+        `Status updated but note failed (${detail}). Could not revert status — refresh the list.`,
+      );
+    }
+    throw new Error(`Note failed after status update; reverted to "${prevStatus}". ${detail}`);
+  }
+}
+
 export async function assignViolation(
   v: Violation,
   assignee: string,
@@ -58,11 +95,11 @@ export async function assignViolation(
   if (actor.kind !== "human") {
     throw new Error(`${assignee} is a bot — compliance review is assigned to people`);
   }
-  await apiPatch(`/violations/${v.id}`, {
-    status: "in_review" satisfies ViolationStatus,
-    assigneeUserId: actor.id,
-  });
-  await postNote(v.id, note);
+  await patchStatusThenNote(
+    v,
+    { status: "in_review" satisfies ViolationStatus, assigneeUserId: actor.id },
+    note,
+  );
 }
 
 export async function acknowledgeViolation(v: Violation, note = "Acknowledged."): Promise<void> {
@@ -71,8 +108,7 @@ export async function acknowledgeViolation(v: Violation, note = "Acknowledged.")
     acknowledgeSeed(v.id, note, me.name);
     return;
   }
-  await apiPatch(`/violations/${v.id}`, { status: "acknowledged" satisfies ViolationStatus });
-  await postNote(v.id, note);
+  await patchStatusThenNote(v, { status: "acknowledged" satisfies ViolationStatus }, note);
 }
 
 export async function resolveViolation(v: Violation, note: string): Promise<void> {
@@ -83,8 +119,7 @@ export async function resolveViolation(v: Violation, note: string): Promise<void
     resolveSeed(v.id, text, me.name);
     return;
   }
-  await apiPatch(`/violations/${v.id}`, { status: "resolved" satisfies ViolationStatus });
-  await postNote(v.id, text);
+  await patchStatusThenNote(v, { status: "resolved" satisfies ViolationStatus }, text);
 }
 
 export async function addViolationNote(v: Violation, note: string): Promise<void> {

@@ -3,14 +3,14 @@ import { type Violation, botHumanShare, severityWeight } from "@/data/compliance
 
 function KpiCard({ icon: Icon, label, value, sub, tone }: { icon: typeof ShieldAlert; label: string; value: string; sub?: string; tone?: "danger" | "warning" | "default" }) {
   const border =
-    tone === "danger" ? "border-l-[var(--danger)]" : tone === "warning" ? "border-l-[var(--warning)]" : "border-l-brand-primary";
+    tone === "danger" ? "border-l-[var(--danger)]" : tone === "warning" ? "border-l-[var(--warning)]" : "border-l-border-brand";
   return (
-    <div className={`flex min-w-[180px] flex-1 items-center gap-3 rounded-md border border-[var(--border-token)] border-l-4 ${border} bg-surface-card px-4 py-3`}>
-      <Icon className="h-5 w-5 shrink-0 text-text-secondary" />
+    <div className={`flex min-w-[11.25rem] flex-1 items-center gap-150 rounded-medium border border-border border-l-4 ${border} bg-surface px-200 py-150`}>
+      <Icon className="h-250 w-250 shrink-0 text-text-subtle" />
       <div className="min-w-0">
-        <div className="text-[11px] uppercase tracking-wider text-text-muted">{label}</div>
-        <div className="text-[20px] font-semibold text-brand-navy leading-tight">{value}</div>
-        {sub && <div className="text-[11px] text-text-secondary truncate">{sub}</div>}
+        <div className="text-body-small text-text-subtlest">{label}</div>
+        <div className="text-[1.25rem] font-semibold text-text leading-tight">{value}</div>
+        {sub && <div className="text-body-small text-text-subtle truncate">{sub}</div>}
       </div>
     </div>
   );
@@ -34,7 +34,7 @@ export function ComplianceStatsStrip({ all, filtered }: { all: Violation[]; filt
   void severityWeight;
 
   return (
-    <div className="flex flex-wrap gap-3 border-b border-[var(--border-token)] bg-surface-app px-5 py-3">
+    <div className="flex flex-wrap gap-150 border-b border-border bg-surface px-250 py-150">
       <KpiCard icon={AlertOctagon} label="Open critical" value={openCritical.toString()} sub="requires immediate review" tone="danger" />
       <KpiCard icon={ShieldAlert} label="Total open" value={openTotal.toString()} sub={`${resolved.length} resolved this month`} tone="warning" />
       <KpiCard icon={Calendar} label="MTD violations" value={mtd.toString()} sub={`${all.length} in last 30d`} />

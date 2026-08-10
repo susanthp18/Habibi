@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS interaction_transcript (
   ttfb_ms INTEGER,
   ttfa_ms INTEGER,
   tokens INTEGER,
+  -- Per-service latency breakdown (migration 20260727_0049), from Pipecat's
+  -- UserBotLatencyObserver. Nullable: pre-0049 rows have none, and a
+  -- transport with no VADUserStoppedSpeakingFrame has no user_turn_ms.
+  stt_ttfb_ms INTEGER,
+  llm_ttfb_ms INTEGER,
+  tts_ttfb_ms INTEGER,
+  user_turn_ms INTEGER,
+  tool_ms INTEGER,
+  aggregation_ms INTEGER,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (interaction_id, turn_index)
 );
@@ -167,8 +176,6 @@ CREATE TABLE IF NOT EXISTS conversations (
   assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('bot','needs_human','escalated','assigned')),
   channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat','voice')),
-  -- Per-conversation bot runtime memory (migration 20260722_0025).
-  bot_state JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -182,16 +189,10 @@ CREATE TABLE IF NOT EXISTS messages (
   body TEXT NOT NULL,
   delivery_status TEXT,
   provider_ref TEXT,
-  -- Bot turn that produced this message (migration 20260722_0025).
-  bot_turn_job_id TEXT,
   sent_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
--- One message per bot turn job — replayed jobs must not duplicate sends.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_bot_turn_job_id
-  ON messages (bot_turn_job_id)
-  WHERE bot_turn_job_id IS NOT NULL;
 -- WhatsApp / provider message ids — Meta retries require idempotent ingest.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_provider_ref
   ON messages (provider_ref)
@@ -250,3 +251,26 @@ CREATE TABLE IF NOT EXISTS supervisor_actions (
 );
 CREATE INDEX IF NOT EXISTS idx_supervisor_actions_interaction_id ON supervisor_actions(interaction_id);
 
+-- ---------------------------------------------------------------------------
+-- Cross-call voice memory (migration 20260727_0050).
+-- References customers (02) and interactions (this file), so it can only live
+-- here or later. `open_commitments` is SQL-derived and authoritative;
+-- `summary` is LLM-written and is post-filtered to contain no numbers, dates,
+-- or resolution verdicts (see voice/memory.py) so it can never contradict the
+-- CRM card it sits next to.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS customer_memory (
+  -- CASCADE: derived PII must die with the customer (sql/08_redaction.sql).
+  customer_id          TEXT PRIMARY KEY REFERENCES customers(id) ON DELETE CASCADE,
+  summary              TEXT,
+  -- NOT NULL DEFAULT so it can never render as the string "null" in a prompt.
+  open_commitments     jsonb NOT NULL DEFAULT '[]'::jsonb,
+  last_sentiment       numeric(5,3),
+  -- SET NULL, not CASCADE: losing one interaction must not delete the memory.
+  last_interaction_id  TEXT REFERENCES interactions(id) ON DELETE SET NULL,
+  last_channel         TEXT,
+  call_count           INTEGER NOT NULL DEFAULT 0,
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_customer_memory_updated_at
+  ON customer_memory(updated_at);

@@ -36,7 +36,7 @@ export function SentimentTimeline({ points, duration, currentTime, markers = [],
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-[11px] text-text-muted">
+      <div className="mb-050 flex items-center justify-between text-body-small text-text-subtlest">
         <span>Sentiment timeline</span>
         <span className="font-mono">avg {avg.toFixed(2)}</span>
       </div>
@@ -44,10 +44,10 @@ export function SentimentTimeline({ points, duration, currentTime, markers = [],
         ref={ref}
         viewBox={`0 0 ${w} ${h}`}
         preserveAspectRatio="none"
-        className="h-16 w-full cursor-crosshair rounded-md border border-[var(--border-token)] bg-surface-sunken"
+        className="h-800 w-full cursor-crosshair rounded-medium border border-border bg-surface-sunken"
         onClick={handleClick}
       >
-        <line x1={0} y1={h / 2} x2={w} y2={h / 2} stroke="var(--border-token)" strokeDasharray="1 1.5" strokeWidth={0.3} />
+        <line x1={0} y1={h / 2} x2={w} y2={h / 2} stroke="var(--border)" strokeDasharray="1 1.5" strokeWidth={0.3} />
         <path d={path} fill="none" stroke={sentimentColor(avg)} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
         {markers.map((m, i) => (
           <line
@@ -69,7 +69,7 @@ export function SentimentTimeline({ points, duration, currentTime, markers = [],
           x2={playX}
           y1={0}
           y2={h}
-          stroke="var(--brand-primary)"
+          stroke="var(--background-brand-bold)"
           strokeWidth={1}
           vectorEffect="non-scaling-stroke"
         />

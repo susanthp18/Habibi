@@ -510,29 +510,29 @@ function KnowledgeBasePage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-4 py-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
+          <div className="flex flex-wrap items-start justify-between gap-150">
             <div className="min-w-0">
-              <h1 className="text-[17px] font-semibold text-brand-navy">Knowledge Base (RAG) Manager</h1>
-              <p className="text-[12px] text-text-muted">
+              <h1 className="text-[1rem] font-semibold text-text">Knowledge base (RAG) manager</h1>
+              <p className="text-body-small text-text-subtlest">
                 HDFC insurance corpus for collections cross-sell / upsell — documents, FAQs and
                 retrieval controls.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-100">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Filter this page…"
                   aria-label="Filter knowledge base"
-                  className="h-9 w-56 pl-8 pr-8"
+                  className="h-9 w-56 pl-400 pr-400"
                 />
                 {search && (
                   <button
                     type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-muted hover:text-brand-navy"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-025 text-text-subtlest hover:text-text"
                     onClick={() => setSearch("")}
                     aria-label="Clear search"
                   >
@@ -546,7 +546,7 @@ function KnowledgeBasePage() {
                 disabled={globalBusy}
                 onClick={() => setSyncConfirmOpen(true)}
               >
-                <Database className={`mr-1 h-3.5 w-3.5 ${syncBusy ? "animate-pulse" : ""}`} />
+                <Database className={`mr-050 h-3.5 w-3.5 ${syncBusy ? "animate-pulse" : ""}`} />
                 {syncBusy ? "Syncing…" : "Sync from source_db"}
               </Button>
               <Button
@@ -555,7 +555,7 @@ function KnowledgeBasePage() {
                 disabled={globalBusy}
                 onClick={() => void reindexAll()}
               >
-                <RefreshCw className={`mr-1 h-3.5 w-3.5 ${reindexAllBusy ? "animate-spin" : ""}`} />
+                <RefreshCw className={`mr-050 h-3.5 w-3.5 ${reindexAllBusy ? "animate-spin" : ""}`} />
                 {reindexAllBusy ? "Re-indexing…" : "Re-index all"}
               </Button>
               <Button
@@ -568,7 +568,7 @@ function KnowledgeBasePage() {
                   setFaqOpen(true);
                 }}
               >
-                <Plus className="mr-1 h-3.5 w-3.5" /> Add FAQ
+                <Plus className="mr-050 h-3.5 w-3.5" /> Add FAQ
               </Button>
               <Button
                 size="sm"
@@ -578,7 +578,7 @@ function KnowledgeBasePage() {
                   setShowUpload(true);
                 }}
               >
-                <Upload className="mr-1 h-3.5 w-3.5" /> Upload document
+                <Upload className="mr-050 h-3.5 w-3.5" /> Upload document
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -590,14 +590,14 @@ function KnowledgeBasePage() {
                   <DropdownMenuLabel>Danger zone</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-red-700 focus:text-red-800"
+                    className="text-text-danger-bolder focus:text-text-danger-bolder"
                     onClick={() => {
                       setPurgeScope("uploads");
                       setPurgeTyped("");
                       setPurgeConfirmOpen(true);
                     }}
                   >
-                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                    <Trash2 className="mr-100 h-3.5 w-3.5" />
                     Delete documents…
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -606,11 +606,11 @@ function KnowledgeBasePage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-200">
           <KbStatsStrip {...stripStats} />
           <KbSnapshotsStrip snapshots={snapshots} />
 
-          <Tabs value={tab} onValueChange={setTab} className="mt-4">
+          <Tabs value={tab} onValueChange={setTab} className="mt-200">
             <TabsList>
               <TabsTrigger value="documents">
                 Documents ({docsLoading ? "…" : docs.length})
@@ -622,10 +622,10 @@ function KnowledgeBasePage() {
               <TabsTrigger value="test">Test Retrieval</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="documents" className="mt-3">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
+            <TabsContent value="documents" className="mt-150">
+              <div className="mb-150 flex flex-wrap items-center gap-100">
                 <select
-                  className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px] text-text-secondary"
+                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text-subtle"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value as "all" | KbDocType)}
                   aria-label="Filter by type"
@@ -638,7 +638,7 @@ function KnowledgeBasePage() {
                   ))}
                 </select>
                 <select
-                  className="h-8 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px] text-text-secondary"
+                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text-subtle"
                   value={enabledFilter}
                   onChange={(e) => setEnabledFilter(e.target.value as "all" | "enabled" | "disabled")}
                   aria-label="Filter by enabled"
@@ -647,14 +647,14 @@ function KnowledgeBasePage() {
                   <option value="enabled">Enabled only</option>
                   <option value="disabled">Disabled only</option>
                 </select>
-                <span className="text-[11px] text-text-muted">
+                <span className="text-body-small text-text-subtlest">
                   Showing {filteredDocs.length}
                   {searchActive ? ` of ${docs.length}` : ""}
                 </span>
                 {searchActive && (
                   <button
                     type="button"
-                    className="text-[11px] font-medium text-brand-primary hover:underline"
+                    className="text-body-small font-medium text-text-brand hover:underline"
                     onClick={() => {
                       setSearch("");
                       setTypeFilter("all");
@@ -665,7 +665,7 @@ function KnowledgeBasePage() {
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_400px]">
+              <div className="grid grid-cols-1 gap-150 xl:grid-cols-[minmax(0,1fr)_400px]">
                 <DocumentsTable
                   docs={filteredDocs}
                   selectedId={selectedDocId}
@@ -680,9 +680,10 @@ function KnowledgeBasePage() {
                   deletingId={deletingId}
                   loading={docsLoading}
                   filteredOutSelected={selectedHiddenByFilter}
+                  emptyFromFilter={searchActive && filteredDocs.length === 0 && docs.length > 0}
                 />
                 {selectedDoc ? (
-                  <div className="min-h-[500px] xl:sticky xl:top-0 xl:self-start xl:max-h-[calc(100vh-8rem)]">
+                  <div className="min-h-[31.25rem] xl:sticky xl:top-0 xl:self-start xl:max-h-[calc(100vh-8rem)]">
                     <DocumentInspector
                       doc={selectedDoc}
                       chunks={selectedChunks}
@@ -702,14 +703,14 @@ function KnowledgeBasePage() {
                     />
                   </div>
                 ) : (
-                  <div className="hidden items-center justify-center rounded-lg border border-dashed border-[var(--border-token)] p-6 text-center text-[12px] text-text-muted xl:flex">
+                  <div className="hidden items-center justify-center rounded-large border border-dashed border-border p-300 text-center text-body-small text-text-subtlest xl:flex">
                     Select a document to inspect its chunks.
                   </div>
                 )}
               </div>
             </TabsContent>
 
-            <TabsContent value="faqs" className="mt-3">
+            <TabsContent value="faqs" className="mt-150">
               <FaqTable
                 faqs={filteredFaqs}
                 onSelect={(f) => {
@@ -727,7 +728,7 @@ function KnowledgeBasePage() {
               />
             </TabsContent>
 
-            <TabsContent value="gaps" className="mt-3">
+            <TabsContent value="gaps" className="mt-150">
               <AnalyticsGapsTable
                 gaps={filteredGaps}
                 documents={docs}
@@ -743,7 +744,7 @@ function KnowledgeBasePage() {
               />
             </TabsContent>
 
-            <TabsContent value="test" className="mt-3">
+            <TabsContent value="test" className="mt-150">
               <TestRetrievalPanel />
             </TabsContent>
           </Tabs>
@@ -817,11 +818,11 @@ function KnowledgeBasePage() {
               Hard-deletes matching documents and related chunks. Type DELETE to confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-150">
             <div>
-              <Label className="text-[11px] uppercase tracking-wide text-text-muted">Scope</Label>
+              <Label className="text-body-small text-text-subtlest">Scope</Label>
               <select
-                className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="mt-050 flex h-9 w-full rounded-medium border border-input bg-background px-150 text-sm"
                 value={purgeScope}
                 onChange={(e) => setPurgeScope(e.target.value as KbPurgeScope)}
               >
@@ -831,11 +832,11 @@ function KnowledgeBasePage() {
               </select>
             </div>
             <div>
-              <Label className="text-[11px] uppercase tracking-wide text-text-muted">
+              <Label className="text-body-small text-text-subtlest">
                 Type DELETE
               </Label>
               <Input
-                className="mt-1"
+                className="mt-050"
                 value={purgeTyped}
                 onChange={(e) => setPurgeTyped(e.target.value)}
                 placeholder="DELETE"
@@ -846,7 +847,7 @@ function KnowledgeBasePage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
               disabled={purgeTyped.trim().toUpperCase() !== "DELETE" || purgeBusy}
               onClick={(e) => {
                 e.preventDefault();
@@ -877,7 +878,7 @@ function KnowledgeBasePage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
               disabled={!pendingDeleteId || deletingId === pendingDeleteId}
               onClick={(e) => {
                 e.preventDefault();

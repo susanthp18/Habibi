@@ -5,6 +5,7 @@ import { BillingHeader } from "@/components/billing/BillingHeader";
 import { BillingKpiStrip } from "@/components/billing/BillingKpiStrip";
 import { SpendTrendChart } from "@/components/billing/SpendTrendChart";
 import { BudgetPanel } from "@/components/billing/BudgetPanel";
+import { ModelCostTable } from "@/components/billing/ModelCostTable";
 import { ServiceCostTable } from "@/components/billing/ServiceCostTable";
 import { ServiceDonut } from "@/components/billing/ServiceDonut";
 import { ServiceDrawer } from "@/components/billing/ServiceDrawer";
@@ -93,41 +94,43 @@ function BillingPage() {
         />
 
         {isLoading && !data ? (
-          <div className="flex flex-1 items-center justify-center text-[13px] text-text-secondary">
+          <div className="flex flex-1 items-center justify-center text-body text-text-subtle">
             Loading billing data…
           </div>
-        ) : isError ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-[13px] text-text-secondary">
+        ) : isError && !data ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
             <p>Couldn’t load billing data.</p>
-            <p className="text-[11px] text-rose-600">
+            <p className="text-body-small text-text-danger">
               {error instanceof Error ? error.message : "Unknown error"}
             </p>
             <button
               type="button"
-              className="rounded-md bg-brand-primary px-3 py-1.5 text-[12px] font-medium text-white"
+              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white"
               onClick={() => void refetch()}
             >
               Retry
             </button>
           </div>
         ) : data ? (
-          <div className="min-h-0 flex-1 overflow-y-auto bg-surface-app px-5 py-4">
-            <div className="grid gap-4">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">
+            <div className="grid gap-200">
               <BillingKpiStrip
                 daily={data.daily}
                 spendMtd={data.spend}
                 spendPrev={data.spendPrev}
                 costPerCall={data.costPerCall}
                 costPerCallPrev={data.costPerCallPrev}
+                attributedCostPerCall={data.attributedCostPerCall}
+                attributedCalls={data.attributedCalls}
                 forecast={data.forecast}
                 budgetCap={data.budgetCap}
               />
 
-              <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                <div className="min-h-[320px]">
+              <div className="grid items-stretch gap-200 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <div className="min-h-[20rem]">
                   <SpendTrendChart data={data.daily} services={services} />
                 </div>
-                <div className="min-h-[320px] max-h-[420px]">
+                <div className="min-h-[20rem] max-h-[26.25rem]">
                   <BudgetPanel
                     budgets={budgets}
                     spendByEnv={data.spendByEnv}
@@ -139,7 +142,7 @@ function BillingPage() {
                 </div>
               </div>
 
-              <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+              <div className="grid items-stretch gap-200 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <ServiceCostTable
                   services={services}
                   current={data.daily}
@@ -149,7 +152,9 @@ function BillingPage() {
                 <ServiceDonut data={data.daily} services={services} />
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <ModelCostTable rows={data.modelSpend} />
+
+              <div className="grid gap-200 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
                 <TenantTable rows={data.tenantBreakdown} />
                 <InvoiceList invoices={data.invoices} />
               </div>

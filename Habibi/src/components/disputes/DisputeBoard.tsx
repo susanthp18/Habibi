@@ -20,18 +20,18 @@ interface Props {
 }
 
 const columnAccent: Record<DisputeStatus, string> = {
-  new: "border-t-brand-primary",
-  under_review: "border-t-amber-500",
-  awaiting_customer: "border-t-violet-500",
-  resolved: "border-t-emerald-500",
-  rejected: "border-t-slate-400",
+  new: "border-t-border-brand",
+  under_review: "border-t-border-warning",
+  awaiting_customer: "border-t-border-discovery",
+  resolved: "border-t-border-success",
+  rejected: "border-t-border-bold",
 };
 
 export function DisputeBoard({ disputes, counts, subtotals, onOpen, onAssignMe, onDropStatus }: Props) {
   const [dragOver, setDragOver] = useState<DisputeStatus | null>(null);
 
   return (
-    <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
+    <div className="flex min-h-0 flex-1 gap-150 overflow-x-auto pb-100">
       {STATUS_ORDER.map((status) => {
         // Sort: breached first, then by SLA remaining, then capture time desc
         const items = disputes
@@ -59,22 +59,22 @@ export function DisputeBoard({ disputes, counts, subtotals, onOpen, onAssignMe, 
               setDragOver(null);
             }}
             className={cn(
-              "flex w-[300px] shrink-0 flex-col rounded-lg border border-t-2 bg-surface-sunken/60 transition-colors",
+              "flex w-[18.75rem] shrink-0 flex-col rounded-large border border-t-2 bg-surface-sunken/60 transition-colors",
               columnAccent[status],
-              dragOver === status ? "bg-brand-tint/40 ring-2 ring-brand-primary/40" : "border-[var(--border-token)]",
+              dragOver === status ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40" : "border-border",
             )}
           >
-            <div className="flex items-center justify-between border-b border-[var(--border-token)] px-3 py-2">
+            <div className="flex items-center justify-between border-b border-border px-150 py-100">
               <div>
-                <div className="text-[12px] font-semibold text-brand-navy">{STATUS_LABELS[status]}</div>
-                <div className="text-[10.5px] text-text-muted tabular-nums">
+                <div className="text-body-small font-semibold text-text">{STATUS_LABELS[status]}</div>
+                <div className="text-body-small text-text-subtlest tabular-nums">
                   {counts[status]} · {fmtMoney(subtotals[status])}
                 </div>
               </div>
             </div>
-            <div className="flex-1 space-y-2 overflow-y-auto p-2">
+            <div className="flex-1 space-y-100 overflow-y-auto p-100">
               {items.length === 0 ? (
-                <div className="rounded border border-dashed border-[var(--border-token)] p-4 text-center text-[11px] text-text-muted">
+                <div className="rounded border border-dashed border-border p-200 text-center text-body-small text-text-subtlest">
                   No disputes
                 </div>
               ) : (

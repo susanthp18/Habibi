@@ -277,6 +277,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not seed_demo_enabled():
+        return
     bind = op.get_bind()
     ids = [s["id"] for s in SCENARIOS]
     bind.execute(

@@ -68,26 +68,36 @@ def test_two_claimers_never_take_same_job() -> None:
     t1 = threading.Thread(target=claimer, args=(1,))
     t0.start()
     t1.start()
-    t0.join(timeout=15)
-    t1.join(timeout=15)
+    try:
+        t0.join(timeout=15)
+        t1.join(timeout=15)
+    finally:
+        # Liveness first, before ANY cleanup SQL. A claimer still inside its
+        # transaction holds a row lock on job_id, so the DELETE below would
+        # block on it — turning a hung-thread failure into a hung test. Also,
+        # unparking is only safe once both claimers are gone: a live thread
+        # would otherwise race the rows we requeue.
+        if t0.is_alive() or t1.is_alive():
+            raise AssertionError("claimer thread did not finish; leaving jobs parked")
 
-    # Cleanup + unpark
-    with db.engine.begin() as conn:
-        conn.execute(
-            text("DELETE FROM kb_index_jobs WHERE id = :id"), {"id": job_id}
-        )
-        conn.execute(
-            text(
-                """
-                UPDATE kb_index_jobs
-                SET status = 'queued',
-                    error = NULLIF(replace(COALESCE(error, ''), :marker, ''), ''),
-                    updated_at = now()
-                WHERE status = 'failed' AND error LIKE :like
-                """
-            ),
-            {"marker": park_marker, "like": f"%{park_marker}%"},
-        )
+        # Cleanup always runs — a failed assertion below must not leave the
+        # synthetic job row behind for the next test.
+        with db.engine.begin() as conn:
+            conn.execute(text("DELETE FROM kb_index_jobs WHERE id = :id"), {"id": job_id})
+
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE kb_index_jobs
+                    SET status = 'queued',
+                        error = NULLIF(replace(COALESCE(error, ''), :marker, ''), ''),
+                        updated_at = now()
+                    WHERE status = 'failed' AND error LIKE :like
+                    """
+                ),
+                {"marker": park_marker, "like": f"%{park_marker}%"},
+            )
 
     assert not errors, errors
     claimed = [r for r in results if r is not None]

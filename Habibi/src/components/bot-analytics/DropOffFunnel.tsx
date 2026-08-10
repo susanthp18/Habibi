@@ -1,32 +1,32 @@
 type FunnelStage = { id: string; label: string; count: number };
 
 export function DropOffFunnel({ stages }: { stages: FunnelStage[] }) {
-  const max = stages[0]?.count ?? 1;
+  const max = Math.max(1, stages[0]?.count ?? 0);
   return (
-    <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <div className="border-b border-[var(--border-token)] px-3 py-2">
-        <div className="text-[13px] font-semibold text-brand-navy">Drop-off funnel</div>
-        <div className="text-[11px] text-text-muted">Where sessions leak between stages</div>
+    <div className="rounded-large border border-border bg-surface">
+      <div className="border-b border-border px-150 py-100">
+        <div className="text-body font-semibold text-text">Drop-off funnel</div>
+        <div className="text-body-small text-text-subtlest">Where sessions leak between stages</div>
       </div>
-      <div className="space-y-1.5 p-3">
+      <div className="space-y-075 p-150">
         {stages.map((s, i) => {
           const prev = stages[i - 1];
           const drop = prev ? prev.count - s.count : 0;
-          const dropPct = prev ? (drop / prev.count) * 100 : 0;
+          const dropPct = prev && prev.count > 0 ? (drop / prev.count) * 100 : 0;
           return (
             <div key={s.id}>
-              <div className="flex items-center justify-between text-[12px]">
-                <span className="font-medium text-brand-navy">{s.label}</span>
-                <span className="text-text-secondary">
+              <div className="flex items-center justify-between text-body-small">
+                <span className="font-medium text-text">{s.label}</span>
+                <span className="text-text-subtle">
                   {s.count.toLocaleString()}
                   {prev && (
-                    <span className="ml-2 text-red-700">−{drop.toLocaleString()} ({dropPct.toFixed(1)}%)</span>
+                    <span className="ml-100 text-text-danger-bolder">−{drop.toLocaleString()} ({dropPct.toFixed(1)}%)</span>
                   )}
                 </span>
               </div>
-              <div className="mt-1 h-6 overflow-hidden rounded bg-surface-sunken">
+              <div className="mt-050 h-300 overflow-hidden rounded bg-surface-sunken">
                 <div
-                  className="h-full bg-brand-primary transition-all"
+                  className="h-full bg-background-brand-bold transition-all"
                   style={{ width: `${(s.count / max) * 100}%` }}
                 />
               </div>

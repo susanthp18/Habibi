@@ -12,13 +12,14 @@ import {
   type PersonaTraitKey,
   type VoiceConfig,
 } from "@/data/prompt-studio-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 
 const TRAITS: Array<{ key: PersonaTraitKey; label: string; lo: string; hi: string }> = [
   { key: "empathy", label: "Empathy", lo: "Transactional", hi: "Warm" },
   { key: "firmness", label: "Firmness", lo: "Soft", hi: "Direct" },
   { key: "formality", label: "Formality", lo: "Casual", hi: "Formal" },
   { key: "verbosity", label: "Verbosity", lo: "Concise", hi: "Detailed" },
-  { key: "upsell", label: "Proactive Upsell", lo: "Never", hi: "Always" },
+  { key: "upsell", label: "Proactive upsell", lo: "Never", hi: "Always" },
 ];
 
 type Props = {
@@ -34,6 +35,7 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
   const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
+  const requestGen = useRef(0);
 
   const update = (patch: Partial<PersonaState>) => onChange({ ...value, ...patch });
   const setTrait = (k: PersonaTraitKey, v: number) =>
@@ -48,7 +50,7 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
     });
   };
 
-  const stop = () => {
+  const stopPlayback = () => {
     const a = audioRef.current;
     if (a) {
       a.onended = null;
@@ -64,6 +66,11 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
     setLoading(false);
   };
 
+  const stop = () => {
+    requestGen.current += 1;
+    stopPlayback();
+  };
+
   // Stop playback and revoke the blob URL if the tab unmounts mid-preview
   // (PersonaSliders is conditionally rendered), matching VoicePanel's guard.
   useEffect(() => () => stop(), []);
@@ -77,6 +84,8 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
       toast.error("Pick a TTS voice in the Voice tab first");
       return;
     }
+    const gen = ++requestGen.current;
+    stopPlayback();
     const text = renderPersonaPreview(value);
     setLoading(true);
     try {
@@ -91,31 +100,37 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
         pauseMs: voice.pauseMs,
         style: voice.style,
       });
+      if (gen !== requestGen.current) return;
       const url = URL.createObjectURL(result.blob);
       urlRef.current = url;
       const audio = new Audio(url);
       audioRef.current = audio;
       audio.onended = () => setPlaying(false);
       await audio.play();
+      if (gen !== requestGen.current) {
+        stopPlayback();
+        return;
+      }
       setPlaying(true);
     } catch (err) {
+      if (gen !== requestGen.current) return;
       toast.error(err instanceof Error ? err.message : "Could not speak preview");
     } finally {
-      setLoading(false);
+      if (gen === requestGen.current) setLoading(false);
     }
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-      <div className="flex flex-col gap-5">
+    <div className="grid gap-300 lg:grid-cols-[1fr_1fr]">
+      <div className="flex flex-col gap-250">
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Presets</div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">Presets</div>
+          <div className="flex flex-wrap gap-075">
             {presets.map((p) => (
               <button
                 key={p.id}
                 onClick={() => update({ traits: p.traits })}
-                className="rounded-full border border-[var(--border-token)] px-2.5 py-1 text-[11.5px] text-text-secondary hover:border-brand-primary hover:text-brand-primary-dark"
+                className="rounded-full border border-border px-150 py-050 text-body-small text-text-subtle hover:border-border-brand hover:text-text-brand"
               >
                 {p.label}
               </button>
@@ -123,12 +138,12 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
           </div>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-200">
           {TRAITS.map((t) => (
             <div key={t.key}>
-              <div className="mb-1 flex items-center justify-between text-[12px]">
-                <span className="font-medium text-text-primary">{t.label}</span>
-                <span className="font-mono text-[11px] text-text-secondary">{value.traits[t.key]}</span>
+              <div className="mb-050 flex items-center justify-between text-body-small">
+                <span className="font-medium text-text">{t.label}</span>
+                <span className="font-mono text-body-small text-text-subtle">{value.traits[t.key]}</span>
               </div>
               <Slider
                 value={[value.traits[t.key]]}
@@ -137,7 +152,7 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
                 step={1}
                 onValueChange={([v]) => setTrait(t.key, v)}
               />
-              <div className="mt-0.5 flex justify-between text-[10px] text-text-muted">
+              <div className="mt-025 flex justify-between text-body-small text-text-subtlest">
                 <span>{t.lo}</span>
                 <span>{t.hi}</span>
               </div>
@@ -146,28 +161,28 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
         </div>
 
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Primary language</div>
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">Primary language</div>
           <select
             value={value.language}
             onChange={(e) => update({ language: e.target.value })}
-            className="w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1.5 text-[12.5px]"
+            className="w-full rounded-medium border border-border bg-surface px-100 py-075 text-body-small"
           >
             {LANGUAGES.map((l) => (
               <option key={l}>{l}</option>
             ))}
           </select>
-          <div className="mt-2 text-[11px] text-text-muted">Vernacular fallbacks</div>
-          <div className="mt-1 flex flex-wrap gap-1">
+          <div className="mt-100 text-body-small text-text-subtlest">Vernacular fallbacks</div>
+          <div className="mt-050 flex flex-wrap gap-050">
             {LANGUAGES.filter((l) => l !== value.language).map((l) => {
               const on = value.fallbackLanguages.includes(l);
               return (
                 <button
                   key={l}
                   onClick={() => toggleFallback(l)}
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
+                  className={`rounded-full px-100 py-025 text-body-small ${
                     on
-                      ? "bg-brand-primary text-white"
-                      : "border border-[var(--border-token)] bg-surface-card text-text-secondary hover:border-brand-primary"
+                      ? "bg-background-brand-bold text-white"
+                      : "border border-border bg-surface text-text-subtle hover:border-border-brand"
                   }`}
                 >
                   {l}
@@ -178,27 +193,27 @@ export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Pr
         </div>
       </div>
 
-      <div className="rounded-lg border border-[var(--border-token)] bg-surface-sunken p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Persona preview</div>
+      <div className="rounded-large border border-border bg-surface-sunken p-200">
+        <div className="mb-100 flex items-center justify-between">
+          <div className="text-body-small font-semibold text-text-subtlest">Persona preview</div>
           <button
             type="button"
             onClick={() => void hearPreview()}
             disabled={loading}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1 text-[11px] hover:bg-white disabled:opacity-50"
+            className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-100 py-050 text-body-small hover:bg-surface disabled:opacity-50"
           >
             {playing || loading ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
             {loading ? "Synthesizing…" : playing ? "Stop" : "Hear tone"}
           </button>
         </div>
-        <div className="rounded-md border border-[var(--border-token)] bg-surface-card p-3 text-[13px] leading-relaxed text-text-primary">
-          <span className="mr-2 rounded-full bg-brand-tint px-1.5 py-0.5 text-[10px] font-medium uppercase text-brand-primary-dark">
+        <div className="rounded-medium border border-border bg-surface p-150 text-body leading-relaxed text-text">
+          <Lozenge tone="selected" className="mr-100">
             bot
-          </span>
+          </Lozenge>
           {renderPersonaPreview(value)}
         </div>
-        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-text-muted">
-          <Volume2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <p className="mt-100 flex items-start gap-075 text-body-small text-text-subtlest">
+          <Volume2 className="mt-025 h-3.5 w-3.5 shrink-0" />
           Spoken with the Voice tab’s TTS settings (warmth/pitch/speed). Adjust sliders, then Hear tone.
         </p>
       </div>

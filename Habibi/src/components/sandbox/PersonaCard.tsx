@@ -1,33 +1,85 @@
 import type { Persona } from "@/data/sandbox-seed";
+import type { IdentityVerifiedEvent } from "@/components/sandbox/voice/liveEvents";
+import { Lozenge } from "@/components/ui/lozenge";
 
-type Props = { persona: Persona; scenarioTitle: string };
+type Props = {
+  persona: Persona;
+  scenarioTitle: string;
+  /** Present once verify_identity has resolved a real CRM customer. */
+  verified?: IdentityVerifiedEvent | null;
+};
 
-export function PersonaCard({ persona, scenarioTitle }: Props) {
-  const initials = persona.name.split(" ").map((s) => s[0]).slice(0, 2).join("");
+/**
+ * Who is on this call — and, crucially, in which sense.
+ *
+ * Two different identities live here and the header used to show only the
+ * first, which is how a call that had verified "Susanth" against the CRM went
+ * on describing itself as "Rahul Sharma":
+ *
+ *   * the **persona** is a rehearsal script — the name, mood and language the
+ *     tester typed in to play the caller. It is not a customer record;
+ *   * the **verified customer** is the CRM row every tool returns once identity
+ *     checks out, and it is what the bot's answers are actually about.
+ *
+ * The backend already encodes this precedence (`persona_message` in
+ * agent_core/context.py tells the model the CRM record wins once verified).
+ * This is the same rule, made visible.
+ */
+export function PersonaCard({ persona, scenarioTitle, verified }: Props) {
+  const verifiedName = verified?.customerName?.trim() || null;
+  const headlineName = verifiedName || persona.name;
+  const initials =
+    headlineName
+      .split(" ")
+      .map((s) => s[0])
+      .slice(0, 2)
+      .join("") || "??";
+
   return (
-    <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-sunken px-4 py-3">
-      <div className="flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-full bg-brand-primary/10 text-[13px] font-semibold text-brand-primary-dark">
-          {initials || "??"}
+    <div className="shrink-0 border-b border-border bg-surface-sunken px-200 py-150">
+      <div className="flex items-center gap-150">
+        <div className="grid h-500 w-500 shrink-0 place-items-center rounded-full bg-background-brand-bold/10 text-body font-semibold text-text-brand">
+          {initials}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <div className="truncate text-[13px] font-semibold text-text-primary">{persona.name}</div>
-            <span className="rounded-full bg-surface-card px-1.5 py-0.5 text-[10px] font-medium capitalize text-text-secondary">
-              {persona.mood}
-            </span>
+          <div className="flex flex-wrap items-center gap-100">
+            <div className="truncate text-body font-semibold text-text">{headlineName}</div>
+            {verifiedName ? (
+              <Lozenge tone="success">Verified customer</Lozenge>
+            ) : (
+              <Lozenge tone="information">Not yet verified</Lozenge>
+            )}
           </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-text-muted">
-            <span>•••{persona.phoneLast4}</span>
-            <span>{persona.product}</span>
-            {persona.dpd > 0 && <span>DPD {persona.dpd}</span>}
-            {persona.overdue > 0 && <span>₹{persona.overdue.toLocaleString()} overdue</span>}
-            <span>{persona.language}</span>
+          <div className="mt-025 flex flex-wrap gap-x-150 gap-y-025 text-body-small text-text-subtlest">
+            {verifiedName ? (
+              <>
+                {verified?.customerId ? <span>{verified.customerId}</span> : null}
+                <span>CRM record is authoritative from here</span>
+              </>
+            ) : (
+              <>
+                <span>•••{persona.phoneLast4}</span>
+                <span>{persona.product}</span>
+                {persona.dpd > 0 && <span>DPD {persona.dpd}</span>}
+                {persona.overdue > 0 && <span>₹{persona.overdue.toLocaleString()} overdue</span>}
+                <span>{persona.language}</span>
+              </>
+            )}
           </div>
         </div>
-        <div className="text-right text-[11px] text-text-muted">
-          Speaking as customer<br />
-          <span className="text-text-secondary">{scenarioTitle}</span>
+        {/* The persona never disappears — the tester still needs to know which
+            character they are playing — it just stops impersonating the
+            account once a real one is bound. */}
+        <div className="shrink-0 text-right text-body-small text-text-subtlest">
+          <div>
+            You're playing <span className="font-medium text-text-subtle">{persona.name}</span>
+          </div>
+          <div className="mt-025 flex items-center justify-end gap-050">
+            <Lozenge tone="neutral" className="capitalize">
+              {persona.mood}
+            </Lozenge>
+            <span className="truncate">{scenarioTitle}</span>
+          </div>
         </div>
       </div>
     </div>

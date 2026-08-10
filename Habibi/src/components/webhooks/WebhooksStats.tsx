@@ -23,14 +23,14 @@ export function WebhooksStats({
       value: `${active}/${endpoints.length}`,
       hint: "active",
       icon: Radio,
-      tone: "text-brand-primary",
+      tone: "text-text-brand",
     },
     {
       label: "Deliveries · 24h",
       value: last24.length.toString(),
       hint: `${deliveries.length} total`,
       icon: Activity,
-      tone: "text-brand-navy",
+      tone: "text-text",
     },
     {
       label: "Success · 24h",
@@ -39,40 +39,40 @@ export function WebhooksStats({
       icon: CheckCircle2,
       tone:
         rate >= 98
-          ? "text-emerald-600"
+          ? "text-text-code-default"
           : rate >= 90
-            ? "text-amber-600"
-            : "text-rose-600",
+            ? "text-text-warning"
+            : "text-text-danger",
     },
     {
       label: "Retrying / failed",
       value: failing.toString(),
       hint: "across all endpoints",
       icon: AlertTriangle,
-      tone: failing === 0 ? "text-emerald-600" : "text-rose-600",
+      tone: failing === 0 ? "text-text-code-default" : "text-text-danger",
     },
   ];
 
   return (
-    <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-[var(--border-token)] bg-surface-app px-6 py-3 md:grid-cols-4">
+    <div className="grid shrink-0 grid-cols-2 gap-150 border-b border-border bg-surface px-300 py-150 md:grid-cols-4">
       {tiles.map((t) => {
         const Icon = t.icon;
         return (
           <div
             key={t.label}
-            className="rounded-lg border border-[var(--border-token)] bg-surface-card p-3"
+            className="rounded-large border border-border bg-surface p-150"
           >
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
+              <span className="text-body-small font-medium text-text-subtlest">
                 {t.label}
               </span>
               <Icon className={cn("h-4 w-4", t.tone)} />
             </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className={cn("text-[22px] font-semibold", t.tone)}>
+            <div className="mt-050 flex items-baseline gap-100">
+              <span className={cn("text-[1.5rem] font-semibold", t.tone)}>
                 {t.value}
               </span>
-              <span className="text-[11px] text-text-muted">{t.hint}</span>
+              <span className="text-body-small text-text-subtlest">{t.hint}</span>
             </div>
           </div>
         );

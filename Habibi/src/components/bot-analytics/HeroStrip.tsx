@@ -2,9 +2,9 @@ import { LineChart, Line, ResponsiveContainer } from "recharts";
 import { Bot, ShieldCheck, AlertTriangle, MessageSquare, Timer, Smile, TrendingUp, HandCoins } from "lucide-react";
 import type { Kpis } from "@/data/bot-analytics-seed";
 
-function Spark({ data, color = "var(--brand-primary)" }: { data: number[]; color?: string }) {
+function Spark({ data, color = "var(--background-brand-bold)" }: { data: number[]; color?: string }) {
   return (
-    <div className="h-8 w-full">
+    <div className="h-400 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data.map((v, i) => ({ i, v }))} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
           <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} dot={false} />
@@ -30,28 +30,28 @@ function Tile({
   tone?: string;
 }) {
   return (
-    <div className="min-w-[180px] flex-1 rounded-lg border border-[var(--border-token)] bg-surface-card px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+    <div className="min-w-[11.25rem] flex-1 rounded-large border border-border bg-surface px-150 py-150">
+      <div className="flex items-center gap-075 text-body-small font-medium text-text-subtlest">
         <Icon className="h-3.5 w-3.5" /> {label}
       </div>
-      <div className={`mt-0.5 text-[22px] font-semibold ${tone ?? "text-brand-navy"}`}>{value}</div>
-      {hint && <div className="text-[11px] text-text-muted">{hint}</div>}
-      <Spark data={spark} color={tone?.includes("red") ? "#dc2626" : tone?.includes("amber") ? "#d97706" : tone?.includes("emerald") ? "#059669" : "var(--brand-primary)"} />
+      <div className={`mt-025 text-[1.5rem] font-semibold ${tone ?? "text-text"}`}>{value}</div>
+      {hint && <div className="text-body-small text-text-subtlest">{hint}</div>}
+      <Spark data={spark} color={tone?.includes("red") ? "#E2483D" : tone?.includes("amber") ? "#F68909" : tone?.includes("emerald") ? "#82B536" : "var(--background-brand-bold)"} />
     </div>
   );
 }
 
 export function HeroStrip({ kpis }: { kpis: Kpis }) {
   return (
-    <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-app px-5 py-3">
-      <div className="flex flex-wrap gap-2">
+    <div className="shrink-0 border-b border-border bg-surface px-250 py-150">
+      <div className="flex flex-wrap gap-100">
         <Tile
           icon={ShieldCheck}
           label="Containment"
           value={`${kpis.containment.toFixed(1)}%`}
           hint={`${kpis.sessions.toLocaleString()} sessions`}
           spark={kpis.containmentSpark}
-          tone={kpis.containment >= 80 ? "text-emerald-700" : kpis.containment >= 65 ? "text-amber-700" : "text-red-700"}
+          tone={kpis.containment >= 80 ? "text-text-success-bolder" : kpis.containment >= 65 ? "text-text-warning-bolder" : "text-text-danger-bolder"}
         />
         <Tile
           icon={Bot}
@@ -66,7 +66,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.escalation.toFixed(1)}%`}
           hint={`Abandon ${kpis.abandonment.toFixed(1)}%`}
           spark={kpis.escalationSpark}
-          tone={kpis.escalation > 20 ? "text-red-700" : "text-amber-700"}
+          tone={kpis.escalation > 20 ? "text-text-danger-bolder" : "text-text-warning-bolder"}
         />
         <Tile
           icon={TrendingUp}
@@ -81,7 +81,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.ptpRate.toFixed(1)}%`}
           hint="Promise-to-pay captured"
           spark={kpis.ptpSpark}
-          tone={kpis.ptpRate >= 15 ? "text-emerald-700" : "text-amber-700"}
+          tone={kpis.ptpRate >= 15 ? "text-text-success-bolder" : "text-text-warning-bolder"}
         />
         <Tile
           icon={MessageSquare}
@@ -96,7 +96,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${(kpis.latencyP90 / 1000).toFixed(2)}s`}
           hint={`p50 ${(kpis.latencyP50 / 1000).toFixed(2)}s`}
           spark={kpis.latencySpark}
-          tone={kpis.latencyP90 > 1500 ? "text-amber-700" : "text-emerald-700"}
+          tone={kpis.latencyP90 > 1500 ? "text-text-warning-bolder" : "text-text-success-bolder"}
         />
         <Tile
           icon={Smile}
@@ -104,7 +104,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.csatProxy.toFixed(0)}`}
           hint={`Sent ${kpis.avgSentiment.toFixed(2)}`}
           spark={kpis.sentimentSpark}
-          tone={kpis.csatProxy >= 75 ? "text-emerald-700" : "text-amber-700"}
+          tone={kpis.csatProxy >= 75 ? "text-text-success-bolder" : "text-text-warning-bolder"}
         />
       </div>
     </div>

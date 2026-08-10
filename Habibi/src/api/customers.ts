@@ -8,8 +8,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { customers, getCustomer, type Customer, type Dispute, type DocumentRequest, type Interaction, type Promise as PtpPromise } from "@/data/customer360-seed";
+import { customers, getCustomer, type Customer, type CustomerNote, type Dispute, type DocumentRequest, type Interaction, type Promise as PtpPromise } from "@/data/customer360-seed";
 import type { DisputeType } from "@/data/disputes-seed";
+import { deriveCustomerInsights, type CustomerInsights } from "@/lib/customerInsights";
 import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 
 export async function fetchCustomers(): Promise<Customer[]> {
@@ -20,6 +21,36 @@ export async function fetchCustomers(): Promise<Customer[]> {
 export async function fetchCustomer(id: string): Promise<Customer | undefined> {
   if (USE_MOCK) return mockDelay(getCustomer(id));
   return apiGet<Customer | undefined>(`/customers/${id}`);
+}
+
+export async function fetchCustomerInsights(id: string, customer?: Customer): Promise<CustomerInsights> {
+  if (USE_MOCK) {
+    const c = customer ?? getCustomer(id);
+    if (!c) throw new Error("Customer not found");
+    return mockDelay(deriveCustomerInsights(c));
+  }
+  try {
+    return await apiGet<CustomerInsights>(`/customers/${id}/insights`);
+  } catch {
+    // Fallback to client derivation if API unavailable
+    const c = customer ?? (await fetchCustomer(id));
+    if (!c) throw new Error("Customer not found");
+    return deriveCustomerInsights(c);
+  }
+}
+
+export async function addCustomerNote(customerId: string, text: string, pinned = false): Promise<CustomerNote | null> {
+  if (USE_MOCK) {
+    return mockDelay({
+      id: `n-${Date.now()}`,
+      author: "You",
+      at: new Date().toISOString(),
+      text,
+      pinned,
+    } satisfies CustomerNote);
+  }
+  const updated = await apiPost<Customer>(`/customers/${customerId}/notes`, { text, pinned });
+  return updated.notes?.[0] ?? null;
 }
 
 export async function createPromise(customer: Customer, input: { amount: number; date: string; channel: string; notes: string }): Promise<PtpPromise> {

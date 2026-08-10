@@ -1,13 +1,33 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, UrlConstraints, model_validator
+
+# The authored flow graph is a domain model, not a transport shape — it is
+# shared verbatim by the API, the validator and the voice runtime, so it is
+# defined once in flow_graph and reused here rather than restated.
+from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
+
+
+class FlowToolResponse(BaseModel):
+    """One entry in the tool palette the flow editor offers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    description: str
+    #: True when the tool moves the conversation on its own. Pairing one with
+    #: graph edges on the same node gives the model two ways out of it.
+    transitions: bool
 
 
 RiskLevel = Literal["critical", "high", "medium", "low"]
 Channel = Literal["voice", "whatsapp", "chat", "email", "sms"]
 Sentiment = Literal["positive", "neutral", "negative"]
+# Matches the leads.priority CHECK constraint. The tool catalog previously
+# stopped at "high", so the 'urgent' the database allowed was unreachable.
+LeadPriority = Literal["low", "normal", "high", "urgent"]
 
 
 class ContactResponse(BaseModel):
@@ -140,6 +160,61 @@ class CustomerResponse(BaseModel):
     notes: list[CustomerNoteResponse] = []
 
 
+class InsightBulletResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    text: str
+    source: str
+    confidence: Literal["high", "medium", "low"]
+
+
+class NbaItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    rank: int
+    title: str
+    reason: str
+    action: Literal["ptp", "dispute", "statement", "call", "callback", "review"]
+    priority: Literal["high", "medium", "low"]
+
+
+class BehaviorMetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ptpKeepRate: int | None = None
+    daysSinceContact: int | None = None
+    openDisputeAmount: float = 0
+    nextEmiAmount: float | None = None
+    nextEmiDate: str | None = None
+    paymentStreak: int = 0
+    brokenPromiseCount: int = 0
+    activePromiseAmount: float = 0
+
+
+class ActivityPreviewItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: str
+    label: str
+    note: str | None = None
+    at: str
+    tone: str | None = None
+
+
+class CustomerInsightsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str
+    summary: list[InsightBulletResponse] = []
+    nba: list[NbaItemResponse] = []
+    metrics: BehaviorMetricsResponse
+    activity: list[ActivityPreviewItemResponse] = []
+    generatedAt: str
+
+
 class CallResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -167,6 +242,33 @@ class CallResponse(BaseModel):
     sentimentSeries: list[dict[str, Any]] = []
     disclosures: list[dict[str, Any]] = []
     routing: list[str] = []
+
+
+class ProductResponse(BaseModel):
+    """The offer catalog, served from the DB.
+
+    The UI used to carry its own hardcoded copy of this list — six products
+    with ticket bands and ROI strings that nothing reconciled against the
+    `products` table the eligibility check actually reads. An agent could pick a
+    product id that did not exist server-side.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    category: str | None = None
+    family: str | None = None
+    description: str | None = None
+    minTicket: float | None = None
+    maxTicket: float | None = None
+    indicativeROI: str | None = None
+    roiNumeric: float | None = None
+    tenorMonthsMin: int | None = None
+    tenorMonthsMax: int | None = None
+    marginScore: float = 0.5
+    isActive: bool = True
+    channels: list[str] = []
 
 
 class LeadResponse(BaseModel):
@@ -358,6 +460,52 @@ class DashboardResponse(BaseModel):
     atRiskAccounts: list[dict[str, Any]]
 
 
+class TurnTraceResponse(BaseModel):
+    """One turn of a conversation with everything that happened during it.
+
+    ``turnId``/``turnIndex`` are null on the single synthetic "unattributed"
+    entry that carries events whose turn could not be resolved — a tool call
+    recorded before its transcript row existed. Surfaced rather than dropped:
+    losing an audit record to a race is worse than showing it out of place.
+    """
+
+    turnId: str | None
+    turnIndex: int | None
+    speaker: str
+    atSec: float | None = None
+    text: str | None = None
+    intent: str | None = None
+    intentScore: float | None = None
+    sentimentDelta: float | None = None
+    latency: dict[str, Any] = {}
+    toolCalls: list[dict[str, Any]] = []
+    retrievals: list[dict[str, Any]] = []
+
+
+class OfferHealthResponse(BaseModel):
+    """Part 7 of the upsell engine plan — the numbers that decide whether the
+    recommender stays on.
+
+    ``alerts`` carries the breaches with their reasons, computed server-side.
+    A threshold that lives in a chart config is a threshold nobody reviews.
+    """
+
+    window: str
+    includesSimulated: bool
+    volume: dict[str, Any]
+    funnel: dict[str, Any]
+    latency: dict[str, Any]
+    suppressionByReason: list[dict[str, Any]]
+    exclusionByReason: list[dict[str, Any]]
+    byProduct: list[dict[str, Any]]
+    byRecommender: list[dict[str, Any]]
+    byVariant: list[dict[str, Any]]
+    eligibility: dict[str, Any]
+    closeProbe: dict[str, Any]
+    guardrails: dict[str, Any]
+    alerts: list[dict[str, Any]]
+
+
 class HandoffResponse(BaseModel):
     activeCall: dict[str, Any]
     customerContext: dict[str, Any]
@@ -531,7 +679,10 @@ class LeadCreateRequest(BaseModel):
     interactionId: str | None = None
     productId: str
     stage: Literal["interested", "contacted", "qualified", "won", "lost"] = "interested"
-    source: Literal["bot_voice", "bot_chat", "agent"] = "agent"
+    # voice_mesh is the insurance specialist worker. It was writing this column
+    # already; leaving it out of the literal meant the UI could not label or
+    # filter those leads at all.
+    source: Literal["bot_voice", "bot_chat", "voice_mesh", "agent"] = "agent"
     sentimentAtCapture: Sentiment = "neutral"
     sentimentScore: float | None = None
     transcriptSnippet: str | None = None
@@ -539,11 +690,18 @@ class LeadCreateRequest(BaseModel):
     teamId: str | None = None
     offerAmount: float | None = None
     offerRoi: str | None = None
-    priority: Literal["low", "normal", "high"] = "normal"
+    priority: LeadPriority = "normal"
     estimatedValue: float | None = None
+    # Channel the offer would be made on — makes the consent gate channel-exact
+    # instead of blocking a voice pitch because email was opted out.
+    channel: Literal["voice", "whatsapp", "sms", "email", "chat"] | None = None
+    # Supervisor override for the duplicate-open-lead guard.
+    allowDuplicate: bool = False
 
 
 class LeadPatchRequest(BaseModel):
+    # No `= None` defaults that mean "absent": the endpoint uses exclude_unset
+    # so an explicit null clears the column and an omitted key leaves it alone.
     stage: Literal["interested", "contacted", "qualified", "won", "lost"] | None = None
     productId: str | None = None
     ownerUserId: str | None = None
@@ -552,6 +710,7 @@ class LeadPatchRequest(BaseModel):
     offerRoi: str | None = None
     wonAmount: float | None = None
     lossReason: str | None = None
+    channel: Literal["voice", "whatsapp", "sms", "email", "chat"] | None = None
 
 
 class DocumentRequestCreateRequest(BaseModel):
@@ -1034,7 +1193,7 @@ class InboxMessageResponse(BaseModel):
     sender: Literal["customer", "bot", "agent"]
     text: str
     time: str
-    delivery: Literal["sent", "delivered", "read"] | None = None
+    delivery: Literal["sent", "delivered", "read", "failed"] | None = None
 
 
 class InboxSystemEventResponse(BaseModel):
@@ -1143,7 +1302,7 @@ class PiiFindingResponse(BaseModel):
     type: PiiEntityType
     start: int
     end: int
-    text: str
+    text: str | None = None
     masked: str
     confidence: float
     source: Literal["auto", "manual"]
@@ -1270,6 +1429,7 @@ class KbRetrievalResultItem(BaseModel):
     chunkId: str
     docId: str
     docTitle: str
+    docType: str | None = None
     heading: str
     snippet: str
     score: float
@@ -1280,7 +1440,7 @@ class KbRetrieveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str
-    topK: int = 4
+    topK: int = Field(default=4, ge=1, le=20)
     includeDraftAnswer: bool = True
     source: str = "test"
 
@@ -1353,8 +1513,8 @@ class KbDocumentPatchRequest(BaseModel):
     enabled: bool | None = None
     title: str | None = None
     tags: list[str] | None = None
-    chunkSize: int | None = None
-    overlap: int | None = None
+    chunkSize: int | None = Field(default=None, ge=64, le=4096)
+    overlap: int | None = Field(default=None, ge=0, le=1024)
 
 
 class KbReindexResponse(BaseModel):
@@ -1458,7 +1618,7 @@ class KbGapLinkRequest(BaseModel):
 class ConversationSuggestionsRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    topK: int = 4
+    topK: int = Field(default=4, ge=1, le=20)
     includeDraftAnswer: bool = False
 
 
@@ -1604,6 +1764,9 @@ class VoiceConfig(BaseModel):
     warmth: int
     pauseMs: int
     sampleText: str
+    # Prompt Studio / Sandbox persist these alongside the studio voiceId.
+    azureVoiceName: str | None = None
+    style: str | None = None
 
 
 class Guardrails(BaseModel):
@@ -1636,6 +1799,9 @@ class PromptVersionResponse(BaseModel):
     voice: VoiceConfig
     guardrails: Guardrails
     tuning: dict[str, Any] = Field(default_factory=dict)
+    # Authored conversation graph (backend/flow_graph.py). Empty on every
+    # version created before flow authoring existed.
+    flow: FlowGraph = Field(default_factory=FlowGraph)
 
 
 class PersonaPresetResponse(BaseModel):
@@ -1743,7 +1909,7 @@ class BotDeploymentResponse(BaseModel):
     botId: str
     promptVersionId: str
     kbSnapshotId: str | None
-    ttsVoiceId: str | None
+    ttsVoiceId: str | None  # Azure Speech ShortName (not a legacy studio alias id)
     environment: BotDeploymentEnvironment
     status: BotDeploymentStatus
     publishedBy: str | None
@@ -1764,6 +1930,7 @@ class PromptVersionCreateRequest(BaseModel):
     voice: VoiceConfig
     guardrails: Guardrails
     summary: str = ""
+    flow: FlowGraph | None = None
 
 
 class PromptVersionPatchRequest(BaseModel):
@@ -1777,6 +1944,7 @@ class PromptVersionPatchRequest(BaseModel):
     voice: VoiceConfig | None = None
     guardrails: Guardrails | None = None
     summary: str | None = None
+    flow: FlowGraph | None = None
 
 
 class PromptVersionPublishRequest(BaseModel):
@@ -1960,7 +2128,7 @@ class SandboxTurnCreateRequest(BaseModel):
     text: str
     history: list[SandboxHistoryItem] = []
     context: SandboxContext | None = None
-    topK: int = 4
+    topK: int = Field(default=4, ge=1, le=20)
 
 
 class SandboxChunkHit(BaseModel):
@@ -2004,6 +2172,8 @@ class SandboxBotTurn(BaseModel):
     retrieveLatencyMs: int | None = None
     chatLatencyMs: int | None = None
     halted: bool = False
+    # Tool-loop trace from sandbox_runtime (may be empty).
+    toolCalls: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SandboxTurnResponse(BaseModel):
@@ -2185,6 +2355,25 @@ class BillingInvoiceResponse(BaseModel):
     issuedAt: str
 
 
+class BillingModelSpendResponse(BaseModel):
+    """Spend for one (service, model) pair.
+
+    billing_services carries a single blended llm_chat row, so this is the only
+    place a gpt-5 turn can be told apart from a gpt-4o-mini one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    serviceId: str
+    serviceName: str
+    unit: str
+    color: str
+    model: str
+    units: float
+    costInr: float
+    calls: int
+
+
 class BillingOverviewResponse(BaseModel):
     """Full /billing payload — already filtered by period / tenant / env."""
 
@@ -2211,6 +2400,43 @@ class BillingOverviewResponse(BaseModel):
     invoices: list[BillingInvoiceResponse]
     tenantBreakdown: list[BillingTenantBreakdownResponse]
     serviceTenantSpend: dict[str, dict[str, float]]
+    # Measured cost per call, over calls carrying attributed usage. Distinct
+    # from costPerCall above, which allocates all spend across resolved calls.
+    # 0 with attributedCalls == 0 means "window predates metering", not "free".
+    attributedCostPerCall: float
+    attributedCalls: int
+    modelSpend: list[BillingModelSpendResponse]
+
+
+class InteractionCostLineResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    serviceId: str
+    serviceName: str
+    unit: str
+    category: str
+    color: str
+    model: str | None
+    units: float
+    costInr: float
+    events: int
+
+
+class InteractionCostResponse(BaseModel):
+    """Per-call cost breakdown, assembled from attributed usage events."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    interactionId: str
+    # False when the call carries no usage events at all — it predates metering.
+    # The UI must not render that as a real zero.
+    attributed: bool
+    totalInr: float
+    lines: list[InteractionCostLineResponse]
+    durationSec: int
+    channel: str | None
+    status: str | None
+    totalTokens: int
 
 
 class BudgetRuleUpsertRequest(BaseModel):
@@ -2489,6 +2715,8 @@ class WorkspaceSummaryResponse(BaseModel):
 
 
 class FloorStatsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     callsInProgress: int
     avgSentiment: float
     escalationRate: float
@@ -2498,20 +2726,32 @@ class FloorStatsResponse(BaseModel):
 
 
 class FloorSnapshotResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     calls: list[dict[str, Any]]
     alerts: list[dict[str, Any]]
     stats: FloorStatsResponse
 
 
 class SupervisorActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     interactionId: str
     action: Literal["listen_in", "whisper", "barge", "force_handoff"]
     note: str | None = None
 
 
+# Webhook targets carry signed CRM events off-platform — HTTPS is enforced at
+# the schema boundary so a plaintext URL is a 422 with a field-level error
+# rather than a generic 400 from ops_screens._validate_webhook_url.
+HttpsUrl = Annotated[AnyHttpUrl, UrlConstraints(allowed_schemes=["https"])]
+
+
 class WebhookEndpointUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
-    url: str
+    url: HttpsUrl
     target: str = "Custom"
     events: list[str] = []
     algo: str = "HMAC-SHA256"
@@ -2521,8 +2761,10 @@ class WebhookEndpointUpsertRequest(BaseModel):
 
 
 class WebhookEndpointPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
-    url: str | None = None
+    url: HttpsUrl | None = None
     target: str | None = None
     events: list[str] | None = None
     algo: str | None = None
@@ -2532,5 +2774,29 @@ class WebhookEndpointPatchRequest(BaseModel):
 
 
 class ProviderEnabledPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool
+
+
+class VoiceSandboxStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str | None = None
+    accountId: str | None = None
+    botId: str | None = None
+    tuning: dict[str, Any] | None = None
+    promptVersionId: str | None = None
+    deploymentId: str | None = None
+    # Habibi Live sandbox sends these; voice_sandbox.start_voice_sandbox uses them
+    # to create a sandbox_run + session file for the Pipecat runner.
+    kbSnapshotId: str | None = None
+    scenarioId: str | None = None
+    persona: dict[str, Any] | None = None
+
+
+class VoiceSandboxTuneRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tuning: dict[str, Any] | None = None
 

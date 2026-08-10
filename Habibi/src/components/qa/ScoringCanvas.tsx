@@ -6,6 +6,7 @@ import { allCriteria, computeTotal, type Rubric, type Scorecard, type ScorecardE
 import { formatDateTime, formatDuration } from "@/data/audit-seed";
 import { ScoreBand } from "./ScoreBand";
 import { RubricScorer } from "./RubricScorer";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export function ScoringCanvas({
   scorecard,
@@ -33,14 +34,11 @@ export function ScoringCanvas({
     () => (scorecard ? computeTotal(scorecard, rubric) : 0),
     [scorecard, rubric],
   );
-  // Publish is gated on every rubric criterion being scored (score > 0), so a
-  // reviewer can't finalize a partial card into a misleadingly low total.
+  // Publish is gated on every rubric criterion having an entry (score 0 counts).
   const { scoredCount, totalCriteria } = useMemo(() => {
     const criteria = allCriteria(rubric);
     const scored = scorecard
-      ? criteria.filter(
-          (c) => (scorecard.entries.find((e) => e.criterionId === c.id)?.score ?? 0) > 0,
-        ).length
+      ? criteria.filter((c) => scorecard.entries.some((e) => e.criterionId === c.id)).length
       : 0;
     return { scoredCount: scored, totalCriteria: criteria.length };
   }, [scorecard, rubric]);
@@ -48,39 +46,39 @@ export function ScoringCanvas({
 
   if (!scorecard) {
     return (
-      <div className="flex h-full items-center justify-center bg-surface-app text-[13px] text-text-muted">
+      <div className="flex h-full items-center justify-center bg-surface text-body text-text-subtlest">
         Select a call from the queue to begin scoring.
       </div>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface-app">
-      <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
+        <div className="flex flex-wrap items-center gap-100">
           <div className="min-w-0">
-            <div className="truncate text-[15px] font-semibold text-brand-navy">{scorecard.customerName}</div>
-            <div className="text-[11px] text-text-secondary">
+            <div className="truncate text-[0.875rem] font-semibold text-text">{scorecard.customerName}</div>
+            <div className="text-body-small text-text-subtle">
               {call ? `${formatDateTime(call.startedAt)} · ${formatDuration(call.duration)} · ${call.channel}` : "—"}
               {" · "}
               <span className="capitalize">{scorecard.handledBy.kind}</span> · {scorecard.handledBy.label} · {scorecard.disposition}
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-100">
             <ScoreBand total={total} size="lg" />
-            <span className="rounded-full border border-[var(--border-token)] px-2 py-0.5 text-[11px] capitalize text-text-secondary">
+            <Lozenge tone="neutral" className="border-border capitalize">
               {scorecard.status === "ai_draft" ? "AI draft" : scorecard.status}
-            </span>
+            </Lozenge>
           </div>
         </div>
-        <div className="mt-2 flex gap-1">
+        <div className="mt-100 flex gap-050">
           {(["rubric", "transcript"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={cn(
-                "rounded-md px-2.5 py-1 text-[12px] capitalize",
-                tab === t ? "bg-brand-tint text-brand-primary-dark font-semibold" : "text-text-secondary hover:bg-surface-sunken",
+                "rounded-medium px-150 py-050 text-body-small capitalize",
+                tab === t ? "bg-background-brand-subtlest text-text-brand font-semibold" : "text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {t === "transcript" ? "Transcript" : "Rubric"}
@@ -89,7 +87,7 @@ export function ScoringCanvas({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-200 py-200">
         {tab === "rubric" ? (
           <RubricScorer
             rubric={rubric}
@@ -97,47 +95,47 @@ export function ScoringCanvas({
             onChange={(next) => onChangeEntries(scorecard.id, next)}
           />
         ) : (
-          <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
-            <div className="flex items-center gap-2 border-b border-[var(--border-token)] px-3 py-2 text-[12px] text-text-secondary">
+          <div className="rounded-large border border-border bg-surface">
+            <div className="flex items-center gap-100 border-b border-border px-150 py-100 text-body-small text-text-subtle">
               <FileText className="h-3.5 w-3.5" /> Transcript
             </div>
-            <div className="divide-y divide-[var(--border-token)]">
+            <div className="divide-y divide-border">
               {(call?.transcript ?? []).map((turn) => (
-                <div key={turn.id} className="grid grid-cols-[80px_60px_1fr] gap-3 px-3 py-2 text-[12px]">
-                  <span className="font-mono text-text-muted">{formatDuration(turn.t)}</span>
+                <div key={turn.id} className="grid grid-cols-[80px_60px_1fr] gap-150 px-150 py-100 text-body-small">
+                  <span className="font-mono text-text-subtlest">{formatDuration(turn.t)}</span>
                   <span className={cn(
                     "capitalize",
-                    turn.speaker === "customer" ? "text-brand-primary-dark font-medium" :
-                    turn.speaker === "agent" || turn.speaker === "bot" ? "text-brand-navy font-medium" :
-                    "text-text-muted italic",
+                    turn.speaker === "customer" ? "text-text-brand font-medium" :
+                    turn.speaker === "agent" || turn.speaker === "bot" ? "text-text font-medium" :
+                    "text-text-subtlest italic",
                   )}>{turn.speaker}</span>
-                  <span className="text-text-primary">{turn.text}</span>
+                  <span className="text-text">{turn.text}</span>
                 </div>
               ))}
               {(!call || call.transcript.length === 0) && (
-                <div className="p-4 text-center text-[12px] text-text-muted">No transcript available.</div>
+                <div className="p-200 text-center text-body-small text-text-subtlest">No transcript available.</div>
               )}
             </div>
           </div>
         )}
       </div>
 
-      <div className="shrink-0 border-t border-[var(--border-token)] bg-surface-card px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="shrink-0 border-t border-border bg-surface px-200 py-150">
+        <div className="flex flex-wrap items-center gap-100">
           <button
             onClick={() => onSaveDraft(scorecard.id)}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-3 py-1.5 text-[12px] text-text-primary hover:bg-surface-sunken"
+            className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
           >
             <Save className="h-3.5 w-3.5" /> Save draft
           </button>
           <button
             onClick={() => onAssignCoaching(scorecard)}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-3 py-1.5 text-[12px] text-text-primary hover:bg-surface-sunken"
+            className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
           >
             <UserPlus className="h-3.5 w-3.5" /> Attach coaching
           </button>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-[11px] text-text-muted">
+          <div className="ml-auto flex items-center gap-100">
+            <span className="text-body-small text-text-subtlest">
               {allScored ? `Total ${total.toFixed(1)}/100` : `${scoredCount}/${totalCriteria} criteria scored`}
             </span>
             <button
@@ -145,10 +143,10 @@ export function ScoringCanvas({
               disabled={!allScored}
               title={allScored ? undefined : "Score every criterion before publishing"}
               className={cn(
-                "inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium text-white",
+                "inline-flex items-center gap-050 rounded-medium px-150 py-075 text-body-small font-medium text-white",
                 allScored
-                  ? "bg-brand-primary hover:bg-brand-primary-dark"
-                  : "cursor-not-allowed bg-brand-primary/40",
+                  ? "bg-background-brand-bold hover:bg-background-brand-bold-pressed"
+                  : "cursor-not-allowed bg-background-brand-bold/40",
               )}
             >
               <Send className="h-3.5 w-3.5" /> Publish score

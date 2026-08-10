@@ -1,0 +1,26 @@
+# Developer overlay — bind-mounts the working tree over the image's /app.
+#
+# Without this, `docker compose exec api pytest` runs the code that was baked in
+# at build time, not the code you just edited, and a green run means nothing.
+# Opt in explicitly so the default `docker compose up` still exercises the image
+# as it will actually ship:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d api
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml exec api pytest tests/
+#
+# __pycache__ is masked with an anonymous volume: the host tree carries .pyc
+# files compiled by a different Python, and a stale one shadows the source.
+
+services:
+  api:
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - ../source_db:/source_db:ro
+      - voice_sessions:/app/.cache/voice_sandbox_sessions
+
+  voice:
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - voice_sessions:/app/.cache/voice_sandbox_sessions

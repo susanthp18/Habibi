@@ -11,27 +11,16 @@ import json
 import os
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
 
-
-BASE = Path(__file__).parent
+from env_loader import load_env
 
 
 def _read_env(key: str, default: str | None = None) -> str | None:
+    load_env()
     value = os.getenv(key)
     if value is not None and value != "":
         return value
-    env_file = BASE / ".env"
-    if not env_file.exists():
-        return default
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        if k == key:
-            return v if v != "" else default
     return default
 
 
@@ -117,11 +106,65 @@ def _send_text_message_uncircuited(*, to_phone: str, body: str) -> dict[str, Any
         raise ValueError(f"whatsapp_send_failed:network:{exc.reason}") from exc
 
 
+def is_definite_client_error(err: str) -> bool:
+    """True for config/token/4xx failures where a retry cannot succeed."""
+    s = (err or "").strip().lower()
+    if not s:
+        return False
+    if s in {
+        "whatsapp_not_configured",
+        "whatsapp_missing_recipient",
+        "whatsapp_token_expired",
+        "whatsapp_token_invalid",
+    }:
+        return True
+    if "whatsapp_send_failed:network:" in s:
+        return False
+    if s.startswith("whatsapp_send_failed:"):
+        parts = s.split(":", 2)
+        if len(parts) >= 2:
+            try:
+                status = int(parts[1])
+            except ValueError:
+                return False
+            if status in {408, 429, 500, 502, 503, 504}:
+                return False
+            if 400 <= status < 500:
+                return True
+            if status >= 500:
+                return False
+    return False
+
+
+def is_ambiguous_transport_error(err: str) -> bool:
+    """True when Meta may have accepted the message despite the client error."""
+    s = (err or "").strip().lower()
+    if "whatsapp_send_failed:network:" in s:
+        return True
+    if s.startswith("whatsapp_send_failed:"):
+        parts = s.split(":", 2)
+        if len(parts) >= 2:
+            try:
+                status = int(parts[1])
+            except ValueError:
+                return False
+            return status in {408, 429, 500, 502, 503, 504}
+    return False
+
+
 def _classify_send_error(status: int, detail: str) -> str:
-    """Map Meta Graph errors to stable machine codes the inbox UI can friendlify."""
+    """Map Meta Graph errors to stable machine codes the inbox UI can friendlify.
+
+    Only the parsed diagnostic fields (code / error_subcode / error_user_msg)
+    are carried forward. The raw Graph body echoes request context — recipient
+    number, message text, access-token fragments in `error_data`, `fbtrace_id`
+    — and this string is persisted to bot_turn_jobs.error /
+    whatsapp_outbound_jobs.error and written to the application log.
+    """
     code = None
     subcode = None
     message = ""
+    user_msg = ""
     try:
         payload = json.loads(detail) if detail else {}
         err = payload.get("error") if isinstance(payload, dict) else None
@@ -129,6 +172,7 @@ def _classify_send_error(status: int, detail: str) -> str:
             code = err.get("code")
             subcode = err.get("error_subcode")
             message = str(err.get("message") or "")
+            user_msg = str(err.get("error_user_msg") or "")
     except json.JSONDecodeError:
         pass
 
@@ -138,7 +182,15 @@ def _classify_send_error(status: int, detail: str) -> str:
             return "whatsapp_token_expired"
         return "whatsapp_token_invalid"
 
-    return f"whatsapp_send_failed:{status}:{detail[:400]}"
+    bits = []
+    if code is not None:
+        bits.append(f"code={code}")
+    if subcode is not None:
+        bits.append(f"subcode={subcode}")
+    if user_msg:
+        bits.append(f"user_msg={user_msg[:200]}")
+    summary = " ".join(bits) or "unparsed_graph_error"
+    return f"whatsapp_send_failed:{status}:{summary}"
 
 
 def extract_wamid(send_response: dict[str, Any]) -> str | None:

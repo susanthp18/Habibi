@@ -19,34 +19,43 @@ const options: {
   {
     key: "available",
     label: "Available",
-    dot: "bg-success",
+    dot: "bg-background-success",
     ring: "pulse-dot",
-    text: "text-success",
-    bg: "bg-success-bg",
+    text: "text-text-success",
+    bg: "bg-background-success",
   },
   {
     key: "break",
     label: "On break",
-    dot: "bg-warning",
+    dot: "bg-background-warning",
     ring: "",
-    text: "text-warning",
-    bg: "bg-warning-bg",
+    text: "text-text-warning",
+    bg: "bg-background-warning",
   },
   {
     key: "wrap",
     label: "Wrap-up",
-    dot: "bg-info",
+    dot: "bg-background-information-bold",
     ring: "",
-    text: "text-info",
-    bg: "bg-brand-tint",
+    text: "text-text-information",
+    bg: "bg-background-information",
   },
 ];
+
+const offlineOption = {
+  key: "offline" as const,
+  label: "Offline",
+  dot: "bg-text-subtlest",
+  ring: "",
+  text: "text-text-subtlest",
+  bg: "bg-surface-sunken",
+};
 
 export function AvailabilityToggle() {
   const { data } = usePresence();
   const mutation = usePatchPresence();
   const status = presenceToUi(data?.status);
-  const active = options.find((o) => o.key === status)!;
+  const active = options.find((o) => o.key === status) ?? offlineOption;
 
   const setStatus = (next: AvailabilityUi) => {
     if (next === status || mutation.isPending) return;
@@ -59,31 +68,39 @@ export function AvailabilityToggle() {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2.5">
+    <div className="flex flex-wrap items-center gap-150">
       <div
         className={cn(
-          "inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5",
+          "inline-flex items-center gap-100 rounded-medium border px-150 py-075",
           active.bg,
-          status === "available" && "border-success/25",
-          status === "break" && "border-warning/30",
-          status === "wrap" && "border-brand-primary/20",
+          status === "available" && "border-border-success/25",
+          status === "break" && "border-border-warning/30",
+          status === "wrap" && "border-border-information/20",
+          status === "offline" && "border-border",
         )}
       >
-        <span className={cn("h-2 w-2 rounded-full", active.dot, active.ring)} />
-        <span className={cn("text-[12px] font-semibold", active.text)}>{active.label}</span>
+        <span className={cn("h-100 w-100 rounded-full", active.dot, active.ring)} />
+        <span className={cn("text-body-small font-medium", active.text)}>
+          {active.label}
+        </span>
       </div>
-      <div className="inline-flex rounded-md border border-[var(--border-token)] bg-surface-card p-0.5 shadow-sm">
+      <div
+        className="inline-flex rounded-medium border border-border bg-surface p-025"
+        role="group"
+        aria-label="Availability"
+      >
         {options.map((o) => (
           <button
             key={o.key}
             type="button"
+            aria-pressed={status === o.key}
             disabled={mutation.isPending}
             onClick={() => setStatus(o.key)}
             className={cn(
-              "rounded-[5px] px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-60",
+              "rounded-medium px-150 py-075 text-body-small font-medium transition-colors disabled:opacity-60",
               status === o.key
-                ? "bg-brand-primary text-white shadow-sm"
-                : "text-text-secondary hover:bg-surface-sunken",
+                ? "bg-background-brand-bold text-text-inverse"
+                : "text-text-subtle hover:bg-surface-sunken",
             )}
           >
             {o.label}

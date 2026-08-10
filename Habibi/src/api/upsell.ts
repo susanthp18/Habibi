@@ -1,11 +1,12 @@
 // -----------------------------------------------------------------------------
-// Upsell & Leads Manager — data access seam (read side).
-//   fetchLeads() → the lead pipeline  (GET /leads)
+// Upsell & Leads Manager — data access seam.
+//   fetchLeads()  → the lead pipeline   (GET /leads)
+//   patchLead()   → stage / owner / team / offer  (PATCH /leads/:id)
+//   createLead()  → manual capture      (POST /leads)
 //
-// NOTE: stage moves / create / assign currently mutate the in-memory seed
-// (see moveStage, createLead, etc. in upsell-seed). Those map to POST/PATCH
-// endpoints in Phase 2 and should become useMutation calls then. Phase 1 only
-// seams the read so the screen loads its list through the data layer.
+// In mock mode these mutate the in-memory seed; live they hit the API. The two
+// paths are kept behaviourally identical on purpose — a difference between them
+// is a bug that only shows up in production.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
@@ -18,7 +19,6 @@ import {
   markLost,
   markWon,
   moveStage,
-  productMap,
   reassignTeam,
   scheduleFollowUp,
   updateOffer,
@@ -32,6 +32,7 @@ import {
   type Team,
 } from "@/data/upsell-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { resolveProduct } from "./products";
 import { resolveActor } from "./staff";
 import { resolveTeam } from "./teams";
 
@@ -44,6 +45,9 @@ async function ownerUserId(owner: string | undefined): Promise<string | undefine
   }
   return actor.id;
 }
+
+/** Where a follow-up contact would happen — makes the consent re-check exact. */
+const LEAD_CHANNEL = "voice" as const;
 
 async function teamId(team: Team | undefined): Promise<string | undefined> {
   if (team === undefined) return undefined;
@@ -76,16 +80,35 @@ export async function patchLead(
     return mockDelay(leads.find((l) => l.id === lead.id) ?? lead);
   }
 
-  return apiPatch<Lead>(`/leads/${lead.id}`, {
-    stage: patch.stage,
-    productId: patch.offer?.productId,
-    ownerUserId: await ownerUserId(patch.owner),
-    teamId: await teamId(patch.team),
-    offerAmount: patch.offer?.indicativeAmount,
-    offerRoi: patch.offer?.indicativeROI,
-    wonAmount: patch.wonAmount,
-    lossReason: patch.lossReason,
-  });
+  // Only send what actually changed. The endpoint uses exclude_unset, so an
+  // explicit null clears a column while an omitted key leaves it alone —
+  // sending every field on every patch would wipe values nobody touched.
+  const body: Record<string, unknown> = { channel: LEAD_CHANNEL };
+  if (patch.stage !== undefined) body.stage = patch.stage;
+  if (patch.offer?.productId !== undefined) body.productId = patch.offer.productId;
+  if (patch.owner !== undefined) body.ownerUserId = await ownerUserId(patch.owner);
+  if (patch.team !== undefined) body.teamId = await teamId(patch.team);
+  if (patch.offer?.indicativeAmount !== undefined) body.offerAmount = patch.offer.indicativeAmount;
+  if (patch.offer?.indicativeROI !== undefined) body.offerRoi = patch.offer.indicativeROI;
+  if (patch.wonAmount !== undefined) body.wonAmount = patch.wonAmount;
+  if (patch.lossReason !== undefined) body.lossReason = patch.lossReason;
+
+  return apiPatch<Lead>(`/leads/${lead.id}`, body);
+}
+
+/**
+ * Re-check a lead's eligibility against today's consent and account facts.
+ *
+ * Eligibility was evaluated once, at capture, and never again — so a customer
+ * who opted out afterwards kept an actionable lead with a green badge on it.
+ */
+export async function revalidateLead(
+  lead: Lead,
+): Promise<{ leadId: string; eligible: boolean; blockReason: string | null }> {
+  if (USE_MOCK) {
+    return mockDelay({ leadId: lead.id, eligible: true, blockReason: null });
+  }
+  return apiPost(`/leads/${lead.id}/revalidate?channel=${LEAD_CHANNEL}`, {});
 }
 
 export async function addLeadFollowUp(
@@ -125,7 +148,9 @@ export async function createLead(input: {
 }): Promise<Lead> {
   if (USE_MOCK) return mockDelay(createSeedLead(input));
 
-  const product = productMap[input.productId];
+  // ROI comes from the catalog the server serves, not a hardcoded copy of it —
+  // otherwise the ROI stored on the lead can disagree with the product.
+  const product = await resolveProduct(input.productId);
   return apiPost<Lead>("/leads", {
     customerId: input.customerId,
     productId: input.productId,
@@ -137,6 +162,7 @@ export async function createLead(input: {
     offerRoi: product?.indicativeROI,
     estimatedValue: input.indicativeAmount,
     priority: input.priority,
+    channel: LEAD_CHANNEL,
   });
 }
 

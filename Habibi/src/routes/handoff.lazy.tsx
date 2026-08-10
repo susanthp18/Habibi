@@ -20,7 +20,33 @@ export const Route = createLazyFileRoute("/handoff")({
 const TICK_MS = 500;
 
 function HandoffPage() {
-  const { data: session } = useHandoffSession();
+  const { data: session, isError, error, refetch, isFetching } = useHandoffSession();
+
+  // A failed fetch used to render the skeleton forever: an agent taking a
+  // handoff saw a loading screen with no indication anything was wrong and no
+  // way to retry.
+  if (isError) {
+    return (
+      <AppShell>
+        <div className="flex h-full w-full flex-col items-center justify-center gap-150 bg-surface p-300 text-center">
+          <p className="text-sm font-semibold text-text">
+            Could not load the handoff session
+          </p>
+          <p className="max-w-md text-body text-text-subtlest">
+            {error instanceof Error ? error.message : "The request failed."}
+          </p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="rounded-medium bg-background-brand-bold px-150 py-100 text-body font-semibold text-white transition-colors hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isFetching ? "Retrying…" : "Retry"}
+          </button>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -31,17 +57,17 @@ function HandoffPage() {
 
 function HandoffSkeleton() {
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface-app" aria-busy="true">
-      <Skeleton className="h-16 w-full rounded-none" />
-      <div className="flex min-h-0 flex-1 gap-3 p-3">
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <Skeleton className="h-24 w-full rounded-[10px]" />
-          <Skeleton className="min-h-0 flex-1 rounded-[10px]" />
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface" aria-busy="true">
+      <Skeleton className="h-800 w-full rounded-none" />
+      <div className="flex min-h-0 flex-1 gap-150 p-150">
+        <div className="flex min-w-0 flex-1 flex-col gap-150">
+          <Skeleton className="h-24 w-full rounded-large" />
+          <Skeleton className="min-h-0 flex-1 rounded-large" />
         </div>
-        <div className="hidden w-[360px] shrink-0 flex-col gap-3 lg:flex xl:w-[400px]">
-          <Skeleton className="h-48 rounded-[10px]" />
-          <Skeleton className="h-40 rounded-[10px]" />
-          <Skeleton className="h-40 rounded-[10px]" />
+        <div className="hidden w-[22.5rem] shrink-0 flex-col gap-150 lg:flex xl:w-[25rem]">
+          <Skeleton className="h-48 rounded-large" />
+          <Skeleton className="h-40 rounded-large" />
+          <Skeleton className="h-40 rounded-large" />
         </div>
       </div>
     </div>
@@ -110,7 +136,12 @@ function HandoffLive({ session }: { session: HandoffSession }) {
   // Auto-check compliance items at scripted timestamps (mock only).
   useEffect(() => {
     if (!USE_MOCK) {
-      setCompliance(Object.fromEntries(complianceItems.map((i) => [i.id, true])));
+      // Live mode has no per-item completion source yet (GET /handoff/active
+      // returns the item list, not their state), so leave them unchecked for
+      // the agent to tick. Marking every item complete asserted that the
+      // recording disclosure and identity verification had happened when
+      // nothing had confirmed either — the exact claim this checklist exists
+      // to substantiate.
       return;
     }
     setCompliance((prev) => {
@@ -159,7 +190,7 @@ function HandoffLive({ session }: { session: HandoffSession }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface-app">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
       <CallHeader
         call={activeCall}
         elapsed={elapsed}
@@ -179,7 +210,7 @@ function HandoffLive({ session }: { session: HandoffSession }) {
         </div>
 
         {/* RIGHT rail */}
-        <aside className="hidden w-[360px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-[var(--border-token)] bg-surface-app px-3 py-3 lg:flex xl:w-[400px]">
+        <aside className="hidden w-[22.5rem] shrink-0 flex-col gap-150 overflow-y-auto border-l border-border bg-surface px-150 py-150 lg:flex xl:w-[25rem]">
           <CustomerContextPanel call={activeCall} context={customerContext} />
           <AISuggestedResponses items={activeSuggestions} onInsert={handleInsertSuggestion} />
           <ComplianceChecklist

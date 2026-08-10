@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export const KB_TAG_SUGGESTIONS = [
   "hdfc",
@@ -63,24 +64,22 @@ export function KbTagEditor({
   const unusedSuggestions = suggestions.filter((s) => !tags.includes(s)).slice(0, 10);
 
   return (
-    <div className={cn("space-y-2", className)}>
-      <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border border-[var(--border-token)] bg-surface-sunken/40 px-2 py-1.5">
+    <div className={cn("space-y-100", className)}>
+      <div className="flex min-h-9 flex-wrap items-center gap-075 rounded-medium border border-border bg-surface-sunken/40 px-100 py-075 focus-within:border-border-brand/50 focus-within:ring-1 focus-within:ring-border-brand/30">
         {tags.map((t) => (
-          <span
-            key={t}
-            className="inline-flex items-center gap-1 rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-medium text-brand-primary-dark"
-          >
+          <Lozenge
+            key={t} tone="selected">
             #{t}
             <button
               type="button"
               disabled={disabled}
               onClick={() => remove(t)}
-              className="rounded-full p-0.5 hover:bg-brand-primary/15 disabled:opacity-40"
+              className="rounded-full p-025 hover:bg-background-brand-bold/15 disabled:opacity-40"
               aria-label={`Remove ${t}`}
             >
               <X className="h-3 w-3" />
             </button>
-          </span>
+          </Lozenge>
         ))}
         <Input
           value={draft}
@@ -98,18 +97,18 @@ export function KbTagEditor({
             if (draft.trim()) add(draft);
           }}
           placeholder={tags.length ? "Add tag…" : "Type a tag and press Enter"}
-          className="h-7 min-w-[140px] flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
+          className="h-7 min-w-[8.75rem] flex-1 border-0 bg-transparent px-050 shadow-none focus-visible:ring-0"
         />
       </div>
       {unusedSuggestions.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-050">
           {unusedSuggestions.map((s) => (
             <button
               key={s}
               type="button"
               disabled={disabled}
               onClick={() => add(s)}
-              className="rounded-full border border-dashed border-[var(--border-token)] px-2 py-0.5 text-[10px] text-text-secondary hover:border-brand-primary/40 hover:text-brand-primary-dark disabled:opacity-40"
+              className="rounded-full border border-dashed border-border px-100 py-025 text-body-small text-text-subtle hover:border-border-brand/40 hover:text-text-brand disabled:opacity-40"
             >
               + {s}
             </button>

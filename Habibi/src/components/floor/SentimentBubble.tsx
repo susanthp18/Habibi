@@ -12,17 +12,17 @@ export function SentimentBubble({ value, trend, size = "sm" }: Props) {
     value > 0.25 ? "Positive" : value < -0.2 ? "Negative" : "Neutral";
   const cls =
     value > 0.25
-      ? "bg-success-bg text-success"
+      ? "bg-background-success text-text-success"
       : value < -0.2
-        ? "bg-danger-bg text-danger"
-        : "bg-warning-bg text-warning";
+        ? "bg-background-danger text-text-danger"
+        : "bg-background-warning text-text-warning";
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full font-semibold",
+        "inline-flex items-center gap-050 rounded-full font-semibold",
         cls,
-        size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]",
+        size === "sm" ? "px-075 py-025 text-body-small" : "px-100 py-025 text-body-small",
       )}
     >
       <span className="tabular">{value >= 0 ? "+" : ""}{value.toFixed(2)}</span>

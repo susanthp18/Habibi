@@ -42,7 +42,7 @@ function FormShell({ title, desc, children, footer }: { title: string; desc: str
         <SheetTitle>{title}</SheetTitle>
         <SheetDescription>{desc}</SheetDescription>
       </SheetHeader>
-      <div className="my-4 space-y-3">{children}</div>
+      <div className="my-200 space-y-150">{children}</div>
       <SheetFooter>{footer}</SheetFooter>
     </>
   );
@@ -59,7 +59,7 @@ function PtpForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: S
       title="Create Promise-to-Pay"
       desc="Capture what the customer committed. It will show up in the PTP pipeline."
       footer={
-        <div className="flex w-full justify-end gap-2">
+        <div className="flex w-full justify-end gap-100">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button onClick={() => onSubmit({ amount: Number(amount), date, channel, notes })} disabled={!amount || !date}>Save PTP</Button>
         </div>
@@ -97,7 +97,7 @@ function DisputeForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (
       title="Raise dispute"
       desc="Log a new dispute for review. It will enter the Disputes queue."
       footer={
-        <div className="flex w-full justify-end gap-2">
+        <div className="flex w-full justify-end gap-100">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button onClick={() => onSubmit({ type, amount: Number(amount), notes })} disabled={!type}>Raise dispute</Button>
         </div>
@@ -133,7 +133,7 @@ function StatementForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit:
       title="Send document"
       desc="Generate a statement or letter and send it to the customer."
       footer={
-        <div className="flex w-full justify-end gap-2">
+        <div className="flex w-full justify-end gap-100">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button onClick={() => onSubmit({ docType, delivery })}>Send</Button>
         </div>
@@ -171,7 +171,7 @@ function CallForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: 
       title="Log call"
       desc="Manually log an outbound / offline call for this customer."
       footer={
-        <div className="flex w-full justify-end gap-2">
+        <div className="flex w-full justify-end gap-100">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button onClick={() => onSubmit({ disposition, notes })}>Log call</Button>
         </div>
@@ -198,8 +198,8 @@ function CallForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: 
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-text-secondary">{label}</Label>
+    <div className="space-y-075">
+      <Label className="text-xs font-medium text-text-subtle">{label}</Label>
       {children}
     </div>
   );

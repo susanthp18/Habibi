@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useRedactionRules } from "@/api/redaction";
 import type { Guardrails } from "@/data/prompt-studio-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 
 type Props = {
   value: Guardrails;
@@ -33,6 +34,8 @@ export function GuardrailsPanel({ value, onChange }: Props) {
   };
 
   const rules = rulesQuery.data;
+  const rulesLoading = rulesQuery.isLoading;
+  const rulesFailed = rulesQuery.isError;
   const piiRows = rules
     ? Object.entries(rules).map(([key, cfg]) => ({
         key,
@@ -42,40 +45,38 @@ export function GuardrailsPanel({ value, onChange }: Props) {
     : [];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-      <div className="flex flex-col gap-5">
+    <div className="grid gap-300 lg:grid-cols-[1fr_1fr]">
+      <div className="flex flex-col gap-250">
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Prohibited words / phrases</div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">Prohibited words / phrases</div>
+          <div className="flex flex-wrap gap-075">
             {value.prohibited.map((w) => (
-              <span
-                key={w}
-                className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11.5px] text-red-700"
-              >
+              <Lozenge
+                key={w} tone="danger">
                 {w}
                 <button
                   onClick={() => update({ prohibited: value.prohibited.filter((p) => p !== w) })}
-                  className="hover:text-red-900"
+                  className="hover:text-text-danger-bolder"
                 >
                   <X className="h-3 w-3" />
                 </button>
-              </span>
+              </Lozenge>
             ))}
             {value.prohibited.length === 0 && (
-              <span className="text-[11px] text-text-muted">No words configured</span>
+              <span className="text-body-small text-text-subtlest">No words configured</span>
             )}
           </div>
-          <div className="mt-2 flex gap-1.5">
+          <div className="mt-100 flex gap-075">
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addWord()}
               placeholder="Add word or phrase…"
-              className="flex-1 rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1.5 text-[12.5px]"
+              className="flex-1 rounded-medium border border-border bg-surface px-100 py-075 text-body-small"
             />
             <button
               onClick={addWord}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-2.5 py-1.5 text-[12px] hover:bg-surface-sunken"
+              className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small hover:bg-surface-sunken"
             >
               <Plus className="h-3.5 w-3.5" /> Add
             </button>
@@ -83,13 +84,13 @@ export function GuardrailsPanel({ value, onChange }: Props) {
         </div>
 
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Behavior rules</div>
-          <div className="divide-y divide-[var(--border-token)] rounded-md border border-[var(--border-token)] bg-surface-card">
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">Behavior rules</div>
+          <div className="divide-y divide-border rounded-medium border border-border bg-surface">
             {TOGGLES.map((t) => (
-              <div key={t.key as string} className="flex items-start justify-between gap-3 px-3 py-2.5">
+              <div key={t.key as string} className="flex items-start justify-between gap-150 px-150 py-150">
                 <div>
-                  <div className="text-[12.5px] font-medium text-text-primary">{t.label}</div>
-                  <div className="text-[11px] text-text-muted">{t.hint}</div>
+                  <div className="text-[0.75rem] font-medium text-text">{t.label}</div>
+                  <div className="text-body-small text-text-subtlest">{t.hint}</div>
                 </div>
                 <Switch
                   checked={Boolean(value[t.key])}
@@ -101,56 +102,67 @@ export function GuardrailsPanel({ value, onChange }: Props) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-250">
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Response limits</div>
-          <div className="rounded-md border border-[var(--border-token)] bg-surface-card p-3">
-            <div className="mb-1 flex items-center justify-between text-[12px]">
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">Response limits</div>
+          <div className="rounded-medium border border-border bg-surface p-150">
+            <div className="mb-050 flex items-center justify-between text-body-small">
               <span className="font-medium">Max turns per call</span>
-              <span className="font-mono text-[11px] text-text-secondary">{value.maxTurns}</span>
+              <span className="font-mono text-body-small text-text-subtle">{value.maxTurns}</span>
             </div>
             <Slider value={[value.maxTurns]} min={4} max={40} step={1} onValueChange={([v]) => update({ maxTurns: v })} />
-            <div className="mt-4 mb-1 flex items-center justify-between text-[12px]">
+            <div className="mt-200 mb-050 flex items-center justify-between text-body-small">
               <span className="font-medium">Max call duration</span>
-              <span className="font-mono text-[11px] text-text-secondary">{Math.round(value.maxSeconds / 60)}m</span>
+              <span className="font-mono text-body-small text-text-subtle">{Math.round(value.maxSeconds / 60)}m</span>
             </div>
             <Slider value={[value.maxSeconds]} min={120} max={900} step={30} onValueChange={([v]) => update({ maxSeconds: v })} />
           </div>
         </div>
 
         <div>
-          <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="mb-075 flex items-center justify-between text-body-small font-semibold text-text-subtlest">
             <span>PII redaction (owned by Redaction Hub)</span>
             <Link
               to="/redaction"
-              className="inline-flex items-center gap-1 normal-case tracking-normal text-brand-primary hover:underline"
+              className="inline-flex items-center gap-050 normal-case tracking-normal text-text-brand hover:underline"
             >
               Open hub <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
-            {piiRows.length === 0 && (
-              <div className="col-span-2 rounded-md border border-dashed border-[var(--border-token)] px-2.5 py-3 text-[12px] text-text-muted">
+          <div className="grid grid-cols-2 gap-075">
+            {rulesLoading && (
+              <div className="col-span-2 rounded-medium border border-dashed border-border px-150 py-150 text-body-small text-text-subtlest">
                 Loading redaction rules…
+              </div>
+            )}
+            {!rulesLoading && rulesFailed && (
+              <div className="col-span-2 rounded-medium border border-dashed border-border px-150 py-150 text-body-small text-text-subtlest">
+                Could not load redaction rules — this list is not a statement
+                about what is redacted.
+              </div>
+            )}
+            {!rulesLoading && !rulesFailed && piiRows.length === 0 && (
+              <div className="col-span-2 rounded-medium border border-dashed border-border px-150 py-150 text-body-small text-text-subtlest">
+                No redaction rules configured in Redaction Hub.
               </div>
             )}
             {piiRows.map((p) => (
               <div
                 key={p.key}
-                className="flex items-center gap-2 rounded-md border border-[var(--border-token)] bg-surface-sunken px-2.5 py-2 text-[12.5px] text-text-secondary"
+                className="flex items-center gap-100 rounded-medium border border-border bg-surface-sunken px-150 py-100 text-body-small text-text-subtle"
               >
                 <span
-                  className={`h-2 w-2 rounded-full ${p.enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+                  className={`h-100 w-100 rounded-full ${p.enabled ? "bg-background-success-bold" : "bg-background-accent-gray-subtle"}`}
                   title={p.enabled ? "Enabled in Redaction Hub" : "Disabled in Redaction Hub"}
                 />
                 <span className="truncate">{p.label}</span>
-                <span className="ml-auto text-[10px] uppercase text-text-muted">
+                <span className="ml-auto text-body-small text-text-subtlest">
                   {p.enabled ? "on" : "off"}
                 </span>
               </div>
             ))}
           </div>
-          <p className="mt-1 text-[11px] text-text-muted">
+          <p className="mt-050 text-body-small text-text-subtlest">
             Read-only here — toggle PAN, account, Aadhaar, etc. in Redaction Hub. Studio cannot override them.
           </p>
         </div>

@@ -2,6 +2,7 @@ import { Switch } from "@/components/ui/switch";
 import type { FaqPair } from "@/data/kb-seed";
 import { cn, formatKbDate } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export function FaqTable({
   faqs,
@@ -18,9 +19,9 @@ export function FaqTable({
 }) {
   if (faqs.length === 0) {
     return (
-      <div className="flex min-h-[180px] flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border-token)] bg-surface-card px-6 py-10 text-center">
-        <p className="text-[13px] font-medium text-brand-navy">No FAQ pairs</p>
-        <p className="mt-1 text-[12px] text-text-muted">
+      <div className="flex min-h-[11.25rem] flex-col items-center justify-center rounded-large border border-dashed border-border bg-surface px-300 py-500 text-center">
+        <p className="text-body font-medium text-text">No FAQ pairs</p>
+        <p className="mt-050 text-body-small text-text-subtlest">
           Add an FAQ or sync from source_db to load product Q&amp;A.
         </p>
       </div>
@@ -28,16 +29,16 @@ export function FaqTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <table className="w-full text-[13px]">
-        <thead className="bg-surface-sunken text-[11px] font-medium uppercase tracking-wide text-text-muted">
+    <div className="overflow-hidden rounded-large border border-border bg-surface">
+      <table className="w-full text-body">
+        <thead className="bg-surface-sunken text-body-small font-medium text-text-subtlest">
           <tr>
-            <th className="px-3 py-2 text-left">Question</th>
-            <th className="px-3 py-2 text-left">Answer preview</th>
-            <th className="px-3 py-2 text-left">Intent</th>
-            <th className="px-3 py-2 text-left">Updated</th>
-            <th className="px-3 py-2 text-center">Enabled</th>
-            <th className="px-2 py-2" />
+            <th className="px-150 py-100 text-left">Question</th>
+            <th className="px-150 py-100 text-left">Answer preview</th>
+            <th className="px-150 py-100 text-left">Intent</th>
+            <th className="px-150 py-100 text-left">Updated</th>
+            <th className="px-150 py-100 text-center">Enabled</th>
+            <th className="px-100 py-100" />
           </tr>
         </thead>
         <tbody>
@@ -46,35 +47,35 @@ export function FaqTable({
               key={f.id}
               onClick={() => onSelect(f)}
               className={cn(
-                "cursor-pointer border-t border-[var(--border-token)] hover:bg-surface-sunken/60",
-                selectedId === f.id && "bg-brand-tint/40",
+                "cursor-pointer border-t border-border hover:bg-surface-sunken/60",
+                selectedId === f.id && "bg-background-brand-subtlest/40",
               )}
             >
-              <td className="px-3 py-2.5 align-top">
-                <div className="max-w-md font-medium text-brand-navy">{f.question}</div>
+              <td className="px-150 py-150 align-top">
+                <div className="max-w-md font-medium text-text">{f.question}</div>
               </td>
-              <td className="px-3 py-2.5 align-top">
-                <div className="line-clamp-2 max-w-lg text-[12px] text-text-secondary">
+              <td className="px-150 py-150 align-top">
+                <div className="line-clamp-2 max-w-lg text-body-small text-text-subtle">
                   {f.answer}
                 </div>
               </td>
-              <td className="px-3 py-2.5 align-top">
-                <span className="rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-medium text-brand-primary-dark">
+              <td className="px-150 py-150 align-top">
+                <Lozenge tone="selected">
                   {f.intent}
-                </span>
+                </Lozenge>
               </td>
-              <td className="px-3 py-2.5 align-top text-[12px] text-text-secondary">
+              <td className="px-150 py-150 align-top text-body-small text-text-subtle">
                 {formatKbDate(f.updatedAt, { day: "2-digit", month: "short" })}
               </td>
-              <td className="px-3 py-2.5 text-center align-top" onClick={(e) => e.stopPropagation()}>
+              <td className="px-150 py-150 text-center align-top" onClick={(e) => e.stopPropagation()}>
                 <Switch checked={f.enabled} onCheckedChange={(v) => onToggle(f.id, v)} />
               </td>
-              <td className="px-2 py-2.5 text-right align-top" onClick={(e) => e.stopPropagation()}>
+              <td className="px-100 py-150 text-right align-top" onClick={(e) => e.stopPropagation()}>
                 {onDelete && (
                   <button
                     type="button"
                     onClick={() => onDelete(f.id)}
-                    className="rounded-md p-1.5 text-text-muted hover:bg-red-50 hover:text-red-700"
+                    className="rounded-medium p-075 text-text-subtlest hover:bg-background-danger-subtler hover:text-text-danger-bolder"
                     aria-label="Delete FAQ"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

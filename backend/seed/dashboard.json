@@ -506,17 +506,17 @@
     {
       "name": "Contained by bot",
       "value": 5987,
-      "color": "var(--brand-primary)"
+      "color": "var(--background-brand-bold)"
     },
     {
       "name": "Escalated to human",
       "value": 1638,
-      "color": "var(--warning)"
+      "color": "var(--chart-warning-bold)"
     },
     {
       "name": "Direct to human",
       "value": 787,
-      "color": "var(--brand-navy)"
+      "color": "var(--chart-gray-bold)"
     }
   ],
   "leaderboard": [

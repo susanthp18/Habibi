@@ -2,14 +2,15 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import type { AuditEntry } from "@/data/routing-seed";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
-const ACTION_COLOR: Record<string, string> = {
-  created: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  edited: "bg-blue-50 text-blue-700 border-blue-200",
-  toggled: "bg-amber-50 text-amber-700 border-amber-200",
-  reordered: "bg-violet-50 text-violet-700 border-violet-200",
-  deleted: "bg-red-50 text-red-700 border-red-200",
-  duplicated: "bg-slate-50 text-slate-700 border-slate-200",
+const ACTION_COLOR: Record<string, LozengeTone> = {
+  created: "success",
+  edited: "information",
+  toggled: "warning",
+  reordered: "discovery",
+  deleted: "danger",
+  duplicated: "neutral",
 };
 
 export function AuditLog({ entries }: { entries: AuditEntry[] }) {
@@ -25,10 +26,10 @@ export function AuditLog({ entries }: { entries: AuditEntry[] }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-token)] bg-surface-card px-3 py-2">
-        <Input placeholder="Search rule or change…" className="h-8 flex-1 text-[12px]" value={q} onChange={e => setQ(e.target.value)} />
+      <div className="flex shrink-0 items-center gap-100 border-b border-border bg-surface px-150 py-100">
+        <Input placeholder="Search rule or change…" className="h-400 flex-1 text-body-small" value={q} onChange={e => setQ(e.target.value)} />
         <Select value={author} onValueChange={setAuthor}>
-          <SelectTrigger className="h-8 w-[140px] text-[12px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-400 w-[8.75rem] text-body-small"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All authors</SelectItem>
             {authors.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
@@ -36,20 +37,20 @@ export function AuditLog({ entries }: { entries: AuditEntry[] }) {
         </Select>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <ul className="space-y-2">
+      <div className="min-h-0 flex-1 overflow-y-auto p-150">
+        <ul className="space-y-100">
           {rows.map(e => (
-            <li key={e.id} className="rounded-lg border border-[var(--border-token)] bg-surface-card p-2.5">
-              <div className="flex items-center gap-2">
-                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ACTION_COLOR[e.action]}`}>{e.action}</span>
-                <span className="flex-1 truncate text-[12px] font-medium text-brand-navy">{e.ruleName}</span>
-                <span className="text-[10px] text-text-muted">{new Date(e.at).toLocaleString()}</span>
+            <li key={e.id} className="rounded-large border border-border bg-surface p-150">
+              <div className="flex items-center gap-100">
+                <Lozenge tone={ACTION_COLOR[e.action]}>{e.action}</Lozenge>
+                <span className="flex-1 truncate text-body-small font-medium text-text">{e.ruleName}</span>
+                <span className="text-body-small text-text-subtlest">{new Date(e.at).toLocaleString()}</span>
               </div>
-              <div className="mt-1 text-[11px] text-text-secondary">{e.summary}</div>
-              <div className="mt-0.5 text-[10px] text-text-muted">by {e.author}</div>
+              <div className="mt-050 text-body-small text-text-subtle">{e.summary}</div>
+              <div className="mt-025 text-body-small text-text-subtlest">by {e.author}</div>
             </li>
           ))}
-          {rows.length === 0 && <li className="p-4 text-center text-[12px] text-text-muted">No entries.</li>}
+          {rows.length === 0 && <li className="p-200 text-center text-body-small text-text-subtlest">No entries.</li>}
         </ul>
       </div>
     </div>

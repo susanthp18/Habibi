@@ -10,21 +10,21 @@ interface Props {
 
 export function TranscriptRedactor({ record, onToggleFinding }: Props) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-150">
       {record.transcript.map((turn) => {
         const turnFindings = record.findings
           .filter((f) => f.turnId === turn.id)
           .sort((a, b) => a.start - b.start);
         return (
-          <div key={turn.id} className="flex gap-3">
-            <div className="w-14 shrink-0 text-right font-mono text-[10px] text-text-muted">
+          <div key={turn.id} className="flex gap-150">
+            <div className="w-14 shrink-0 text-right font-mono text-body-small text-text-subtlest">
               {formatSec(turn.t)}
             </div>
             <div className="flex-1">
-              <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              <div className="mb-025 text-body-small font-semibold text-text-subtlest">
                 {turn.speaker}
               </div>
-              <div className="text-[13px] leading-relaxed text-text-primary">
+              <div className="text-body leading-relaxed text-text">
                 {renderWithMarks(turn.text, turnFindings, onToggleFinding)}
               </div>
             </div>
@@ -32,7 +32,7 @@ export function TranscriptRedactor({ record, onToggleFinding }: Props) {
         );
       })}
       {record.transcript.length === 0 && (
-        <div className="py-8 text-center text-[12px] text-text-muted">No transcript available</div>
+        <div className="py-400 text-center text-body-small text-text-subtlest">No transcript available</div>
       )}
     </div>
   );
@@ -55,8 +55,8 @@ function renderWithMarks(
         onClick={() => onToggle(f.id)}
         title={`${DEFAULT_RULES[f.type].label} · ${f.source} · click to ${f.accepted ? "unmask" : "re-mask"}`}
         className={cn(
-          "mx-0.5 inline-flex items-baseline gap-1 rounded px-1 py-0 font-mono text-[12px] transition-opacity",
-          f.accepted ? "text-white" : "text-text-primary line-through opacity-70",
+          "mx-025 inline-flex items-baseline gap-050 rounded px-050 py-0 font-mono text-body-small transition-opacity",
+          f.accepted ? "text-white" : "text-text line-through opacity-70",
         )}
         style={{
           backgroundColor: f.accepted ? ENTITY_COLORS[f.type] : "transparent",

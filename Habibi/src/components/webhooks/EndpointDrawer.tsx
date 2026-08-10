@@ -55,7 +55,7 @@ export function EndpointDrawer({
   onRotate: (ep: Endpoint) => void;
   onRetry: (d: Delivery) => void;
   /** Prefer API test-fire when provided (live mode). */
-  onTestFire?: (ep: Endpoint, event: EventKey) => void;
+  onTestFire?: (ep: Endpoint, event: EventKey) => void | Promise<void>;
 }) {
   const [tab, setTab] = useState("overview");
   const [revealSecret, setRevealSecret] = useState(false);
@@ -63,6 +63,7 @@ export function EndpointDrawer({
   const [testJson, setTestJson] = useState<string>(
     JSON.stringify(EVENT_INDEX["call.completed"].sample, null, 2),
   );
+  const [testBusy, setTestBusy] = useState(false);
 
   const epDeliveries = useMemo(
     () => (endpoint ? deliveries.filter((d) => d.endpointId === endpoint.id) : []),
@@ -91,21 +92,28 @@ export function EndpointDrawer({
   };
 
   const fireTest = () => {
-    if (onTestFire) {
-      onTestFire(endpoint, testEvent);
-      return;
-    }
-    let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(testJson);
-    } catch {
-      toast.error("Invalid JSON payload");
-      return;
-    }
-    const d = simulateDelivery(endpoint, testEvent, payload);
-    onAppendDelivery(d);
-    if (d.status === "success") toast.success(`Test → ${d.httpStatus} in ${d.latencyMs}ms`);
-    else toast.error(`Test → ${d.httpStatus} in ${d.latencyMs}ms`);
+    void (async () => {
+      if (onTestFire) {
+        setTestBusy(true);
+        try {
+          await onTestFire(endpoint, testEvent);
+        } finally {
+          setTestBusy(false);
+        }
+        return;
+      }
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(testJson);
+      } catch {
+        toast.error("Invalid JSON payload");
+        return;
+      }
+      const d = simulateDelivery(endpoint, testEvent, payload);
+      onAppendDelivery(d);
+      if (d.status === "success") toast.success(`Test → ${d.httpStatus} in ${d.latencyMs}ms`);
+      else toast.error(`Test → ${d.httpStatus} in ${d.latencyMs}ms`);
+    })();
   };
 
   const signatureLine = `X-Coll-Signature: ${signaturePreview(endpoint.secret, "{...}")}`;
@@ -131,17 +139,17 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full max-w-[640px] flex-col overflow-hidden p-0 sm:max-w-[640px]">
-        <SheetHeader className="shrink-0 border-b border-[var(--border-token)] px-6 py-4">
-          <SheetTitle className="flex items-center gap-2 text-[15px] font-semibold text-brand-navy">
+      <SheetContent side="right" className="flex w-full max-w-[50rem] flex-col overflow-hidden p-0 sm:max-w-[50rem]">
+        <SheetHeader className="shrink-0 border-b border-border px-300 py-200">
+          <SheetTitle className="flex items-center gap-100 text-[0.875rem] font-semibold text-text">
             {endpoint.name}
-            <Badge variant="outline" className="text-[10px]">{endpoint.target}</Badge>
+            <Badge variant="outline" className="text-body-small">{endpoint.target}</Badge>
           </SheetTitle>
-          <p className="truncate font-mono text-[11px] text-text-secondary">{endpoint.url}</p>
+          <p className="truncate font-mono text-body-small text-text-subtle">{endpoint.url}</p>
         </SheetHeader>
 
         <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
-          <TabsList className="mx-6 mt-3 shrink-0 self-start">
+          <TabsList className="mx-300 mt-150 shrink-0 self-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="events">Events</TabsTrigger>
             <TabsTrigger value="log">Delivery log</TabsTrigger>
@@ -150,19 +158,19 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
           </TabsList>
 
           {/* Overview */}
-          <TabsContent value="overview" className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-            <div className="grid grid-cols-3 gap-3">
+          <TabsContent value="overview" className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200">
+            <div className="grid grid-cols-3 gap-150">
               <SloTile label="Success · 24h" value={`${rate24}%`} tone={rate24 >= 98 ? "ok" : rate24 >= 90 ? "warn" : "bad"} />
               <SloTile label="Success · 7d" value={`${rate7d}%`} tone={rate7d >= 98 ? "ok" : rate7d >= 90 ? "warn" : "bad"} />
               <SloTile label="p95 latency" value={`${p95}ms`} tone={p95 < 500 ? "ok" : p95 < 1500 ? "warn" : "bad"} />
             </div>
             <div>
-              <div className="mb-1 text-[12px] font-semibold text-brand-navy">Subscribed events</div>
-              <div className="flex flex-wrap gap-1">
+              <div className="mb-050 text-body-small font-semibold text-text">Subscribed events</div>
+              <div className="flex flex-wrap gap-050">
                 {endpoint.events.map((e) => (
                   <span
                     key={e}
-                    className="rounded bg-brand-tint px-1.5 py-0.5 font-mono text-[11px] text-brand-primary-dark"
+                    className="rounded bg-background-brand-subtlest px-075 py-025 font-mono text-body-small text-text-brand"
                   >
                     {e}
                   </span>
@@ -170,12 +178,12 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
               </div>
             </div>
             <div>
-              <div className="mb-1 text-[12px] font-semibold text-brand-navy">Retry policy</div>
-              <div className="text-[12px] text-text-secondary">
+              <div className="mb-050 text-body-small font-semibold text-text">Retry policy</div>
+              <div className="text-body-small text-text-subtle">
                 {endpoint.retry.attempts} attempts · {endpoint.retry.backoff} backoff · max age {endpoint.retry.maxAgeHours}h
               </div>
             </div>
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-100 pt-100">
               <Button
                 variant="outline"
                 size="sm"
@@ -184,44 +192,44 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 }
               >
                 {endpoint.status === "paused" ? (
-                  <><Play className="mr-1.5 h-3.5 w-3.5" /> Resume</>
+                  <><Play className="mr-075 h-3.5 w-3.5" /> Resume</>
                 ) : (
-                  <><Pause className="mr-1.5 h-3.5 w-3.5" /> Pause</>
+                  <><Pause className="mr-075 h-3.5 w-3.5" /> Pause</>
                 )}
               </Button>
               <Button variant="outline" size="sm" onClick={() => onRotate(endpoint)}>
-                <KeyRound className="mr-1.5 h-3.5 w-3.5" /> Rotate secret
+                <KeyRound className="mr-075 h-3.5 w-3.5" /> Rotate secret
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                className="text-rose-600 hover:text-rose-700"
+                className="text-text-danger hover:text-text-danger-bolder"
                 onClick={() => onDelete(endpoint)}
               >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+                <Trash2 className="mr-075 h-3.5 w-3.5" /> Delete
               </Button>
             </div>
           </TabsContent>
 
           {/* Events */}
-          <TabsContent value="events" className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
+          <TabsContent value="events" className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200">
             {EVENT_CATEGORIES.map((cat) => (
-              <div key={cat} className="rounded-md border border-[var(--border-token)] p-3">
-                <div className="mb-2 text-[12px] font-semibold text-brand-navy">{cat}</div>
-                <div className="grid grid-cols-1 gap-1.5">
+              <div key={cat} className="rounded-medium border border-border p-150">
+                <div className="mb-100 text-body-small font-semibold text-text">{cat}</div>
+                <div className="grid grid-cols-1 gap-075">
                   {EVENT_CATALOG.filter((e) => e.category === cat).map((e) => (
                     <label
                       key={e.key}
-                      className="flex items-start gap-2 rounded p-1.5 text-[12px] hover:bg-surface-sunken"
+                      className="flex items-start gap-100 rounded p-075 text-body-small hover:bg-surface-sunken"
                     >
                       <Checkbox
                         checked={endpoint.events.includes(e.key)}
                         onCheckedChange={() => toggleEvent(e.key)}
-                        className="mt-0.5"
+                        className="mt-025"
                       />
                       <span>
-                        <span className="block font-mono text-[11px] text-brand-primary-dark">{e.key}</span>
-                        <span className="block text-[10.5px] text-text-secondary">{e.description}</span>
+                        <span className="block font-mono text-body-small text-text-brand">{e.key}</span>
+                        <span className="block text-body-small text-text-subtle">{e.description}</span>
                       </span>
                     </label>
                   ))}
@@ -231,9 +239,9 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
           </TabsContent>
 
           {/* Delivery log */}
-          <TabsContent value="log" className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-6 py-4">
+          <TabsContent value="log" className="min-h-0 flex-1 space-y-075 overflow-y-auto px-300 py-200">
             {epDeliveries.length === 0 ? (
-              <div className="grid h-full place-items-center text-[12px] text-text-muted">No deliveries yet.</div>
+              <div className="grid h-full place-items-center text-body-small text-text-subtlest">No deliveries yet.</div>
             ) : (
               epDeliveries.map((d) => (
                 <DeliveryRow key={d.id} delivery={d} endpoint={endpoint} onRetry={onRetry} />
@@ -242,15 +250,15 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
           </TabsContent>
 
           {/* Signing */}
-          <TabsContent value="signing" className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <TabsContent value="signing" className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200">
             <div>
-              <div className="mb-1 text-[12px] font-semibold text-brand-navy">Algorithm</div>
+              <div className="mb-050 text-body-small font-semibold text-text">Algorithm</div>
               <Badge variant="outline">{endpoint.algo}</Badge>
             </div>
             <div>
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[12px] font-semibold text-brand-navy">Signing secret</span>
-                <div className="flex gap-1">
+              <div className="mb-050 flex items-center justify-between">
+                <span className="text-body-small font-semibold text-text">Signing secret</span>
+                <div className="flex gap-050">
                   <Button size="sm" variant="ghost" onClick={() => setRevealSecret((v) => !v)}>
                     {revealSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </Button>
@@ -262,47 +270,47 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                   </Button>
                 </div>
               </div>
-              <code className="block rounded bg-surface-sunken px-2 py-1.5 font-mono text-[12px]">
+              <code className="block rounded bg-surface-sunken px-100 py-075 font-mono text-body-small">
                 {revealSecret ? endpoint.secret : "•".repeat(endpoint.secret.length)}
               </code>
             </div>
             <div>
-              <div className="mb-1 text-[12px] font-semibold text-brand-navy">Sample signature header</div>
-              <code className="block overflow-x-auto rounded bg-surface-sunken px-2 py-1.5 font-mono text-[11px]">
+              <div className="mb-050 text-body-small font-semibold text-text">Sample signature header</div>
+              <code className="block overflow-x-auto rounded bg-surface-sunken px-100 py-075 font-mono text-body-small">
                 {signatureLine}
               </code>
-              <p className="mt-1 text-[10.5px] text-text-muted">
+              <p className="mt-050 text-body-small text-text-subtlest">
                 Preview only — production HMAC is computed over the raw request body.
               </p>
             </div>
             <div>
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[12px] font-semibold text-brand-navy">Verify — Node.js</span>
+              <div className="mb-050 flex items-center justify-between">
+                <span className="text-body-small font-semibold text-text">Verify — Node.js</span>
                 <Button size="sm" variant="ghost" onClick={() => copy(nodeSnippet, "Snippet")}>
                   <Copy className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              <pre className="overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] leading-snug text-emerald-300">
+              <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
 {nodeSnippet}
               </pre>
             </div>
             <div>
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[12px] font-semibold text-brand-navy">Verify — Python</span>
+              <div className="mb-050 flex items-center justify-between">
+                <span className="text-body-small font-semibold text-text">Verify — Python</span>
                 <Button size="sm" variant="ghost" onClick={() => copy(pySnippet, "Snippet")}>
                   <Copy className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              <pre className="overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] leading-snug text-emerald-300">
+              <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
 {pySnippet}
               </pre>
             </div>
           </TabsContent>
 
           {/* Test fire */}
-          <TabsContent value="test" className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
-            <div className="space-y-1.5">
-              <span className="text-[12px] font-semibold text-brand-navy">Event</span>
+          <TabsContent value="test" className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200">
+            <div className="space-y-075">
+              <span className="text-body-small font-semibold text-text">Event</span>
               <Select
                 value={testEvent}
                 onValueChange={(v) => {
@@ -319,16 +327,27 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <span className="text-[12px] font-semibold text-brand-navy">Payload (JSON)</span>
+            <div className="space-y-075">
+              <span className="text-body-small font-semibold text-text">Payload (JSON)</span>
+              {/* Read-only on the live path: POST /webhooks/{id}/test builds the
+                  payload server-side and takes only the event key, so an
+                  editable box here was a decoy — whatever you typed was
+                  discarded and the delivery showed a different body. */}
               <textarea
                 value={testJson}
                 onChange={(e) => setTestJson(e.target.value)}
-                className="h-56 w-full resize-none rounded-md border border-[var(--border-token)] bg-slate-950 p-2 font-mono text-[11px] leading-snug text-emerald-300 focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                readOnly={Boolean(onTestFire)}
+                className="h-56 w-full resize-none rounded-large border border-border bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-success focus:outline-none focus:ring-2 focus:ring-border-brand read-only:opacity-70"
               />
+              {onTestFire && (
+                <p className="text-body-small text-text-subtlest">
+                  Sample only — the server builds the live test payload from the
+                  selected event.
+                </p>
+              )}
             </div>
-            <Button onClick={fireTest} className="w-full">
-              <Zap className="mr-1.5 h-3.5 w-3.5" /> Send test delivery
+            <Button onClick={fireTest} className="w-full" disabled={testBusy}>
+              <Zap className="mr-075 h-3.5 w-3.5" /> {testBusy ? "Sending…" : "Send test delivery"}
             </Button>
           </TabsContent>
         </Tabs>
@@ -339,14 +358,14 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
 
 function SloTile({ label, value, tone }: { label: string; value: string; tone: "ok" | "warn" | "bad" }) {
   return (
-    <div className="rounded-md border border-[var(--border-token)] p-3">
-      <div className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted">{label}</div>
+    <div className="rounded-medium border border-border p-150">
+      <div className="text-body-small font-medium text-text-subtlest">{label}</div>
       <div
         className={cn(
-          "mt-1 text-[18px] font-semibold",
-          tone === "ok" && "text-emerald-600",
-          tone === "warn" && "text-amber-600",
-          tone === "bad" && "text-rose-600",
+          "mt-050 text-[1.25rem] font-semibold",
+          tone === "ok" && "text-text-code-default",
+          tone === "warn" && "text-text-warning",
+          tone === "bad" && "text-text-danger",
         )}
       >
         {value}

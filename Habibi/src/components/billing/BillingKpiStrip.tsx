@@ -10,8 +10,8 @@ function DeltaChip({ pct }: { pct: number }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-semibold",
-        up ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700",
+        "inline-flex items-center gap-025 rounded px-075 py-025 text-body-small font-semibold",
+        up ? "bg-background-danger-subtler text-text-danger-bolder" : "bg-background-success-subtler text-text-success-bolder",
       )}
     >
       {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
@@ -32,13 +32,13 @@ function KpiCard({
   footer: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[132px] flex-col rounded-lg border border-[var(--border-token)] bg-surface-card p-4">
+    <div className="flex min-h-[8.25rem] flex-col rounded-large border border-border bg-surface p-200">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">{label}</span>
+        <span className="text-body-small font-medium text-text-subtlest">{label}</span>
         {icon}
       </div>
-      <div className="mt-1">{children}</div>
-      <div className="mt-auto min-h-[36px] pt-2 text-[10.5px] text-text-muted">{footer}</div>
+      <div className="mt-050">{children}</div>
+      <div className="mt-auto min-h-[2.25rem] pt-100 text-body-small text-text-subtlest">{footer}</div>
     </div>
   );
 }
@@ -49,6 +49,8 @@ export function BillingKpiStrip({
   spendPrev,
   costPerCall,
   costPerCallPrev,
+  attributedCostPerCall,
+  attributedCalls,
   forecast,
   budgetCap,
 }: {
@@ -57,11 +59,17 @@ export function BillingKpiStrip({
   spendPrev: number;
   costPerCall: number;
   costPerCallPrev: number;
+  /** Mean over calls carrying attributed usage. 0 when none are metered yet. */
+  attributedCostPerCall: number;
+  attributedCalls: number;
   forecast: number;
   budgetCap: number;
 }) {
   const spendDelta = spendPrev > 0 ? ((spendMtd - spendPrev) / spendPrev) * 100 : 0;
   const cpcDelta = costPerCallPrev > 0 ? ((costPerCall - costPerCallPrev) / costPerCallPrev) * 100 : 0;
+  // Only claim a measured unit cost when calls were actually metered; a window
+  // that predates metering has attributedCalls === 0, which is not a real ₹0.
+  const measured = attributedCalls > 0;
   const budgetPct = budgetCap > 0 ? Math.round((spendMtd / budgetCap) * 100) : 0;
   const forecastPct = budgetCap > 0 ? Math.round((forecast / budgetCap) * 100) : 0;
 
@@ -70,34 +78,34 @@ export function BillingKpiStrip({
   }));
 
   const budgetTone =
-    budgetPct < 70 ? "text-emerald-600" : budgetPct < 90 ? "text-amber-600" : "text-rose-600";
+    budgetPct < 70 ? "text-text-success" : budgetPct < 90 ? "text-text-warning" : "text-text-danger";
   const forecastTone =
-    forecastPct < 100 ? "text-emerald-600" : forecastPct < 115 ? "text-amber-600" : "text-rose-600";
+    forecastPct < 100 ? "text-text-success" : forecastPct < 115 ? "text-text-warning" : "text-text-danger";
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
       <KpiCard
         label="Spend · this period"
-        icon={<Wallet className="h-4 w-4 text-brand-primary" />}
+        icon={<Wallet className="h-4 w-4 text-text-brand" />}
         footer={<span>vs prior {inrCompact(spendPrev)}</span>}
       >
-        <div className="flex items-baseline gap-2">
-          <span className="text-[22px] font-semibold text-brand-navy">{inrCompact(spendMtd)}</span>
+        <div className="flex items-baseline gap-100">
+          <span className="text-[1.5rem] font-semibold text-text">{inrCompact(spendMtd)}</span>
           <DeltaChip pct={spendDelta} />
         </div>
-        <div className="mt-1 h-7">
+        <div className="mt-050 h-7">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={spark} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="sparkSpend" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--brand-primary)" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="var(--brand-primary)" stopOpacity={0} />
+                  <stop offset="0%" stopColor="var(--background-brand-bold)" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="var(--background-brand-bold)" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <Area
                 type="monotone"
                 dataKey="v"
-                stroke="var(--brand-primary)"
+                stroke="var(--background-brand-bold)"
                 strokeWidth={1.5}
                 fill="url(#sparkSpend)"
               />
@@ -106,14 +114,30 @@ export function BillingKpiStrip({
         </div>
       </KpiCard>
 
+      {/* Two different numbers wear this label. `attributedCostPerCall` is
+          measured — the mean of usage actually billed to individual calls.
+          `costPerCall` is allocated: all spend (including embeddings and batch
+          work no call incurred) divided by the resolved-call count. Prefer the
+          measured one, and never present the allocated one as if it were it. */}
       <KpiCard
-        label="Cost / resolved call"
-        icon={<Coins className="h-4 w-4 text-brand-primary" />}
-        footer={<span>Unit economics — lower is better</span>}
+        label={measured ? "Cost / call · measured" : "Cost / resolved call"}
+        icon={<Coins className="h-4 w-4 text-text-brand" />}
+        footer={
+          measured ? (
+            <span>
+              Metered across {attributedCalls.toLocaleString("en-IN")} call
+              {attributedCalls === 1 ? "" : "s"} · allocated ₹{costPerCall.toFixed(2)}
+            </span>
+          ) : (
+            <span>Allocated — total spend ÷ resolved calls</span>
+          )
+        }
       >
-        <div className="flex items-baseline gap-2">
-          <span className="text-[22px] font-semibold text-brand-navy">₹{costPerCall.toFixed(2)}</span>
-          <DeltaChip pct={cpcDelta} />
+        <div className="flex items-baseline gap-100">
+          <span className="text-[1.5rem] font-semibold text-text">
+            ₹{(measured ? attributedCostPerCall : costPerCall).toFixed(2)}
+          </span>
+          {!measured && <DeltaChip pct={cpcDelta} />}
         </div>
       </KpiCard>
 
@@ -126,8 +150,8 @@ export function BillingKpiStrip({
           </span>
         }
       >
-        <div className="flex items-baseline gap-2">
-          <span className={cn("text-[22px] font-semibold", forecastTone)}>{inrCompact(forecast)}</span>
+        <div className="flex items-baseline gap-100">
+          <span className={cn("text-[1.5rem] font-semibold", forecastTone)}>{inrCompact(forecast)}</span>
         </div>
       </KpiCard>
 
@@ -140,16 +164,16 @@ export function BillingKpiStrip({
           </span>
         }
       >
-        <div className="flex items-baseline gap-2">
-          <span className={cn("text-[22px] font-semibold", budgetTone)}>{budgetPct}%</span>
+        <div className="flex items-baseline gap-100">
+          <span className={cn("text-[1.5rem] font-semibold", budgetTone)}>{budgetPct}%</span>
         </div>
-        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
+        <div className="mt-100 h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
           <div
             className={cn(
               "h-full rounded-full transition-all",
-              budgetPct < 70 && "bg-emerald-500",
-              budgetPct >= 70 && budgetPct < 90 && "bg-amber-500",
-              budgetPct >= 90 && "bg-rose-500",
+              budgetPct < 70 && "bg-background-success-bold",
+              budgetPct >= 70 && budgetPct < 90 && "bg-background-warning-bold",
+              budgetPct >= 90 && "bg-background-danger-bold",
             )}
             style={{ width: `${Math.min(100, budgetPct)}%` }}
           />

@@ -1,0 +1,28 @@
+# The caller must get to say why they rang before being asked for digits.
+#
+# Regression guard for a live sandbox call on 2026-08-01 that went
+# greet → "share the last 4 digits" → outstanding balance, without ever asking
+# what the caller wanted. Verification still comes before any account data —
+# only its framing moved.
+name: goal_before_verify
+
+turns:
+  - expect:
+      - event: response
+        eval: >-
+          the bot greets the caller, discloses that the call is recorded, and
+          asks an open question about what they need help with — all in one
+          short turn. It must NOT ask for digits or account details, must not
+          suggest a reason for the call, and must not claim to know who dialled
+          whom ("thanks for calling" / "I'm calling from").
+
+  - user: "There's a late fee on my account I don't think is right."
+    expect:
+      - event: function_call
+        calls:
+          - name: capture_call_goal
+      - event: response
+        eval: >-
+          the bot acknowledges the fee problem and asks for the last 4 digits of
+          the registered mobile, framing verification as what it needs in order
+          to look into that specific issue

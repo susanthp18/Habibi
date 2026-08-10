@@ -13,6 +13,8 @@ import {
   type Team,
 } from "@/data/upsell-seed";
 import { createLead } from "@/api/upsell";
+import { useProducts } from "@/api/products";
+import { teamNames, useTeams } from "@/api/teams";
 import { useCustomers } from "@/api/customers";
 import { humanNames, useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
@@ -46,6 +48,18 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
   const owners = useMemo(
     () => (USE_MOCK ? listOwners() : [...humanNames(staff), "Unassigned"]),
     [staff],
+  );
+  // Catalog and queues from the DB — a picker must never offer an id the
+  // server has not heard of.
+  const { data: catalog = [] } = useProducts();
+  const { data: teams = [] } = useTeams();
+  const productOptions = useMemo(
+    () => (catalog.length > 0 ? catalog : products),
+    [catalog],
+  );
+  const teamOptions = useMemo(
+    () => (USE_MOCK ? TEAM_OPTIONS : teamNames(teams)),
+    [teams],
   );
 
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
@@ -92,25 +106,25 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full max-w-[480px] flex-col bg-surface-card shadow-2xl"
+        className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay"
       >
-        <div className="shrink-0 flex items-center justify-between border-b border-[var(--border-token)] p-4">
+        <div className="shrink-0 flex items-center justify-between border-b border-border p-200">
           <div>
-            <h2 className="text-[15px] font-semibold text-brand-navy">New lead</h2>
-            <p className="text-[11.5px] text-text-secondary">Capture an upsell opportunity manually.</p>
+            <h2 className="text-[0.875rem] font-semibold text-text">New lead</h2>
+            <p className="text-body-small text-text-subtle">Capture an upsell opportunity manually.</p>
           </div>
-          <button onClick={onClose} className="rounded p-1 text-text-muted hover:bg-surface-sunken">
+          <button onClick={onClose} className="rounded p-050 text-text-subtlest hover:bg-surface-sunken">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-150 overflow-y-auto p-200">
           <div>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Customer</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Customer</div>
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
-              className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+              className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
             >
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>{c.name} · #{c.tail}</option>
@@ -118,33 +132,33 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-100">
             <div className="col-span-2">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Product</div>
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Product</div>
               <select
                 value={productId}
                 onChange={(e) => {
                   setProductId(e.target.value);
-                  const p = products.find((x) => x.id === e.target.value);
+                  const p = productOptions.find((x) => x.id === e.target.value);
                   if (p) setAmount(String(p.minTicket * 2));
                 }}
-                className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
               >
-                {products.map((p) => (
+                {productOptions.map((p) => (
                   <option key={p.id} value={p.id}>{p.name} · {p.indicativeROI}</option>
                 ))}
               </select>
             </div>
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Indicative amount (₹)</div>
-              <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 text-[12px]" />
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Indicative amount (₹)</div>
+              <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="h-400 text-body-small" />
             </div>
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Source</div>
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Source</div>
               <select
                 value={source}
                 onChange={(e) => setSource(e.target.value as LeadSource)}
-                className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
               >
                 <option value="agent">Agent</option>
                 <option value="bot_voice">Bot · Voice</option>
@@ -153,13 +167,13 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-100">
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Team</div>
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Team</div>
               <select
                 value={team}
                 onChange={(e) => setTeam(e.target.value as Team)}
-                className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
               >
                 {TEAM_OPTIONS.map((t) => (
                   <option key={t} value={t}>{t}</option>
@@ -167,11 +181,11 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
               </select>
             </div>
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Owner</div>
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Owner</div>
               <select
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
-                className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
               >
                 {owners.map((o) => (
                   <option key={o} value={o}>{o}</option>
@@ -181,11 +195,11 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Priority</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Priority</div>
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value as Priority)}
-              className="h-8 w-full rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+              className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
             >
               <option value="high">High</option>
               <option value="normal">Normal</option>
@@ -194,22 +208,22 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Capture note</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Capture note</div>
             <Textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={3}
               placeholder="Why is this customer interested? Any key details."
-              className="text-[12px]"
+              className="text-body-small"
             />
           </div>
         </div>
 
-        <div className="shrink-0 flex items-center justify-end gap-2 border-t border-[var(--border-token)] bg-surface-sunken/40 p-3">
-          <Button size="sm" variant="ghost" className="h-8" onClick={onClose}>
+        <div className="shrink-0 flex items-center justify-end gap-100 border-t border-border bg-surface-sunken/40 p-150">
+          <Button size="sm" variant="ghost" className="h-400" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" className="h-8" onClick={submit}>
+          <Button size="sm" className="h-400" onClick={submit}>
             Create lead
           </Button>
         </div>

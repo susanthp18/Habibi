@@ -1,0 +1,30 @@
+# The engine chooses the product; the model only speaks it.
+#
+# The important assertion is the ORDER: recommend_next_offer must run before any
+# product is named, because that call is where every eligibility, consent,
+# frequency and timing rule is applied. A model that names a product first has
+# already made a decision nobody approved.
+name: upsell_lead_capture
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "Sure, tell me what else you have for me."
+    expect:
+      - event: function_call
+        calls:
+          - name: recommend_next_offer
+      - event: response
+        eval: >-
+          the bot either mentions exactly one product with an indicative amount,
+          or says nothing about products at all — it never names more than one
+
+  - user: "Yes, please have someone call me about it."
+    expect:
+      - event: function_call
+        calls:
+          - name: capture_lead
+      - event: response
+        eval: "the bot confirms a specialist will follow up with the details"

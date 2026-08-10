@@ -5,6 +5,11 @@
 # Stay under Postgres max_connections (100) − reserved (~10).
 # Do NOT raise uvicorn --workers without re-budgeting.
 #
+# env_file: worker, bot_worker, and voice_insurance mount the full backend/.env
+# (including Azure/Meta/Twilio secrets). For production, prefer per-service
+# env_file lists or Docker secrets so sidecars only receive DB + REDIS + their
+# own credentials. Local compose keeps .env for developer convenience.
+#
 # Quick start (from backend/):
 #   docker compose up -d --build
 #   docker compose exec api alembic upgrade head
@@ -58,7 +63,8 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      # Server image ships `mc`; curl was dropped from newer MinIO builds.
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -83,8 +89,17 @@ services:
       VOICE_RUNNER_URL: http://voice:7860
       REDIS_URL: redis://redis:6379/0
       VOICE_WS_VIA_API: "true"
+      # Corpus on host at ../source_db — required for /kb/ingest/source-db + reindex.
+      SOURCE_DB_ROOT: /source_db
       # Single worker — connection budget assumes 1× pool.
       UVICORN_WORKERS: "1"
+    volumes:
+      - ../source_db:/source_db:ro
+      # Only used when voice_session_store falls back to the filesystem (no
+      # database). Shared with `voice` so even that degraded path still lets the
+      # bot see the session the API wrote — the containers do not otherwise
+      # share a filesystem, which is what silently broke Sandbox Live config.
+      - voice_sessions:/app/.cache/voice_sandbox_sessions
     command:
       [
         "uvicorn",
@@ -97,7 +112,10 @@ services:
         "1",
       ]
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Loopback by default: `8000:8000` publishes an unauthenticated-by-default
+      # CRM API on every host interface. Production ingress should set
+      # API_BIND=0.0.0.0 explicitly (behind a reverse proxy).
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -129,6 +147,9 @@ services:
       DB_PROCESS_ROLE: worker
       DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${WORKER_DB_MAX_OVERFLOW:-2}
+      SOURCE_DB_ROOT: /source_db
+    volumes:
+      - ../source_db:/source_db:ro
     command: ["python", "-m", "worker"]
     depends_on:
       db:
@@ -181,6 +202,9 @@ services:
       DB_MAX_OVERFLOW: ${VOICE_DB_MAX_OVERFLOW:-2}
       REDIS_URL: redis://redis:6379/0
       VOICE_MULTI_AGENT_ENABLED: "true"
+    volumes:
+      # See the api service — filesystem fallback for voice_session_store only.
+      - voice_sessions:/app/.cache/voice_sandbox_sessions
     command: ["python", "-m", "voice.bot", "--host", "0.0.0.0", "--port", "7860"]
     # Pipecat runner — must bind 0.0.0.0 for published ports.
     ports:
@@ -222,3 +246,4 @@ services:
 volumes:
   pgdata:
   minio_data:
+  voice_sessions:

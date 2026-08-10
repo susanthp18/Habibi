@@ -9,9 +9,12 @@
 #   sum(pool_size+max_overflow across processes) < Postgres max_connections - reserved
 
 $ErrorActionPreference = "Stop"
+# $PSScriptRoot is backend\scripts, so its parent IS backend. The old fallback
+# appended a second "backend" segment (backend\backend), producing a path that
+# can never exist and silently starting every process in the wrong directory.
 $Backend = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path "$Backend\main.py")) {
-  $Backend = Join-Path (Split-Path -Parent $PSScriptRoot) "backend"
+  throw "Cannot find backend\main.py at $Backend"
 }
 $Py = Join-Path $Backend ".venv\Scripts\python.exe"
 if (-not (Test-Path $Py)) {
@@ -20,8 +23,30 @@ if (-not (Test-Path $Py)) {
 
 Write-Host "Backend root: $Backend"
 Write-Host "Starting uvicorn :8000 ..."
-Start-Process -FilePath $Py -ArgumentList "-m","uvicorn","main:app","--host","127.0.0.1","--port","8000" -WorkingDirectory $Backend
-Start-Sleep -Seconds 2
+$Api = Start-Process -FilePath $Py -ArgumentList "-m","uvicorn","main:app","--host","127.0.0.1","--port","8000" -WorkingDirectory $Backend -PassThru
+
+# Poll /ready instead of sleeping a fixed 2s: on a cold start (migrations, model
+# load) the workers used to come up against an API that was not listening yet,
+# and on a fast start we wasted the wait.
+$ReadyTimeoutSec = 60
+$Deadline = (Get-Date).AddSeconds($ReadyTimeoutSec)
+$Ready = $false
+while ((Get-Date) -lt $Deadline) {
+  if ($Api.HasExited) {
+    throw "uvicorn exited during startup (exit code $($Api.ExitCode)) — check the API window for the error"
+  }
+  try {
+    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8000/ready" -UseBasicParsing -TimeoutSec 3
+    if ($resp.StatusCode -eq 200) { $Ready = $true; break }
+  } catch {
+    Start-Sleep -Milliseconds 500
+  }
+}
+if (-not $Ready) {
+  throw "API did not become ready within $ReadyTimeoutSec seconds — not starting workers"
+}
+Write-Host "API ready."
+
 Write-Host "Starting KB worker ..."
 Start-Process -FilePath $Py -ArgumentList "-m","worker" -WorkingDirectory $Backend
 Write-Host "Starting bot worker ..."

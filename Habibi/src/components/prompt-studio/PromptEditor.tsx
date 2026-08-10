@@ -43,8 +43,8 @@ export function PromptEditor({
   const accurate = estimate?.source === "tiktoken";
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-      <div className="flex min-w-0 flex-col gap-2">
+    <div className="grid gap-200 lg:grid-cols-[1fr_240px]">
+      <div className="flex min-w-0 flex-col gap-100">
         <textarea
           ref={ref}
           value={value}
@@ -53,9 +53,9 @@ export function PromptEditor({
             onClearLint?.();
           }}
           spellCheck={false}
-          className="min-h-[360px] w-full resize-y rounded-md border border-[var(--border-token)] bg-surface-card p-3 font-mono text-[12.5px] leading-relaxed text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+          className="min-h-[22.5rem] w-full resize-y rounded-medium border border-border bg-surface p-150 font-mono text-body-small leading-relaxed text-text focus:outline-none focus:ring-2 focus:ring-border-brand/30"
         />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-text-muted">
+        <div className="flex flex-wrap items-center justify-between gap-100 text-body-small text-text-subtlest">
           <div>
             {value.length.toLocaleString()} chars ·{" "}
             {tokens == null ? (
@@ -63,7 +63,7 @@ export function PromptEditor({
             ) : accurate ? (
               <span>
                 {tokens.toLocaleString()} tokens
-                <span className="ml-1 text-text-muted/80">({estimate?.encoding})</span>
+                <span className="ml-050 text-text-subtlest/80">({estimate?.encoding})</span>
               </span>
             ) : (
               <span>≈{tokens.toLocaleString()} tokens (est.)</span>
@@ -78,8 +78,8 @@ export function PromptEditor({
           </div>
         </div>
         {lintFindings.length > 0 && (
-          <div className="space-y-1 rounded-md border border-slate-200 bg-slate-50 p-2">
-            <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="space-y-050 rounded-medium border border-border-accent-gray-subtle bg-background-accent-gray-subtlest p-100">
+            <div className="flex items-center justify-between text-body-small font-semibold text-text-subtlest">
               <span>Lint findings</span>
               {onClearLint && (
                 <button type="button" onClick={onClearLint} className="normal-case tracking-normal hover:underline">
@@ -90,26 +90,26 @@ export function PromptEditor({
             {lintFindings.map((f, i) => (
               <div
                 key={`${f.code}-${i}`}
-                className={`rounded px-2 py-1 text-[12px] ${
+                className={`rounded px-100 py-050 text-body-small ${
                   f.severity === "error"
-                    ? "bg-rose-50 text-rose-800"
+                    ? "bg-background-danger-subtler text-text-danger-bolder"
                     : f.severity === "warn"
-                      ? "bg-amber-50 text-amber-900"
-                      : "bg-white text-text-secondary"
+                      ? "bg-background-warning-subtler text-text-warning-bolder"
+                      : "bg-surface text-text-subtle"
                 }`}
               >
-                <span className="mr-1 font-mono text-[10px] uppercase opacity-70">{f.severity}</span>
+                <span className="mr-050 font-mono text-body-small opacity-70">{f.severity}</span>
                 {f.message}
               </div>
             ))}
           </div>
         )}
         {undefinedVars.length > 0 && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex items-start gap-100 rounded-medium border border-border-warning-subtle bg-background-warning-subtler p-100 text-body-small text-text-warning-bolder">
+            <AlertTriangle className="mt-025 h-3.5 w-3.5 shrink-0" />
             <div>
               Unknown variable(s): {undefinedVars.map((v) => (
-                <code key={v} className="mx-0.5 rounded bg-white/60 px-1 py-0.5 text-[11px]">{`{${v}}`}</code>
+                <code key={v} className="mx-025 rounded bg-surface/60 px-050 py-025 text-body-small">{`{${v}}`}</code>
               ))}
               {" "}— they won&apos;t be substituted at runtime.
             </div>
@@ -117,15 +117,15 @@ export function PromptEditor({
         )}
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-200">
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Variables</div>
-          <div className="flex flex-wrap gap-1">
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">Variables</div>
+          <div className="flex flex-wrap gap-050">
             {KNOWN_VARIABLES.map((v) => (
               <button
                 key={v}
                 onClick={() => insertVar(v)}
-                className="rounded border border-[var(--border-token)] bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] text-text-secondary hover:border-brand-primary hover:text-brand-primary-dark"
+                className="rounded border border-border bg-surface-sunken px-075 py-025 font-mono text-body-small text-text-subtle hover:border-border-brand hover:text-text-brand"
               >
                 {`{${v}}`}
               </button>
@@ -133,18 +133,18 @@ export function PromptEditor({
           </div>
         </div>
         <div>
-          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="mb-075 flex items-center gap-050 text-body-small font-semibold text-text-subtlest">
             <Sparkles className="h-3 w-3" /> Presets
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-075">
             {presets.map((p) => (
               <button
                 key={p.id}
                 onClick={() => onApplyPreset(p)}
-                className="rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1.5 text-left text-[12px] hover:border-brand-primary"
+                className="rounded-medium border border-border bg-surface px-100 py-075 text-left text-body-small hover:border-border-brand"
               >
-                <div className="font-medium text-text-primary">{p.label}</div>
-                <div className="text-[11px] text-text-muted">{p.description}</div>
+                <div className="font-medium text-text">{p.label}</div>
+                <div className="text-body-small text-text-subtlest">{p.description}</div>
               </button>
             ))}
           </div>

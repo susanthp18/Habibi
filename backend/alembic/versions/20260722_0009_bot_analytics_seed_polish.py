@@ -101,6 +101,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # upgrade() is a no-op when demo seeding is disabled, so the rollback must
+    # be too — otherwise it flattens genuine handoff reasons to 'routing_rule'.
+    if not seed_demo_enabled():
+        return
     # Restore the original uniform handoff reason (demo tenant only). Intent
     # backfill is one-way.
     op.execute(

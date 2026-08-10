@@ -8,6 +8,7 @@ import { CallsTable } from "@/components/audit/CallsTable";
 import { CallDetailDrawer } from "@/components/audit/CallDetailDrawer";
 import { defaultFilters, filterCalls, type AuditFilterState } from "@/data/audit-seed";
 import { useCalls } from "@/api/audit";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export const Route = createLazyFileRoute("/audit")({
   component: AuditPage,
@@ -18,7 +19,7 @@ function AuditPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const { data: calls = [] } = useCalls();
+  const { data: calls = [], isLoading, isError, error, refetch } = useCalls();
 
   const rows = useMemo(() => filterCalls(calls, filters), [calls, filters]);
   const openCall = useMemo(() => rows.find((r) => r.id === openId) ?? calls.find((c) => c.id === openId) ?? null, [calls, openId, rows]);
@@ -46,14 +47,14 @@ function AuditPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        <header className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-          <div className="flex items-center gap-2">
-            <h1 className="text-[18px] font-semibold text-brand-navy">Audit Trail</h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-secondary">
+        <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
+          <div className="flex items-center gap-100">
+            <h1 className="text-[1.25rem] font-semibold text-text">Audit trail</h1>
+            <Lozenge tone="neutral">
               <Lock className="h-3 w-3" /> Immutable log
-            </span>
+            </Lozenge>
           </div>
-          <p className="text-[12px] text-text-secondary">
+          <p className="text-body-small text-text-subtle">
             Every historical interaction — bot and human — searchable with audio, transcript, and compliance evidence.
           </p>
         </header>
@@ -66,14 +67,34 @@ function AuditPage() {
           onExport={handleExport}
         />
 
-        <CallsTable
-          rows={rows}
-          selected={selected}
-          onToggle={toggle}
-          onToggleAll={toggleAll}
-          openId={openId}
-          onOpen={setOpenId}
-        />
+        {isLoading && calls.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center text-body text-text-subtle">
+            Loading calls…
+          </div>
+        ) : isError && calls.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
+            <p>Couldn’t load audit calls.</p>
+            <p className="text-body-small text-text-danger">
+              {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+            <button
+              type="button"
+              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white"
+              onClick={() => void refetch()}
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <CallsTable
+            rows={rows}
+            selected={selected}
+            onToggle={toggle}
+            onToggleAll={toggleAll}
+            openId={openId}
+            onOpen={setOpenId}
+          />
+        )}
       </div>
 
       <CallDetailDrawer call={openCall} onClose={() => setOpenId(null)} />

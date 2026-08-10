@@ -50,30 +50,30 @@ export function HelpPopover() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="grid h-9 w-9 place-items-center rounded-md text-text-secondary transition-colors hover:bg-surface-sunken"
+          className="grid h-9 w-9 place-items-center rounded-medium text-text-subtle transition-colors hover:bg-surface-sunken"
           aria-label="Help"
         >
           <HelpCircle className="h-4.5 w-4.5" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[340px] space-y-3 p-3">
+      <PopoverContent align="end" className="w-[21.25rem] space-y-150 p-150">
         <div>
-          <div className="text-[13px] font-semibold text-brand-navy">Help center</div>
-          <div className="text-[11px] text-text-muted">Shortcuts and where to go for common tasks.</div>
+          <div className="text-body font-semibold text-text">Help center</div>
+          <div className="text-body-small text-text-subtlest">Shortcuts and where to go for common tasks.</div>
         </div>
 
-        <div className="rounded-md border border-[var(--border-token)] bg-surface-sunken px-2.5 py-2">
-          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-text-primary">
+        <div className="rounded-medium border border-border bg-surface-sunken px-150 py-100">
+          <div className="mb-050 flex items-center gap-075 text-body-small font-semibold text-text">
             <Keyboard className="h-3.5 w-3.5" />
             Keyboard
           </div>
-          <ul className="space-y-1 text-[11px] text-text-secondary">
+          <ul className="space-y-050 text-body-small text-text-subtle">
             <li>
-              <kbd className="rounded border border-[var(--border-token)] bg-white px-1 py-0.5 font-mono text-[10px]">
+              <kbd className="rounded border border-border bg-surface px-050 py-025 font-mono text-body-small">
                 ⌘K
               </kbd>{" "}
               /{" "}
-              <kbd className="rounded border border-[var(--border-token)] bg-white px-1 py-0.5 font-mono text-[10px]">
+              <kbd className="rounded border border-border bg-surface px-050 py-025 font-mono text-body-small">
                 Ctrl+K
               </kbd>{" "}
               — jump to page, customer, or queue item
@@ -85,14 +85,14 @@ export function HelpPopover() {
 
         {SECTIONS.map((s) => (
           <div key={s.title}>
-            <div className="text-[12px] font-semibold text-text-primary">{s.title}</div>
-            <p className="mt-0.5 text-[11px] text-text-secondary">{s.blurb}</p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <div className="text-body-small font-semibold text-text">{s.title}</div>
+            <p className="mt-025 text-body-small text-text-subtle">{s.blurb}</p>
+            <div className="mt-075 flex flex-wrap gap-075">
               {s.links.map((l) => (
                 <Link
                   key={l.to}
                   to={l.to}
-                  className="rounded-md border border-[var(--border-token)] bg-white px-2 py-0.5 text-[11px] font-medium text-brand-primary hover:bg-brand-tint"
+                  className="rounded-medium border border-border bg-surface px-100 py-025 text-body-small font-medium text-text-brand hover:bg-background-brand-subtlest"
                 >
                   {l.label}
                 </Link>

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, Bot, ChevronDown, ChevronRight, Mail, MessageCircle, MessageSquare, PhoneCall, Sparkles, User2 } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Bot, Check, ChevronDown, ChevronRight, Mail, MessageCircle, MessageSquare, Minus, PhoneCall, Sparkles, User2 } from "lucide-react";
 import { toast } from "sonner";
 import type { Channel, Customer, Interaction, Sentiment } from "@/data/customer360-seed";
 import { fmtDateTime, fmtRelative } from "@/data/customer360-seed";
 import { cn } from "@/lib/utils";
+import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
 const CHANNEL_ICON: Record<Channel, React.ComponentType<{ className?: string }>> = {
   voice: PhoneCall,
@@ -21,10 +22,10 @@ const CHANNEL_LABEL: Record<Channel, string> = {
   sms: "SMS",
 };
 
-const SENT_TONE: Record<Sentiment, string> = {
-  positive: "text-success bg-success-bg",
-  neutral: "text-warning bg-warning-bg",
-  negative: "text-danger bg-danger-bg",
+const SENT_TONE: Record<Sentiment, LozengeTone> = {
+  positive: "success",
+  neutral: "warning",
+  negative: "danger",
 };
 
 const CHANNELS: Channel[] = ["voice", "whatsapp", "chat", "email"];
@@ -45,9 +46,9 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
   }, [customer.interactions, channel, handler, sentiment]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-200">
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-card p-2 text-xs">
+      <div className="flex flex-wrap items-center gap-100 rounded-medium border border-border bg-surface p-100 text-xs">
         <FilterGroup label="Channel">
           <Chip active={channel === "all"} onClick={() => setChannel("all")}>All</Chip>
           {CHANNELS.map((c) => (
@@ -71,11 +72,11 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
 
       {/* Timeline */}
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border bg-surface-card p-10 text-center text-sm text-text-muted">
+        <div className="rounded-large border border-dashed border-border bg-surface p-500 text-center text-sm text-text-subtlest">
           No interactions match these filters.
         </div>
       ) : (
-        <ol className="relative space-y-3 border-l-2 border-border pl-6">
+        <ol className="relative space-y-150 border-l-2 border-border pl-300">
           {rows.map((i) => (
             <InteractionCard key={i.id} i={i} open={openId === i.id} onToggle={() => setOpenId((cur) => (cur === i.id ? null : i.id))} />
           ))}
@@ -93,48 +94,48 @@ function InteractionCard({ i, open, onToggle }: { i: Interaction; open: boolean;
 
   return (
     <li className="relative">
-      <span className="absolute -left-[31px] top-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface-card text-brand-primary">
+      <span className="absolute -left-400 top-2 flex h-250 w-250 items-center justify-center rounded-full border border-border bg-surface text-text-brand">
         <Icon className="h-3 w-3" />
       </span>
-      <div className="rounded-lg border border-border bg-surface-card">
-        <button onClick={onToggle} className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-brand-tint/30">
+      <div className="rounded-large border border-border bg-surface">
+        <button onClick={onToggle} className="flex w-full items-start gap-150 px-200 py-150 text-left hover:bg-background-brand-subtlest/30">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="font-medium text-text-primary">{CHANNEL_LABEL[i.channel]}</span>
-              <span className="inline-flex items-center gap-1 text-xs text-text-secondary">
+            <div className="flex flex-wrap items-center gap-100 text-sm">
+              <span className="font-medium text-text">{CHANNEL_LABEL[i.channel]}</span>
+              <span className="inline-flex items-center gap-050 text-xs text-text-subtle">
                 <HandlerIcon className="h-3 w-3" />
                 {i.handler.name}
               </span>
-              <span className="text-xs text-text-muted">· {i.duration}</span>
-              <span className="text-xs text-text-muted">· {i.disposition}</span>
+              <span className="text-xs text-text-subtlest">· {i.duration}</span>
+              <span className="text-xs text-text-subtlest">· {i.disposition}</span>
             </div>
-            <p className="mt-1 line-clamp-2 text-xs text-text-secondary">{i.summary}</p>
+            <p className="mt-050 line-clamp-2 text-xs text-text-subtle">{i.summary}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2 text-xs">
-            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium capitalize", SENT_TONE[i.sentiment])}>
-              <Delta className="h-3 w-3" />
+          <div className="flex shrink-0 items-center gap-100 text-xs">
+            <Lozenge tone={SENT_TONE[i.sentiment]} className="capitalize">
+              <Delta />
               {i.sentiment}
-            </span>
-            <span className="text-text-muted tabular">{fmtRelative(i.startedAt)}</span>
-            <Chev className="h-4 w-4 text-text-muted" />
+            </Lozenge>
+            <span className="text-text-subtlest tabular">{fmtRelative(i.startedAt)}</span>
+            <Chev className="h-4 w-4 text-text-subtlest" />
           </div>
         </button>
         {open && (
-          <div className="border-t border-border bg-surface-sunken/60 px-4 py-3">
-            <div className="mb-2 grid grid-cols-3 gap-2 text-[11px]">
+          <div className="border-t border-border bg-surface-sunken/60 px-200 py-150">
+            <div className="mb-100 grid grid-cols-3 gap-100 text-body-small">
               <IntentPill label="Query resolved" active={!!i.intents.queryResolved} />
               <IntentPill label="Upsell presented" active={!!i.intents.upsellPresented} />
               <IntentPill label="PTP captured" active={!!i.intents.ptpCaptured} />
             </div>
-            <div className="text-xs text-text-primary">
-              <span className="font-semibold text-brand-navy">Summary. </span>
+            <div className="text-xs text-text">
+              <span className="font-semibold text-text">Summary. </span>
               {i.summary}
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-text-secondary">
+            <div className="mt-100 flex items-center justify-between text-body-small text-text-subtle">
               <span>{fmtDateTime(i.startedAt)}</span>
               <button
                 onClick={() => toast.info("Opens transcript in Audit Trail — coming soon.")}
-                className="inline-flex items-center gap-1 font-medium text-brand-primary hover:underline"
+                className="inline-flex items-center gap-050 font-medium text-text-brand hover:underline"
               >
                 <Sparkles className="h-3 w-3" /> Open transcript
               </button>
@@ -150,13 +151,13 @@ function IntentPill({ label, active }: { label: string; active: boolean }) {
   return (
     <span
       className={cn(
-        "rounded-md border px-2 py-1 text-center font-medium",
+        "inline-flex items-center gap-050 rounded-medium border px-100 py-050 text-center font-medium",
         active
-          ? "border-success/30 bg-success-bg text-success"
-          : "border-border bg-surface-card text-text-muted",
+          ? "border-border-success/30 bg-background-success text-text-success"
+          : "border-border bg-surface text-text-subtlest",
       )}
     >
-      {active ? "✓ " : "— "}
+      {active ? <Check aria-hidden="true" className="size-3" /> : <Minus aria-hidden="true" className="size-3" />}
       {label}
     </span>
   );
@@ -164,9 +165,9 @@ function IntentPill({ label, active }: { label: string; active: boolean }) {
 
 function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">{label}</span>
-      <div className="flex gap-1">{children}</div>
+    <div className="flex items-center gap-050">
+      <span className="text-body-small font-semibold text-text-subtlest">{label}</span>
+      <div className="flex gap-050">{children}</div>
     </div>
   );
 }
@@ -184,18 +185,18 @@ function Chip({
 }) {
   const activeClass =
     tone === "success"
-      ? "bg-success text-white border-success"
+      ? "bg-background-success-bold text-white border-border-success"
       : tone === "warning"
-      ? "bg-warning text-white border-warning"
+      ? "bg-background-warning-bold text-text-warning-inverse border-border-warning"
       : tone === "danger"
-      ? "bg-danger text-white border-danger"
-      : "bg-brand-primary text-white border-brand-primary";
+      ? "bg-background-danger-bold text-white border-border-danger"
+      : "bg-background-brand-bold text-white border-border-brand";
   return (
     <button
       onClick={onClick}
       className={cn(
-        "rounded-full border px-2 py-0.5 text-[11px] font-medium",
-        active ? activeClass : "border-border bg-surface-card text-text-secondary hover:bg-brand-tint hover:text-brand-primary-dark",
+        "rounded-medium border px-100 py-025 text-body-small font-medium",
+        active ? activeClass : "border-border bg-surface text-text-subtle hover:bg-background-brand-subtlest hover:text-text-brand",
       )}
     >
       {children}

@@ -1,4 +1,5 @@
 import { FileLock2, ShieldCheck, AlertTriangle, Download, EyeOff } from "lucide-react";
+import { Lozenge } from "@/components/ui/lozenge";
 
 interface Props {
   monthlyExports: number;
@@ -26,28 +27,26 @@ export function RedactionStatsStrip({
     { label: "Failed / retried", value: failed, icon: AlertTriangle, hint: "Last 30 days", seed: seedExports },
   ];
   return (
-    <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-[var(--border-token)] bg-surface-card px-5 py-3 md:grid-cols-5">
+    <div className="grid shrink-0 grid-cols-2 gap-100 border-b border-border bg-surface px-250 py-150 md:grid-cols-5">
       {tiles.map((t) => {
         const Icon = t.icon;
         return (
-          <div key={t.label} className="flex items-center gap-3 rounded-md border border-[var(--border-token)] bg-surface-sunken px-3 py-2">
-            <div className="grid h-8 w-8 place-items-center rounded-md bg-brand-tint text-brand-primary-dark">
+          <div key={t.label} className="flex items-center gap-150 rounded-medium border border-border bg-surface-sunken px-150 py-100">
+            <div className="grid h-400 w-400 place-items-center rounded-medium bg-background-brand-subtlest text-text-brand">
               <Icon className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-text-muted">
+              <div className="flex items-center gap-075 text-body-small text-text-subtlest">
                 {t.label}
                 {t.seed && (
-                  <span
-                    title="Seed data — export jobs not yet wired to the live backend"
-                    className="rounded-full border border-[var(--border-token)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-normal text-text-muted"
-                  >
+                  <Lozenge
+                    title="Seed data — export jobs not yet wired to the live backend" tone="neutral" className="tracking-normal">
                     seed
-                  </span>
+                  </Lozenge>
                 )}
               </div>
-              <div className="text-[16px] font-semibold text-brand-navy leading-tight">{t.value}</div>
-              <div className="truncate text-[10px] text-text-muted">{t.hint}</div>
+              <div className="text-[1rem] font-semibold text-text leading-tight">{t.value}</div>
+              <div className="truncate text-body-small text-text-subtlest">{t.hint}</div>
             </div>
           </div>
         );

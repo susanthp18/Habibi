@@ -103,16 +103,16 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-[440px]">
+      <SheetContent side="right" className="w-full sm:max-w-[25rem]">
         <SheetHeader>
           <SheetTitle>New promise-to-pay</SheetTitle>
           <SheetDescription>Capture a commitment and BigBound AI will handle reminders.</SheetDescription>
         </SheetHeader>
-        <div className="mt-4 space-y-3">
+        <div className="mt-200 space-y-150">
           <Field label="Customer">
             <Select value={customerId} onValueChange={setCustomerId}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent className="max-h-[280px]">
+              <SelectContent className="max-h-[17.5rem]">
                 {customers.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name} · #{c.accountId.slice(-4)}
@@ -121,7 +121,7 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
               </SelectContent>
             </Select>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-150">
             <Field label="Amount (₹)">
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-9" />
             </Field>
@@ -129,7 +129,7 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9" />
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-150">
             <Field label="Channel">
               <Select value={channel} onValueChange={(v) => setChannel(v as PromiseChannel)}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -153,7 +153,7 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
               </Select>
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-150">
             <Field label="Owner">
               <Select value={owner} onValueChange={setOwner}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -177,7 +177,7 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
             <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Context, promised source of funds, etc." />
           </Field>
         </div>
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-300 flex justify-end gap-100">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit}>Capture promise</Button>
         </div>
@@ -188,8 +188,8 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1">
-      <Label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{label}</Label>
+    <div className="space-y-050">
+      <Label className="text-body-small font-semibold text-text-subtlest">{label}</Label>
       {children}
     </div>
   );
@@ -218,19 +218,19 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
 
   return (
     <Sheet open={!!promise} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-[460px]">
+      <SheetContent side="right" className="w-full sm:max-w-[25rem]">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
+          <SheetTitle className="flex items-center gap-100">
             {promise.customerName}
-            <Badge variant="outline" className="text-[10px]">{promise.id}</Badge>
+            <Badge variant="outline" className="text-body-small">{promise.id}</Badge>
           </SheetTitle>
           <SheetDescription>
             {fmtMoney(promise.amount)} · promised {fmtDate(promise.promisedDate)}
           </SheetDescription>
         </SheetHeader>
 
-        <div className="mt-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3 rounded-lg border border-[var(--border-token)] bg-surface-sunken/50 p-3 text-[12px]">
+        <div className="mt-200 space-y-200">
+          <div className="grid grid-cols-2 gap-150 rounded-large border border-border bg-surface-sunken/50 p-150 text-body-small">
             <Meta label="Status" value={promise.status.replace("_", " ")} />
             <Meta label="Channel" value={promise.channel} />
             <Meta label="Source" value={promise.source} />
@@ -240,30 +240,30 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
           </div>
 
           {promise.notes && (
-            <div className="rounded-md border border-[var(--border-token)] bg-surface-card p-3 text-[12px] text-text-secondary">
+            <div className="rounded-medium border border-border bg-surface p-150 text-body-small text-text-subtle">
               {promise.notes}
             </div>
           )}
 
           <div>
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Timeline</div>
-            <ol className="space-y-2">
+            <div className="mb-100 text-body-small font-semibold text-text-subtlest">Timeline</div>
+            <ol className="space-y-100">
               {promise.events.map((ev, i) => (
-                <li key={i} className="flex items-start gap-2 text-[12px]">
+                <li key={i} className="flex items-start gap-100 text-body-small">
                   <span
-                    className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${
+                    className={`mt-050 inline-block h-100 w-100 shrink-0 rounded-full ${
                       ev.tone === "success"
-                        ? "bg-emerald-500"
+                        ? "bg-background-success-bold"
                         : ev.tone === "warn"
-                          ? "bg-orange-500"
+                          ? "bg-background-warning-bold"
                           : ev.tone === "danger"
-                            ? "bg-red-500"
-                            : "bg-brand-primary"
+                            ? "bg-background-danger-bold"
+                            : "bg-background-brand-bold"
                     }`}
                   />
                   <div className="flex-1">
-                    <div className="text-text-primary">{ev.label}</div>
-                    <div className="text-[10.5px] text-text-muted">
+                    <div className="text-text">{ev.label}</div>
+                    <div className="text-body-small text-text-subtlest">
                       {new Date(ev.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                     </div>
                   </div>
@@ -274,20 +274,20 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
 
           {(promise.status === "upcoming" || promise.status === "due_today") && (
             <>
-              <div className="rounded-md border border-[var(--border-token)] p-3">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mark outcome</div>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => onMark(promise, "kept")} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <div className="rounded-medium border border-border p-150">
+                <div className="mb-100 text-body-small font-semibold text-text-subtlest">Mark outcome</div>
+                <div className="flex flex-wrap gap-100">
+                  <Button size="sm" onClick={() => onMark(promise, "kept")} className="bg-background-success-bold hover:bg-background-success-bold-pressed text-white">
                     Mark kept · {fmtMoney(promise.amount)}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => onMark(promise, "broken")} className="border-red-200 text-red-700 hover:bg-red-50">
+                  <Button size="sm" variant="outline" onClick={() => onMark(promise, "broken")} className="border-border-danger-subtle text-text-danger-bolder hover:bg-background-danger-subtler">
                     Mark broken
                   </Button>
                 </div>
-                <div className="mt-3 flex items-end gap-2">
+                <div className="mt-150 flex items-end gap-100">
                   <div className="flex-1">
-                    <Label className="text-[11px] text-text-muted">Partial amount received</Label>
-                    <Input type="number" value={partialAmt} onChange={(e) => setPartialAmt(e.target.value)} className="mt-1 h-9" />
+                    <Label className="text-body-small text-text-subtlest">Partial amount received</Label>
+                    <Input type="number" value={partialAmt} onChange={(e) => setPartialAmt(e.target.value)} className="mt-050 h-9" />
                   </div>
                   <Button size="sm" variant="outline" onClick={() => onMark(promise, "partial", { paidAmount: Number(partialAmt) || 0 })}>
                     Mark partial
@@ -295,12 +295,12 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
                 </div>
               </div>
 
-              <div className="rounded-md border border-[var(--border-token)] p-3">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">Reschedule</div>
-                <div className="flex items-end gap-2">
+              <div className="rounded-medium border border-border p-150">
+                <div className="mb-100 text-body-small font-semibold text-text-subtlest">Reschedule</div>
+                <div className="flex items-end gap-100">
                   <div className="flex-1">
-                    <Label className="text-[11px] text-text-muted">New promised date</Label>
-                    <Input type="date" value={rescheduleDate} onChange={(e) => setRescheduleDate(e.target.value)} className="mt-1 h-9" />
+                    <Label className="text-body-small text-text-subtlest">New promised date</Label>
+                    <Input type="date" value={rescheduleDate} onChange={(e) => setRescheduleDate(e.target.value)} className="mt-050 h-9" />
                   </div>
                   <Button
                     size="sm"
@@ -325,8 +325,8 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
 function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted">{label}</div>
-      <div className="capitalize text-text-primary">{value}</div>
+      <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
+      <div className="capitalize text-text">{value}</div>
     </div>
   );
 }

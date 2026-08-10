@@ -15,12 +15,15 @@ from typing import Any
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from env_utils import env_int as _env_int
+from pg_errors import is_unique_violation as _is_unique_violation
 from schemas import (
     CallResponse,
     CustomerResponse,
     DashboardResponse,
     HandoffResponse,
     LeadResponse,
+    ProductResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,16 @@ logger = logging.getLogger(__name__)
 
 BASE = Path(__file__).parent
 DEFAULT_DATABASE_URL = "postgresql+psycopg://collections:collections@localhost:5432/collections"
+
+
+class OwnerBotNotFound(KeyError):
+    """The requested ownerBotId does not exist in this environment.
+
+    Subclasses KeyError so existing ``except KeyError -> 404`` handlers keep
+    working, while callers that want to retry without a bot owner can catch
+    exactly this condition instead of every KeyError (including a genuine
+    missing-payload-key bug).
+    """
 
 
 def _read_env_database_url() -> str | None:
@@ -50,16 +63,6 @@ DATABASE_URL = os.getenv("DATABASE_URL") or _read_env_database_url() or DEFAULT_
 # Phase 5 replaces both: tenant from the request GUC (RLS), actor from the JWT.
 TENANT_ID = os.getenv("TENANT_ID", "hdfc.retail")
 ACTOR_USER_ID = os.getenv("ACTOR_USER_ID", "priya-nair")
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = (os.getenv(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
 
 
 # Binding concurrency ceiling: default QueuePool was pool_size=5 + max_overflow=10
@@ -115,12 +118,16 @@ def readiness() -> dict[str, Any]:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return {"ok": True, "db": True, "pool": snap}
-    except Exception as exc:
+    except Exception:
+        # /ready is typically unauthenticated (load balancers poll it). A
+        # SQLAlchemy connection error stringifies the full DSN including the
+        # database user — log it, never return it.
+        logger.exception("readiness_check_failed")
         return {
             "ok": False,
             "db": False,
             "pool": snap,
-            "detail": str(exc),
+            "detail": "db_unavailable",
         }
 
 
@@ -398,9 +405,38 @@ def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str
     )
 
 
+def record_activity(
+    conn: Any,
+    entity_type: str,
+    entity_id: str,
+    kind: str,
+    label: str,
+    note: str | None = None,
+    customer_id: str | None = None,
+) -> None:
+    """Public alias for _activity — out-of-module callers (bot_runtime) should
+    not reach into a private helper for a supported operation."""
+    _activity(conn, entity_type, entity_id, kind, label, note, customer_id)
+
+
 def _idempotent_response(conn: Any, key: str | None, endpoint: str) -> dict[str, Any] | None:
+    """Return the stored response for ``key``, serialising concurrent replays.
+
+    The read alone was not enough: two requests carrying the same key both saw
+    no row, both performed the mutation, and the second ``ON CONFLICT DO
+    NOTHING`` store silently discarded its response — two promises for one
+    idempotent POST. The transaction-scoped advisory lock makes the second
+    caller wait for the first to commit, so its SELECT (READ COMMITTED, taken
+    after the lock) sees the canonical response and skips the write entirely.
+    """
     if not key:
         return None
+    # Two-int form: hashing a concatenation would need a separator, and text
+    # fields cannot carry NUL. (endpoint, key) is also the table's identity.
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:endpoint), hashtext(:key))"),
+        {"endpoint": endpoint, "key": key},
+    )
     row = conn.execute(
         text("SELECT response FROM idempotency_keys WHERE key = :key AND endpoint = :endpoint"),
         {"key": key, "endpoint": endpoint},
@@ -416,10 +452,10 @@ def _store_idempotent_response(conn: Any, key: str | None, endpoint: str, respon
             """
             INSERT INTO idempotency_keys (key, endpoint, response)
             VALUES (:key, :endpoint, CAST(:response AS jsonb))
-            ON CONFLICT (key) DO NOTHING
+            ON CONFLICT (endpoint, key) DO NOTHING
             """
         ),
-        {"key": key, "endpoint": endpoint, "response": __import__("json").dumps(response)},
+        {"key": key, "endpoint": endpoint, "response": json.dumps(response)},
     )
 
 
@@ -610,8 +646,15 @@ def _sla_label(value: str | None) -> str:
 
 
 def _base_customer_row(conn: Any, customer_id: str | None = None) -> list[dict[str, Any]]:
-    where = "WHERE c.id = :customer_id" if customer_id else ""
-    params = {"customer_id": customer_id} if customer_id else {}
+    # Always tenant-scoped, like every other customer-facing read in this
+    # module: this feeds both list_customers() and get_customer(), so an
+    # unscoped query here is the one that hands another tenant's PII to the
+    # Customer 360 screen.
+    where = "WHERE c.tenant_id = :tenant_id"
+    params: dict[str, Any] = {"tenant_id": TENANT_ID}
+    if customer_id:
+        where += " AND c.id = :customer_id"
+        params["customer_id"] = customer_id
     return _rows(
         conn.execute(
             text(
@@ -670,7 +713,7 @@ def _customer_shell(row: dict[str, Any]) -> dict[str, Any]:
         "accountId": row["account_id"] or "",
         "risk": row["risk"],
         "outstanding": float(row["outstanding"] or 0),
-        "minimumDue": row["minimum_due"],
+        "minimumDue": float(row["minimum_due"] or 0),
         "lastContact": row["last_contact_at"],
         "assignedTo": row["assigned_to"] or "Unassigned",
         "contact": {
@@ -685,12 +728,12 @@ def _customer_shell(row: dict[str, Any]) -> dict[str, Any]:
         },
         "account": {
             "product": row["product"] or "Credit Card",
-            "openedOn": row["opened_on"],
-            "apr": row["apr"],
-            "sanctionedAmount": row["sanctioned_amount"],
-            "bucket": row["bucket"],
+            "openedOn": row["opened_on"] or None,
+            "apr": float(row["apr"] or 0),
+            "sanctionedAmount": float(row["sanctioned_amount"] or 0),
+            "bucket": row["bucket"] or "Current",
             "dpd": int(row["dpd"] or 0),
-            "riskScore": row["risk_score"],
+            "riskScore": int(row["risk_score"] or 0),
         },
         "consent": [],
         "ledger": [],
@@ -798,6 +841,55 @@ def get_customer(customer_id: str) -> dict[str, Any] | None:
         return _dump(_customer_contract(conn, rows[0], include_detail=True))
 
 
+def _customer_activity_preview(conn: Any, customer_id: str, limit: int = 8) -> list[dict[str, Any]]:
+    """Pull recent activity_events tied to this customer's related entities."""
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT ae.id, ae.kind, ae.label, ae.note, ae.at, ae.tone
+                FROM activity_events ae
+                WHERE ae.tenant_id = :tenant_id
+                  AND (
+                    (ae.entity_type = 'customer' AND ae.entity_id = :customer_id)
+                    OR ae.entity_id IN (SELECT id FROM interactions WHERE customer_id = :customer_id)
+                    OR ae.entity_id IN (SELECT id FROM promises WHERE customer_id = :customer_id)
+                    OR ae.entity_id IN (SELECT id FROM disputes WHERE customer_id = :customer_id)
+                    OR ae.entity_id IN (SELECT id FROM conversations WHERE customer_id = :customer_id)
+                    OR ae.entity_id IN (SELECT id FROM document_requests WHERE customer_id = :customer_id)
+                    OR ae.entity_id IN (SELECT id FROM customer_notes WHERE customer_id = :customer_id)
+                  )
+                ORDER BY ae.at DESC
+                LIMIT :limit
+                """
+            ),
+            {"customer_id": customer_id, "tenant_id": TENANT_ID, "limit": limit},
+        )
+    )
+    return [
+        {
+            "id": r["id"],
+            "kind": r["kind"] or "event",
+            "label": r["label"],
+            "note": r.get("note"),
+            "at": r["at"].isoformat().replace("+00:00", "Z") if hasattr(r["at"], "isoformat") else str(r["at"]),
+            "tone": r.get("tone"),
+        }
+        for r in rows
+    ]
+
+
+def get_customer_insights(customer_id: str) -> dict[str, Any] | None:
+    from customer_insights import derive_insights
+
+    customer = get_customer(customer_id)
+    if customer is None:
+        return None
+    with engine.connect() as conn:
+        activity = _customer_activity_preview(conn, customer_id)
+    return derive_insights(customer, activity=activity or None)
+
+
 def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
     where = "WHERE i.customer_id = :customer_id" if customer_id else ""
     params = {"customer_id": customer_id}
@@ -861,10 +953,10 @@ def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int
                 "handler": {"kind": interaction["handler_kind"], "name": interaction["handler_name"] or "Unknown"},
                 "startedAt": interaction["started_at"],
                 "duration": _duration(interaction["duration_sec"]),
-                "disposition": interaction["disposition"],
+                "disposition": interaction["disposition"] or "Unknown",
                 "sentiment": interaction["sentiment_label"] or "neutral",
                 "sentimentDelta": _sentiment_delta(interaction["avg_sentiment"]),
-                "summary": interaction["summary"],
+                "summary": interaction["summary"] or "",
                 "intents": {
                     "queryResolved": bool(interaction["query_resolved"]),
                     "upsellPresented": bool(interaction["upsell_presented"]),
@@ -1685,11 +1777,17 @@ def _ensure_channels_complete(channels: list[dict[str, Any]], fallback_at: str) 
         if ch in by_channel:
             complete.append(by_channel[ch])
         else:
+            # No consent row means no consent. Synthesising "opted_in" made the
+            # Consent screen assert a permission nobody captured — the one
+            # place in the product where the answer must never be inferred.
             complete.append(
                 {
                     "channel": ch,
-                    "status": "opted_in",
+                    "status": "opted_out",
                     "capturedAt": fallback_at,
+                    # Stays "Onboarding" — the screen's `source` is a closed
+                    # union (ChannelConsent in consent-seed.ts) and the status
+                    # is what carries the correction.
                     "source": "Onboarding",
                     "frequencyCapPerWeek": 3,
                     "usedThisWeek": 0,
@@ -2052,53 +2150,59 @@ def list_calls() -> list[dict[str, Any]]:
                 )
             )
         )
+        # Four child tables, one query each — not four per interaction. The
+        # per-row version issued 4N round trips against an unbounded outer
+        # query, so the Calls screen got slower in direct proportion to how
+        # long the deployment had been running.
+        interaction_ids = [row["id"] for row in rows]
+
+        def _grouped(sql: str) -> dict[str, list[dict[str, Any]]]:
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            if not interaction_ids:
+                return grouped
+            for r in _rows(conn.execute(text(sql), {"interaction_ids": interaction_ids})):
+                grouped.setdefault(r.pop("interaction_id"), []).append(r)
+            return grouped
+
+        transcripts_by = _grouped(
+            """
+            SELECT interaction_id, id, at_sec AS t, speaker, text
+            FROM interaction_transcript
+            WHERE interaction_id = ANY(:interaction_ids)
+            ORDER BY interaction_id, turn_index
+            """
+        )
+        flags_by = _grouped(
+            """
+            SELECT interaction_id, flag, severity
+            FROM interaction_flags
+            WHERE interaction_id = ANY(:interaction_ids)
+            ORDER BY interaction_id, created_at
+            """
+        )
+        sentiment_by = _grouped(
+            """
+            SELECT interaction_id, at_sec AS t, score AS v
+            FROM interaction_sentiment
+            WHERE interaction_id = ANY(:interaction_ids)
+            ORDER BY interaction_id, at_sec
+            """
+        )
+        disclosures_by = _grouped(
+            """
+            SELECT interaction_id, id, label, read, read_at_sec AS "atSec"
+            FROM interaction_disclosures
+            WHERE interaction_id = ANY(:interaction_ids)
+            ORDER BY interaction_id, id
+            """
+        )
+
         calls = []
         for row in rows:
-            transcript = _rows(
-                conn.execute(
-                    text(
-                        """
-                        SELECT id, at_sec AS t, speaker, text
-                        FROM interaction_transcript
-                        WHERE interaction_id = :interaction_id
-                        ORDER BY turn_index
-                        """
-                    ),
-                    {"interaction_id": row["id"]},
-                )
-            )
-            flags = _rows(
-                conn.execute(
-                    text("SELECT flag, severity FROM interaction_flags WHERE interaction_id = :interaction_id ORDER BY created_at"),
-                    {"interaction_id": row["id"]},
-                )
-            )
-            sentiment_series = _rows(
-                conn.execute(
-                    text(
-                        """
-                        SELECT at_sec AS t, score AS v
-                        FROM interaction_sentiment
-                        WHERE interaction_id = :interaction_id
-                        ORDER BY at_sec
-                        """
-                    ),
-                    {"interaction_id": row["id"]},
-                )
-            )
-            disclosures = _rows(
-                conn.execute(
-                    text(
-                        """
-                        SELECT id, label, read, read_at_sec AS "atSec"
-                        FROM interaction_disclosures
-                        WHERE interaction_id = :interaction_id
-                        ORDER BY id
-                        """
-                    ),
-                    {"interaction_id": row["id"]},
-                )
-            )
+            transcript = transcripts_by.get(row["id"], [])
+            flags = flags_by.get(row["id"], [])
+            sentiment_series = sentiment_by.get(row["id"], [])
+            disclosures = disclosures_by.get(row["id"], [])
             handled_by = {"kind": row["handler_kind"]}
             if row["handler_kind"] == "bot":
                 handled_by["bot"] = row["handled_by"] or "Bot"
@@ -2137,6 +2241,52 @@ def list_calls() -> list[dict[str, Any]]:
     return calls
 
 
+def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
+    """Offer catalog. Inactive products stay retrievable for historical leads —
+    a lead captured last month must still render its product name after the
+    product is switched off."""
+    clause = "" if include_inactive else " WHERE is_active IS TRUE"
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT id, name, category, family, description, type,
+                           ticket_min, ticket_max, roi, roi_numeric,
+                           tenor_months_min, tenor_months_max,
+                           margin_score, is_active, channels
+                    FROM products{clause}
+                    ORDER BY COALESCE(category, type), name, id
+                    """
+                )
+            )
+        )
+    return [
+        _dump(
+            ProductResponse(
+                id=r["id"],
+                name=r["name"],
+                # `type` is the legacy column every seeded row has; `category` is
+                # the curated one. Prefer category, fall back so the UI is never
+                # handed a null grouping key.
+                category=r["category"] or (r["type"] or "").title() or None,
+                family=r["family"],
+                description=r["description"],
+                minTicket=r["ticket_min"],
+                maxTicket=r["ticket_max"],
+                indicativeROI=r["roi"],
+                roiNumeric=r["roi_numeric"],
+                tenorMonthsMin=r["tenor_months_min"],
+                tenorMonthsMax=r["tenor_months_max"],
+                marginScore=r["margin_score"] if r["margin_score"] is not None else 0.5,
+                isActive=bool(r["is_active"]),
+                channels=list(r["channels"] or []),
+            )
+        )
+        for r in rows
+    ]
+
+
 def list_leads() -> list[dict[str, Any]]:
     with engine.connect() as conn:
         rows = _rows(
@@ -2159,6 +2309,9 @@ def list_leads() -> list[dict[str, Any]]:
                       l.offer_roi,
                       l.priority,
                       l.captured_at,
+                      l.closed_at,
+                      l.won_amount,
+                      l.loss_reason,
                       l.interaction_id,
                       l.transcript_snippet,
                       u.name AS owner,
@@ -2173,14 +2326,30 @@ def list_leads() -> list[dict[str, Any]]:
                 )
             )
         )
+        # Three bulk queries rather than 3N. The list endpoint is the ONLY
+        # source the Upsell screen reads — the detail drawer re-uses the row
+        # from this array rather than fetching — so everything the drawer
+        # renders has to be here. Returning [] for follow-ups meant one
+        # scheduled a second ago showed as "No follow-ups yet".
+        lead_ids = [r["id"] for r in rows]
+        eligibility_by_lead: dict[str, list[dict[str, Any]]] = {}
+        for elig in _rows(
+            conn.execute(
+                text(
+                    "SELECT lead_id, label, passed AS ok, reason AS detail"
+                    " FROM lead_eligibility WHERE lead_id = ANY(:ids) ORDER BY lead_id, id"
+                ),
+                {"ids": lead_ids},
+            )
+        ):
+            eligibility_by_lead.setdefault(elig.pop("lead_id"), []).append(elig)
+        followups_by_lead = _lead_followups_bulk(conn, lead_ids)
+        events_by_lead = _lead_events_bulk(conn, lead_ids)
+
         leads = []
         for row in rows:
-            eligibility = _rows(
-                conn.execute(
-                    text("SELECT label, passed AS ok, reason AS detail FROM lead_eligibility WHERE lead_id = :lead_id ORDER BY id"),
-                    {"lead_id": row["id"]},
-                )
-            )
+            eligibility = eligibility_by_lead.get(row["id"], [])
+            followups = followups_by_lead.get(row["id"], [])
             leads.append(
                 _dump(
                     LeadResponse(
@@ -2207,52 +2376,300 @@ def list_leads() -> list[dict[str, Any]]:
                         team=row["team"],
                         priority=row["priority"],
                         estimatedValue=row["estimated_value"],
-                        nextFollowUpAt=None,
-                        followUps=[],
-                        events=[
-                            {
-                                "at": row["captured_at"],
-                                "kind": "created",
-                                "by": row["owner"] or "System",
-                                "note": row["source"],
-                            }
-                        ],
+                        nextFollowUpAt=_next_followup_at(followups),
+                        followUps=followups,
+                        events=events_by_lead.get(row["id"], []),
+                        closedAt=row["closed_at"],
+                        wonAmount=row["won_amount"],
+                        lossReason=row["loss_reason"],
                     )
                 )
             )
     return leads
 
 
+# ---------------------------------------------------------------------------
+# Executive dashboard
+#
+# Every number below used to be one of three things: a literal, a literal
+# multiplied by a live count, or a read of `analytics_daily` — a table with one
+# seeded row and no runtime writer, which db.py:4592 already tells callers not
+# to read. The range/segment/team parameters were accepted and never used, so
+# every filter combination returned identical numbers.
+#
+# All of it now comes from interactions / ledger_entries / promises / leads.
+# Where a figure genuinely cannot be computed (no prior period to compare
+# against, a rep with no leads) the API returns null and the UI renders a dash,
+# rather than inventing a plausible-looking number.
+# ---------------------------------------------------------------------------
+
+# The UI's own vocabulary (Habibi/src/data/dashboard-seed.ts). Deliberately not
+# _BOT_ANALYTICS_RANGE_DAYS, which speaks 7d/30d/90d and raises on anything else
+# — a dashboard should degrade to its default range, not 400.
+_DASHBOARD_RANGE_DAYS = {"today": 1, "7d": 7, "30d": 30, "qtd": 90}
+_DASHBOARD_DEFAULT_DAYS = 30
+
+# UI segment → products.family. The screen speaks product language and the
+# catalog stores portfolio families; without this map the segment filter
+# silently matched nothing.
+_DASHBOARD_SEGMENT_FAMILIES = {
+    "card": ("revolving_credit",),
+    "personal": ("unsecured_loan",),
+    "auto": ("secured_loan",),
+}
+
+
+def _dashboard_window(range_key: str, segment: str, team: str) -> dict[str, Any]:
+    """Resolve the three filters the endpoint has always accepted and ignored."""
+    days = _DASHBOARD_RANGE_DAYS.get(
+        (range_key or "").strip().lower(), _DASHBOARD_DEFAULT_DAYS
+    )
+    families = _DASHBOARD_SEGMENT_FAMILIES.get((segment or "").strip().lower())
+    handler = (team or "").strip().lower()
+    return {
+        "days": days,
+        "families": list(families) if families else None,
+        "handler_kind": handler if handler in ("bot", "human") else None,
+    }
+
+
+def _pct_delta(current: float | None, prior: float | None) -> float | None:
+    """Percentage change, or None when there is nothing to compare against.
+
+    None rather than 0.0: "flat" and "we have no prior data" are different
+    claims, and the KPI chips used to render the second as the first.
+    """
+    if current is None or prior is None or not prior:
+        return None
+    return round((float(current) - float(prior)) / abs(float(prior)) * 100.0, 1)
+
+
+def _spark_from_series(values: list[float], *, points: int = 14) -> list[float]:
+    """Downsample a real daily series for a sparkline.
+
+    Replaces _spark(seed), which generated deterministic noise from an unrelated
+    number — a chart that looked like data and was not.
+    """
+    clean = [float(v or 0) for v in values]
+    if not clean:
+        return []
+    if len(clean) <= points:
+        return [round(v, 2) for v in clean]
+    step = len(clean) / points
+    return [round(clean[min(len(clean) - 1, int(i * step))], 2) for i in range(points)]
+
+
+def _inr_compact(amount: float | None) -> str:
+    """Indian money formatting. The dashboard rendered rupee balances as $X.XXM."""
+    value = float(amount or 0)
+    if abs(value) >= 10_000_000:
+        return f"₹{value / 10_000_000:.2f} Cr"
+    if abs(value) >= 100_000:
+        return f"₹{value / 100_000:.2f} L"
+    if abs(value) >= 1_000:
+        return f"₹{value / 1_000:.1f} K"
+    return f"₹{value:,.0f}"
+
+
 def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -> dict[str, Any]:
+    window = _dashboard_window(range, segment, team)
+    days = window["days"]
+    families = window["families"]
+    handler_kind = window["handler_kind"]
+
+    # Interactions filtered by segment reach products through their account.
+    # EXISTS rather than a join so an interaction with no account_id is excluded
+    # from a specific segment but still counted under "all".
+    ix_segment = (
+        """
+        AND EXISTS (
+          SELECT 1 FROM accounts a
+          JOIN products p ON p.id = a.product_id
+          WHERE a.id = i.account_id AND p.family = ANY(:families)
+        )
+        """
+        if families
+        else ""
+    )
+    ix_team = " AND i.handler_kind = :handler_kind " if handler_kind else ""
+    ix_where = (
+        "WHERE i.tenant_id = :tenant_id "
+        "AND i.started_at >= :since AND i.started_at < :until "
+        + ix_segment
+        + ix_team
+    )
+    params: dict[str, Any] = {"tenant_id": TENANT_ID, "days": days}
+    if families:
+        params["families"] = families
+    if handler_kind:
+        params["handler_kind"] = handler_kind
+
+    # Bound intervals are interpolated as literal day counts from a fixed dict,
+    # never from the caller's string — _dashboard_window maps any unknown range
+    # to the default rather than passing it through.
+    since_cur = f"now() - CAST('{days} days' AS interval)"
+    until_cur = "now()"
+    since_prior = f"now() - CAST('{days * 2} days' AS interval)"
+    until_prior = since_cur
+
+    def _ix_window(since: str, until: str) -> str:
+        return ix_where.replace(":since", since).replace(":until", until)
+
     with engine.connect() as conn:
         summary = _one(
             conn.execute(
                 text(
-                    """
+                    f"""
                     SELECT
                       count(*)::int AS interactions,
-                      count(*) FILTER (WHERE ptp_captured)::int AS ptp_captured,
-                      count(*) FILTER (WHERE handler_kind = 'human')::int AS human_handled,
-                      avg(avg_sentiment) AS avg_sentiment,
-                      avg(duration_sec) AS avg_duration_sec
-                    FROM interactions
+                      count(*) FILTER (WHERE i.ptp_captured)::int AS ptp_captured,
+                      count(*) FILTER (WHERE i.handler_kind = 'human')::int AS human_handled,
+                      avg(i.avg_sentiment) AS avg_sentiment,
+                      avg(i.duration_sec) AS avg_duration_sec,
+                      count(*) FILTER (WHERE i.sentiment_label = 'positive')::int AS pos,
+                      count(*) FILTER (WHERE i.sentiment_label = 'neutral')::int AS neu,
+                      count(*) FILTER (WHERE i.sentiment_label = 'negative')::int AS neg
+                    FROM interactions i
+                    {_ix_window(since_cur, until_cur)}
                     """
-                )
+                ),
+                params,
             )
         ) or {}
-        risk = _rows(conn.execute(text("SELECT risk, count(*)::int AS customers FROM customers GROUP BY risk ORDER BY risk")))
-        work = _rows(conn.execute(text("SELECT entity_type, count(*)::int AS items FROM work_items GROUP BY entity_type ORDER BY entity_type")))
-        daily = _rows(
+        prior_summary = _one(
             conn.execute(
                 text(
+                    f"""
+                    SELECT
+                      count(*)::int AS interactions,
+                      count(*) FILTER (WHERE i.handler_kind = 'human')::int AS human_handled,
+                      avg(i.avg_sentiment) AS avg_sentiment,
+                      avg(i.duration_sec) AS avg_duration_sec
+                    FROM interactions i
+                    {_ix_window(since_prior, until_prior)}
                     """
-                    SELECT metric_date, resolved_calls, escalations, ptp_count, avg_sentiment
-                    FROM analytics_daily
-                    ORDER BY metric_date
+                ),
+                params,
+            )
+        ) or {}
+
+        # Daily interaction volume, split by channel. bot_analytics treats
+        # channel as a filter; here it is a pivot, so this cannot reuse it.
+        volume_rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT to_char(date_trunc('day', i.started_at), 'YYYY-MM-DD') AS date,
+                           count(*) FILTER (WHERE i.channel = 'voice')::int AS voice,
+                           count(*) FILTER (WHERE i.channel = 'whatsapp')::int AS whatsapp,
+                           count(*) FILTER (WHERE i.channel IN ('chat','sms','email'))::int AS chat
+                    FROM interactions i
+                    {_ix_window(since_cur, until_cur)}
+                    GROUP BY 1 ORDER BY 1
                     """
-                )
+                ),
+                params,
             )
         )
+
+        # Money actually collected. Payments are stored negative (a credit
+        # against the balance), so the sign is flipped to report a recovery.
+        led_segment = " AND p.family = ANY(:families) " if families else ""
+        recovery_sql = f"""
+            SELECT to_char(date_trunc('day', l.posted_at), 'YYYY-MM-DD') AS date,
+                   SUM(-l.amount)::numeric AS value
+            FROM ledger_entries l
+            JOIN accounts a ON a.id = l.account_id
+            JOIN customers c ON c.id = a.customer_id
+            JOIN products p ON p.id = a.product_id
+            WHERE c.tenant_id = :tenant_id
+              AND l.type = 'payment'
+              AND l.posted_at >= {{since}} AND l.posted_at < {{until}}
+              {led_segment}
+            GROUP BY 1 ORDER BY 1
+        """
+        recovery_rows = _rows(
+            conn.execute(
+                text(recovery_sql.format(since=since_cur, until=until_cur)), params
+            )
+        )
+        prior_recovery = _one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT COALESCE(SUM(-l.amount), 0)::numeric AS value
+                    FROM ledger_entries l
+                    JOIN accounts a ON a.id = l.account_id
+                    JOIN customers c ON c.id = a.customer_id
+                    JOIN products p ON p.id = a.product_id
+                    WHERE c.tenant_id = :tenant_id
+                      AND l.type = 'payment'
+                      AND l.posted_at >= {since_prior} AND l.posted_at < {until_prior}
+                      {led_segment}
+                    """
+                ),
+                params,
+            )
+        ) or {}
+
+        # Outstanding across the filtered book — the denominator of recovery rate.
+        outstanding_row = _one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT COALESCE(SUM(a.outstanding), 0)::numeric AS total
+                    FROM accounts a
+                    JOIN customers c ON c.id = a.customer_id
+                    JOIN products p ON p.id = a.product_id
+                    WHERE c.tenant_id = :tenant_id AND a.status = 'active'
+                      {led_segment}
+                    """
+                ),
+                params,
+            )
+        ) or {}
+
+        # Promise-kept rate. Denominator is settled promises only: an 'upcoming'
+        # promise has not failed, and counting it as unkept made the rate a
+        # function of how recently the bot had been running.
+        prom_segment = " AND p.family = ANY(:families) " if families else ""
+        promise_sql = f"""
+            SELECT
+              count(*) FILTER (WHERE pr.status = 'kept')::int AS kept,
+              count(*) FILTER (WHERE pr.status IN ('kept','broken','partial'))::int AS settled
+            FROM promises pr
+            JOIN accounts a ON a.id = pr.account_id
+            JOIN customers c ON c.id = a.customer_id
+            JOIN products p ON p.id = a.product_id
+            WHERE c.tenant_id = :tenant_id
+              AND pr.created_at >= {{since}} AND pr.created_at < {{until}}
+              {prom_segment}
+        """
+        promises_cur = _one(
+            conn.execute(text(promise_sql.format(since=since_cur, until=until_cur)), params)
+        ) or {}
+        promises_prior = _one(
+            conn.execute(
+                text(promise_sql.format(since=since_prior, until=until_prior)), params
+            )
+        ) or {}
+
+        # Upsell conversion — leads won over leads captured.
+        lead_sql = """
+            SELECT count(*)::int AS total,
+                   count(*) FILTER (WHERE l.stage = 'won')::int AS won
+            FROM leads l
+            JOIN customers c ON c.id = l.customer_id
+            WHERE c.tenant_id = :tenant_id
+              AND l.created_at >= {since} AND l.created_at < {until}
+        """
+        leads_cur = _one(
+            conn.execute(text(lead_sql.format(since=since_cur, until=until_cur)), params)
+        ) or {}
+        leads_prior = _one(
+            conn.execute(text(lead_sql.format(since=since_prior, until=until_prior)), params)
+        ) or {}
+
         at_risk = _rows(
             conn.execute(
                 text(
@@ -2276,20 +2693,39 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
                 )
             )
         )
+        # Reps ranked over the same window as everything else, with a real
+        # upsell number joined from leads rather than `12 + idx * 1.3`.
         leaderboard_rows = _rows(
             conn.execute(
                 text(
-                    """
-                    SELECT u.name, COALESCE(t.name, 'Collections') AS team, COUNT(i.id)::int AS calls,
-                           AVG(i.duration_sec)::int AS aht, AVG(i.avg_sentiment) AS csat
+                    f"""
+                    SELECT u.id,
+                           u.name,
+                           COALESCE(t.name, 'Collections') AS team,
+                           COUNT(i.id)::int AS calls,
+                           AVG(i.duration_sec)::int AS aht,
+                           AVG(i.avg_sentiment) AS csat,
+                           (
+                             SELECT count(*)::int FROM leads l
+                             WHERE l.owner_user_id = u.id
+                               AND l.created_at >= {since_cur} AND l.created_at < {until_cur}
+                           ) AS leads_total,
+                           (
+                             SELECT count(*)::int FROM leads l
+                             WHERE l.owner_user_id = u.id AND l.stage = 'won'
+                               AND l.created_at >= {since_cur} AND l.created_at < {until_cur}
+                           ) AS leads_won
                     FROM users u
                     LEFT JOIN teams t ON t.id = u.team_id
-                    LEFT JOIN interactions i ON i.handler_user_id = u.id
-                    GROUP BY u.name, t.name
+                    LEFT JOIN interactions i
+                           ON i.handler_user_id = u.id
+                          AND i.started_at >= {since_cur} AND i.started_at < {until_cur}
+                    GROUP BY u.id, u.name, t.name
                     ORDER BY calls DESC, u.name
                     LIMIT 6
                     """
-                )
+                ),
+                params,
             )
         )
 
@@ -2298,29 +2734,165 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
     bot = max(interactions - human, 0)
     aht = round(summary.get("avg_duration_sec") or 0)
     mm, ss = divmod(aht, 60)
-    recovered = sum((row.get("outstanding") or 0) for row in at_risk) * 0.42
-    ptp = summary.get("ptp_captured") or 0
-    avg_sent = summary.get("avg_sentiment") or 0
+    avg_sent = float(summary.get("avg_sentiment") or 0)
+
+    recovery_trend = [
+        {"date": r["date"], "value": float(r["value"] or 0)} for r in recovery_rows
+    ]
+    recovered = sum(p["value"] for p in recovery_trend)
+    prior_recovered = float(prior_recovery.get("value") or 0)
+
+    # Recovery rate: collected over (collected + still owed). Stated in the KPI
+    # `sub` so the definition is auditable from the screen rather than only from
+    # this file — a rate whose formula nobody can see is a rate nobody trusts.
+    outstanding_total = float(outstanding_row.get("total") or 0)
+    denominator = recovered + outstanding_total
+    recovery_rate = (recovered / denominator * 100.0) if denominator > 0 else None
+
+    settled = promises_cur.get("settled") or 0
+    ptp_rate = ((promises_cur.get("kept") or 0) / settled * 100.0) if settled else None
+    prior_settled = promises_prior.get("settled") or 0
+    prior_ptp_rate = (
+        ((promises_prior.get("kept") or 0) / prior_settled * 100.0) if prior_settled else None
+    )
+
+    leads_total = leads_cur.get("total") or 0
+    upsell_rate = ((leads_cur.get("won") or 0) / leads_total * 100.0) if leads_total else None
+    prior_leads_total = leads_prior.get("total") or 0
+    prior_upsell_rate = (
+        ((leads_prior.get("won") or 0) / prior_leads_total * 100.0) if prior_leads_total else None
+    )
+
+    prior_interactions = prior_summary.get("interactions") or 0
+    prior_human = prior_summary.get("human_handled") or 0
+    prior_containment = (
+        (max(prior_interactions - prior_human, 0) / prior_interactions * 100.0)
+        if prior_interactions
+        else None
+    )
+    containment = (bot / interactions * 100.0) if interactions else None
+
+    volume_series = [
+        {
+            "date": r["date"],
+            "voice": int(r["voice"] or 0),
+            "whatsapp": int(r["whatsapp"] or 0),
+            "chat": int(r["chat"] or 0),
+        }
+        for r in volume_rows
+    ]
+    daily_calls = [v["voice"] + v["whatsapp"] + v["chat"] for v in volume_series]
+
+    # Normalised to ints summing 100, or all zeros for an empty window. The
+    # denominator genuinely can be 0 now that the window is real, so this is a
+    # live divide-by-zero rather than a theoretical one.
+    labelled = (summary.get("pos") or 0) + (summary.get("neu") or 0) + (summary.get("neg") or 0)
+    if labelled:
+        pos_pct = round((summary.get("pos") or 0) / labelled * 100)
+        neu_pct = round((summary.get("neu") or 0) / labelled * 100)
+        sentiment_distribution = {
+            "positive": pos_pct,
+            "neutral": neu_pct,
+            # Absorb the rounding drift here so the three always sum to 100.
+            "negative": max(0, 100 - pos_pct - neu_pct),
+        }
+    else:
+        sentiment_distribution = {"positive": 0, "neutral": 0, "negative": 0}
+
+    def _pct(value: float | None) -> str:
+        return "—" if value is None else f"{value:.1f}%"
+
     dashboard = {
         "heroKpis": [
-            {"label": "Avg Handle Time (AHT)", "value": f"{mm}m {ss:02d}s", "raw": aht, "delta": -8.4, "deltaGood": "down", "sub": "Postgres live read", "spark": _spark(aht or 240)},
-            {"label": "Upsell Conversion Rate", "value": "14.6%", "raw": 14.6, "unit": "%", "delta": 3.2, "deltaGood": "up", "sub": "eligibility-gated offers accepted", "spark": _spark(14)},
+            {
+                "label": "Avg Handle Time (AHT)",
+                "value": f"{mm}m {ss:02d}s" if aht else "—",
+                "raw": aht,
+                "delta": _pct_delta(aht, prior_summary.get("avg_duration_sec")),
+                "deltaGood": "down",
+                "sub": f"mean duration over {days}d",
+                "spark": _spark_from_series(daily_calls),
+            },
+            {
+                "label": "Upsell Conversion Rate",
+                "value": _pct(upsell_rate),
+                "raw": round(upsell_rate, 1) if upsell_rate is not None else 0,
+                "unit": "%",
+                "delta": _pct_delta(upsell_rate, prior_upsell_rate),
+                "deltaGood": "up",
+                "sub": f"{leads_cur.get('won') or 0} won of {leads_total} leads",
+                "spark": [],
+            },
         ],
         "kpis": [
-            {"key": "recovered", "label": "Total Dues Recovered", "value": f"${recovered/1000000:.2f}M", "delta": 12.1, "deltaGood": "up", "spark": _spark(80), "tone": "success"},
-            {"key": "recoveryRate", "label": "Recovery Rate", "value": "68.4%", "delta": 2.7, "deltaGood": "up", "spark": _spark(65)},
-            {"key": "containment", "label": "Bot Containment", "value": f"{(bot / interactions * 100 if interactions else 0):.1f}%", "delta": 5.9, "deltaGood": "up", "spark": _spark(66), "tone": "brand"},
-            {"key": "ptp", "label": "Promise-Kept Rate", "value": "61.8%", "delta": -1.4, "deltaGood": "up", "spark": _spark(62), "tone": "warning"},
-            {"key": "csat", "label": "Avg Sentiment / CSAT", "value": f"{avg_sent:.2f}", "delta": 0.08, "deltaGood": "up", "spark": _spark(55)},
-            {"key": "calls", "label": "Calls Handled", "value": f"{interactions:,}", "delta": 6.3, "deltaGood": "up", "spark": _spark(260)},
+            {
+                "key": "recovered",
+                "label": "Total Dues Recovered",
+                "value": _inr_compact(recovered),
+                "delta": _pct_delta(recovered, prior_recovered),
+                "deltaGood": "up",
+                "spark": _spark_from_series([p["value"] for p in recovery_trend]),
+                "tone": "success",
+            },
+            {
+                "key": "recoveryRate",
+                "label": "Recovery Rate",
+                "value": _pct(recovery_rate),
+                "delta": None,
+                "deltaGood": "up",
+                "sub": "collected ÷ (collected + outstanding)",
+                "spark": [],
+            },
+            {
+                "key": "containment",
+                "label": "Bot Containment",
+                "value": _pct(containment),
+                "delta": _pct_delta(containment, prior_containment),
+                "deltaGood": "up",
+                "spark": [],
+                "tone": "brand",
+            },
+            {
+                "key": "ptp",
+                "label": "Promise-Kept Rate",
+                "value": _pct(ptp_rate),
+                "delta": _pct_delta(ptp_rate, prior_ptp_rate),
+                "deltaGood": "up",
+                "sub": f"{promises_cur.get('kept') or 0} kept of {settled} settled",
+                "spark": [],
+                "tone": "warning",
+            },
+            {
+                "key": "csat",
+                "label": "Avg Sentiment / CSAT",
+                "value": f"{avg_sent:.2f}" if labelled else "—",
+                # No percentage delta. Sentiment is a signed score in [-1, 1],
+                # so 0.02 → 0.07 is "+217%", which is arithmetically true and
+                # tells a reader nothing. The prior value is shown instead.
+                "delta": None,
+                "deltaGood": "up",
+                "sub": (
+                    f"prior period {float(prior_summary['avg_sentiment']):.2f}"
+                    if prior_summary.get("avg_sentiment") is not None
+                    else "no prior period"
+                ),
+                "spark": [],
+            },
+            {
+                "key": "calls",
+                "label": "Calls Handled",
+                "value": f"{interactions:,}",
+                "delta": _pct_delta(interactions, prior_interactions),
+                "deltaGood": "up",
+                "spark": _spark_from_series([float(v) for v in daily_calls]),
+            },
         ],
-        "recoveryTrend": [{"date": d["metric_date"], "value": d["resolved_calls"] * 12000} for d in daily] or [{"date": "2026-07-21", "value": round(recovered)}],
-        "callVolumeStacked": [{"date": d["metric_date"], "voice": interactions, "whatsapp": 13, "chat": 0} for d in daily] or [{"date": "2026-07-21", "voice": interactions, "whatsapp": 13, "chat": 0}],
-        "sentimentDistribution": {"positive": 58, "neutral": 27, "negative": 15},
+        "recoveryTrend": recovery_trend,
+        "callVolumeStacked": volume_series,
+        "sentimentDistribution": sentiment_distribution,
         "botVsHuman": [
-            {"name": "Contained by bot", "value": bot, "color": "var(--brand-primary)"},
-            {"name": "Escalated to human", "value": human, "color": "var(--warning)"},
-            {"name": "Direct to human", "value": max(human // 2, 0), "color": "var(--brand-navy)"},
+            {"name": "Contained by bot", "value": bot, "color": "var(--background-brand-bold)"},
+            {"name": "Handled by human", "value": human, "color": "var(--chart-warning-bold)"},
         ],
         "leaderboard": [
             {
@@ -2328,9 +2900,15 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
                 "name": r["name"],
                 "team": r["team"],
                 "calls": r["calls"],
-                "aht": _duration(r["aht"]),
-                "upsell": round(12 + idx * 1.3, 1),
-                "csat": round((r["csat"] or 0.6), 2),
+                "aht": _duration(r["aht"]) if r["aht"] else "—",
+                # None, not a number, when the rep captured no leads in the
+                # window. The UI renders a dash — "no data" is not "12.0%".
+                "upsell": (
+                    round((r["leads_won"] or 0) / r["leads_total"] * 100.0, 1)
+                    if r["leads_total"]
+                    else None
+                ),
+                "csat": round(float(r["csat"]), 2) if r["csat"] is not None else None,
             }
             for idx, r in enumerate(leaderboard_rows)
         ],
@@ -2349,6 +2927,192 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
         ],
     }
     return _dump(DashboardResponse(**dashboard))
+
+
+# ---------------------------------------------------------------------------
+# Per-turn trace
+#
+# Tool calls, retrievals and latency lived at three non-joinable grains, so
+# "what did the bot do on turn 4, and how long did each part take" could not be
+# answered — which is why the Sandbox's Trace tab reconstructs a timeline from
+# client-side state instead of reading one. Migration 0055 gave the two event
+# tables a transcript_turn_id; this assembles them.
+# ---------------------------------------------------------------------------
+
+# One call's worth. A trace is a debugging view of a single conversation, not a
+# reporting surface; an unbounded read here would be a foot-gun on a long call.
+_TRACE_MAX_TURNS = 200
+
+
+def _trace_redact(value: Any) -> Any:
+    """Redact anything that reaches a trace response.
+
+    ``bot_tool_calls.result_preview`` holds up to 1500 chars of raw tool output
+    — balances, DPD, phone tails — and ``args`` holds model-supplied customer
+    speech (``flag_dispute.summary``, ``capture_lead.summary``). Until now only
+    the Inbox read this table; an endpoint widens the audience, so it is masked
+    on the way out rather than trusted to be safe.
+    """
+    import transcript_view
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return transcript_view.redact_line(value)
+    if isinstance(value, dict):
+        return {k: _trace_redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_trace_redact(v) for v in value]
+    return value
+
+
+def get_turn_trace(interaction_id: str) -> list[dict[str, Any]]:
+    """Every turn of one interaction, with its tool calls, retrievals and latency."""
+    with engine.connect() as conn:
+        exists = _one(
+            conn.execute(
+                text("SELECT id FROM interactions WHERE id = :id"), {"id": interaction_id}
+            )
+        )
+        if not exists:
+            raise KeyError(f"interaction not found: {interaction_id}")
+
+        turns = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, turn_index, speaker, at_sec, text, intent, intent_score,
+                           sentiment_delta, ttfb_ms, ttfa_ms, tokens,
+                           stt_ttfb_ms, llm_ttfb_ms, tts_ttfb_ms,
+                           user_turn_ms, tool_ms, aggregation_ms
+                    FROM interaction_transcript
+                    WHERE interaction_id = :ix
+                    ORDER BY turn_index
+                    LIMIT :lim
+                    """
+                ),
+                {"ix": interaction_id, "lim": _TRACE_MAX_TURNS},
+            )
+        )
+        tool_rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT transcript_turn_id, tool_name, args, result_ok, error,
+                           result_preview, latency_ms, channel, created_at
+                    FROM bot_tool_calls
+                    WHERE interaction_id = :ix
+                    ORDER BY created_at
+                    """
+                ),
+                {"ix": interaction_id},
+            )
+        )
+        retrieval_rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT transcript_turn_id, query, top_chunks, latency_ms,
+                           selected_answer_source, created_at
+                    FROM retrieval_logs
+                    WHERE interaction_id = :ix
+                    ORDER BY created_at
+                    """
+                ),
+                {"ix": interaction_id},
+            )
+        )
+
+    # Rows whose turn could not be resolved (the tool ran before the transcript
+    # row existed) are kept under a null key and surfaced as an "unattributed"
+    # bucket rather than dropped — losing an audit record to a race is worse
+    # than showing it in the wrong place.
+    tools_by_turn: dict[Any, list[dict[str, Any]]] = {}
+    for r in tool_rows:
+        tools_by_turn.setdefault(r["transcript_turn_id"], []).append(
+            {
+                "tool": r["tool_name"],
+                "ok": bool(r["result_ok"]),
+                "error": r["error"],
+                "latencyMs": r["latency_ms"],
+                "channel": r["channel"],
+                "args": _trace_redact(r["args"]),
+                "resultPreview": _trace_redact(r["result_preview"]),
+                "at": r["created_at"],
+            }
+        )
+
+    retrievals_by_turn: dict[Any, list[dict[str, Any]]] = {}
+    for r in retrieval_rows:
+        chunks = r["top_chunks"] or []
+        retrievals_by_turn.setdefault(r["transcript_turn_id"], []).append(
+            {
+                # Already redacted at write time in kb_retrieve; masked again on
+                # the way out because the write-side patterns and these are not
+                # guaranteed to stay in sync.
+                "query": _trace_redact(r["query"]),
+                "hits": len(chunks) if isinstance(chunks, list) else 0,
+                "topScore": (
+                    chunks[0].get("score")
+                    if isinstance(chunks, list) and chunks and isinstance(chunks[0], dict)
+                    else None
+                ),
+                "chunks": chunks,
+                "latencyMs": r["latency_ms"],
+                "source": r["selected_answer_source"],
+                "at": r["created_at"],
+            }
+        )
+
+    out: list[dict[str, Any]] = []
+    for t in turns:
+        out.append(
+            {
+                "turnId": t["id"],
+                "turnIndex": t["turn_index"],
+                "speaker": t["speaker"],
+                "atSec": t["at_sec"],
+                "text": _trace_redact(t["text"]),
+                "intent": t["intent"],
+                "intentScore": float(t["intent_score"]) if t["intent_score"] is not None else None,
+                "sentimentDelta": (
+                    float(t["sentiment_delta"]) if t["sentiment_delta"] is not None else None
+                ),
+                "latency": {
+                    "ttfbMs": t["ttfb_ms"],
+                    "ttfaMs": t["ttfa_ms"],
+                    "tokens": t["tokens"],
+                    "sttTtfbMs": t["stt_ttfb_ms"],
+                    "llmTtfbMs": t["llm_ttfb_ms"],
+                    "ttsTtfbMs": t["tts_ttfb_ms"],
+                    "userTurnMs": t["user_turn_ms"],
+                    "toolMs": t["tool_ms"],
+                    "aggregationMs": t["aggregation_ms"],
+                },
+                "toolCalls": tools_by_turn.get(t["id"], []),
+                "retrievals": retrievals_by_turn.get(t["id"], []),
+            }
+        )
+
+    orphan_tools = tools_by_turn.get(None, [])
+    orphan_retrievals = retrievals_by_turn.get(None, [])
+    if orphan_tools or orphan_retrievals:
+        out.append(
+            {
+                "turnId": None,
+                "turnIndex": None,
+                "speaker": "system",
+                "atSec": None,
+                "text": "Events that could not be attributed to a turn.",
+                "intent": None,
+                "intentScore": None,
+                "sentimentDelta": None,
+                "latency": {},
+                "toolCalls": orphan_tools,
+                "retrievals": orphan_retrievals,
+            }
+        )
+    return out
 
 
 def get_handoff_session() -> dict[str, Any] | None:
@@ -2473,6 +3237,150 @@ def _document_by_id(conn: Any, document_id: str) -> dict[str, Any]:
     raise KeyError("document_not_found")
 
 
+# activity_events.kind → the LeadEventKind the UI timeline renders. Anything
+# not listed is still shown, with its raw kind, rather than dropped: an
+# unmapped event is a labelling gap, not a reason to hide history.
+_LEAD_EVENT_KINDS: dict[str, str] = {
+    "lead_created": "created",
+    "lead_captured": "created",
+    "lead_updated": "stage_moved",
+    "lead_stage_moved": "stage_moved",
+    "lead_assigned": "assigned",
+    "lead_team_changed": "team_changed",
+    "lead_offer_edited": "offer_edited",
+    "lead_followup_created": "followup_scheduled",
+    "followup_updated": "followup_done",
+    "lead_won": "won",
+    "lead_lost": "lost",
+    "lead_eligibility_revalidated": "eligibility_revalidated",
+}
+
+
+def _lead_events(conn: Any, lead_id: str) -> list[dict[str, Any]]:
+    """Real audit trail for a lead, from activity_events.
+
+    The list and detail endpoints both used to synthesise a single "created"
+    entry from the lead row, so the Timeline tab — an audit surface — never
+    showed a stage move, a reassignment or an offer edit. Every one of those
+    mutations has been writing an activity_events row all along.
+    """
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT ae.at, ae.kind, ae.label, ae.note, ae.actor_kind,
+                       u.name AS user_name, b.name AS bot_name
+                FROM activity_events ae
+                LEFT JOIN users u ON u.id = ae.actor_user_id
+                LEFT JOIN bots b ON b.id = ae.actor_bot_id
+                WHERE ae.entity_type = 'lead' AND ae.entity_id = :id
+                ORDER BY ae.at DESC, ae.id DESC
+                LIMIT 100
+                """
+            ),
+            {"id": lead_id},
+        )
+    )
+    return [_lead_event(row) for row in rows]
+
+
+def _lead_followups(conn: Any, lead_id: str) -> list[dict[str, Any]]:
+    return _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, due_at AS at, 'voice' AS channel, note, status = 'done' AS done
+                FROM followups
+                WHERE lead_id = :lead_id
+                ORDER BY due_at
+                """
+            ),
+            {"lead_id": lead_id},
+        )
+    )
+
+
+def _lead_followups_bulk(conn: Any, lead_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """Follow-ups for many leads in one round trip.
+
+    The list endpoint renders every lead on the board; per-lead queries here
+    would be 2N round trips on a screen that already loads the whole pipeline.
+    """
+    if not lead_ids:
+        return {}
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT lead_id, id, due_at AS at, 'voice' AS channel, note,
+                       status = 'done' AS done
+                FROM followups
+                WHERE lead_id = ANY(:ids)
+                ORDER BY lead_id, due_at
+                """
+            ),
+            {"ids": lead_ids},
+        )
+    )
+    out: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        out.setdefault(row.pop("lead_id"), []).append(row)
+    return out
+
+
+def _lead_events_bulk(conn: Any, lead_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """Audit trail for many leads in one round trip."""
+    if not lead_ids:
+        return {}
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT ae.entity_id, ae.at, ae.kind, ae.label, ae.note, ae.actor_kind,
+                       u.name AS user_name, b.name AS bot_name
+                FROM activity_events ae
+                LEFT JOIN users u ON u.id = ae.actor_user_id
+                LEFT JOIN bots b ON b.id = ae.actor_bot_id
+                WHERE ae.entity_type = 'lead' AND ae.entity_id = ANY(:ids)
+                ORDER BY ae.entity_id, ae.at DESC, ae.id DESC
+                """
+            ),
+            {"ids": lead_ids},
+        )
+    )
+    out: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        bucket = out.setdefault(row["entity_id"], [])
+        # Cap per lead: the board only ever renders a preview, and one
+        # pathologically-edited lead must not dominate the response.
+        if len(bucket) >= 50:
+            continue
+        bucket.append(_lead_event(row))
+    return out
+
+
+def _lead_event(row: dict[str, Any]) -> dict[str, Any]:
+    by = row["user_name"] or row["bot_name"]
+    if not by:
+        by = "System"
+    return {
+        "at": row["at"],
+        "kind": _LEAD_EVENT_KINDS.get(row["kind"], row["kind"]),
+        "by": by,
+        "note": row["note"] or row["label"],
+    }
+
+
+def _next_followup_at(followups: list[dict[str, Any]]) -> Any:
+    """First OPEN follow-up. followups[0] was wrong: a completed one still
+    sorts first by due_at, so the UI advertised a past, already-done call as
+    the next action."""
+    for f in followups:
+        if not f.get("done"):
+            return f.get("at")
+    return None
+
+
 def _lead_by_id(conn: Any, lead_id: str) -> dict[str, Any]:
     row = _one(
         conn.execute(
@@ -2481,7 +3389,8 @@ def _lead_by_id(conn: Any, lead_id: str) -> dict[str, Any]:
                 SELECT l.id, l.customer_id, c.name AS customer_name, l.account_id, l.product_id,
                        p.name AS product, l.stage, l.source, l.sentiment_at_capture,
                        l.sentiment_score, l.estimated_value, l.offer_amount, l.offer_roi,
-                       l.priority, l.captured_at, l.interaction_id, l.transcript_snippet,
+                       l.priority, l.captured_at, l.closed_at, l.interaction_id,
+                       l.transcript_snippet,
                        u.name AS owner, t.name AS team, l.won_amount, l.loss_reason
                 FROM leads l
                 JOIN customers c ON c.id = l.customer_id
@@ -2499,9 +3408,7 @@ def _lead_by_id(conn: Any, lead_id: str) -> dict[str, Any]:
     eligibility = _rows(
         conn.execute(text("SELECT label, passed AS ok, reason AS detail FROM lead_eligibility WHERE lead_id = :lead_id ORDER BY id"), {"lead_id": lead_id})
     )
-    followups = _rows(
-        conn.execute(text("SELECT id, due_at AS at, 'voice' AS channel, note, status = 'done' AS done FROM followups WHERE lead_id = :lead_id ORDER BY due_at"), {"lead_id": lead_id})
-    )
+    followups = _lead_followups(conn, lead_id)
     return _dump(
         LeadResponse(
             id=row["id"],
@@ -2527,9 +3434,10 @@ def _lead_by_id(conn: Any, lead_id: str) -> dict[str, Any]:
             team=row["team"],
             priority=row["priority"],
             estimatedValue=row["estimated_value"],
-            nextFollowUpAt=followups[0]["at"] if followups else None,
+            nextFollowUpAt=_next_followup_at(followups),
             followUps=followups,
-            events=[{"at": row["captured_at"], "kind": "created", "by": row["owner"] or "System"}],
+            events=_lead_events(conn, lead_id),
+            closedAt=row["closed_at"],
             wonAmount=row["won_amount"],
             lossReason=row["loss_reason"],
         )
@@ -2539,58 +3447,75 @@ def _lead_by_id(conn: Any, lead_id: str) -> dict[str, Any]:
 def create_promise(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
     endpoint = "POST /promises"
     with engine.begin() as conn:
-        cached = _idempotent_response(conn, idempotency_key, endpoint)
-        if cached:
-            return cached
-        customer_id = payload["customerId"]
-        _ensure_customer(conn, customer_id)
-        account_id = payload.get("accountId") or _first_account_id(conn, customer_id)
-        promise_id = _id("PTP")
+        return _create_promise(conn, payload, idempotency_key, endpoint)
 
-        # Honour the chosen owner (human or bot); fall back to the acting user.
-        owner_bot_id = payload.get("ownerBotId")
-        owner_user_id = payload.get("ownerUserId")
-        if owner_bot_id and owner_user_id:
-            raise ValueError("provide either ownerUserId or ownerBotId, not both")
-        if owner_bot_id:
-            if not conn.execute(text("SELECT 1 FROM bots WHERE id = :id"), {"id": owner_bot_id}).fetchone():
-                raise KeyError(f"bot_not_found: {owner_bot_id}")
-            owner_kind = "bot"
-        else:
-            owner_user_id = owner_user_id or _actor_user_id()
-            if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": owner_user_id}).fetchone():
-                raise KeyError(f"user_not_found: {owner_user_id}")
-            owner_kind = "human"
 
-        conn.execute(
-            text(
-                """
-                INSERT INTO promises
-                  (id, customer_id, account_id, interaction_id, owner_kind, owner_user_id,
-                   owner_bot_id, amount, promised_at, status, reminder_status, paid_amount, channel)
-                VALUES
-                  (:id, :customer_id, :account_id, :interaction_id, :owner_kind, :owner_user_id,
-                   :owner_bot_id, :amount, :promised_at, 'upcoming', :reminder_status, 0, :channel)
-                """
-            ),
-            {
-                "id": promise_id,
-                "customer_id": customer_id,
-                "account_id": account_id,
-                "interaction_id": payload.get("interactionId"),
-                "owner_kind": owner_kind,
-                "owner_user_id": owner_user_id if owner_kind == "human" else None,
-                "owner_bot_id": owner_bot_id if owner_kind == "bot" else None,
-                "amount": payload["amount"],
-                "promised_at": payload["promisedDate"],
-                "reminder_status": payload.get("reminderStatus") or "queued",
-                "channel": payload.get("channel") or "voice",
-            },
-        )
-        _activity(conn, "promise", promise_id, "promise_created", "Promise-to-pay captured", f"Amount {payload['amount']}", customer_id)
-        response = _promise_by_id(conn, promise_id)
-        _store_idempotent_response(conn, idempotency_key, endpoint, response)
-        return response
+def _create_promise(
+    conn: Any,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+    endpoint: str,
+) -> dict[str, Any]:
+    """Connection-scoped body of :func:`create_promise`.
+
+    Callers that already hold a transaction (payment plans, interaction wrap-up)
+    must spawn the promise inside it. Re-entering ``engine.begin()`` there took
+    a second pooled connection and committed independently, so a failure in the
+    caller's remaining work left an orphan promise the caller believed it had
+    rolled back — and a retry then created a second one.
+    """
+    cached = _idempotent_response(conn, idempotency_key, endpoint)
+    if cached:
+        return cached
+    customer_id = payload["customerId"]
+    _ensure_customer(conn, customer_id)
+    account_id = payload.get("accountId") or _first_account_id(conn, customer_id)
+    promise_id = _id("PTP")
+
+    # Honour the chosen owner (human or bot); fall back to the acting user.
+    owner_bot_id = payload.get("ownerBotId")
+    owner_user_id = payload.get("ownerUserId")
+    if owner_bot_id and owner_user_id:
+        raise ValueError("provide either ownerUserId or ownerBotId, not both")
+    if owner_bot_id:
+        if not conn.execute(text("SELECT 1 FROM bots WHERE id = :id"), {"id": owner_bot_id}).fetchone():
+            raise OwnerBotNotFound(f"bot_not_found: {owner_bot_id}")
+        owner_kind = "bot"
+    else:
+        owner_user_id = owner_user_id or _actor_user_id()
+        if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": owner_user_id}).fetchone():
+            raise KeyError(f"user_not_found: {owner_user_id}")
+        owner_kind = "human"
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO promises
+              (id, customer_id, account_id, interaction_id, owner_kind, owner_user_id,
+               owner_bot_id, amount, promised_at, status, reminder_status, paid_amount, channel)
+            VALUES
+              (:id, :customer_id, :account_id, :interaction_id, :owner_kind, :owner_user_id,
+               :owner_bot_id, :amount, :promised_at, 'upcoming', :reminder_status, 0, :channel)
+            """
+        ),
+        {
+            "id": promise_id,
+            "customer_id": customer_id,
+            "account_id": account_id,
+            "interaction_id": payload.get("interactionId"),
+            "owner_kind": owner_kind,
+            "owner_user_id": owner_user_id if owner_kind == "human" else None,
+            "owner_bot_id": owner_bot_id if owner_kind == "bot" else None,
+            "amount": payload["amount"],
+            "promised_at": payload["promisedDate"],
+            "reminder_status": payload.get("reminderStatus") or "queued",
+            "channel": payload.get("channel") or "voice",
+        },
+    )
+    _activity(conn, "promise", promise_id, "promise_created", "Promise-to-pay captured", f"Amount {payload['amount']}", customer_id)
+    response = _promise_by_id(conn, promise_id)
+    _store_idempotent_response(conn, idempotency_key, endpoint, response)
+    return response
 
 
 def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2650,7 +3575,21 @@ def create_payment_plan(payload: dict[str, Any]) -> dict[str, Any]:
                 {"id": f"{plan_id}-{idx}", "plan_id": plan_id, "installment_index": idx, "due_date": item["dueDate"], "amount": item["amount"]},
             )
         first = (payload.get("installments") or [{}])[0]
-        promise = create_promise({"customerId": customer_id, "accountId": account_id, "amount": first.get("amount", payload["totalAmount"]), "promisedDate": first.get("dueDate"), "channel": "voice"})
+        # Same transaction as the plan and its installments: the first
+        # instalment's promise is part of the plan, not an independently
+        # committed row that survives a rollback of everything around it.
+        promise = _create_promise(
+            conn,
+            {
+                "customerId": customer_id,
+                "accountId": account_id,
+                "amount": first.get("amount", payload["totalAmount"]),
+                "promisedDate": first.get("dueDate"),
+                "channel": "voice",
+            },
+            None,
+            "POST /promises",
+        )
         conn.execute(text("UPDATE promises SET plan_id = :plan_id WHERE id = :id"), {"plan_id": plan_id, "id": promise["id"]})
         _activity(conn, "payment_plan", plan_id, "payment_plan_created", "Payment plan created", None, customer_id)
         return {"id": plan_id, "promise": _promise_by_id(conn, promise["id"])}
@@ -2659,39 +3598,49 @@ def create_payment_plan(payload: dict[str, Any]) -> dict[str, Any]:
 def create_dispute(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
     endpoint = "POST /disputes"
     with engine.begin() as conn:
-        cached = _idempotent_response(conn, idempotency_key, endpoint)
-        if cached:
-            return cached
-        customer_id = payload["customerId"]
-        _ensure_customer(conn, customer_id)
-        dispute_id = _id("DSP")
-        conn.execute(
-            text(
-                """
-                INSERT INTO disputes
-                  (id, customer_id, account_id, interaction_id, assignee_user_id, type,
-                   disputed_amount, source, status, priority, transcript_snippet, sla_due_at)
-                VALUES
-                  (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id, :type,
-                   :amount, 'agent', 'new', :priority, :transcript_snippet, now() + interval '2 days')
-                """
-            ),
-            {
-                "id": dispute_id,
-                "customer_id": customer_id,
-                "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
-                "interaction_id": payload.get("interactionId"),
-                "assignee_user_id": payload.get("assigneeUserId") or _actor_user_id(),
-                "type": payload["type"],
-                "amount": payload.get("amount"),
-                "priority": payload.get("priority") or "normal",
-                "transcript_snippet": payload.get("transcriptSnippet"),
-            },
-        )
-        _activity(conn, "dispute", dispute_id, "dispute_created", "Dispute raised", payload.get("transcriptSnippet"), customer_id)
-        response = _dispute_by_id(conn, dispute_id)
-        _store_idempotent_response(conn, idempotency_key, endpoint, response)
-        return response
+        return _create_dispute(conn, payload, idempotency_key, endpoint)
+
+
+def _create_dispute(
+    conn: Any,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+    endpoint: str,
+) -> dict[str, Any]:
+    """Connection-scoped body of :func:`create_dispute` — see _create_promise."""
+    cached = _idempotent_response(conn, idempotency_key, endpoint)
+    if cached:
+        return cached
+    customer_id = payload["customerId"]
+    _ensure_customer(conn, customer_id)
+    dispute_id = _id("DSP")
+    conn.execute(
+        text(
+            """
+            INSERT INTO disputes
+              (id, customer_id, account_id, interaction_id, assignee_user_id, type,
+               disputed_amount, source, status, priority, transcript_snippet, sla_due_at)
+            VALUES
+              (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id, :type,
+               :amount, 'agent', 'new', :priority, :transcript_snippet, now() + interval '2 days')
+            """
+        ),
+        {
+            "id": dispute_id,
+            "customer_id": customer_id,
+            "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
+            "interaction_id": payload.get("interactionId"),
+            "assignee_user_id": payload.get("assigneeUserId") or _actor_user_id(),
+            "type": payload["type"],
+            "amount": payload.get("amount"),
+            "priority": payload.get("priority") or "normal",
+            "transcript_snippet": payload.get("transcriptSnippet"),
+        },
+    )
+    _activity(conn, "dispute", dispute_id, "dispute_created", "Dispute raised", payload.get("transcriptSnippet"), customer_id)
+    response = _dispute_by_id(conn, dispute_id)
+    _store_idempotent_response(conn, idempotency_key, endpoint, response)
+    return response
 
 
 def patch_dispute(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2780,64 +3729,80 @@ def add_dispute_evidence(dispute_id: str, payload: dict[str, Any]) -> dict[str, 
         return {"id": evidence_id, **payload}
 
 
-def create_callback(payload: dict[str, Any]) -> dict[str, Any]:
+def create_callback(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
+    endpoint = "POST /callbacks"
     with engine.begin() as conn:
-        customer_id = payload["customerId"]
-        _ensure_customer(conn, customer_id)
-        cust = _one(
-            conn.execute(
-                text("SELECT dnd, preferred_window FROM customers WHERE id = :id"),
-                {"id": customer_id},
-            )
-        )
-        reason = payload["reason"]
-        if reason not in CB_REASONS:
-            raise ValueError(f"invalid_reason: {reason}")
+        return _create_callback(conn, payload, idempotency_key, endpoint)
 
-        assignee_user_id = payload.get("assigneeUserId")
-        if assignee_user_id is not None:
-            if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee_user_id}).fetchone():
-                raise KeyError(f"user_not_found: {assignee_user_id}")
 
-        team_id = payload.get("teamId") or "retail-collections"
-        if not conn.execute(text("SELECT 1 FROM teams WHERE id = :id"), {"id": team_id}).fetchone():
-            raise KeyError(f"team_not_found: {team_id}")
-
-        scheduled_at = payload["scheduledAt"]
-        window_mins = _callback_window(payload.get("windowMins") or 30)
-        dnd_active = _callback_dnd_active(bool(cust and cust["dnd"]), cust["preferred_window"] if cust else None, scheduled_at)
-
-        callback_id = _id("CB")
+def _create_callback(
+    conn: Any,
+    payload: dict[str, Any],
+    idempotency_key: str | None = None,
+    endpoint: str = "POST /callbacks",
+) -> dict[str, Any]:
+    """Connection-scoped body of :func:`create_callback` — see _create_promise."""
+    cached = _idempotent_response(conn, idempotency_key, endpoint)
+    if cached:
+        return cached
+    customer_id = payload["customerId"]
+    _ensure_customer(conn, customer_id)
+    cust = _one(
         conn.execute(
-            text(
-                """
-                INSERT INTO callbacks
-                  (id, customer_id, account_id, interaction_id, assignee_user_id, team_id,
-                   reason, scheduled_at, window_mins, dnd_active, status, priority,
-                   transcript_snippet, sla_due_at)
-                VALUES
-                  (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id, :team_id,
-                   :reason, :scheduled_at, :window_mins, :dnd_active, 'scheduled', :priority,
-                   :transcript_snippet, :scheduled_at)
-                """
-            ),
-            {
-                "id": callback_id,
-                "customer_id": customer_id,
-                "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
-                "interaction_id": payload.get("interactionId"),
-                "assignee_user_id": assignee_user_id,
-                "team_id": team_id,
-                "reason": reason,
-                "scheduled_at": scheduled_at,
-                "window_mins": window_mins,
-                "dnd_active": dnd_active,
-                "priority": payload.get("priority") or "normal",
-                "transcript_snippet": payload.get("transcriptSnippet"),
-            },
+            text("SELECT dnd, preferred_window FROM customers WHERE id = :id"),
+            {"id": customer_id},
         )
-        _activity(conn, "callback", callback_id, "callback_created", "Callback scheduled", reason, customer_id)
-        return {"id": callback_id, "status": "scheduled"}
+    )
+    reason = payload["reason"]
+    if reason not in CB_REASONS:
+        raise ValueError(f"invalid_reason: {reason}")
+
+    assignee_user_id = payload.get("assigneeUserId")
+    if assignee_user_id is not None:
+        if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee_user_id}).fetchone():
+            raise KeyError(f"user_not_found: {assignee_user_id}")
+
+    team_id = payload.get("teamId") or "retail-collections"
+    if not conn.execute(text("SELECT 1 FROM teams WHERE id = :id"), {"id": team_id}).fetchone():
+        raise KeyError(f"team_not_found: {team_id}")
+
+    scheduled_at = payload["scheduledAt"]
+    window_mins = _callback_window(payload.get("windowMins") or 30)
+    dnd_active = _callback_dnd_active(bool(cust and cust["dnd"]), cust["preferred_window"] if cust else None, scheduled_at)
+
+    callback_id = _id("CB")
+    conn.execute(
+        text(
+            """
+            INSERT INTO callbacks
+              (id, customer_id, account_id, interaction_id, assignee_user_id, team_id,
+               reason, scheduled_at, window_mins, dnd_active, status, priority,
+               transcript_snippet, sla_due_at)
+            VALUES
+              (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id, :team_id,
+               :reason, :scheduled_at, :window_mins, :dnd_active, 'scheduled', :priority,
+               :transcript_snippet, :scheduled_at)
+            """
+        ),
+        {
+            "id": callback_id,
+            "customer_id": customer_id,
+            "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
+            "interaction_id": payload.get("interactionId"),
+            "assignee_user_id": assignee_user_id,
+            "team_id": team_id,
+            "reason": reason,
+            "scheduled_at": scheduled_at,
+            "window_mins": window_mins,
+            "dnd_active": dnd_active,
+            "priority": payload.get("priority") or "normal",
+            "transcript_snippet": payload.get("transcriptSnippet"),
+        },
+    )
+    _activity(conn, "callback", callback_id, "callback_created", "Callback scheduled", reason, customer_id)
+    response = {"id": callback_id, "status": "scheduled"}
+    _store_idempotent_response(conn, idempotency_key, endpoint, response)
+    return response
 
 
 def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2963,12 +3928,119 @@ def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str
         return {"id": reminder_id, "status": _callback_reminder_status(db_status)}
 
 
-def create_lead(payload: dict[str, Any]) -> dict[str, Any]:
+# Product category → sales team. A lead for a policy must not land in the
+# retail-loan queue simply because "retail-sales" was the hardcoded default on
+# every bot-captured row.
+_TEAM_BY_CATEGORY: dict[str, str] = {
+    "insurance": "insurance",
+    "card": "cards-sales",
+    "loan": "retail-sales",
+    "deposit": "retail-sales",
+}
+_DEFAULT_LEAD_TEAM = "retail-sales"
+
+# Stages in which a lead is still being worked. A second lead for the same
+# product while one of these is open is a duplicate, not a new opportunity.
+OPEN_LEAD_STAGES = ("interested", "contacted", "qualified")
+
+
+def find_open_lead(conn: Any, customer_id: str, product_id: str) -> dict[str, Any] | None:
+    """An existing in-flight lead for this customer/product, if any."""
+    return _one(
+        conn.execute(
+            text(
+                """
+                SELECT id, stage, captured_at
+                FROM leads
+                WHERE customer_id = :cid AND product_id = :pid
+                  AND stage = ANY(:stages)
+                ORDER BY captured_at DESC NULLS LAST, id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": customer_id, "pid": product_id, "stages": list(OPEN_LEAD_STAGES)},
+        )
+    )
+
+
+def _route_team_id(conn: Any, product_id: str, explicit: str | None) -> str | None:
+    """Team that should own this lead. Explicit wins; otherwise route by
+    product category, and fall back to NULL rather than an id that does not
+    exist — a bad team_id is an IntegrityError, i.e. an HTTP 500 on a write
+    that had nothing wrong with it."""
+    candidate = explicit
+    if not candidate:
+        row = _one(
+            conn.execute(
+                text("SELECT category, type FROM products WHERE id = :id"), {"id": product_id}
+            )
+        )
+        key = ((row or {}).get("category") or (row or {}).get("type") or "").strip().lower()
+        candidate = _TEAM_BY_CATEGORY.get(key, _DEFAULT_LEAD_TEAM)
+    exists = _one(
+        conn.execute(text("SELECT id FROM teams WHERE id = :id"), {"id": candidate})
+    )
+    if exists:
+        return candidate
+    if candidate != _DEFAULT_LEAD_TEAM:
+        fallback = _one(
+            conn.execute(
+                text("SELECT id FROM teams WHERE id = :id"), {"id": _DEFAULT_LEAD_TEAM}
+            )
+        )
+        if fallback:
+            return _DEFAULT_LEAD_TEAM
+    logger.warning("lead routing: no team row for %r — leaving unassigned", candidate)
+    return None
+
+
+def create_lead(
+    payload: dict[str, Any],
+    idempotency_key: str | None = None,
+    *,
+    allow_duplicate: bool = False,
+) -> dict[str, Any]:
+    endpoint = "POST /leads"
     with engine.begin() as conn:
+        # Same contract as create_promise / create_dispute / create_callback.
+        # capture_lead was the one CRM write with no replay protection, so a
+        # retried tool call — the single most common thing an LLM does — put two
+        # identical leads in the pipeline and two reps on the phone.
+        cached = _idempotent_response(conn, idempotency_key, endpoint)
+        if cached:
+            return cached
+
         customer_id = payload["customerId"]
         _ensure_customer(conn, customer_id)
         lead_id = _id("LD")
-        product_id = payload["productId"]
+        product_id = payload.get("productId")
+        if not product_id:
+            raise ValueError("productId_required")
+
+        # Validate before INSERT: a bad product id would otherwise surface as an
+        # unhandled IntegrityError (HTTP 500) instead of a 409 the caller can act on.
+        product = _one(
+            conn.execute(
+                text("SELECT id, name, category, ticket_min, ticket_max, roi FROM products WHERE id = :id"),
+                {"id": product_id},
+            )
+        )
+        if product is None:
+            raise ValueError("product_not_found")
+
+        if not allow_duplicate:
+            # Serialise concurrent capture of the same (customer, product): the
+            # voice tool and the WhatsApp worker are genuinely concurrent
+            # writers, so a plain SELECT-then-INSERT races. Transaction-scoped,
+            # released on commit — same pattern as _idempotent_response.
+            conn.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext('lead'), hashtext(:k))"),
+                {"k": f"{customer_id}:{product_id}"},
+            )
+            existing = find_open_lead(conn, customer_id, product_id)
+            if existing:
+                raise ValueError(f"duplicate_open_lead:{existing['id']}")
+
         conn.execute(
             text(
                 """
@@ -2982,7 +4054,37 @@ def create_lead(payload: dict[str, Any]) -> dict[str, Any]:
                    :offer_amount, :offer_roi, :priority, now(), :transcript_snippet)
                 """
             ),
-            {"id": lead_id, "customer_id": customer_id, "account_id": payload.get("accountId") or _first_account_id(conn, customer_id), "interaction_id": payload.get("interactionId"), "product_id": product_id, "owner_user_id": payload.get("ownerUserId") or _actor_user_id(), "team_id": payload.get("teamId") or "retail-sales", "stage": payload.get("stage") or "interested", "source": payload.get("source") or "agent", "sentiment_at_capture": payload.get("sentimentAtCapture") or "neutral", "sentiment_score": payload.get("sentimentScore"), "estimated_value": payload.get("estimatedValue"), "offer_amount": payload.get("offerAmount"), "offer_roi": payload.get("offerRoi"), "priority": payload.get("priority") or "normal", "transcript_snippet": payload.get("transcriptSnippet")},
+            {
+                "id": lead_id,
+                "customer_id": customer_id,
+                "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
+                "interaction_id": payload.get("interactionId"),
+                "product_id": product_id,
+                # A bot has no user identity; falling back to the API actor made
+                # every bot-captured lead look like it was raised by whichever
+                # service account happened to be configured.
+                "owner_user_id": payload.get("ownerUserId"),
+                "team_id": _route_team_id(conn, product_id, payload.get("teamId")),
+                "stage": payload.get("stage") or "interested",
+                "source": payload.get("source") or "agent",
+                "sentiment_at_capture": payload.get("sentimentAtCapture") or "neutral",
+                "sentiment_score": payload.get("sentimentScore"),
+                # estimated_value drives every money figure on the board. A NULL
+                # here rendered as ₹NaN column subtotals and crashed the lead
+                # card outright, so it falls back to the offer amount and then to
+                # the product's ticket floor rather than staying empty.
+                "estimated_value": (
+                    payload.get("estimatedValue")
+                    if payload.get("estimatedValue") is not None
+                    else payload.get("offerAmount")
+                    if payload.get("offerAmount") is not None
+                    else product.get("ticket_min")
+                ),
+                "offer_amount": payload.get("offerAmount"),
+                "offer_roi": payload.get("offerRoi") or product.get("roi"),
+                "priority": payload.get("priority") or "normal",
+                "transcript_snippet": payload.get("transcriptSnippet"),
+            },
         )
         # Phase 2-lite: persist evaluated eligibility (honest unknown for bureau/KYC).
         # Savepoint: a capture failure must not abort the lead write + trailing activity.
@@ -2993,34 +4095,228 @@ def create_lead(payload: dict[str, Any]) -> dict[str, Any]:
                 flags = payload.get("eligibilityFlags")
                 if not isinstance(flags, list):
                     flags = capture.evaluate_product_eligibility(
-                        conn, customer_id=customer_id, product_id=product_id
+                        conn,
+                        customer_id=customer_id,
+                        product_id=product_id,
+                        channel=payload.get("channel"),
                     )
                 capture.insert_lead_eligibility(conn, lead_id=lead_id, flags=flags)
                 if payload.get("interactionId"):
+                    # A captured lead genuinely IS a presented offer, so the
+                    # flag belongs here. What it must NOT be tied to is a bare
+                    # eligibility probe — see voice/tools.py.
                     capture.mark_upsell_presented(conn, payload.get("interactionId"))
                     capture.touch_primary_intent(conn, payload.get("interactionId"), "upsell_opportunity")
         except Exception:
             logger.exception("lead eligibility capture failed for %s", lead_id)
         _activity(conn, "lead", lead_id, "lead_created", "Lead created", None, customer_id)
-        return _lead_by_id(conn, lead_id)
+        response = _lead_by_id(conn, lead_id)
+        _store_idempotent_response(conn, idempotency_key, endpoint, response)
+        return response
+
+
+# A lead's stage is a state machine, not a free-text column. Without this any
+# stage could be written over any other — including straight from 'interested'
+# to 'won' with no amount, or back out of a closed stage silently.
+_LEAD_STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
+    "interested": frozenset({"contacted", "qualified", "won", "lost"}),
+    "contacted": frozenset({"interested", "qualified", "won", "lost"}),
+    "qualified": frozenset({"interested", "contacted", "won", "lost"}),
+    # Closed stages reopen only deliberately: won↔lost corrects a mis-click,
+    # and either can be pulled back into the pipeline for re-engagement.
+    "won": frozenset({"lost", "interested"}),
+    "lost": frozenset({"won", "interested"}),
+}
+_CLOSED_LEAD_STAGES = frozenset({"won", "lost"})
 
 
 def patch_lead(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
-        row = _one(conn.execute(text("SELECT customer_id FROM leads WHERE id = :id"), {"id": lead_id}))
+        row = _one(
+            conn.execute(
+                text(
+                    "SELECT customer_id, product_id, stage, estimated_value, offer_amount"
+                    " FROM leads WHERE id = :id"
+                ),
+                {"id": lead_id},
+            )
+        )
         if row is None:
             raise KeyError("lead_not_found")
-        mapping = {"stage": "stage", "productId": "product_id", "ownerUserId": "owner_user_id", "teamId": "team_id", "offerAmount": "offer_amount", "offerRoi": "offer_roi", "wonAmount": "won_amount", "lossReason": "loss_reason"}
-        updates = []
-        params = {"id": lead_id}
-        for key, column in mapping.items():
-            if payload.get(key) is not None:
-                updates.append(f"{column} = :{column}")
-                params[column] = payload[key]
+
+        current_stage = row["stage"]
+        next_stage = payload.get("stage")
+        updates: list[str] = []
+        params: dict[str, Any] = {"id": lead_id}
+        events: list[tuple[str, str, str | None]] = []  # (kind, label, note)
+
+        if next_stage and next_stage != current_stage:
+            allowed = _LEAD_STAGE_TRANSITIONS.get(current_stage, frozenset())
+            if next_stage not in allowed:
+                raise ValueError(f"invalid_stage_transition:{current_stage}->{next_stage}")
+
+            if next_stage == "lost" and not (payload.get("lossReason") or "").strip():
+                # A loss with no reason is a data point that teaches nobody
+                # anything, and it is what the loss-reason breakdown reports on.
+                raise ValueError("loss_reason_required")
+
+            updates.append("stage = :stage")
+            params["stage"] = next_stage
+
+            if next_stage in _CLOSED_LEAD_STAGES:
+                updates.append("closed_at = now()")
+                if next_stage == "won" and payload.get("wonAmount") is None:
+                    # Fall back to the pipeline value we have been reporting all
+                    # along rather than closing a win worth NULL.
+                    fallback = row["estimated_value"] or row["offer_amount"]
+                    if fallback is not None:
+                        updates.append("won_amount = :won_amount_default")
+                        params["won_amount_default"] = fallback
+            else:
+                # Reopening: the close date is no longer true.
+                updates.append("closed_at = NULL")
+
+            events.append(
+                (
+                    "lead_won" if next_stage == "won" else "lead_lost" if next_stage == "lost" else "lead_stage_moved",
+                    f"Lead moved to {next_stage}",
+                    payload.get("lossReason") if next_stage == "lost" else next_stage,
+                )
+            )
+
+        # Explicit-None means "clear this field". `is not None` made lossReason
+        # and wonAmount permanently sticky once set.
+        clearable = {"lossReason": "loss_reason", "wonAmount": "won_amount"}
+        settable = {
+            "productId": "product_id",
+            "ownerUserId": "owner_user_id",
+            "teamId": "team_id",
+            "offerAmount": "offer_amount",
+            "offerRoi": "offer_roi",
+        }
+        for key, column in {**settable, **clearable}.items():
+            if key not in payload:
+                continue
+            value = payload[key]
+            if value is None and key not in clearable:
+                continue
+            updates.append(f"{column} = :{column}")
+            params[column] = value
+
+        product_changed = bool(payload.get("productId")) and payload["productId"] != row["product_id"]
+        if product_changed:
+            product = _one(
+                conn.execute(
+                    text("SELECT id FROM products WHERE id = :id"), {"id": payload["productId"]}
+                )
+            )
+            if product is None:
+                raise ValueError("product_not_found")
+            events.append(("lead_offer_edited", "Offer product changed", payload["productId"]))
+
+        if payload.get("ownerUserId"):
+            events.append(("lead_assigned", "Lead reassigned", payload["ownerUserId"]))
+        if payload.get("teamId"):
+            events.append(("lead_team_changed", "Lead routed to another team", payload["teamId"]))
+        if payload.get("offerAmount") is not None and not product_changed:
+            events.append(("lead_offer_edited", "Offer amount updated", str(payload["offerAmount"])))
+
         if updates:
             conn.execute(text(f"UPDATE leads SET {', '.join(updates)} WHERE id = :id"), params)
-        _activity(conn, "lead", lead_id, "lead_updated", "Lead updated", payload.get("stage"), row["customer_id"])
+
+        # Switching the product invalidates every stored eligibility flag: they
+        # describe the OLD product. Leaving them made the drawer show a green
+        # "all checks passed" for a product that was never evaluated.
+        if product_changed:
+            try:
+                import capture
+
+                with conn.begin_nested():
+                    flags = capture.evaluate_product_eligibility(
+                        conn,
+                        customer_id=row["customer_id"],
+                        product_id=payload["productId"],
+                        channel=payload.get("channel"),
+                    )
+                    capture.insert_lead_eligibility(conn, lead_id=lead_id, flags=flags)
+            except Exception:
+                logger.exception("lead eligibility re-evaluation failed for %s", lead_id)
+
+        if not events:
+            events.append(("lead_updated", "Lead updated", None))
+        for kind, label, note in events:
+            _activity(conn, "lead", lead_id, kind, label, note, row["customer_id"])
         return _lead_by_id(conn, lead_id)
+
+
+def revalidate_lead_eligibility(lead_id: str, channel: str | None = None) -> dict[str, Any]:
+    """Re-evaluate a lead's eligibility against today's facts.
+
+    Eligibility was evaluated once, at capture, and never again — so a customer
+    who opted out afterwards kept an actionable lead with a green badge on it.
+    Called by the nightly sweep and by the drawer's refresh action.
+    """
+    import capture
+
+    with engine.begin() as conn:
+        row = _one(
+            conn.execute(
+                text("SELECT customer_id, product_id, stage FROM leads WHERE id = :id"),
+                {"id": lead_id},
+            )
+        )
+        if row is None:
+            raise KeyError("lead_not_found")
+        if not row["product_id"]:
+            raise ValueError("lead_has_no_product")
+
+        flags = capture.evaluate_product_eligibility(
+            conn,
+            customer_id=row["customer_id"],
+            product_id=row["product_id"],
+            channel=channel,
+        )
+        capture.insert_lead_eligibility(conn, lead_id=lead_id, flags=flags)
+        blocked = capture.eligibility_blocks_capture(flags)
+        _activity(
+            conn,
+            "lead",
+            lead_id,
+            "lead_eligibility_revalidated",
+            "Eligibility re-checked" + (f" — blocked: {blocked}" if blocked else " — still eligible"),
+            blocked,
+            row["customer_id"],
+        )
+        return {"leadId": lead_id, "eligible": blocked is None, "blockReason": blocked, "flags": flags}
+
+
+def revalidate_open_leads(limit: int = 500) -> dict[str, Any]:
+    """Nightly sweep over open leads. Returns a compact report."""
+    with engine.connect() as conn:
+        ids = [
+            r["id"]
+            for r in _rows(
+                conn.execute(
+                    text(
+                        "SELECT id FROM leads WHERE stage = ANY(:stages)"
+                        " AND product_id IS NOT NULL ORDER BY captured_at DESC NULLS LAST LIMIT :lim"
+                    ),
+                    {"stages": list(OPEN_LEAD_STAGES), "lim": max(1, int(limit))},
+                )
+            )
+        ]
+    checked = 0
+    blocked: list[str] = []
+    for lead_id in ids:
+        try:
+            result = revalidate_lead_eligibility(lead_id)
+        except Exception:
+            logger.exception("revalidate failed for %s", lead_id)
+            continue
+        checked += 1
+        if not result["eligible"]:
+            blocked.append(lead_id)
+    return {"checked": checked, "blocked": blocked, "blockedCount": len(blocked)}
 
 
 def add_lead_followup(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3055,8 +4351,14 @@ def patch_followup(followup_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"id": followup_id, "status": payload.get("status")}
 
 
-def create_document_request(payload: dict[str, Any]) -> dict[str, Any]:
+def create_document_request(
+    payload: dict[str, Any], idempotency_key: str | None = None
+) -> dict[str, Any]:
+    endpoint = "POST /documents"
     with engine.begin() as conn:
+        cached = _idempotent_response(conn, idempotency_key, endpoint)
+        if cached:
+            return cached
         customer_id = payload["customerId"]
         _ensure_customer(conn, customer_id)
         document_id = _id("DOC")
@@ -3126,7 +4428,9 @@ def create_document_request(payload: dict[str, Any]) -> dict[str, Any]:
             )
         label = f"Document requested · {doc_type}"
         _activity(conn, "document_request", document_id, "document_requested", label, doc_type, customer_id)
-        return _document_by_id(conn, document_id)
+        response = _document_by_id(conn, document_id)
+        _store_idempotent_response(conn, idempotency_key, endpoint, response)
+        return response
 
 
 def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3889,6 +5193,11 @@ def add_violation_note(violation_id: str, payload: dict[str, Any]) -> dict[str, 
 
 _BOT_ANALYTICS_RANGE_DAYS = {"7d": 7, "30d": 30, "90d": 90}
 
+# The unanswered-questions table used to be hand-seeded at ~10 rows, so this
+# read was unbounded. Runtime gap capture makes it grow with traffic, and the
+# screen only renders a top-N table.
+_BOT_ANALYTICS_GAP_LIMIT = 50
+
 _BOT_ANALYTICS_CHANNELS = frozenset({"voice", "whatsapp", "sms"})
 
 _HANDOFF_REASON_LABELS = {
@@ -4146,9 +5455,10 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                     FROM unanswered_questions uq
                     WHERE uq.tenant_id = :tenant_id
                     ORDER BY uq.hit_count DESC, uq.id
+                    LIMIT :gap_lim
                     """
                 ),
-                {"tenant_id": TENANT_ID},
+                {"tenant_id": TENANT_ID, "gap_lim": _BOT_ANALYTICS_GAP_LIMIT},
             )
         )
 
@@ -4432,6 +5742,17 @@ def get_rubric(rubric_id: str | None = None) -> dict[str, Any]:
         if tree is None:
             raise KeyError("rubric_not_found")
         return tree
+
+
+def load_rubric_tree(rubric_id: str | None = None) -> dict[str, Any] | None:
+    """Rubric tree, or None when there is no enabled rubric.
+
+    ``get_rubric`` raises for the HTTP layer, which wants a 404. The QA
+    auto-scorer is a background sweep and a missing rubric is a reason to skip
+    the tick, not to raise into a worker loop.
+    """
+    with engine.connect() as conn:
+        return _load_rubric_tree(conn, rubric_id or _QA_DEFAULT_RUBRIC_ID)
 
 
 def _qa_all_criteria(rubric: dict[str, Any]) -> list[dict[str, Any]]:
@@ -4974,15 +6295,20 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
         for flag in payload.get("flags") or []:
             conn.execute(text("INSERT INTO interaction_flags (id, interaction_id, flag, severity) VALUES (:id, :interaction_id, :flag, 'medium')"), {"id": _id("FLAG"), "interaction_id": interaction_id, "flag": flag})
         spawned: dict[str, Any] = {}
+        # Connection-scoped: a wrap-up spawning a promise, a dispute and a
+        # callback is one atomic outcome. The public create_* entrypoints open
+        # their own transaction, so a failure after the second spawn used to
+        # leave the first two committed while the wrap-up itself rolled back —
+        # and the idempotent replay then spawned them a second time.
         if payload.get("promise"):
             promise_payload = {**payload["promise"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}
-            spawned["promise"] = create_promise(promise_payload)
+            spawned["promise"] = _create_promise(conn, promise_payload, None, "POST /promises")
         if payload.get("dispute"):
             dispute_payload = {**payload["dispute"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}
-            spawned["dispute"] = create_dispute(dispute_payload)
+            spawned["dispute"] = _create_dispute(conn, dispute_payload, None, "POST /disputes")
         if payload.get("callback"):
             callback_payload = {**payload["callback"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}
-            spawned["callback"] = create_callback(callback_payload)
+            spawned["callback"] = _create_callback(conn, callback_payload)
         _activity(conn, "interaction", interaction_id, "interaction_wrapped_up", "Interaction wrapped up", payload.get("notes"), interaction["customer_id"])
         response = {"id": interaction_id, "spawned": spawned}
         _store_idempotent_response(conn, idempotency_key, endpoint, response)
@@ -5104,9 +6430,9 @@ def _inbox_channel(channel: str | None) -> str:
 def _inbox_delivery(status: str | None, sender: str) -> str | None:
     if sender not in {"bot", "agent"}:
         return None
-    if status in {"sent", "delivered", "read"}:
+    if status in {"sent", "delivered", "read", "failed"}:
         return status
-    if status in {"sending", "failed", "cancelled"}:
+    if status in {"sending", "cancelled"}:
         return None
     return "delivered"
 
@@ -5550,7 +6876,14 @@ def list_conversations(*, updated_after: datetime | str | None = None) -> list[d
     after: datetime | None = None
     if updated_after is not None:
         if isinstance(updated_after, datetime):
-            after = updated_after
+            # Same UTC normalization as the parsed-string branch: comparing a
+            # naive watermark against timestamptz makes Postgres reinterpret it
+            # in the server TimeZone, silently shifting the delta window.
+            after = (
+                updated_after
+                if updated_after.tzinfo
+                else updated_after.replace(tzinfo=timezone.utc)
+            )
         else:
             raw = str(updated_after).strip()
             if raw:
@@ -5916,29 +7249,40 @@ def refresh_conversation_suggestions(
             "wording",
         )
     )
-    retrieval = kb_retrieve.retrieve(
-        query=query,
-        top_k=fetch_k,
-        include_draft_answer=include_draft_answer,
-        source="inbox",
-        prefer_policy=prefer_policy,
-    )
-    chips: list[str] = []
-    passed = [
-        item
-        for item in (retrieval.get("results") or [])
-        if float(item.get("score") or 0.0) >= INBOX_RAG_MIN_SCORE
-    ]
-    # Don't persist a draft grounded on weak / off-topic hits.
-    draft = (retrieval.get("draftAnswer") or "").strip() or None
-    if not passed:
+    retrieval: dict[str, Any] | None = None
+    try:
+        retrieval = kb_retrieve.retrieve(
+            query=query,
+            top_k=fetch_k,
+            include_draft_answer=include_draft_answer,
+            source="inbox",
+            prefer_policy=prefer_policy,
+        )
+    except Exception:
+        logger.exception("inbox_rag_retrieve_failed conversation=%s", conversation_id)
+        retrieval = None
+    if retrieval is None:
+        # Fall through to persisted-chips path below.
+        chips = []
         draft = None
-    for item in passed:
-        chip = _chip_from_result(item)
-        if chip and chip not in chips:
-            chips.append(chip)
-        if len(chips) >= 5:
-            break
+        passed = []
+    else:
+        chips = []
+        passed = [
+            item
+            for item in (retrieval.get("results") or [])
+            if float(item.get("score") or 0.0) >= INBOX_RAG_MIN_SCORE
+        ]
+        # Don't persist a draft grounded on weak / off-topic hits.
+        draft = (retrieval.get("draftAnswer") or "").strip() or None
+        if not passed:
+            draft = None
+        for item in passed:
+            chip = _chip_from_result(item)
+            if chip and chip not in chips:
+                chips.append(chip)
+            if len(chips) >= top_k:
+                break
 
     # Only replace persisted chips when we have a fresh pass set. An empty
     # retrieval (score-gate miss / transient embed blip) must not wipe the last
@@ -6017,7 +7361,7 @@ def refresh_conversation_suggestions(
             )
             chips = [str(r["suggestion_text"]).strip() for r in existing if r.get("suggestion_text")]
 
-    logger = __import__("logging").getLogger(__name__)
+    meta: dict[str, Any] = retrieval or {}
     logger.info(
         "inbox_rag_refreshed conversation=%s chips=%s passed=%s draft=%s min_score=%s latency_ms=%s",
         conversation_id,
@@ -6025,17 +7369,18 @@ def refresh_conversation_suggestions(
         len(passed),
         bool(draft),
         INBOX_RAG_MIN_SCORE,
-        retrieval.get("latencyMs"),
+        meta.get("latencyMs"),
     )
     thread = get_conversation(conversation_id)
-    assert thread is not None
+    if thread is None:
+        raise KeyError(f"conversation {conversation_id} not found")
     return {
         "conversationId": conversation_id,
         "ragSuggestions": chips[:5],
         "draftAnswer": draft,
-        "chatModel": retrieval.get("chatModel"),
-        "latencyMs": retrieval.get("latencyMs"),
-        "logId": retrieval.get("logId"),
+        "chatModel": meta.get("chatModel"),
+        "latencyMs": meta.get("latencyMs"),
+        "logId": meta.get("logId"),
         "thread": thread,
     }
 
@@ -6197,28 +7542,54 @@ def return_conversation_to_bot(conversation_id: str) -> dict[str, Any]:
     with engine.begin() as conn:
         row = _one(
             conn.execute(
-                text("SELECT id, customer_id, status, assigned_user_id FROM conversations WHERE id = :id"),
+                text(
+                    """
+                    SELECT id, customer_id, status, assigned_user_id, bot_state
+                    FROM conversations WHERE id = :id
+                    """
+                ),
                 {"id": conversation_id},
             )
         )
         if row is None:
             raise KeyError("conversation_not_found")
-        if row["assigned_user_id"] not in (None, me_id) and row["status"] == "assigned":
-            # Another agent owns it — still allow return if current actor is assigned
-            # or thread is needs_human/escalated (any agent can release back).
-            if row["status"] not in {"needs_human", "escalated", "assigned"}:
-                raise ValueError("return_to_bot_not_allowed")
+        status = row["status"]
+        assignee = row["assigned_user_id"]
+        # Owner can always release; any agent may release needs_human/escalated.
+        if status == "assigned" and assignee not in (None, me_id):
+            raise ValueError("return_to_bot_not_allowed")
+        if status not in {"assigned", "needs_human", "escalated"}:
+            raise ValueError("return_to_bot_not_allowed")
+
+        # Drop stale session intent and mark a dialog reset so the next bot turn
+        # does not treat pre-handoff EMI/PTP seed history as the current topic.
+        raw_state = row.get("bot_state")
+        state: dict[str, Any] = {}
+        if isinstance(raw_state, dict):
+            state = dict(raw_state)
+        elif isinstance(raw_state, str) and raw_state.strip():
+            try:
+                parsed = json.loads(raw_state)
+                if isinstance(parsed, dict):
+                    state = parsed
+            except json.JSONDecodeError:
+                state = {}
+        state.pop("last_intent", None)
+        state.pop("last_trigger_message_id", None)
+        state["dialog_reset_at"] = datetime.now(timezone.utc).isoformat()
+
         conn.execute(
             text(
                 """
                 UPDATE conversations
                 SET status = 'bot',
                     assigned_user_id = NULL,
+                    bot_state = CAST(:bot_state AS jsonb),
                     updated_at = now()
                 WHERE id = :id
                 """
             ),
-            {"id": conversation_id},
+            {"id": conversation_id, "bot_state": json.dumps(state)},
         )
         _activity(
             conn,
@@ -6294,40 +7665,48 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
     me_id = _actor_user_id()
     provider_ref: str | None = None
     delivery_status = "sent"
-
-    with engine.connect() as conn:
-        row = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT cv.id, cv.customer_id, cv.status, cv.assigned_user_id, cv.channel,
-                           c.phone_primary, c.phone_alt,
-                           (
-                             SELECT MAX(COALESCE(m.sent_at, m.created_at))
-                             FROM messages m
-                             WHERE m.conversation_id = cv.id AND m.sender = 'customer'
-                           ) AS last_customer_at
-                    FROM conversations cv
-                    JOIN customers c ON c.id = cv.customer_id
-                    WHERE cv.id = :id
-                    """
-                ),
-                {"id": conversation_id},
-            )
-        )
-    if row is None:
-        raise KeyError("conversation_not_found")
-    if row["status"] == "bot" and row["assigned_user_id"] != me_id:
-        raise ValueError("bot_still_handling")
-
-    channel = row["channel"]
-    is_mine = row["assigned_user_id"] == me_id
-
     msg_id = _id("MSG")
     now = datetime.now(timezone.utc)
 
-    def _finalize(conn: Any) -> None:
-        # Sending implies ownership if not already assigned to someone else.
+    _LOCK_SQL = """
+        SELECT cv.id, cv.customer_id, cv.status, cv.assigned_user_id, cv.channel,
+               c.phone_primary, c.phone_alt,
+               (
+                 SELECT MAX(COALESCE(m.sent_at, m.created_at))
+                 FROM messages m
+                 WHERE m.conversation_id = cv.id
+                   AND m.sender = 'customer'
+                   -- Seed/demo rows have no Meta wamid; Meta's 24h window only
+                   -- opens after a real inbound WhatsApp message.
+                   AND m.provider_ref IS NOT NULL
+               ) AS last_customer_at
+        FROM conversations cv
+        JOIN customers c ON c.id = cv.customer_id
+        WHERE cv.id = :id
+        FOR UPDATE OF cv
+    """
+
+    def _guards(row: dict[str, Any]) -> tuple[str, bool]:
+        if row["status"] == "bot" and row["assigned_user_id"] != me_id:
+            raise ValueError("bot_still_handling")
+        channel = row["channel"]
+        is_mine = row["assigned_user_id"] == me_id
+        if channel == "whatsapp":
+            if not is_mine:
+                raise ValueError("take_over_required")
+            last_customer_at = row["last_customer_at"]
+            if isinstance(last_customer_at, str):
+                last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
+            if last_customer_at is None:
+                raise ValueError("whatsapp_window_closed")
+            if getattr(last_customer_at, "tzinfo", None) is None:
+                last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
+            age = datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)
+            if age > timedelta(hours=24):
+                raise ValueError("whatsapp_window_closed")
+        return channel, is_mine
+
+    def _finalize(conn: Any, row: dict[str, Any]) -> None:
         if row["assigned_user_id"] is None or row["assigned_user_id"] == me_id:
             conn.execute(
                 text(
@@ -6356,31 +7735,20 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
             row["customer_id"],
         )
 
-    # WhatsApp free-form send: only after take-over, only inside 24h window.
-    if channel == "whatsapp":
-        if not is_mine:
-            raise ValueError("take_over_required")
-        last_customer_at = row["last_customer_at"]
-        if isinstance(last_customer_at, str):
-            last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
-        if last_customer_at is None:
-            raise ValueError("whatsapp_window_closed")
-        if getattr(last_customer_at, "tzinfo", None) is None:
-            last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
-        age = datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)
-        if age > timedelta(hours=24):
-            raise ValueError("whatsapp_window_closed")
+    with engine.begin() as conn:
+        row = _one(conn.execute(text(_LOCK_SQL), {"id": conversation_id}))
+        if row is None:
+            raise KeyError("conversation_not_found")
+        channel, _is_mine = _guards(row)
 
-        import whatsapp as wa
-        import whatsapp_outbound as wa_out
+        if channel == "whatsapp":
+            import whatsapp as wa
+            import whatsapp_outbound as wa_out
 
-        to_phone = wa.normalize_phone(row["phone_primary"]) or wa.normalize_phone(row["phone_alt"])
-        if not to_phone:
-            raise ValueError("whatsapp_missing_recipient")
+            to_phone = wa.normalize_phone(row["phone_primary"]) or wa.normalize_phone(row["phone_alt"])
+            if not to_phone:
+                raise ValueError("whatsapp_missing_recipient")
 
-        # Persist 'sending' + enqueue Meta send off the HTTP path (bot_worker).
-        # Avoids holding a threadpool slot + DB pool checkout on India→Meta RTT.
-        with engine.begin() as conn:
             conn.execute(
                 text(
                     """
@@ -6398,9 +7766,8 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
                 to_phone=to_phone,
                 body=text_value,
             )
-            _finalize(conn)
-    else:
-        with engine.begin() as conn:
+            _finalize(conn, row)
+        else:
             conn.execute(
                 text(
                     """
@@ -6417,7 +7784,7 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
                     "sent_at": now,
                 },
             )
-            _finalize(conn)
+            _finalize(conn, row)
 
     result = get_conversation(conversation_id)
     if result is None:
@@ -6425,32 +7792,89 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
     return result
 
 
-def _digits_phone_match_sql() -> str:
+def _digits_phone_exact_sql() -> str:
     return """
       regexp_replace(COALESCE(c.phone_primary, ''), '[^0-9]', '', 'g') = :phone
       OR regexp_replace(COALESCE(c.phone_alt, ''), '[^0-9]', '', 'g') = :phone
-      OR RIGHT(regexp_replace(COALESCE(c.phone_primary, ''), '[^0-9]', '', 'g'), 10) = RIGHT(:phone, 10)
-      OR RIGHT(regexp_replace(COALESCE(c.phone_alt, ''), '[^0-9]', '', 'g'), 10) = RIGHT(:phone, 10)
+    """
+
+
+def _digits_phone_tail10_sql() -> str:
+    """Legacy local-format fallback, restricted to a bare 10-digit national number.
+
+    A plain last-10 comparison matched across country codes: a stored
+    ``+91 98765 43210`` and an inbound ``+1 98765 43210`` share their last ten
+    digits and resolved to the same customer. A bare "is a suffix of" test is
+    no better — ``19876543210`` really is a suffix of ``919876543210``.
+
+    The only shape this fallback exists for is a legacy row stored as the bare
+    10-digit national number, so that is exactly what it allows: the shorter
+    side must be 10 digits and must be the tail of the longer one. Anything
+    with two different country codes has a shorter side of 11+ and cannot match.
+    """
+    return " OR ".join(_tail10_predicate(col) for col in ("c.phone_primary", "c.phone_alt"))
+
+
+def _tail10_predicate(column: str) -> str:
+    digits = f"regexp_replace(COALESCE({column}, ''), '[^0-9]', '', 'g')"
+    return f"""
+      (
+        length({digits}) >= 10
+        AND least(length({digits}), length(:phone)) = 10
+        AND (
+          {digits} = right(:phone, 10)
+          OR :phone = right({digits}, 10)
+        )
+      )
     """
 
 
 def _find_customer_by_phone(conn: Any, phone: str) -> dict[str, Any] | None:
-    if not phone:
+    # Digits only: the tail fallback embeds :phone in a LIKE pattern, so a `%`
+    # or `_` surviving from a caller that skipped normalisation would turn the
+    # suffix match back into a wildcard scan.
+    phone = re.sub(r"\D+", "", phone or "")
+    if len(phone) < 10:
         return None
-    return _one(
+    exact = _rows(
         conn.execute(
             text(
                 f"""
                 SELECT id, name, phone_primary, phone_alt
                 FROM customers c
-                WHERE {_digits_phone_match_sql()}
+                WHERE {_digits_phone_exact_sql()}
                 ORDER BY c.updated_at DESC NULLS LAST, c.id
-                LIMIT 1
+                LIMIT 3
                 """
             ),
             {"phone": phone},
         )
     )
+    if exact:
+        if len(exact) > 1:
+            logger.warning("exact phone match returned %s customers for …%s", len(exact), phone[-4:])
+        return exact[0]
+    # Demoted last-10 fallback — fail closed on ambiguous distinct customers.
+    tails = _rows(
+        conn.execute(
+            text(
+                f"""
+                SELECT id, name, phone_primary, phone_alt
+                FROM customers c
+                WHERE {_digits_phone_tail10_sql()}
+                ORDER BY c.updated_at DESC NULLS LAST, c.id
+                LIMIT 3
+                """
+            ),
+            {"phone": phone},
+        )
+    )
+    if not tails:
+        return None
+    if len({r["id"] for r in tails}) > 1:
+        logger.warning("ambiguous last-10 phone match for …%s — failing closed", phone[-4:])
+        return None
+    return tails[0]
 
 
 def find_customer_by_phone(phone: str) -> dict[str, Any] | None:
@@ -6466,8 +7890,13 @@ def _ensure_whatsapp_customer(conn: Any, phone: str, profile_name: str | None) -
     existing = _find_customer_by_phone(conn, phone)
     if existing:
         return existing
-    customer_id = f"cust-wa-{phone[-10:]}" if len(phone) >= 10 else _id("cust-wa").lower()
-    account_id = f"AC-WA-{phone[-6:]}" if len(phone) >= 6 else _id("AC")
+    # Derive the ids from the FULL normalized number. Keying on the last 10 (or
+    # 6) digits collided across country codes — +91 98765 43210 and +1 987 654
+    # 3210 both produced cust-wa-9876543210 — and the DO UPDATE below then
+    # overwrote the first person's phone and name with the second's, merging two
+    # customers into one record.
+    customer_id = f"cust-wa-{phone}" if phone else _id("cust-wa").lower()
+    account_id = f"AC-WA-{phone}" if phone else _id("AC")
     name = (profile_name or f"WhatsApp {phone[-4:]}").strip() or f"WhatsApp {phone[-4:]}"
     conn.execute(
         text(
@@ -6476,7 +7905,7 @@ def _ensure_whatsapp_customer(conn: Any, phone: str, profile_name: str | None) -
               (id, tenant_id, assigned_user_id, name, phone_primary, risk, preferred_window, dnd, segment)
             VALUES
               (:id, :tenant_id, NULL, :name, :phone, 'medium', '10:00-19:00 IST', false, 'retail')
-            ON CONFLICT (id) DO UPDATE SET phone_primary = EXCLUDED.phone_primary, name = EXCLUDED.name
+            ON CONFLICT (id) DO NOTHING
             """
         ),
         {"id": customer_id, "tenant_id": TENANT_ID, "name": name, "phone": phone},
@@ -6583,13 +8012,39 @@ def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
     return conversation_id
 
 
-def _touch_interaction_sentiment(conn: Any, interaction_id: str | None, text_value: str) -> None:
-    """Blend latest customer-turn sentiment into the linked interaction (Inbox header)."""
+def touch_interaction_sentiment(
+    conn: Any,
+    interaction_id: str | None,
+    text_value: str,
+    *,
+    score: float | None = None,
+) -> None:
+    """Public alias for _touch_interaction_sentiment (see record_activity)."""
+    _touch_interaction_sentiment(conn, interaction_id, text_value, score=score)
+
+
+def _touch_interaction_sentiment(
+    conn: Any,
+    interaction_id: str | None,
+    text_value: str,
+    *,
+    score: float | None = None,
+) -> None:
+    """Blend latest customer-turn sentiment into the linked interaction (Inbox header).
+
+    ``score`` lets a caller that has already classified the turn pass its result
+    in rather than have the English lexicon re-derive one from the raw text —
+    which on a Hindi or code-switched turn returns 0.00 regardless of what was
+    said. The webhook ingest path deliberately does not pass it: it runs inside
+    the inbound request transaction, where an Azure call risks provider
+    redelivery, and bot_worker re-touches the same interaction moments later
+    with the enriched score.
+    """
     if not interaction_id:
         return
     from agent_core.sentiment import estimate_sentiment, sentiment_label
 
-    score = estimate_sentiment(text_value)
+    score = estimate_sentiment(text_value) if score is None else float(score)
     row = _one(
         conn.execute(
             text("SELECT avg_sentiment FROM interactions WHERE id = :id"),
@@ -6627,33 +8082,47 @@ def _ingest_inbound_whatsapp_message(
     profile_name: str | None,
     sent_at: datetime,
 ) -> dict[str, Any]:
-    existing = _one(
-        conn.execute(
-            text("SELECT id, conversation_id FROM messages WHERE provider_ref = :ref"),
-            {"ref": wa_message_id},
-        )
-    )
-    if existing:
-        return {"status": "duplicate", "messageId": existing["id"], "conversationId": existing["conversation_id"]}
-
     customer = _ensure_whatsapp_customer(conn, from_phone, profile_name)
     conversation_id = _open_whatsapp_conversation(conn, customer["id"])
     msg_id = _id("MSG")
-    conn.execute(
-        text(
-            """
-            INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
-            VALUES (:id, :conversation_id, 'customer', :body, 'delivered', :provider_ref, :sent_at)
-            """
-        ),
-        {
-            "id": msg_id,
-            "conversation_id": conversation_id,
-            "body": body or "",
-            "provider_ref": wa_message_id,
-            "sent_at": sent_at,
-        },
-    )
+    try:
+        with conn.begin_nested():
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
+                    VALUES (:id, :conversation_id, 'customer', :body, 'delivered', :provider_ref, :sent_at)
+                    """
+                ),
+                {
+                    "id": msg_id,
+                    "conversation_id": conversation_id,
+                    "body": body or "",
+                    "provider_ref": wa_message_id,
+                    "sent_at": sent_at,
+                },
+            )
+    except Exception as exc:
+        # Unique provider_ref is the idempotency key — treat conflicts as
+        # duplicates. Detect via SQLSTATE 23505, not driver message text: the
+        # wording is psycopg-version- and locale-dependent, and substring
+        # matching on "unique" also swallowed unrelated constraint failures.
+        if not _is_unique_violation(exc):
+            raise
+        existing = _one(
+            conn.execute(
+                text("SELECT id, conversation_id FROM messages WHERE provider_ref = :ref"),
+                {"ref": wa_message_id},
+            )
+        )
+        if existing:
+            return {
+                "status": "duplicate",
+                "messageId": existing["id"],
+                "conversationId": existing["conversation_id"],
+            }
+        raise
+
     # Pref: inbound stays bot until take-over / escalate (do not flip to needs_human).
     conv_row = _one(
         conn.execute(
@@ -6730,7 +8199,18 @@ def _ingest_inbound_whatsapp_message(
     return out
 
 
-def _apply_whatsapp_status(conn: Any, *, wa_message_id: str, status: str) -> dict[str, Any]:
+# Monotonic delivery lifecycle. Anything not listed (including NULL / "sending")
+# ranks 0, so the first real callback always applies.
+_DELIVERY_RANK = {"sent": 1, "delivered": 2, "read": 3}
+
+
+def _apply_whatsapp_status(
+    conn: Any,
+    *,
+    wa_message_id: str,
+    status: str,
+    errors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     mapping = {
         "sent": "sent",
         "delivered": "delivered",
@@ -6742,16 +8222,63 @@ def _apply_whatsapp_status(conn: Any, *, wa_message_id: str, status: str) -> dic
         return {"status": "ignored", "reason": "unknown_status"}
     row = _one(
         conn.execute(
-            text("SELECT id FROM messages WHERE provider_ref = :ref"),
+            text("SELECT id, delivery_status FROM messages WHERE provider_ref = :ref"),
             {"ref": wa_message_id},
         )
     )
     if row is None:
         return {"status": "missing", "providerRef": wa_message_id}
+    # Meta delivers sent / delivered / read callbacks asynchronously and they
+    # arrive out of order often enough to matter: a late "sent" used to drag an
+    # already-read message backwards in the Inbox. Only accept a status that
+    # advances the lifecycle. "failed" is terminal and always wins.
+    current = str(row["delivery_status"] or "")
+    if delivery != "failed" and _DELIVERY_RANK.get(delivery, 0) <= _DELIVERY_RANK.get(current, 0):
+        return {
+            "status": "ignored",
+            "reason": "out_of_order",
+            "messageId": row["id"],
+            "delivery": current,
+        }
     conn.execute(
         text("UPDATE messages SET delivery_status = :delivery WHERE id = :id"),
         {"delivery": delivery, "id": row["id"]},
     )
+    if delivery == "failed" and errors:
+        # Persist Meta's reason on the outbound job so operators see 131047
+        # (outside 24h window) instead of a silent "failed" tick.
+        detail_bits: list[str] = []
+        for err in errors[:3]:
+            if not isinstance(err, dict):
+                continue
+            code = err.get("code")
+            title = err.get("title") or err.get("message") or ""
+            details = ""
+            ed = err.get("error_data")
+            if isinstance(ed, dict):
+                details = str(ed.get("details") or "")
+            bit = " ".join(
+                p for p in (f"code={code}" if code is not None else "", str(title), details) if p
+            ).strip()
+            if bit:
+                detail_bits.append(bit[:400])
+        err_text = (" | ".join(detail_bits) or "whatsapp_delivery_failed")[:2000]
+        logger.warning(
+            "whatsapp delivery failed message=%s provider_ref=%s err=%s",
+            row["id"],
+            wa_message_id,
+            err_text,
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE whatsapp_outbound_jobs
+                SET error = :error, updated_at = now()
+                WHERE message_id = :message_id
+                """
+            ),
+            {"error": err_text, "message_id": row["id"]},
+        )
     return {"status": "ok", "messageId": row["id"], "delivery": delivery}
 
 
@@ -6794,8 +8321,14 @@ def process_whatsapp_webhook(payload: dict[str, Any]) -> dict[str, Any]:
                         sent_at = datetime.now(timezone.utc)
                     contact = contacts.get(from_phone) or contacts.get(msg.get("from")) or {}
                     profile_name = ((contact.get("profile") or {}).get("name")) if isinstance(contact, dict) else None
-                    results.append(
-                        _ingest_inbound_whatsapp_message(
+                    # Savepoint per message: Meta batches several messages into
+                    # one POST and does not support partial acknowledgement, so
+                    # one bad item aborting the transaction would discard every
+                    # sibling message and they would never be redelivered
+                    # individually.
+                    nested = conn.begin_nested()
+                    try:
+                        result = _ingest_inbound_whatsapp_message(
                             conn,
                             wa_message_id=wa_id,
                             from_phone=from_phone,
@@ -6803,14 +8336,39 @@ def process_whatsapp_webhook(payload: dict[str, Any]) -> dict[str, Any]:
                             profile_name=profile_name,
                             sent_at=sent_at,
                         )
-                    )
+                        nested.commit()
+                    except Exception:
+                        nested.rollback()
+                        logger.exception(
+                            "whatsapp inbound ingest failed wa_message_id=%s", wa_id
+                        )
+                        result = {"status": "error", "waMessageId": wa_id}
+                    results.append(result)
 
                 for st in value.get("statuses") or []:
                     wa_id = st.get("id")
                     status = st.get("status")
                     if not wa_id or not status:
                         continue
-                    results.append(_apply_whatsapp_status(conn, wa_message_id=wa_id, status=status))
+                    nested = conn.begin_nested()
+                    try:
+                        errs = st.get("errors") if isinstance(st.get("errors"), list) else None
+                        result = _apply_whatsapp_status(
+                            conn,
+                            wa_message_id=wa_id,
+                            status=status,
+                            errors=errs,
+                        )
+                        nested.commit()
+                    except Exception:
+                        nested.rollback()
+                        logger.exception(
+                            "whatsapp status update failed wa_message_id=%s status=%s",
+                            wa_id,
+                            status,
+                        )
+                        result = {"status": "error", "waMessageId": wa_id}
+                    results.append(result)
 
     return {"ok": True, "results": results}
 
@@ -6843,13 +8401,10 @@ def _redaction_channel(channel: str | None) -> str:
     return "voice"
 
 
-def _actor_can_view_raw_pii(conn: Any) -> bool:
-    """Raw PII in finding.text is Compliance Officer / Admin only.
-
-    Until Phase 5 auth carries a real role claim, resolve from user_roles.
-    There is no seeded 'Compliance Officer' role yet — Admin is the stand-in;
-    names containing Compliance / DPO are also allowed for forward-compat.
-    """
+def _actor_role_names(conn: Any, user_id: str | None = None) -> list[str]:
+    uid = (user_id or _actor_user_id() or "").strip()
+    if not uid:
+        return []
     rows = _rows(
         conn.execute(
             text(
@@ -6860,14 +8415,55 @@ def _actor_can_view_raw_pii(conn: Any) -> bool:
                 WHERE ur.user_id = :uid
                 """
             ),
-            {"uid": _actor_user_id()},
+            {"uid": uid},
         )
     )
+    out: list[str] = []
     for r in rows:
-        name = (r.get("name") or "").lower()
-        if name in {"admin", "compliance officer", "dpo"} or "compliance" in name:
+        name = (r.get("name") or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if name:
+            out.append(name)
+    return out
+
+
+def _actor_can_view_raw_pii(conn: Any) -> bool:
+    """Raw PII in finding.text is Compliance Officer / Admin only.
+
+    Until Phase 5 auth carries a real role claim, resolve from user_roles.
+    There is no seeded 'Compliance Officer' role yet — Admin is the stand-in;
+    names containing Compliance / DPO are also allowed for forward-compat.
+    """
+    for name in _actor_role_names(conn):
+        if name in {"admin", "compliance_officer", "dpo"}:
             return True
     return False
+
+
+def actor_is_admin(user_id: str | None = None) -> bool:
+    """True when the actor has Admin role or perm-admin-write."""
+    uid = (user_id or _actor_user_id() or "").strip()
+    if not uid:
+        return False
+    with engine.connect() as conn:
+        for name in _actor_role_names(conn, uid):
+            if name == "admin":
+                return True
+        row = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM user_roles ur
+                    JOIN role_permissions rp ON rp.role_id = ur.role_id
+                    WHERE ur.user_id = :uid
+                      AND rp.permission_id = 'perm-admin-write'
+                    LIMIT 1
+                    """
+                ),
+                {"uid": uid},
+            )
+        )
+        return row is not None
 
 
 def _pii_findings_grouped(
@@ -7006,12 +8602,22 @@ def _apply_masks_to_transcript(
     out: list[dict[str, Any]] = []
     for turn in turns:
         spans = sorted(by_turn.get(turn["id"], []), key=lambda x: x["start"], reverse=True)
-        text = turn["text"]
+        # `turn_text`, not `text` — the module-level sqlalchemy `text` import is
+        # shadowed for the rest of the function otherwise, and any SQL added
+        # here later would fail with a confusing TypeError.
+        turn_text = turn["text"]
+        invalid = False
         for f in spans:
             start, end = int(f["start"]), int(f["end"])
-            if 0 <= start < end <= len(text):
-                text = text[:start] + (f.get("masked") or "") + text[end:]
-        out.append({**turn, "text": text})
+            if not (0 <= start < end <= len(turn_text)):
+                invalid = True
+                break
+            turn_text = turn_text[:start] + (f.get("masked") or "") + turn_text[end:]
+        if invalid:
+            # Fail closed: do not leave raw PII when offsets are corrupt.
+            masked_bits = [str(f.get("masked") or "[redacted]") for f in spans]
+            turn_text = " ".join(masked_bits) if masked_bits else "[redacted]"
+        out.append({**turn, "text": turn_text})
     return out
 
 
@@ -7078,18 +8684,46 @@ def _redaction_rows_to_screen(conn: Any, rows: list[dict[str, Any]]) -> list[dic
     return out
 
 
-def list_redaction_records() -> list[dict[str, Any]]:
-    """Redaction Hub queue — screen RedactionRecord shape. Scoped to TENANT_ID."""
+def list_redaction_records(
+    *,
+    limit: int = 100,
+    before_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Redaction Hub queue — screen RedactionRecord shape. Scoped to TENANT_ID.
+
+    Newest-first with an enforced maximum page size. Optional ``before_id``
+    names the last record of the previous page; the next page continues from
+    that record's position in the sort (exclusive).
+    """
+    capped = max(1, min(int(limit or 100), 200))
+    params: dict[str, Any] = {"tenant_id": TENANT_ID, "limit": capped}
+    cursor_sql = ""
+    if before_id:
+        # The cursor must compare on the same key the ORDER BY uses. Comparing
+        # `rr.id` alone against a list ordered by (started_at DESC, id DESC)
+        # both skipped and repeated records, because id order and timestamp
+        # order are unrelated.
+        cursor_sql = """
+              AND (COALESCE(i.started_at, rr.created_at), rr.id) < (
+                    SELECT COALESCE(i2.started_at, rr2.created_at), rr2.id
+                    FROM redaction_records rr2
+                    JOIN interactions i2 ON i2.id = rr2.interaction_id
+                    WHERE rr2.id = :before_id AND i2.tenant_id = :tenant_id
+                  )
+        """
+        params["before_id"] = before_id
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
                 text(
                     _REDACTION_LIST_SQL
+                    + cursor_sql
                     + """
-                    ORDER BY COALESCE(i.started_at, rr.created_at) DESC, rr.id
+                    ORDER BY COALESCE(i.started_at, rr.created_at) DESC, rr.id DESC
+                    LIMIT :limit
                     """
                 ),
-                {"tenant_id": TENANT_ID},
+                params,
             )
         )
         return _redaction_rows_to_screen(conn, rows)
@@ -7126,18 +8760,39 @@ def list_redaction_rules() -> list[dict[str, Any]]:
         )
         by_type = {r["pii_type"]: r for r in rows if r["pii_type"] in _PII_TYPES}
         # Always return the full screen vocabulary so the Rules sheet never gaps.
-        out: list[dict[str, Any]] = []
-        for pii_type, label in _PII_LABELS.items():
-            r = by_type.get(pii_type)
-            out.append(
-                {
-                    "piiType": pii_type,
-                    "enabled": bool(r["enabled"]) if r else False,
-                    "replacement": (r["replacement"] if r else f"[REDACTED-{pii_type.upper()}]"),
-                    "label": label,
-                }
+        return [
+            _map_redaction_rule(pii_type, by_type.get(pii_type))
+            for pii_type in _PII_LABELS
+        ]
+
+
+def _map_redaction_rule(pii_type: str, row: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "piiType": pii_type,
+        "enabled": bool(row["enabled"]) if row else False,
+        "replacement": (row["replacement"] if row else f"[REDACTED-{pii_type.upper()}]"),
+        "label": _PII_LABELS[pii_type],
+    }
+
+
+def get_redaction_rule(pii_type: str) -> dict[str, Any] | None:
+    """Single redaction rule — used by write paths instead of re-listing."""
+    if pii_type not in _PII_LABELS:
+        return None
+    with engine.connect() as conn:
+        row = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT pii_type, enabled, replacement
+                    FROM redaction_rule_configs
+                    WHERE tenant_id = :tenant_id AND pii_type = :pii_type
+                    """
+                ),
+                {"tenant_id": TENANT_ID, "pii_type": pii_type},
             )
-        return out
+        )
+    return _map_redaction_rule(pii_type, row)
 
 
 # ---------------------------------------------------------------------------
@@ -7214,68 +8869,79 @@ def _routing_category(raw: str | None) -> str:
     return "Routing"
 
 
+_ROUTING_RULE_SELECT = """
+    SELECT
+      r.id,
+      r.priority,
+      r.enabled,
+      COALESCE(NULLIF(r.name, ''), r.id) AS name,
+      COALESCE(r.description, '') AS description,
+      r.category,
+      r.conditions,
+      r.action_key,
+      r.action_params,
+      COALESCE(agg.execution_count, 0) AS execution_count,
+      agg.last_fired_at,
+      COALESCE(agg.triggers_last_24h, 0) AS triggers_last_24h
+    FROM routing_rules r
+    LEFT JOIN LATERAL (
+      SELECT
+        count(*) FILTER (WHERE e.result = 'matched') AS execution_count,
+        max(e.evaluated_at) FILTER (WHERE e.result = 'matched') AS last_fired_at,
+        count(*) FILTER (
+          WHERE e.result = 'matched'
+            AND e.evaluated_at >= now() - interval '24 hours'
+        ) AS triggers_last_24h
+      FROM routing_rule_executions e
+      WHERE e.rule_id = r.id
+    ) agg ON true
+    WHERE r.tenant_id = :tenant_id
+"""
+
+
+def _map_routing_rule(r: dict[str, Any]) -> dict[str, Any]:
+    params = _routing_action_params(r["action_params"])
+    then: dict[str, Any] = {"key": _routing_action_key(r["action_key"])}
+    if params is not None:
+        then["params"] = params
+    last = r["last_fired_at"]
+    return {
+        "id": r["id"],
+        "name": r["name"] or r["id"],
+        "description": r["description"] or "",
+        "category": _routing_category(r["category"]),
+        "enabled": bool(r["enabled"]),
+        "priority": int(r["priority"] or 0),
+        "when": _routing_when(r["conditions"]),
+        "then": then,
+        "executionCount": int(r["execution_count"] or 0),
+        "lastFiredAt": last if last else None,
+        "triggersLast24h": int(r["triggers_last_24h"] or 0),
+    }
+
+
+def get_routing_rule(rule_id: str) -> dict[str, Any] | None:
+    """Single tenant-scoped rule — used by write paths instead of re-listing."""
+    with engine.connect() as conn:
+        row = _one(
+            conn.execute(
+                text(_ROUTING_RULE_SELECT + " AND r.id = :rule_id"),
+                {"tenant_id": TENANT_ID, "rule_id": rule_id},
+            )
+        )
+    return _map_routing_rule(row) if row else None
+
+
 def list_routing_rules() -> list[dict[str, Any]]:
     """Priority-ordered routing rules with execution aggregates. Tenant-scoped."""
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
-                    """
-                    SELECT
-                      r.id,
-                      r.priority,
-                      r.enabled,
-                      COALESCE(NULLIF(r.name, ''), r.id) AS name,
-                      COALESCE(r.description, '') AS description,
-                      r.category,
-                      r.conditions,
-                      r.action_key,
-                      r.action_params,
-                      COALESCE(agg.execution_count, 0) AS execution_count,
-                      agg.last_fired_at,
-                      COALESCE(agg.triggers_last_24h, 0) AS triggers_last_24h
-                    FROM routing_rules r
-                    LEFT JOIN LATERAL (
-                      SELECT
-                        count(*) FILTER (WHERE e.result = 'matched') AS execution_count,
-                        max(e.evaluated_at) FILTER (WHERE e.result = 'matched') AS last_fired_at,
-                        count(*) FILTER (
-                          WHERE e.result = 'matched'
-                            AND e.evaluated_at >= now() - interval '24 hours'
-                        ) AS triggers_last_24h
-                      FROM routing_rule_executions e
-                      WHERE e.rule_id = r.id
-                    ) agg ON true
-                    WHERE r.tenant_id = :tenant_id
-                    ORDER BY r.priority ASC, r.id
-                    """
-                ),
+                text(_ROUTING_RULE_SELECT + " ORDER BY r.priority ASC, r.id"),
                 {"tenant_id": TENANT_ID},
             )
         )
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            params = _routing_action_params(r["action_params"])
-            then: dict[str, Any] = {"key": _routing_action_key(r["action_key"])}
-            if params is not None:
-                then["params"] = params
-            last = r["last_fired_at"]
-            out.append(
-                {
-                    "id": r["id"],
-                    "name": r["name"] or r["id"],
-                    "description": r["description"] or "",
-                    "category": _routing_category(r["category"]),
-                    "enabled": bool(r["enabled"]),
-                    "priority": int(r["priority"] or 0),
-                    "when": _routing_when(r["conditions"]),
-                    "then": then,
-                    "executionCount": int(r["execution_count"] or 0),
-                    "lastFiredAt": last if last else None,
-                    "triggersLast24h": int(r["triggers_last_24h"] or 0),
-                }
-            )
-        return out
+    return [_map_routing_rule(r) for r in rows]
 
 
 _TEAM_NAME_ALIASES = {
@@ -7317,19 +8983,26 @@ def _routing_eval_condition(cond: dict[str, Any], context: dict[str, Any]) -> bo
     field = str(cond.get("field") or "")
     op = str(cond.get("op") or "=")
     raw = context.get(field)
+    if op in {">", "<", ">=", "<="}:
+        try:
+            av = float(raw) if raw is not None else None
+            bv = float(cond.get("value"))
+        except (TypeError, ValueError):
+            return False
+        if av is None:
+            return False
+        if op == ">":
+            return av > bv
+        if op == "<":
+            return av < bv
+        if op == ">=":
+            return av >= bv
+        return av <= bv
     av, bv = _routing_coerce(raw, cond.get("value"))
     if op == "=":
         return av == bv
     if op == "!=":
         return av != bv
-    if op == ">":
-        return float(av) > float(bv)
-    if op == "<":
-        return float(av) < float(bv)
-    if op == ">=":
-        return float(av) >= float(bv)
-    if op == "<=":
-        return float(av) <= float(bv)
     if op == "in":
         if isinstance(cond.get("value"), list):
             return str(raw) in {str(x) for x in cond["value"]}
@@ -7454,6 +9127,88 @@ def _resolve_assignee_for_team(conn: Any, team_id: str | None) -> tuple[str | No
     return uid, name, team.get("name")
 
 
+def _match_routing_rule(
+    conn: Any,
+    rules: list[dict[str, Any]],
+    ctx: dict[str, Any],
+    *,
+    interaction_id: str | None = None,
+    sandbox_run_id: str | None = None,
+) -> dict[str, Any]:
+    """First matching enabled rule → decision dict, logging the execution.
+
+    Shared by :func:`evaluate_routing_rules` and the single-transaction voice
+    escalation. The two used to carry copies of this loop and had already
+    drifted: the escalation copy dropped ``actionParams`` from both the matched
+    and unmatched decision, so the same routing decision had two shapes
+    depending on which entry point produced it.
+
+    Connection-scoped on purpose — the escalation path is already inside a
+    transaction and must not open a nested one.
+    """
+    for rule in rules:
+        if not rule.get("enabled"):
+            continue
+        when = rule.get("when") or []
+        if not when:
+            continue
+        if not all(_routing_eval_node(node, ctx) for node in when):
+            continue
+        action = rule.get("then") or {}
+        action_key = _routing_action_key(action.get("key"))
+        params = action.get("params") if isinstance(action.get("params"), dict) else None
+        team_id = _resolve_team_id(conn, action_key, params)
+        assignee_id, assignee_name, team_name = _resolve_assignee_for_team(conn, team_id)
+        action_taken = f"{action_key}:{team_id or 'none'}:{assignee_id or 'unassigned'}"
+        exec_id = _id("RRE")
+        conn.execute(
+            text(
+                """
+                INSERT INTO routing_rule_executions (
+                  id, rule_id, interaction_id, sandbox_run_id, context,
+                  result, action_taken, evaluated_at, created_at
+                ) VALUES (
+                  :id, :rule_id, :interaction_id, :sandbox_run_id,
+                  CAST(:context AS jsonb), 'matched', :action_taken, now(), now()
+                )
+                """
+            ),
+            {
+                "id": exec_id,
+                "rule_id": rule["id"],
+                "interaction_id": interaction_id,
+                "sandbox_run_id": sandbox_run_id,
+                "context": json.dumps(ctx),
+                "action_taken": action_taken[:240],
+            },
+        )
+        return {
+            "matched": True,
+            "ruleId": rule["id"],
+            "ruleName": rule.get("name"),
+            "actionKey": action_key,
+            "actionParams": params,
+            "teamId": team_id,
+            "teamName": team_name,
+            "assigneeUserId": assignee_id,
+            "assigneeName": assignee_name,
+            "executionId": exec_id,
+        }
+
+    return {
+        "matched": False,
+        "ruleId": None,
+        "ruleName": None,
+        "actionKey": None,
+        "actionParams": None,
+        "teamId": _ACTION_DEFAULT_TEAM.get("handoff_human"),
+        "teamName": None,
+        "assigneeUserId": None,
+        "assigneeName": None,
+        "executionId": None,
+    }
+
+
 def evaluate_routing_rules(
     context: dict[str, Any],
     *,
@@ -7469,68 +9224,13 @@ def evaluate_routing_rules(
     ctx = {str(k): v for k, v in (context or {}).items()}
     rules = list_routing_rules()
     with engine.begin() as conn:
-        for rule in rules:
-            if not rule.get("enabled"):
-                continue
-            when = rule.get("when") or []
-            if not when:
-                continue
-            matched = all(_routing_eval_node(node, ctx) for node in when)
-            if not matched:
-                continue
-            action = rule.get("then") or {}
-            action_key = _routing_action_key(action.get("key"))
-            params = action.get("params") if isinstance(action.get("params"), dict) else None
-            team_id = _resolve_team_id(conn, action_key, params)
-            assignee_id, assignee_name, team_name = _resolve_assignee_for_team(conn, team_id)
-            action_taken = f"{action_key}:{team_id or 'none'}:{assignee_id or 'unassigned'}"
-            exec_id = _id("RRE")
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO routing_rule_executions (
-                      id, rule_id, interaction_id, sandbox_run_id, context,
-                      result, action_taken, evaluated_at, created_at
-                    ) VALUES (
-                      :id, :rule_id, :interaction_id, :sandbox_run_id,
-                      CAST(:context AS jsonb), 'matched', :action_taken, now(), now()
-                    )
-                    """
-                ),
-                {
-                    "id": exec_id,
-                    "rule_id": rule["id"],
-                    "interaction_id": interaction_id,
-                    "sandbox_run_id": sandbox_run_id,
-                    "context": json.dumps(ctx),
-                    "action_taken": action_taken[:240],
-                },
-            )
-            return {
-                "matched": True,
-                "ruleId": rule["id"],
-                "ruleName": rule.get("name"),
-                "actionKey": action_key,
-                "actionParams": params,
-                "teamId": team_id,
-                "teamName": team_name,
-                "assigneeUserId": assignee_id,
-                "assigneeName": assignee_name,
-                "executionId": exec_id,
-            }
-
-    return {
-        "matched": False,
-        "ruleId": None,
-        "ruleName": None,
-        "actionKey": None,
-        "actionParams": None,
-        "teamId": _ACTION_DEFAULT_TEAM.get("handoff_human"),
-        "teamName": None,
-        "assigneeUserId": None,
-        "assigneeName": None,
-        "executionId": None,
-    }
+        return _match_routing_rule(
+            conn,
+            rules,
+            ctx,
+            interaction_id=interaction_id,
+            sandbox_run_id=sandbox_run_id,
+        )
 
 
 def create_conversation_from_interaction(
@@ -7587,6 +9287,7 @@ def create_conversation_from_interaction(
             if channel not in {"whatsapp", "sms", "email", "chat", "voice"}:
                 channel = "chat"
             conversation_id = _id("CV")
+            nested = conn.begin_nested()
             try:
                 conn.execute(
                     text(
@@ -7608,30 +9309,40 @@ def create_conversation_from_interaction(
                         "now": now,
                     },
                 )
-            except Exception:
-                # Pre-migration DBs without voice in the CHECK — retry as chat.
-                if channel == "voice":
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO conversations
-                              (id, interaction_id, customer_id, assigned_user_id,
-                               status, channel, created_at, updated_at)
-                            VALUES
-                              (:id, :interaction_id, :customer_id, :assignee,
-                               'needs_human', 'chat', :now, :now)
-                            """
-                        ),
-                        {
-                            "id": conversation_id,
-                            "interaction_id": ix,
-                            "customer_id": interaction["customer_id"],
-                            "assignee": assignee_user_id,
-                            "now": now,
-                        },
-                    )
-                else:
+                nested.commit()
+            except Exception as exc:
+                nested.rollback()
+                # Only retry as chat when the channel CHECK rejects 'voice'
+                # (pre-migration DBs). Propagate all other failures.
+                from sqlalchemy.exc import IntegrityError
+
+                msg = str(getattr(exc, "orig", exc)).lower()
+                is_channel_check = (
+                    isinstance(exc, IntegrityError)
+                    and channel == "voice"
+                    and ("channel" in msg or "check" in msg)
+                )
+                if not is_channel_check:
                     raise
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO conversations
+                          (id, interaction_id, customer_id, assigned_user_id,
+                           status, channel, created_at, updated_at)
+                        VALUES
+                          (:id, :interaction_id, :customer_id, :assignee,
+                           'needs_human', 'chat', :now, :now)
+                        """
+                    ),
+                    {
+                        "id": conversation_id,
+                        "interaction_id": ix,
+                        "customer_id": interaction["customer_id"],
+                        "assignee": assignee_user_id,
+                        "now": now,
+                    },
+                )
             # Seed a system note so agents see why this landed in inbox.
             conn.execute(
                 text(
@@ -7787,65 +9498,10 @@ def escalate_voice_interaction(
                 cid,
             )
 
-        # Routing match (same logic as evaluate_routing_rules, without nested begin).
-        decision: dict[str, Any] = {
-            "matched": False,
-            "ruleId": None,
-            "ruleName": None,
-            "actionKey": None,
-            "teamId": _ACTION_DEFAULT_TEAM.get("handoff_human"),
-            "teamName": None,
-            "assigneeUserId": None,
-            "assigneeName": None,
-            "executionId": None,
-        }
-        for rule in rules:
-            if not rule.get("enabled"):
-                continue
-            when = rule.get("when") or []
-            if not when:
-                continue
-            if not all(_routing_eval_node(node, ctx) for node in when):
-                continue
-            action = rule.get("then") or {}
-            action_key = _routing_action_key(action.get("key"))
-            params = action.get("params") if isinstance(action.get("params"), dict) else None
-            team_id = _resolve_team_id(conn, action_key, params)
-            assignee_id, assignee_name, team_name = _resolve_assignee_for_team(conn, team_id)
-            action_taken = f"{action_key}:{team_id or 'none'}:{assignee_id or 'unassigned'}"
-            exec_id = _id("RRE")
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO routing_rule_executions (
-                      id, rule_id, interaction_id, sandbox_run_id, context,
-                      result, action_taken, evaluated_at, created_at
-                    ) VALUES (
-                      :id, :rule_id, :interaction_id, NULL,
-                      CAST(:context AS jsonb), 'matched', :action_taken, now(), now()
-                    )
-                    """
-                ),
-                {
-                    "id": exec_id,
-                    "rule_id": rule["id"],
-                    "interaction_id": ix,
-                    "context": json.dumps(ctx),
-                    "action_taken": action_taken[:240],
-                },
-            )
-            decision = {
-                "matched": True,
-                "ruleId": rule["id"],
-                "ruleName": rule.get("name"),
-                "actionKey": action_key,
-                "teamId": team_id,
-                "teamName": team_name,
-                "assigneeUserId": assignee_id,
-                "assigneeName": assignee_name,
-                "executionId": exec_id,
-            }
-            break
+        # Routing match — same helper evaluate_routing_rules uses, but
+        # connection-scoped so it joins this transaction instead of opening a
+        # nested one.
+        decision = _match_routing_rule(conn, rules, ctx, interaction_id=ix)
 
         assignee_user_id = decision.get("assigneeUserId")
         team_id = decision.get("teamId")
@@ -7871,6 +9527,10 @@ def escalate_voice_interaction(
             if channel not in {"whatsapp", "sms", "email", "chat", "voice"}:
                 channel = "chat"
             conversation_id = _id("CV")
+            # Savepoint: a failed INSERT aborts the enclosing transaction in
+            # Postgres, so the voice->chat fallback below would itself fail with
+            # 25P02 and the whole escalation would be lost.
+            nested = conn.begin_nested()
             try:
                 conn.execute(
                     text(
@@ -7892,8 +9552,19 @@ def escalate_voice_interaction(
                         "now": now,
                     },
                 )
-            except Exception:
-                if channel == "voice":
+                nested.commit()
+            except Exception as exc:
+                nested.rollback()
+                from sqlalchemy.exc import IntegrityError
+
+                msg = str(getattr(exc, "orig", exc)).lower()
+                # Only the schema's channel CHECK is recoverable here; anything
+                # else (FK violation, deadlock) must surface.
+                if (
+                    isinstance(exc, IntegrityError)
+                    and channel == "voice"
+                    and ("channel" in msg or "check" in msg)
+                ):
                     conn.execute(
                         text(
                             """
@@ -8559,6 +10230,9 @@ def _map_prompt_version(r: dict[str, Any]) -> dict[str, Any]:
         "voice": _prompt_voice(r.get("voice")),
         "guardrails": _prompt_guardrails(r.get("guardrails")),
         "tuning": tuning,
+        # Authored conversation graph; '{}' on every version that predates flow
+        # authoring, which flow_graph.parse_graph reads as "no graph".
+        "flow": r.get("flow") if isinstance(r.get("flow"), dict) else {},
     }
 
 
@@ -8571,7 +10245,7 @@ def list_prompt_versions() -> list[dict[str, Any]]:
                     """
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
-                      p.persona, p.voice, p.guardrails, p.tuning, p.created_at,
+                      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
@@ -8592,7 +10266,7 @@ def get_published_prompt_version() -> dict[str, Any] | None:
                     """
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
-                      p.persona, p.voice, p.guardrails, p.tuning, p.created_at,
+                      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
@@ -8613,7 +10287,7 @@ def get_prompt_version(version_id: str) -> dict[str, Any] | None:
                     """
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
-                      p.persona, p.voice, p.guardrails, p.tuning, p.created_at,
+                      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
@@ -8669,7 +10343,11 @@ def list_persona_presets() -> list[dict[str, Any]]:
 
 
 def list_tts_voices() -> list[dict[str, Any]]:
-    """Enabled Azure Speech catalog for the Voice tab (legacy 6-alias list)."""
+    """Legacy studio alias rows (priya/…); picker uses tts_voice_catalog instead.
+
+    Kept for optional ShortName resolution when an old draft still stores a
+    studio alias as voiceId. Deployments no longer FK to this table.
+    """
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -8951,6 +10629,31 @@ def get_tts_voice_warning(short_name: str | None) -> dict[str, Any] | None:
     return None
 
 
+def _tts_sync_run_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+
+    def _ts(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return str(value)
+
+    return {
+        "id": row["id"],
+        "startedAt": _ts(row.get("started_at")),
+        "finishedAt": _ts(row.get("finished_at")),
+        "source": row.get("source"),
+        "fetchedCount": int(row.get("fetched_count") or 0),
+        "upserted": int(row.get("upserted") or 0),
+        "softRemoved": int(row.get("soft_removed") or 0),
+        "unchanged": int(row.get("unchanged") or 0),
+        "error": row.get("error"),
+        "region": row.get("region") or "",
+    }
+
+
 def latest_tts_sync_run() -> dict[str, Any] | None:
     with engine.connect() as conn:
         row = _one(
@@ -8966,20 +10669,32 @@ def latest_tts_sync_run() -> dict[str, Any] | None:
                 )
             )
         )
-    if not row:
-        return None
-    return {
-        "id": row["id"],
-        "startedAt": row["started_at"].isoformat() if row.get("started_at") else None,
-        "finishedAt": row["finished_at"].isoformat() if row.get("finished_at") else None,
-        "source": row.get("source"),
-        "fetchedCount": int(row.get("fetched_count") or 0),
-        "upserted": int(row.get("upserted") or 0),
-        "softRemoved": int(row.get("soft_removed") or 0),
-        "unchanged": int(row.get("unchanged") or 0),
-        "error": row.get("error"),
-        "region": row.get("region") or "",
-    }
+    return _tts_sync_run_row(row)
+
+
+def list_tts_sync_runs(*, limit: int = 20) -> list[dict[str, Any]]:
+    lim = max(1, min(int(limit or 20), 100))
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, started_at, finished_at, source, fetched_count, upserted,
+                           soft_removed, unchanged, error, region
+                    FROM tts_voice_sync_runs
+                    ORDER BY started_at DESC
+                    LIMIT :lim
+                    """
+                ),
+                {"lim": lim},
+            )
+        )
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        mapped = _tts_sync_run_row(row)
+        if mapped:
+            out.append(mapped)
+    return out
 
 
 def list_bot_deployments(
@@ -9116,7 +10831,7 @@ def _latest_kb_snapshot_id(conn: Any) -> str | None:
 _PROMPT_VERSION_SELECT = """
     SELECT
       p.id, p.label, p.summary, p.status, p.prompt,
-      p.persona, p.voice, p.guardrails, p.tuning, p.created_at,
+      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
       COALESCE(u.name, 'Unknown') AS author_name
     FROM prompt_versions p
     LEFT JOIN users u ON u.id = p.author_user_id
@@ -9216,11 +10931,11 @@ def create_prompt_version(payload: dict[str, Any]) -> dict[str, Any]:
                 """
                 INSERT INTO prompt_versions (
                   id, author_user_id, status, prompt, persona, voice, guardrails,
-                  tuning, label, summary, created_at, updated_at
+                  tuning, flow, label, summary, created_at, updated_at
                 ) VALUES (
                   :id, :author, 'draft', :prompt,
                   CAST(:persona AS jsonb), CAST(:voice AS jsonb), CAST(:guardrails AS jsonb),
-                  CAST(:tuning AS jsonb),
+                  CAST(:tuning AS jsonb), CAST(:flow AS jsonb),
                   :label, :summary, now(), now()
                 )
                 """
@@ -9233,6 +10948,9 @@ def create_prompt_version(payload: dict[str, Any]) -> dict[str, Any]:
                 "voice": _jsonb(voice),
                 "guardrails": _jsonb(payload["guardrails"]),
                 "tuning": _jsonb(draft_tuning),
+                # Absent flow stores '{}', which parse_graph reads as "no graph"
+                # and the runtime treats as "use the built-in flow".
+                "flow": _jsonb(payload.get("flow") or {}),
                 "label": label,
                 "summary": payload.get("summary") or "",
             },
@@ -9327,6 +11045,11 @@ def publish_prompt_version(
     from agent_core.tuning import apply_voice_config_overlay, default_tuning, normalize_tuning
 
     with engine.begin() as conn:
+        # Serialize publish/rollback for this bot+env (single-active invariant).
+        conn.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": f"{DEFAULT_BOT_ID}:production"},
+        )
         target = _one(
             conn.execute(
                 text(
@@ -9345,12 +11068,14 @@ def publish_prompt_version(
 
         note = (summary or "").strip()
         voice = _prompt_voice(target.get("voice"))
-        tts_voice_id = voice.get("voiceId") or None
-        if tts_voice_id:
-            if not _one(
-                conn.execute(text("SELECT 1 FROM tts_voices WHERE id = :id"), {"id": tts_voice_id})
-            ):
-                tts_voice_id = None
+        # Column stores Azure ShortName (no FK to legacy tts_voices aliases).
+        if tuning is not None:
+            early = normalize_tuning(tuning)
+            tts_voice_id = str((early.get("tts") or {}).get("voice") or "").strip() or None
+        else:
+            tts_voice_id = None
+        if not tts_voice_id:
+            tts_voice_id = resolve_prompt_azure_voice(voice) or _DEFAULT_AZURE_TTS_VOICE
 
         prior = _fetch_active_deployment_row(
             conn, bot_id=DEFAULT_BOT_ID, environment="production"
@@ -9366,6 +11091,13 @@ def publish_prompt_version(
             raise ValueError(f"kb_snapshot_not_found: {resolved_snap}")
 
         voice_config = _as_dict(prior.get("voice_config")) if prior else {}
+        # Keep voice_config.azureVoiceName aligned with the authoritative ShortName.
+        voice_config = {
+            **voice_config,
+            **{k: voice.get(k) for k in ("speed", "pitch", "warmth", "pauseMs", "sampleText", "style") if k in voice},
+            "azureVoiceName": tts_voice_id,
+            "voiceId": tts_voice_id,
+        }
         if tuning is not None:
             # Sandbox Promote — Tuning Studio payload is authoritative.
             resolved_tuning = normalize_tuning(tuning)
@@ -9378,7 +11110,7 @@ def publish_prompt_version(
             # so runtime never needs the warmth/speed/pitch overlay.
             resolved_tuning = apply_voice_config_overlay(
                 resolved_tuning,
-                voice_name=resolve_prompt_azure_voice(voice),
+                voice_name=tts_voice_id,
                 speed=float(voice.get("speed", 1.0)),
                 pitch=int(voice.get("pitch", 0)),
                 warmth=int(voice.get("warmth", 60)),
@@ -9477,12 +11209,14 @@ def publish_prompt_version(
 
 def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
     """Copy any version into a new draft — never mutates live published/deployment."""
+    from agent_core.tuning import normalize_tuning
+
     with engine.begin() as conn:
         source = _one(
             conn.execute(
                 text(
                     """
-                    SELECT id, label, prompt, persona, voice, guardrails
+                    SELECT id, label, prompt, persona, voice, guardrails, tuning, flow
                     FROM prompt_versions WHERE id = :id
                     """
                 ),
@@ -9494,15 +11228,17 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
 
         new_id = f"{source['id']}-r-{uuid.uuid4().hex[:6]}"
         src_label = source.get("label") or source["id"]
+        tuning_json = _jsonb(normalize_tuning(_as_dict(source.get("tuning"))))
         conn.execute(
             text(
                 """
                 INSERT INTO prompt_versions (
                   id, author_user_id, status, prompt, persona, voice, guardrails,
-                  label, summary, created_at, updated_at
+                  tuning, flow, label, summary, created_at, updated_at
                 ) VALUES (
                   :id, :author, 'draft', :prompt,
                   CAST(:persona AS jsonb), CAST(:voice AS jsonb), CAST(:guardrails AS jsonb),
+                  CAST(:tuning AS jsonb), CAST(:flow AS jsonb),
                   :label, :summary, now(), now()
                 )
                 """
@@ -9514,6 +11250,10 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
                 "persona": _jsonb(_as_dict(source.get("persona"))),
                 "voice": _jsonb(_as_dict(source.get("voice"))),
                 "guardrails": _jsonb(_as_dict(source.get("guardrails"))),
+                "tuning": tuning_json,
+                # Carried across: a restore that dropped the graph would produce
+                # a draft that is not actually the version it claims to restore.
+                "flow": _jsonb(_as_dict(source.get("flow"))),
                 "label": None,
                 "summary": f"restored from {src_label}",
             },
@@ -9577,6 +11317,10 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
             raise KeyError(f"bot_deployment_not_found: {deployment_id}")
         if target["environment"] != "production":
             raise ValueError("rollback_requires_production_deployment")
+        conn.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": f"{target['bot_id']}:{target['environment']}"},
+        )
         if target["status"] == "active":
             raise ValueError("deployment_already_active")
 
@@ -10216,6 +11960,65 @@ def create_kb_document_from_upload(
     content_hash = kb_ingest.content_sha256(data)
     job_id: str | None = None
 
+    # The object is already in MinIO. If the rows that give it a name never
+    # commit, nothing will ever reference or reclaim it — compensate here so a
+    # failed upload does not leave a permanently unreachable blob behind.
+    try:
+        job_id = _kb_upload_rows(
+            doc_id=doc_id,
+            file_id=file_id,
+            storage_ref=storage_ref,
+            safe_name=safe_name,
+            mime=mime,
+            data=data,
+            content_hash=content_hash,
+            doc_type=doc_type,
+            display_title=display_title,
+            tag_list=tag_list,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            index_now=index_now,
+        )
+    except Exception:
+        _discard_orphan_object(storage_ref)
+        raise
+
+    doc = get_kb_document(doc_id)
+    assert doc is not None
+    return {"document": doc, "jobId": job_id}
+
+
+def _discard_orphan_object(storage_ref: str) -> None:
+    """Best-effort delete of an object whose owning rows never committed."""
+    import storage as object_store
+
+    try:
+        object_store.delete_object(storage_ref)
+    except Exception:
+        logger.warning("orphaned kb upload not reclaimed: %s", storage_ref, exc_info=True)
+
+
+def _kb_upload_rows(
+    *,
+    doc_id: str,
+    file_id: str,
+    storage_ref: str,
+    safe_name: str,
+    mime: str,
+    data: bytes,
+    content_hash: str,
+    doc_type: str,
+    display_title: str,
+    tag_list: list[str],
+    chunk_size: int,
+    overlap: int,
+    index_now: bool,
+) -> str | None:
+    import json
+
+    import kb_ingest
+
+    job_id: str | None = None
     with engine.begin() as conn:
         status = "indexing" if index_now else "draft"
         enabled = bool(index_now)
@@ -10235,7 +12038,7 @@ def create_kb_document_from_upload(
             ),
             {
                 "id": doc_id,
-                "actor": ACTOR_USER_ID,
+                "actor": _actor_user_id(),
                 "type": doc_type,
                 "status": status,
                 "enabled": enabled,
@@ -10272,10 +12075,7 @@ def create_kb_document_from_upload(
                 chunk_size=chunk_size,
                 chunk_overlap=overlap,
             )
-
-    doc = get_kb_document(doc_id)
-    assert doc is not None
-    return {"document": doc, "jobId": job_id}
+    return job_id
 
 
 def create_kb_document_version(
@@ -10295,73 +12095,83 @@ def create_kb_document_version(
     mime = content_type or "application/octet-stream"
     kb_ingest._decode_source_bytes(data, filename=safe_name, mime_type=mime)
 
-    with engine.begin() as conn:
-        row = _one(
+    storage_ref: str | None = None
+    try:
+        with engine.begin() as conn:
+            row = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id, version, chunk_size, chunk_overlap
+                        FROM kb_documents WHERE id = :id
+                        FOR UPDATE
+                        """
+                    ),
+                    {"id": document_id},
+                )
+            )
+            if not row:
+                raise KeyError(f"kb document not found: {document_id}")
+
+            new_version = _bump_kb_version(row.get("version"))
+            # Prefer stable object names per version to retain prior objects.
+            object_name = f"{Path(safe_name).stem}-{new_version}{Path(safe_name).suffix or '.txt'}"
+            key = object_store.object_key(document_id, object_name)
+            storage_ref = object_store.put_bytes(key, data, mime)
+            file_id = f"file-{document_id}-{uuid.uuid4().hex[:8]}"
             conn.execute(
                 text(
                     """
-                    SELECT id, version, chunk_size, chunk_overlap
-                    FROM kb_documents WHERE id = :id
+                    INSERT INTO kb_source_files (
+                      id, document_id, storage_ref, filename, mime_type, size_bytes, hash, created_at
+                    ) VALUES (
+                      :id, :document_id, :storage_ref, :filename, :mime_type, :size_bytes, :hash, now()
+                    )
+                    """
+                ),
+                {
+                    "id": file_id,
+                    "document_id": document_id,
+                    "storage_ref": storage_ref,
+                    "filename": safe_name,
+                    "mime_type": mime,
+                    "size_bytes": len(data),
+                    "hash": kb_ingest.content_sha256(data),
+                },
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE kb_documents
+                    SET version = :version, status = 'indexing', updated_at = now(),
+                        updated_by_user_id = :actor
+                    WHERE id = :id
+                    """
+                ),
+                {"id": document_id, "version": new_version, "actor": _actor_user_id()},
+            )
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM kb_index_jobs
+                    WHERE document_id = :id AND status IN ('queued', 'failed')
                     """
                 ),
                 {"id": document_id},
             )
-        )
-        if not row:
-            raise KeyError(f"kb document not found: {document_id}")
+            job_id = kb_ingest.enqueue_index_job(
+                conn,
+                document_id=document_id,
+                chunk_size=row.get("chunk_size"),
+                chunk_overlap=row.get("chunk_overlap"),
+            )
 
-        new_version = _bump_kb_version(row.get("version"))
-        # Prefer stable object names per version to retain prior objects.
-        object_name = f"{Path(safe_name).stem}-{new_version}{Path(safe_name).suffix or '.txt'}"
-        key = object_store.object_key(document_id, object_name)
-        storage_ref = object_store.put_bytes(key, data, mime)
-        file_id = f"file-{document_id}-{uuid.uuid4().hex[:8]}"
-        conn.execute(
-            text(
-                """
-                INSERT INTO kb_source_files (
-                  id, document_id, storage_ref, filename, mime_type, size_bytes, hash, created_at
-                ) VALUES (
-                  :id, :document_id, :storage_ref, :filename, :mime_type, :size_bytes, :hash, now()
-                )
-                """
-            ),
-            {
-                "id": file_id,
-                "document_id": document_id,
-                "storage_ref": storage_ref,
-                "filename": safe_name,
-                "mime_type": mime,
-                "size_bytes": len(data),
-                "hash": kb_ingest.content_sha256(data),
-            },
-        )
-        conn.execute(
-            text(
-                """
-                UPDATE kb_documents
-                SET version = :version, status = 'indexing', updated_at = now(),
-                    updated_by_user_id = :actor
-                WHERE id = :id
-                """
-            ),
-            {"id": document_id, "version": new_version, "actor": ACTOR_USER_ID},
-        )
-        conn.execute(
-            text(
-                """
-                DELETE FROM kb_index_jobs
-                WHERE document_id = :id AND status IN ('queued', 'failed')
-                """
-            ),
-            {"id": document_id},
-        )
-        job_id = kb_ingest.enqueue_index_job(
-            conn,
-            document_id=document_id,
-            chunk_size=row.get("chunk_size"),
-            chunk_overlap=row.get("chunk_overlap"),
-        )
+    except Exception:
+        # The version object is written inside the transaction; a later
+        # failure rolls the rows back but not the blob.
+        if storage_ref:
+            _discard_orphan_object(storage_ref)
+        raise
 
     doc = get_kb_document(document_id)
     assert doc is not None
@@ -10520,31 +12330,56 @@ def create_kb_faq(payload: dict[str, Any]) -> dict[str, Any]:
 
     faq_id = f"faq-{uuid.uuid4().hex[:12]}"
     embedding = _embed_faq_pair(question, answer)
+    if embedding is None:
+        logger.warning("faq_create_without_embedding faq_id=%s", faq_id)
     gap_id = payload.get("gapId")
 
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO faq_pairs (
-                  id, linked_document_id, intent, question, answer, enabled,
-                  embedding, created_at, updated_at
-                ) VALUES (
-                  :id, :linked, :intent, :question, :answer, :enabled,
-                  CAST(:embedding AS vector), now(), now()
-                )
-                """
-            ),
-            {
-                "id": faq_id,
-                "linked": linked,
-                "intent": intent,
-                "question": question,
-                "answer": answer,
-                "enabled": bool(payload.get("enabled", True)),
-                "embedding": embedding,
-            },
-        )
+        if embedding is None:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO faq_pairs (
+                      id, linked_document_id, intent, question, answer, enabled,
+                      embedding, created_at, updated_at
+                    ) VALUES (
+                      :id, :linked, :intent, :question, :answer, :enabled,
+                      NULL, now(), now()
+                    )
+                    """
+                ),
+                {
+                    "id": faq_id,
+                    "linked": linked,
+                    "intent": intent,
+                    "question": question,
+                    "answer": answer,
+                    "enabled": bool(payload.get("enabled", True)),
+                },
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO faq_pairs (
+                      id, linked_document_id, intent, question, answer, enabled,
+                      embedding, created_at, updated_at
+                    ) VALUES (
+                      :id, :linked, :intent, :question, :answer, :enabled,
+                      CAST(:embedding AS vector), now(), now()
+                    )
+                    """
+                ),
+                {
+                    "id": faq_id,
+                    "linked": linked,
+                    "intent": intent,
+                    "question": question,
+                    "answer": answer,
+                    "enabled": bool(payload.get("enabled", True)),
+                    "embedding": embedding,
+                },
+            )
         if gap_id:
             _link_kb_gap_conn(conn, gap_id, faq_pair_id=faq_id)
 
@@ -10617,14 +12452,21 @@ def patch_kb_faq(faq_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     if reembed:
         emb = _embed_faq_pair(question, answer)
-        sets.append("embedding = CAST(:embedding AS vector)")
-        params["embedding"] = emb
+        if emb is None:
+            logger.warning("faq_reembed_skipped faq_id=%s reason=embed_none", faq_id)
+        else:
+            sets.append("embedding = CAST(:embedding AS vector)")
+            params["embedding"] = emb
         sets.append("updated_at = now()")
         with engine.begin() as conn:
-            conn.execute(
+            res = conn.execute(
                 text(f"UPDATE faq_pairs SET {', '.join(sets)} WHERE id = :id"),
                 params,
             )
+            # The non-reembed branch raises on a missing row; this one silently
+            # reported success for a deleted FAQ.
+            if res.rowcount == 0:
+                raise KeyError(f"faq not found: {faq_id}")
 
     row = get_kb_faq(faq_id)
     assert row is not None
@@ -10647,6 +12489,119 @@ def _normalize_suggested_fix(value: str | None) -> str:
     if v in ("kb", "prompt", "both"):
         return v
     return "kb"
+
+
+# A question shorter than this is not a content gap — it is "ok", "haan", a
+# stray STT fragment, or a barge-in. Recording those buries the real gaps.
+KB_GAP_MIN_CHARS = 8
+# Long enough for a real question, short enough that the KB-gap table stays
+# readable and one runaway turn cannot store a transcript.
+KB_GAP_MAX_CHARS = 300
+
+
+def record_kb_gap(
+    *,
+    question: str,
+    intent: str | None = None,
+    channel: str | None = None,
+    interaction_id: str | None = None,
+    conn: Any | None = None,
+) -> str | None:
+    """Record that the bot could not answer ``question``. Upsert, not insert.
+
+    Returns the gap id, or ``None`` when the question was too short to be worth
+    recording. ``channel`` and ``interaction_id`` are accepted for call-site
+    symmetry and logging; the table deliberately does not store them — the
+    screen aggregates across channels and a per-sighting FK would turn a
+    counter into an event log.
+
+    The question is redacted before it is stored. Callers hand us whatever the
+    customer said, which on a collections line routinely contains a card or
+    mobile number read aloud.
+    """
+    import pii_redact
+
+    q = " ".join((pii_redact.redact_text(question) or "").split()).strip()
+    if len(q) < KB_GAP_MIN_CHARS:
+        return None
+    q = q[:KB_GAP_MAX_CHARS]
+
+    # "unknown" is what the KB handler's gate produces when no intent was
+    # resolved (voice passes apply_intent_gate=False, so it always does). Stored
+    # verbatim it becomes a literal "unknown" bucket on the gap screen, sitting
+    # next to the "other" bucket that NULL already renders as. Collapse it.
+    top_intent = (intent or "").strip().lower()
+    if top_intent in {"", "unknown", "other", "none"}:
+        top_intent = None
+
+    params = {
+        "id": _id("GAP"),
+        "tenant_id": TENANT_ID,
+        "question": q,
+        "top_intent": top_intent,
+    }
+    sql = text(
+        """
+        INSERT INTO unanswered_questions
+          (id, tenant_id, question, hit_count, last_seen_at,
+           suggested_fix_type, top_intent, created_at, updated_at)
+        VALUES
+          (:id, :tenant_id, :question, 1, now(), 'kb', :top_intent, now(), now())
+        ON CONFLICT (tenant_id, lower(btrim(question))) DO UPDATE SET
+          hit_count = unanswered_questions.hit_count + 1,
+          last_seen_at = now(),
+          -- COALESCE keeps the FIRST intent seen rather than the latest: the
+          -- screen groups by it, and a single off-topic sighting should not
+          -- relabel a gap that has been asked fifty times.
+          top_intent = COALESCE(unanswered_questions.top_intent, EXCLUDED.top_intent),
+          -- suggested_fix_type is deliberately NOT touched. It starts at 'kb'
+          -- and an operator may switch it to 'prompt'/'both'; overwriting on
+          -- every sighting would silently revert their triage decision.
+          updated_at = now()
+        RETURNING id
+        """
+    )
+
+    if conn is not None:
+        row = _one(conn.execute(sql, params))
+        return row["id"] if row else None
+    with engine.begin() as own:
+        row = _one(own.execute(sql, params))
+    return row["id"] if row else None
+
+
+def purge_stale_kb_gaps(*, ttl_days: int = 90, conn: Any | None = None) -> int:
+    """Drop one-off gaps nobody acted on. Returns rows deleted.
+
+    Two guards, both load-bearing. ``hit_count = 1`` keeps anything asked more
+    than once, which is the definition of a recurring gap. ``NOT EXISTS`` keeps
+    anything an operator linked to a doc, FAQ or prompt version — those links
+    cascade from this table, so deleting a linked gap would destroy the record
+    that someone already fixed it.
+    """
+    sql = text(
+        """
+        DELETE FROM unanswered_questions uq
+         WHERE uq.tenant_id = :tenant_id
+           AND uq.hit_count <= 1
+           AND uq.last_seen_at IS NOT NULL
+           AND uq.last_seen_at < now() - CAST(:window AS interval)
+           AND NOT EXISTS (
+             SELECT 1 FROM analytics_kb_gap_links g
+              WHERE g.unanswered_question_id = uq.id
+           )
+        """
+    )
+    params = {"tenant_id": TENANT_ID, "window": f"{max(1, int(ttl_days))} days"}
+    if conn is not None:
+        return conn.execute(sql, params).rowcount or 0
+    with engine.begin() as own:
+        return own.execute(sql, params).rowcount or 0
+
+
+# The screen pages and sorts by hit_count; before runtime capture this table was
+# hand-seeded at ~10 rows and unbounded was fine. It now grows with traffic.
+KB_GAP_LIST_LIMIT = 200
 
 
 def list_kb_gaps() -> list[dict[str, Any]]:
@@ -10675,9 +12630,10 @@ def list_kb_gaps() -> list[dict[str, Any]]:
                     ) g ON true
                     WHERE uq.tenant_id = :tenant_id
                     ORDER BY uq.hit_count DESC NULLS LAST, uq.id
+                    LIMIT :lim
                     """
                 ),
-                {"tenant_id": TENANT_ID},
+                {"tenant_id": TENANT_ID, "lim": KB_GAP_LIST_LIMIT},
             )
         )
     out: list[dict[str, Any]] = []
@@ -11172,9 +13128,9 @@ def _fnum(v: Any) -> float:
     return float(v)
 
 
-def _billing_as_of(conn) -> date:
-    """Prefer calendar today so MTD/forecast stay current even with sparse events."""
-    return date.today()
+def _billing_as_of() -> date:
+    """Billing day boundary is always UTC — not the API host's local calendar."""
+    return datetime.now(timezone.utc).date()
 
 
 def _billing_window(period: str, as_of: date) -> tuple[date, date]:
@@ -11245,13 +13201,13 @@ def _daily_series(
                 WHERE environment = :env
                   AND usage_date >= :start
                   AND usage_date <= :end
-                  AND service_id IN ('llm_chat', 'llm_embed', 'stt_az', 'tts_az')
+                  AND service_id = ANY(:services)
                   {tenant_sql}
                 GROUP BY usage_date, service_id
                 ORDER BY usage_date, service_id
                 """
             ),
-            params,
+            {**params, "services": list(_METERED_SERVICE_IDS)},
         )
     )
     by_date: dict[str, dict[str, float]] = {}
@@ -11306,7 +13262,7 @@ def billing_overview(
         raise ValueError(f"invalid_env: {env}")
 
     with engine.connect() as conn:
-        as_of = _billing_as_of(conn)
+        as_of = _billing_as_of()
         start, end = _billing_window(period, as_of)
         prev_start, prev_end = _billing_prev_window(start, end)
         month_key = as_of.strftime("%Y-%m")
@@ -11429,7 +13385,7 @@ def billing_overview(
                     FROM tenants t
                     WHERE t.id IN (
                       SELECT DISTINCT tenant_id FROM billing_usage_daily
-                      WHERE service_id IN ('llm_chat','llm_embed','stt_az','tts_az')
+                      WHERE service_id = ANY(:services)
                       UNION
                       SELECT DISTINCT tenant_id FROM interactions
                       WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
@@ -11439,7 +13395,12 @@ def billing_overview(
                     ORDER BY t.name
                     """
                 ),
-                {"start": start, "end": end, "primary": TENANT_ID},
+                {
+                    "start": start,
+                    "end": end,
+                    "primary": TENANT_ID,
+                    "services": list(_METERED_SERVICE_IDS),
+                },
             )
         )
         tenants = []
@@ -11469,6 +13430,17 @@ def billing_overview(
         resolved_prev = int((ix_prev or {}).get("resolved") or 0)
         cost_per_call = (spend / resolved) if resolved > 0 else 0.0
         cost_per_call_prev = (spend_prev / resolved_prev) if resolved_prev > 0 else 0.0
+
+        # The measured counterpart to cost_per_call above. Kept alongside rather
+        # than replacing it: calls that predate metering have no events, so this
+        # is 0 for historical windows and the allocated figure is still the only
+        # number available there.
+        attributed_cpc, attributed_calls = _attributed_cost_per_call(
+            conn, start=start, end=end, env=env, tenant_id=tenant_id
+        )
+        model_spend = _model_spend(
+            conn, start=start, end=end, env=env, tenant_id=tenant_id
+        )
         forecast = _forecast_eom(daily, as_of)
 
         mtd_start = date(as_of.year, as_of.month, 1)
@@ -11494,11 +13466,11 @@ def billing_overview(
                         WHERE environment = :env
                           AND usage_date >= :start
                           AND usage_date <= :end
-                          AND service_id IN ('llm_chat','llm_embed','stt_az','tts_az')
+                          AND service_id = ANY(:services)
                           {tenant_sql}
                         """
                     ),
-                    params,
+                    {**params, "services": list(_METERED_SERVICE_IDS)},
                 ).scalar()
             )
 
@@ -11641,11 +13613,16 @@ def billing_overview(
                         WHERE environment = :env
                           AND usage_date >= :start
                           AND usage_date <= :end
-                          AND service_id IN ('llm_chat','llm_embed','stt_az','tts_az')
+                          AND service_id = ANY(:services)
                         GROUP BY tenant_id
                         """
                     ),
-                    {"env": env, "start": start, "end": end},
+                    {
+                        "env": env,
+                        "start": start,
+                        "end": end,
+                        "services": list(_METERED_SERVICE_IDS),
+                    },
                 )
             )
         }
@@ -11660,11 +13637,16 @@ def billing_overview(
                         WHERE environment = :env
                           AND usage_date >= :start
                           AND usage_date <= :end
-                          AND service_id IN ('llm_chat','llm_embed','stt_az','tts_az')
+                          AND service_id = ANY(:services)
                         GROUP BY tenant_id
                         """
                     ),
-                    {"env": env, "start": prev_start, "end": prev_end},
+                    {
+                        "env": env,
+                        "start": prev_start,
+                        "end": prev_end,
+                        "services": list(_METERED_SERVICE_IDS),
+                    },
                 )
             )
         }
@@ -11699,11 +13681,16 @@ def billing_overview(
                     WHERE environment = :env
                       AND usage_date >= :start
                       AND usage_date <= :end
-                      AND service_id IN ('llm_chat','llm_embed','stt_az','tts_az')
+                      AND service_id = ANY(:services)
                     GROUP BY service_id, tenant_id
                     """
                 ),
-                {"env": env, "start": start, "end": end},
+                {
+                    "env": env,
+                    "start": start,
+                    "end": end,
+                    "services": list(_METERED_SERVICE_IDS),
+                },
             )
         ):
             service_tenant.setdefault(r["service_id"], {})[r["tenant_id"]] = _fnum(r["cost"])
@@ -11730,7 +13717,205 @@ def billing_overview(
             "invoices": invoices,
             "tenantBreakdown": tenant_breakdown,
             "serviceTenantSpend": service_tenant,
+            "attributedCostPerCall": attributed_cpc,
+            "attributedCalls": attributed_calls,
+            "modelSpend": model_spend,
         }
+
+
+def interaction_cost(interaction_id: str) -> dict[str, Any]:
+    """What one call actually cost, broken down by service and model.
+
+    Reads ``usage_events`` rather than the daily rollup: the rollup is keyed by
+    (service, tenant, env, day) and deliberately carries neither dimension.
+
+    ``attributed`` distinguishes "this call cost nothing" from "this call
+    predates metering" — every voice call before the pipeline was instrumented
+    has no events at all, and showing those as ₹0.00 would be a lie.
+    """
+    with engine.begin() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT ue.service_id,
+                           bs.name  AS service_name,
+                           bs.unit  AS unit,
+                           bs.category,
+                           bs.color,
+                           ue.model,
+                           SUM(ue.units)    AS units,
+                           SUM(ue.cost_inr) AS cost,
+                           COUNT(*)         AS events
+                      FROM usage_events ue
+                      JOIN billing_services bs ON bs.id = ue.service_id
+                     WHERE ue.interaction_id = :ix
+                     GROUP BY ue.service_id, bs.name, bs.unit, bs.category,
+                              bs.color, ue.model
+                     ORDER BY SUM(ue.cost_inr) DESC
+                    """
+                ),
+                {"ix": interaction_id},
+            )
+        )
+
+        meta = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT duration_sec, started_at, channel, status
+                      FROM interactions WHERE id = :ix
+                    """
+                ),
+                {"ix": interaction_id},
+            )
+        )
+
+        tokens = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT COALESCE(SUM(tokens), 0) AS tokens
+                      FROM interaction_transcript
+                     WHERE interaction_id = :ix AND tokens IS NOT NULL
+                    """
+                ),
+                {"ix": interaction_id},
+            )
+        )
+
+    lines = [
+        {
+            "serviceId": r["service_id"],
+            "serviceName": r["service_name"],
+            "unit": r["unit"],
+            "category": r["category"],
+            "color": r["color"],
+            "model": r["model"],
+            "units": _fnum(r["units"]),
+            "costInr": _fnum(r["cost"]),
+            "events": int(r["events"] or 0),
+        }
+        for r in rows
+    ]
+    total = sum(line["costInr"] for line in lines)
+    return {
+        "interactionId": interaction_id,
+        "attributed": bool(lines),
+        "totalInr": total,
+        "lines": lines,
+        "durationSec": int((meta or {}).get("duration_sec") or 0),
+        "channel": (meta or {}).get("channel"),
+        "status": (meta or {}).get("status"),
+        "totalTokens": int((tokens or {}).get("tokens") or 0),
+    }
+
+
+def _model_spend(
+    conn: Any, *, start: date, end: date, env: str, tenant_id: str
+) -> list[dict[str, Any]]:
+    """Spend grouped by model.
+
+    The per-model dimension only exists on ``usage_events`` — ``billing_services``
+    has a single blended ``llm_chat`` row, so a gpt-5 turn and a gpt-4o-mini turn
+    are indistinguishable in the rollup even though they price ~8x apart.
+    """
+    params: dict[str, Any] = {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "env": env,
+        "services": list(_METERED_SERVICE_IDS),
+    }
+    tenant_sql = ""
+    if tenant_id and tenant_id != "all":
+        tenant_sql = "AND ue.tenant_id = :tenant_id"
+        params["tenant_id"] = tenant_id
+
+    rows = _rows(
+        conn.execute(
+            text(
+                f"""
+                SELECT ue.service_id,
+                       bs.name AS service_name,
+                       bs.unit AS unit,
+                       bs.color,
+                       COALESCE(ue.model, '(unspecified)') AS model,
+                       SUM(ue.units)    AS units,
+                       SUM(ue.cost_inr) AS cost,
+                       COUNT(DISTINCT ue.interaction_id) AS calls
+                  FROM usage_events ue
+                  JOIN billing_services bs ON bs.id = ue.service_id
+                 WHERE ue.occurred_at >= CAST(:start AS date)
+                   AND ue.occurred_at < CAST(:end AS date) + INTERVAL '1 day'
+                   AND ue.environment = :env
+                   AND ue.service_id = ANY(:services)
+                   {tenant_sql}
+                 GROUP BY ue.service_id, bs.name, bs.unit, bs.color, ue.model
+                 ORDER BY SUM(ue.cost_inr) DESC
+                """
+            ),
+            params,
+        )
+    )
+    return [
+        {
+            "serviceId": r["service_id"],
+            "serviceName": r["service_name"],
+            "unit": r["unit"],
+            "color": r["color"],
+            "model": r["model"],
+            "units": _fnum(r["units"]),
+            "costInr": _fnum(r["cost"]),
+            "calls": int(r["calls"] or 0),
+        }
+        for r in rows
+    ]
+
+
+def _attributed_cost_per_call(
+    conn: Any, *, start: date, end: date, env: str, tenant_id: str
+) -> tuple[float, int]:
+    """Mean cost over calls that actually carry metered usage.
+
+    Distinct from the ``costPerCall`` KPI beside it, which is total spend over
+    resolved calls — that one divides *all* spend (including embeddings and
+    batch work no call incurred) by a call count, so it is an allocation, not a
+    measurement. This one only counts calls with attributed events.
+    """
+    params: dict[str, Any] = {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "env": env,
+        "services": list(_METERED_SERVICE_IDS),
+    }
+    tenant_sql = ""
+    if tenant_id and tenant_id != "all":
+        tenant_sql = "AND ue.tenant_id = :tenant_id"
+        params["tenant_id"] = tenant_id
+
+    row = _one(
+        conn.execute(
+            text(
+                f"""
+                SELECT COALESCE(AVG(call_cost), 0) AS avg_cost,
+                       COUNT(*)                    AS calls
+                  FROM (
+                        SELECT ue.interaction_id, SUM(ue.cost_inr) AS call_cost
+                          FROM usage_events ue
+                         WHERE ue.interaction_id IS NOT NULL
+                           AND ue.occurred_at >= CAST(:start AS date)
+                           AND ue.occurred_at < CAST(:end AS date) + INTERVAL '1 day'
+                           AND ue.environment = :env
+                           AND ue.service_id = ANY(:services)
+                           {tenant_sql}
+                         GROUP BY ue.interaction_id
+                       ) per_call
+                """
+            ),
+            params,
+        )
+    )
+    return _fnum((row or {}).get("avg_cost")), int((row or {}).get("calls") or 0)
 
 
 def upsert_budget_rule(budget_id: str, payload: dict[str, Any], rule_id: str | None = None) -> dict[str, Any]:
@@ -11839,6 +14024,7 @@ from followups_db import (  # noqa: E402
     create_export_job,
     create_routing_rule,
     delete_routing_rule,
+    get_calibration_session,
     list_calibration_sessions,
     list_coaching_actions,
     list_export_jobs,

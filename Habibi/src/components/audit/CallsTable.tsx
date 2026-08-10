@@ -8,6 +8,7 @@ import {
   type CallFlag,
   type CallRecord,
 } from "@/data/audit-seed";
+import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
 interface Props {
   rows: CallRecord[];
@@ -20,12 +21,12 @@ interface Props {
 
 const CHANNEL_ICON = { voice: Phone, whatsapp: MessageCircle, sms: MessageSquare } as const;
 const FLAG_ICON: Record<CallFlag, { icon: typeof Flag; label: string; tone: string }> = {
-  "compliance-miss": { icon: ShieldAlert, label: "Compliance miss", tone: "text-[var(--danger)]" },
-  "sentiment-drop": { icon: TrendingDown, label: "Sentiment drop", tone: "text-[var(--danger)]" },
-  escalation: { icon: ArrowLeftRight, label: "Escalated", tone: "text-[var(--warning)]" },
-  silence: { icon: VolumeX, label: "Silence", tone: "text-text-muted" },
-  "abuse-detected": { icon: AlertOctagon, label: "Abuse detected", tone: "text-[var(--danger)]" },
-  "high-value": { icon: Star, label: "High value", tone: "text-brand-primary" },
+  "compliance-miss": { icon: ShieldAlert, label: "Compliance miss", tone: "text-text-danger" },
+  "sentiment-drop": { icon: TrendingDown, label: "Sentiment drop", tone: "text-text-danger" },
+  escalation: { icon: ArrowLeftRight, label: "Escalated", tone: "text-text-warning" },
+  silence: { icon: VolumeX, label: "Silence", tone: "text-text-subtlest" },
+  "abuse-detected": { icon: AlertOctagon, label: "Abuse detected", tone: "text-text-danger" },
+  "high-value": { icon: Star, label: "High value", tone: "text-text-brand" },
 };
 
 function Sparkline({ points }: { points: { t: number; v: number }[] }) {
@@ -44,7 +45,7 @@ function Sparkline({ points }: { points: { t: number; v: number }[] }) {
   const avg = points.reduce((s, p) => s + p.v, 0) / points.length;
   return (
     <svg width={w} height={h} className="overflow-visible">
-      <line x1={0} y1={h / 2} x2={w} y2={h / 2} stroke="var(--border-token)" strokeDasharray="2 2" />
+      <line x1={0} y1={h / 2} x2={w} y2={h / 2} stroke="var(--border)" strokeDasharray="2 2" />
       <path d={path} fill="none" stroke={sentimentColor(avg)} strokeWidth={1.4} strokeLinecap="round" />
     </svg>
   );
@@ -54,35 +55,35 @@ function HandlerChip({ c }: { c: CallRecord }) {
   const { handledBy } = c;
   if (handledBy.kind === "bot") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-medium text-brand-primary-dark">
+      <Lozenge tone="selected">
         <Bot className="h-3 w-3" /> {handledBy.bot}
-      </span>
+      </Lozenge>
     );
   }
   if (handledBy.kind === "human") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-primary">
+      <Lozenge tone="neutral" className="text-text">
         <User className="h-3 w-3" /> {handledBy.agent}
-      </span>
+      </Lozenge>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warning-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--warning)]">
+    <Lozenge tone="warning">
       <ArrowLeftRight className="h-3 w-3" /> {handledBy.bot} → {handledBy.agent}
-    </span>
+    </Lozenge>
   );
 }
 
-const DISPOSITION_TONE: Record<string, string> = {
-  "PTP Captured": "bg-[var(--success-bg)] text-[var(--success)]",
-  "Payment Made": "bg-[var(--success-bg)] text-[var(--success)]",
-  "Info Query Resolved": "bg-brand-tint text-brand-primary-dark",
-  "Dispute Raised": "bg-[var(--danger-bg)] text-[var(--danger)]",
-  "Callback Scheduled": "bg-surface-sunken text-text-primary",
-  Escalated: "bg-[var(--warning-bg)] text-[var(--warning)]",
-  "No Answer": "bg-surface-sunken text-text-muted",
-  Voicemail: "bg-surface-sunken text-text-muted",
-  "DND — Not Contacted": "bg-surface-sunken text-text-muted",
+const DISPOSITION_TONE: Record<string, LozengeTone> = {
+  "PTP Captured": "success",
+  "Payment Made": "success",
+  "Info Query Resolved": "selected",
+  "Dispute Raised": "danger",
+  "Callback Scheduled": "neutral",
+  Escalated: "warning",
+  "No Answer": "neutral",
+  Voicemail: "neutral",
+  "DND — Not Contacted": "neutral",
 };
 
 export function CallsTable({ rows, selected, onToggle, onToggleAll, openId, onOpen }: Props) {
@@ -90,25 +91,25 @@ export function CallsTable({ rows, selected, onToggle, onToggleAll, openId, onOp
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full min-w-[1100px] border-separate border-spacing-0 text-[13px]">
-        <thead className="sticky top-0 z-10 bg-surface-sunken text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+      <table className="w-full min-w-[68.75rem] border-separate border-spacing-0 text-body">
+        <thead className="sticky top-0 z-10 bg-surface-sunken text-body-small font-semibold text-text-subtlest">
           <tr>
-            <th className="w-8 border-b border-[var(--border-token)] px-3 py-2 text-left">
+            <th className="w-400 border-b border-border px-150 py-100 text-left">
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={(v) => onToggleAll(!!v)}
                 aria-label="Select all"
               />
             </th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">When</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">Customer</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">Ch.</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">Handled by</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-right">Dur.</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">Disposition</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">Sentiment</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">Flags</th>
-            <th className="border-b border-[var(--border-token)] px-3 py-2 text-left">Call ID</th>
+            <th className="border-b border-border px-150 py-100 text-left">When</th>
+            <th className="border-b border-border px-150 py-100 text-left">Customer</th>
+            <th className="border-b border-border px-150 py-100 text-left">Ch.</th>
+            <th className="border-b border-border px-150 py-100 text-left">Handled by</th>
+            <th className="border-b border-border px-150 py-100 text-right">Dur.</th>
+            <th className="border-b border-border px-150 py-100 text-left">Disposition</th>
+            <th className="border-b border-border px-150 py-100 text-left">Sentiment</th>
+            <th className="border-b border-border px-150 py-100 text-left">Flags</th>
+            <th className="border-b border-border px-150 py-100 text-left">Call ID</th>
           </tr>
         </thead>
         <tbody>
@@ -121,44 +122,44 @@ export function CallsTable({ rows, selected, onToggle, onToggleAll, openId, onOp
                 onClick={() => onOpen(c.id)}
                 className={cn(
                   "cursor-pointer hover:bg-surface-sunken",
-                  isOpen && "bg-brand-tint/50",
+                  isOpen && "bg-background-brand-subtlest/50",
                 )}
               >
-                <td className="border-b border-[var(--border-token)] px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                <td className="border-b border-border px-150 py-100" onClick={(e) => e.stopPropagation()}>
                   <Checkbox
                     checked={selected.has(c.id)}
                     onCheckedChange={() => onToggle(c.id)}
                     aria-label={`Select ${c.id}`}
                   />
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2 whitespace-nowrap text-text-secondary">
+                <td className="border-b border-border px-150 py-100 whitespace-nowrap text-text-subtle">
                   {formatDateTime(c.startedAt)}
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2">
-                  <div className="font-medium text-text-primary">{c.customerName}</div>
-                  <div className="text-[11px] text-text-muted">{c.phoneMasked} · {c.accountId}</div>
+                <td className="border-b border-border px-150 py-100">
+                  <div className="font-medium text-text">{c.customerName}</div>
+                  <div className="text-body-small text-text-subtlest">{c.phoneMasked} · {c.accountId}</div>
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2">
-                  <ChIcon className="h-4 w-4 text-text-secondary" aria-label={c.channel} />
+                <td className="border-b border-border px-150 py-100">
+                  <ChIcon className="h-4 w-4 text-text-subtle" aria-label={c.channel} />
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2">
+                <td className="border-b border-border px-150 py-100">
                   <HandlerChip c={c} />
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2 text-right font-mono text-[12px] text-text-secondary">
+                <td className="border-b border-border px-150 py-100 text-right font-mono text-body-small text-text-subtle">
                   {formatDuration(c.duration)}
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2">
-                  <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", DISPOSITION_TONE[c.disposition] ?? "bg-surface-sunken text-text-primary")}>
+                <td className="border-b border-border px-150 py-100">
+                  <Lozenge tone={DISPOSITION_TONE[c.disposition] ?? "neutral"}>
                     {c.disposition}
-                  </span>
+                  </Lozenge>
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2">
+                <td className="border-b border-border px-150 py-100">
                   <Sparkline points={c.sentimentSeries} />
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2">
-                  <div className="flex items-center gap-1">
+                <td className="border-b border-border px-150 py-100">
+                  <div className="flex items-center gap-050">
                     {c.flags.length === 0 ? (
-                      <span className="text-[11px] text-text-muted">—</span>
+                      <span className="text-body-small text-text-subtlest">—</span>
                     ) : (
                       c.flags.map((f) => {
                         const key = (typeof f === "string" ? f : (f as { flag?: string })?.flag) as CallFlag | undefined;
@@ -174,7 +175,7 @@ export function CallsTable({ rows, selected, onToggle, onToggleAll, openId, onOp
                     )}
                   </div>
                 </td>
-                <td className="border-b border-[var(--border-token)] px-3 py-2 font-mono text-[11px] text-text-muted">
+                <td className="border-b border-border px-150 py-100 font-mono text-body-small text-text-subtlest">
                   {c.id}
                 </td>
               </tr>
@@ -182,7 +183,7 @@ export function CallsTable({ rows, selected, onToggle, onToggleAll, openId, onOp
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={10} className="px-6 py-16 text-center text-text-muted">
+              <td colSpan={10} className="px-300 py-800 text-center text-text-subtlest">
                 No calls match these filters.
               </td>
             </tr>

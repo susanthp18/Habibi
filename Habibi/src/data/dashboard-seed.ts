@@ -8,12 +8,15 @@ export type Segment = "all" | "card" | "personal" | "auto";
 export type TeamFilter = "all" | "bot" | "human";
 export type Range = "today" | "7d" | "30d" | "qtd";
 
+// `delta` is nullable on purpose. "Flat" and "there is no prior period to
+// compare against" are different claims, and the server used to render the
+// second as the first with a hardcoded number. null → the chip is omitted.
 export type HeroKpi = {
   label: string;
   value: string;
   raw: number;
   unit?: string;
-  delta: number; // vs prior period, negative = down
+  delta: number | null; // vs prior period, negative = down
   deltaGood: "down" | "up"; // which direction is good
   sub: string;
   spark: number[];
@@ -23,8 +26,9 @@ export type Kpi = {
   key: string;
   label: string;
   value: string;
-  delta: number;
+  delta: number | null;
   deltaGood: "down" | "up";
+  sub?: string;
   spark: number[];
   tone?: "default" | "brand" | "success" | "warning";
 };
@@ -151,9 +155,9 @@ export const sentimentDistribution = {
 };
 
 export const botVsHuman = [
-  { name: "Contained by bot", value: 5987, color: "var(--brand-primary)" },
-  { name: "Escalated to human", value: 1638, color: "var(--warning)" },
-  { name: "Direct to human", value: 787, color: "var(--brand-navy)" },
+  { name: "Contained by bot", value: 5987, color: "var(--background-brand-bold)" },
+  { name: "Escalated to human", value: 1638, color: "var(--chart-warning-bold)" },
+  { name: "Direct to human", value: 787, color: "var(--chart-gray-bold)" },
 ];
 
 // -------- Leaderboard --------
@@ -163,8 +167,11 @@ export type LeaderRow = {
   team: string;
   calls: number;
   aht: string;
-  upsell: number; // %
-  csat: number; // 0-1
+  // null when the rep captured no leads / handled no scored calls in the
+  // window. Previously synthesised as `12 + rank * 1.3`, which looked like a
+  // ranking and was an index.
+  upsell: number | null; // %
+  csat: number | null; // 0-1
 };
 
 export const leaderboard: LeaderRow[] = [

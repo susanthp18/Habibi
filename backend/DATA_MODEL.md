@@ -1,6 +1,6 @@
 # Collections Agent — Enterprise Data Model
 
-Authoritative design for the CRM database behind the **24 implemented frontend screens**. Column-level detail should be generated into [`schema.sql`](schema.sql) from this document; this document is the map: domains, relationships, the ERD, enum catalog, and the normalization decisions that reconcile the screens' inconsistent seed shapes.
+Authoritative design for the CRM database behind the **24 implemented frontend screens**. Column-level detail lives in the versioned DDL — [`sql/`](sql/) for the base schema (loaded in file-name order) and [`alembic/versions/`](alembic/versions/) for every change since. Those files are the source of truth; this document is the map: domains, relationships, the ERD, enum catalog, and the normalization decisions that reconcile the screens' inconsistent seed shapes.
 
 Scope note: future-only screens from `screens.md` that are not currently implemented as routes (full Notifications Center, Org & Workspace Settings, and User Management UI) are intentionally not expanded here beyond the shared enterprise foundations they need (`tenants`, `users`, RBAC, and audit logging).
 
@@ -98,7 +98,7 @@ erDiagram
 
 ## Table catalog (purpose + key foreign keys)
 
-Full column-level DDL belongs in `schema.sql` once implementation starts. Key links and required persistence surfaces are noted here.
+Full column-level DDL lives in `sql/*.sql` (the authoritative base schema). Key links and required persistence surfaces are noted here.
 
 **Identity & Tenancy**
 - `tenants` — client orgs / business units (HDFC Retail, HDFC Cards, Kotak PL…). Unifies the sidebar brand, billing `Tenant`, and `X-Tenant` header. Carries billing rollup fields (`resolved_calls`, `aht_sec`, `budget_inr`, `spend_share`).
@@ -126,8 +126,8 @@ Full column-level DDL belongs in `schema.sql` once implementation starts. Key li
 - `optout_events` — auditable opt-out log. `consent_id`, `channel`, `source`, actor as `actor_kind` plus optional `actor_user_id` so customer/system/regulator events are representable.
 
 **Interactions (the spine)**
-- `interactions` — every call **and** chat session, live or completed. `tenant_id`, `customer_id`, `account_id`, handler (`handler_kind` + `handler_user_id`/`handler_bot_id`), `transferred_from_bot_id`; `channel`, `direction`, `status` (active/completed), `disposition`, `primary_intent`, intent booleans (`query_resolved`, `upsell_presented`, `ptp_captured`), `avg_sentiment`, `summary`, `hash`, `latency_ms`, `rag_hits`, `redaction_applied`, optional `deployment_id`. Audit Trail, Handoff, Floor, and Inbox are all queries over this.
-- `interaction_participants` - customer, bot, human agent, and supervisor involvement over time. `interaction_id`, participant kind, `user_id?`, `bot_id?`, `role` (primary/monitor/whisper/barge), `joined_at`, `left_at`.
+- `interactions` — every call **and** chat session, live or completed. `tenant_id`, `customer_id`, `account_id`, handler (`handler_kind` + `handler_user_id`/`handler_bot_id`), `transferred_from_bot_id`; `channel`, `direction`, `status` (active/completed/abandoned/failed), `disposition`, `primary_intent`, intent booleans (`query_resolved`, `upsell_presented`, `ptp_captured`), `avg_sentiment`, `summary`, `hash`, `latency_ms`, `rag_hits`, `redaction_applied`, optional `deployment_id`. Audit Trail, Handoff, Floor, and Inbox are all queries over this.
+- `interaction_participants` - customer, bot, human agent, and supervisor involvement over time. `interaction_id`, participant kind, `user_id?`, `bot_id?`, `role` (primary/customer/monitor/whisper/barge), `joined_at`, `left_at`.
 - `interaction_handoffs` - bot-to-human and human-to-human transfers. `interaction_id`, from/to handler refs, `to_team_id?`, reason, queue, requested/accepted/completed timestamps.
 - `interaction_transcript` — ordered turns (`speaker`, `at_sec`, `text`, `sentiment_delta`).
 - `interaction_sentiment` — sentiment time-series points.
@@ -237,7 +237,12 @@ Unified where the seeds diverged:
 - **channel**: `voice | whatsapp | sms | email | chat` (superset of the 4 conflicting defs; `voice` not `call`).
 - **sentiment_label**: `positive | neutral | negative`; sentiment also stored as numeric `score` (−1..+1) where the UI needs a meter.
 - **risk**: `critical | high | medium | low`.
-- **handler_kind / actor_kind**: `bot | human` (+ `handoff` on interactions).
+- **handler_kind**: `bot | human` (+ `handoff` on interactions).
+- **actor_kind**: domain-specific, not one shared catalog — match the table's CHECK:
+  - `qa_scorecards` / disclosure evidence: `bot | human`.
+  - `activity_events`: `human | bot | system | customer`.
+  - `optout_events`: `human | bot | customer | system | regulator` (a regulator-
+    initiated DNC listing is a real actor and has no analogue elsewhere).
 - **agent_presence_status**: `available | on_break | wrap_up | offline`.
 - **interaction_status**: `active | completed | abandoned | failed`; **participant_role**: `primary | customer | monitor | whisper | barge`.
 - **handoff_reason**: `sentiment_drop | verification_failed | compliance | customer_requested | hardship | dispute | high_value | routing_rule`.
@@ -257,7 +262,7 @@ Unified where the seeds diverged:
 - **sandbox_run_status**: `running | completed | failed`.
 - **webhook_endpoint_status**: `active | paused | broken`; **webhook_delivery_status**: `success | client_err | server_err | pending`.
 - **environment**: `sandbox | production`.
-- Full per-column `CHECK` lists should be captured in `schema.sql`.
+- Full per-column `CHECK` lists are captured in `sql/*.sql`.
 
 ## ID conventions
 
@@ -284,7 +289,10 @@ Human-readable prefixed keys (kept from the seeds, standardized): customer slug 
 
 **Target stack (locked):** FastAPI · **PostgreSQL 16 + pgvector** (Docker Compose, on-prem, no cloud) · **SQLAlchemy 2.0 + Pydantic v2** (not SQLModel — keep DB models and API schemas separate) · **Alembic** with *authored* migrations (autogenerate drafts tables; constraints, the `work_items` view, and triggers are hand-written) · **MinIO** (S3-compatible, self-hosted) for media referenced by `storage_ref` (local FS acceptable interim).
 
-**Scope of this build pass = data layer only.** Schema + coherent seed + read/query API. The following are deliberately deferred to a later hardening pass, but the schema is built to accept them with minimal change:
+**Scope of this build pass = data layer only.** Schema + coherent seed + read/query API. The following are deliberately deferred to a later hardening pass, but the schema is built to accept them with minimal change.
+
+> **Release gate.** Because these controls are inactive, the API refuses to start with `APP_ENV=production` (`main._assert_hardening_gate`). An operator who accepts the risk must set `ALLOW_UNHARDENED_PRODUCTION=1`, which boots but logs an error on every start. Remove the gate — not the flag — once the items below are enforced.
+
 - **RLS multi-tenancy** — `tenant_id` is present on every top-level table now; Row-Level Security policies + a per-request tenant GUC get added later.
 - **AuthN/Z (OIDC/Keycloak)** — RBAC tables (`roles`/`permissions`/`user_roles`) exist now; enforcement is added later.
 - **PII encryption + Vault** — PII columns and `vault://` secret refs are modeled now; column encryption / secrets integration added later.

@@ -13,6 +13,7 @@ import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
 import {
   asServerMessage,
   EMPTY_INSIGHTS,
+  mergeTurnAnalysis,
   type LiveCallInsights,
   type LiveRagHit,
   type LiveToolCall,
@@ -119,9 +120,8 @@ export function useSandboxLiveCall(args: Args) {
   const [elapsedSec, setElapsedSec] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
+  const startGenRef = useRef(0);
+  const startingRef = useRef(false);
   const [voiceLabel, setVoiceLabel] = useState<string | undefined>(undefined);
   const clientRef = useRef<{
     disconnect: () => Promise<void>;
@@ -186,26 +186,46 @@ export function useSandboxLiveCall(args: Args) {
     } catch {
       /* ignore */
     }
-    if (sessionId) {
+    const sid = sessionIdRef.current;
+    sessionIdRef.current = null;
+    setSessionId(null);
+    if (sid) {
       try {
-        await stopVoiceSandbox(sessionId);
+        await stopVoiceSandbox(sid);
       } catch {
         /* ignore */
       }
     }
-    setSessionId(null);
     setStatus("ended");
     startedAt.current = null;
-  }, [sessionId, stopBotAudio]);
+  }, [stopBotAudio]);
 
   const start = useCallback(async () => {
     const a = argsRef.current;
-    if (!a.enabled) return;
+    if (!a.enabled || startingRef.current) return;
+    const gen = ++startGenRef.current;
+    startingRef.current = true;
+
+    stopBotAudio();
+    try {
+      if (clientRef.current) {
+        await clientRef.current.disconnect();
+        clientRef.current = null;
+      }
+    } catch {
+      /* ignore */
+    }
+    const prevSid = sessionIdRef.current;
+    sessionIdRef.current = null;
+    setSessionId(null);
+    if (prevSid) {
+      void stopVoiceSandbox(prevSid).catch(() => undefined);
+    }
+
     setStatus("connecting");
     setElapsedSec(0);
     // Each call is its own trace — never carry the previous call's tool chips.
     setInsights(EMPTY_INSIGHTS);
-    stopBotAudio();
     a.onTurns(() => [
       {
         id: makeId(),
@@ -223,6 +243,11 @@ export function useSandboxLiveCall(args: Args) {
         persona: a.persona as unknown as Record<string, unknown>,
         tuning: a.tuning,
       });
+      if (gen !== startGenRef.current) {
+        void stopVoiceSandbox(started.sessionId).catch(() => undefined);
+        return;
+      }
+      sessionIdRef.current = started.sessionId;
       setSessionId(started.sessionId);
       setVoiceLabel(a.tuning.tts.voice);
 
@@ -240,10 +265,16 @@ export function useSandboxLiveCall(args: Args) {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const c = client as any;
+      // Assign before connect so end/unmount can disconnect a hung handshake.
+      clientRef.current = c as typeof clientRef.current;
 
+      // Handlers read argsRef.current, not the start-time `a` snapshot: the
+      // parent passes inline callbacks, so every re-render gives new closures
+      // and the listeners registered here would keep calling the very first
+      // ones — writing turns into state captured when the call began.
       c.on(RTVIEvent.UserTranscript, (data: { text?: string; final?: boolean }) => {
         if (!data?.final || !data.text?.trim()) return;
-        a.onTurns((prev) => [
+        argsRef.current.onTurns((prev) => [
           ...prev,
           {
             id: makeId(),
@@ -259,7 +290,7 @@ export function useSandboxLiveCall(args: Args) {
         if (!text) return;
         // BotOutput streams new → in-progress → completed; only commit once.
         if (data.spoken_status && data.spoken_status !== "completed") return;
-        a.onTurns((prev) => {
+        argsRef.current.onTurns((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "bot" && last.text === text) return prev;
           return [
@@ -298,7 +329,7 @@ export function useSandboxLiveCall(args: Args) {
       c.on(RTVIEvent.Metrics, (data: unknown) => {
         try {
           const mapped = mapRtviMetrics(data);
-          if (mapped.length) a.onMetrics(mapped);
+          if (mapped.length) argsRef.current.onMetrics(mapped);
         } catch {
           /* ignore */
         }
@@ -459,6 +490,15 @@ export function useSandboxLiveCall(args: Args) {
           case "context.card":
             setInsights((p) => ({ ...p, contextCard: msg.card }));
             break;
+          case "identity.verified":
+            setInsights((p) => ({ ...p, verifiedCustomer: msg }));
+            break;
+          case "session.bound":
+            setInsights((p) => ({ ...p, interactionId: msg.interactionId }));
+            break;
+          case "turn.analysis":
+            setInsights((p) => ({ ...p, turnAnalysis: mergeTurnAnalysis(p.turnAnalysis, msg) }));
+            break;
           case "turn.audio":
             setInsights((p) => ({
               ...p,
@@ -481,16 +521,44 @@ export function useSandboxLiveCall(args: Args) {
       if (typeof c.initDevices === "function") {
         await c.initDevices();
       }
-      // Pass sessionId so the voice bot loads THIS session file (not a shared
-      // "latest.json"). SmallWebRTC maps requestData → runner_args.body.
+      if (gen !== startGenRef.current) {
+        await c.disconnect().catch(() => undefined);
+        clientRef.current = null;
+        void stopVoiceSandbox(started.sessionId).catch(() => undefined);
+        return;
+      }
+      // The voice bot must load THIS session (not a shared "latest" pointer),
+      // so the id travels two ways and the bot takes whichever arrives:
+      //
+      //  1. On the URL. `started.webrtcUrl` already carries `?session_id=…`
+      //     (see voice_sandbox._offer_url_for) — the query parameter that
+      //     pipecat's /api/offer route threads into runner_args.session_id.
+      //     This is the one that works against the standalone runner, whose
+      //     body binding drops the camelCase `requestData` key entirely.
+      //  2. In requestData, which the embedded host and pipecat's
+      //     /sessions/{id}/api/offer proxy read as runner_args.body.
+      //
+      // Both must sit inside `webrtcRequestParams`: connect() validates its
+      // options against a fixed key list (webrtcUrl / connectionUrl /
+      // webrtcRequestParams / iceConfig) and silently drops anything else, so a
+      // top-level `requestData` never left the browser and every Live call ran
+      // with the production bundle and default tuning. `webrtcUrl` is also
+      // deprecated in favour of this shape.
       await c.connect({
-        webrtcUrl: started.webrtcUrl,
-        requestData: { sessionId: started.sessionId },
+        webrtcRequestParams: {
+          endpoint: started.webrtcUrl,
+          requestData: { sessionId: started.sessionId },
+        },
       });
-      clientRef.current = c as typeof clientRef.current;
+      if (gen !== startGenRef.current) {
+        await c.disconnect().catch(() => undefined);
+        clientRef.current = null;
+        void stopVoiceSandbox(started.sessionId).catch(() => undefined);
+        return;
+      }
       setStatus("live");
       startedAt.current = Date.now();
-      a.onTurns((prev) => [
+      argsRef.current.onTurns((prev) => [
         ...prev,
         {
           id: makeId(),
@@ -501,38 +569,57 @@ export function useSandboxLiveCall(args: Args) {
         },
       ]);
     } catch (err) {
-      stopBotAudio();
-      setStatus("idle");
-      toast.error(err instanceof Error ? err.message : "Could not start live call", {
-        description: "Install @pipecat-ai packages and run python -m voice.bot",
-      });
+      if (gen === startGenRef.current) {
+        stopBotAudio();
+        setStatus("idle");
+        toast.error(err instanceof Error ? err.message : "Could not start live call", {
+          description: "Install @pipecat-ai packages and run python -m voice.bot",
+        });
+      }
+    } finally {
+      if (gen === startGenRef.current) startingRef.current = false;
     }
   }, [attachBotAudio, stopBotAudio]);
 
   const toggleMute = useCallback(() => {
-    setMuted((m) => {
-      const next = !m;
-      try {
-        clientRef.current?.enableMic(!next);
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
+    const next = !muted;
+    setMuted(next);
+    try {
+      clientRef.current?.enableMic(!next);
+    } catch {
+      /* ignore */
+    }
+  }, [muted]);
 
   const applyTune = useCallback(
     async (delta: Partial<AgentTuning>) => {
-      if (!sessionId) return;
+      const sid = sessionIdRef.current;
+      if (!sid) return;
+      // The two halves are independent: HTTP persists the delta for
+      // restart/next-call, the data channel applies it to the call already in
+      // progress. Chaining them meant a failed persist also skipped the live
+      // apply — and the shared catch swallowed both, so the agent moved a
+      // slider mid-call, nothing changed, and nothing said so.
+      let persistError: unknown = null;
       try {
-        // HTTP persists for restart/next-call; data channel applies mid-call.
-        await pushVoiceTune(sessionId, delta);
+        await pushVoiceTune(sid, delta);
+      } catch (err) {
+        persistError = err;
+      }
+      try {
         clientRef.current?.sendClientMessage?.("tuning_delta", delta);
       } catch {
-        /* ignore */
+        /* data channel closed — the HTTP write above is the durable path */
+      }
+      if (persistError) {
+        toast.error(
+          persistError instanceof Error
+            ? persistError.message
+            : "Could not save the tuning change",
+        );
       }
     },
-    [sessionId],
+    [],
   );
 
   const restart = useCallback(async () => {

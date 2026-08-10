@@ -26,6 +26,11 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Mirrors Habibi/src/data/qa-seed.ts defaultRubric exactly.
+# Demo tenant this seed belongs to. Every destructive/mutating statement
+# below is scoped to it: with ALEMBIC_SEED_DEMO on against a shared
+# database, unscoped DELETEs and UPDATEs rewrote every tenant's QA history
+# — the exact thing downgrade() already guards against.
+_TENANT_ID = "hdfc.retail"
 _RUBRIC_ID = "rubric-v1"
 _LEGACY_RUBRIC_ID = "qa-rubric-v1"
 
@@ -99,7 +104,18 @@ def upgrade() -> None:
     if not seed_demo_enabled():
         return
 
-    op.execute("DELETE FROM qa_scorecard_entries")
+    op.execute(
+        sa.text(
+            """
+            DELETE FROM qa_scorecard_entries
+            WHERE scorecard_id IN (
+              SELECT qs.id FROM qa_scorecards qs
+              JOIN interactions i ON i.id = qs.interaction_id
+              WHERE i.tenant_id = :tenant
+            )
+            """
+        ).bindparams(tenant=_TENANT_ID)
+    )
 
     # Insert the screen rubric first so FK updates below can point at it.
     op.execute(
@@ -169,7 +185,8 @@ def upgrade() -> None:
 
     # Normalize status / band to screen vocabulary.
     op.execute(
-        """
+        sa.text(
+            """
         UPDATE qa_scorecards
         SET status = CASE
               WHEN status IN ('completed', 'reviewed', 'final') THEN 'final'
@@ -188,7 +205,11 @@ def upgrade() -> None:
               WHEN status IN ('completed', 'reviewed', 'final') THEN coalesce(scored_at, updated_at)
               ELSE scored_at
             END
-        """
+        WHERE interaction_id IN (
+          SELECT id FROM interactions WHERE tenant_id = :tenant
+        )
+            """
+        ).bindparams(tenant=_TENANT_ID)
     )
 
     # Remove legacy rubric tree (now unreferenced).
@@ -214,13 +235,15 @@ def upgrade() -> None:
     # Rebuild scorecards: keep existing rows, align subject to the interaction
     # handler, and expand coverage so the queue isn't only 8 bot finals.
     op.execute(
-        """
+        sa.text(
+            """
         UPDATE qa_scorecards qs
         SET subject_user_id = i.handler_user_id,
             subject_bot_id = i.handler_bot_id
         FROM interactions i
-        WHERE i.id = qs.interaction_id
-        """
+        WHERE i.id = qs.interaction_id AND i.tenant_id = :tenant
+            """
+        ).bindparams(tenant=_TENANT_ID)
     )
 
     # Seed scorecards for recent interactions that lack one (up to 24 total).
@@ -256,51 +279,60 @@ def upgrade() -> None:
                 ELSE NULL
               END
             FROM interactions i
-            WHERE NOT EXISTS (
-              SELECT 1 FROM qa_scorecards qs WHERE qs.interaction_id = i.id
-            )
+            WHERE i.tenant_id = :tenant
+              AND NOT EXISTS (
+                SELECT 1 FROM qa_scorecards qs WHERE qs.interaction_id = i.id
+              )
             ORDER BY i.started_at DESC
             LIMIT 24
             """
-        ).bindparams(rubric_id=_RUBRIC_ID)
+        ).bindparams(rubric_id=_RUBRIC_ID, tenant=_TENANT_ID)
     )
 
     # Cap at ~24 newest interaction scorecards for a usable queue; drop older extras
     # that would leave the UI sparse without full entries (keep coaching FKs safe).
     op.execute(
-        """
+        sa.text(
+            """
         WITH ranked AS (
           SELECT qs.id,
                  row_number() OVER (ORDER BY i.started_at DESC NULLS LAST, qs.created_at DESC) AS rn
           FROM qa_scorecards qs
-          LEFT JOIN interactions i ON i.id = qs.interaction_id
+          JOIN interactions i ON i.id = qs.interaction_id
+          WHERE i.tenant_id = :tenant
         )
         UPDATE coaching_actions
         SET scorecard_id = NULL
         WHERE scorecard_id IN (SELECT id FROM ranked WHERE rn > 24)
-        """
+            """
+        ).bindparams(tenant=_TENANT_ID)
     )
     op.execute(
-        """
+        sa.text(
+            """
         WITH ranked AS (
           SELECT qs.id,
                  row_number() OVER (ORDER BY i.started_at DESC NULLS LAST, qs.created_at DESC) AS rn
           FROM qa_scorecards qs
-          LEFT JOIN interactions i ON i.id = qs.interaction_id
+          JOIN interactions i ON i.id = qs.interaction_id
+          WHERE i.tenant_id = :tenant
         )
         DELETE FROM qa_scorecards
         WHERE id IN (SELECT id FROM ranked WHERE rn > 24)
-        """
+            """
+        ).bindparams(tenant=_TENANT_ID)
     )
 
     # Re-apply status mix on the retained set (newest first).
     op.execute(
-        """
+        sa.text(
+            """
         WITH ranked AS (
           SELECT qs.id,
                  row_number() OVER (ORDER BY i.started_at DESC NULLS LAST, qs.created_at DESC) AS rn
           FROM qa_scorecards qs
-          LEFT JOIN interactions i ON i.id = qs.interaction_id
+          JOIN interactions i ON i.id = qs.interaction_id
+          WHERE i.tenant_id = :tenant
         )
         UPDATE qa_scorecards qs
         SET status = CASE
@@ -319,7 +351,8 @@ def upgrade() -> None:
             rubric_id = 'rubric-v1'
         FROM ranked r
         WHERE qs.id = r.id
-        """
+            """
+        ).bindparams(tenant=_TENANT_ID)
     )
 
     # Full per-criterion entries on the 0–5 screen scale.
@@ -359,6 +392,8 @@ def upgrade() -> None:
                     ELSE NULL
                   END
                 FROM qa_scorecards qs
+                JOIN interactions i ON i.id = qs.interaction_id
+                WHERE i.tenant_id = :tenant
                 ON CONFLICT (id) DO UPDATE
                   SET ai_suggested_score = EXCLUDED.ai_suggested_score,
                       final_score = EXCLUDED.final_score,
@@ -366,12 +401,13 @@ def upgrade() -> None:
                       accepted = EXCLUDED.accepted,
                       updated_at = now()
                 """
-            ).bindparams(crit=crit_id)
+            ).bindparams(crit=crit_id, tenant=_TENANT_ID)
         )
 
     # Recompute totals/bands from entries (critical-fail cap at 40).
     op.execute(
-        """
+        sa.text(
+            """
         WITH crit AS (
           SELECT c.id AS criterion_id, c.weight AS crit_weight, c.critical_fail,
                  s.weight AS section_weight, s.id AS section_id
@@ -419,21 +455,47 @@ def upgrade() -> None:
         FROM totals t
         WHERE qs.id = t.scorecard_id
           AND qs.status <> 'unscored'
-        """
+          AND qs.interaction_id IN (
+                SELECT id FROM interactions WHERE tenant_id = :tenant
+              )
+            """
+        ).bindparams(tenant=_TENANT_ID)
     )
     op.execute(
-        """
+        sa.text(
+            """
         UPDATE qa_scorecards
         SET total_score = NULL, band = NULL
         WHERE status = 'unscored'
-        """
+          AND interaction_id IN (
+                SELECT id FROM interactions WHERE tenant_id = :tenant
+              )
+            """
+        ).bindparams(tenant=_TENANT_ID)
     )
 
 
 def downgrade() -> None:
-    # Best-effort restore of the 2-criterion smoke rubric; entries become invalid
-    # for the screen and are cleared.
-    op.execute("DELETE FROM qa_scorecard_entries")
+    # Mirror upgrade()'s guard: when demo seeding was off, upgrade() only added
+    # the three columns, so downgrade must only drop them. Reversing the seed
+    # here would delete rubric data this migration never created.
+    if not seed_demo_enabled():
+        op.drop_column("qa_scorecards", "scored_at")
+        op.drop_column("qa_scorecard_entries", "accepted")
+        op.drop_column("qa_rubric_criteria", "description")
+        return
+
+    # Best-effort restore of the 2-criterion smoke rubric; entries scored against
+    # the replaced rubric become invalid for the screen and are cleared. Scoped
+    # to that rubric — every other tenant's QA history must survive a rollback.
+    op.execute(
+        sa.text(
+            """
+            DELETE FROM qa_scorecard_entries
+            WHERE scorecard_id IN (SELECT id FROM qa_scorecards WHERE rubric_id = :rubric)
+            """
+        ).bindparams(rubric=_RUBRIC_ID)
+    )
     op.execute(
         sa.text(
             """
@@ -465,13 +527,17 @@ def downgrade() -> None:
             """
         )
     )
+    # Only retarget the rows this migration retargeted; scorecards that already
+    # pointed at some other rubric are none of our business.
     op.execute(
-        sa.text("UPDATE qa_scorecards SET rubric_id = :legacy").bindparams(legacy=_LEGACY_RUBRIC_ID)
+        sa.text(
+            "UPDATE qa_scorecards SET rubric_id = :legacy WHERE rubric_id = :new"
+        ).bindparams(legacy=_LEGACY_RUBRIC_ID, new=_RUBRIC_ID)
     )
     op.execute(
-        sa.text("UPDATE calibration_sessions SET rubric_id = :legacy").bindparams(
-            legacy=_LEGACY_RUBRIC_ID
-        )
+        sa.text(
+            "UPDATE calibration_sessions SET rubric_id = :legacy WHERE rubric_id = :new"
+        ).bindparams(legacy=_LEGACY_RUBRIC_ID, new=_RUBRIC_ID)
     )
     op.execute(sa.text("DELETE FROM qa_rubric_criteria WHERE id = ANY(:ids)").bindparams(ids=_ALL_CRITERIA))
     op.execute(

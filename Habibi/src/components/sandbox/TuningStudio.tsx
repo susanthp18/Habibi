@@ -1,14 +1,17 @@
-import { useMemo, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import {
   AGENT_TUNING_PRESETS,
   clampAgentTuning,
   tuningFingerprint,
   type AgentTuning,
 } from "@/data/agent-tuning";
-import { useTtsVoiceCatalog } from "@/api/prompt-studio";
+import { VoiceCatalogBrowser } from "@/components/prompt-studio/VoiceCatalogBrowser";
+import { VoiceDetailCard } from "@/components/prompt-studio/VoicePanel";
+import { useVoicePreview } from "@/components/prompt-studio/useVoicePreview";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { fetchTtsVoiceDetail, type TtsCatalogVoice } from "@/api/prompt-studio";
 import { cn } from "@/lib/utils";
-import { Switch } from "@/components/ui/switch";
 
 type Props = {
   value: AgentTuning;
@@ -19,20 +22,54 @@ type Props = {
   nextCallDirty?: boolean;
   onRestartCall?: () => void;
   disabled?: boolean;
+  /** Layout override — SplitPanes supplies the width, so the fixed one goes. */
+  className?: string;
 };
 
 type SectionKey = "voice" | "reasoning" | "listening" | "turn";
 
 const LIVE_BADGE = (
-  <span className="rounded bg-emerald-50 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-700">
+  <span className="rounded bg-background-success-subtler px-050 py-025 text-body-small font-semibold text-text-success-bolder">
     live
   </span>
 );
 const NEXT_BADGE = (
-  <span className="rounded bg-amber-50 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-700">
+  <span className="rounded bg-background-warning-subtler px-050 py-025 text-body-small font-semibold text-text-warning-bolder">
     next call
   </span>
 );
+
+// Trailing-edge window for live tuning applies (slider drags, pitch typing).
+const LIVE_APPLY_DEBOUNCE_MS = 250;
+
+function liveDeltaFromPartial(
+  partial: Partial<AgentTuning>,
+  next: AgentTuning,
+): Partial<AgentTuning> {
+  const pick = <T extends object>(sub: Partial<T> | undefined, full: T): Partial<T> | undefined => {
+    if (!sub) return undefined;
+    const keys = Object.keys(sub) as (keyof T)[];
+    if (!keys.length) return undefined;
+    const out: Partial<T> = {};
+    for (const key of keys) out[key] = full[key];
+    return out;
+  };
+
+  const delta: Partial<AgentTuning> = {};
+  const llm = pick(partial.llm, next.llm);
+  const tts = pick(partial.tts, next.tts);
+  const stt = pick(partial.stt, next.stt);
+  const vad = pick(partial.vad, next.vad);
+  const turn = pick(partial.turn, next.turn);
+  const interaction = pick(partial.interaction, next.interaction);
+  if (llm) delta.llm = llm as AgentTuning["llm"];
+  if (tts) delta.tts = tts as AgentTuning["tts"];
+  if (stt) delta.stt = stt as AgentTuning["stt"];
+  if (vad) delta.vad = vad as AgentTuning["vad"];
+  if (turn) delta.turn = turn as AgentTuning["turn"];
+  if (interaction) delta.interaction = interaction as AgentTuning["interaction"];
+  return delta;
+}
 
 export function TuningStudio({
   value,
@@ -42,6 +79,7 @@ export function TuningStudio({
   nextCallDirty = false,
   onRestartCall,
   disabled,
+  className,
 }: Props) {
   const [open, setOpen] = useState<Record<SectionKey, boolean>>({
     voice: true,
@@ -57,6 +95,37 @@ export function TuningStudio({
     return tuningFingerprint(value) !== tuningFingerprint(activePreset.tuning);
   }, [value, activePreset]);
 
+  // Live applies are debounced: each one is an HTTP PUT plus a data-channel
+  // message, and the range inputs / free-text pitch field below fire on every
+  // frame of a drag or every keystroke. Local state still updates immediately —
+  // only the network side waits for the drag to settle. Deltas are merged so
+  // the trailing call carries everything moved during the window.
+  const pendingLive = useRef<Partial<AgentTuning>>({});
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (liveTimer.current) clearTimeout(liveTimer.current);
+    },
+    [],
+  );
+
+  const queueLiveApply = (delta: Partial<AgentTuning>) => {
+    if (!onLiveApply) return;
+    const merged = pendingLive.current;
+    for (const [section, values] of Object.entries(delta)) {
+      const key = section as keyof AgentTuning;
+      merged[key] = { ...(merged[key] as object), ...(values as object) } as never;
+    }
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => {
+      const payload = pendingLive.current;
+      pendingLive.current = {};
+      liveTimer.current = null;
+      if (Object.keys(payload).length) onLiveApply(payload);
+    }, LIVE_APPLY_DEBOUNCE_MS);
+  };
+
   const patch = (partial: Partial<AgentTuning>, live?: boolean) => {
     const next = clampAgentTuning({
       ...value,
@@ -71,22 +140,27 @@ export function TuningStudio({
         : value.interaction,
     });
     onChange(next);
-    if (live && onLiveApply) onLiveApply(partial);
+    if (live) queueLiveApply(liveDeltaFromPartial(partial, next));
   };
 
   return (
-    <aside className="hidden h-full min-h-0 w-[300px] shrink-0 flex-col border-r border-[var(--border-token)] bg-surface-card lg:flex">
-      <div className="shrink-0 border-b border-[var(--border-token)] p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+    <aside
+      className={cn(
+        "hidden h-full min-h-0 w-[18.75rem] shrink-0 flex-col border-r border-border bg-surface lg:flex",
+        className,
+      )}
+    >
+      <div className="shrink-0 border-b border-border p-150">
+        <div className="flex items-center justify-between gap-100">
+          <div className="text-body-small font-semibold text-text-subtlest">
             Agent Tuning
           </div>
           {dirtyVsPreset && (
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-primary" title="Modified from preset" />
+            <span className="h-1.5 w-1.5 rounded-full bg-background-brand-bold" title="Modified from preset" />
           )}
         </div>
-        <label className="mt-1.5 flex items-center gap-1 text-[11px] text-text-secondary">
-          <span className="text-text-muted">Preset</span>
+        <label className="mt-075 flex items-center gap-050 text-body-small text-text-subtle">
+          <span className="text-text-subtlest">Preset</span>
           <select
             value={presetId}
             disabled={disabled}
@@ -94,9 +168,17 @@ export function TuningStudio({
               const id = e.target.value;
               setPresetId(id);
               const p = AGENT_TUNING_PRESETS.find((x) => x.id === id);
-              if (p) onChange(clampAgentTuning(p.tuning));
+              if (p) {
+                // Same live path every other control uses. Gating on callLive
+                // here meant a preset switch was the one change the parent
+                // never saw as a live edit; applyTune is already a no-op when
+                // no session is up, so the gate bought nothing.
+                const next = clampAgentTuning(p.tuning);
+                onChange(next);
+                queueLiveApply({ llm: next.llm, tts: next.tts });
+              }
             }}
-            className="min-w-0 flex-1 rounded border border-[var(--border-token)] bg-surface-card px-1.5 py-1 text-[11.5px]"
+            className="min-w-0 flex-1 rounded border border-border bg-surface px-075 py-050 text-body-small"
           >
             {AGENT_TUNING_PRESETS.map((p) => (
               <option key={p.id} value={p.id}>
@@ -109,14 +191,14 @@ export function TuningStudio({
           <button
             type="button"
             onClick={onRestartCall}
-            className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11.5px] font-medium text-amber-800 hover:bg-amber-100"
+            className="mt-100 inline-flex w-full items-center justify-center gap-050 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-100 py-075 text-body-small font-medium text-text-warning-bolder hover:bg-background-warning-subtler"
           >
             <RotateCcw className="h-3 w-3" /> Restart call with these settings
           </button>
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto p-100">
         <Section
           title="Voice & delivery"
           badge={LIVE_BADGE}
@@ -336,19 +418,21 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-2 rounded-md border border-[var(--border-token)]">
+    <div className="mb-100 rounded-medium border border-border">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[12px] font-medium text-text-primary hover:bg-surface-sunken"
+        className="flex w-full items-center justify-between gap-100 px-150 py-100 text-left text-body-small font-medium text-text hover:bg-surface-sunken"
       >
         <span>{title}</span>
-        <span className="flex items-center gap-1">
+        <span className="flex items-center gap-050">
           {badge}
-          <span className="text-text-muted">{open ? "▾" : "▸"}</span>
+          <span className="text-text-subtlest">
+            {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+          </span>
         </span>
       </button>
-      {open && <div className="space-y-2 border-t border-[var(--border-token)] px-2.5 py-2">{children}</div>}
+      {open && <div className="space-y-100 border-t border-border px-150 py-100">{children}</div>}
     </div>
   );
 }
@@ -362,66 +446,54 @@ function TuningVoicePicker({
   onChange: (shortName: string) => void;
   disabled?: boolean;
 }) {
-  const [q, setQ] = useState("");
-  const [showPremium, setShowPremium] = useState(false);
-  const catalog = useTtsVoiceCatalog({
-    q: q.trim() || undefined,
-    status: "GA",
-    includePremium: showPremium,
-    limit: 40,
-  });
-  const items = catalog.data?.items ?? [];
-  const selectedLabel =
-    items.find((v) => v.shortName === value)?.displayName ||
-    value.replace(/^.*-/, "").replace(/Neural.*$/, "") ||
-    value;
+  // The picker used to be name-only: 546 voices, no way to hear one and no way
+  // to see anything about it. Both capabilities already existed on the full
+  // browser — they were simply never passed down here.
+  const preview = useVoicePreview();
+  const [detail, setDetail] = useState<TtsCatalogVoice | null>(null);
+
+  const openDetail = async (voice: TtsCatalogVoice) => {
+    setDetail(voice);
+    try {
+      // The list payload is trimmed; styles/personalities/pricing come from the
+      // per-voice endpoint. Show the row immediately, enrich when it lands.
+      const full = await fetchTtsVoiceDetail(voice.shortName);
+      setDetail((current) => (current?.shortName === voice.shortName ? full : current));
+    } catch {
+      /* keep the list-level detail rather than blanking the sheet */
+    }
+  };
 
   return (
-    <div className="space-y-1.5 rounded-md border border-[var(--border-token)] bg-surface-sunken/50 p-2">
-      <div className="flex items-center justify-between gap-2 text-[11px] text-text-secondary">
-        <span className="font-medium text-text-primary">TTS voice</span>
-        <label className="inline-flex items-center gap-1.5 text-[10px] text-text-muted">
-          <Switch
-            checked={showPremium}
-            onCheckedChange={setShowPremium}
-            disabled={disabled}
-            className="scale-90"
-          />
-          Premium
-        </label>
-      </div>
-      <div className="text-[10.5px] text-text-muted">
-        Selected: <span className="font-medium text-text-secondary">{selectedLabel}</span>
-      </div>
-      <input
-        type="search"
-        value={q}
-        disabled={disabled}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search catalog…"
-        className="w-full rounded border border-[var(--border-token)] bg-surface-card px-1.5 py-1 text-[11px]"
-      />
-      <select
+    <>
+      <VoiceCatalogBrowser
+        mode="compact"
         value={value}
-        disabled={disabled || catalog.isLoading}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-[var(--border-token)] bg-surface-card px-1.5 py-1 text-[11px]"
-      >
-        {!items.some((v) => v.shortName === value) && value ? (
-          <option value={value}>{value}</option>
-        ) : null}
-        {items.map((v) => (
-          <option key={v.shortName} value={v.shortName}>
-            {v.displayName} · {v.locale}
-            {v.isPremium ? " · premium" : ""}
-          </option>
-        ))}
-      </select>
-      <div className="text-[10px] text-text-muted">
-        {catalog.isFetching ? "Loading…" : `${catalog.data?.total ?? 0} voices`} · full picker in
-        Prompt Studio → Voice
-      </div>
-    </div>
+        disabled={disabled}
+        showSyncControls={false}
+        listHeight={200}
+        onSelect={(voice) => onChange(voice.shortName)}
+        onPreview={(voice) => preview.toggleVoice(voice)}
+        onOpenDetail={(voice) => void openDetail(voice)}
+        previewingShortName={preview.previewing}
+        previewBusy={preview.playing || preview.loading}
+      />
+      <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
+        <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
+          {detail ? (
+            <VoiceDetailCard
+              voice={detail}
+              onUse={() => {
+                onChange(detail.shortName);
+                setDetail(null);
+              }}
+              onPlay={() => preview.toggleVoice(detail)}
+              playing={preview.previewing === detail.shortName && preview.playing}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -443,10 +515,10 @@ function SliderRow({
   disabled?: boolean;
 }) {
   return (
-    <label className="block text-[11px] text-text-secondary">
-      <div className="mb-0.5 flex justify-between">
+    <label className="block text-body-small text-text-subtle">
+      <div className="mb-025 flex justify-between">
         <span>{label}</span>
-        <span className="font-mono text-text-muted">{Number(value).toFixed(step < 1 ? 2 : 0)}</span>
+        <span className="font-mono text-text-subtlest">{Number(value).toFixed(step < 1 ? 2 : 0)}</span>
       </div>
       <input
         type="range"
@@ -456,7 +528,7 @@ function SliderRow({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[var(--brand-primary)]"
+        className="w-full accent-[var(--background-brand-bold)]"
       />
     </label>
   );
@@ -478,8 +550,8 @@ function SelectRow({
   nextCall?: boolean;
 }) {
   return (
-    <label className="flex items-center justify-between gap-2 text-[11px] text-text-secondary">
-      <span className="inline-flex items-center gap-1">
+    <label className="flex items-center justify-between gap-100 text-body-small text-text-subtle">
+      <span className="inline-flex items-center gap-050">
         {label}
         {nextCall ? NEXT_BADGE : null}
       </span>
@@ -487,9 +559,7 @@ function SelectRow({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className={cn(
-          "rounded border border-[var(--border-token)] bg-surface-card px-1.5 py-0.5 text-[11px]",
-        )}
+        className="rounded border border-border bg-surface px-075 py-025 text-body-small"
       >
         {options.map((o) => (
           <option key={o} value={o}>
@@ -513,13 +583,13 @@ function TextRow({
   disabled?: boolean;
 }) {
   return (
-    <label className="flex items-center justify-between gap-2 text-[11px] text-text-secondary">
+    <label className="flex items-center justify-between gap-100 text-body-small text-text-subtle">
       <span>{label}</span>
       <input
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="w-24 rounded border border-[var(--border-token)] bg-surface-card px-1.5 py-0.5 font-mono text-[11px]"
+        className="w-24 rounded border border-border bg-surface px-075 py-025 font-mono text-body-small"
       />
     </label>
   );

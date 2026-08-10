@@ -24,10 +24,10 @@ function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () 
     <button
       onClick={onClick}
       className={cn(
-        "rounded-full border px-2 py-0.5 text-[11px]",
+        "rounded-full border px-100 py-025 text-body-small",
         on
-          ? "border-brand-primary bg-brand-tint text-brand-primary-dark font-semibold"
-          : "border-[var(--border-token)] bg-surface-card text-text-secondary hover:bg-surface-sunken",
+          ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold"
+          : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
       )}
     >
       {label}
@@ -50,20 +50,20 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
     (filters.search ? 1 : 0);
 
   return (
-    <div className="shrink-0 rounded-lg border border-[var(--border-token)] bg-surface-card px-2.5 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+    <div className="shrink-0 rounded-large border border-border bg-surface px-150 py-100">
+      <div className="flex flex-wrap items-center gap-100">
+        <div className="relative flex-1 min-w-[13.75rem]">
+          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
           <Input
             value={filters.search}
             onChange={(e) => onPatch({ search: e.target.value })}
             placeholder="Search customer, account, request id…"
-            className="h-8 pl-7 text-[12px]"
+            className="h-400 pl-400 text-body-small"
           />
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-[10.5px] uppercase tracking-wide text-text-muted">Type</span>
+        <div className="flex items-center gap-050">
+          <span className="text-body-small text-text-subtlest">Type</span>
           {(Object.keys(DOC_TYPE_LABELS) as DocType[]).slice(0, 4).map((t) => (
             <Chip
               key={t}
@@ -78,7 +78,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
               if (!e.target.value) return;
               onPatch({ docTypes: toggle(filters.docTypes, e.target.value as DocType) });
             }}
-            className="h-6 rounded-md border border-[var(--border-token)] bg-surface-card px-1 text-[11px]"
+            className="h-300 rounded-medium border border-border bg-surface px-050 text-body-small"
           >
             <option value="">+ more</option>
             {(Object.keys(DOC_TYPE_LABELS) as DocType[]).slice(4).map((t) => (
@@ -89,8 +89,8 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           </select>
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-[10.5px] uppercase tracking-wide text-text-muted">Channel</span>
+        <div className="flex items-center gap-050">
+          <span className="text-body-small text-text-subtlest">Channel</span>
           {(Object.keys(CHANNEL_LABELS) as DocChannel[]).map((c) => (
             <Chip
               key={c}
@@ -101,8 +101,8 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           ))}
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-[10.5px] uppercase tracking-wide text-text-muted">Via</span>
+        <div className="flex items-center gap-050">
+          <span className="text-body-small text-text-subtlest">Via</span>
           {(Object.keys(VIA_LABELS) as RequestedVia[]).map((v) => (
             <Chip
               key={v}
@@ -113,8 +113,8 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           ))}
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-[10.5px] uppercase tracking-wide text-text-muted">Range</span>
+        <div className="flex items-center gap-050">
+          <span className="text-body-small text-text-subtlest">Range</span>
           {(["today", "7d", "30d", "all"] as const).map((r) => (
             <Chip key={r} label={r === "all" ? "All" : r} on={filters.range === r} onClick={() => onPatch({ range: r })} />
           ))}
@@ -123,7 +123,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
         <select
           value={filters.assignee}
           onChange={(e) => onPatch({ assignee: e.target.value })}
-          className="h-7 rounded-md border border-[var(--border-token)] bg-surface-card px-2 text-[12px]"
+          className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
         >
           <option value="all">All assignees</option>
           {assignees.map((a) => (
@@ -134,8 +134,8 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
         </select>
 
         {activeCount > 0 && (
-          <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={onReset}>
-            <X className="mr-1 h-3 w-3" /> Clear
+          <Button size="sm" variant="ghost" className="h-7 text-body-small" onClick={onReset}>
+            <X className="mr-050 h-3 w-3" /> Clear
           </Button>
         )}
       </div>

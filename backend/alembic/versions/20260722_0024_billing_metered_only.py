@@ -5,6 +5,13 @@ Drops reconstructed embed backfill (not live Azure receipts).
 Keeps sandbox chat usage_events (real token_count from Azure).
 Rebuilds billing_usage_daily + invoices from remaining events.
 
+IRREVERSIBLE. upgrade() deletes the estimate catalog, its usage_events, the
+derived budgets/invoices and budget_alert_events without snapshotting them, so
+downgrade() is a deliberate no-op — it cannot reconstruct data it never kept.
+Rolling back past this revision restores the *schema* only; recovering the
+purged estimate data requires a database restore from before the upgrade. Take
+one before applying this revision in an environment where that data matters.
+
 Revision ID: 20260722_0024
 Revises: 20260722_0023
 """
@@ -63,19 +70,23 @@ def upgrade() -> None:
         ).bindparams(sa.bindparam("ids", expanding=True)),
         {"ids": list(ESTIMATE_IDS)},
     )
+    # Rebuild daily facts purely from usage_events. Scoped to the estimate
+    # services being retired plus the metered services being rebuilt below; the
+    # blanket `DELETE FROM billing_usage_daily` that used to follow this made
+    # the targeted delete dead code and wiped every other service's history.
     conn.execute(
         sa.text(
             """
             DELETE FROM billing_usage_daily
             WHERE service_id IN :ids
-               OR service_id = 'llm_embed'
+               OR service_id IN :metered
             """
-        ).bindparams(sa.bindparam("ids", expanding=True)),
-        {"ids": list(ESTIMATE_IDS)},
+        ).bindparams(
+            sa.bindparam("ids", expanding=True),
+            sa.bindparam("metered", expanding=True),
+        ),
+        {"ids": list(ESTIMATE_IDS), "metered": list(METERED_IDS)},
     )
-
-    # Rebuild daily facts purely from remaining usage_events
-    conn.execute(sa.text("DELETE FROM billing_usage_daily"))
     conn.execute(
         sa.text(
             """
@@ -184,6 +195,16 @@ def upgrade() -> None:
                 ) VALUES (
                   :id, :tenant, :month, 'production', :total, :status, :issued
                 )
+                -- The purge above only removes environment='production' rows,
+                -- so an invoice with this id in another environment survives
+                -- and would abort the whole revision on a PK collision.
+                ON CONFLICT (id) DO UPDATE SET
+                  tenant_id = EXCLUDED.tenant_id,
+                  invoice_month = EXCLUDED.invoice_month,
+                  environment = EXCLUDED.environment,
+                  total_inr = EXCLUDED.total_inr,
+                  status = EXCLUDED.status,
+                  issued_at = EXCLUDED.issued_at
                 """
             ),
             {
@@ -196,8 +217,10 @@ def upgrade() -> None:
             },
         )
 
-    # If no usage yet, still create current-month draft at 0
-    has_jul = any(ym == "2026-07" for ym, _ in months)
+    # If HDFC has no July usage yet, still create its current-month draft at 0.
+    # Must be scoped to hdfc.retail: another tenant having July usage does not
+    # mean HDFC has a July invoice, and the un-scoped check suppressed it.
+    has_jul = any(row[0] == "hdfc.retail" and row[1] == "2026-07" for row in months)
     if not has_jul:
         conn.execute(
             sa.text(
@@ -235,5 +258,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Irreversible purge of estimate seed — no-op restore.
+    # Intentional no-op: see the module docstring. upgrade() purged the estimate
+    # catalog/usage/budgets/invoices without a snapshot, so there is nothing to
+    # restore. Recovery is a database restore, not a migration.
     pass

@@ -23,42 +23,42 @@ export function RubricScorer({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-200">
       {rubric.sections.map((section) => {
         const subtotal = sectionTotal(section, entries);
         return (
-          <div key={section.id} className="rounded-lg border border-[var(--border-token)] bg-surface-card">
-            <div className="flex items-center justify-between border-b border-[var(--border-token)] px-3 py-2">
+          <div key={section.id} className="rounded-large border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-150 py-100">
               <div>
-                <div className="text-[13px] font-semibold text-brand-navy">{section.label}</div>
-                <div className="text-[11px] text-text-muted">Weight {section.weight}%</div>
+                <div className="text-body font-semibold text-text">{section.label}</div>
+                <div className="text-body-small text-text-subtlest">Weight {section.weight}%</div>
               </div>
               <div className="text-right">
-                <div className="text-[15px] font-semibold text-brand-primary-dark">{subtotal.toFixed(0)}</div>
-                <div className="text-[10px] uppercase tracking-wide text-text-muted">Subtotal</div>
+                <div className="text-[0.875rem] font-semibold text-text-brand">{subtotal.toFixed(0)}</div>
+                <div className="text-body-small text-text-subtlest">Subtotal</div>
               </div>
             </div>
-            <div className="divide-y divide-[var(--border-token)]">
+            <div className="divide-y divide-border">
               {section.criteria.map((c) => {
                 const entry = entries.find((e) => e.criterionId === c.id) ?? { criterionId: c.id, aiSuggested: 0, score: 0 };
                 const diff = entry.score !== entry.aiSuggested;
                 return (
-                  <div key={c.id} className="px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-2">
+                  <div key={c.id} className="px-150 py-150">
+                    <div className="flex items-start justify-between gap-100">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 text-[12.5px] font-medium text-text-primary">
+                        <div className="flex items-center gap-075 text-[0.75rem] font-medium text-text">
                           {c.label}
                           {c.critical && (
-                            <span className="rounded bg-red-50 px-1 py-0.5 text-[9px] font-semibold uppercase text-red-700">Critical</span>
+                            <span className="rounded bg-background-danger-subtler px-050 py-025 text-body-small font-semibold text-text-danger-bolder">Critical</span>
                           )}
                         </div>
-                        <div className="text-[11px] text-text-secondary">{c.description}</div>
+                        <div className="text-body-small text-text-subtle">{c.description}</div>
                       </div>
                       <div className="shrink-0 text-right">
-                        <div className="text-[16px] font-semibold text-brand-navy">{entry.score.toFixed(0)}<span className="text-[11px] text-text-muted">/5</span></div>
+                        <div className="text-[1rem] font-semibold text-text">{entry.score.toFixed(0)}<span className="text-body-small text-text-subtlest">/5</span></div>
                       </div>
                     </div>
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="mt-100 flex items-center gap-100">
                       <input
                         type="range"
                         min={0}
@@ -67,16 +67,16 @@ export function RubricScorer({
                         value={entry.score}
                         disabled={readOnly}
                         onChange={(e) => update(c.id, { score: Number(e.target.value), accepted: Number(e.target.value) === entry.aiSuggested })}
-                        className="h-1 flex-1 cursor-pointer accent-[var(--brand-primary)]"
+                        className="h-050 flex-1 cursor-pointer accent-[var(--background-brand-bold)]"
                       />
                       <button
                         onClick={() => update(c.id, { score: entry.aiSuggested, accepted: true })}
                         disabled={readOnly}
                         className={cn(
-                          "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]",
+                          "inline-flex items-center gap-050 rounded-full border px-075 py-025 text-body-small",
                           diff
-                            ? "border-brand-primary bg-brand-tint text-brand-primary-dark hover:bg-brand-tint-strong"
-                            : "border-emerald-200 bg-emerald-50 text-emerald-700",
+                            ? "border-border-brand bg-background-brand-subtlest text-text-brand hover:bg-background-brand-subtlest-pressed"
+                            : "border-border-success-subtle bg-background-success-subtler text-text-success-bolder",
                         )}
                         title="Accept AI suggestion"
                       >
@@ -90,7 +90,7 @@ export function RubricScorer({
                       onChange={(e) => update(c.id, { note: e.target.value })}
                       placeholder="Note…"
                       disabled={readOnly}
-                      className="mt-1.5 w-full rounded border border-[var(--border-token)] bg-surface-app px-2 py-1 text-[11px] outline-none focus:border-brand-primary"
+                      className="mt-075 w-full rounded border border-border bg-surface px-100 py-050 text-body-small outline-none focus:border-border-brand"
                     />
                   </div>
                 );

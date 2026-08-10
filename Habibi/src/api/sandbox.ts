@@ -19,6 +19,7 @@ import {
 import {
   SCENARIOS,
   generateBotReply,
+  INTENT_KEYS,
   type BotReply,
   type IntentKey,
   type Persona,
@@ -271,12 +272,14 @@ export async function appendSandboxTurn(input: {
   guardrails?: Guardrails;
 }): Promise<SandboxTurnResult> {
   if (USE_MOCK) {
-    const scenario = input.scenario!;
+    if (!input.scenario) throw new Error("sandbox_scenario_required");
+    if (!input.personaState) throw new Error("sandbox_persona_state_required");
+    const scenario = input.scenario;
     const reply: BotReply = generateBotReply(
       scenario,
       input.turnIndex ?? 0,
       input.text,
-      input.personaState!,
+      input.personaState,
       input.guardrails ?? DEFAULT_GUARDRAILS,
     );
     await mockDelay(null, reply.latencyMs);
@@ -317,17 +320,10 @@ export async function appendSandboxTurn(input: {
   });
 }
 
+export { INTENT_KEYS };
+
 export function isIntentKey(value: string): value is IntentKey {
-  return [
-    "balance_query",
-    "dispute",
-    "hardship",
-    "waiver_request",
-    "payment_intent",
-    "upsell_opportunity",
-    "escalation",
-    "out_of_scope",
-  ].includes(value);
+  return (INTENT_KEYS as readonly string[]).includes(value);
 }
 
 /** Doc-title chip label for grounded retrieval. */

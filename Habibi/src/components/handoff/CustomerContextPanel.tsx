@@ -1,5 +1,6 @@
 import { AlertOctagon, CalendarClock, HandCoins, ShieldCheck, User2 } from "lucide-react";
 import type { ActiveCall, CustomerContext } from "@/api/handoff";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export function CustomerContextPanel({
   call: activeCall,
@@ -10,56 +11,54 @@ export function CustomerContextPanel({
 }) {
   const money = (n: number) => `${c.currency}${n.toLocaleString("en-IN")}`;
   return (
-    <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <div className="flex items-center justify-between border-b border-[var(--border-token)] px-3 py-2">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-brand-navy">
-          <User2 className="h-3.5 w-3.5 text-brand-primary" />
+    <div className="rounded-large border border-border bg-surface">
+      <div className="flex items-center justify-between border-b border-border px-150 py-100">
+        <div className="flex items-center gap-075 text-body-small font-semibold text-text">
+          <User2 className="h-3.5 w-3.5 text-text-brand" />
           Customer context
         </div>
-        <span className="rounded-full bg-danger-bg px-1.5 py-0.5 text-[10px] font-semibold text-danger">
-          {c.risk} risk
-        </span>
+        <Lozenge tone="danger">{c.risk} risk</Lozenge>
       </div>
 
-      <div className="px-3 py-3">
-        <div className="text-[11px] uppercase tracking-wide text-text-muted">Outstanding</div>
-        <div className="tabular text-[22px] font-semibold text-brand-navy">
+      <div className="px-150 py-150">
+        <div className="text-body-small text-text-subtlest">Outstanding</div>
+        <div className="tabular text-[1.5rem] font-semibold text-text">
           {money(c.outstanding)}
         </div>
-        <div className="text-[11px] text-text-secondary">
+        <div className="text-body-small text-text-subtle">
           {c.product} · tenure {c.tenureMonths}m
         </div>
       </div>
 
-      <ul className="divide-y divide-[var(--border-token)] border-t border-[var(--border-token)]">
+      <ul className="divide-y divide-border border-t border-border">
         <Row
-          icon={<HandCoins className="h-3.5 w-3.5 text-warning" />}
+          icon={<HandCoins className="h-3.5 w-3.5 text-text-warning" />}
           label="Last promise"
           value={`${money(c.lastPromise.amount)} · ${c.lastPromise.date}`}
           badge={{ text: "Broken", tone: "danger" }}
         />
         <Row
-          icon={<CalendarClock className="h-3.5 w-3.5 text-brand-primary" />}
+          icon={<CalendarClock className="h-3.5 w-3.5 text-text-brand" />}
           label="Next EMI"
           value={`${money(c.nextEmi.amount)} · due ${c.nextEmi.dueDate}`}
           badge={{ text: `${c.nextEmi.daysOverdue}d overdue`, tone: "warning" }}
         />
         <Row
-          icon={<AlertOctagon className="h-3.5 w-3.5 text-danger" />}
+          icon={<AlertOctagon className="h-3.5 w-3.5 text-text-danger" />}
           label="Open disputes"
           value={`${c.openDisputes} active`}
           badge={{ text: "This call", tone: "info" }}
         />
         <Row
-          icon={<ShieldCheck className="h-3.5 w-3.5 text-success" />}
+          icon={<ShieldCheck className="h-3.5 w-3.5 text-text-success" />}
           label="Consent / DND"
           value={`${c.dnd.window} · ${c.dnd.channels.join(", ")}`}
           badge={{ text: c.dnd.allowed ? "Contactable" : "Blocked", tone: c.dnd.allowed ? "success" : "danger" }}
         />
       </ul>
 
-      <div className="border-t border-[var(--border-token)] px-3 py-2 text-[11px] text-text-muted">
-        Escalation: <span className="text-text-secondary">{activeCall.escalationReason}</span>
+      <div className="border-t border-border px-150 py-100 text-body-small text-text-subtlest">
+        Escalation: <span className="text-text-subtle">{activeCall.escalationReason}</span>
       </div>
     </div>
   );
@@ -77,21 +76,21 @@ function Row({
   badge: { text: string; tone: "danger" | "warning" | "success" | "info" };
 }) {
   const toneMap = {
-    danger: "bg-danger-bg text-danger",
-    warning: "bg-warning-bg text-warning",
-    success: "bg-success-bg text-success",
-    info: "bg-brand-tint text-brand-primary-dark",
-  };
+    danger: "danger",
+    warning: "warning",
+    success: "success",
+    info: "selected",
+  } as const;
   return (
-    <li className="flex items-start gap-2 px-3 py-2">
-      <span className="mt-0.5">{icon}</span>
+    <li className="flex items-start gap-100 px-150 py-100">
+      <span className="mt-025">{icon}</span>
       <div className="min-w-0 flex-1">
-        <div className="text-[11px] text-text-muted">{label}</div>
-        <div className="truncate text-[12px] text-text-primary">{value}</div>
+        <div className="text-body-small text-text-subtlest">{label}</div>
+        <div className="truncate text-body-small text-text">{value}</div>
       </div>
-      <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${toneMap[badge.tone]}`}>
+      <Lozenge tone={toneMap[badge.tone]} className="shrink-0">
         {badge.text}
-      </span>
+      </Lozenge>
     </li>
   );
 }

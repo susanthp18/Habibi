@@ -43,21 +43,21 @@ export function PublishDialog({ open, onOpenChange, fromLabel, toLabel, from, to
             Publish <span className="font-mono">{toLabel}</span>?
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 text-[13px]">
-          <div className="rounded-md border border-[var(--border-token)] bg-surface-sunken p-3">
-            <div className="text-text-secondary">
+        <div className="space-y-150 text-body">
+          <div className="rounded-medium border border-border bg-surface-sunken p-150">
+            <div className="text-text-subtle">
               Replacing live <span className="font-mono">{fromLabel}</span>. Full config diff:{" "}
-              <span className="font-medium text-emerald-700">+{added}</span> ·{" "}
-              <span className="font-medium text-red-700">−{removed}</span> lines (prompt + persona +
+              <span className="font-medium text-text-success-bolder">+{added}</span> ·{" "}
+              <span className="font-medium text-text-danger-bolder">−{removed}</span> lines (prompt + persona +
               voice + guardrails).
             </div>
           </div>
           <div>
-            <label className="text-[11px] font-semibold uppercase text-text-muted">Change note</label>
+            <label className="text-body-small font-semibold text-text-subtlest">Change note</label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What changed and why" />
           </div>
           <div>
-            <label className="text-[11px] font-semibold uppercase text-text-muted">
+            <label className="text-body-small font-semibold text-text-subtlest">
               Type <span className="font-mono">PUBLISH</span> to confirm
             </label>
             <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="PUBLISH" />

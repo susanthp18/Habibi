@@ -18,6 +18,7 @@ import {
   type ConsentChannel,
   type OptOutSource,
 } from "@/data/consent-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 import {
   captureOptOut,
   renewConsent,
@@ -129,22 +130,22 @@ function ConsentPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        <header className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[18px] font-semibold text-brand-navy">Consent & Communication Preferences</h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-secondary">
+        <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
+          <div className="flex flex-wrap items-center gap-100">
+            <h1 className="text-[1.25rem] font-semibold text-text">Consent & communication preferences</h1>
+            <Lozenge tone="neutral">
               <ShieldCheck className="h-3 w-3" /> TCPA / RBI aligned
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              <button onClick={handleImport} className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-sunken">
+            </Lozenge>
+            <div className="ml-auto flex items-center gap-100">
+              <button onClick={handleImport} className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-subtle hover:bg-surface-sunken">
                 <Upload className="h-3.5 w-3.5" /> Import CSV
               </button>
-              <button onClick={handleExport} className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-3 py-1.5 text-[12px] text-brand-primary hover:bg-brand-tint">
+              <button onClick={handleExport} className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest">
                 <Download className="h-3.5 w-3.5" /> Export registry
               </button>
             </div>
           </div>
-          <p className="text-[12px] text-text-secondary">
+          <p className="text-body-small text-text-subtle">
             Per-customer channel consent, DND windows, and frequency caps. Callback and Inbox screens read the same "contactable now?" status.
           </p>
         </header>
@@ -152,7 +153,7 @@ function ConsentPage() {
         <ConsentStatsStrip all={items} />
         <ConsentFilters filters={filters} onChange={setFilters} resultCount={filtered.length} totalCount={items.length} />
 
-        <div className="min-h-0 flex-1 overflow-auto bg-surface-app p-4">
+        <div className="min-h-0 flex-1 overflow-auto bg-surface p-200">
           <ConsentTable rows={filtered} onOpen={setOpenId} selectedId={openId} />
         </div>
       </div>

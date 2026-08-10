@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Sequence, Union
 
 from alembic import op
@@ -409,26 +409,14 @@ def upgrade() -> None:
           cost_inr = EXCLUDED.cost_inr
         """
     )
+    # executemany: one statement per 500-row chunk instead of per row.
     for chunk_start in range(0, len(rows), 500):
-        chunk = rows[chunk_start : chunk_start + 500]
-        for r in chunk:
-            conn.execute(insert_sql, r)
+        conn.execute(insert_sql, rows[chunk_start : chunk_start + 500])
 
     # --- org budgets (current month) ---
-    conn.execute(
-        sa.text(
-            """
-            INSERT INTO budgets (id, tenant_id, environment, month, amount_inr)
-            VALUES
-              ('budget-prod-2026-07', NULL, 'production', :month, 600000),
-              ('budget-sandbox-2026-07', NULL, 'sandbox', :month, 40000)
-            ON CONFLICT DO NOTHING
-            """
-        ),
-        {"month": MONTH},
-    )
-    # ON CONFLICT DO NOTHING won't hit without constraint name on insert conflict —
-    # use explicit upsert by id
+    # The per-id upsert loop below is the sole insertion path; the bare
+    # `ON CONFLICT DO NOTHING` insert that preceded it could not fire (no
+    # inferable conflict target) and only masked the real behaviour.
     for bid, env, cap in (
         ("budget-prod-2026-07", "production", 600000),
         ("budget-sandbox-2026-07", "sandbox", 40000),
@@ -616,6 +604,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # upgrade() relaxed budgets.tenant_id to NULL-able and inserted org-wide
+    # (NULL-tenant) rows. Remove those rows and restore NOT NULL, otherwise the
+    # table is left in a state the pre-migration schema never allowed and the
+    # constraint can never be re-applied.
+    op.execute("DROP INDEX IF EXISTS uq_budgets_tenant_env_month")
+    op.execute(
+        """
+        DELETE FROM budget_rules
+        WHERE budget_id IN (SELECT id FROM budgets WHERE tenant_id IS NULL)
+        """
+    )
+    op.execute("DELETE FROM budgets WHERE tenant_id IS NULL")
+    op.execute("ALTER TABLE budgets ALTER COLUMN tenant_id SET NOT NULL")
     op.execute("DROP INDEX IF EXISTS uq_budgets_org_env_month")
     op.execute("DROP INDEX IF EXISTS idx_billing_usage_daily_date")
     op.execute("DROP INDEX IF EXISTS uq_billing_usage_daily_fact")

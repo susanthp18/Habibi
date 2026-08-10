@@ -10,13 +10,17 @@ export function BudgetRuleDialog({
   open,
   onOpenChange,
   rule,
+  /** Persist handler — callers must toast/rethrow on failure. */
   onSave,
+  /** Optional delete handler — callers must toast/rethrow on failure. */
   onDelete,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   rule: BudgetRule | null;
+  /** Persist handler — callers must toast/rethrow on failure. */
   onSave: (r: BudgetRule) => void | Promise<void>;
+  /** Optional delete handler — callers must toast/rethrow on failure. */
   onDelete?: () => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState<BudgetRule>(
@@ -51,9 +55,9 @@ export function BudgetRuleDialog({
         <DialogHeader>
           <DialogTitle>{rule ? "Edit rule" : "New budget rule"}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-[12px]">Threshold (% of monthly cap)</Label>
+        <div className="space-y-150">
+          <div className="space-y-075">
+            <Label className="text-body-small">Threshold (% of monthly cap)</Label>
             <Input
               type="number"
               min={1}
@@ -62,8 +66,8 @@ export function BudgetRuleDialog({
               onChange={(e) => setDraft({ ...draft, threshold: +e.target.value })}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-[12px]">Severity</Label>
+          <div className="space-y-075">
+            <Label className="text-body-small">Severity</Label>
             <Select
               value={draft.severity}
               onValueChange={(v) => setDraft({ ...draft, severity: v as BudgetRule["severity"] })}
@@ -76,15 +80,15 @@ export function BudgetRuleDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-[12px]">Action</Label>
+          <div className="space-y-075">
+            <Label className="text-body-small">Action</Label>
             <Input
               value={draft.action}
               onChange={(e) => setDraft({ ...draft, action: e.target.value })}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-[12px]">Channels (comma separated)</Label>
+          <div className="space-y-075">
+            <Label className="text-body-small">Channels (comma separated)</Label>
             <Input
               value={draft.channels.join(", ")}
               onChange={(e) =>
@@ -105,7 +109,7 @@ export function BudgetRuleDialog({
             {onDelete && (
               <Button
                 variant="ghost"
-                className="text-rose-600 hover:text-rose-700"
+                className="text-text-danger hover:text-text-danger-bolder"
                 disabled={busy}
                 onClick={() => {
                   void (async () => {
@@ -125,7 +129,7 @@ export function BudgetRuleDialog({
               </Button>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-100">
             <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

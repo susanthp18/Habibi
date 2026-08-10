@@ -47,7 +47,13 @@ async def proxy_voice_websocket(client: WebSocket) -> None:
     logger.info("Voice WS proxy → %s", upstream)
 
     try:
-        async with websockets.connect(upstream, max_size=8 * 1024 * 1024) as server:
+        async with websockets.connect(
+            upstream,
+            max_size=8 * 1024 * 1024,
+            open_timeout=10,
+            ping_interval=20,
+            ping_timeout=20,
+        ) as server:
             async def client_to_server() -> None:
                 try:
                     while True:

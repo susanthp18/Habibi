@@ -1,0 +1,33 @@
+# A non-money goal must not be answered with the outstanding balance.
+#
+# The hub used to open every post-verification turn with "state outstanding and
+# minimum due", regardless of why the caller rang. Someone calling to request a
+# statement was read their debt first.
+name: no_unprompted_balance
+
+turns:
+  - expect:
+      - event: response
+        eval: >-
+          the bot greets, discloses recording, and asks what the caller needs
+          help with
+
+  - user: "I need a copy of my account statement for last quarter."
+    expect:
+      - event: function_call
+        calls:
+          - name: capture_call_goal
+      - event: response
+        eval: "the bot asks for the last 4 digits of the registered mobile"
+
+  - user: "It's 2324."
+    expect:
+      - event: function_call
+        calls:
+          - name: verify_identity
+            args: { method: phone_match }
+      - event: response
+        eval: >-
+          the bot moves on the statement request — it must NOT state the
+          outstanding balance or minimum due, because the caller did not ask
+          about money

@@ -1,6 +1,8 @@
 import { AlertTriangle, ChevronRight, Headphones, PhoneForwarded } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ActiveCall, FloorAlert } from "@/data/floor-seed";
+import { Badge } from "@/components/ui/badge";
+import { Lozenge } from "@/components/ui/lozenge";
 
 type Props = {
   alerts: FloorAlert[];
@@ -12,9 +14,9 @@ type Props = {
 };
 
 const sevCls: Record<1 | 2 | 3, string> = {
-  3: "border-l-[var(--sentiment-negative)] bg-danger-bg/40",
-  2: "border-l-[var(--sentiment-neutral)] bg-warning-bg/40",
-  1: "border-l-[var(--border-token)] bg-surface-sunken",
+  3: "border-l-[var(--sentiment-negative)] bg-background-danger/40",
+  2: "border-l-[var(--sentiment-neutral)] bg-background-warning/40",
+  1: "border-l-[var(--border)] bg-surface-sunken",
 };
 
 export function AlertLane({ alerts, calls, onFocus, onListen, onBarge, compact }: Props) {
@@ -23,60 +25,60 @@ export function AlertLane({ alerts, calls, onFocus, onListen, onBarge, compact }
   return (
     <aside
       className={cn(
-        "flex flex-col overflow-hidden bg-surface-card",
+        "flex flex-col overflow-hidden bg-surface",
         compact
-          ? "shrink-0 border-b border-[var(--border-token)]"
-          : "hidden w-[320px] shrink-0 border-l border-[var(--border-token)] xl:flex",
+          ? "shrink-0 border-b border-border"
+          : "hidden w-[20rem] shrink-0 border-l border-border xl:flex",
       )}
     >
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-token)] px-3 py-2">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-brand-navy">
-          <AlertTriangle className="h-3.5 w-3.5 text-danger" />
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-150 py-100">
+        <div className="flex items-center gap-075 text-body-small font-semibold text-text">
+          <AlertTriangle className="h-3.5 w-3.5 text-text-danger" />
           Calls turning negative
         </div>
-        <span className="tabular rounded-full bg-danger-bg px-1.5 py-0.5 text-[10px] font-semibold text-danger">
+        <Badge variant="destructive" className="tabular">
           {alerts.length}
-        </span>
+        </Badge>
       </div>
 
-      <div className={cn("min-h-0 flex-1 overflow-y-auto", compact && "max-h-[140px]")}>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", compact && "max-h-[8.75rem]")}>
         {list.length === 0 && (
-          <div className="p-6 text-center text-[11px] text-text-muted">
+          <div className="p-300 text-center text-body-small text-text-subtlest">
             No calls flagged. Floor is calm.
           </div>
         )}
-        <ul className="divide-y divide-[var(--border-token)]">
+        <ul className="divide-y divide-border">
           {list.map((a) => {
             const call = calls.find((c) => c.id === a.callId);
             if (!call) return null;
             return (
-              <li key={a.id} className={cn("border-l-4 px-3 py-2.5", sevCls[a.severity])}>
+              <li key={a.id} className={cn("border-l-4 px-150 py-150", sevCls[a.severity])}>
                 <button
                   type="button"
                   onClick={() => onFocus(a.callId)}
                   className="group flex w-full items-start justify-between text-left"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-[12px] font-semibold text-brand-navy">
+                    <div className="flex items-center gap-075">
+                      <span className="truncate text-body-small font-semibold text-text">
                         {call.customer}
                       </span>
-                      <span className="rounded-full bg-surface-card px-1 py-0.5 text-[9px] text-text-secondary">
+                      <Lozenge tone="neutral">
                         {call.handler.kind === "human" ? call.handler.name : "Bot"}
-                      </span>
+                      </Lozenge>
                     </div>
-                    <p className="mt-0.5 line-clamp-2 text-[11px] text-text-secondary">
+                    <p className="mt-025 line-clamp-2 text-body-small text-text-subtle">
                       {a.reason}
                     </p>
-                    <span className="tabular text-[10px] text-text-muted">{a.at}</span>
+                    <span className="tabular text-body-small text-text-subtlest">{a.at}</span>
                   </div>
-                  <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted group-hover:text-brand-primary" />
+                  <ChevronRight className="mt-025 h-3.5 w-3.5 shrink-0 text-text-subtlest group-hover:text-text-brand" />
                 </button>
-                <div className="mt-1.5 flex gap-1">
+                <div className="mt-075 flex gap-050">
                   <button
                     type="button"
                     onClick={() => onListen(a.callId)}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1 text-[10px] font-medium text-text-secondary hover:bg-surface-sunken"
+                    className="flex flex-1 items-center justify-center gap-050 rounded-medium border border-border bg-surface px-100 py-050 text-body-small font-medium text-text-subtle hover:bg-surface-sunken"
                   >
                     <Headphones className="h-3 w-3" />
                     Listen
@@ -84,7 +86,7 @@ export function AlertLane({ alerts, calls, onFocus, onListen, onBarge, compact }
                   <button
                     type="button"
                     onClick={() => onBarge(a.callId)}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-md bg-danger px-2 py-1 text-[10px] font-semibold text-white hover:bg-[#b3271d]"
+                    className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-danger-bold px-100 py-050 text-body-small font-semibold text-white hover:bg-background-danger-bold-hovered"
                   >
                     <PhoneForwarded className="h-3 w-3" />
                     Barge

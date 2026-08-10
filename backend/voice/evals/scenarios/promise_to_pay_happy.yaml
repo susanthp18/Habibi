@@ -1,0 +1,40 @@
+# Caller verifies and commits to a promise-to-pay.
+#
+# Format: pipecat.evals.scenario — one scenario per file, `turns` with `expect`
+# lists of EvalExpectation (event / calls / eval / text_contains).
+name: promise_to_pay_happy
+
+turns:
+  # Observation-only: let the bot's on-connect greeting land before speaking,
+  # otherwise the first user turn barges into the disclosure.
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "Hi, this is about my loan payment."
+    expect:
+      - event: response
+        eval: "the bot acknowledges the loan payment topic without quoting an interest rate or APR"
+
+  # {{promise_date}} / {{promise_date_spoken}} are substituted by
+  # scripts/run_voice_evals.py from ONE runtime value, so the utterance and the
+  # expected normalised arg can never disagree. A hardcoded absolute date kept
+  # the two in sync but expired: once it fell into the past the bot correctly
+  # refused it and the eval failed for a reason that had nothing to do with the
+  # bot. A relative phrase ("next Friday") is the opposite failure — the
+  # expected arg would depend on the day the suite runs.
+  - user: "Yes I can pay five thousand on {{promise_date_spoken}}."
+    expect:
+      - event: function_call
+        calls:
+          # Assert the normalised args, not just that the tool fired — a call
+          # with the wrong amount or a mis-parsed date is a real defect and
+          # name-only matching passes it.
+          - name: create_promise_to_pay
+            args:
+              amount: 5000
+              promise_date: "{{promise_date}}"
+      - event: response
+        eval: >-
+          the bot confirms the promise to pay and does NOT claim it is
+          connecting or transferring the caller to a person

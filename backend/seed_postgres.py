@@ -24,7 +24,30 @@ DEFAULT_DSN = "postgresql://collections:collections@localhost:5432/collections"
 TENANT_ID = "hdfc.retail"
 
 
+def _is_prod() -> bool:
+    """Same production detection as scripts/seed_demo.py.
+
+    Falls back to .env: DATABASE_URL is resolved the same way below, so a
+    deployment that only sets APP_ENV in .env would otherwise be seen as `dev`
+    while pointing at the production database.
+    """
+    return (os.getenv("APP_ENV") or read_env("APP_ENV") or "dev").strip().lower() in {
+        "prod",
+        "production",
+    }
+
+
 def main() -> None:
+    # seed_demo.py guards this, but seed_postgres is also invoked directly
+    # (`python seed_postgres.py`, compose exec, ad-hoc shells). Refuse before
+    # loading exports or opening a connection — this writes synthetic customers,
+    # calls and consent records over whatever is in the target database.
+    if _is_prod():
+        raise SystemExit(
+            "Refusing to seed demo data when APP_ENV=production|prod. "
+            "Unset APP_ENV or set APP_ENV=dev for local demos."
+        )
+
     customers_export = load_json("customers.json")
     calls_export = load_json("calls.json")
     leads_export = load_json("leads.json")
@@ -40,6 +63,8 @@ def main() -> None:
             seed_bot_config(conn, ctx)
             seed_interactions(conn, ctx)
             seed_collections_and_sales(conn, ctx)
+            # After collections/sales: it re-dates rows those functions wrote.
+            seed_recent_activity(conn, ctx)
             seed_compliance_qa_redaction(conn, ctx)
             seed_admin_analytics_crosscutting(conn, ctx)
             from seed_susanth import seed_susanth
@@ -195,13 +220,179 @@ def jsonable(value: Any) -> Any:
     return Json(value) if isinstance(value, (dict, list)) else value
 
 
+# Postgres TEXT[] columns, by table. psycopg adapts a bare Python list to an
+# array and a Json-wrapped one to jsonb, and the two are not interchangeable —
+# `jsonable` wrapping everything is right for the jsonb columns that dominate
+# this schema and wrong for these. Keep this in step with `TEXT[]` in sql/.
+ARRAY_COLUMNS: dict[str, frozenset[str]] = {
+    "products": frozenset({"channels"}),
+    "product_campaigns": frozenset({"segment_in", "risk_not_in"}),
+}
+
+
+# ---------------------------------------------------------------------------
+# Offer catalog
+#
+# This depth used to live in Habibi/src/data/upsell-seed.ts, where nothing
+# reconciled it against the products table that check_product_eligibility
+# actually reads — the UI could offer a product id the server had never heard
+# of. It belongs here, and /products serves it to the UI.
+#
+# ticket_min / ticket_max are load-bearing, not decoration: the recommender
+# derives its indicative amount from them, and a NULL band was what produced
+# leads worth NULL that rendered as ₹NaN pipeline totals.
+# ---------------------------------------------------------------------------
+
+PRODUCT_CATALOG: dict[str, dict[str, Any]] = {
+    "topup-loan": {
+        "category": "Loan", "family": "unsecured_loan",
+        "ticket_min": 50_000, "ticket_max": 1_500_000,
+        "roi": "10.75% p.a.", "roi_numeric": 10.75,
+        "tenor_months_min": 12, "tenor_months_max": 60, "margin_score": 0.75,
+        "description": "Additional loan on an existing personal loan account for eligible customers.",
+    },
+    "debt-consolidation": {
+        "category": "Loan", "family": "unsecured_loan",
+        "ticket_min": 100_000, "ticket_max": 2_500_000,
+        "roi": "11.5% p.a.", "roi_numeric": 11.5,
+        "tenor_months_min": 24, "tenor_months_max": 84, "margin_score": 0.70,
+        "description": "Combine multiple outstanding balances into a single lower-EMI loan.",
+    },
+    "cc-limit-upgrade": {
+        "category": "Card", "family": "revolving_credit",
+        "ticket_min": 25_000, "ticket_max": 500_000,
+        "roi": "36% APR (revolving)", "roi_numeric": 36.0, "margin_score": 0.85,
+        "description": "Higher spend limit on an existing credit card; gated by utilisation and bureau score.",
+    },
+    "personal-loan": {
+        "category": "Loan", "family": "unsecured_loan",
+        "ticket_min": 50_000, "ticket_max": 2_000_000,
+        "roi": "12.5% p.a.", "roi_numeric": 12.5,
+        "tenor_months_min": 12, "tenor_months_max": 72, "margin_score": 0.70,
+        "description": "Unsecured personal loan pre-approved for salaried customers.",
+    },
+    "gold-loan": {
+        "category": "Loan", "family": "secured_loan",
+        "ticket_min": 25_000, "ticket_max": 1_000_000,
+        "roi": "9.5% p.a.", "roi_numeric": 9.5,
+        "tenor_months_min": 6, "tenor_months_max": 36, "margin_score": 0.55,
+        "description": "Secured loan against gold ornaments at branch valuation.",
+    },
+    "bundled-insurance": {
+        "category": "Insurance", "family": "protection",
+        "ticket_min": 5_000, "ticket_max": 50_000,
+        "roi": "N/A (premium)", "margin_score": 0.90,
+        "tenor_months_min": 12, "tenor_months_max": 12,
+        "description": "Loan-linked accident + hospitalisation cover bundled with an existing product.",
+    },
+    "credit-card": {
+        "category": "Card", "family": "revolving_credit",
+        "ticket_min": 25_000, "ticket_max": 1_000_000,
+        "roi": "36% APR (revolving)", "roi_numeric": 36.0, "margin_score": 0.80,
+        "description": "Primary credit card facility.",
+    },
+    "auto-loan": {
+        "category": "Loan", "family": "secured_loan",
+        "ticket_min": 100_000, "ticket_max": 3_000_000,
+        "roi": "10.25% p.a.", "roi_numeric": 10.25,
+        "tenor_months_min": 12, "tenor_months_max": 84, "margin_score": 0.60,
+        "description": "Secured loan against a vehicle.",
+    },
+}
+
+# Per-product eligibility. Tighter than the blanket dpdMax=90 default where the
+# risk warrants it — an unsecured top-up to someone 90 days down is not a
+# cross-sell, it is an impairment.
+#
+# Conditions use the closed predicate set in capture.SUPPORTED_CONDITION_KEYS.
+# Anything absent is not evaluated; anything unknown reports unknown and does
+# not block. Keys outside that set raise a warning and an explicit
+# `rule_unsupported` flag rather than being silently skipped.
+PRODUCT_RULES: dict[str, dict[str, Any]] = {
+    # A top-up is new unsecured exposure on an existing loan: needs a track
+    # record, room on the relationship, and a customer who is not already at
+    # the limit of what we have lent them.
+    "topup-loan": {
+        "kyc": "current",
+        "dpdMax": 30,
+        "minRelationshipMonths": 6,
+        "maxUtilization": 0.85,
+        "minTicket": 50_000,
+        "riskNotIn": ["critical"],
+    },
+    "debt-consolidation": {
+        "kyc": "current",
+        "dpdMax": 60,
+        "minRelationshipMonths": 3,
+        "minTicket": 100_000,
+    },
+    # A limit upgrade to someone already using their limit is how a
+    # delinquency becomes a bigger delinquency.
+    "cc-limit-upgrade": {
+        "kyc": "current",
+        "dpdMax": 15,
+        "maxUtilization": 0.70,
+        "riskNotIn": ["critical", "high"],
+    },
+    "personal-loan": {
+        "kyc": "current",
+        "dpdMax": 30,
+        "minRelationshipMonths": 6,
+        "riskNotIn": ["critical"],
+    },
+    # Secured against gold, so tenure and utilisation matter far less.
+    "gold-loan": {"kyc": "current", "dpdMax": 90},
+    # Low-ticket protection: the only real gate is that we may contact them,
+    # and fulfilment needs a written record, hence the e-mail consent rule.
+    "bundled-insurance": {
+        "kyc": "current",
+        "dpdMax": 90,
+        "requiresConsentChannel": "email",
+    },
+}
+
+# Complementarity / conflict graph. `excludes` is treated symmetrically by the
+# candidate generator; `complements` feeds the affinity signal.
+PRODUCT_RELATIONS: list[dict[str, Any]] = [
+    {"id": "pr-pl-topup", "product_id": "personal-loan", "related_product_id": "topup-loan",
+     "relation": "complements", "affinity": 0.90},
+    {"id": "pr-pl-ins", "product_id": "personal-loan", "related_product_id": "bundled-insurance",
+     "relation": "complements", "affinity": 0.80},
+    {"id": "pr-auto-ins", "product_id": "auto-loan", "related_product_id": "bundled-insurance",
+     "relation": "complements", "affinity": 0.85},
+    {"id": "pr-cc-limit", "product_id": "credit-card", "related_product_id": "cc-limit-upgrade",
+     "relation": "upgrades", "affinity": 0.95},
+    {"id": "pr-cc-consol", "product_id": "credit-card", "related_product_id": "debt-consolidation",
+     "relation": "complements", "affinity": 0.75},
+    # A top-up only exists on top of an existing loan.
+    {"id": "pr-topup-req", "product_id": "topup-loan", "related_product_id": "personal-loan",
+     "relation": "requires", "affinity": 1.00},
+    # A limit upgrade needs a card to upgrade.
+    {"id": "pr-ccup-req", "product_id": "cc-limit-upgrade", "related_product_id": "credit-card",
+     "relation": "requires", "affinity": 1.00},
+    # Consolidating and topping up at once is double leverage.
+    {"id": "pr-consol-x-topup", "product_id": "debt-consolidation",
+     "related_product_id": "topup-loan", "relation": "excludes", "affinity": 0.00},
+]
+
+PRODUCT_CAMPAIGNS: list[dict[str, Any]] = [
+    {"id": "camp-topup-q3", "product_id": "topup-loan", "name": "Top-up push Q3",
+     "priority": 0.80, "risk_not_in": ["critical"], "enabled": True},
+    {"id": "camp-ins-always", "product_id": "bundled-insurance", "name": "Protection attach",
+     "priority": 0.60, "enabled": True},
+    {"id": "camp-ccup", "product_id": "cc-limit-upgrade", "name": "Limit upgrade",
+     "priority": 0.55, "risk_not_in": ["critical", "high"], "enabled": True},
+]
+
+
 def upsert(conn: psycopg.Connection, table: str, row: dict[str, Any], pk: str = "id") -> None:
     keys = list(row)
     cols = ", ".join(keys)
     vals = ", ".join(f"%({k})s" for k in keys)
     updates = ", ".join(f"{k}=EXCLUDED.{k}" for k in keys if k != pk)
     conflict = f"DO UPDATE SET {updates}" if updates else "DO NOTHING"
-    params = {k: jsonable(v) for k, v in row.items()}
+    arrays = ARRAY_COLUMNS.get(table, frozenset())
+    params = {k: (v if k in arrays else jsonable(v)) for k, v in row.items()}
     conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT ({pk}) {conflict}", params)
 
 
@@ -227,6 +418,12 @@ def build_context(customers_export: list[dict[str, Any]], calls: list[dict[str, 
         "card-collections": "Card Collections",
         "retail-collections": "Retail Collections",
         "supervisors": "Supervisors",
+        # Sales queues leads are routed to by product category. They were only
+        # created as a side effect of a lead in the seed happening to name them,
+        # so routing a bot-captured insurance lead hit a missing team row.
+        "retail-sales": "Retail Sales",
+        "cards-sales": "Cards Sales",
+        "insurance": "Insurance",
     }
     products: dict[str, dict[str, Any]] = {
         "credit-card": {"id": "credit-card", "name": "Credit Card", "type": "card", "roi": "36% APR (revolving)"},
@@ -363,8 +560,15 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         )
         upsert(conn, "agent_presence", {"id": f"presence-{user_id}", "user_id": user_id, "status": "available", "since_at": "2026-07-21T09:00:00+05:30", "interaction_id": None})
 
+    # Demo admin for TTS catalog Refresh (and other admin-gated ops).
+    insert_ignore(
+        conn,
+        "INSERT INTO user_roles (user_id, role_id) VALUES (%(user_id)s, %(role_id)s) ON CONFLICT DO NOTHING",
+        {"user_id": "priya-nair", "role_id": "role-admin"},
+    )
+
     for product in ctx["products"].values():
-        upsert(conn, "products", product)
+        upsert(conn, "products", {**product, **PRODUCT_CATALOG.get(product["id"], {})})
         upsert(
             conn,
             "product_eligibility_rules",
@@ -372,10 +576,21 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "id": f"rule-{product['id']}",
                 "product_id": product["id"],
                 "name": f"{product['name']} default eligibility",
-                "conditions": {"kyc": "current", "dpdMax": 90},
+                "conditions": PRODUCT_RULES.get(
+                    product["id"], {"kyc": "current", "dpdMax": 90}
+                ),
                 "enabled": True,
             },
         )
+
+    seeded = set(ctx["products"])
+    for relation in PRODUCT_RELATIONS:
+        if relation["product_id"] in seeded and relation["related_product_id"] in seeded:
+            upsert(conn, "product_relations", relation)
+
+    for campaign in PRODUCT_CAMPAIGNS:
+        if campaign["product_id"] in seeded:
+            upsert(conn, "product_campaigns", {**campaign, "tenant_id": TENANT_ID})
 
 
 def seed_customers_accounts(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
@@ -601,7 +816,8 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         "maxSeconds": 480,
     }
     _voice = {
-        "voiceId": "priya",
+        "voiceId": "en-IN-AartiNeural",
+        "azureVoiceName": "en-IN-AartiNeural",
         "speed": 1.0,
         "pitch": 0,
         "warmth": 62,
@@ -614,9 +830,9 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     _upsell_traits = {"empathy": 65, "firmness": 45, "formality": 55, "verbosity": 55, "upsell": 75}
 
     for voice_id, name, gender, accent, azure in (
-        ("priya", "Priya", "Female", "Indian English", "en-IN-NeerjaNeural"),
+        ("priya", "Priya", "Female", "Indian English", "en-IN-AartiNeural"),
         ("anjali", "Anjali", "Female", "Hindi-English", "en-IN-AashiNeural"),
-        ("neha", "Neha", "Female", "Neutral English", "en-IN-NeerjaNeural"),
+        ("neha", "Neha", "Female", "Neutral English", "en-IN-AartiNeural"),
         ("ravi", "Ravi", "Male", "Indian English", "en-IN-PrabhatNeural"),
         ("arjun", "Arjun", "Male", "Hindi-English", "en-IN-KunalNeural"),
         ("kabir", "Kabir", "Male", "Neutral English", "en-IN-PrabhatNeural"),
@@ -742,13 +958,14 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             "bot_id": "kaia-v2-4",
             "prompt_version_id": "v1_4",
             "kb_snapshot_id": "kb-snapshot-2026-07",
-            "tts_voice_id": "priya",
+            "tts_voice_id": "en-IN-AartiNeural",
             "environment": "production",
             "status": "active",
             "published_by_user_id": "priya-nair",
             "published_at": "2026-07-21T08:30:00Z",
             "rollback_deployment_id": None,
-            "voice_config": {**_voice},
+            "voice_config": {**_voice, "azureVoiceName": "en-IN-AartiNeural", "voiceId": "en-IN-AartiNeural"},
+            "tuning": {"tts": {"voice": "en-IN-AartiNeural"}},
         },
     )
     # Screen-shaped routing library (Habibi Routing Builder). Alembic 0013 mirrors this.
@@ -1241,6 +1458,69 @@ def seed_collections_and_sales(conn: psycopg.Connection, ctx: dict[str, Any]) ->
         upsert(conn, "followups", {"id": f"FU-{lead['id']}", "promise_id": None, "lead_id": lead["id"], "customer_id": lead["customerId"], "assignee_user_id": owner_id, "status": "open", "priority": priority(lead.get("priority")), "due_at": "2026-07-23T10:00:00+05:30", "note": "Lead follow-up"})
 
 
+def seed_recent_activity(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
+    """Relative-dated payments so the dashboard has a recent series to draw.
+
+    The executive dashboard used to read ``analytics_daily`` — one hand-seeded
+    row — and multiply it by literals. Now that every figure is a real query
+    over ``ledger_entries`` / ``promises`` / ``leads``, a corpus whose newest
+    payment is months old renders an honest but empty chart, which reads as a
+    regression rather than as the truth it is.
+
+    Dates are computed from ``now()`` rather than written as literals. That is
+    the whole point: the fixed-date seed is *why* the demo data expired, and a
+    hardcoded top-up would expire again on exactly the same schedule.
+
+    Ids are deterministic, so re-seeding updates rather than duplicates.
+    """
+    # Payments across the last 45 days. The modulus spreads them unevenly so the
+    # trend line has a shape instead of a flat bar per day.
+    conn.execute(
+        """
+        INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at, created_at)
+        SELECT
+          'SEED-RECENT-' || a.id || '-' || d.n,
+          a.id,
+          'payment',
+          'EMI collection',
+          -1 * ROUND(COALESCE(a.minimum_due, 2500) * (0.6 + mod(d.n * 7, 5) * 0.15), 2),
+          now() - CAST(d.n || ' days' AS interval),
+          now()
+        FROM (
+          SELECT id, minimum_due,
+                 row_number() OVER (ORDER BY id) AS rn
+          FROM accounts
+          WHERE status = 'active'
+        ) a
+        CROSS JOIN generate_series(1, 44) AS d(n)
+        WHERE mod(d.n + a.rn::int, 6) = 0
+        ON CONFLICT (id) DO UPDATE SET
+          amount = EXCLUDED.amount,
+          posted_at = EXCLUDED.posted_at
+        """
+    )
+
+    # A handful of settled promises inside the window so Promise-Kept Rate has
+    # a denominator. Only touches rows this function created.
+    conn.execute(
+        """
+        UPDATE promises
+           SET created_at = now() - CAST((mod(abs(hashtext(id)), 25) + 1) || ' days' AS interval),
+               promised_at = now() - CAST((mod(abs(hashtext(id)), 25) + 1) || ' days' AS interval)
+         WHERE status IN ('kept', 'broken', 'partial')
+        """
+    )
+
+    # Same for leads, so Upsell Conversion has something to divide by.
+    conn.execute(
+        """
+        UPDATE leads
+           SET created_at = now() - CAST((mod(abs(hashtext(id)), 25) + 1) || ' days' AS interval)
+         WHERE stage IN ('won', 'lost', 'qualified', 'interested', 'contacted')
+        """
+    )
+
+
 def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     # Full screen rubric — IDs must match Habibi/src/data/qa-seed.ts defaultRubric.
     upsert(conn, "qa_rubrics", {"id": "rubric-v1", "name": "Collections Interaction Rubric", "version": "v1.0", "enabled": True})
@@ -1320,8 +1600,10 @@ def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) 
             },
         )
         for crit in all_criteria:
-            ai = 3 + (abs(hash(f"{scorecard_id}-{crit}-ai")) % 3)
-            final = 0 if status == "unscored" else (ai if status == "ai_draft" else max(0, min(5, ai + (abs(hash(f"{scorecard_id}-{crit}-f")) % 3) - 1)))
+            # stable_number, not hash(): PYTHONHASHSEED randomisation makes hash()
+            # differ per process, so re-running the seeder rewrites every QA score.
+            ai = stable_number(f"{scorecard_id}-{crit}-ai", 3, 5)
+            final = 0 if status == "unscored" else (ai if status == "ai_draft" else max(0, min(5, ai + stable_number(f"{scorecard_id}-{crit}-f", 0, 2) - 1)))
             upsert(
                 conn,
                 "qa_scorecard_entries",
@@ -1331,7 +1613,7 @@ def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) 
                     "criterion_id": crit,
                     "ai_suggested_score": ai,
                     "final_score": final,
-                    "note": "Coach reviewed — see comments." if status == "final" and abs(hash(f"{scorecard_id}-{crit}-n")) % 4 == 0 else None,
+                    "note": "Coach reviewed — see comments." if status == "final" and stable_number(f"{scorecard_id}-{crit}-n", 0, 3) == 0 else None,
                     "accepted": (final == ai) if status == "final" else None,
                 },
             )
@@ -1354,8 +1636,31 @@ def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) 
                 },
             )
     first_call = ctx["calls"][0]
-    upsert(conn, "coaching_actions", {"id": "coach-1", "subject_user_id": None, "subject_bot_id": "kaia-v2-4", "scorecard_id": f"qa-{first_call['id']}", "interaction_id": first_call["id"], "action": "Review disclosure phrasing", "status": "open", "due_at": "2026-07-25T10:00:00Z"})
-    upsert(conn, "calibration_sessions", {"id": "calibration-1", "interaction_id": first_call["id"], "rubric_id": "rubric-v1", "status": "open"})
+    upsert(
+        conn,
+        "coaching_actions",
+        {
+            "id": "coach-1",
+            "tenant_id": TENANT_ID,
+            "subject_user_id": None,
+            "subject_bot_id": "kaia-v2-4",
+            "scorecard_id": f"qa-{first_call['id']}",
+            "interaction_id": first_call["id"],
+            "action": "Review disclosure phrasing",
+            "status": "assigned",
+            "due_at": "2026-07-25T10:00:00Z",
+        },
+    )
+    upsert(
+        conn,
+        "calibration_sessions",
+        {
+            "id": "calibration-1",
+            "interaction_id": first_call["id"],
+            "rubric_id": "rubric-v1",
+            "status": "active",
+        },
+    )
     upsert(conn, "calibration_reviewer_scores", {"id": "calibration-1-priya", "session_id": "calibration-1", "reviewer_user_id": "priya-nair", "scores": {"cmp-recording": 4}, "notes": "Aligned", "variance_from_target": 2.0})
 
     for pii_type in ["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom"]:

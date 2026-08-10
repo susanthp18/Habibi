@@ -25,16 +25,16 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
   };
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-075">
       <Select value={cond.field} onValueChange={setField}>
-        <SelectTrigger className="h-8 w-[150px] text-[12px]"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="h-400 w-[9.375rem] text-body-small"><SelectValue /></SelectTrigger>
         <SelectContent>
           {FIELDS.map(f => <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>)}
         </SelectContent>
       </Select>
 
       <Select value={cond.op} onValueChange={(v) => onChange({ ...cond, op: v as RuleOperator })}>
-        <SelectTrigger className="h-8 w-[80px] text-[12px]"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="h-400 w-1000 text-body-small"><SelectValue /></SelectTrigger>
         <SelectContent>
           {ops.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
         </SelectContent>
@@ -42,14 +42,14 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
 
       {field.type === "enum" ? (
         <Select value={String(cond.value)} onValueChange={(v) => onChange({ ...cond, value: v })}>
-          <SelectTrigger className="h-8 flex-1 text-[12px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-400 flex-1 text-body-small"><SelectValue /></SelectTrigger>
           <SelectContent>
             {field.options!.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
           </SelectContent>
         </Select>
       ) : field.type === "boolean" ? (
         <Select value={String(cond.value)} onValueChange={(v) => onChange({ ...cond, value: v === "true" })}>
-          <SelectTrigger className="h-8 flex-1 text-[12px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-400 flex-1 text-body-small"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="true">true</SelectItem>
             <SelectItem value="false">false</SelectItem>
@@ -57,14 +57,14 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
         </Select>
       ) : (
         <Input
-          className="h-8 flex-1 text-[12px]"
+          className="h-400 flex-1 text-body-small"
           type={field.type === "number" ? "number" : "text"}
           value={String(cond.value)}
           onChange={(e) => onChange({ ...cond, value: field.type === "number" ? Number(e.target.value) : e.target.value })}
         />
       )}
 
-      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onRemove}>
+      <Button variant="ghost" size="icon" className="h-400 w-400 shrink-0" onClick={onRemove}>
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>

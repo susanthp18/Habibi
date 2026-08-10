@@ -1,5 +1,6 @@
 import { Activity, AlertTriangle, Clock, PhoneCall, ShieldCheck, Smile } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Lozenge } from "@/components/ui/lozenge";
 
 type StatValue = {
   callsInProgress: number;
@@ -29,30 +30,25 @@ type TileProps = {
 };
 
 function Tile({ label, value, delta, deltaTone = "neutral", icon: Icon, live }: TileProps) {
-  const toneCls =
-    deltaTone === "good"
-      ? "bg-success-bg text-success"
-      : deltaTone === "bad"
-        ? "bg-danger-bg text-danger"
-        : "bg-surface-sunken text-text-secondary";
+  const tone = deltaTone === "good" ? "success" : deltaTone === "bad" ? "danger" : "neutral";
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-[var(--border-token)] bg-surface-card px-3 py-2 shadow-card">
-      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-brand-tint text-brand-primary-dark">
+    <div className="flex min-w-0 flex-1 items-center gap-150 rounded-large border border-border bg-surface px-150 py-100">
+      <div className="grid h-400 w-400 shrink-0 place-items-center rounded-medium bg-background-brand-subtlest text-text-brand">
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+        <div className="flex items-center gap-050 text-body-small font-semibold text-text-subtlest">
           {label}
-          {live && <span className="h-1.5 w-1.5 pulse-dot rounded-full bg-success" />}
+          {live && <span className="h-1.5 w-1.5 pulse-dot rounded-full bg-background-success" />}
         </div>
-        <div className="tabular truncate text-[18px] font-semibold leading-tight text-brand-navy">
+        <div className="tabular truncate text-[1.25rem] font-semibold leading-tight text-text">
           {value}
         </div>
       </div>
       {delta && (
-        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${toneCls}`}>
+        <Lozenge tone={tone} className="shrink-0">
           {delta}
-        </span>
+        </Lozenge>
       )}
     </div>
   );
@@ -60,7 +56,7 @@ function Tile({ label, value, delta, deltaTone = "neutral", icon: Icon, live }: 
 
 export function StatsStrip({ stats }: { stats: StatValue }) {
   return (
-    <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-[var(--border-token)] bg-surface-app px-4 py-3 md:grid-cols-3 xl:grid-cols-6">
+    <div className="grid shrink-0 grid-cols-2 gap-100 border-b border-border bg-surface px-200 py-150 md:grid-cols-3 xl:grid-cols-6">
       <Tile
         label="Calls in progress"
         value={String(stats.callsInProgress)}

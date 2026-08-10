@@ -1,7 +1,18 @@
 import { AlertTriangle, Phone, MessageSquare, FileText, HeartHandshake, Sparkles, HelpCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtTime, STATUS_TONE, type Callback, type CbReason } from "@/data/callbacks-seed";
+import { fmtTime, type Callback, type CbReason, type CbStatus } from "@/data/callbacks-seed";
+import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";
+
+const STATUS_LOZENGE_TONE: Record<CbStatus, NonNullable<LozengeProps["tone"]>> = {
+  scheduled: "information",
+  reminded: "discovery",
+  in_progress: "warning",
+  completed: "success",
+  missed: "danger",
+  rescheduled: "neutral",
+  cancelled: "neutral",
+};
 
 const ICON: Record<CbReason, LucideIcon> = {
   payment_discussion: Phone,
@@ -33,31 +44,31 @@ export function CallbackPill({
       onClick={onOpen}
       style={style}
       className={cn(
-        "group absolute left-0.5 right-0.5 flex flex-col gap-0.5 rounded-md border border-[var(--border-token)] px-1.5 py-1 text-left text-[10.5px] shadow-sm transition-colors hover:border-brand-primary",
-        "bg-surface-card",
-        cb.status === "missed" && "border-red-300 bg-red-50",
-        cb.status === "in_progress" && "border-amber-400 bg-amber-50",
-        cb.status === "completed" && "border-emerald-300 bg-emerald-50/60",
+        "group absolute left-0.5 right-0.5 flex flex-col gap-025 rounded-medium border border-border px-075 py-050 text-left text-body-small transition-colors hover:border-border-brand",
+        "bg-surface",
+        cb.status === "missed" && "border-border-danger bg-background-danger-subtler",
+        cb.status === "in_progress" && "border-border-warning bg-background-warning-subtler",
+        cb.status === "completed" && "border-border-success bg-background-success-subtler/60",
       )}
     >
-      <div className="flex items-center gap-1">
-        <Icon className="h-3 w-3 shrink-0 text-brand-primary" />
-        <span className="font-semibold text-brand-navy tabular-nums">{fmtTime(cb.scheduledAt)}</span>
-        <span className="text-text-muted">·{cb.windowMins}m</span>
+      <div className="flex items-center gap-050">
+        <Icon className="h-3 w-3 shrink-0 text-text-brand" />
+        <span className="font-semibold text-text tabular-nums">{fmtTime(cb.scheduledAt)}</span>
+        <span className="text-text-subtlest">·{cb.windowMins}m</span>
         {cb.dndActive && (
           <span title="Scheduled inside customer's DND window" className="ml-auto">
-            <AlertTriangle className="h-3 w-3 text-amber-600" />
+            <AlertTriangle className="h-3 w-3 text-text-warning" />
           </span>
         )}
       </div>
       {!compact && (
         <>
-          <div className="truncate text-[11px] font-medium text-text-primary">{cb.customerName}</div>
-          <div className="flex items-center justify-between gap-1">
-            <span className={cn("truncate text-[9.5px] font-semibold rounded px-1 py-px", STATUS_TONE[cb.status])}>
+          <div className="truncate text-body-small font-medium text-text">{cb.customerName}</div>
+          <div className="flex items-center justify-between gap-050">
+            <Lozenge tone={STATUS_LOZENGE_TONE[cb.status]} className="truncate">
               {cb.status.replace("_", " ")}
-            </span>
-            <span className="truncate text-[9.5px] text-text-muted">{cb.assignee === "Unassigned" ? "—" : cb.assignee.split(" ")[0]}</span>
+            </Lozenge>
+            <span className="truncate text-body-small text-text-subtlest">{cb.assignee === "Unassigned" ? "—" : cb.assignee.split(" ")[0]}</span>
           </div>
         </>
       )}

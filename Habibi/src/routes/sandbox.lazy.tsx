@@ -8,6 +8,8 @@ import { ConversationPanel } from "@/components/sandbox/ConversationPanel";
 import { InspectorPanel } from "@/components/sandbox/InspectorPanel";
 import { PromoteDialog } from "@/components/sandbox/PromoteDialog";
 import { TuningStudio } from "@/components/sandbox/TuningStudio";
+import { SplitPanes } from "@/components/inbox/SplitPanes";
+import { useMinWidth } from "@/hooks/use-min-width";
 import { useSandboxLiveCall } from "@/components/sandbox/voice/useSandboxLiveCall";
 import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
 import {
@@ -20,9 +22,10 @@ import {
   type SandboxRun,
 } from "@/api/sandbox";
 import { fetchVoiceStatus } from "@/api/voice-sandbox";
+import { API_BASE_URL } from "@/api/config";
 import { usePromptVersions, publishPromptVersion } from "@/api/prompt-studio";
 import { useKbSnapshots } from "@/api/kb";
-import { type IntentKey, type SandboxTurn } from "@/data/sandbox-seed";
+import { mergeSandboxChunkMeta, type IntentKey, type SandboxTurn } from "@/data/sandbox-seed";
 import {
   DEFAULT_AGENT_TUNING,
   tuningFromVoiceConfig,
@@ -66,6 +69,11 @@ function SandboxPage() {
   const [run, setRun] = useState<SandboxRun | null>(null);
   const [halted, setHalted] = useState(false);
   const [mode, setMode] = useState<SandboxMode>("text");
+  // Declared up here with the other hooks: the panes are assembled after two
+  // early returns, and a hook called past those would break the rules-of-hooks
+  // ordering on the loading render.
+  const isLg = useMinWidth(1024);
+  const isXl = useMinWidth(1280);
   const [autoPlayTts, setAutoPlayTts] = useState(false);
   const [tuning, setTuning] = useState<AgentTuning>(DEFAULT_AGENT_TUNING);
   const [liveEnabled, setLiveEnabled] = useState(false);
@@ -150,8 +158,15 @@ function SandboxPage() {
     let cancelled = false;
     const tick = async () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      const s = await fetchVoiceStatus();
-      if (!cancelled) setLiveEnabled(Boolean(s.ok));
+      try {
+        const s = await fetchVoiceStatus();
+        if (!cancelled) setLiveEnabled(Boolean(s.ok));
+      } catch {
+        // Both call sites are `void tick()`, so a rejected probe became an
+        // unhandled rejection. An unreachable voice service is not live —
+        // leaving liveEnabled true offered a call that cannot connect.
+        if (!cancelled) setLiveEnabled(false);
+      }
     };
     void tick();
     const id = window.setInterval(() => void tick(), 8000);
@@ -261,6 +276,7 @@ function SandboxPage() {
           sentiment: result.customerTurn.sentiment,
         };
         const chunks: SandboxChunkHit[] = result.botTurn.chunks ?? [];
+        mergeSandboxChunkMeta(chunks);
         const botTurn: SandboxTurn = {
           id: result.botTurn.id,
           role: "bot",
@@ -331,6 +347,7 @@ function SandboxPage() {
     })();
   }, [scenario, scriptIndex, awaiting, halted, handleCustomerText]);
 
+
   const exportTranscript = useCallback(() => {
     if (!scenario || !activePrompt) return;
     const payload = {
@@ -371,6 +388,42 @@ function SandboxPage() {
     onMetrics: setLiveMetrics,
   });
 
+  /**
+   * The server-assembled record for this call.
+   *
+   * Distinct from `exportTranscript`, which serialises what the browser holds —
+   * turn text and the tuning form. Nothing the reviewer actually needs to judge
+   * a call lives in the browser: the per-stage latency split, the tool calls and
+   * their arguments, the KB retrievals and the guardrail flags are all
+   * server-side, which is why this fetches rather than serialises.
+   */
+  const exportCallReport = useCallback(
+    async (format: "md" | "json") => {
+      const id = live.insights.interactionId;
+      if (!id) {
+        toast.error("No call to export yet — start a live call first");
+        return;
+      }
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/interactions/${encodeURIComponent(id)}/export?format=${format}`,
+        );
+        if (!res.ok) throw new Error(`export failed (${res.status})`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `call-${id}.${format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success(format === "md" ? "Call report downloaded" : "Call data downloaded");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Export failed");
+      }
+    },
+    [live.insights.interactionId],
+  );
+
   const promote = () => {
     setPromoteOpen(false);
     if (!activePrompt) return;
@@ -410,7 +463,7 @@ function SandboxPage() {
   if (loading && !scenario) {
     return (
       <AppShell>
-        <div className="grid h-full place-items-center text-[13px] text-text-muted">
+        <div className="grid h-full place-items-center text-body text-text-subtlest">
           Loading sandbox…
         </div>
       </AppShell>
@@ -420,12 +473,100 @@ function SandboxPage() {
   if (!scenario || !activePrompt) {
     return (
       <AppShell>
-        <div className="grid h-full place-items-center text-[13px] text-danger">
+        <div className="grid h-full place-items-center text-body text-text-danger">
           Couldn’t load scenarios / prompt versions.
         </div>
       </AppShell>
     );
   }
+
+  const tuningPane = (
+    <TuningStudio
+      className="flex w-full"
+      value={tuning}
+      onChange={(next) => {
+        setTuning(next);
+        // next-call knobs dirty heuristic: vad/turn/interaction changed
+        const base = tuningBaseline.current;
+        const dirty =
+          JSON.stringify(next.vad) !== JSON.stringify(base.vad) ||
+          JSON.stringify(next.turn) !== JSON.stringify(base.turn) ||
+          JSON.stringify(next.interaction) !== JSON.stringify(base.interaction) ||
+          next.tts.text_aggregation_mode !== base.tts.text_aggregation_mode ||
+          next.stt.language !== base.stt.language;
+        setNextCallDirty(dirty);
+      }}
+      onLiveApply={(delta) => {
+        void live.applyTune(delta);
+      }}
+      callLive={mode === "live" && live.status === "live"}
+      nextCallDirty={nextCallDirty}
+      onRestartCall={() => {
+        tuningBaseline.current = tuning;
+        setNextCallDirty(false);
+        void live.restart();
+      }}
+    />
+  );
+
+  const conversationPane = (
+    <div className="flex h-full min-h-0 flex-col">
+      <PersonaCard
+        persona={scenario.persona}
+        scenarioTitle={scenario.title}
+        verified={live.insights.verifiedCustomer}
+      />
+      <ConversationPanel
+        mode={mode}
+        turns={turns}
+        onSend={(t) => void handleCustomerText(t, false)}
+        onPlayNext={playNext}
+        onSkipEnd={skipEnd}
+        awaiting={awaiting}
+        canPlayNext={canPlayNext}
+        voice={activePrompt.voice}
+        autoPlayTts={autoPlayTts}
+        onAutoPlayTts={setAutoPlayTts}
+        lastExpectedIntent={lastExpectedIntent}
+        live={mode === "live" ? live.chrome : null}
+      />
+    </div>
+  );
+
+  const inspectorPane = (
+    <InspectorPanel
+      className="flex w-full"
+      turns={turns}
+      metrics={liveMetrics}
+      insights={live.insights}
+      // Without this the Trace tab silently fell back to its client-derived
+      // sketch on every live call, reporting "0 chunks · 0ms · 0t".
+      interactionId={live.insights.interactionId}
+    />
+  );
+
+  // Draggable splits, matching Customer 360 and the Inbox. The storage key
+  // carries the pane count because SplitPanes discards a persisted layout whose
+  // length no longer matches — sharing one key across the 2- and 3-pane
+  // breakpoints would silently reset the user's widths on every resize past xl.
+  const panes = !isLg ? (
+    conversationPane
+  ) : isXl ? (
+    <SplitPanes
+      storageKey="sandbox-split-3"
+      defaultWidths={[22, 50, 28]}
+      minWidthsPx={[240, 420, 300]}
+    >
+      {tuningPane}
+      {conversationPane}
+      {inspectorPane}
+    </SplitPanes>
+  ) : (
+    <SplitPanes storageKey="sandbox-split-2" defaultWidths={[26, 74]} minWidthsPx={[240, 420]}>
+      {tuningPane}
+      {conversationPane}
+    </SplitPanes>
+  );
 
   return (
     <AppShell>
@@ -440,7 +581,7 @@ function SandboxPage() {
             }
             setMode(m);
           }}
-          liveEnabled={true}
+          liveEnabled={liveEnabled}
           promptVersionId={promptVersionId || activePrompt.id}
           promptVersions={versions}
           onPromptVersion={(id) => {
@@ -476,56 +617,12 @@ function SandboxPage() {
           }
           onReset={reset}
           onExport={exportTranscript}
+          interactionId={live.insights.interactionId}
+          onExportReport={exportCallReport}
           onPromote={() => setPromoteOpen(true)}
         />
 
-        <div className="flex min-h-0 flex-1">
-          <TuningStudio
-            value={tuning}
-            onChange={(next) => {
-              setTuning(next);
-              // next-call knobs dirty heuristic: vad/turn/interaction changed
-              const base = tuningBaseline.current;
-              const dirty =
-                JSON.stringify(next.vad) !== JSON.stringify(base.vad) ||
-                JSON.stringify(next.turn) !== JSON.stringify(base.turn) ||
-                JSON.stringify(next.interaction) !== JSON.stringify(base.interaction) ||
-                next.tts.text_aggregation_mode !== base.tts.text_aggregation_mode ||
-                next.stt.language !== base.stt.language;
-              setNextCallDirty(dirty);
-            }}
-            onLiveApply={(delta) => {
-              void live.applyTune(delta);
-            }}
-            callLive={mode === "live" && live.status === "live"}
-            nextCallDirty={nextCallDirty}
-            onRestartCall={() => {
-              tuningBaseline.current = tuning;
-              setNextCallDirty(false);
-              void live.restart();
-            }}
-          />
-
-          <div className="flex min-h-0 flex-1 flex-col">
-            <PersonaCard persona={scenario.persona} scenarioTitle={scenario.title} />
-            <ConversationPanel
-              mode={mode}
-              turns={turns}
-              onSend={(t) => void handleCustomerText(t, false)}
-              onPlayNext={playNext}
-              onSkipEnd={skipEnd}
-              awaiting={awaiting}
-              canPlayNext={canPlayNext}
-              voice={activePrompt.voice}
-              autoPlayTts={autoPlayTts}
-              onAutoPlayTts={setAutoPlayTts}
-              lastExpectedIntent={lastExpectedIntent}
-              live={mode === "live" ? live.chrome : null}
-            />
-          </div>
-
-          <InspectorPanel turns={turns} metrics={liveMetrics} insights={live.insights} />
-        </div>
+        <div className="flex min-h-0 flex-1">{panes}</div>
 
         <PromoteDialog
           open={promoteOpen}

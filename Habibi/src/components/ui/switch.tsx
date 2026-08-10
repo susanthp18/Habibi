@@ -1,23 +1,38 @@
 import * as React from "react";
 import * as SwitchPrimitives from "@radix-ui/react-switch";
+import { Check, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+/*
+ * Design.md `components.toggle*` — 32x16 (space-400 x space-200) track, radius-full, success
+ * track only when checked, thumb travels space-200 via a transform transition (short duration +
+ * out-practical easing, not a jump). A tick/cross glyph sits in the uncovered track segment so
+ * state reads without relying on color alone.
+ */
 const Switch = React.forwardRef<
   React.ElementRef<typeof SwitchPrimitives.Root>,
   React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
 >(({ className, ...props }, ref) => (
   <SwitchPrimitives.Root
     className={cn(
-      "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
+      "group focus-ring peer relative inline-flex h-200 w-400 shrink-0 cursor-pointer items-center rounded-full p-025 transition-colors duration-token-short disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-background-success-bold data-[state=unchecked]:bg-background-neutral-bold",
       className,
     )}
     {...props}
     ref={ref}
   >
+    <Check
+      aria-hidden="true"
+      className="absolute left-025 size-[0.5625rem] text-icon-inverse opacity-0 group-data-[state=checked]:opacity-100"
+    />
+    <X
+      aria-hidden="true"
+      className="absolute right-025 size-[0.5625rem] text-icon-inverse opacity-100 group-data-[state=checked]:opacity-0"
+    />
     <SwitchPrimitives.Thumb
       className={cn(
-        "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0",
+        "pointer-events-none relative block size-3 rounded-full bg-icon-inverse shadow-raised transition-transform duration-token-short ease-token-out-practical data-[state=checked]:translate-x-200 data-[state=unchecked]:translate-x-0",
       )}
     />
   </SwitchPrimitives.Root>

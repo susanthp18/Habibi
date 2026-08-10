@@ -87,7 +87,12 @@ export function SplitPanes({
       const leftMin = ((minWidthsPx[i] ?? 160) / totalPx) * 100;
       const rightMin = ((minWidthsPx[i + 1] ?? 160) / totalPx) * 100;
       const pair = next[i] + next[i + 1];
-      const left = clamp(next[i] + deltaPct, leftMin, pair - rightMin);
+      const lo = leftMin;
+      const hi = pair - rightMin;
+      const left =
+        lo <= hi
+          ? clamp(next[i] + deltaPct, lo, hi)
+          : Math.max(0, Math.min(pair, (pair * leftMin) / (leftMin + rightMin || 1)));
       next[i] = left;
       next[i + 1] = pair - left;
       setWidths(next);
@@ -112,6 +117,35 @@ export function SplitPanes({
     [storageKey],
   );
 
+  // Keyboard resize for the focusable separator (a11y parity with pointer drag).
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>, i: number) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const root = rootRef.current;
+      if (!root) return;
+      e.preventDefault();
+      const totalPx = root.getBoundingClientRect().width;
+      if (totalPx <= 0) return;
+      const stepPx = e.key === 'ArrowLeft' ? -10 : 10;
+      const deltaPct = (stepPx / totalPx) * 100;
+      const next = [...widths];
+      const leftMin = ((minWidthsPx[i] ?? 160) / totalPx) * 100;
+      const rightMin = ((minWidthsPx[i + 1] ?? 160) / totalPx) * 100;
+      const pair = next[i] + next[i + 1];
+      const lo = leftMin;
+      const hi = pair - rightMin;
+      const left =
+        lo <= hi
+          ? clamp(next[i] + deltaPct, lo, hi)
+          : Math.max(0, Math.min(pair, (pair * leftMin) / (leftMin + rightMin || 1)));
+      next[i] = left;
+      next[i + 1] = pair - left;
+      setWidths(next);
+      writeWidths(storageKey, next);
+    },
+    [widths, minWidthsPx, storageKey],
+  );
+
   return (
     <div ref={rootRef} className={cn("flex h-full min-h-0 w-full overflow-hidden", className)}>
       {panes.map((child, i) => (
@@ -127,14 +161,18 @@ export function SplitPanes({
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize panels"
+              aria-valuemin={Math.round(minWidthsPx[i] ?? 160)}
+              aria-valuemax={100 - Math.round(minWidthsPx[i + 1] ?? 160)}
+              aria-valuenow={Math.round(widths[i])}
               tabIndex={0}
               onPointerDown={(e) => onPointerDown(i, e)}
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
-              className="group relative z-10 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[var(--border-token)] hover:bg-brand-primary/35 active:bg-brand-primary/50"
+              onKeyDown={(e) => onKeyDown(e, i)}
+              className="focus-ring group relative z-10 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-border hover:bg-background-brand-bold/35 active:bg-background-brand-bold/50"
             >
-              <div className="pointer-events-none h-8 w-1 rounded-full bg-text-muted/40 opacity-0 transition-opacity group-hover:opacity-100" />
+              <div className="pointer-events-none h-400 w-050 rounded-full bg-text-muted/40 opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
           )}
         </Fragment>

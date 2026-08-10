@@ -62,7 +62,7 @@ function PromisesPage() {
   const [planOpen, setPlanOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [planDetail, setPlanDetail] = useState<PaymentPlan | null>(null);
-  const deepLinkApplied = useRef(false);
+  const deepLinkKey = useRef<string | null>(null);
 
   // Live mode: pick real customers for the create/plan sheets. Mock mode: let the
   // sheets fall back to their seed roster (pass undefined).
@@ -159,9 +159,10 @@ function PromisesPage() {
   const detail = detailId ? promisesData.find((p) => p.id === detailId) ?? null : null;
 
   useEffect(() => {
-    if (deepLinkApplied.current) return;
     if (!search.id && !search.new) return;
-    deepLinkApplied.current = true;
+    const key = `${search.id ?? ""}|${search.new ? "1" : "0"}`;
+    if (deepLinkKey.current === key) return;
+    deepLinkKey.current = key;
     if (search.id) setDetailId(search.id);
     if (search.new) setCreateOpen(true);
     void navigate({ search: {}, replace: true });
@@ -171,31 +172,31 @@ function PromisesPage() {
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-token)] bg-surface-card px-6 py-3">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-md bg-brand-tint text-brand-primary">
+        <div className="flex items-center justify-between gap-150 border-b border-border bg-surface px-300 py-150">
+          <div className="flex items-center gap-150">
+            <div className="grid h-9 w-9 place-items-center rounded-medium bg-background-brand-subtlest text-text-brand">
               <HandCoins className="h-4 w-4" />
             </div>
             <div>
-              <h1 className="text-[15px] font-semibold text-brand-navy">Promises & Payment Plans</h1>
-              <p className="text-[12px] text-text-secondary">
+              <h1 className="text-[0.875rem] font-semibold text-text">Promises & payment plans</h1>
+              <p className="text-body-small text-text-subtle">
                 {totalMetrics.activeCount} active · {totalMetrics.keptRate}% kept-rate · {followUps.length} follow-up
                 {followUps.length === 1 ? "" : "s"} created this session
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-100">
             <Button variant="outline" size="sm" onClick={() => setPlanOpen(true)}>
-              <CalendarClock className="mr-1 h-4 w-4" /> Payment plan
+              <CalendarClock className="mr-050 h-4 w-4" /> Payment plan
             </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-1 h-4 w-4" /> New promise
+              <Plus className="mr-050 h-4 w-4" /> New promise
             </Button>
           </div>
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <div className="flex-1 space-y-200 overflow-y-auto px-300 py-200">
           <MetricsStrip m={metrics} />
           <FiltersBar
             filters={filters}
@@ -205,11 +206,11 @@ function PromisesPage() {
           />
 
           {followUps.length > 0 && (
-            <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50/60 px-3 py-2 text-[12px]">
-              <Inbox className="mt-0.5 h-4 w-4 text-red-600" />
+            <div className="flex items-start gap-150 rounded-large border border-border-danger-subtle bg-background-danger-subtler/60 px-150 py-100 text-body-small">
+              <Inbox className="mt-025 h-4 w-4 text-text-danger" />
               <div className="flex-1">
-                <div className="font-semibold text-red-800">Broken promises routed to Follow-up Queue</div>
-                <div className="text-red-700/80">
+                <div className="font-semibold text-text-danger-bolder">Broken promises routed to Follow-up Queue</div>
+                <div className="text-text-danger-bolder/80">
                   {followUps.slice(0, 3).map((f) => `${f.customerName} · ${f.promiseId}`).join(" · ")}
                   {followUps.length > 3 && ` · +${followUps.length - 3} more`}
                 </div>

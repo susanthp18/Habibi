@@ -1,0 +1,6 @@
+# Optional: the MCP tool server (python -m mcp_server).
+#
+# Split out like requirements-voice.txt so the API image does not carry a
+# dependency for a surface it does not serve — mcp_server runs as its own
+# process and is never mounted on the FastAPI app.
+mcp>=1.2.0

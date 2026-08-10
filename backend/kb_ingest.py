@@ -36,7 +36,17 @@ def _stuck_after() -> timedelta:
     return timedelta(minutes=minutes)
 
 
-STUCK_RUNNING_AFTER = timedelta(minutes=15)  # default; runtime uses _stuck_after()
+def _max_attempts() -> int:
+    import os
+
+    from env_loader import load_env
+
+    load_env()
+    raw = (os.getenv("KB_INDEX_MAX_ATTEMPTS") or "5").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 5
 
 
 def _now() -> datetime:
@@ -96,22 +106,46 @@ def enqueue_index_job(
 
 
 def reclaim_stuck_jobs(conn: Connection, *, older_than: timedelta | None = None) -> int:
-    """Single-node PoC: re-queue jobs stuck in running past updated_at age (no locked_by)."""
-    cutoff = _now() - (older_than or _stuck_after())
+    """Re-queue jobs stuck in ``running`` past the staleness window.
+
+    Bounded by ``attempt``: a job that keeps dying mid-run (poison document,
+    OOM, repeated worker crash) is dead-lettered at ``KB_INDEX_MAX_ATTEMPTS``
+    instead of cycling forever. The cutoff is computed database-side so a
+    worker with a skewed clock cannot reclaim jobs that are still healthy, and
+    the marker text is written once rather than appended on every pass.
+    """
+    window = older_than or _stuck_after()
     result = conn.execute(
         text(
             """
             UPDATE kb_index_jobs
-            SET status = 'queued',
-                error = COALESCE(error, '') || ' [requeued: stuck running]',
+            SET status = CASE WHEN attempt + 1 >= :cap THEN 'dead' ELSE 'queued' END,
+                attempt = attempt + 1,
+                error = CASE
+                          WHEN attempt + 1 >= :cap THEN 'dead-lettered: stuck running'
+                          ELSE 'requeued: stuck running'
+                        END,
+                completed_at = CASE WHEN attempt + 1 >= :cap THEN now() ELSE NULL END,
                 updated_at = now(),
                 started_at = NULL
-            WHERE status = 'running' AND updated_at < :cutoff
+            WHERE status = 'running'
+              AND updated_at < now() - CAST(:window AS interval)
             """
         ),
-        {"cutoff": cutoff},
+        {"window": f"{int(window.total_seconds())} seconds", "cap": _max_attempts()},
     )
     return result.rowcount or 0
+
+
+def job_statuses(conn: Connection, job_ids: list[str]) -> dict[str, str]:
+    """Terminal/current status per job id — callers gate follow-up work on this."""
+    if not job_ids:
+        return {}
+    rows = conn.execute(
+        text("SELECT id, status FROM kb_index_jobs WHERE id = ANY(CAST(:ids AS text[]))"),
+        {"ids": list(job_ids)},
+    ).mappings().all()
+    return {str(r["id"]): str(r["status"]) for r in rows}
 
 
 def claim_next_job(conn: Connection) -> dict[str, Any] | None:
@@ -176,15 +210,6 @@ def set_document_enabled(conn: Connection, document_id: str, enabled: bool) -> s
 
 
 def _decode_source_bytes(data: bytes, *, filename: str, mime_type: str | None = None) -> str:
-    mime = (mime_type or "").lower()
-    lower = filename.lower()
-    text_like = (
-        lower.endswith((".md", ".txt", ".markdown"))
-        or mime.startswith("text/")
-        or mime in ("application/json", "application/xml")
-    )
-    if text_like:
-        return data.decode("utf-8")
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -328,6 +353,22 @@ def _atomic_replace_chunks(
 ) -> None:
     """ONE transaction: delete old chunks + insert new + mark indexed/succeeded."""
     if chunk_rows:
+        # A set_document_enabled(..., False) that landed while we were embedding
+        # must win: re-inserting chunks here would resurrect a disabled doc in
+        # ANN results. FOR UPDATE serialises against a concurrent disable.
+        still_enabled = conn.execute(
+            text("SELECT enabled FROM kb_documents WHERE id = :id FOR UPDATE"),
+            {"id": document_id},
+        ).scalar()
+        if still_enabled is False:
+            logger.info(
+                "kb_index_discarded_disabled job=%s doc=%s chunks=%s",
+                job_id,
+                document_id,
+                len(chunk_rows),
+            )
+            chunk_rows = []
+    if chunk_rows:
         conn.execute(text("DELETE FROM kb_chunks WHERE document_id = :id"), {"id": document_id})
         for row in chunk_rows:
             conn.execute(
@@ -344,12 +385,13 @@ def _atomic_replace_chunks(
                 ),
                 row,
             )
+    # `enabled` is deliberately NOT forced true here — indexing must not
+    # re-enable a document an operator disabled mid-flight.
     conn.execute(
         text(
             """
             UPDATE kb_documents
             SET status = 'indexed',
-                enabled = true,
                 chunk_size = :chunk_size,
                 chunk_overlap = :overlap,
                 embedding_model = :model,
@@ -387,6 +429,11 @@ def _atomic_replace_chunks(
 
 
 def _mark_job_failed(conn: Connection, job_id: str, document_id: str, error: str) -> None:
+    """Record job failure without wiping a previously good index.
+
+    Documents that already have ``indexed`` status keep serving last-good
+    chunks; only never-indexed docs move to ``failed``.
+    """
     conn.execute(
         text(
             """
@@ -397,12 +444,21 @@ def _mark_job_failed(conn: Connection, job_id: str, document_id: str, error: str
         ),
         {"id": job_id, "error": error[:2000]},
     )
+    # A doc mid-reindex sits at status='indexing' (enqueue_index_job) even when
+    # it still has a full, serviceable chunk set. Flipping it to 'failed' would
+    # drop it out of kb_retrieve's `status = 'indexed'` filter and silently
+    # blank the KB for that document. Keep the old status whenever chunks
+    # remain; only never-successfully-indexed docs move to 'failed'.
     conn.execute(
         text(
             """
             UPDATE kb_documents
-            SET status = 'failed', updated_at = now()
+            SET status = CASE
+                  WHEN EXISTS (SELECT 1 FROM kb_chunks WHERE document_id = :id) THEN status
+                  ELSE 'failed' END,
+                updated_at = now()
             WHERE id = :id
+              AND status NOT IN ('indexed', 'stale')
             """
         ),
         {"id": document_id},
@@ -469,7 +525,9 @@ def upsert_document(
     tags: list[str] | None = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_OVERLAP,
-    updated_by_user_id: str | None = "priya-nair",
+    # Default is None: production writes must not inherit a seed user identity.
+    # Seed scripts pass their own value explicitly.
+    updated_by_user_id: str | None = None,
 ) -> None:
     tags = tags or [product_key, doc_type]
     conn.execute(
@@ -493,7 +551,9 @@ def upsert_document(
               tags = EXCLUDED.tags,
               product_key = EXCLUDED.product_key,
               source_path = EXCLUDED.source_path,
-              updated_by_user_id = EXCLUDED.updated_by_user_id,
+              updated_by_user_id = COALESCE(
+                EXCLUDED.updated_by_user_id, kb_documents.updated_by_user_id
+              ),
               updated_at = now()
             """
         ),

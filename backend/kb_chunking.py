@@ -153,7 +153,16 @@ def parse_faq_qa(text: str) -> list[FaqDraft]:
 
 
 def faq_intent(product_key: str, question: str) -> str:
-    digest = hashlib.sha1(question.strip().encode("utf-8")).hexdigest()[:8]
+    """Stable intent key for an FAQ question.
+
+    Normalises case and internal whitespace first so re-formatting a question
+    in the source corpus does not mint a new intent for the same content, and
+    uses sha256 with a wider slice — 8 hex chars (32 bits) collides at roughly
+    a few thousand entries by the birthday bound, which a growing FAQ corpus
+    reaches.
+    """
+    normalized = " ".join((question or "").lower().split())
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
     return f"{product_key}.{digest}"
 
 

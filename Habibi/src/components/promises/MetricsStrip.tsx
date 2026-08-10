@@ -25,34 +25,34 @@ function Tile({
   tone?: "default" | "amber" | "red" | "brand" | "green";
 }) {
   const toneClass = {
-    default: "bg-surface-card border-[var(--border-token)]",
-    brand: "bg-brand-tint/50 border-brand-primary/20",
-    amber: "bg-amber-50 border-amber-200",
-    red: "bg-red-50 border-red-200",
-    green: "bg-emerald-50 border-emerald-200",
+    default: "bg-surface border-border",
+    brand: "bg-background-brand-subtlest/50 border-border-brand/20",
+    amber: "bg-background-warning-subtler border-border-warning-subtle",
+    red: "bg-background-danger-subtler border-border-danger-subtle",
+    green: "bg-background-success-subtler border-border-success-subtle",
   }[tone];
   const iconTone = {
-    default: "text-text-secondary",
-    brand: "text-brand-primary",
-    amber: "text-amber-600",
-    red: "text-red-600",
-    green: "text-emerald-600",
+    default: "text-text-subtle",
+    brand: "text-text-brand",
+    amber: "text-text-warning",
+    red: "text-text-danger",
+    green: "text-text-success",
   }[tone];
   return (
-    <div className={`rounded-lg border px-4 py-3 ${toneClass}`}>
+    <div className={`rounded-large border px-200 py-150 ${toneClass}`}>
       <div className="flex items-center justify-between">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{label}</div>
+        <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
         <Icon className={`h-4 w-4 ${iconTone}`} />
       </div>
-      <div className="mt-1 text-[22px] font-semibold leading-tight text-brand-navy tabular-nums">{value}</div>
-      {sub && <div className="text-[11px] text-text-secondary">{sub}</div>}
+      <div className="mt-050 text-[1.5rem] font-semibold leading-tight text-text tabular-nums">{value}</div>
+      {sub && <div className="text-body-small text-text-subtle">{sub}</div>}
     </div>
   );
 }
 
 export function MetricsStrip({ m }: { m: Metrics }) {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-150 md:grid-cols-3 xl:grid-cols-5">
       <Tile
         label="Promise-kept rate"
         value={`${m.keptRate}%`}

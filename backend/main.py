@@ -10,19 +10,23 @@ import asyncio
 import json
 import logging
 import os
+import re
+import secrets
 from contextlib import asynccontextmanager
 from typing import Any, Callable
 
-from fastapi import Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket
+from fastapi import Depends, Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import actor_context
 import azure_openai
 import circuit_breaker
 import db
+import flow_graph
 import kb_rate_limit
 import kb_retrieve
 import ops_screens
@@ -33,6 +37,12 @@ from schemas import (
     BillingOverviewResponse,
     BillingBudgetRuleResponse,
     BotAnalyticsResponse,
+    OfferHealthResponse,
+    TurnTraceResponse,
+    InteractionCostResponse,
+    FlowGraph,
+    FlowToolResponse,
+    FlowValidation,
     BotDeploymentResponse,
     BudgetRuleUpsertRequest,
     CallResponse,
@@ -47,6 +57,7 @@ from schemas import (
     ConversationSuggestionsRefreshRequest,
     ConversationSuggestionsRefreshResponse,
     CustomerNoteCreateRequest,
+    CustomerInsightsResponse,
     CustomerResponse,
     DashboardResponse,
     DisputeCreateRequest,
@@ -71,6 +82,7 @@ from schemas import (
     PaymentPlanCreateRequest,
     PaymentPlanResponse,
     PersonaPresetResponse,
+    ProductResponse,
     PromptVersionCreateRequest,
     PromptVersionPatchRequest,
     PromptVersionPublishRequest,
@@ -133,6 +145,8 @@ from schemas import (
     ViolationListResponse,
     ViolationNoteCreateRequest,
     ViolationPatchRequest,
+    VoiceSandboxStartRequest,
+    VoiceSandboxTuneRequest,
     WebhookEndpointPatchRequest,
     WebhookEndpointUpsertRequest,
     WorkItemResponse,
@@ -166,6 +180,29 @@ logger = logging.getLogger(__name__)
 _APP_ENV = (os.getenv("APP_ENV") or "dev").strip().lower()
 _IS_PROD = _APP_ENV in {"prod", "production"}
 
+# Cap multipart uploads (STT / KB) — reject before buffering unbounded bytes.
+_MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES") or str(25 * 1024 * 1024))
+
+
+async def _read_upload_capped(file: UploadFile, *, max_bytes: int | None = None) -> bytes:
+    limit = max_bytes if max_bytes is not None else _MAX_UPLOAD_BYTES
+    buf = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        buf.extend(chunk)
+        if len(buf) > limit:
+            raise HTTPException(status_code=413, detail="upload_too_large")
+    return bytes(buf)
+
+try:
+    from voice.host import embedded_host_enabled as _embedded_host_enabled
+
+    _EMBEDDED_VOICE_HOST = _embedded_host_enabled()
+except Exception:  # pragma: no cover - optional voice extras
+    _EMBEDDED_VOICE_HOST = False
+
 # Public paths that skip API-key auth (webhooks use their own HMAC).
 # Docs/OpenAPI are NOT exempt — when API_KEY is set they require the key;
 # in production the docs URLs themselves are disabled below.
@@ -174,8 +211,22 @@ _AUTH_EXEMPT_PREFIXES = (
     "/ready",
     "/webhooks/whatsapp",
     "/webhook/whatsapp",
-    "/twilio/",
+    # No trailing slash — matching uses `path == p or path.startswith(p + "/")`.
+    # ONLY the inbound webhook is exempt, and it enforces X-Twilio-Signature
+    # itself. Exempting all of /twilio left POST /twilio/voice/outbound open to
+    # the internet — anyone could dial arbitrary PSTN numbers on our account —
+    # and leaked the phone number / media-stream URL via /twilio/voice/status.
+    "/twilio/voice/incoming",
+    # Signature-validated Twilio callbacks (not control-plane /outbound|/status).
+    "/twilio/voice/fallback",
+    "/twilio/voice/stream-status",
+    "/twilio/voice/call-status",
     "/ws",
+    # SmallWebRTC signalling. The WebRTC client cannot attach our API-key
+    # header to its offer POST, and the standalone runner it replaces has no
+    # auth at all — so this is parity, not a downgrade. Only present when the
+    # embedded host is actually serving these routes.
+    *(("/api/offer", "/voice-rtc") if _EMBEDDED_VOICE_HOST else ()),
 )
 
 
@@ -212,11 +263,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         auth_required = bool(single or key_map)
 
         if auth_required and not provided:
-            return Response(
-                content='{"detail":"unauthorized"}',
-                status_code=401,
-                media_type="application/json",
-            )
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
 
         ok, actor_id, err = actor_context.resolve_authenticated_actor(
             provided_key=provided if auth_required else (provided or ""),
@@ -225,11 +272,10 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         if not ok or not actor_id:
             # actor_not_found is a client config error; wrong/missing key is 401.
             status = 400 if err == "actor_not_found" else 401
-            return Response(
-                content=f'{{"detail":"{err or "unauthorized"}"}}',
-                status_code=status,
-                media_type="application/json",
-            )
+            # Serialised, not interpolated: hand-building the JSON meant any
+            # future error string containing a quote or backslash would emit a
+            # malformed body from the auth middleware.
+            return JSONResponse({"detail": err or "unauthorized"}, status_code=status)
 
         request.state.actor_user_id = actor_id
         token = actor_context.set_actor_user_id(actor_id)
@@ -242,18 +288,58 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Propagate/assign X-Request-Id for log correlation."""
 
+    # Client-supplied ids are echoed into a response header and into every log
+    # line for the request, so they are constrained to a safe alphabet and a
+    # sane length rather than reflected verbatim.
+    _SAFE_REQUEST_ID = re.compile(r"[^A-Za-z0-9-]")
+
     async def dispatch(self, request: Request, call_next: Callable):
         import uuid
 
-        rid = (request.headers.get("x-request-id") or "").strip() or uuid.uuid4().hex
+        raw = (request.headers.get("x-request-id") or "").strip()
+        rid = self._SAFE_REQUEST_ID.sub("", raw)[:64] or uuid.uuid4().hex
         request.state.request_id = rid
         response = await call_next(request)
         response.headers["X-Request-Id"] = rid
         return response
 
 
+# Controls whose enforcement is still deferred (see DATA_MODEL.md, "Scope of
+# this build pass"): RLS tenant isolation, PII column encryption, and
+# append-only audit enforcement. Until those land, this build must not be run
+# against real customer data — so a non-local deployment fails closed unless an
+# operator has explicitly acknowledged the gap.
+_DEFERRED_HARDENING_CONTROLS = (
+    "RLS tenant isolation",
+    "PII column encryption / Vault secret refs",
+    "append-only enforcement on audit tables",
+)
+
+
+def _assert_hardening_gate() -> None:
+    """Refuse to boot outside a trusted local environment while controls are off."""
+    if not _IS_PROD:
+        return
+    ack = (os.getenv("ALLOW_UNHARDENED_PRODUCTION") or "").strip().lower()
+    if ack in {"1", "true", "yes", "on"}:
+        logger.error(
+            "Booting with APP_ENV=production while deferred controls are still "
+            "inactive (%s) — ALLOW_UNHARDENED_PRODUCTION is set. This deployment "
+            "must not receive real customer data.",
+            ", ".join(_DEFERRED_HARDENING_CONTROLS),
+        )
+        return
+    raise RuntimeError(
+        "APP_ENV=production but the data layer's deferred controls are not active: "
+        + "; ".join(_DEFERRED_HARDENING_CONTROLS)
+        + ". Run this build locally, or set ALLOW_UNHARDENED_PRODUCTION=1 to "
+        "explicitly accept the risk."
+    )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    _assert_hardening_gate()
     # Mirror FE mock fail-closed: prod without credentials must not boot.
     has_auth = bool((os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map())
     if _IS_PROD and not has_auth:
@@ -264,28 +350,47 @@ async def lifespan(_app: FastAPI):
             "Set credentials (required when APP_ENV=production)."
         )
 
-    db.init_and_seed()
-    storage.ensure_bucket()
     try:
-        actor_context.validate_configured_actors()
-    except RuntimeError:
-        if _IS_PROD:
-            raise
-        logger.warning("actor identity config invalid (non-prod): continuing", exc_info=True)
-    try:
-        import usage_meter
+        await asyncio.to_thread(db.init_and_seed)
+        await asyncio.to_thread(storage.ensure_bucket)
+        try:
+            await asyncio.to_thread(actor_context.validate_configured_actors)
+        except RuntimeError:
+            if _IS_PROD:
+                raise
+            logger.warning("actor identity config invalid (non-prod): continuing", exc_info=True)
+        try:
+            import usage_meter
 
-        usage_meter.sync_price_book()
-    except Exception:
-        logger.warning("usage_meter.sync_price_book failed", exc_info=True)
-    try:
-        from tts_catalog_sync import ensure_catalog_seeded
+            await asyncio.to_thread(usage_meter.sync_price_book)
+        except Exception:
+            logger.warning("usage_meter.sync_price_book failed", exc_info=True)
+        try:
+            from tts_catalog_sync import ensure_catalog_seeded
 
-        ensure_catalog_seeded(db.engine)
-    except Exception:
-        logger.warning("tts catalog boot seed failed", exc_info=True)
-    yield
-    db.dispose_engine()
+            await asyncio.to_thread(ensure_catalog_seeded, db.engine)
+        except Exception:
+            logger.warning("tts catalog boot seed failed", exc_info=True)
+        yield
+    finally:
+        # Before the DB engine goes away: live calls write CRM rows on teardown.
+        try:
+            from voice.host import shutdown as voice_host_shutdown
+
+            await voice_host_shutdown()
+        except Exception:
+            logger.warning("voice host shutdown failed", exc_info=True)
+        # Drain buffered usage before the engine goes away, otherwise the last
+        # few seconds of billable calls are lost on every deploy.
+        try:
+            import usage_meter
+
+            # shutdown(), not flush(): stop the background flusher first so the
+            # final drain cannot race an in-flight batch.
+            await asyncio.to_thread(usage_meter.shutdown)
+        except Exception:
+            logger.warning("usage_meter.shutdown on app shutdown failed", exc_info=True)
+        db.dispose_engine()
 
 
 app = FastAPI(
@@ -299,12 +404,14 @@ app = FastAPI(
 )
 
 # Starlette inserts each add_middleware at index 0 → last added is OUTERMOST.
-# Desired order (outer → inner): CORS → ApiKey → RequestId → GZip → route
-# so (1) preflight/401s always get CORS headers and (2) ApiKey sees OPTIONS
-# only after CORS has claimed it — still pass OPTIONS through ApiKey.
+# Desired order (outer → inner): CORS → RequestId → ApiKey → GZip → route
+# so (1) preflight/401s always get CORS headers, (2) RequestId wraps ApiKey so
+# the 401/400 responses auth generates still carry X-Request-Id (previously
+# rejected requests were unattributable in the logs), and (3) ApiKey sees
+# OPTIONS only after CORS has claimed it — still pass OPTIONS through ApiKey.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
-app.add_middleware(RequestIdMiddleware)
 app.add_middleware(ApiKeyMiddleware)
+app.add_middleware(RequestIdMiddleware)
 
 _cors_origins = [o.strip() for o in (os.getenv("CORS_ORIGINS") or "").split(",") if o.strip()]
 if _cors_origins:
@@ -326,6 +433,13 @@ else:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# VOICE_EMBEDDED_HOST=true: serve SmallWebRTC signalling here instead of
+# requiring a second `python -m voice.bot` process on :7860 (Phase E1).
+if _EMBEDDED_VOICE_HOST:
+    from voice.host import register_routes as _register_voice_routes
+
+    _register_voice_routes(app)
 
 
 # Azure concurrency saturation / circuit open → shed load fast.
@@ -352,6 +466,24 @@ def _handle_write(fn, *args, **kwargs):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        # A bad foreign key (unknown productId / teamId / ownerUserId) is a
+        # client error, not a server fault. It used to escape as an unhandled
+        # 500 with a psycopg traceback in the response body.
+        logger.warning("write rejected by a database constraint: %s", exc.orig)
+        raise HTTPException(status_code=409, detail="constraint_violation") from exc
+
+
+def require_admin() -> None:
+    """Fail closed when API-key auth is on and the actor is not Admin.
+
+    Local/dev with auth unset stays open (same as the previous inline check).
+    """
+    auth_required = bool(
+        (os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map()
+    )
+    if auth_required and not db.actor_is_admin():
+        raise HTTPException(status_code=403, detail="admin_required")
 
 
 @app.get("/health")
@@ -395,6 +527,14 @@ def get_customer(customer_id: str):
     return customer
 
 
+@app.get("/customers/{customer_id}/insights", response_model=CustomerInsightsResponse)
+def get_customer_insights(customer_id: str):
+    insights = db.get_customer_insights(customer_id)
+    if insights is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return insights
+
+
 @app.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all"):
     return db.get_dashboard(range, segment, team)
@@ -409,6 +549,24 @@ def get_bot_analytics(range: str = "30d", channel: str = "all"):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.get("/offers/health", response_model=OfferHealthResponse)
+def get_offer_health(
+    window: str = Query("30d", description="24h | 7d | 30d | 90d"),
+    includeSimulated: bool = Query(
+        False,
+        description="Include synthetic rows from scripts/simulate_offer_decisions.py",
+    ),
+):
+    """Offer-engine observability — coverage, funnel, latency, guardrails.
+
+    Synthetic decisions are excluded unless asked for, so nobody makes a call
+    on a number that came out of the simulator.
+    """
+    from agent_core.reco import observability
+
+    return observability.offer_health(window, include_simulated=includeSimulated)
+
+
 @app.get("/billing", response_model=BillingOverviewResponse)
 def get_billing(
     period: str = Query("mtd"),
@@ -420,6 +578,43 @@ def get_billing(
         return db.billing_overview(period, tenantId, env)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/interactions/{interaction_id}/export")
+def export_interaction(
+    interaction_id: str,
+    format: str = Query("json", pattern="^(json|md)$"),
+):
+    """Everything about one call, as a download.
+
+    Reviewing a call used to mean reading the container log by hand against
+    five Postgres tables. This is the same material in one file: transcript with
+    per-turn intent and sentiment, the stage-by-stage latency split, every tool
+    call and its arguments, KB retrievals, guardrail flags and the tuning that
+    was actually in force. ``format=md`` renders it for pasting into a model.
+    """
+    from voice import call_export
+
+    bundle = call_export.build_bundle(interaction_id)
+    if bundle is None:
+        raise HTTPException(status_code=404, detail="unknown_interaction")
+    if format == "md":
+        return Response(
+            content=call_export.render_markdown(bundle),
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="call-{interaction_id}.md"'
+                )
+            },
+        )
+    return Response(
+        content=json.dumps(bundle, indent=2, default=str),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="call-{interaction_id}.json"'
+        },
+    )
 
 
 @app.get("/billing/export.csv")
@@ -471,6 +666,42 @@ def delete_budget_rule(budget_id: str, rule_id: str):
 @app.get("/calls", response_model=list[CallResponse])
 def list_calls():
     return db.list_calls()
+
+
+@app.get("/interactions/{interaction_id}/cost", response_model=InteractionCostResponse)
+def get_interaction_cost(interaction_id: str):
+    """What this call cost, split by service and model.
+
+    Assembled from usage_events attributed to the interaction. ``attributed`` is
+    False when the call carries no events — every call that predates pipeline
+    metering is in that state, and it must not be shown as a genuine ₹0.00.
+    """
+    return db.interaction_cost(interaction_id)
+
+
+@app.get("/interactions/{interaction_id}/trace", response_model=list[TurnTraceResponse])
+def get_turn_trace(interaction_id: str):
+    """Per-turn timeline: tool calls, retrievals and the latency breakdown.
+
+    Assembles what were three non-joinable grains (bot_tool_calls by job_id,
+    retrieval_logs by interaction_id, latency on interaction_transcript) into
+    one view keyed by transcript turn. Tool args and result previews are
+    redacted on the way out — see db._trace_redact.
+    """
+    try:
+        return db.get_turn_trace(interaction_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/products", response_model=list[ProductResponse])
+def list_products(includeInactive: bool = Query(False)):
+    """Offer catalog — the single source of truth for product ids.
+
+    Both the UI pickers and the recommender read this. Anything that hardcodes
+    a product list drifts from what check_product_eligibility will accept.
+    """
+    return db.list_products(include_inactive=includeInactive)
 
 
 @app.get("/leads", response_model=list[LeadResponse])
@@ -589,8 +820,8 @@ def list_webhook_endpoints():
 @app.post("/webhook-endpoints")
 def create_webhook_endpoint(payload: WebhookEndpointUpsertRequest):
     try:
-        return ops_screens.create_webhook_endpoint(payload.model_dump())
-    except Exception as exc:
+        return ops_screens.create_webhook_endpoint(payload.model_dump(mode="json"))
+    except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -598,10 +829,12 @@ def create_webhook_endpoint(payload: WebhookEndpointUpsertRequest):
 def patch_webhook_endpoint(endpoint_id: str, payload: WebhookEndpointPatchRequest):
     try:
         return ops_screens.patch_webhook_endpoint(
-            endpoint_id, payload.model_dump(exclude_unset=True)
+            endpoint_id, payload.model_dump(mode="json", exclude_unset=True)
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.delete("/webhook-endpoints/{endpoint_id}")
@@ -737,13 +970,26 @@ def add_callback_reminder(callback_id: str, payload: ReminderCreateRequest):
 
 
 @app.post("/leads", response_model=LeadResponse)
-def create_lead(payload: LeadCreateRequest):
-    return _handle_write(db.create_lead, payload.model_dump(exclude_none=True))
+def create_lead(payload: LeadCreateRequest, idempotency_key: str | None = Header(default=None)):
+    body = payload.model_dump(exclude_none=True)
+    allow_duplicate = bool(body.pop("allowDuplicate", False))
+    return _handle_write(
+        db.create_lead, body, idempotency_key, allow_duplicate=allow_duplicate
+    )
 
 
 @app.patch("/leads/{lead_id}", response_model=LeadResponse)
 def patch_lead(lead_id: str, payload: LeadPatchRequest):
-    return _handle_write(db.patch_lead, lead_id, payload.model_dump(exclude_none=True))
+    # exclude_unset, not exclude_none: the state machine distinguishes "field
+    # not sent" from "field explicitly cleared". exclude_none collapsed both
+    # into absent, so lossReason could be set but never removed.
+    return _handle_write(db.patch_lead, lead_id, payload.model_dump(exclude_unset=True))
+
+
+@app.post("/leads/{lead_id}/revalidate")
+def revalidate_lead(lead_id: str, channel: str | None = Query(default=None)):
+    """Re-check a lead's eligibility against today's consent and account facts."""
+    return _handle_write(db.revalidate_lead_eligibility, lead_id, channel)
 
 
 @app.post("/leads/{lead_id}/followups")
@@ -998,6 +1244,38 @@ def get_prompt_version(version_id: str):
     return row
 
 
+@app.get("/flow/tools", response_model=list[FlowToolResponse])
+def list_flow_tools():
+    """Tools an authored flow node may call.
+
+    Introspected from the live registry rather than listed here, so the editor
+    cannot drift from what the runtime will actually accept.
+    """
+    return flow_graph.tool_catalog()
+
+
+@app.get("/flow/reserved-keys", response_model=dict[str, str])
+def list_flow_reserved_keys():
+    """Node keys the built-in tools transition to by name.
+
+    A graph is free to ignore them; using one wires up that built-in hop. The
+    editor surfaces these so the choice is visible rather than a trap.
+    """
+    return flow_graph.RESERVED_NODE_KEYS
+
+
+@app.post("/flow/validate", response_model=FlowValidation)
+def validate_flow(graph: FlowGraph):
+    """Structural check. Errors block publish; warnings are advisory.
+
+    The editor calls this as you draw, so a graph is never published with a
+    dangling edge or two nodes sharing a transition key.
+    """
+    return flow_graph.validate_graph(
+        graph, known_tools=[t["key"] for t in flow_graph.tool_catalog()]
+    )
+
+
 @app.get("/persona-presets", response_model=list[PersonaPresetResponse])
 def list_persona_presets():
     return db.list_persona_presets()
@@ -1034,6 +1312,12 @@ def list_tts_voice_catalog(
     )
 
 
+@app.get("/tts-voices/catalog/sync-runs", response_model=list[TtsSyncRunResponse])
+def list_tts_sync_runs(limit: int = Query(default=20, ge=1, le=100)):
+    """Recent catalog sync runs for the Voice Studio freshness strip."""
+    return db.list_tts_sync_runs(limit=limit)
+
+
 @app.get("/tts-voices/catalog/{short_name}", response_model=TtsCatalogVoiceItem)
 def get_tts_voice_catalog_entry(short_name: str):
     row = db.get_tts_voice_catalog_entry(short_name)
@@ -1053,8 +1337,12 @@ def tts_voice_warning(shortName: str = Query(...)):
 
 
 @app.post("/tts-voices/catalog/sync", response_model=TtsSyncRunResponse)
-def sync_tts_voice_catalog():
-    """Admin refresh — pull Azure voices/list (JSON fallback)."""
+def sync_tts_voice_catalog(_admin: None = Depends(require_admin)):
+    """Admin refresh — pull Azure voices/list (JSON fallback).
+
+    When API-key auth is configured, require Admin / perm-admin-write so
+    arbitrary keys cannot hammer Azure. Local/dev with auth off stays open.
+    """
     from tts_catalog_sync import run_sync
 
     return run_sync(db.engine, source="admin")
@@ -1187,8 +1475,6 @@ def estimate_prompt_tokens(payload: PromptTokenEstimateRequest):
     Cost uses AZURE_OPENAI_INPUT_USD_PER_1M (default 2.50) — prompt-input only,
     not a full turn (completion / RAG context excluded).
     """
-    import os
-
     from kb_chunking import count_tokens
 
     text = payload.prompt or ""
@@ -1260,7 +1546,7 @@ async def stt_transcribe(
     """
     import azure_speech
 
-    audio = await file.read()
+    audio = await _read_upload_capped(file)
     if not audio:
         raise HTTPException(status_code=400, detail="empty_audio")
     content_type = (file.content_type or "application/octet-stream").split(";")[0].strip()
@@ -1334,15 +1620,13 @@ def get_voice_status():
 
 
 @app.post("/voice/sandbox/start")
-def start_voice_sandbox_session(payload: dict[str, Any]):
+def start_voice_sandbox_session(payload: VoiceSandboxStartRequest):
     import voice_sandbox
 
     try:
-        return voice_sandbox.start_voice_sandbox(payload)
+        return voice_sandbox.start_voice_sandbox(payload.model_dump(exclude_none=True))
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/voice/sandbox/{session_id}/stop")
@@ -1353,19 +1637,26 @@ def stop_voice_sandbox_session(session_id: str):
 
 
 @app.post("/voice/sandbox/{session_id}/tune")
-def tune_voice_sandbox_session(session_id: str, payload: dict[str, Any]):
+def tune_voice_sandbox_session(session_id: str, payload: VoiceSandboxTuneRequest):
     import voice_sandbox
 
-    delta = payload.get("tuning") if isinstance(payload.get("tuning"), dict) else payload
+    delta = payload.tuning if isinstance(payload.tuning, dict) else payload.model_dump(exclude_none=True)
     return _handle_write(voice_sandbox.tune_voice_sandbox, session_id, delta)
 
 
 def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
-    """Validate X-Twilio-Signature when TWILIO_AUTH_TOKEN is set (fail-open if unset)."""
+    """Validate X-Twilio-Signature.
+
+    Production fail-closed: missing ``TWILIO_AUTH_TOKEN`` or missing signature → reject.
+    Non-prod may omit the token for local ngrok smoke tests.
+    """
     from voice import twilio_ops
 
     token = twilio_ops.auth_token()
     if not token:
+        if _IS_PROD:
+            logger.error("TWILIO_AUTH_TOKEN unset in production — rejecting Twilio request")
+            return False
         return True
     signature = (request.headers.get("x-twilio-signature") or "").strip()
     if not signature:
@@ -1375,14 +1666,85 @@ def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
         from twilio.request_validator import RequestValidator
 
         validator = RequestValidator(token)
-        # Reconstruct the public URL Twilio signed (ngrok HTTPS).
+        # Reconstruct the public URL Twilio signed (ngrok HTTPS). Twilio signs
+        # the full URL *including* the query string — dropping it makes every
+        # signature check on a query-bearing callback fail.
         public = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
-        path = request.url.path
-        url = f"{public}{path}" if public else str(request.url)
+        query = request.url.query
+        suffix = f"{request.url.path}?{query}" if query else request.url.path
+        url = f"{public}{suffix}" if public else str(request.url)
         return bool(validator.validate(url, form, signature))
     except Exception:
         logger.exception("Twilio signature validation failed open=false")
         return False
+
+
+def _voice_ws_secrets_equal(a: str, b: str) -> bool:
+    if not a or not b or len(a) != len(b):
+        return False
+    return secrets.compare_digest(a.encode(), b.encode())
+
+
+def _redact_voice_ws_url(url: str) -> str:
+    """Strip path/query proxy secret from logs and status payloads."""
+    shared = (os.getenv("VOICE_WS_PROXY_SECRET") or "").strip()
+    if not url:
+        return url
+    if shared and shared in url:
+        url = url.replace(shared, "***")
+    from urllib.parse import quote
+
+    encoded = quote(shared, safe="") if shared else ""
+    if encoded and encoded in url:
+        url = url.replace(encoded, "***")
+    # Query form (legacy) — drop any remaining proxy_secret value.
+    if "proxy_secret=" in url:
+        from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+        parts = urlparse(url)
+        q = [(k, "***" if k == "proxy_secret" else v) for k, v in parse_qsl(parts.query)]
+        url = urlunparse(parts._replace(query=urlencode(q)))
+    return url
+
+
+def _voice_ws_upgrade_authorized(
+    websocket: WebSocket, *, path_secret: str | None = None
+) -> bool:
+    """Gate the Media Streams WS proxy.
+
+    Requires a shared ``VOICE_WS_PROXY_SECRET`` matching (in order):
+    path ``/ws/{secret}``, ``X-Voice-Proxy-Secret``, or legacy ``?proxy_secret=``.
+    Twilio ``<Stream url>`` cannot use query strings (error 31920) — prefer path.
+    Production fails closed without a valid secret.
+    """
+    shared = (os.getenv("VOICE_WS_PROXY_SECRET") or "").strip()
+    provided = (
+        (path_secret or "").strip()
+        or (websocket.headers.get("x-voice-proxy-secret") or "").strip()
+        or (websocket.query_params.get("proxy_secret") or "").strip()
+    )
+    if shared and provided and _voice_ws_secrets_equal(shared, provided):
+        return True
+
+    # Twilio Media Streams authenticate at the HTTP webhook layer; the WS
+    # upgrade does not carry X-Twilio-Signature. Outside production we allow
+    # the upgrade so local ngrok/dev runs work.
+    #
+    # Production fails closed. A configured TWILIO_AUTH_TOKEN is *not* an
+    # authorization signal for this socket — nothing on the upgrade proves the
+    # peer holds it, so treating token presence as sufficient left the media
+    # stream open to anyone who learned the URL. Prod therefore requires
+    # VOICE_WS_PROXY_SECRET to be configured *and* supplied; a deployment with
+    # no secret configured is a misconfiguration, not an open door.
+    if _IS_PROD:
+        if not shared:
+            logger.error(
+                "Voice WS proxy rejected: VOICE_WS_PROXY_SECRET is not configured in production"
+            )
+        else:
+            logger.warning("Voice WS proxy rejected: missing/invalid proxy secret")
+        return False
+    return True
 
 
 @app.post("/twilio/voice/incoming")
@@ -1403,7 +1765,7 @@ async def twilio_voice_incoming(request: Request):
         )
 
     try:
-        twilio_ops.media_stream_wss_url()
+        stream_url = twilio_ops.media_stream_wss_url()
     except RuntimeError as exc:
         logger.error("Twilio Stream URL unavailable: %s", exc)
         return Response(
@@ -1427,9 +1789,77 @@ async def twilio_voice_incoming(request: Request):
         "Twilio inbound CallSid=%s From=%s → Stream %s",
         call_sid,
         from_number,
-        twilio_ops.media_stream_wss_url(),
+        _redact_voice_ws_url(stream_url),
     )
     return Response(content=xml, media_type="application/xml")
+
+
+@app.post("/twilio/voice/fallback")
+async def twilio_voice_fallback(request: Request):
+    """VoiceFallbackUrl — primary webhook failed or timed out."""
+    from voice import twilio_ops
+
+    form = dict(await request.form())
+    if not _twilio_signature_ok(request, form):
+        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
+
+    call_sid = str(form.get("CallSid") or "")
+    error_code = str(form.get("ErrorCode") or form.get("errorCode") or "")
+    logger.error(
+        "Twilio voice fallback CallSid=%s ErrorCode=%s",
+        call_sid,
+        error_code or None,
+    )
+    return Response(
+        content=twilio_ops.twiml_say_hangup(
+            "We're sorry, we could not connect your call. Please try again shortly."
+        ),
+        media_type="application/xml",
+    )
+
+
+@app.post("/twilio/voice/stream-status")
+async def twilio_voice_stream_status(request: Request):
+    """``<Stream statusCallback>`` — stream-started / stopped / error."""
+    form = dict(await request.form())
+    if not _twilio_signature_ok(request, form):
+        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
+
+    event = str(form.get("StreamEvent") or form.get("Event") or "")
+    stream_sid = str(form.get("StreamSid") or "")
+    call_sid = str(form.get("CallSid") or "")
+    error_code = str(form.get("ErrorCode") or "")
+    error_message = str(form.get("ErrorMessage") or "")
+    level = logging.ERROR if "error" in event.lower() or error_code else logging.INFO
+    logger.log(
+        level,
+        "Twilio Stream status event=%s CallSid=%s StreamSid=%s error=%s %s",
+        event or "unknown",
+        call_sid or None,
+        stream_sid or None,
+        error_code or None,
+        error_message or "",
+    )
+    return Response(status_code=204)
+
+
+@app.post("/twilio/voice/call-status")
+async def twilio_voice_call_status(request: Request):
+    """Incoming Phone Number StatusCallback — dial/ring/answer/complete."""
+    form = dict(await request.form())
+    if not _twilio_signature_ok(request, form):
+        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
+
+    call_sid = str(form.get("CallSid") or "")
+    status = str(form.get("CallStatus") or form.get("CallStatusCallbackEvent") or "")
+    duration = str(form.get("CallDuration") or form.get("Duration") or "")
+    logger.info(
+        "Twilio call status CallSid=%s status=%s duration=%s",
+        call_sid or None,
+        status or None,
+        duration or None,
+    )
+    return Response(status_code=204)
 
 
 @app.post("/twilio/voice/outbound")
@@ -1453,7 +1883,7 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
         return twilio_ops.start_outbound_call(to=to, custom=custom or None)
     except Exception as exc:
         logger.exception("Twilio outbound failed")
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail="twilio_outbound_failed") from exc
 
 
 @app.get("/twilio/voice/status")
@@ -1461,36 +1891,68 @@ def twilio_voice_status():
     from voice import twilio_ops
     from voice.ws_proxy import voice_ws_upstream, ws_proxy_enabled
 
+    raw_stream = (
+        twilio_ops.media_stream_wss_url()
+        if (twilio_ops.voice_public_base_url() and twilio_ops.configured())
+        else None
+    )
     return {
         "configured": twilio_ops.configured(),
         "phoneNumber": twilio_ops.twilio_phone() or None,
         "handoffMode": twilio_ops.handoff_mode(),
         "wsViaApi": ws_proxy_enabled(),
         "wsUpstream": voice_ws_upstream() if ws_proxy_enabled() else None,
-        "streamUrl": (
-            twilio_ops.media_stream_wss_url()
-            if (twilio_ops.voice_public_base_url() and twilio_ops.configured())
-            else None
-        ),
+        "streamUrl": _redact_voice_ws_url(raw_stream) if raw_stream else None,
+        "fallbackUrl": twilio_ops.voice_fallback_url(),
+        "callStatusCallbackUrl": twilio_ops.call_status_callback_url(),
+        "streamStatusCallbackUrl": twilio_ops.stream_status_callback_url(),
         "supervisorPhone": twilio_ops.supervisor_phone() or None,
         "hint": (
             "Same ngrok as WhatsApp (PUBLIC_BASE_URL→:8000). "
             "Voice webhook: POST {PUBLIC_BASE_URL}/twilio/voice/incoming. "
-            "Media Stream uses wss://{same-host}/ws (API proxies to voice:7860). "
+            "Media Stream uses wss://{same-host}/ws[/{VOICE_WS_PROXY_SECRET}] "
+            "(no query string — Twilio error 31920). "
             "Start voice: python -m voice.bot -t twilio --host 0.0.0.0 --port 7860"
         ),
     }
 
 
-@app.websocket("/ws")
-async def voice_media_stream_proxy(websocket: WebSocket):
-    """Twilio Media Streams entry via the API ngrok tunnel → Pipecat :7860."""
+async def _voice_media_stream_entry(
+    websocket: WebSocket, *, path_secret: str | None = None
+) -> None:
+    """Twilio Media Streams entry point (shared by ``/ws`` and ``/ws/{secret}``).
+
+    ``VOICE_EMBEDDED_HOST=true`` serves the call here in-process; otherwise the
+    socket is bridged to the standalone Pipecat runner on :7860.
+    """
+    from voice.host import embedded_host_enabled, run_websocket_session
     from voice.ws_proxy import proxy_voice_websocket, ws_proxy_enabled
 
-    if not ws_proxy_enabled():
+    embedded = embedded_host_enabled()
+    if not embedded and not ws_proxy_enabled():
         await websocket.close(code=1008)
         return
+    # The upgrade gate applies to both modes — hosting the pipeline in-process
+    # makes an unauthenticated socket more dangerous, not less.
+    if not _voice_ws_upgrade_authorized(websocket, path_secret=path_secret):
+        await websocket.close(code=1008, reason="unauthorized")
+        return
+    if embedded:
+        await run_websocket_session(websocket)
+        return
     await proxy_voice_websocket(websocket)
+
+
+@app.websocket("/ws")
+async def voice_media_stream_proxy(websocket: WebSocket):
+    await _voice_media_stream_entry(websocket)
+
+
+@app.websocket("/ws/{proxy_secret}")
+async def voice_media_stream_proxy_with_secret(
+    websocket: WebSocket, proxy_secret: str
+):
+    await _voice_media_stream_entry(websocket, path_secret=proxy_secret)
 
 
 @app.get("/conversations", response_model=list[ConversationListResponse])
@@ -1547,8 +2009,9 @@ def kb_retrieve_endpoint(payload: KbRetrieveRequest):
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"kb_retrieve_failed: {exc}") from exc
+    except Exception:
+        logger.exception("kb_retrieve_failed")
+        raise HTTPException(status_code=502, detail="kb_retrieve_failed") from None
 
 
 @app.get("/kb/stats", response_model=KbStatsResponse)
@@ -1583,8 +2046,13 @@ def kb_patch_document(document_id: str, payload: KbDocumentPatchRequest):
         return {"document": result["document"], "jobId": result.get("jobId")}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        # A DB/storage outage is not a client error, and str(exc) on a driver
+        # exception leaks connection details into the response body.
+        logger.exception("kb_patch_document_failed document=%s", document_id)
+        raise HTTPException(status_code=502, detail="kb_patch_failed") from None
 
 
 @app.post("/kb/documents/{document_id}/reindex", response_model=KbReindexResponse)
@@ -1624,7 +2092,10 @@ def kb_ingest_source_db(product: str | None = Query(default=None)):
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"kb_ingest_failed: {exc}") from exc
+        # Static detail: the underlying exception carries DSNs, file paths and
+        # Azure error bodies that must not reach an API client.
+        logger.exception("kb_ingest_source_db failed product=%s", product)
+        raise HTTPException(status_code=502, detail="kb_ingest_failed") from exc
 
 
 @app.post("/kb/reindex-all")
@@ -1635,6 +2106,11 @@ def kb_reindex_all():
         snap = db.create_kb_snapshot(label=f"After reindex-all ({result.get('count', 0)} jobs)")
         result["snapshot"] = snap
     except Exception:
+        # Reindex itself succeeded; a missing snapshot only costs sandbox
+        # reproducibility — but it must not disappear silently.
+        logger.warning(
+            "kb_snapshot_after_reindex_failed jobs=%s", result.get("count", 0), exc_info=True
+        )
         result["snapshot"] = None
     return result
 
@@ -1661,7 +2137,7 @@ async def kb_upload_document(
         tag_list = json.loads(tags) if tags else []
         if not isinstance(tag_list, list):
             raise ValueError("tags must be a JSON array")
-        data = await file.read()
+        data = await _read_upload_capped(file)
         # Sync MinIO + DB off the event loop.
         result = await asyncio.to_thread(
             db.create_kb_document_from_upload,
@@ -1680,14 +2156,15 @@ async def kb_upload_document(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"kb_upload_failed: {exc}") from exc
+    except Exception:
+        logger.exception("kb_upload_failed")
+        raise HTTPException(status_code=502, detail="kb_upload_failed") from None
 
 
 @app.post("/kb/documents/{document_id}/versions", response_model=KbUploadResponse)
 async def kb_new_version(document_id: str, file: UploadFile = File(...)):
     try:
-        data = await file.read()
+        data = await _read_upload_capped(file)
         return await asyncio.to_thread(
             db.create_kb_document_version,
             document_id,
@@ -1701,8 +2178,9 @@ async def kb_new_version(document_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"kb_version_failed: {exc}") from exc
+    except Exception:
+        logger.exception("kb_version_failed")
+        raise HTTPException(status_code=502, detail="kb_version_failed") from None
 
 
 @app.get("/kb/faqs", response_model=list[KbFaqResponse])
@@ -1792,7 +2270,8 @@ def refresh_conversation_suggestions(
     except kb_rate_limit.RateLimitExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"inbox_rag_failed: {exc}") from exc
+        logger.exception("inbox rag refresh failed conversation=%s", conversation_id)
+        raise HTTPException(status_code=502, detail="inbox_rag_failed") from exc
 
 
 @app.get("/webhooks/whatsapp")

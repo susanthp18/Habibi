@@ -59,51 +59,51 @@ function DashboardPage() {
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1600px] space-y-4 p-6">
+          <div className="mx-auto max-w-[100rem] space-y-200 p-300">
             {!data ? (
               <DashboardSkeleton />
             ) : (
               <>
                 {/* Hero KPIs */}
-                <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <section className="grid grid-cols-1 gap-200 md:grid-cols-2">
                   {data.heroKpis.map((k) => (
                     <HeroKpiCard key={k.label} kpi={k} />
                   ))}
                 </section>
 
                 {/* Secondary KPIs */}
-                <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                <section className="grid grid-cols-2 gap-150 md:grid-cols-3 xl:grid-cols-6">
                   {data.kpis.map((k) => (
                     <KpiTile key={k.key} kpi={k} />
                   ))}
                 </section>
 
                 {/* Trend row */}
-                <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <div className="h-[300px]">
+                <section className="grid grid-cols-1 gap-200 lg:grid-cols-2">
+                  <div className="h-[18.75rem]">
                     <RecoveryTrendChart data={data.recoveryTrend} />
                   </div>
-                  <div className="h-[300px]">
+                  <div className="h-[18.75rem]">
                     <CallVolumeChart data={data.callVolumeStacked} />
                   </div>
                 </section>
 
                 {/* Sentiment + Bot/Human row */}
-                <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <div className="h-[260px]">
+                <section className="grid grid-cols-1 gap-200 lg:grid-cols-2">
+                  <div className="h-[16.25rem]">
                     <SentimentDistribution {...data.sentimentDistribution} />
                   </div>
-                  <div className="h-[260px]">
+                  <div className="h-[16.25rem]">
                     <BotVsHumanDonut data={data.botVsHuman} />
                   </div>
                 </section>
 
                 {/* Bottom row */}
-                <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <div className="h-[400px]">
+                <section className="grid grid-cols-1 gap-200 lg:grid-cols-2">
+                  <div className="h-[25rem]">
                     <AgentLeaderboard rows={data.leaderboard} onOpen={handleAgent} />
                   </div>
-                  <div className="h-[400px]">
+                  <div className="h-[25rem]">
                     <AtRiskAccounts accounts={data.atRiskAccounts} onOpen={handleAccount} />
                   </div>
                 </section>
@@ -118,27 +118,27 @@ function DashboardPage() {
 
 function DashboardSkeleton() {
   return (
-    <div className="space-y-4" aria-busy="true" aria-label="Loading dashboard">
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Skeleton className="h-[140px] rounded-[10px]" />
-        <Skeleton className="h-[140px] rounded-[10px]" />
+    <div className="space-y-200" aria-busy="true" aria-label="Loading dashboard">
+      <section className="grid grid-cols-1 gap-200 md:grid-cols-2">
+        <Skeleton className="h-[8.75rem] rounded-large" />
+        <Skeleton className="h-[8.75rem] rounded-large" />
       </section>
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <section className="grid grid-cols-2 gap-150 md:grid-cols-3 xl:grid-cols-6">
         {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-[92px] rounded-[10px]" />
+          <Skeleton key={i} className="h-[5.75rem] rounded-large" />
         ))}
       </section>
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Skeleton className="h-[300px] rounded-[10px]" />
-        <Skeleton className="h-[300px] rounded-[10px]" />
+      <section className="grid grid-cols-1 gap-200 lg:grid-cols-2">
+        <Skeleton className="h-[18.75rem] rounded-large" />
+        <Skeleton className="h-[18.75rem] rounded-large" />
       </section>
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Skeleton className="h-[260px] rounded-[10px]" />
-        <Skeleton className="h-[260px] rounded-[10px]" />
+      <section className="grid grid-cols-1 gap-200 lg:grid-cols-2">
+        <Skeleton className="h-[16.25rem] rounded-large" />
+        <Skeleton className="h-[16.25rem] rounded-large" />
       </section>
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Skeleton className="h-[400px] rounded-[10px]" />
-        <Skeleton className="h-[400px] rounded-[10px]" />
+      <section className="grid grid-cols-1 gap-200 lg:grid-cols-2">
+        <Skeleton className="h-[25rem] rounded-large" />
+        <Skeleton className="h-[25rem] rounded-large" />
       </section>
     </div>
   );

@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useWorkspaceSummary, useWorkItems } from "@/api/workspace";
 import { entityTypeFromSlaLabel, navigateWorkItem } from "@/lib/workspace-nav";
 import { cn } from "@/lib/utils";
+import { Lozenge } from "@/components/ui/lozenge";
 
 const READ_KEY = "habibi.workspaceNotifRead";
 
@@ -130,20 +131,20 @@ export function NotificationsPopover() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="relative grid h-9 w-9 place-items-center rounded-md text-text-secondary transition-colors hover:bg-surface-sunken"
+          className="relative grid h-9 w-9 place-items-center rounded-medium text-text-subtle transition-colors hover:bg-surface-sunken"
           aria-label="Notifications"
         >
           <Bell className="h-4.5 w-4.5" />
           {badge > 0 && (
-            <span className="absolute right-1.5 top-1.5 flex h-2 min-w-2 items-center justify-center rounded-full bg-danger" />
+            <span className="absolute right-1.5 top-1.5 flex h-100 min-w-100 items-center justify-center rounded-full bg-background-danger" />
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[360px] p-0">
-        <div className="flex items-center justify-between border-b border-[var(--border-token)] px-3 py-2.5">
+      <PopoverContent align="end" className="w-[22.5rem] p-0">
+        <div className="flex items-center justify-between border-b border-border px-150 py-150">
           <div>
-            <div className="text-[13px] font-semibold text-brand-navy">Notifications</div>
-            <div className="text-[11px] text-text-muted">
+            <div className="text-body font-semibold text-text">Notifications</div>
+            <div className="text-body-small text-text-subtlest">
               {badge > 0 ? `${badge} unread from your queue` : "Caught up"}
             </div>
           </div>
@@ -151,46 +152,42 @@ export function NotificationsPopover() {
             <button
               type="button"
               onClick={markAllRead}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-primary hover:underline"
+              className="inline-flex items-center gap-050 text-body-small font-medium text-text-brand hover:underline"
             >
               <CheckCheck className="h-3.5 w-3.5" />
               Mark all read
             </button>
           )}
         </div>
-        <ul className="max-h-[360px] overflow-y-auto">
+        <ul className="max-h-[22.5rem] overflow-y-auto">
           {notifications.length === 0 && (
-            <li className="px-3 py-8 text-center text-[12px] text-text-muted">
+            <li className="px-150 py-400 text-center text-body-small text-text-subtlest">
               No SLA alerts or upcoming callbacks right now.
             </li>
           )}
           {notifications.map((n) => {
             const isUnread = !read.has(n.id);
             return (
-              <li key={n.id} className="border-b border-[var(--border-token)] last:border-0">
+              <li key={n.id} className="border-b border-border last:border-0">
                 <button
                   type="button"
                   onClick={() => onClick(n)}
                   className={cn(
-                    "flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition-colors hover:bg-brand-tint/50",
+                    "flex w-full flex-col gap-025 px-150 py-150 text-left transition-colors hover:bg-background-brand-subtlest/50",
                     isUnread && "bg-surface-sunken/40",
                   )}
                 >
-                  <div className="flex items-center gap-2">
-                    {isUnread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />}
-                    <span className="text-[12.5px] font-semibold text-text-primary">{n.title}</span>
-                    <span
-                      className={cn(
-                        "ml-auto rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase",
-                        n.level === "breach" && "bg-danger-bg text-danger",
-                        n.level === "warn" && "bg-warning-bg text-warning",
-                        n.level === "info" && "bg-brand-tint text-brand-primary-dark",
-                      )}
+                  <div className="flex items-center gap-100">
+                    {isUnread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-background-brand-bold" />}
+                    <span className="text-[0.75rem] font-semibold text-text">{n.title}</span>
+                    <Lozenge
+                      tone={n.level === "breach" ? "danger" : n.level === "warn" ? "warning" : "selected"}
+                      className="ml-auto"
                     >
                       {n.level}
-                    </span>
+                    </Lozenge>
                   </div>
-                  <div className="text-[11.5px] text-text-secondary">{n.body}</div>
+                  <div className="text-body-small text-text-subtle">{n.body}</div>
                 </button>
               </li>
             );

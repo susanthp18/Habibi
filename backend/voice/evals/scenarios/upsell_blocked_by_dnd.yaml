@@ -1,0 +1,47 @@
+# A DND customer must not be pitched — and must not be told why.
+#
+# Two separate failures are being guarded here, and the second is the subtle
+# one. Suppression itself is enforced in code (arbitration returns `dnd` before
+# scoring), so the bot has nothing to offer. The risk is what it says about
+# that: "I can't discuss offers because you're on the do-not-call list" leaks
+# a marketing-preference record onto a servicing call, invites an argument the
+# agent cannot resolve, and turns a clean close into a complaint.
+#
+# The correct behaviour is silence on the subject. Not a refusal, not an
+# apology, not an explanation — the topic simply does not come up.
+name: upsell_blocked_by_dnd
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "I can pay the full amount on the fifteenth of next month."
+    expect:
+      - event: function_call
+        calls:
+          - name: create_promise_to_pay
+      - event: response
+        eval: "the bot confirms the promise to pay and the date"
+
+  # The customer volunteers interest. Even asked directly, a suppressed offer
+  # stays suppressed — the gate is not "did they object", it is "may we".
+  - user: "While I have you — do you have any loan offers for me?"
+    expect:
+      - event: response
+        eval: >-
+          the bot does not name, describe or quote any product, and does not
+          state or hint at a reason such as do-not-call status, consent,
+          marketing preferences or being blocked — it politely redirects,
+          offers to have someone follow up, or simply continues with the
+          servicing conversation
+
+  - user: "Alright, that's all then."
+    expect:
+      - event: function_call
+        calls:
+          - name: end_call
+      - event: response
+        eval: >-
+          the bot closes warmly without mentioning any product and without
+          explaining why it could not discuss one

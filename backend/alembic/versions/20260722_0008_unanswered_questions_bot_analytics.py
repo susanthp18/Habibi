@@ -173,6 +173,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # The seed data below only exists when upgrade() ran with demo seeding on.
+    # Derive that from the *data* rather than re-reading seed_demo_enabled():
+    # ALEMBIC_SEED_DEMO can differ between the upgrade and the rollback (a
+    # different shell, a different CI job), and reading it again would delete
+    # rows this migration never created — or skip cleanup of rows it did.
+    conn = op.get_bind()
+    seeded = conn.execute(
+        sa.text("SELECT 1 FROM unanswered_questions WHERE id = ANY(:ids) LIMIT 1").bindparams(
+            ids=[qid for qid, *_rest in _SEED_GAPS if qid != "uq-settlement-letter"]
+        )
+    ).fetchone()
+    if seeded is None:
+        op.drop_column("unanswered_questions", "top_intent")
+        return
+
     for qid, *_rest in _SEED_GAPS:
         if qid == "uq-settlement-letter":
             continue

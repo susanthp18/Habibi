@@ -22,23 +22,23 @@ type Props = {
 
 export function InspectorPanel({ tab, onTab, editingRule, rules, audit, onSaveRule, onSaveAndTest, onCancelEdit, onClose }: Props) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-surface-app">
-      <div className="flex shrink-0 items-center border-b border-[var(--border-token)] bg-surface-card">
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
+      <div className="flex shrink-0 items-center border-b border-border bg-surface">
         <Tabs value={tab} onValueChange={(v) => onTab(v as InspectorTab)} className="flex-1">
-          <TabsList className="h-10 w-full justify-start rounded-none bg-transparent p-0">
-            <TabsTrigger value="editor" className="rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-brand-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+          <TabsList className="h-500 w-full justify-start rounded-none bg-transparent p-0">
+            <TabsTrigger value="editor" className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none">
               Rule editor
             </TabsTrigger>
-            <TabsTrigger value="sim" className="rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-brand-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <TabsTrigger value="sim" className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none">
               Simulator
             </TabsTrigger>
-            <TabsTrigger value="audit" className="rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-brand-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <TabsTrigger value="audit" className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none">
               Audit log
             </TabsTrigger>
           </TabsList>
         </Tabs>
         {onClose && (
-          <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="mr-050 h-400 w-400" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         )}
@@ -54,7 +54,7 @@ export function InspectorPanel({ tab, onTab, editingRule, rules, audit, onSaveRu
             onCancel={onCancelEdit}
           />
         ) : (
-          <div className="flex flex-1 items-center justify-center p-8 text-center text-[12px] text-text-muted">
+          <div className="flex flex-1 items-center justify-center p-400 text-center text-body-small text-text-subtlest">
             Select a rule to edit, or create a new one.
           </div>
         )

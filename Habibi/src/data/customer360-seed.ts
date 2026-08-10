@@ -676,6 +676,141 @@ const _customers: Customer[] = [
     documents: [],
     notes: [],
   },
+  {
+    id: "cust-susanth",
+    name: "Susanth",
+    accountId: "AC-SUSANTH",
+    risk: "medium",
+    outstanding: 62400,
+    minimumDue: 4800,
+    lastContact: iso(0, 14),
+    assignedTo: "Priya Nair",
+    contact: {
+      phonePrimary: "+91 98•••• ••01",
+      phoneAlt: "+91 98•••• ••02",
+      email: "susanth@example.com",
+      address: "12, MG Road, Chennai 600002",
+      timezone: "Asia/Kolkata (IST)",
+      language: "English + Tamil",
+      preferredWindow: "10:00–19:00 IST",
+      dnd: false,
+    },
+    account: {
+      product: "Personal Loan",
+      openedOn: iso(420),
+      apr: 14.5,
+      sanctionedAmount: 250000,
+      bucket: "31-60",
+      dpd: 32,
+      riskScore: 58,
+    },
+    consent: [
+      { channel: "call", optedIn: true, source: "self-serve", capturedAt: iso(420) },
+      { channel: "whatsapp", optedIn: true, source: "bot-captured", capturedAt: iso(14) },
+      { channel: "sms", optedIn: true, source: "self-serve", capturedAt: iso(420) },
+      { channel: "email", optedIn: false, source: "self-serve", capturedAt: iso(90) },
+    ],
+    ledger: [
+      { id: "LED-SUSANTH-1", date: iso(90), description: "EMI due #1", type: "charge", amount: 4800, balance: 72000 },
+      { id: "LED-SUSANTH-2", date: iso(85), description: "UPI payment", type: "payment", amount: -4800, balance: 67200 },
+      { id: "LED-SUSANTH-3", date: iso(60), description: "EMI due #2", type: "charge", amount: 4800, balance: 72000 },
+      { id: "LED-SUSANTH-4", date: iso(55), description: "UPI payment", type: "payment", amount: -4800, balance: 67200 },
+      { id: "LED-SUSANTH-5", date: iso(40), description: "EMI due", type: "charge", amount: 4800, balance: 72000 },
+      { id: "LED-SUSANTH-6", date: iso(37), description: "UPI payment", type: "payment", amount: -4800, balance: 67200 },
+      { id: "LED-SUSANTH-7", date: iso(35), description: "Late fee", type: "fee", amount: 350, balance: 67550 },
+      { id: "LED-SUSANTH-8", date: iso(32), description: "Goodwill late-fee waiver", type: "waiver", amount: -350, balance: 67200 },
+      { id: "LED-SUSANTH-9", date: iso(10), description: "EMI due (current)", type: "charge", amount: 4800, balance: 72000 },
+      { id: "LED-SUSANTH-10", date: iso(8), description: "Partial UPI", type: "payment", amount: -4800, balance: 67200 },
+      { id: "LED-SUSANTH-11", date: iso(5), description: "Interest capitalization", type: "adjustment", amount: 200, balance: 67400 },
+      { id: "LED-SUSANTH-12", date: iso(2), description: "Goodwill adjustment settle", type: "payment", amount: -1000, balance: 62400 },
+    ],
+    emi: [
+      { id: "EMI-SUSANTH-1", index: 1, dueDate: iso(60), amount: 4800, paidOn: iso(55), paidAmount: 4800, status: "paid", balanceCarried: 0 },
+      { id: "EMI-SUSANTH-2", index: 2, dueDate: iso(30), amount: 4800, paidOn: iso(28), paidAmount: 4800, status: "paid", balanceCarried: 0 },
+      { id: "EMI-SUSANTH-3", index: 3, dueDate: iso(0), amount: 4800, status: "overdue", balanceCarried: 4800 },
+      { id: "EMI-SUSANTH-4", index: 4, dueDate: isoFuture(30), amount: 4800, status: "upcoming", balanceCarried: 9600 },
+    ],
+    interactions: [
+      {
+        id: "IX-SUSANTH-WA1",
+        channel: "whatsapp",
+        handler: { kind: "bot", name: "CollectionsBot v2.4" },
+        startedAt: iso(0, 14),
+        duration: "4m 10s",
+        disposition: "PTP captured",
+        sentiment: "neutral",
+        sentimentDelta: "flat",
+        summary: "WhatsApp bot thread — Susanth asking about EMI options. Logged Friday promise.",
+        intents: { queryResolved: false, ptpCaptured: true },
+      },
+      {
+        id: "IX-SUSANTH-WA2",
+        channel: "whatsapp",
+        handler: { kind: "bot", name: "CollectionsBot v2.4" },
+        startedAt: iso(12, 11),
+        duration: "3m 00s",
+        disposition: "Bot contained",
+        sentiment: "neutral",
+        sentimentDelta: "flat",
+        summary: "Balance and late-fee FAQ. Customer asked about fee waiver — dispute later filed.",
+        intents: { queryResolved: true },
+      },
+      {
+        id: "IX-SUSANTH-VOICE1",
+        channel: "voice",
+        handler: { kind: "human", name: "Priya Nair" },
+        startedAt: iso(28, 16),
+        duration: "5m 12s",
+        disposition: "PTP captured (broken)",
+        sentiment: "negative",
+        sentimentDelta: "down",
+        summary: "Outbound call — Susanth committed ₹4,800 by month-end then missed. Prefers WhatsApp follow-ups.",
+        intents: { ptpCaptured: true },
+      },
+    ],
+    promises: [
+      { id: "PTP-SUSANTH-1", amount: 4800, promisedDate: isoFuture(5), createdAt: iso(0), channel: "whatsapp", handler: "CollectionsBot v2.4", status: "upcoming", reminderStatus: "queued" },
+      { id: "PTP-SUSANTH-2", amount: 4800, promisedDate: iso(20), createdAt: iso(28), channel: "voice", handler: "Priya Nair", status: "broken", reminderStatus: "sent" },
+      { id: "PTP-SUSANTH-3", amount: 2400, promisedDate: iso(45), createdAt: iso(52), channel: "whatsapp", handler: "CollectionsBot v2.4", status: "kept", reminderStatus: "acknowledged" },
+    ],
+    disputes: [
+      {
+        id: "D-SUSANTH-1",
+        type: "fee_waiver",
+        amount: 350,
+        transcriptSnippet: "Can you waive the late fee from last month?",
+        status: "under_review",
+        slaLabel: "2d left",
+        filedAt: iso(10),
+        assignee: "Priya Nair",
+      },
+    ],
+    documents: [
+      {
+        id: "DOC-SUSANTH-1",
+        type: "statement",
+        requestedVia: "whatsapp",
+        requestedAt: iso(9),
+        deliveryChannel: "whatsapp",
+        status: "sent",
+      },
+    ],
+    notes: [
+      {
+        id: "NOTE-SUSANTH-1",
+        author: "Priya Nair",
+        at: iso(0, 15),
+        text: "WhatsApp-preferred customer. EMI date flexibility OK within 7 days.",
+        pinned: true,
+      },
+      {
+        id: "NOTE-SUSANTH-2",
+        author: "Priya Nair",
+        at: iso(12),
+        text: "Broken PTP on file — start with smaller commitment on next touch.",
+      },
+    ],
+  },
 ];
 
 export const customers = _customers;
@@ -685,22 +820,32 @@ export function getCustomer(id: string): Customer | undefined {
 }
 
 // ---- utility formatters ----
-export function fmtMoney(n: number) {
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
+export function fmtMoney(n: number | null | undefined) {
+  const value = typeof n === "number" && Number.isFinite(n) ? n : 0;
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
   return `${sign}₹${abs.toLocaleString("en-IN")}`;
 }
 
-export function fmtDate(iso: string, opts?: Intl.DateTimeFormatOptions) {
-  return new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", ...(opts ?? { month: "short", day: "numeric", year: "numeric" }) });
+export function fmtDate(iso: string | null | undefined, opts?: Intl.DateTimeFormatOptions) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", ...(opts ?? { month: "short", day: "numeric", year: "numeric" }) });
 }
 
-export function fmtDateTime(iso: string) {
-  return new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+export function fmtDateTime(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function fmtRelative(iso: string) {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+export function fmtRelative(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const diff = (Date.now() - d.getTime()) / 1000;
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;

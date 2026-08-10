@@ -1,22 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Check,
   Copy,
-  Info,
-  Loader2,
   Play,
-  RefreshCw,
-  Search,
   Square,
   Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -25,18 +16,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import {
   fetchTtsVoiceDetail,
   fetchTtsVoiceWarning,
   previewTts,
-  syncTtsVoiceCatalog,
-  useTtsPricing,
-  useTtsVoiceCatalog,
   type TtsCatalogVoice,
 } from "@/api/prompt-studio";
 import { DEFAULT_VOICE, type VoiceConfig } from "@/data/prompt-studio-seed";
 import { cn } from "@/lib/utils";
+import {
+  VoiceCatalogBrowser,
+  tierBadge,
+  useSelectedCatalogVoice,
+} from "./VoiceCatalogBrowser";
 
 type Props = {
   value: VoiceConfig;
@@ -45,19 +37,6 @@ type Props = {
 
 const DEBOUNCE_MS = 450;
 const DEMO_LINE = "Hello, this is a sample of how I sound on a collections call.";
-
-const LOCALE_PRESETS: { value: string; label: string }[] = [
-  { value: "all", label: "All locales" },
-  { value: "en-IN", label: "English (India)" },
-  { value: "hi-IN", label: "Hindi (India)" },
-  { value: "en-", label: "English (all)" },
-  { value: "hi-", label: "Hindi (all)" },
-  { value: "ta-", label: "Tamil" },
-  { value: "te-", label: "Telugu" },
-  { value: "kn-", label: "Kannada" },
-  { value: "mr-", label: "Marathi" },
-  { value: "bn-", label: "Bengali" },
-];
 
 function selectedShortName(cfg: VoiceConfig): string {
   return (
@@ -74,66 +53,14 @@ function looksLikeShortName(value?: string | null): boolean {
   return /^[a-z]{2,3}-[A-Z]{2}-.+/.test(v) || /Neural|DragonHD|HDFlash|Turbo|MAI-Voice/.test(v);
 }
 
-function relativeSynced(iso: string | null | undefined): string {
-  if (!iso) return "Never synced";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "Synced";
-  const mins = Math.max(0, Math.round((Date.now() - t) / 60_000));
-  if (mins < 1) return "Synced just now";
-  if (mins < 60) return `Synced ${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 48) return `Synced ${hrs}h ago`;
-  return `Synced ${Math.round(hrs / 24)}d ago`;
-}
-
-function tierBadge(voice: TtsCatalogVoice): { label: string; className: string } {
-  const tier = voice.priceTier || "standard";
-  const usd = voice.approxUsdPer1MChars;
-  const cost = usd != null ? ` · ~$${usd}/1M` : "";
-  if (tier === "standard") {
-    return {
-      label: `Standard${cost}`,
-      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
-    };
-  }
-  if (tier === "hd_flash") {
-    return {
-      label: `HD Flash${cost}`,
-      className: "border-amber-200 bg-amber-50 text-amber-900",
-    };
-  }
-  if (tier === "turbo") {
-    return {
-      label: `Turbo${cost}`,
-      className: "border-rose-200 bg-rose-50 text-rose-900",
-    };
-  }
-  return {
-    label: `HD${cost}`,
-    className: "border-orange-200 bg-orange-50 text-orange-900",
-  };
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase() || "?";
-}
-
 export function VoicePanel({ value, onChange }: Props) {
-  const qc = useQueryClient();
-  const [q, setQ] = useState("");
-  const [qDebounced, setQDebounced] = useState("");
-  const [locale, setLocale] = useState("all");
-  const [gender, setGender] = useState("all");
-  const [showPremium, setShowPremium] = useState(false);
-  const [status, setStatus] = useState("GA");
   const [detailVoice, setDetailVoice] = useState<TtsCatalogVoice | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cardPreviewing, setCardPreviewing] = useState<string | null>(null);
   const [meta, setMeta] = useState<string | null>(null);
+  const [loadedItems, setLoadedItems] = useState<TtsCatalogVoice[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -143,27 +70,8 @@ export function VoicePanel({ value, onChange }: Props) {
   valueRef.current = value;
   const livePreviewRef = useRef(false);
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setQDebounced(q.trim()), 250);
-    return () => window.clearTimeout(t);
-  }, [q]);
-
-  const catalogQuery = useTtsVoiceCatalog({
-    q: qDebounced || undefined,
-    locale: locale === "all" ? undefined : locale,
-    gender: gender === "all" ? undefined : gender,
-    status: status || "GA",
-    includePremium: showPremium,
-    limit: 80,
-  });
-  const pricingQuery = useTtsPricing();
-
   const shortName = selectedShortName(value);
-  const items = catalogQuery.data?.items ?? [];
-  const selectedInList = useMemo(
-    () => items.find((v) => v.shortName === shortName) ?? null,
-    [items, shortName],
-  );
+  const selectedVoice = useSelectedCatalogVoice(shortName, loadedItems);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,16 +87,6 @@ export function VoicePanel({ value, onChange }: Props) {
       cancelled = true;
     };
   }, [shortName]);
-
-  const syncMutation = useMutation({
-    mutationFn: syncTtsVoiceCatalog,
-    onSuccess: (run) => {
-      void qc.invalidateQueries({ queryKey: ["tts-voice-catalog"] });
-      if (run.error) toast.error(`Sync failed: ${run.error}`);
-      else toast.success(`Catalog refreshed · ${run.fetchedCount} voices`);
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Sync failed"),
-  });
 
   const stopPlayback = () => {
     const a = audioRef.current;
@@ -228,11 +126,13 @@ export function VoicePanel({ value, onChange }: Props) {
   };
 
   const selectVoice = (voice: TtsCatalogVoice) => {
+    setLoadedItems((prev) =>
+      prev.some((v) => v.shortName === voice.shortName) ? prev : [...prev, voice],
+    );
     update({
       azureVoiceName: voice.shortName,
-      voiceId: looksLikeShortName(valueRef.current.voiceId)
-        ? voice.shortName
-        : valueRef.current.voiceId || "priya",
+      // Store Azure ShortName as voiceId — deployments.tts_voice_id is ShortName text.
+      voiceId: voice.shortName,
       style: voice.styles[0] ?? null,
     });
     if (livePreviewRef.current) scheduleLivePreview();
@@ -354,235 +254,63 @@ export function VoicePanel({ value, onChange }: Props) {
     }
   };
 
-  const styles = selectedInList?.styles ?? detailVoice?.styles ?? [];
-  const pricingHint =
-    pricingQuery.data?.find((t) => t.tier === "standard")?.approxUsdPer1MChars ?? 15;
+  const styles = selectedVoice?.styles ?? detailVoice?.styles ?? [];
+
+  useEffect(() => {
+    if (!styles.length) return;
+    if (value.style && styles.includes(value.style)) return;
+    update({ style: styles[0] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once per voice's style list
+  }, [styles.join("|"), value.style]);
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* Toolbar */}
-      <div className="rounded-xl border border-[var(--border-token)] bg-surface-card p-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[200px] flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search voices, locales, ShortName…"
-              className="h-9 pl-8 text-[12.5px]"
-            />
-          </div>
-          <Select value={locale} onValueChange={setLocale}>
-            <SelectTrigger className="h-9 w-[170px] text-[12px]">
-              <SelectValue placeholder="Locale" />
-            </SelectTrigger>
-            <SelectContent>
-              {LOCALE_PRESETS.map((o) => (
-                <SelectItem key={o.value} value={o.value} className="text-[12px]">
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={gender} onValueChange={setGender}>
-            <SelectTrigger className="h-9 w-[120px] text-[12px]">
-              <SelectValue placeholder="Gender" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All genders</SelectItem>
-              <SelectItem value="Female">Female</SelectItem>
-              <SelectItem value="Male">Male</SelectItem>
-              <SelectItem value="Neutral">Neutral</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-9 w-[110px] text-[12px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="GA">GA</SelectItem>
-              <SelectItem value="Preview">Preview</SelectItem>
-            </SelectContent>
-          </Select>
-          <label className="inline-flex items-center gap-2 rounded-md border border-[var(--border-token)] bg-surface-sunken px-2.5 py-1.5 text-[11.5px] text-text-secondary">
-            <Switch checked={showPremium} onCheckedChange={setShowPremium} />
-            Show premium
-          </label>
-          <div className="ml-auto flex items-center gap-2 text-[11px] text-text-muted">
-            <span>{relativeSynced(catalogQuery.data?.lastSyncedAt)}</span>
-            <button
-              type="button"
-              disabled={syncMutation.isPending}
-              onClick={() => syncMutation.mutate()}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] bg-surface-card px-2 py-1 font-medium text-text-secondary hover:border-brand-primary hover:text-brand-primary-dark disabled:opacity-50"
-            >
-              {syncMutation.isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-              Refresh
-            </button>
-          </div>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
-          <span>
-            {catalogQuery.isFetching ? "Loading…" : `${catalogQuery.data?.total ?? 0} voices`}
-            {!showPremium ? " · premium hidden" : ""}
-          </span>
-          <span className="text-text-muted/70">
-            Approx. Standard ~${pricingHint}/1M chars · verify on Azure Pricing
-          </span>
-        </div>
-      </div>
-
+    <div className="flex flex-col gap-250">
       {warning ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+        <div className="rounded-large border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
           {warning}
         </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
-        {/* Results */}
-        <div className="min-h-[320px] rounded-xl border border-[var(--border-token)] bg-surface-card">
-          <div className="flex items-center justify-between border-b border-[var(--border-token)] px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-              Voice catalog
-            </div>
-            <div className="text-[11px] text-text-muted">Click ▶ to hear · ⓘ for details</div>
-          </div>
-          <ScrollArea className="h-[420px]">
-            <div className="grid gap-2 p-2 sm:grid-cols-2">
-              {catalogQuery.isLoading && !items.length ? (
-                <div className="col-span-full flex items-center justify-center gap-2 py-16 text-[12px] text-text-muted">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading catalog…
-                </div>
-              ) : null}
-              {!catalogQuery.isLoading && !items.length ? (
-                <div className="col-span-full py-16 text-center text-[12px] text-text-muted">
-                  No voices match these filters.
-                </div>
-              ) : null}
-              {items.map((voice) => {
-                const selected = voice.shortName === shortName;
-                const badge = tierBadge(voice);
-                return (
-                  <div
-                    key={voice.shortName}
-                    className={cn(
-                      "group relative rounded-lg border p-2.5 transition",
-                      selected
-                        ? "border-brand-primary bg-brand-tint/40 ring-1 ring-brand-primary/30"
-                        : "border-[var(--border-token)] bg-surface-card hover:border-brand-primary/50 hover:bg-surface-sunken/40",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => selectVoice(voice)}
-                      className="w-full text-left"
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div
-                          className={cn(
-                            "grid h-9 w-9 shrink-0 place-items-center rounded-full text-[11px] font-semibold",
-                            selected
-                              ? "bg-brand-primary text-white"
-                              : "bg-brand-primary/10 text-brand-primary-dark",
-                          )}
-                        >
-                          {selected ? <Check className="h-4 w-4" /> : initials(voice.displayName)}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <div className="truncate text-[13px] font-semibold text-text-primary">
-                              {voice.displayName}
-                            </div>
-                            {voice.isPremium ? (
-                              <Badge
-                                variant="outline"
-                                className="h-4 px-1 text-[9px] font-semibold uppercase tracking-wide"
-                              >
-                                Premium
-                              </Badge>
-                            ) : null}
-                          </div>
-                          <div className="mt-0.5 truncate text-[10.5px] text-text-muted">
-                            {voice.gender} · {voice.localeName || voice.locale}
-                          </div>
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            <span
-                              className={cn(
-                                "inline-flex rounded border px-1.5 py-0.5 text-[10px] font-medium",
-                                badge.className,
-                              )}
-                            >
-                              {badge.label}
-                            </span>
-                            {voice.styles.slice(0, 2).map((s) => (
-                              <span
-                                key={s}
-                                className="rounded border border-[var(--border-token)] bg-surface-sunken px-1.5 py-0.5 text-[10px] text-text-secondary"
-                              >
-                                {s}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                    <div className="mt-2 flex items-center justify-end gap-1">
-                      <button
-                        type="button"
-                        title="Voice details"
-                        onClick={() => void openDetail(voice)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-sunken hover:text-text-primary"
-                      >
-                        <Info className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        title="Play demo"
-                        disabled={loading && cardPreviewing === voice.shortName}
-                        onClick={() => {
-                          if (playing && cardPreviewing === voice.shortName) {
-                            stopAll();
-                            return;
-                          }
-                          void previewCard(voice);
-                        }}
-                        className="inline-flex h-7 items-center gap-1 rounded-md bg-brand-primary/10 px-2 text-[11px] font-medium text-brand-primary-dark hover:bg-brand-primary/20 disabled:opacity-50"
-                      >
-                        {cardPreviewing === voice.shortName && (playing || loading) ? (
-                          <Square className="h-3 w-3" />
-                        ) : (
-                          <Play className="h-3 w-3" />
-                        )}
-                        Demo
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </ScrollArea>
-        </div>
+      <div className="grid gap-250 lg:grid-cols-[1.35fr_1fr]">
+        <VoiceCatalogBrowser
+          mode="full"
+          value={shortName}
+          onSelect={(voice) => {
+            setLoadedItems((prev) => {
+              const merged = [...prev];
+              if (!merged.some((v) => v.shortName === voice.shortName)) merged.push(voice);
+              return merged;
+            });
+            selectVoice(voice);
+          }}
+          onOpenDetail={(voice) => void openDetail(voice)}
+          onPreview={(voice) => {
+            if (playing && cardPreviewing === voice.shortName) {
+              stopAll();
+              return;
+            }
+            void previewCard(voice);
+          }}
+          previewingShortName={cardPreviewing}
+          previewBusy={playing || loading}
+          showSyncControls
+        />
 
-        {/* Selected strip + prosody */}
-        <div className="flex flex-col gap-4 rounded-xl border border-[var(--border-token)] bg-surface-card p-4">
+        <div className="flex flex-col gap-200 rounded-xlarge border border-border bg-surface p-200">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            <div className="text-body-small font-semibold text-text-subtlest">
               Selected voice
             </div>
-            <div className="mt-1 text-[16px] font-semibold text-text-primary">
-              {selectedInList?.displayName || shortName}
+            <div className="mt-050 text-[1rem] font-semibold text-text">
+              {selectedVoice?.displayName || shortName}
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11.5px] text-text-secondary">
-              <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px]">
+            <div className="mt-025 flex flex-wrap items-center gap-100 text-body-small text-text-subtle">
+              <code className="rounded bg-surface-sunken px-075 py-025 font-mono text-body-small">
                 {shortName}
               </code>
               <button
                 type="button"
-                className="inline-flex items-center gap-1 text-text-muted hover:text-text-primary"
+                className="inline-flex items-center gap-050 text-text-subtlest hover:text-text"
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(shortName);
@@ -594,9 +322,9 @@ export function VoicePanel({ value, onChange }: Props) {
               >
                 <Copy className="h-3 w-3" /> Copy
               </button>
-              {selectedInList ? (
+              {selectedVoice ? (
                 <span>
-                  {selectedInList.gender} · {selectedInList.localeName || selectedInList.locale}
+                  {selectedVoice.gender} · {selectedVoice.localeName || selectedVoice.locale}
                 </span>
               ) : null}
             </div>
@@ -604,19 +332,19 @@ export function VoicePanel({ value, onChange }: Props) {
 
           {styles.length > 0 ? (
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                 Speaking style
               </div>
               <Select
                 value={value.style || styles[0]}
                 onValueChange={(s) => onSlider({ style: s })}
               >
-                <SelectTrigger className="h-9 text-[12px]">
+                <SelectTrigger className="h-9 text-body-small">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {styles.map((s) => (
-                    <SelectItem key={s} value={s} className="text-[12px]">
+                    <SelectItem key={s} value={s} className="text-body-small">
                       {s}
                     </SelectItem>
                   ))}
@@ -624,7 +352,7 @@ export function VoicePanel({ value, onChange }: Props) {
               </Select>
             </div>
           ) : (
-            <p className="text-[11px] text-text-muted">
+            <p className="text-body-small text-text-subtlest">
               This voice has no Azure speaking styles — prosody uses speed / pitch / warmth only.
             </p>
           )}
@@ -664,9 +392,9 @@ export function VoicePanel({ value, onChange }: Props) {
             },
           ].map((s) => (
             <div key={s.key}>
-              <div className="mb-1 flex items-center justify-between text-[12px]">
-                <span className="font-medium text-text-primary">{s.label}</span>
-                <span className="font-mono text-[11px] text-text-secondary">
+              <div className="mb-050 flex items-center justify-between text-body-small">
+                <span className="font-medium text-text">{s.label}</span>
+                <span className="font-mono text-body-small text-text-subtle">
                   {s.format(value[s.key])}
                 </span>
               </div>
@@ -681,18 +409,18 @@ export function VoicePanel({ value, onChange }: Props) {
           ))}
 
           <div>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">
               Sample text
             </div>
             <textarea
               value={value.sampleText}
               onChange={(e) => update({ sampleText: e.target.value })}
-              className="w-full resize-y rounded-md border border-[var(--border-token)] bg-surface-card p-2 text-[12.5px]"
+              className="w-full resize-y rounded-medium border border-border bg-surface p-100 text-body-small"
               rows={2}
             />
           </div>
 
-          <div className="flex items-center gap-3 rounded-md border border-[var(--border-token)] bg-surface-sunken p-3">
+          <div className="flex items-center gap-150 rounded-medium border border-border bg-surface-sunken p-150">
             <button
               type="button"
               disabled={loading || !value.sampleText.trim()}
@@ -703,7 +431,7 @@ export function VoicePanel({ value, onChange }: Props) {
                 }
                 void runPreview();
               }}
-              className="inline-flex items-center gap-1.5 rounded-md bg-brand-primary px-3 py-1.5 text-[12px] font-medium text-white hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-075 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
             >
               {playing || loading ? (
                 <Square className="h-3.5 w-3.5" />
@@ -715,16 +443,15 @@ export function VoicePanel({ value, onChange }: Props) {
             <div className="flex-1">
               <Waveform active={playing || loading} />
             </div>
-            <Volume2 className="h-4 w-4 text-text-muted" />
+            <Volume2 className="h-4 w-4 text-text-subtlest" />
           </div>
-          <p className="text-[11px] text-text-muted">
+          <p className="text-body-small text-text-subtlest">
             Preview uses Azure Speech neural TTS
             {meta ? ` · ${meta}` : ""}. Selection is saved as Azure ShortName into deployment tuning.
           </p>
         </div>
       </div>
 
-      {/* Detail dialog */}
       <Dialog open={!!detailVoice} onOpenChange={(o) => !o && setDetailVoice(null)}>
         <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
           {detailVoice ? (
@@ -744,7 +471,8 @@ export function VoicePanel({ value, onChange }: Props) {
   );
 }
 
-function VoiceDetailCard({
+/** Exported so the Sandbox's compact picker can show the same detail sheet. */
+export function VoiceDetailCard({
   voice,
   onUse,
   onPlay,
@@ -758,21 +486,21 @@ function VoiceDetailCard({
   const badge = tierBadge(voice);
   const [showRaw, setShowRaw] = useState(false);
   return (
-    <div className="p-3">
-      <div className="flex items-start justify-between gap-2">
+    <div className="p-150">
+      <div className="flex items-start justify-between gap-100">
         <div>
-          <div className="text-[15px] font-semibold text-text-primary">{voice.displayName}</div>
-          <div className="text-[11px] text-text-muted">{voice.localName || voice.displayName}</div>
+          <div className="text-[0.875rem] font-semibold text-text">{voice.displayName}</div>
+          <div className="text-body-small text-text-subtlest">{voice.localName || voice.displayName}</div>
         </div>
-        <span className={cn("rounded border px-1.5 py-0.5 text-[10px] font-medium", badge.className)}>
+        <span className={cn("rounded border px-075 py-025 text-body-small font-medium", badge.className)}>
           {badge.label}
         </span>
       </div>
-      <div className="mt-2 space-y-1.5 text-[11.5px] text-text-secondary">
+      <div className="mt-100 space-y-075 text-body-small text-text-subtle">
         <Row
           label="ShortName"
           value={
-            <code className="rounded bg-surface-sunken px-1 font-mono text-[11px]">
+            <code className="rounded bg-surface-sunken px-050 font-mono text-body-small">
               {voice.shortName}
             </code>
           }
@@ -789,7 +517,7 @@ function VoiceDetailCard({
           value={
             voice.approxUsdPer1MChars != null
               ? `~$${voice.approxUsdPer1MChars} / 1M chars · approximate`
-              : "See Azure Pricing"
+              : "See Azure pricing"
           }
         />
         {voice.styles.length ? <Row label="Styles" value={voice.styles.join(", ")} /> : null}
@@ -809,11 +537,11 @@ function VoiceDetailCard({
             .join(" · ") || "—"}
         />
       </div>
-      <div className="mt-3 flex gap-2">
+      <div className="mt-150 flex gap-100">
         <button
           type="button"
           onClick={onPlay}
-          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-[var(--border-token)] px-2 py-1.5 text-[12px] font-medium hover:bg-surface-sunken"
+          className="inline-flex flex-1 items-center justify-center gap-075 rounded-medium border border-border px-100 py-075 text-body-small font-medium hover:bg-surface-sunken"
         >
           {playing ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
           {playing ? "Stop" : "Play demo"}
@@ -821,22 +549,22 @@ function VoiceDetailCard({
         <button
           type="button"
           onClick={onUse}
-          className="inline-flex flex-1 items-center justify-center rounded-md bg-brand-primary px-2 py-1.5 text-[12px] font-medium text-white hover:bg-brand-primary-dark"
+          className="inline-flex flex-1 items-center justify-center rounded-medium bg-background-brand-bold px-100 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
         >
           Use this voice
         </button>
       </div>
       {voice.raw ? (
-        <div className="mt-3 border-t border-[var(--border-token)] pt-2">
+        <div className="mt-150 border-t border-border pt-100">
           <button
             type="button"
-            className="text-[11px] font-medium text-text-muted hover:text-text-primary"
+            className="text-body-small font-medium text-text-subtlest hover:text-text"
             onClick={() => setShowRaw((v) => !v)}
           >
             {showRaw ? "Hide technical" : "Show technical"}
           </button>
           {showRaw ? (
-            <pre className="mt-1 max-h-40 overflow-auto rounded bg-surface-sunken p-2 text-[10px] leading-relaxed text-text-secondary">
+            <pre className="mt-050 max-h-40 overflow-auto rounded bg-surface-sunken p-100 text-body-small leading-relaxed text-text-subtle">
               {JSON.stringify(voice.raw, null, 2)}
             </pre>
           ) : null}
@@ -848,8 +576,8 @@ function VoiceDetailCard({
 
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="grid grid-cols-[88px_1fr] gap-2">
-      <div className="text-text-muted">{label}</div>
+    <div className="grid grid-cols-[88px_1fr] gap-100">
+      <div className="text-text-subtlest">{label}</div>
       <div className="min-w-0 break-words">{value}</div>
     </div>
   );
@@ -857,7 +585,7 @@ function Row({ label, value }: { label: string; value: ReactNode }) {
 
 function Waveform({ active }: { active: boolean }) {
   return (
-    <div className="flex h-8 items-end gap-[2px]">
+    <div className="flex h-400 items-end gap-025">
       {Array.from({ length: 40 }).map((_, i) => {
         const h = 20 + ((i * 37) % 60);
         return (
@@ -867,7 +595,7 @@ function Waveform({ active }: { active: boolean }) {
               height: `${h}%`,
               animationDelay: `${i * 40}ms`,
             }}
-            className={`w-[3px] rounded-sm bg-brand-primary/60 ${active ? "animate-pulse" : "opacity-40"}`}
+            className={`w-[0.1875rem] rounded-small bg-background-brand-bold/60 ${active ? "animate-pulse" : "opacity-40"}`}
           />
         );
       })}

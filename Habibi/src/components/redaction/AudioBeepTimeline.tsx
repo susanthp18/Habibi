@@ -18,23 +18,23 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
   });
 
   return (
-    <div className="rounded-lg border border-[var(--border-token)] bg-surface-sunken p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[12px] font-semibold text-brand-navy">
+    <div className="rounded-large border border-border bg-surface-sunken p-150">
+      <div className="mb-100 flex items-center justify-between">
+        <div className="flex items-center gap-100 text-body-small font-semibold text-text">
           <Play className="h-3.5 w-3.5" />
           Audio timeline · {formatSec(record.durationSec)}
         </div>
-        <div className="text-[11px] text-text-muted">
+        <div className="text-body-small text-text-subtlest">
           {record.audioSegments.filter((s) => s.muted).length} of {record.audioSegments.length} segments beeped
         </div>
       </div>
 
-      <div className="relative h-14 overflow-hidden rounded bg-surface-card">
-        <div className="absolute inset-0 flex items-end gap-[1px] px-1">
+      <div className="relative h-14 overflow-hidden rounded bg-surface">
+        <div className="absolute inset-0 flex items-end gap-025 px-050">
           {bars.map((h, i) => (
             <div
               key={i}
-              className="flex-1 rounded-sm bg-brand-primary/20"
+              className="flex-1 rounded-small bg-background-brand-bold/20"
               style={{ height: `${h}%` }}
             />
           ))}
@@ -49,7 +49,7 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
               onClick={() => onToggleSegment(seg.findingId)}
               title={`${DEFAULT_RULES[seg.type].label} at ${formatSec(seg.atSec)}`}
               className={cn(
-                "absolute top-0 bottom-0 rounded-sm border-2 transition-opacity",
+                "absolute top-0 bottom-0 rounded-small border-2 transition-opacity",
                 seg.muted ? "opacity-90" : "opacity-30",
               )}
               style={{
@@ -63,23 +63,23 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
         })}
       </div>
 
-      <ul className="mt-2 max-h-24 space-y-0.5 overflow-y-auto text-[11px]">
+      <ul className="mt-100 max-h-24 space-y-025 overflow-y-auto text-body-small">
         {record.audioSegments.map((seg) => (
-          <li key={seg.findingId} className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full" style={{ background: ENTITY_COLORS[seg.type] }} />
-            <span className="font-mono text-text-muted">{formatSec(seg.atSec)}</span>
-            <span className="text-text-secondary">{DEFAULT_RULES[seg.type].label}</span>
+          <li key={seg.findingId} className="flex items-center gap-100">
+            <span className="h-100 w-100 rounded-full" style={{ background: ENTITY_COLORS[seg.type] }} />
+            <span className="font-mono text-text-subtlest">{formatSec(seg.atSec)}</span>
+            <span className="text-text-subtle">{DEFAULT_RULES[seg.type].label}</span>
             <button
               type="button"
               onClick={() => onToggleSegment(seg.findingId)}
-              className="ml-auto inline-flex items-center gap-1 text-brand-primary hover:underline"
+              className="ml-auto inline-flex items-center gap-050 text-text-brand hover:underline"
             >
               {seg.muted ? <><VolumeX className="h-3 w-3" /> Beeped</> : <><Volume2 className="h-3 w-3" /> Audible</>}
             </button>
           </li>
         ))}
         {record.audioSegments.length === 0 && (
-          <li className="py-2 text-center text-text-muted">No audio PII detected</li>
+          <li className="py-100 text-center text-text-subtlest">No audio PII detected</li>
         )}
       </ul>
     </div>

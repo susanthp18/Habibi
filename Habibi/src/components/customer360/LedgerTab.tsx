@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Customer, LedgerEntry, LedgerType } from "@/data/customer360-seed";
 import { fmtDate, fmtMoney } from "@/data/customer360-seed";
+import { StatusChip, ledgerTypeTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
 
 const TYPE_LABEL: Record<LedgerType, string> = {
@@ -9,14 +10,6 @@ const TYPE_LABEL: Record<LedgerType, string> = {
   fee: "Fee",
   adjustment: "Adjustment",
   waiver: "Waiver",
-};
-
-const TYPE_TONE: Record<LedgerType, string> = {
-  charge: "bg-brand-tint text-brand-primary-dark",
-  payment: "bg-success-bg text-success",
-  fee: "bg-warning-bg text-warning",
-  adjustment: "bg-surface-sunken text-text-secondary",
-  waiver: "bg-brand-tint text-brand-primary-dark",
 };
 
 const TYPES: LedgerType[] = ["charge", "payment", "fee", "adjustment", "waiver"];
@@ -46,9 +39,8 @@ export function LedgerTab({ customer }: { customer: Customer }) {
   }, [customer.ledger, enabled, range]);
 
   return (
-    <div className="space-y-4">
-      {/* Summary strip */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+    <div className="space-y-200">
+      <div className="grid grid-cols-2 gap-150 md:grid-cols-5">
         <StatTile label="Principal" value={fmtMoney(summary.principal)} />
         <StatTile label="Fees" value={fmtMoney(summary.fees)} tone="warning" />
         <StatTile label="Payments received" value={fmtMoney(summary.payments)} tone="success" />
@@ -56,32 +48,33 @@ export function LedgerTab({ customer }: { customer: Customer }) {
         <StatTile label="Last payment" value={summary.lastPayment ? fmtDate(summary.lastPayment.date) : "—"} />
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-card p-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Types</span>
+      <div className="flex flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
+        <span className="text-body-small font-semibold text-text-subtle">Types</span>
         {TYPES.map((t) => (
           <button
             key={t}
+            type="button"
             onClick={() => setEnabled((e) => ({ ...e, [t]: !e[t] }))}
             className={cn(
-              "rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize",
+              "rounded-medium border px-100 py-025 text-body-small font-medium capitalize",
               enabled[t]
-                ? "border-brand-primary bg-brand-primary text-white"
-                : "border-border bg-surface-card text-text-secondary hover:bg-brand-tint hover:text-brand-primary-dark",
+                ? "border-border-brand bg-background-brand-bold text-white"
+                : "border-border bg-surface text-text-subtle hover:bg-background-brand-subtlest hover:text-text-brand",
             )}
           >
             {TYPE_LABEL[t]}
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-1">
-          <span className="text-[11px] text-text-secondary">Range</span>
+        <div className="ml-auto flex items-center gap-050">
+          <span className="text-body-small text-text-subtle">Range</span>
           {[90, 180, 365].map((r) => (
             <button
               key={r}
+              type="button"
               onClick={() => setRange(r as 90 | 180 | 365)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-[11px] font-medium",
-                range === r ? "bg-brand-navy text-white" : "text-text-secondary hover:bg-surface-sunken",
+                "rounded-medium px-100 py-025 text-body-small font-medium",
+                range === r ? "bg-background-brand-boldest text-white" : "text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {r}d
@@ -90,16 +83,15 @@ export function LedgerTab({ customer }: { customer: Customer }) {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-lg border border-border bg-surface-card">
+      <div className="overflow-hidden rounded-large border border-border bg-surface">
         <table className="w-full text-sm">
-          <thead className="bg-surface-sunken text-[11px] uppercase tracking-wide text-text-secondary">
+          <thead className="bg-surface-sunken text-body-small text-text-subtle">
             <tr>
-              <th className="px-4 py-2 text-left font-medium">Date</th>
-              <th className="px-4 py-2 text-left font-medium">Description</th>
-              <th className="px-4 py-2 text-left font-medium">Type</th>
-              <th className="px-4 py-2 text-right font-medium">Amount</th>
-              <th className="px-4 py-2 text-right font-medium">Balance</th>
+              <th className="px-200 py-100 text-left font-medium">Date</th>
+              <th className="px-200 py-100 text-left font-medium">Description</th>
+              <th className="px-200 py-100 text-left font-medium">Type</th>
+              <th className="px-200 py-100 text-right font-medium">Amount</th>
+              <th className="px-200 py-100 text-right font-medium">Balance</th>
             </tr>
           </thead>
           <tbody>
@@ -108,7 +100,7 @@ export function LedgerTab({ customer }: { customer: Customer }) {
             ))}
             {!rows.length && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-text-muted">
+                <td colSpan={5} className="px-200 py-400 text-center text-sm text-text-subtlest">
                   No entries in this window.
                 </td>
               </tr>
@@ -123,33 +115,36 @@ export function LedgerTab({ customer }: { customer: Customer }) {
 function LedgerRow({ r }: { r: LedgerEntry }) {
   const isCredit = r.amount < 0;
   return (
-    <tr className="border-t border-border hover:bg-brand-tint/30">
-      <td className="px-4 py-2.5 text-xs text-text-secondary tabular">{fmtDate(r.date)}</td>
-      <td className="px-4 py-2.5">
-        <div className="text-sm text-text-primary">{r.description}</div>
-        {r.invoiceId && <div className="text-[10px] text-text-muted">Invoice · {r.invoiceId}</div>}
+    <tr className="border-t border-border hover:bg-background-brand-subtlest/30">
+      <td className="px-200 py-150 text-xs text-text-subtle tabular">{fmtDate(r.date)}</td>
+      <td className="px-200 py-150">
+        <div className="text-sm text-text">{r.description}</div>
+        {r.invoiceId && <div className="text-body-small text-text-subtlest">Invoice · {r.invoiceId}</div>}
       </td>
-      <td className="px-4 py-2.5">
-        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", TYPE_TONE[r.type])}>{TYPE_LABEL[r.type]}</span>
+      <td className="px-200 py-150">
+        <StatusChip label={TYPE_LABEL[r.type]} tone={ledgerTypeTone(r.type)} />
       </td>
-      <td className={cn("px-4 py-2.5 text-right text-sm font-medium tabular", isCredit ? "text-success" : "text-brand-navy")}>{fmtMoney(r.amount)}</td>
-      <td className="px-4 py-2.5 text-right text-sm text-text-secondary tabular">{fmtMoney(r.balance)}</td>
+      <td className={cn("px-200 py-150 text-right text-sm font-medium tabular", isCredit ? "text-text-success" : "text-text")}>
+        {fmtMoney(r.amount)}
+      </td>
+      <td className="px-200 py-150 text-right text-sm text-text-subtle tabular">{fmtMoney(r.balance)}</td>
     </tr>
   );
 }
 
 function StatTile({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "brand" | "success" | "warning" }) {
-  const toneClass = tone === "brand"
-    ? "text-brand-primary"
-    : tone === "success"
-    ? "text-success"
-    : tone === "warning"
-    ? "text-warning"
-    : "text-brand-navy";
+  const toneClass =
+    tone === "brand"
+      ? "text-text-brand"
+      : tone === "success"
+        ? "text-text-success"
+        : tone === "warning"
+          ? "text-text-warning"
+          : "text-text";
   return (
-    <div className="rounded-lg border border-border bg-surface-card p-3">
-      <div className="text-[11px] uppercase tracking-wide text-text-secondary">{label}</div>
-      <div className={cn("mt-0.5 text-lg font-semibold tabular", toneClass)}>{value}</div>
+    <div className="rounded-large border border-border bg-surface p-150">
+      <div className="text-body-small text-text-subtle">{label}</div>
+      <div className={cn("mt-025 text-lg font-semibold tabular", toneClass)}>{value}</div>
     </div>
   );
 }

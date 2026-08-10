@@ -128,11 +128,11 @@ def test_whatsapp_flag_dispute_returns_allowed_no_traceback(
         ok, payload, _latency = bot_tools.execute_tool(
             ctx, "flag_dispute", '{"type":"bogus"}'
         )
-    assert ok is True
+    # Soft domain reject: tuple success follows payload.ok, without traceback.
+    assert ok is False
     assert payload.get("ok") is False
     assert payload.get("error") == "invalid_dispute_type"
     assert payload.get("allowed") == list(DISPUTE_TYPES)
-    # Soft reject → warning, never exception traceback.
     assert not any(r.exc_info for r in caplog.records)
     assert any("rejected" in (r.message or "") for r in caplog.records)
 

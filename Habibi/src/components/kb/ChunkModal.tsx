@@ -16,12 +16,12 @@ export function ChunkModal({
             <DialogHeader>
               <DialogTitle className="text-base">{chunk.heading}</DialogTitle>
             </DialogHeader>
-            <div className="flex items-center gap-3 text-[11px] text-text-muted">
+            <div className="flex items-center gap-150 text-body-small text-text-subtlest">
               <span className="font-mono">chunk #{chunk.index}</span>
               <span>{chunk.tokens} tokens</span>
               <span>{chunk.hits} retrieval hits (30d)</span>
             </div>
-            <div className="mt-2 max-h-[60vh] overflow-y-auto rounded-md border border-[var(--border-token)] bg-surface-app p-4 text-[13px] leading-relaxed text-text-primary">
+            <div className="mt-100 max-h-[60vh] overflow-y-auto rounded-medium border border-border bg-surface p-200 text-body leading-relaxed text-text">
               {chunk.text}
             </div>
           </>

@@ -23,7 +23,16 @@ export const USE_MOCK = (() => {
 })();
 
 /** Base URL for the CRM backend API (used once USE_MOCK is false). */
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+export const API_BASE_URL = (() => {
+  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+  if (raw) return raw.replace(/\/$/, "");
+  if (isProd) {
+    throw new Error(
+      "VITE_API_BASE_URL is required in production builds (must not default to localhost).",
+    );
+  }
+  return "http://localhost:8000";
+})();
 
 /** Optional shared secret — must match backend API_KEY when that env is set. */
 const API_KEY = (import.meta.env.VITE_API_KEY as string | undefined)?.trim() || "";
@@ -50,6 +59,23 @@ function withTimeout(ms = DEFAULT_TIMEOUT_MS): AbortSignal {
   return AbortSignal.timeout(ms);
 }
 
+/**
+ * Caller signal AND the default timeout, not one or the other.
+ *
+ * `init?.signal ?? withTimeout()` dropped the timeout entirely whenever a
+ * caller passed its own signal, so any request with a cancellation token could
+ * hang forever against an unresponsive backend.
+ */
+function requestSignal(caller?: AbortSignal, ms = DEFAULT_TIMEOUT_MS): AbortSignal {
+  const timeout = withTimeout(ms);
+  if (!caller) return timeout;
+  // AbortSignal.any is baseline in every browser this app targets; fall back to
+  // the caller's signal if an older runtime lacks it.
+  return typeof AbortSignal.any === "function"
+    ? AbortSignal.any([caller, timeout])
+    : caller;
+}
+
 /** Simulate network latency so loading/skeleton states are exercised in mock mode. */
 export function mockDelay<T>(value: T, ms = 250): Promise<T> {
   return new Promise((resolve) => {
@@ -72,13 +98,19 @@ async function errorDetail(res: Response): Promise<string> {
     return fallback;
   }
   if (!raw) return fallback;
+  const clipped = raw.length > 400 ? `${raw.slice(0, 400)}…` : raw;
   try {
     const payload = JSON.parse(raw) as { detail?: unknown };
-    if (typeof payload.detail === "string") return payload.detail;
-    if (payload.detail != null) return JSON.stringify(payload.detail);
-    return raw;
+    if (typeof payload.detail === "string") {
+      return payload.detail.length > 400 ? `${payload.detail.slice(0, 400)}…` : payload.detail;
+    }
+    if (payload.detail != null) {
+      const asJson = JSON.stringify(payload.detail);
+      return asJson.length > 400 ? `${asJson.slice(0, 400)}…` : asJson;
+    }
+    return clipped;
   } catch {
-    return raw;
+    return clipped;
   }
 }
 
@@ -87,7 +119,7 @@ export async function apiGet<T>(path: string, init?: { signal?: AbortSignal }): 
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: authHeaders(),
     credentials: "include",
-    signal: init?.signal ?? withTimeout(),
+    signal: requestSignal(init?.signal),
   });
   if (!res.ok) {
     throw new Error(`GET ${path} failed: ${await errorDetail(res)}`);
@@ -109,7 +141,7 @@ async function apiSend<T>(
     headers,
     credentials: "include",
     body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal: init?.signal ?? withTimeout(),
+    signal: requestSignal(init?.signal),
   });
   if (!res.ok) {
     throw new Error(await errorDetail(res));

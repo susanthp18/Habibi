@@ -2,10 +2,10 @@ import { createFileRoute, notFound } from "@tanstack/react-router";
 import { z } from "zod";
 import { fetchCustomer } from "@/api/customers";
 
-const TABS = ["ledger", "emi", "interactions", "promises", "disputes", "documents", "notes"] as const;
+const TABS = ["overview", "ledger", "emi", "interactions", "promises", "disputes", "documents", "notes"] as const;
 
 const searchSchema = z.object({
-  tab: z.enum(TABS).catch("ledger"),
+  tab: z.enum(TABS).catch("overview"),
 });
 
 export const Route = createFileRoute("/customers/$customerId")({
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/customers/$customerId")({
       {
         name: "description",
         content:
-          "Unified ledger, EMI schedule, interactions, promises, disputes, and documents for this account.",
+          "AI insights, next-best-action, ledger, EMI, interactions, promises, disputes, and documents for this account.",
       },
     ],
   }),

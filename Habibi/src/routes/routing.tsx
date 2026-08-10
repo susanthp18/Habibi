@@ -142,27 +142,27 @@ function RoutingPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        <div className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
+          <div className="flex flex-wrap items-center justify-between gap-150">
             <div>
-              <h1 className="text-[18px] font-semibold text-brand-navy">Routing & Logic Builder</h1>
-              <p className="text-[12px] text-text-secondary">
+              <h1 className="text-[1.25rem] font-semibold text-text">Routing & logic builder</h1>
+              <p className="text-body-small text-text-subtle">
                 Priority-ordered rules control what the bot does next — escalate, hand off, throttle or
                 comply.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setTab("sim")}>
+            <div className="flex items-center gap-100">
+              <Button variant="outline" size="sm" className="gap-075" onClick={() => setTab("sim")}>
                 <PlayCircle className="h-4 w-4" />
                 Simulate
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setTab("audit")}>
+              <Button variant="outline" size="sm" className="gap-075" onClick={() => setTab("audit")}>
                 <History className="h-4 w-4" />
                 Audit log
               </Button>
               <Button
                 size="sm"
-                className="gap-1.5 bg-brand-primary hover:bg-brand-primary-dark"
+                className="gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed"
                 onClick={handleNew}
               >
                 <Plus className="h-4 w-4" />
@@ -170,7 +170,7 @@ function RoutingPage() {
               </Button>
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-150">
             <RoutingStats rules={rules} />
           </div>
         </div>
@@ -194,7 +194,7 @@ function RoutingPage() {
               onReorder={handleReorder}
             />
           </div>
-          <div className="hidden min-h-0 border-l border-[var(--border-token)] xl:flex xl:basis-1/3 xl:flex-col">
+          <div className="hidden min-h-0 border-l border-border xl:flex xl:basis-1/3 xl:flex-col">
             <InspectorPanel
               tab={tab}
               onTab={setTab}

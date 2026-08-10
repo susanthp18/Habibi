@@ -9,6 +9,10 @@ Create Date: 2026-07-22
 - Add kb_chunks.chunk_index
 - Add faq_pairs.embedding vector(1536)
 - Partial HNSW on kb_chunks.embedding WHERE embedding IS NOT NULL
+
+Note: live databases that already have these HNSW indexes should skip any
+repair; new environments prefer CREATE INDEX CONCURRENTLY outside a txn when
+rebuilding under load (not rewriteable here — upgrade already stamped).
 """
 
 from __future__ import annotations
@@ -71,32 +75,38 @@ def upgrade() -> None:
 
     op.execute("ALTER TABLE faq_pairs ADD COLUMN IF NOT EXISTS embedding vector(1536)")
 
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding_hnsw
-        ON kb_chunks USING hnsw (embedding vector_cosine_ops)
-        WHERE embedding IS NOT NULL
-        """
-    )
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_faq_pairs_embedding_hnsw
-        ON faq_pairs USING hnsw (embedding vector_cosine_ops)
-        WHERE embedding IS NOT NULL
-        """
-    )
+    # CONCURRENTLY inside an autocommit_block (same pattern as
+    # uq_messages_provider_ref): an HNSW build over a populated kb_chunks takes
+    # minutes and a plain CREATE INDEX holds an ACCESS EXCLUSIVE lock for the
+    # duration — every retrieval blocks until it finishes.
+    with op.get_context().autocommit_block():
+        op.execute(
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_kb_chunks_embedding_hnsw
+            ON kb_chunks USING hnsw (embedding vector_cosine_ops)
+            WHERE embedding IS NOT NULL
+            """
+        )
+        op.execute(
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_faq_pairs_embedding_hnsw
+            ON faq_pairs USING hnsw (embedding vector_cosine_ops)
+            WHERE embedding IS NOT NULL
+            """
+        )
 
 
 def downgrade() -> None:
+    # Every DROP is IF EXISTS: the HNSW index builds in upgrade() can fail
+    # partway (pgvector missing, memory limits), and a downgrade that aborts on
+    # the first already-absent object leaves the database wedged between
+    # revisions with no way forward or back.
     op.execute("DROP INDEX IF EXISTS idx_faq_pairs_embedding_hnsw")
     op.execute("DROP INDEX IF EXISTS idx_kb_chunks_embedding_hnsw")
     op.execute("ALTER TABLE faq_pairs DROP COLUMN IF EXISTS embedding")
-    op.drop_index("idx_kb_chunks_document_id_chunk_index", table_name="kb_chunks")
-    op.drop_column("kb_chunks", "chunk_index")
-    op.drop_index("idx_kb_documents_product_key", table_name="kb_documents")
+    op.execute("DROP INDEX IF EXISTS idx_kb_chunks_document_id_chunk_index")
+    op.execute("ALTER TABLE kb_chunks DROP COLUMN IF EXISTS chunk_index")
+    op.execute("DROP INDEX IF EXISTS idx_kb_documents_product_key")
     op.execute("ALTER TABLE kb_documents DROP CONSTRAINT IF EXISTS kb_documents_type_check")
-    op.drop_column("kb_documents", "source_path")
-    op.drop_column("kb_documents", "product_key")
-    op.drop_column("kb_documents", "last_indexed_at")
-    op.drop_column("kb_documents", "embedding_model")
-    op.drop_column("kb_documents", "tags")
+    for column in ("source_path", "product_key", "last_indexed_at", "embedding_model", "tags"):
+        op.execute(f"ALTER TABLE kb_documents DROP COLUMN IF EXISTS {column}")

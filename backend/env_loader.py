@@ -16,6 +16,8 @@ def load_env(force: bool = False) -> None:
     if _ENV_FILE.exists():
         for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
             line = line.strip()
+            if line.startswith("export "):
+                line = line[len("export ") :].strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)

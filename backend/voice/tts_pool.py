@@ -32,7 +32,12 @@ from azure.cognitiveservices.speech import Connection
 from pipecat.frames.frames import StartFrame
 from pipecat.services.azure.tts import AzureTTSService
 
+from env_utils import env_float
+
 logger = logging.getLogger(__name__)
+
+# Ceiling on the websocket pre-open handshake at pipeline start.
+_PREOPEN_TIMEOUT_S = env_float("AZURE_TTS_PREOPEN_TIMEOUT_S", 5.0)
 
 
 class KeepAliveAzureTTSService(AzureTTSService):
@@ -51,8 +56,18 @@ class KeepAliveAzureTTSService(AzureTTSService):
             return
         try:
             connection = Connection.from_speech_synthesizer(synth)
-            await asyncio.to_thread(connection.open, False)
+            # Bounded: Connection.open is a blocking SDK handshake, and a stalled
+            # one held up pipeline startup indefinitely. The pre-open is a
+            # latency optimisation, so a timeout is just a slower first turn.
+            await asyncio.wait_for(
+                asyncio.to_thread(connection.open, False), timeout=_PREOPEN_TIMEOUT_S
+            )
             logger.info("azure tts websocket pre-opened at start")
+        except asyncio.TimeoutError:
+            logger.warning(
+                "azure tts pre-open timed out after %.1fs — continuing cold",
+                _PREOPEN_TIMEOUT_S,
+            )
         except Exception:
             # Never fatal — the first synthesis just pays a normal cold start.
             logger.debug("azure tts pre-open failed", exc_info=True)

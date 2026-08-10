@@ -3,6 +3,7 @@ import { Search, Bot, User, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { computeTotal, type Rubric, type Scorecard } from "@/data/qa-seed";
 import { ScoreBand } from "./ScoreBand";
+import { Lozenge } from "@/components/ui/lozenge";
 
 type Status = "all" | "unscored" | "ai_draft" | "final";
 
@@ -34,45 +35,45 @@ export function ScoringQueue({
   }, [scorecards, q, status, handler]);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col border-r border-[var(--border-token)] bg-surface-card">
-      <div className="shrink-0 space-y-2 border-b border-[var(--border-token)] px-3 py-2.5">
+    <div className="flex h-full min-h-0 w-full flex-col border-r border-border bg-surface">
+      <div className="shrink-0 space-y-100 border-b border-border px-150 py-150">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search customer, agent, disposition…"
-            className="w-full rounded-md border border-[var(--border-token)] bg-surface-app py-1.5 pl-7 pr-2 text-[12px] outline-none focus:border-brand-primary"
+            className="w-full rounded-medium border border-border bg-surface py-075 pl-400 pr-100 text-body-small outline-none focus:border-border-brand"
           />
         </div>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-050">
           {(["all", "unscored", "ai_draft", "final"] as Status[]).map((s) => (
             <button
               key={s}
               onClick={() => setStatus(s)}
               className={cn(
-                "rounded-full border px-2 py-0.5 text-[11px]",
-                status === s ? "border-brand-primary bg-brand-tint text-brand-primary-dark" : "border-[var(--border-token)] text-text-secondary hover:bg-surface-sunken",
+                "rounded-full border px-100 py-025 text-body-small",
+                status === s ? "border-border-brand bg-background-brand-subtlest text-text-brand" : "border-border text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {s === "all" ? "All" : s === "ai_draft" ? "AI draft" : s === "final" ? "Final" : "Unscored"}
             </button>
           ))}
-          <span className="mx-1 h-4 w-px bg-[var(--border-token)]" />
+          <span className="mx-050 h-4 w-px bg-border" />
           {(["all", "bot", "human", "handoff"] as const).map((h) => (
             <button
               key={h}
               onClick={() => setHandler(h)}
               className={cn(
-                "rounded-full border px-2 py-0.5 text-[11px] capitalize",
-                handler === h ? "border-brand-primary bg-brand-tint text-brand-primary-dark" : "border-[var(--border-token)] text-text-secondary hover:bg-surface-sunken",
+                "rounded-full border px-100 py-025 text-body-small capitalize",
+                handler === h ? "border-border-brand bg-background-brand-subtlest text-text-brand" : "border-border text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {h}
             </button>
           ))}
         </div>
-        <div className="text-[11px] text-text-muted">{filtered.length} calls</div>
+        <div className="text-body-small text-text-subtlest">{filtered.length} calls</div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -84,32 +85,29 @@ export function ScoringQueue({
               key={s.id}
               onClick={() => onSelect(s.id)}
               className={cn(
-                "flex w-full flex-col gap-1 border-b border-[var(--border-token)] px-3 py-2.5 text-left hover:bg-surface-sunken",
-                activeId === s.id && "bg-brand-tint hover:bg-brand-tint",
+                "flex w-full flex-col gap-050 border-b border-border px-150 py-150 text-left hover:bg-surface-sunken",
+                activeId === s.id && "bg-background-brand-subtlest hover:bg-background-brand-subtlest",
               )}
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="truncate text-[13px] font-medium text-brand-navy">{s.customerName}</div>
+              <div className="flex items-center justify-between gap-100">
+                <div className="truncate text-body font-medium text-text">{s.customerName}</div>
                 {s.status === "final" ? <ScoreBand total={total} size="sm" /> : (
-                  <span className={cn(
-                    "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                    s.status === "unscored" ? "bg-surface-sunken text-text-secondary" : "bg-amber-50 text-amber-700",
-                  )}>
+                  <Lozenge tone={s.status === "unscored" ? "neutral" : "warning"}>
                     {s.status === "unscored" ? "Unscored" : "AI draft"}
-                  </span>
+                  </Lozenge>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-text-secondary">
+              <div className="flex items-center gap-075 text-body-small text-text-subtle">
                 <HandlerIcon className="h-3 w-3" />
                 <span className="truncate">{s.handledBy.label}</span>
-                <span className="text-text-muted">·</span>
+                <span className="text-text-subtlest">·</span>
                 <span className="truncate">{s.disposition}</span>
               </div>
             </button>
           );
         })}
         {filtered.length === 0 && (
-          <div className="px-4 py-8 text-center text-[12px] text-text-muted">No calls match these filters.</div>
+          <div className="px-200 py-400 text-center text-body-small text-text-subtlest">No calls match these filters.</div>
         )}
       </div>
     </div>

@@ -1,10 +1,11 @@
 import { cn } from "@/lib/utils";
 import type { SlaLevel } from "@/data/workspace-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 
-const STYLES: Record<SlaLevel, string> = {
-  ok: "border-success/25 bg-success-bg text-success",
-  warn: "border-warning/35 bg-warning-bg text-warning",
-  breach: "border-danger/30 bg-danger-bg text-danger",
+const LEVEL_TONE: Record<SlaLevel, "success" | "warning" | "danger"> = {
+  ok: "success",
+  warn: "warning",
+  breach: "danger",
 };
 
 type Props = {
@@ -14,28 +15,25 @@ type Props = {
   size?: "sm" | "md";
 };
 
-/** Compact rectangular SLA chip — not a cramped rounded-full capsule. */
+/** Compact rectangular SLA chip — thin wrapper over Lozenge. */
 export function SlaPill({ level, label, className, size = "sm" }: Props) {
   return (
-    <span
-      className={cn(
-        "inline-flex max-w-full items-center gap-1.5 border font-semibold tabular whitespace-nowrap",
-        size === "sm" ? "rounded-md px-2 py-0.5 text-[11px]" : "rounded-md px-2.5 py-1 text-[12px]",
-        STYLES[level],
-        className,
-      )}
+    <Lozenge
+      tone={LEVEL_TONE[level]}
+      size={size === "md" ? "spacious" : "default"}
       title={label}
+      className={cn("max-w-full", className)}
     >
       <span
         className={cn(
           "h-1.5 w-1.5 shrink-0 rounded-full",
-          level === "ok" && "bg-success",
-          level === "warn" && "bg-warning",
-          level === "breach" && "bg-danger",
+          level === "ok" && "bg-background-success-bold",
+          level === "warn" && "bg-background-warning-bold",
+          level === "breach" && "bg-background-danger-bold",
         )}
       />
       <span className="truncate">{label}</span>
-    </span>
+    </Lozenge>
   );
 }
 

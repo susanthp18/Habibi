@@ -28,6 +28,16 @@ interface RedactionRuleApi {
   label: string;
 }
 
+function cloneRules(source: RedactionRules): RedactionRules {
+  const next = {} as RedactionRules;
+  for (const t of ENTITY_TYPES) {
+    next[t] = { ...source[t] };
+  }
+  return next;
+}
+
+let _mockRules: RedactionRules = cloneRules(DEFAULT_RULES);
+
 export async function fetchRedactionRecords(): Promise<RedactionRecord[]> {
   if (USE_MOCK) return mockDelay(seedRecords);
   return apiGet<RedactionRecord[]>("/redaction-records");
@@ -42,9 +52,9 @@ export function useRedactionRecords() {
 }
 
 export async function fetchRedactionRules(): Promise<RedactionRules> {
-  if (USE_MOCK) return mockDelay(DEFAULT_RULES);
+  if (USE_MOCK) return mockDelay(cloneRules(_mockRules));
   const rows = await apiGet<RedactionRuleApi[]>("/redaction-rules");
-  const next = { ...DEFAULT_RULES } as RedactionRules;
+  const next = cloneRules(DEFAULT_RULES);
   for (const row of rows) {
     if (!ENTITY_TYPES.includes(row.piiType)) continue;
     next[row.piiType] = {
@@ -127,7 +137,7 @@ export async function patchRedactionRuleEnabled(
   enabled: boolean,
 ): Promise<void> {
   if (USE_MOCK) {
-    DEFAULT_RULES[piiType].enabled = enabled;
+    _mockRules[piiType].enabled = enabled;
     await mockDelay(undefined);
     return;
   }

@@ -15,25 +15,25 @@ export function EventCatalogDialog({
         <DialogHeader>
           <DialogTitle>Event catalog</DialogTitle>
         </DialogHeader>
-        <div className="max-h-[70vh] overflow-y-auto pr-2">
-          <Accordion type="multiple" className="space-y-1">
+        <div className="max-h-[70vh] overflow-y-auto pr-100">
+          <Accordion type="multiple" className="space-y-050">
             {EVENT_CATEGORIES.map((cat) => (
-              <AccordionItem key={cat} value={cat} className="rounded-md border border-[var(--border-token)] px-3">
-                <AccordionTrigger className="text-[13px] font-semibold text-brand-navy">
+              <AccordionItem key={cat} value={cat} className="rounded-medium border border-border px-150">
+                <AccordionTrigger className="text-body font-semibold text-text">
                   {cat}
-                  <span className="ml-2 text-[11px] font-normal text-text-muted">
+                  <span className="ml-100 text-body-small font-normal text-text-subtlest">
                     {EVENT_CATALOG.filter((e) => e.category === cat).length} events
                   </span>
                 </AccordionTrigger>
                 <AccordionContent>
-                  <div className="space-y-3">
+                  <div className="space-y-150">
                     {EVENT_CATALOG.filter((e) => e.category === cat).map((e) => (
                       <div key={e.key}>
-                        <div className="font-mono text-[12px] font-semibold text-brand-primary-dark">
+                        <div className="font-mono text-body-small font-semibold text-text-brand">
                           {e.key}
                         </div>
-                        <p className="mb-1 text-[12px] text-text-secondary">{e.description}</p>
-                        <pre className="overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] leading-snug text-emerald-300">
+                        <p className="mb-050 text-body-small text-text-subtle">{e.description}</p>
+                        <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
 {JSON.stringify(e.sample, null, 2)}
                         </pre>
                       </div>

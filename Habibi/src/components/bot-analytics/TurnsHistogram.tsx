@@ -1,21 +1,21 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import type { TurnsBucket } from "@/data/bot-analytics-seed";
 
-const COLORS = ["#10b981", "#22c55e", "#f59e0b", "#f97316", "#dc2626"];
+const COLORS = ["#82B536", "#5B7F24", "#F68909", "#BD5B00", "#E2483D"];
 
 export function TurnsHistogram({ buckets }: { buckets: TurnsBucket[] }) {
   const data = buckets.map((b) => ({ label: b.label, count: b.count }));
   const total = data.reduce((a, b) => a + b.count, 0);
   return (
-    <div className="rounded-lg border border-[var(--border-token)] bg-surface-card">
-      <div className="border-b border-[var(--border-token)] px-3 py-2">
-        <div className="text-[13px] font-semibold text-brand-navy">Turns to resolution</div>
-        <div className="text-[11px] text-text-muted">{total.toLocaleString()} sessions · fewer turns = better</div>
+    <div className="rounded-large border border-border bg-surface">
+      <div className="border-b border-border px-150 py-100">
+        <div className="text-body font-semibold text-text">Turns to resolution</div>
+        <div className="text-body-small text-text-subtlest">{total.toLocaleString()} sessions · fewer turns = better</div>
       </div>
-      <div className="h-56 p-3">
+      <div className="h-56 p-150">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="var(--border-token)" strokeDasharray="3 3" vertical={false} />
+            <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-secondary)" }} />
             <YAxis tick={{ fontSize: 10, fill: "var(--text-secondary)" }} />
             <Tooltip contentStyle={{ fontSize: 11, padding: "4px 6px" }} />

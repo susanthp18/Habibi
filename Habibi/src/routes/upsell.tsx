@@ -18,10 +18,14 @@ import {
   defaultFilters,
   filterLeads,
   listOwners,
+  moneyValue,
   type Filters,
   type LeadStage,
 } from "@/data/upsell-seed";
 import { patchLead, useLeads } from "@/api/upsell";
+import { USE_MOCK } from "@/api/config";
+import { useProducts } from "@/api/products";
+import { humanNames, useStaff } from "@/api/staff";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/upsell")({
@@ -63,7 +67,15 @@ function UpsellPage() {
   const filtered = useMemo(() => filterLeads(seed, filters), [seed, filters, tick]);
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
   const openLead = openId ? seed.find((l) => l.id === openId) ?? null : null;
-  const owners = useMemo(() => listOwners(), []);
+  // Filter rosters come from the DB in live mode. The hardcoded six names only
+  // ever matched the seed, so filtering by owner silently matched nothing
+  // against real data.
+  const { data: staff = [] } = useStaff();
+  const { data: catalog = [] } = useProducts();
+  const owners = useMemo(
+    () => (USE_MOCK ? listOwners() : [...humanNames(staff), "Unassigned"]),
+    [staff],
+  );
 
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
   const refreshLeads = async () => {
@@ -85,14 +97,12 @@ function UpsellPage() {
       if (!lead) throw new Error("Lead not found");
       return patchLead(lead, {
         stage: next,
-        wonAmount: next === "won" ? lead.estimatedValue : undefined,
-        lossReason: next === "lost" ? "Marked lost from board" : undefined,
+        wonAmount: next === "won" ? moneyValue(lead.estimatedValue) : undefined,
       });
     },
     onSuccess: async (_, { next }) => {
       await refreshLeads();
       if (next === "won") toast.success("Marked won");
-      else if (next === "lost") toast("Marked lost");
       else toast.success(`Moved to ${STAGE_LABELS[next]}`);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Lead update failed"),
@@ -102,6 +112,15 @@ function UpsellPage() {
     const l = seed.find((x) => x.id === id);
     if (!l) return;
     if (l.stage === next) return;
+    // Dropping onto Lost used to write the literal string "Marked lost from
+    // board" as the loss reason — which then showed up in the loss-reason
+    // breakdown as if it were analysis. A loss needs a real reason, so the
+    // drawer opens and asks for one.
+    if (next === "lost") {
+      setOpenId(id);
+      toast("Add a reason to mark this lost");
+      return;
+    }
     stageMutation.mutate({ id, next });
   };
 
@@ -117,27 +136,33 @@ function UpsellPage() {
 
   return (
     <AppShell>
-      <div className="flex h-full min-h-0 flex-col gap-2.5 p-3">
-        <header className="shrink-0 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-brand-primary" />
+      <div className="flex h-full min-h-0 flex-col gap-150 p-150">
+        <header className="shrink-0 flex items-center justify-between gap-100">
+          <div className="flex items-center gap-100">
+            <Sparkles className="h-250 w-250 text-text-brand" />
             <div>
-              <h1 className="text-[16px] font-semibold text-brand-navy leading-none">Upsell & Leads Manager</h1>
-              <p className="text-[11.5px] text-text-secondary">Eligibility-gated leads from voice & chat — pipeline, follow-ups, and conversion.</p>
+              <h1 className="text-[1rem] font-semibold text-text leading-none">Upsell & leads manager</h1>
+              <p className="text-body-small text-text-subtle">Eligibility-gated leads from voice & chat — pipeline, follow-ups, and conversion.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="text-[11px] text-text-muted">Showing {filtered.length} of {seed.length}</div>
-            <Button size="sm" className="h-8 text-[12px]" onClick={() => setShowNew(true)}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> New lead
+          <div className="flex items-center gap-100">
+            <div className="text-body-small text-text-subtlest">Showing {filtered.length} of {seed.length}</div>
+            <Button size="sm" className="h-400 text-body-small" onClick={() => setShowNew(true)}>
+              <Plus className="mr-050 h-3.5 w-3.5" /> New lead
             </Button>
           </div>
         </header>
 
         <MetricsStrip m={metrics} />
-        <FiltersBar filters={filters} onPatch={patchFilters} onReset={() => setFilters(defaultFilters)} owners={owners} />
+        <FiltersBar
+          filters={filters}
+          onPatch={patchFilters}
+          onReset={() => setFilters(defaultFilters)}
+          owners={owners}
+          products={catalog}
+        />
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-100">
           <ViewToggle view={view} onChange={setView} />
         </div>
 

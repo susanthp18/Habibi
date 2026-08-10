@@ -1,0 +1,22 @@
+# "What can you do?" must get an answer, at any point in the call.
+#
+# The capability list used to live only in the greeting node's task_messages,
+# while the hub said "do NOT read them a menu of options" — so the question was
+# answerable on turn one and argued against everywhere after it. It now sits on
+# the persistent role message.
+name: asks_capabilities
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the call and discloses that it is recorded"
+
+  - user: "Before anything else — what can you actually help me with?"
+    expect:
+      - event: response
+        eval: >-
+          the bot answers in one short sentence naming what it can do (things
+          like explaining what is due, setting up a payment promise, disputes,
+          callbacks, statements, policy questions) and then asks which the
+          caller wants. It must NOT call any CRM or knowledge-base tool to
+          answer this.

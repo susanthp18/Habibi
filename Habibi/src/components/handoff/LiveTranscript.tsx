@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowDownCircle, Bot, User, Headphones, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Speaker, TranscriptTurn } from "@/data/handoff-seed";
+import { Lozenge } from "@/components/ui/lozenge";
 
 type Props = {
   turns: TranscriptTurn[];
@@ -34,19 +35,19 @@ export function LiveTranscript({ turns, streaming, latestSpeaker }: Props) {
   };
 
   return (
-    <section className="relative flex min-h-0 flex-1 flex-col bg-surface-app">
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-token)] bg-surface-card px-5 py-2">
-        <div className="flex items-center gap-2 text-[12px] font-semibold text-brand-navy">
+    <section className="relative flex min-h-0 flex-1 flex-col bg-surface">
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-surface px-250 py-100">
+        <div className="flex items-center gap-100 text-body-small font-semibold text-text">
           Live transcript
           {streaming && (
-            <span className="flex items-center gap-1 text-[10px] font-medium text-text-secondary">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
+            <span className="flex items-center gap-050 text-body-small font-medium text-text-subtle">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-background-success" />
               streaming
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-text-muted">
-          <LegendPill color="var(--brand-primary)" label="Agent" />
+        <div className="flex items-center gap-150 text-body-small text-text-subtlest">
+          <LegendPill color="var(--background-brand-bold)" label="Agent" />
           <LegendPill color="var(--text-primary)" label="Customer" />
           <LegendPill color="var(--warning)" label="Bot" />
         </div>
@@ -55,9 +56,9 @@ export function LiveTranscript({ turns, streaming, latestSpeaker }: Props) {
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+        className="min-h-0 flex-1 overflow-y-auto px-250 py-200"
       >
-        <div className="mx-auto max-w-3xl space-y-3">
+        <div className="mx-auto max-w-3xl space-y-150">
           {turns.map((t) => (
             <TranscriptBubble key={t.id} turn={t} />
           ))}
@@ -71,7 +72,7 @@ export function LiveTranscript({ turns, streaming, latestSpeaker }: Props) {
         <button
           type="button"
           onClick={jumpToBottom}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-brand-primary px-3 py-1.5 text-[11px] font-semibold text-white shadow-pop hover:bg-brand-primary-hover"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-075 rounded-full bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-white shadow-overlay hover:bg-background-brand-bold-hovered"
         >
           <ArrowDownCircle className="h-3.5 w-3.5" />
           Jump to live
@@ -83,8 +84,8 @@ export function LiveTranscript({ turns, streaming, latestSpeaker }: Props) {
 
 function LegendPill({ color, label }: { color: string; label: string }) {
   return (
-    <span className="flex items-center gap-1">
-      <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+    <span className="flex items-center gap-050">
+      <span className="h-100 w-100 rounded-full" style={{ background: color }} />
       {label}
     </span>
   );
@@ -115,46 +116,46 @@ function TranscriptBubble({ turn }: { turn: TranscriptTurn }) {
   if (meta.align === "center") {
     return (
       <div className="flex justify-center">
-        <div className="inline-flex items-center gap-1.5 rounded-full bg-surface-sunken px-3 py-1 text-[11px] text-text-secondary">
-          <meta.Icon className="h-3 w-3" />
+        <Lozenge tone="neutral">
+          <meta.Icon />
           {turn.text}
-          <span className="tabular text-text-muted">· {fmtTime(turn.at)}</span>
-        </div>
+          <span className="tabular text-text-subtlest">· {fmtTime(turn.at)}</span>
+        </Lozenge>
       </div>
     );
   }
 
   const isRight = meta.align === "right";
   return (
-    <div className={cn("flex animate-fade-up gap-2", isRight ? "justify-end" : "justify-start")}>
+    <div className={cn("flex animate-fade-up gap-100", isRight ? "justify-end" : "justify-start")}>
       {!isRight && (
         <div
           className={cn(
-            "mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full",
-            meta.tone === "warn" ? "bg-warning-bg text-warning" : "bg-surface-sunken text-text-secondary",
+            "mt-025 grid h-7 w-7 shrink-0 place-items-center rounded-full",
+            meta.tone === "warn" ? "bg-background-warning text-text-warning" : "bg-surface-sunken text-text-subtle",
           )}
         >
           <meta.Icon className="h-3.5 w-3.5" />
         </div>
       )}
       <div className={cn("max-w-[75%]", isRight && "text-right")}>
-        <div className={cn("mb-0.5 flex items-center gap-1.5 text-[11px] text-text-muted", isRight && "justify-end")}>
-          <span className="font-semibold text-text-secondary">{meta.name}</span>
+        <div className={cn("mb-025 flex items-center gap-075 text-body-small text-text-subtlest", isRight && "justify-end")}>
+          <span className="font-semibold text-text-subtle">{meta.name}</span>
           <span className="tabular">{fmtTime(turn.at)}</span>
         </div>
         <div
           className={cn(
-            "inline-block rounded-lg px-3 py-2 text-[13px] leading-relaxed shadow-card",
-            meta.tone === "brand" && "rounded-tr-sm bg-brand-primary text-white",
-            meta.tone === "warn" && "rounded-tl-sm bg-warning-bg text-brand-navy",
-            meta.tone === "neutral" && "rounded-tl-sm bg-surface-card text-text-primary",
+            "inline-block rounded-large px-150 py-100 text-body leading-relaxed",
+            meta.tone === "brand" && "rounded-tr-sm bg-background-brand-bold text-white",
+            meta.tone === "warn" && "rounded-tl-sm bg-background-warning text-text",
+            meta.tone === "neutral" && "rounded-tl-sm bg-surface text-text",
           )}
         >
           {turn.text}
         </div>
       </div>
       {isRight && (
-        <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-tint text-brand-primary-dark">
+        <div className="mt-025 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-background-brand-subtlest text-text-brand">
           <meta.Icon className="h-3.5 w-3.5" />
         </div>
       )}
@@ -166,10 +167,10 @@ function TypingIndicator({ speaker }: { speaker: Speaker }) {
   const meta = speakerMeta(speaker);
   const isRight = meta.align === "right";
   return (
-    <div className={cn("flex gap-2", isRight ? "justify-end" : "justify-start")}>
+    <div className={cn("flex gap-100", isRight ? "justify-end" : "justify-start")}>
       {!isRight && <div className="h-7 w-7 shrink-0 rounded-full bg-surface-sunken" />}
-      <div className="rounded-lg bg-surface-card px-3 py-2 shadow-card">
-        <div className="flex gap-1">
+      <div className="rounded-large bg-surface px-150 py-100">
+        <div className="flex gap-050">
           <Dot delay="0ms" />
           <Dot delay="150ms" />
           <Dot delay="300ms" />
@@ -182,8 +183,8 @@ function TypingIndicator({ speaker }: { speaker: Speaker }) {
 function Dot({ delay }: { delay: string }) {
   return (
     <span
-      className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted"
-      style={{ animationDelay: delay, animationDuration: "900ms" }}
+      className="h-1.5 w-1.5 typing-dot rounded-full bg-text-muted"
+      style={{ animationDelay: delay }}
     />
   );
 }

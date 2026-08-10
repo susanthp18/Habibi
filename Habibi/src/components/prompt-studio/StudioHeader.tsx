@@ -1,4 +1,5 @@
 import { Beaker, ShieldCheck, UploadCloud } from "lucide-react";
+import { Lozenge } from "@/components/ui/lozenge";
 
 type Props = {
   currentVersion: string;
@@ -24,55 +25,49 @@ export function StudioHeader({
   lintBusy,
 }: Props) {
   return (
-    <header className="shrink-0 border-b border-[var(--border-token)] bg-surface-card px-5 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-[18px] font-semibold text-brand-navy">Persona & Prompt Studio</h1>
-        <span className="rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-medium text-brand-primary-dark">
+    <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
+      <div className="flex flex-wrap items-center gap-100">
+        <h1 className="text-[1.25rem] font-semibold text-text">Persona & prompt studio</h1>
+        <Lozenge tone="selected">
           {currentVersion} published
-        </span>
-        <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-secondary">
+        </Lozenge>
+        <Lozenge tone="neutral">
           {personaLabel}
-        </span>
+        </Lozenge>
         {dirty && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> unsaved · draft {nextVersion}
-          </span>
+          <Lozenge tone="warning">
+            <span className="h-1.5 w-1.5 rounded-full bg-background-warning-bold" /> unsaved · draft {nextVersion}
+          </Lozenge>
         )}
-        {saveStatus === "saving" && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-text-muted">Autosaving…</span>
-        )}
-        {saveStatus === "saved" && !dirty && (
-          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">Draft saved</span>
-        )}
-        {saveStatus === "error" && (
-          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] text-rose-700">Autosave failed</span>
-        )}
-        <div className="ml-auto flex items-center gap-2">
+        {saveStatus === "saving" && <Lozenge tone="neutral">Autosaving…</Lozenge>}
+        {saveStatus === "saved" && !dirty && <Lozenge tone="success">Draft saved</Lozenge>}
+        {saveStatus === "error" && <Lozenge tone="danger">Autosave failed</Lozenge>}
+        <div className="ml-auto flex items-center gap-100">
           {onLint && (
             <button
               onClick={onLint}
               disabled={lintBusy}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-3 py-1.5 text-[12px] text-text-primary hover:bg-surface-sunken disabled:opacity-50"
+              className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken disabled:opacity-50"
             >
               <ShieldCheck className="h-3.5 w-3.5" /> {lintBusy ? "Linting…" : "Lint prompt"}
             </button>
           )}
           <button
             onClick={onTestSandbox}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-token)] px-3 py-1.5 text-[12px] text-text-primary hover:bg-surface-sunken"
+            className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
           >
             <Beaker className="h-3.5 w-3.5" /> Test in Sandbox
           </button>
           <button
             onClick={onPublish}
             disabled={!dirty}
-            className="inline-flex items-center gap-1 rounded-md bg-brand-primary px-3 py-1.5 text-[12px] font-medium text-white shadow-sm hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
           >
             <UploadCloud className="h-3.5 w-3.5" /> Publish {nextVersion}
           </button>
         </div>
       </div>
-      <p className="text-[12px] text-text-secondary">
+      <p className="text-body-small text-text-subtle">
         Tune the bot&apos;s system prompt, persona, voice and guardrails. Drafts autosave; publishing bumps the live
         config.
       </p>

@@ -7,7 +7,11 @@
 # Flows ships inside pipecat-ai>=1.5 (`from pipecat.flows import FlowManager`).
 # Do NOT install the deprecated standalone `pipecat-ai-flows` package — it pins
 # an older pipecat and breaks imports.
-pipecat-ai[azure,webrtc,runner,silero]>=1.5.0
+#
+# Pinned, not floating: an unpinned `>=` means a Pipecat release can change the
+# voice runtime inside an image rebuild with no code change and no review.
+# Bump these deliberately, then re-run backend/scripts/run_voice_evals.py.
+pipecat-ai[azure,webrtc,runner,silero]==1.6.0
 # Used directly by voice/recording.py for stereo PCM interleave (also a pipecat
 # transitive dep, but declared here so the import doesn't rely on that).
-numpy>=1.26
+numpy==2.4.6
