@@ -171,7 +171,10 @@ function CustomerDetail() {
       setRailOpen(false);
     } else if (action === "statement") setSheet("statement");
     else if (action === "call") setSheet("call");
-    else toast.info("Opens Callback Manager — coming soon.");
+    else if (action === "offer") {
+      const leadId = insights.offerPolicy?.leadId ?? insights.nba.find((i) => i.action === "offer")?.leadId;
+      void navigate({ to: "/upsell", search: leadId ? { id: leadId } : {} });
+    } else toast.info("Opens Callback Manager — coming soon.");
   };
 
   const handlers = useMemo(
@@ -183,7 +186,7 @@ function CustomerDetail() {
       onNbaAction,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [insights.offerPolicy?.leadId],
   );
 
   const addNote = (text: string) => {

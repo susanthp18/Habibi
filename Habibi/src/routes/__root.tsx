@@ -7,11 +7,14 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, type ReactNode, useSyncExternalStore } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { clearSidebarCollapsedPreference } from "@/components/shell/sidebar-ui";
+import { getServerTheme, getTheme, subscribeTheme } from "@/lib/theme";
+
+const THEME_INIT = `(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch(e){}})()`;
 
 function NotFoundComponent() {
   return (
@@ -105,13 +108,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "theme-color", content: "#1868DB" },
+      { name: "color-scheme", content: "light dark" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       // SVG is the source of truth — crisp at every tab and bookmark size. The PNGs
       // exist only for consumers that can't take SVG (iOS home screen, PWA install).
-      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
-      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      { rel: "icon", href: "/favicon.svg?v=eq4", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png?v=eq4" },
       { rel: "manifest", href: "/site.webmanifest" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
@@ -132,9 +136,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, getServerTheme);
   return (
-    <html lang="en">
+    <html lang="en" className={theme === "dark" ? "dark" : ""} suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         <HeadContent />
       </head>
       <body>

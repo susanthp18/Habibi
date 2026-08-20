@@ -76,7 +76,7 @@ export function RuleEditor({ rule, onSave, onCancel, onSaveAndTest }: Props) {
           <div className="flex items-end justify-between">
             <div>
               <Label className="text-body-small font-medium text-text-subtlest">Enabled</Label>
-              <div className="mt-100"><Switch checked={draft.enabled} onCheckedChange={v => setDraft({ ...draft, enabled: v })} /></div>
+              <div className="mt-100"><Switch aria-label="Enabled" checked={draft.enabled} onCheckedChange={v => setDraft({ ...draft, enabled: v })} /></div>
             </div>
           </div>
         </div>

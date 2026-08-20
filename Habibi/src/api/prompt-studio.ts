@@ -46,6 +46,8 @@ export type PromptVersionDraftInput = {
   summary?: string;
   /** Omitted (not sent empty) leaves the stored graph untouched. */
   flow?: FlowGraph;
+  botId?: string;
+  agentCard?: Record<string, unknown>;
 };
 
 export type PromptVersionPatchInput = {
@@ -55,7 +57,56 @@ export type PromptVersionPatchInput = {
   voice?: VoiceConfig;
   guardrails?: Guardrails;
   summary?: string;
+  /** Omitted leaves the stored graph untouched. Explicit `{}` clears it. */
+  flow?: FlowGraph;
+  /** Omitted leaves the stored card untouched — same key-present rule as flow. */
+  agentCard?: Record<string, unknown>;
+  /**
+   * Not a field — a compile-time barrier.
+   *
+   * A version belongs to the bot it was created on, and the endpoint's request
+   * model forbids extras, so sending `botId` is a 422. Merely leaving it out of
+   * this type was not enough: callers build one body for create (which needs
+   * `botId`) and reuse it for patch, and TypeScript's excess-property check only
+   * fires on object literals, never on a variable. Typing it `never` makes
+   * `PromptVersionDraftInput` structurally unassignable here, so the reuse is a
+   * type error instead of a runtime 422 that surfaces as "Autosave failed".
+   */
+  botId?: never;
 };
+
+/** Fails the build when its argument is not exactly `true`. */
+type Expect<T extends true> = T;
+
+/**
+ * Guards the guard: if `botId?: never` is ever dropped from the patch type, a
+ * draft body becomes assignable again and this line stops compiling. Type-only,
+ * so it emits nothing.
+ */
+type _DraftBodyIsNotPatchable = Expect<
+  PromptVersionDraftInput extends PromptVersionPatchInput ? false : true
+>;
+
+/**
+ * Project a draft body onto the fields PATCH accepts.
+ *
+ * An explicit allowlist rather than `{...rest}`: a field added to
+ * `PromptVersionDraftInput` later must be considered here before it can reach
+ * the endpoint, instead of silently riding along and 422-ing.
+ */
+export function toPatchInput(body: PromptVersionDraftInput): PromptVersionPatchInput {
+  const patch: PromptVersionPatchInput = {
+    label: body.label,
+    prompt: body.prompt,
+    persona: body.persona,
+    voice: body.voice,
+    guardrails: body.guardrails,
+  };
+  if (body.summary !== undefined) patch.summary = body.summary;
+  if (body.flow) patch.flow = body.flow;
+  if (body.agentCard) patch.agentCard = body.agentCard;
+  return patch;
+}
 
 type TtsVoiceApi = TtsVoice & { azureVoiceName?: string | null };
 
@@ -82,17 +133,19 @@ function _mockClone(v: PromptVersion): PromptVersion {
     persona: { ...v.persona, traits: { ...v.persona.traits }, fallbackLanguages: [...v.persona.fallbackLanguages] },
     voice: { ...v.voice },
     guardrails: { ...v.guardrails, prohibited: [...v.guardrails.prohibited] },
+    flow: v.flow ? { ...v.flow, nodes: [...v.flow.nodes], edges: [...v.flow.edges] } : v.flow,
   };
 }
 
 // ---------- reads ----------
 
-export async function fetchPromptVersions(): Promise<PromptVersion[]> {
+export async function fetchPromptVersions(botId?: string): Promise<PromptVersion[]> {
   if (USE_MOCK) return mockDelay(_mockVersions.map(_mockClone));
-  return apiGet<PromptVersion[]>("/prompt-versions");
+  const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
+  return apiGet<PromptVersion[]>(`/prompt-versions${q}`);
 }
 
-export async function fetchPublishedPromptVersion(): Promise<PromptVersion | null> {
+export async function fetchPublishedPromptVersion(botId?: string): Promise<PromptVersion | null> {
   if (USE_MOCK) {
     return mockDelay(
       _mockClone(
@@ -101,7 +154,8 @@ export async function fetchPublishedPromptVersion(): Promise<PromptVersion | nul
     );
   }
   try {
-    return await apiGet<PromptVersion>("/prompt-versions/published");
+    const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
+    return await apiGet<PromptVersion>(`/prompt-versions/published${q}`);
   } catch {
     return null;
   }
@@ -350,6 +404,7 @@ export function useTtsPricing() {
 export async function fetchBotDeployments(params?: {
   environment?: "sandbox" | "production";
   status?: "active" | "rolled_back" | "retired";
+  botId?: string;
 }): Promise<BotDeployment[]> {
   if (USE_MOCK) {
     const published = VERSION_HISTORY.find((v) => v.status === "published") ?? VERSION_HISTORY[0];
@@ -374,22 +429,23 @@ export async function fetchBotDeployments(params?: {
   const q = new URLSearchParams();
   if (params?.environment) q.set("environment", params.environment);
   if (params?.status) q.set("status", params.status);
+  if (params?.botId) q.set("botId", params.botId);
   const qs = q.toString();
   return apiGet<BotDeployment[]>(`/bot-deployments${qs ? `?${qs}` : ""}`);
 }
 
-export function usePromptVersions() {
+export function usePromptVersions(botId?: string) {
   return useQuery({
-    queryKey: VERSIONS_KEY,
-    queryFn: fetchPromptVersions,
+    queryKey: [...VERSIONS_KEY, botId ?? "all"],
+    queryFn: () => fetchPromptVersions(botId),
     staleTime: 15_000,
   });
 }
 
-export function usePublishedPromptVersion() {
+export function usePublishedPromptVersion(botId?: string) {
   return useQuery({
-    queryKey: PUBLISHED_KEY,
-    queryFn: fetchPublishedPromptVersion,
+    queryKey: [...PUBLISHED_KEY, botId ?? "default"],
+    queryFn: () => fetchPublishedPromptVersion(botId),
     staleTime: 15_000,
   });
 }
@@ -466,6 +522,7 @@ export async function createPromptVersion(input: PromptVersionDraftInput): Promi
       persona: input.persona,
       voice: input.voice,
       guardrails: input.guardrails,
+      flow: input.flow,
     };
     _mockVersions = [created, ..._mockVersions];
     return mockDelay(_mockClone(created));
@@ -489,6 +546,8 @@ export async function patchPromptVersion(
       ...(input.voice !== undefined ? { voice: input.voice } : {}),
       ...(input.guardrails !== undefined ? { guardrails: input.guardrails } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.flow !== undefined ? { flow: input.flow } : {}),
+      ...(input.agentCard !== undefined ? { agentCard: input.agentCard } : {}),
     };
     _mockVersions = _mockVersions.map((v, i) => (i === idx ? next : v));
     return mockDelay(_mockClone(next));
@@ -499,7 +558,13 @@ export async function patchPromptVersion(
 export async function publishPromptVersion(
   versionId: string,
   summary = "",
-  opts?: { kbSnapshotId?: string | null; tuning?: unknown },
+  opts?: {
+    kbSnapshotId?: string | null;
+    tuning?: unknown;
+    trafficPct?: number | null;
+    shadow?: boolean;
+    autoRollback?: string[] | null;
+  },
 ): Promise<PromptVersion> {
   if (USE_MOCK) {
     const idx = _mockVersions.findIndex((v) => v.id === versionId);
@@ -522,6 +587,9 @@ export async function publishPromptVersion(
     summary,
     kbSnapshotId: opts?.kbSnapshotId ?? null,
     tuning: opts?.tuning ?? null,
+    trafficPct: opts?.trafficPct ?? null,
+    shadow: opts?.shadow ?? false,
+    autoRollback: opts?.autoRollback ?? null,
   });
 }
 
@@ -660,30 +728,33 @@ export function useLintPrompt() {
 
 export async function fetchActiveBotDeployment(
   environment: "production" | "sandbox" = "production",
+  botId?: string,
 ): Promise<BotDeployment | null> {
   if (USE_MOCK) {
-    const rows = await fetchBotDeployments({ environment, status: "active" });
+    const rows = await fetchBotDeployments({ environment, status: "active", botId });
     return rows[0] ?? null;
   }
   try {
-    return await apiGet<BotDeployment>(`/bot-deployments/active?environment=${environment}`);
+    const q = new URLSearchParams({ environment });
+    if (botId) q.set("botId", botId);
+    return await apiGet<BotDeployment>(`/bot-deployments/active?${q.toString()}`);
   } catch {
     return null;
   }
 }
 
-export function useActiveProdDeployment() {
+export function useActiveProdDeployment(botId?: string) {
   return useQuery({
-    queryKey: [...DEPLOYMENTS_KEY, "active", "production"],
-    queryFn: () => fetchActiveBotDeployment("production"),
+    queryKey: [...DEPLOYMENTS_KEY, "active", "production", botId ?? "default"],
+    queryFn: () => fetchActiveBotDeployment("production", botId),
     staleTime: 15_000,
   });
 }
 
-export function useProdDeployments() {
+export function useProdDeployments(botId?: string) {
   return useQuery({
-    queryKey: [...DEPLOYMENTS_KEY, "production"],
-    queryFn: () => fetchBotDeployments({ environment: "production" }),
+    queryKey: [...DEPLOYMENTS_KEY, "production", botId ?? "all"],
+    queryFn: () => fetchBotDeployments({ environment: "production", botId }),
     staleTime: 15_000,
   });
 }
@@ -712,6 +783,12 @@ export async function publishStudioDraft(opts: {
   voice: VoiceConfig;
   guardrails: Guardrails;
   summary: string;
+  flow?: FlowGraph;
+  agentCard?: Record<string, unknown>;
+  botId?: string;
+  trafficPct?: number;
+  shadow?: boolean;
+  autoRollback?: string[];
 }): Promise<PromptVersion> {
   const body: PromptVersionDraftInput = {
     label: opts.label,
@@ -719,11 +796,17 @@ export async function publishStudioDraft(opts: {
     persona: opts.persona,
     voice: opts.voice,
     guardrails: opts.guardrails,
+    botId: opts.botId,
   };
+  if (opts.flow) body.flow = opts.flow;
+  // Sent explicitly rather than left to the draft: publish may have to create
+  // the version from scratch (draftId null after a discard or a card-only
+  // edit), and a version created without the card ships an empty one.
+  if (opts.agentCard) body.agentCard = opts.agentCard;
   let draftId = opts.draftId ?? null;
   if (draftId) {
     try {
-      await patchPromptVersion(draftId, body);
+      await patchPromptVersion(draftId, toPatchInput(body));
     } catch (err) {
       if (!isDraftPatchFallbackError(err)) throw err;
       // Draft may have been published/archived elsewhere — fall through to create.
@@ -734,7 +817,11 @@ export async function publishStudioDraft(opts: {
     const created = await createPromptVersion(body);
     draftId = created.id;
   }
-  return publishPromptVersion(draftId, opts.summary);
+  return publishPromptVersion(draftId, opts.summary, {
+    trafficPct: opts.trafficPct,
+    shadow: opts.shadow,
+    autoRollback: opts.autoRollback,
+  });
 }
 
 /** Ensure a draft exists for Sandbox try-out / autosave of editor state. */
@@ -746,7 +833,9 @@ export async function ensureStudioDraft(opts: {
   voice: VoiceConfig;
   guardrails: Guardrails;
   flow?: FlowGraph;
+  agentCard?: Record<string, unknown>;
   summary?: string;
+  botId?: string;
 }): Promise<PromptVersion> {
   const body: PromptVersionDraftInput = {
     label: opts.label,
@@ -755,14 +844,16 @@ export async function ensureStudioDraft(opts: {
     voice: opts.voice,
     guardrails: opts.guardrails,
     summary: opts.summary ?? "draft autosave",
+    botId: opts.botId,
   };
   // Omitted rather than sent empty: the backend leaves the column untouched
   // when the key is absent, so a save issued before the flow tab ever loaded
-  // cannot wipe an authored graph.
+  // cannot wipe an authored graph. Same rule for the card.
   if (opts.flow) body.flow = opts.flow;
+  if (opts.agentCard) body.agentCard = opts.agentCard;
   if (opts.draftId) {
     try {
-      return await patchPromptVersion(opts.draftId, body);
+      return await patchPromptVersion(opts.draftId, toPatchInput(body));
     } catch (err) {
       if (!isDraftPatchFallbackError(err)) throw err;
       /* create below */

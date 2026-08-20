@@ -44,7 +44,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%] gap-200 rounded-xlarge border border-border bg-surface-overlay shadow-overlay duration-token-medium data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        "fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-4rem)] w-full translate-x-[-50%] translate-y-[-50%] grid-rows-[auto_minmax(0,1fr)_auto] gap-200 overflow-y-auto overscroll-contain rounded-xlarge border border-border bg-surface-overlay shadow-overlay duration-token-medium data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         size === "small" && "max-w-[25rem]",
         size === "medium" && "max-w-[37.5rem]",
         size === "large" && "max-w-[50rem]",
@@ -74,7 +74,11 @@ DialogHeader.displayName = "DialogHeader";
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse gap-100 pt-200 pb-300 px-300 sm:flex-row sm:justify-end",
+      // Sticky, because the footer holds the only way to complete or abandon
+      // the dialog. A publish dialog with fourteen compiler gates in it is
+      // taller than a laptop viewport, and Cancel and Confirm were simply
+      // below the fold with nothing to scroll.
+      "sticky bottom-0 flex flex-col-reverse gap-100 border-t border-border bg-surface-overlay pt-200 pb-300 px-300 sm:flex-row sm:justify-end",
       className,
     )}
     {...props}

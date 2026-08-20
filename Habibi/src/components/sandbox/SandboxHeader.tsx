@@ -21,6 +21,12 @@ type Props = {
   promptVersionId: string;
   promptVersions: PromptVersion[];
   onPromptVersion: (id: string) => void;
+  cardId?: string;
+  cards?: { id: string; label: string }[];
+  onCard?: (id: string) => void;
+  skillSlug?: string;
+  skills?: { slug: string; label: string }[];
+  onSkill?: (slug: string) => void;
   kbSnapshotId: string;
   kbSnapshots: KbOption[];
   onKbSnapshot: (id: string) => void;
@@ -109,6 +115,22 @@ export function SandboxHeader(p: Props) {
             >
               {remaining}/{p.turnsMax} turns left
             </Lozenge>
+          )}
+          {p.cards && p.cards.length > 0 && p.onCard && (
+            <Select
+              label="Card"
+              value={p.cardId ?? p.cards[0]!.id}
+              onChange={p.onCard}
+              options={p.cards.map((c) => ({ value: c.id, label: c.label }))}
+            />
+          )}
+          {p.skills && p.skills.length > 0 && p.onSkill && (
+            <Select
+              label="Skill"
+              value={p.skillSlug ?? ""}
+              onChange={p.onSkill}
+              options={[{ value: "", label: "Auto (intent)" }, ...p.skills.map((s) => ({ value: s.slug, label: s.label }))]}
+            />
           )}
           <Select
             label="Prompt"

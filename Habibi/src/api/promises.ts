@@ -71,6 +71,20 @@ export async function movePromise(p: Ptp, status: PromiseStatus, opts?: { paidAm
   await apiPatch(`/promises/${p.id}`, { status, paidAmount: opts?.paidAmount });
 }
 
+export async function resendPromiseConfirm(p: Ptp): Promise<void> {
+  if (USE_MOCK) {
+    await mockDelay(undefined);
+    p.payLinkSent = true;
+    p.confirmStatus = "sent";
+    p.events = [
+      ...p.events,
+      { at: new Date().toISOString(), label: "Payment link resent", tone: "info" },
+    ];
+    return;
+  }
+  await apiPost(`/promises/${p.id}/resend-confirm`, {});
+}
+
 export async function reschedulePromise(p: Ptp, newDate: string): Promise<void> {
   if (USE_MOCK) {
     rescheduleSeedPromise(p.id, newDate);

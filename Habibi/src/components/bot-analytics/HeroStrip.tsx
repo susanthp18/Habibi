@@ -1,18 +1,7 @@
-import { LineChart, Line, ResponsiveContainer } from "recharts";
 import { Bot, ShieldCheck, AlertTriangle, MessageSquare, Timer, Smile, TrendingUp, HandCoins } from "lucide-react";
 import type { Kpis } from "@/data/bot-analytics-seed";
-
-function Spark({ data, color = "var(--background-brand-bold)" }: { data: number[]; color?: string }) {
-  return (
-    <div className="h-400 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data.map((v, i) => ({ i, v }))} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-          <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} dot={false} />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
+import { VOICE_TTFA_SLO_MS } from "@/data/bot-analytics-seed";
+import { LivelineSpark } from "@/components/charts";
 
 function Tile({
   icon: Icon,
@@ -21,22 +10,26 @@ function Tile({
   hint,
   spark,
   tone,
+  sparkColor,
 }: {
-  icon: any;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   hint?: string;
   spark: number[];
   tone?: string;
+  sparkColor: string;
 }) {
   return (
-    <div className="min-w-[11.25rem] flex-1 rounded-large border border-border bg-surface px-150 py-150">
+    <div className="min-w-[11.25rem] flex-1 rounded-large border border-border bg-surface px-150 py-150 shadow-raised">
       <div className="flex items-center gap-075 text-body-small font-medium text-text-subtlest">
         <Icon className="h-3.5 w-3.5" /> {label}
       </div>
-      <div className={`mt-025 text-[1.5rem] font-semibold ${tone ?? "text-text"}`}>{value}</div>
+      <div className={`mt-025 text-[1.5rem] font-semibold tracking-tight tabular-nums ${tone ?? "text-text"}`}>{value}</div>
       {hint && <div className="text-body-small text-text-subtlest">{hint}</div>}
-      <Spark data={spark} color={tone?.includes("red") ? "#E2483D" : tone?.includes("amber") ? "#F68909" : tone?.includes("emerald") ? "#82B536" : "var(--background-brand-bold)"} />
+      <div className="mt-075 overflow-hidden rounded-medium bg-surface-sunken">
+        <LivelineSpark data={spark} color={sparkColor} height={36} />
+      </div>
     </div>
   );
 }
@@ -51,6 +44,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.containment.toFixed(1)}%`}
           hint={`${kpis.sessions.toLocaleString()} sessions`}
           spark={kpis.containmentSpark}
+          sparkColor={kpis.containment >= 80 ? "#5b7f24" : kpis.containment >= 65 ? "#e06c00" : "#e2483d"}
           tone={kpis.containment >= 80 ? "text-text-success-bolder" : kpis.containment >= 65 ? "text-text-warning-bolder" : "text-text-danger-bolder"}
         />
         <Tile
@@ -59,6 +53,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.deflection.toFixed(1)}%`}
           hint="Resolved without human"
           spark={kpis.sessionsSpark}
+          sparkColor="#1868db"
         />
         <Tile
           icon={AlertTriangle}
@@ -66,6 +61,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.escalation.toFixed(1)}%`}
           hint={`Abandon ${kpis.abandonment.toFixed(1)}%`}
           spark={kpis.escalationSpark}
+          sparkColor={kpis.escalation > 20 ? "#e2483d" : "#e06c00"}
           tone={kpis.escalation > 20 ? "text-text-danger-bolder" : "text-text-warning-bolder"}
         />
         <Tile
@@ -74,6 +70,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.upsellRate.toFixed(1)}%`}
           hint="Sessions with offer"
           spark={kpis.upsellSpark}
+          sparkColor="#1868db"
         />
         <Tile
           icon={HandCoins}
@@ -81,6 +78,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.ptpRate.toFixed(1)}%`}
           hint="Promise-to-pay captured"
           spark={kpis.ptpSpark}
+          sparkColor={kpis.ptpRate >= 15 ? "#5b7f24" : "#e06c00"}
           tone={kpis.ptpRate >= 15 ? "text-text-success-bolder" : "text-text-warning-bolder"}
         />
         <Tile
@@ -89,14 +87,16 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={kpis.avgTurns.toFixed(1)}
           hint="Per resolved session"
           spark={kpis.turnsSpark}
+          sparkColor="#1868db"
         />
         <Tile
           icon={Timer}
           label="Latency p90"
           value={`${(kpis.latencyP90 / 1000).toFixed(2)}s`}
-          hint={`p50 ${(kpis.latencyP50 / 1000).toFixed(2)}s`}
+          hint={`p50 ${(kpis.latencyP50 / 1000).toFixed(2)}s · SLO ${VOICE_TTFA_SLO_MS}ms`}
           spark={kpis.latencySpark}
-          tone={kpis.latencyP90 > 1500 ? "text-text-warning-bolder" : "text-text-success-bolder"}
+          sparkColor={kpis.latencyP90 > VOICE_TTFA_SLO_MS ? "#e06c00" : "#5b7f24"}
+          tone={kpis.latencyP90 > VOICE_TTFA_SLO_MS ? "text-text-warning-bolder" : "text-text-success-bolder"}
         />
         <Tile
           icon={Smile}
@@ -104,6 +104,7 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.csatProxy.toFixed(0)}`}
           hint={`Sent ${kpis.avgSentiment.toFixed(2)}`}
           spark={kpis.sentimentSpark}
+          sparkColor={kpis.csatProxy >= 75 ? "#5b7f24" : "#e06c00"}
           tone={kpis.csatProxy >= 75 ? "text-text-success-bolder" : "text-text-warning-bolder"}
         />
       </div>

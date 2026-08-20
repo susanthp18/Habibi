@@ -6,6 +6,7 @@ import { Sparkles, Plus } from "lucide-react";
 import { AppShell } from "@/components/shell/AppShell";
 import { Button } from "@/components/ui/button";
 import { MetricsStrip } from "@/components/upsell/MetricsStrip";
+import { OfferHealthPanel } from "@/components/upsell/OfferHealthPanel";
 import { FiltersBar } from "@/components/upsell/FiltersBar";
 import { ViewToggle, type UpsellView } from "@/components/upsell/ViewToggle";
 import { LeadBoard } from "@/components/upsell/LeadBoard";
@@ -14,16 +15,15 @@ import { LeadSheet } from "@/components/upsell/LeadSheet";
 import { NewLeadSheet } from "@/components/upsell/NewLeadSheet";
 import {
   STAGE_LABELS,
-  computeMetrics,
   defaultFilters,
-  filterLeads,
   listOwners,
   moneyValue,
   type Filters,
   type LeadStage,
 } from "@/data/upsell-seed";
-import { patchLead, useLeads } from "@/api/upsell";
+import { patchLead, useLeadMetrics, useLeads, type LeadQuery } from "@/api/upsell";
 import { USE_MOCK } from "@/api/config";
+import { useMe } from "@/api/me";
 import { useProducts } from "@/api/products";
 import { humanNames, useStaff } from "@/api/staff";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
@@ -52,8 +52,6 @@ export const Route = createFileRoute("/upsell")({
 
 function UpsellPage() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
-  const [tick, setTick] = useState(0);
-  const bump = () => setTick((t) => t + 1);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<UpsellView>("board");
@@ -62,11 +60,29 @@ function UpsellPage() {
   const search = Route.useSearch();
   const deepLinkApplied = useRef(false);
 
-  const { data: seed = [] } = useLeads();
+  const { data: me } = useMe();
 
-  const filtered = useMemo(() => filterLeads(seed, filters), [seed, filters, tick]);
-  const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
-  const openLead = openId ? seed.find((l) => l.id === openId) ?? null : null;
+  // Every filter is resolved server-side. They used to be applied in the
+  // browser over one page of `GET /leads` — which pages at 200 — so past that
+  // size the board and every KPI above it silently described the 200 most
+  // recently captured leads while the header claimed to show everything.
+  const query = useMemo<LeadQuery>(
+    () => ({
+      q: filters.search,
+      team: filters.team === "all" ? undefined : filters.team,
+      // "My leads" is an owner filter with the owner filled in for you.
+      owner: filters.myQueue ? me?.name : filters.owner === "all" ? undefined : filters.owner,
+      productId: filters.productId === "all" ? undefined : filters.productId,
+      source: filters.source === "all" ? undefined : filters.source,
+      priorities: filters.priorities.length ? filters.priorities : undefined,
+      sentiments: filters.sentiments.length ? filters.sentiments : undefined,
+    }),
+    [filters, me?.name],
+  );
+
+  const { data: filtered = [] } = useLeads(query);
+  const { data: metrics } = useLeadMetrics(query);
+  const openLead = openId ? filtered.find((l) => l.id === openId) ?? null : null;
   // Filter rosters come from the DB in live mode. The hardcoded six names only
   // ever matched the seed, so filtering by owner silently matched nothing
   // against real data.
@@ -79,21 +95,27 @@ function UpsellPage() {
 
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
   const refreshLeads = async () => {
-    bump();
-    await queryClient.invalidateQueries({ queryKey: ["leads"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["leads"] }),
+      queryClient.invalidateQueries({ queryKey: ["lead-metrics"] }),
+    ]);
   };
 
   useEffect(() => {
     if (deepLinkApplied.current) return;
     if (!search.id) return;
     deepLinkApplied.current = true;
+    // Filtering is server-side now, so a lead arriving by deep link — from
+    // Handoff or Customer 360 — would not be in the response at all if a
+    // filter excluded it. "Open this lead" outranks whatever was filtered.
+    setFilters(defaultFilters);
     setOpenId(search.id);
     void navigate({ search: { id: undefined }, replace: true });
   }, [search.id, navigate]);
 
   const stageMutation = useMutation({
     mutationFn: ({ id, next }: { id: string; next: LeadStage }) => {
-      const lead = seed.find((x) => x.id === id);
+      const lead = filtered.find((x) => x.id === id);
       if (!lead) throw new Error("Lead not found");
       return patchLead(lead, {
         stage: next,
@@ -109,7 +131,7 @@ function UpsellPage() {
   });
 
   const handleDropStage = (id: string, next: LeadStage) => {
-    const l = seed.find((x) => x.id === id);
+    const l = filtered.find((x) => x.id === id);
     if (!l) return;
     if (l.stage === next) return;
     // Dropping onto Lost used to write the literal string "Marked lost from
@@ -136,7 +158,12 @@ function UpsellPage() {
 
   return (
     <AppShell>
-      <div className="flex h-full min-h-0 flex-col gap-150 p-150">
+      {/* overflow-y-auto, not hidden: the board is `flex-1` on a zero basis, so
+          it carries no shrink weight and absorbs none of the overflow when the
+          chrome above it grows. Adding the offer-engine panel pushed the total
+          past the viewport and the board collapsed to its header strip. The
+          min-height below is the floor; past it the page scrolls. */}
+      <div className="flex h-full min-h-0 flex-col gap-150 overflow-y-auto p-150">
         <header className="shrink-0 flex items-center justify-between gap-100">
           <div className="flex items-center gap-100">
             <Sparkles className="h-250 w-250 text-text-brand" />
@@ -146,7 +173,12 @@ function UpsellPage() {
             </div>
           </div>
           <div className="flex items-center gap-100">
-            <div className="text-body-small text-text-subtlest">Showing {filtered.length} of {seed.length}</div>
+            {/* Rows on screen against rows that match — the second number is
+                a COUNT over the whole book, so a filtered view that exceeds
+                the page size now says so instead of implying it is complete. */}
+            <div className="text-body-small text-text-subtlest">
+              Showing {filtered.length} of {metrics?.total ?? filtered.length}
+            </div>
             <Button size="sm" className="h-400 text-body-small" onClick={() => setShowNew(true)}>
               <Plus className="mr-050 h-3.5 w-3.5" /> New lead
             </Button>
@@ -154,6 +186,7 @@ function UpsellPage() {
         </header>
 
         <MetricsStrip m={metrics} />
+        <OfferHealthPanel />
         <FiltersBar
           filters={filters}
           onPatch={patchFilters}
@@ -166,11 +199,13 @@ function UpsellPage() {
           <ViewToggle view={view} onChange={setView} />
         </div>
 
-        {view === "board" ? (
-          <LeadBoard leads={filtered} onOpen={(l) => setOpenId(l.id)} onDropStage={handleDropStage} />
-        ) : (
-          <LeadTable leads={tableRows} onOpen={(l) => setOpenId(l.id)} />
-        )}
+        <div className="flex min-h-[24rem] flex-1 flex-col">
+          {view === "board" ? (
+            <LeadBoard leads={filtered} onOpen={(l) => setOpenId(l.id)} onDropStage={handleDropStage} />
+          ) : (
+            <LeadTable leads={tableRows} onOpen={(l) => setOpenId(l.id)} />
+          )}
+        </div>
 
         {openLead && <LeadSheet lead={openLead} onClose={() => setOpenId(null)} onMutate={refreshLeads} />}
         {showNew && <NewLeadSheet onClose={() => setShowNew(false)} onCreated={refreshLeads} />}

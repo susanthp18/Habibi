@@ -127,3 +127,53 @@ export async function addViolationNote(v: Violation, note: string): Promise<void
 }
 
 export type { Violation, ViolationStatus };
+
+// -----------------------------------------------------------------------------
+// Detector coverage — GET /compliance/rule-coverage.
+//
+// `groupByRule` can only show rules that have already produced a violation, so
+// a rule nobody is checking and a rule with a spotless record rendered the same
+// way: absent. Fifteen of the sixteen seeded rules were in the first category.
+// This endpoint reports every catalog rule with a three-way state, so "clean"
+// is only ever claimed for a rule that is actually being looked for.
+// -----------------------------------------------------------------------------
+
+export type RuleState = "clean" | "breached" | "unverified" | "disabled";
+
+export interface RuleCoverageRow {
+  ruleId: string;
+  code: string;
+  label: string;
+  severity: string;
+  enabled: boolean;
+  hasDetector: boolean;
+  state: RuleState;
+  total: number;
+  open: number;
+  lastSeen: string | null;
+}
+
+export interface RuleCoverage {
+  rules: RuleCoverageRow[];
+  interactionsEvaluated: number;
+  rulesVersion: number;
+  detectorsRegistered: number;
+}
+
+export function useRuleCoverage() {
+  return useQuery({
+    queryKey: ["compliance-rule-coverage"],
+    queryFn: async (): Promise<RuleCoverage> => {
+      if (USE_MOCK) {
+        return mockDelay({
+          rules: [],
+          interactionsEvaluated: 0,
+          rulesVersion: 1,
+          detectorsRegistered: 0,
+        });
+      }
+      return apiGet<RuleCoverage>("/compliance/rule-coverage");
+    },
+    staleTime: 60_000,
+  });
+}

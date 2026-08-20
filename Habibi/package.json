@@ -9,9 +9,10 @@
     "build:dev": "vite build --mode development",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/check-spacing-scale.mjs",
     "icons": "node scripts/gen-icons.mjs",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "check:spacing": "node scripts/check-spacing-scale.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -57,6 +58,7 @@
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
+    "liveline": "^0.0.7",
     "lucide-react": "^0.575.0",
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",

@@ -72,7 +72,11 @@ export function RuleCard({
         <div className="flex flex-col items-end gap-100" onClick={e => e.stopPropagation()}>
           <div className="text-body-small text-text-subtlest">{rule.triggersLast24h} triggers · 24h</div>
           <div className="flex items-center gap-050">
-            <Switch checked={rule.enabled} onCheckedChange={onToggle} />
+            <Switch
+              aria-label={`Enable rule ${rule.name}`}
+              checked={rule.enabled}
+              onCheckedChange={onToggle}
+            />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-7 w-7">

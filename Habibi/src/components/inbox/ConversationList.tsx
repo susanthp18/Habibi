@@ -1,20 +1,36 @@
-import { Search } from "lucide-react";
+import { Search, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadStatus } from "@/data/inbox-seed";
-import { Avatar, resolveChannelMeta, chipStatus, slaColor, statusMeta } from "./meta";
+import { Avatar, slaColor, statusMeta } from "./meta";
 import { Badge } from "@/components/ui/badge";
 import { useMemo, useState } from "react";
-import { Lozenge } from "@/components/ui/lozenge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type Filter = "all" | ThreadStatus | "mine";
 
-const filters: { key: Filter; label: string }[] = [
+const primaryFilters: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "bot", label: "Bot-handled" },
   { key: "needs_human", label: "Needs human" },
-  { key: "escalated", label: "Escalated" },
   { key: "mine", label: "Mine" },
 ];
+
+const moreFilters: { key: Filter; label: string }[] = [
+  { key: "bot", label: "Bot-handled" },
+  { key: "escalated", label: "Escalated" },
+];
+
+const statusDot: Record<string, string> = {
+  bot: "bg-background-brand-bold",
+  needs_human: "bg-background-warning-bold",
+  escalated: "bg-background-danger-bold",
+  assigned: "bg-background-neutral-bold",
+  mine: "bg-background-success-bold",
+};
 
 export function ConversationList({
   threads,
@@ -61,6 +77,9 @@ export function ConversationList({
     });
   }, [threads, q, filter]);
 
+  const moreActive = moreFilters.some((f) => f.key === filter);
+  const moreLabel = moreFilters.find((f) => f.key === filter)?.label ?? "More";
+
   return (
     <aside className="flex h-full min-h-0 w-full flex-col border-r border-border bg-surface">
       <div className="shrink-0 border-b border-border px-150 py-150">
@@ -74,14 +93,14 @@ export function ConversationList({
             className="focus-ring h-9 w-full rounded-medium border border-border-input bg-background-input py-075 pl-400 pr-100 text-body transition-colors duration-token-short placeholder:text-text-subtlest hover:bg-background-input-hovered focus:border-border-focused focus:bg-background-input-pressed"
           />
         </div>
-        <div className="mt-150 flex flex-wrap gap-075">
-          {filters.map((f) => (
+        <div className="mt-150 flex items-center gap-050 overflow-x-auto">
+          {primaryFilters.map((f) => (
             <button
               key={f.key}
               type="button"
               onClick={() => setFilter(f.key)}
               className={cn(
-                "focus-ring inline-flex items-center gap-075 rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
+                "focus-ring inline-flex shrink-0 items-center gap-075 rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
                 filter === f.key
                   ? "border-border-brand bg-background-brand-subtlest text-text-brand"
                   : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
@@ -97,6 +116,33 @@ export function ConversationList({
               </Badge>
             </button>
           ))}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "focus-ring inline-flex shrink-0 items-center gap-075 rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
+                  moreActive
+                    ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                    : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
+                )}
+              >
+                {moreLabel}
+                {moreActive && (
+                  <Badge className="bg-surface text-text-brand">{counts[filter]}</Badge>
+                )}
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {moreFilters.map((f) => (
+                <DropdownMenuItem key={f.key} onSelect={() => setFilter(f.key)}>
+                  <span className="flex-1">{f.label}</span>
+                  <span className="text-body-small text-text-subtlest">{counts[f.key]}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -109,9 +155,7 @@ export function ConversationList({
         <ul>
           {filtered.map((t, i) => {
             const isActive = t.id === activeId;
-            const chan = resolveChannelMeta(t.channel);
-            const ChanIcon = chan.icon;
-            const chip = chipStatus(t);
+            const chip = t.isMine ? "mine" : t.status;
             return (
               <li key={t.id}>
                 <button
@@ -126,23 +170,30 @@ export function ConversationList({
                   {isActive && (
                     <span className="absolute inset-y-0 left-0 w-050 bg-background-brand-bold" />
                   )}
-                  <Avatar name={t.customer} size={40} />
+                  <Avatar name={t.customer} size={36} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-075">
-                      <ChanIcon
-                        className="h-3.5 w-3.5 shrink-0 text-text-subtlest"
-                        aria-hidden="true"
-                      />
                       <span className="truncate text-body font-semibold text-text">
                         {t.customer}
                       </span>
+                      {t.handlerBotId ? (
+                        <Badge className="shrink-0 bg-surface-sunken text-text-subtlest">
+                          {t.handlerBotId}
+                        </Badge>
+                      ) : null}
                       <span className="ml-auto whitespace-nowrap text-body-small text-text-subtlest">
                         {t.lastTime}
                       </span>
                     </div>
                     <div className="mt-025 flex items-center gap-075">
-                      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", slaColor[t.sla])} />
-                      <p className="min-w-0 truncate text-body-small text-text-subtle">
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          t.unread > 0 ? slaColor[t.sla] : statusDot[chip] ?? "bg-text-subtlest",
+                        )}
+                        title={statusMeta[chip].label}
+                      />
+                      <p className="min-w-0 flex-1 truncate text-body-small text-text-subtle">
                         {t.botTyping ? (
                           <span className="font-medium text-text-brand">Bot is typing…</span>
                         ) : (
@@ -156,14 +207,8 @@ export function ConversationList({
                           </>
                         )}
                       </p>
-                    </div>
-                    <div className="mt-075 flex items-center gap-075">
-                      <Lozenge tone={statusMeta[chip].tone}>{statusMeta[chip].label}</Lozenge>
-                      <span className="font-mono text-body-small text-text-subtlest">
-                        {t.accountId}
-                      </span>
                       {t.unread > 0 && (
-                        <Badge className="ml-auto bg-background-brand-bold text-text-inverse tabular">
+                        <Badge className="ml-050 bg-background-brand-bold text-text-inverse tabular">
                           {t.unread}
                         </Badge>
                       )}

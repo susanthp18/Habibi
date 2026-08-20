@@ -60,7 +60,7 @@ export function Simulator({ rules }: { rules: Rule[] }) {
                     <SelectContent>{f.options!.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                   </Select>
                 ) : f.type === "boolean" ? (
-                  <div className="mt-075"><Switch checked={Boolean((ctx as any)[f.key])} onCheckedChange={(v) => update(f.key as keyof SimContext, v)} /></div>
+                  <div className="mt-075"><Switch aria-label={f.label} checked={Boolean((ctx as any)[f.key])} onCheckedChange={(v) => update(f.key as keyof SimContext, v)} /></div>
                 ) : (
                   <Input
                     className="mt-025 h-400 text-body-small"

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Activity, FileText, Gauge, Layers, LineChart, Radio, Wrench } from "lucide-react";
+import { Activity, Beaker, FileText, FlaskConical, Gauge, Layers, LineChart, Radio, Wrench } from "lucide-react";
 import type { SandboxTurn } from "@/data/sandbox-seed";
 import { RetrievalTab } from "./inspector/RetrievalTab";
 import { IntentTab } from "./inspector/IntentTab";
@@ -7,11 +7,13 @@ import { SentimentTab } from "./inspector/SentimentTab";
 import { TraceTab } from "./inspector/TraceTab";
 import { ToolsTab } from "./inspector/ToolsTab";
 import { MetricsTab, type TurnMetric } from "./inspector/MetricsTab";
+import { TwinTab } from "./inspector/TwinTab";
+import { EvalCockpit } from "./EvalCockpit";
 import { EMPTY_INSIGHTS, type LiveCallInsights } from "./voice/liveEvents";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 
-type Tab = "retrieval" | "tools" | "intent" | "sentiment" | "trace" | "metrics" | "context";
+type Tab = "retrieval" | "tools" | "intent" | "sentiment" | "trace" | "metrics" | "twin" | "evals" | "context";
 
 type Props = {
   turns: SandboxTurn[];
@@ -48,6 +50,8 @@ export function InspectorPanel({
     { key: "sentiment", label: "Sentiment", icon: LineChart },
     { key: "trace", label: "Trace", icon: Activity },
     { key: "metrics", label: "Metrics", icon: Gauge },
+    { key: "twin", label: "Twin", icon: Beaker },
+    { key: "evals", label: "Evals", icon: FlaskConical },
     ...(contextAllowed
       ? [{ key: "context" as const, label: "Context", icon: FileText }]
       : []),
@@ -102,6 +106,8 @@ export function InspectorPanel({
             analysis={insights.turnAnalysis}
           />
         )}
+        {tab === "twin" && <TwinTab />}
+        {tab === "evals" && <EvalCockpit compact />}
         {tab === "context" && contextAllowed && (
           <div className="space-y-100">
             <p className="text-body-small text-text-warning-bolder">

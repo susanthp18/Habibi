@@ -10,7 +10,7 @@ import { EndpointDrawer } from "@/components/webhooks/EndpointDrawer";
 import { EventCatalogDialog } from "@/components/webhooks/EventCatalogDialog";
 import { DeliveryLogPane } from "@/components/webhooks/DeliveryLogPane";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Pause, Play, KeyRound, Trash2 } from "lucide-react";
 import {
   useWebhookDeliveries,
@@ -256,7 +256,9 @@ function WebhooksPage() {
   if (loadingEp && endpoints.length === 0) {
     return (
       <AppShell>
-        <div className="p-300"><Skeleton className="h-48 w-full" /></div>
+        <div className="grid h-full place-items-center p-300">
+          <LoadingState label="Loading webhooks" />
+        </div>
       </AppShell>
     );
   }
@@ -309,15 +311,7 @@ function WebhooksPage() {
             deliveries={deliveries}
             selectedIds={selectedIds}
             activeId={activeId}
-            onToggleSelect={(id) =>
-              setSelectedIds((prev) => {
-                const next = new Set(prev);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })
-            }
-            onToggleAll={(v) => setSelectedIds(v ? new Set(endpoints.map((e) => e.id)) : new Set())}
+            onSelectedChange={setSelectedIds}
             onRowClick={openDrawer}
             onEdit={openEdit}
             onTestFire={testFire}
@@ -329,7 +323,9 @@ function WebhooksPage() {
 
         <div className="flex min-h-[15rem] flex-[2] flex-col">
           {loadingDlv && deliveries.length === 0 ? (
-            <Skeleton className="m-200 h-32" />
+            <div className="grid flex-1 place-items-center p-200">
+              <LoadingState label="Loading deliveries" />
+            </div>
           ) : (
             <DeliveryLogPane
               endpoints={endpoints}

@@ -11,6 +11,7 @@ import {
   type FlowCondition,
 } from "@/api/flow";
 import { cn } from "@/lib/utils";
+import { useLabelsVisible } from "./zoom";
 
 /** One-line summary of when this edge fires, for the canvas label. */
 export function describeCondition(condition: FlowCondition): string {
@@ -58,6 +59,7 @@ export function FlowConditionEdge({
   });
   const d = data as unknown as ConditionEdgeData | undefined;
   const condition = d?.condition;
+  const showLabel = useLabelsVisible();
   // Deterministic edges are evaluated by the runtime, never offered to the
   // model — drawn dashed so the two kinds are distinguishable at a glance.
   const deterministic = condition && condition.type !== "prompt";
@@ -78,7 +80,7 @@ export function FlowConditionEdge({
               : undefined,
         }}
       />
-      {condition && (
+      {condition && showLabel && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -99,4 +101,67 @@ export function FlowConditionEdge({
   );
 }
 
-export const flowEdgeTypes = { default: FlowConditionEdge };
+/**
+ * A transition a built-in tool performs, which no author drew.
+ *
+ * This needs its own component rather than the `style` and `label` props xyflow
+ * passes to an untyped edge: `flowEdgeTypes` maps `default` to
+ * FlowConditionEdge, which renders BaseEdge with a style of its own and never
+ * looks at `label`. So every ghost edge arrived on the canvas solid, opaque and
+ * unlabelled — indistinguishable from the graph you own, and silent about which
+ * tool performs the hop.
+ */
+export function FlowImplicitEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+}: EdgeProps) {
+  const [path, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  });
+  const tool = (data as { tool?: string } | undefined)?.tool;
+  const showLabel = useLabelsVisible();
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        style={{
+          strokeWidth: 1.2,
+          strokeDasharray: "4 4",
+          stroke: "var(--text-subtlest)",
+          opacity: 0.5,
+        }}
+      />
+      {tool && showLabel && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+            className="pointer-events-none absolute max-w-[11rem] truncate rounded-small border border-dashed border-border bg-surface px-050 py-025 font-mono text-[0.6rem] text-text-subtlest"
+            title={`${tool} moves the call here — performed by the tool, not authored in this graph`}
+          >
+            {tool}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+export const flowEdgeTypes = {
+  default: FlowConditionEdge,
+  implicit: FlowImplicitEdge,
+};

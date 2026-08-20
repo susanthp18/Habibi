@@ -8,9 +8,10 @@ type Props = {
   onEnv: (e: Env) => void;
   onTestAll: () => void;
   testing: boolean;
+  showTestAll?: boolean;
 };
 
-export function IntegrationsHeader({ env, onEnv, onTestAll, testing }: Props) {
+export function IntegrationsHeader({ env, onEnv, onTestAll, testing, showTestAll = true }: Props) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-150">
       <div>
@@ -30,9 +31,11 @@ export function IntegrationsHeader({ env, onEnv, onTestAll, testing }: Props) {
             >{e}</button>
           ))}
         </div>
+        {showTestAll ? (
         <Button size="sm" className="gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed" onClick={onTestAll} disabled={testing}>
           <PlayCircle className="h-4 w-4" />{testing ? "Testing…" : "Test all"}
         </Button>
+        ) : null}
       </div>
     </div>
   );

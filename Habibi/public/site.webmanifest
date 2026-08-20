@@ -7,11 +7,11 @@
   "background_color": "#071a33",
   "theme_color": "#0b2447",
   "icons": [
-    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
-    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
-    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "/favicon.svg?v=eq4", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/icon-192.png?v=eq4", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png?v=eq4", "type": "image/png", "sizes": "512x512" },
     {
-      "src": "/icon-512.png",
+      "src": "/icon-512.png?v=eq4",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "maskable"

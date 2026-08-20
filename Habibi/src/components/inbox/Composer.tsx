@@ -8,12 +8,14 @@ import {
   ChevronUp,
   ChevronDown,
   RefreshCw,
+  MessageSquareText,
+  BookOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread } from "@/data/inbox-seed";
 import { getThreadHandoffState } from "@/components/inbox/meta";
-import { useCannedResponses } from "@/api/inbox";
+import { ingestInboxDocument, useCannedResponses } from "@/api/inbox";
 
 const EMOJIS = ["👍", "🙏", "✅", "🙂", "😮", "😂", "📎", "₹", "⏰", "✔️", "❗", "👋", "🤝", "💯", "⚠️"];
 
@@ -32,7 +34,6 @@ function SuggestionCard({
 }) {
   const trimmed = text.trim();
   const long = trimmed.length > 160;
-  // Backend format: "Doc title — Heading\n\nfull snippet"
   const splitAt = trimmed.indexOf("\n\n");
   let title: string | null = null;
   let body = trimmed;
@@ -118,58 +119,69 @@ function SuggestionCard({
 
 export function Composer({
   thread,
-  onTakeOver,
-  onReturnToBot,
   onSend,
   onRefreshRag,
+  onSuggestReply,
   busy = false,
   errorMessage = null,
   ragLoading = false,
   ragError = null,
-  includeDraftAnswer = false,
-  onIncludeDraftAnswerChange,
 }: {
   thread: Thread;
-  onTakeOver: () => void;
-  onReturnToBot?: () => void;
   onSend: (text: string) => void | Promise<void>;
-  onRefreshRag?: () => void;
+  onRefreshRag?: (withDraft?: boolean) => void;
+  onSuggestReply?: () => void;
   busy?: boolean;
   errorMessage?: string | null;
   ragLoading?: boolean;
   ragError?: string | null;
-  includeDraftAnswer?: boolean;
-  onIncludeDraftAnswerChange?: (next: boolean) => void;
 }) {
   const [text, setText] = useState("");
   const [cannedOpen, setCannedOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
+  const [awaitingDraft, setAwaitingDraft] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const seenSuggestLoading = useRef(false);
   const { data: cannedResponses = [] } = useCannedResponses();
 
-  const { needsClaim, canReturnToBot } = getThreadHandoffState(thread, Boolean(onReturnToBot));
+  const { needsClaim } = getThreadHandoffState(thread, false);
   const disabled = needsClaim || busy || sending;
   const draft = (thread.ragDraftAnswer || "").trim();
-  const takeOverLabel = thread.status === "bot" && !thread.isMine
-    ? "Take over from bot"
-    : thread.status === "escalated"
-      ? "Take over escalated thread"
-      : "Take over to reply";
+  const sourceCount = thread.ragSuggestions.length;
 
   useEffect(() => {
     setText("");
     setCannedOpen(false);
     setEmojiOpen(false);
+    setSourcesOpen(false);
     setExpandedIdx(null);
+    setAwaitingDraft(false);
+    seenSuggestLoading.current = false;
   }, [thread.id]);
 
   const ragFingerprint = thread.ragSuggestions.map((s) => s.slice(0, 64)).join("|");
   useEffect(() => {
     setExpandedIdx(null);
   }, [ragFingerprint]);
+
+  useEffect(() => {
+    if (!awaitingDraft) return;
+    if (ragLoading) {
+      seenSuggestLoading.current = true;
+      return;
+    }
+    if (!seenSuggestLoading.current) return;
+    seenSuggestLoading.current = false;
+    setAwaitingDraft(false);
+    if (draft) {
+      setText((t) => (t ? `${t.trim()}\n\n${draft}` : draft));
+      toast.success(needsClaim ? "Draft inserted — take over to send" : "Draft inserted");
+    }
+  }, [awaitingDraft, ragLoading, draft, needsClaim]);
 
   const insertSuggestion = (value: string) => {
     setText((t) => (t ? `${t.trim()}\n\n${value}` : value));
@@ -178,6 +190,16 @@ export function Composer({
 
   const insertEmoji = (emoji: string) => {
     setText((t) => `${t}${emoji}`);
+  };
+
+  const handleSuggestReply = () => {
+    if (draft && !ragLoading) {
+      insertSuggestion(draft);
+      return;
+    }
+    setAwaitingDraft(true);
+    seenSuggestLoading.current = ragLoading;
+    onSuggestReply?.();
   };
 
   const onPickFile = async (file: File | null) => {
@@ -201,6 +223,19 @@ export function Composer({
       return;
     }
     setText((t) => (t ? `${t.trim()} 📎 ${file.name}` : `📎 ${file.name}`));
+    if (file.type.startsWith("image/") && thread.customerId) {
+      try {
+        const row = await ingestInboxDocument(thread.customerId, file, thread.id);
+        toast.success(
+          row.documentRequestId
+            ? `Receipt filed as ${row.documentRequestId}`
+            : `Receipt filed (${file.name})`,
+        );
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not file that image");
+      }
+      return;
+    }
     toast.message("Filename noted in reply — binary WhatsApp attachments aren’t enabled yet");
   };
 
@@ -212,9 +247,6 @@ export function Composer({
       await onSend(payload);
       setText("");
     } catch (e) {
-      // Both call sites are `void submit()`, so a rejected send mutation
-      // escaped as an unhandled rejection and the agent saw nothing — the
-      // draft stayed in the box with no indication it had not gone out.
       toast.error(e instanceof Error ? e.message : "Could not send the message");
     } finally {
       setSending(false);
@@ -222,108 +254,101 @@ export function Composer({
   };
 
   const anyExpanded = expandedIdx != null;
+  const suggestBusy = ragLoading && awaitingDraft;
 
   return (
     <div className="shrink-0 border-t border-border bg-surface">
-      <div className="space-y-150 border-b border-border px-200 py-150">
-        <div className="flex flex-wrap items-center gap-x-150 gap-y-100">
-          <span className="inline-flex items-center gap-075 text-body-small font-semibold text-text-subtlest">
-            <Sparkles className="h-3.5 w-3.5 text-text-brand" />
-            RAG suggestions
-          </span>
-          <label className="inline-flex h-300 items-center gap-075 text-body-small text-text-subtle">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 rounded border-border accent-[var(--background-brand-bold)]"
-              checked={includeDraftAnswer}
-              onChange={(e) => onIncludeDraftAnswerChange?.(e.target.checked)}
-              disabled={ragLoading || !onIncludeDraftAnswerChange}
-            />
-            Drafted answer
-          </label>
-          <div className="ml-auto flex min-h-250 items-center gap-100">
-            {ragLoading ? (
-              <span className="inline-flex items-center gap-075 text-body-small text-text-subtlest">
-                <RefreshCw className="h-3 w-3 animate-spin" />
-                Refreshing from knowledge base…
-              </span>
-            ) : (
-              onRefreshRag && (
-                <button
-                  type="button"
-                  onClick={onRefreshRag}
-                  className="focus-ring inline-flex items-center gap-050 rounded px-075 py-025 text-body-small font-medium text-text-subtle hover:bg-surface-sunken hover:text-text-brand"
-                >
-                  <RefreshCw className="h-3 w-3" />
-                  Refresh
-                </button>
-              )
-            )}
-          </div>
-        </div>
-
-        {includeDraftAnswer && draft && !ragLoading && (
-          <button
-            type="button"
-            onClick={() => insertSuggestion(draft)}
-            className="focus-ring w-full rounded-medium border border-border-brand/30 bg-background-brand-subtlest/40 px-150 py-150 text-left hover:border-border-brand hover:bg-background-brand-subtlest/70"
-          >
-            <div className="mb-050 text-body-small font-semibold text-text-brand">
-              Drafted answer · click to insert
-            </div>
-            <div className="whitespace-pre-wrap text-body-small leading-relaxed text-text">
-              {draft}
-            </div>
-          </button>
-        )}
-
-        {includeDraftAnswer && !draft && !ragLoading && !ragError && (
-          <div className="rounded-medium border border-dashed border-border bg-surface-sunken/60 px-150 py-100 text-body-small text-text-subtle">
-            No drafted answer yet for this turn. Suggestions below are KB snippets you can insert.
-          </div>
-        )}
-
-        <div
-          ref={listRef}
-          className={cn(
-            "flex min-w-0 flex-col gap-100 overflow-y-auto overscroll-contain pr-050 transition-[max-height]",
-            // Room for ~2–3 collapsed tiles; grows when a tile is expanded.
-            anyExpanded ? "max-h-[min(42vh,22.5rem)]" : "max-h-[min(28vh,13.75rem)]",
-          )}
+      <div className="flex items-center gap-100 px-200 py-100">
+        <button
+          type="button"
+          onClick={handleSuggestReply}
+          disabled={suggestBusy || (!onSuggestReply && !draft)}
+          className="focus-ring inline-flex h-300 items-center gap-075 rounded-medium bg-background-brand-subtlest px-150 text-body-small font-semibold text-text-brand hover:bg-background-brand-subtlest/80 disabled:opacity-60"
         >
-          {thread.ragSuggestions.length === 0 && !ragLoading && !ragError && !draft && (
-            <span className="text-body-small text-text-subtlest">No KB hits yet for this thread.</span>
+          {suggestBusy ? (
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
           )}
-          {thread.ragSuggestions.map((s, i) => (
-            <SuggestionCard
-              key={`${thread.id}-kb-${i}`}
-              text={s}
-              index={i}
-              expanded={expandedIdx === i}
-              onUse={insertSuggestion}
-              onToggle={() => {
-                setExpandedIdx((cur) => (cur === i ? null : i));
-                // After expand, keep the card reachable inside the taller scroll box.
-                requestAnimationFrame(() => {
-                  listRef.current?.querySelectorAll("[data-kb-card]")?.[i]?.scrollIntoView({
-                    block: "nearest",
-                    behavior: "smooth",
-                  });
-                });
-              }}
-            />
-          ))}
+          {suggestBusy ? "Drafting…" : "Suggest reply"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSourcesOpen((o) => !o)}
+          className={cn(
+            "focus-ring inline-flex h-300 items-center gap-075 rounded-medium px-150 text-body-small font-medium",
+            sourcesOpen
+              ? "bg-surface-sunken text-text-brand"
+              : "text-text-subtle hover:bg-surface-sunken hover:text-text-brand",
+          )}
+          aria-expanded={sourcesOpen}
+        >
+          <BookOpen className="h-3.5 w-3.5" />
+          Sources{sourceCount > 0 ? ` (${sourceCount})` : ""}
+        </button>
+        <div className="ml-auto flex items-center gap-100">
+          {ragLoading && sourcesOpen && !awaitingDraft && (
+            <span className="inline-flex items-center gap-075 text-body-small text-text-subtlest">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Refreshing…
+            </span>
+          )}
+          {onRefreshRag && (
+            <button
+              type="button"
+              onClick={() => onRefreshRag(false)}
+              disabled={ragLoading}
+              className="focus-ring inline-flex items-center gap-050 rounded px-075 py-025 text-body-small font-medium text-text-subtle hover:bg-surface-sunken hover:text-text-brand disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-3 w-3", ragLoading && "animate-spin")} />
+              Refresh
+            </button>
+          )}
         </div>
       </div>
 
+      {sourcesOpen && (
+        <div className="space-y-100 border-t border-border px-200 py-150">
+          <div
+            ref={listRef}
+            className={cn(
+              "flex min-w-0 flex-col gap-100 overflow-y-auto overscroll-contain pr-050",
+              anyExpanded ? "max-h-[min(32vh,16rem)]" : "max-h-[min(22vh,11rem)]",
+            )}
+          >
+            {sourceCount === 0 && !ragLoading && !ragError && (
+              <span className="text-body-small text-text-subtlest">No KB hits yet for this thread.</span>
+            )}
+            {thread.ragSuggestions.map((s, i) => (
+              <SuggestionCard
+                key={`${thread.id}-kb-${i}`}
+                text={s}
+                index={i}
+                expanded={expandedIdx === i}
+                onUse={insertSuggestion}
+                onToggle={() => {
+                  setExpandedIdx((cur) => (cur === i ? null : i));
+                  requestAnimationFrame(() => {
+                    listRef.current?.querySelectorAll("[data-kb-card]")?.[i]?.scrollIntoView({
+                      block: "nearest",
+                      behavior: "smooth",
+                    });
+                  });
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {ragError && (
-        <div className="border-b border-border-warning-subtle bg-background-warning-subtler px-200 py-075 text-body-small text-text-warning-bolder">
+        <div className="border-t border-border-warning-subtle bg-background-warning-subtler px-200 py-075 text-body-small text-text-warning-bolder">
           {ragError}
         </div>
       )}
 
       {cannedOpen && (
-        <div className="border-b border-border bg-surface-sunken px-200 py-150">
+        <div className="border-t border-border bg-surface-sunken px-200 py-150">
           <div className="mb-075 text-body-small font-semibold text-text-subtlest">
             Canned responses
           </div>
@@ -349,7 +374,7 @@ export function Composer({
       )}
 
       {emojiOpen && (
-        <div className="border-b border-border bg-surface-sunken px-200 py-150">
+        <div className="border-t border-border bg-surface-sunken px-200 py-150">
           <div className="mb-075 flex items-center justify-between">
             <span className="text-body-small font-semibold text-text-subtlest">
               Insert emoji
@@ -379,36 +404,7 @@ export function Composer({
         </div>
       )}
 
-      {needsClaim && (
-        <div className="flex flex-wrap items-center justify-between gap-100 border-b border-border-brand/20 bg-background-brand-subtlest/60 px-200 py-150">
-          <p className="text-body-small text-text">
-            {thread.status === "bot" && !thread.isMine
-              ? "Bot is handling this thread. Take over to reply on WhatsApp."
-              : "This thread needs an agent. Take over to reply."}
-          </p>
-          <button
-            type="button"
-            onClick={onTakeOver}
-            disabled={busy}
-            className="focus-ring inline-flex shrink-0 items-center gap-100 rounded-medium bg-background-brand-bold px-150 py-075 text-body font-medium text-text-inverse transition-transform hover:bg-background-brand-bold-hovered active:scale-[0.98] disabled:opacity-60"
-          >
-            {takeOverLabel}
-          </button>
-        </div>
-      )}
-
-      <div className="flex items-end gap-100 px-200 py-150">
-        {canReturnToBot && (
-          <button
-            type="button"
-            onClick={onReturnToBot}
-            disabled={busy}
-            title="Hand this thread back to the bot"
-            className="focus-ring shrink-0 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text-subtle hover:border-border-brand hover:text-text-brand disabled:opacity-60"
-          >
-            Return to bot
-          </button>
-        )}
+      <div className="flex items-end gap-100 border-t border-border px-200 py-150">
         <input
           ref={fileRef}
           type="file"
@@ -443,7 +439,7 @@ export function Composer({
           aria-label="Canned responses"
           title="Canned responses"
         >
-          <ChevronUp className="h-4 w-4" />
+          <MessageSquareText className="h-4 w-4" />
         </button>
         <textarea
           value={text}

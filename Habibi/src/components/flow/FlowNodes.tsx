@@ -3,6 +3,7 @@ import { AlertTriangle, Ear, Flag, PhoneOff, Wrench } from "lucide-react";
 
 import type { FlowNodeData } from "@/api/flow";
 import { cn } from "@/lib/utils";
+import { useCompact } from "./zoom";
 
 /**
  * What the canvas passes into a node renderer. `issues` is injected by
@@ -46,6 +47,45 @@ function NodeShell({
 
 export function ConversationNode({ data, selected }: NodeProps) {
   const d = data as unknown as CanvasNodeData;
+  const compact = useCompact();
+  const inbound = !d.isStart && (
+    <Handle
+      type="target"
+      position={Position.Top}
+      className="!h-2 !w-2 !rounded-full !border-2 !border-text-subtlest !bg-surface"
+    />
+  );
+  const outbound = (
+    <Handle
+      type="source"
+      position={Position.Bottom}
+      className="!h-2 !w-2 !rounded-full !border-2 !border-text-subtlest !bg-surface"
+    />
+  );
+
+  if (compact) {
+    return (
+      <NodeShell
+        selected={!!selected}
+        errorCount={d.errorCount}
+        warningCount={d.warningCount}
+      >
+        {inbound}
+        <div className="flex items-center gap-100 px-150 py-200">
+          {d.isStart && <Flag className="h-5 w-5 shrink-0 text-text-brand" />}
+          {/* Type scales with the zoom-out so it stays legible on screen. */}
+          <span className="truncate font-mono text-[1.35rem] font-semibold text-text">
+            {d.nodeKey}
+          </span>
+          {d.errorCount > 0 && (
+            <AlertTriangle className="ml-auto h-5 w-5 shrink-0 text-text-danger" />
+          )}
+        </div>
+        {outbound}
+      </NodeShell>
+    );
+  }
+
   return (
     <NodeShell
       selected={!!selected}
@@ -53,14 +93,8 @@ export function ConversationNode({ data, selected }: NodeProps) {
       warningCount={d.warningCount}
     >
       {/* The start node is the entry point, so it has no inbound handle. */}
-      {!d.isStart && (
-        <Handle
-          type="target"
-          position={Position.Top}
-          className="!h-2 !w-2 !rounded-full !border-2 !border-text-subtlest !bg-surface"
-        />
-      )}
-      <div className="flex items-center justify-between gap-100 border-b border-border px-125 py-075">
+      {inbound}
+      <div className="flex items-center justify-between gap-100 border-b border-border px-150 py-075">
         <div className="flex min-w-0 items-center gap-075">
           {d.isStart && <Flag className="h-3.5 w-3.5 shrink-0 text-text-brand" />}
           <span className="truncate text-body-small font-semibold text-text">{d.name}</span>
@@ -70,7 +104,7 @@ export function ConversationNode({ data, selected }: NodeProps) {
         )}
       </div>
 
-      <div className="px-125 py-100">
+      <div className="px-150 py-100">
         <p className="line-clamp-3 text-body-small leading-relaxed text-text-subtle">
           {d.instructions?.trim() || (
             <span className="italic text-text-subtlest">No instructions yet</span>
@@ -112,18 +146,47 @@ export function ConversationNode({ data, selected }: NodeProps) {
 
 export function EndNode({ data, selected }: NodeProps) {
   const d = data as unknown as CanvasNodeData;
+  // The end node zooms out with everything else.
+  //
+  // Only ConversationNode had a compact form, so at overview zoom eleven cards
+  // swapped to large key-only type and this one kept 13px text and an 8px key
+  // chip — which at that scale is a blank rectangle. On a twelve-node graph the
+  // one box with no label on it was the node that ends the call.
+  const compact = useCompact();
+  const inbound = (
+    <Handle
+      type="target"
+      position={Position.Top}
+      className="!h-2 !w-2 !rounded-full !border-2 !border-text-subtlest !bg-surface"
+    />
+  );
+
+  if (compact) {
+    return (
+      <NodeShell
+        selected={!!selected}
+        errorCount={d.errorCount}
+        warningCount={d.warningCount}
+      >
+        {inbound}
+        <div className="flex items-center gap-100 px-150 py-200">
+          <PhoneOff className="h-5 w-5 shrink-0 text-text-danger" />
+          <span className="truncate font-mono text-[1.35rem] font-semibold text-text">
+            {d.nodeKey}
+          </span>
+        </div>
+      </NodeShell>
+    );
+  }
+
   return (
     <NodeShell
       selected={!!selected}
       errorCount={d.errorCount}
       warningCount={d.warningCount}
     >
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="!h-2 !w-2 !rounded-full !border-2 !border-text-subtlest !bg-surface"
-      />
-      <div className="flex items-center gap-075 px-125 py-100">
+      {inbound}
+      <div className="flex items-center gap-075 px-150 py-100">
         <PhoneOff className="h-3.5 w-3.5 shrink-0 text-text-danger" />
         <span className="truncate text-body-small font-semibold text-text">{d.name}</span>
         <span className="ml-auto rounded-small bg-surface-sunken px-075 py-025 font-mono text-[0.65rem] text-text-subtlest">

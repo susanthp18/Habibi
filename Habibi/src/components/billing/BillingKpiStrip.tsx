@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, TrendingUp, Wallet, Coins, Gauge } from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import type { DayPoint } from "@/data/billing-seed";
 import { inrCompact } from "@/data/billing-seed";
+import { LivelineSpark } from "@/components/charts";
 import { cn } from "@/lib/utils";
 
 function DeltaChip({ pct }: { pct: number }) {
@@ -32,7 +32,7 @@ function KpiCard({
   footer: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[8.25rem] flex-col rounded-large border border-border bg-surface p-200">
+    <div className="flex min-h-[8.25rem] flex-col rounded-large border border-border bg-surface p-200 shadow-raised">
       <div className="flex items-center justify-between">
         <span className="text-body-small font-medium text-text-subtlest">{label}</span>
         {icon}
@@ -73,9 +73,7 @@ export function BillingKpiStrip({
   const budgetPct = budgetCap > 0 ? Math.round((spendMtd / budgetCap) * 100) : 0;
   const forecastPct = budgetCap > 0 ? Math.round((forecast / budgetCap) * 100) : 0;
 
-  const spark = daily.map((d) => ({
-    v: Object.values(d.values).reduce((a, b) => a + b, 0),
-  }));
+  const spark = daily.map((d) => Object.values(d.values).reduce((a, b) => a + b, 0));
 
   const budgetTone =
     budgetPct < 70 ? "text-text-success" : budgetPct < 90 ? "text-text-warning" : "text-text-danger";
@@ -93,24 +91,8 @@ export function BillingKpiStrip({
           <span className="text-[1.5rem] font-semibold text-text">{inrCompact(spendMtd)}</span>
           <DeltaChip pct={spendDelta} />
         </div>
-        <div className="mt-050 h-7">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={spark} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="sparkSpend" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--background-brand-bold)" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="var(--background-brand-bold)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Area
-                type="monotone"
-                dataKey="v"
-                stroke="var(--background-brand-bold)"
-                strokeWidth={1.5}
-                fill="url(#sparkSpend)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+        <div className="mt-050 overflow-hidden rounded-medium bg-surface-sunken">
+          <LivelineSpark data={spark} color="#1868db" height={28} />
         </div>
       </KpiCard>
 

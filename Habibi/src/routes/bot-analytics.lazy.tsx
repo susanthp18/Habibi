@@ -17,6 +17,8 @@ import {
   type ChannelKey,
   type RangeKey,
 } from "@/data/bot-analytics-seed";
+import { LoadingState } from "@/components/ui/loading-state";
+import { CardSkillAnalytics } from "@/components/bot-analytics/CardSkillAnalytics";
 
 export const Route = createLazyFileRoute("/bot-analytics")({
   component: BotAnalyticsPage,
@@ -44,8 +46,8 @@ function BotAnalyticsPage() {
         <BotAnalyticsHeader range={range} channel={channel} onRange={setRange} onChannel={setChannel} />
 
         {isLoading && !data ? (
-          <div className="flex flex-1 items-center justify-center text-body text-text-subtle">
-            Loading bot analytics…
+          <div className="flex flex-1 items-center justify-center">
+            <LoadingState label="Loading bot analytics" />
           </div>
         ) : isError && !data ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
@@ -80,6 +82,7 @@ function BotAnalyticsPage() {
                   <LatencyChart points={points} />
                   <TurnsHistogram buckets={data?.turnsHistogram ?? []} />
                 </div>
+                <CardSkillAnalytics byCard={data?.byCard} skillHistogram={data?.skillHistogram} />
               </div>
             </div>
           </>

@@ -8,7 +8,8 @@ export const fmtDate = _fmtDate;
 
 export type DocStatus = "requested" | "generating" | "sent" | "failed";
 export type DocChannel = "whatsapp" | "email" | "sms";
-export type RequestedVia = "bot_voice" | "bot_chat" | "agent";
+export type RequestedVia = "bot_voice" | "bot_chat" | "agent" | "mcp" | "clerk" | "vision" | "inbox";
+export type DocSource = "crm" | "vision" | "clerk" | "mcp";
 export type DocType =
   | "account_statement"
   | "no_dues_certificate"
@@ -38,6 +39,7 @@ export interface DocRequest {
   deliveryChannel: DocChannel;
   deliveryTarget: string;
   status: DocStatus;
+  source?: DocSource;
   templateId: string;
   generatedAt?: string;
   sentAt?: string;

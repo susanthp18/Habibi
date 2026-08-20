@@ -3,7 +3,9 @@ import { Bot, Headphones, MessageCircle, MessageSquare, Phone, PhoneForwarded, S
 import { cn } from "@/lib/utils";
 import { SentimentBubble } from "./SentimentBubble";
 import { Waveform } from "./Waveform";
-import { channelLabel, type ActiveCall } from "@/data/floor-seed";
+import { channelLabel, LIVE_QA_STATUS_LABEL, LIVE_QA_STATUS_TONE, type ActiveCall } from "@/data/floor-seed";
+import { OFFER_STATUS_LABEL, OFFER_STATUS_TONE } from "@/lib/offer-policy";
+import { AUTHORITY_STATUS_LABEL, AUTHORITY_STATUS_TONE } from "@/lib/authority-policy";
 import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";
 
 const fmtDur = (s: number) => {
@@ -124,8 +126,21 @@ export function CallTile({
       {/* Topic + sentiment */}
       <div className="flex flex-wrap items-center gap-075">
         <Lozenge tone="neutral">{call.topic}</Lozenge>
+        {call.offerPolicy && call.offerPolicy.status !== "none" ? (
+          <Lozenge tone={OFFER_STATUS_TONE[call.offerPolicy.status]}>{OFFER_STATUS_LABEL[call.offerPolicy.status]}</Lozenge>
+        ) : null}
+        {call.authorityPolicy && call.authorityPolicy.status !== "none" ? (
+          <Lozenge tone={AUTHORITY_STATUS_TONE[call.authorityPolicy.status]}>
+            {AUTHORITY_STATUS_LABEL[call.authorityPolicy.status]}
+          </Lozenge>
+        ) : null}
+        {call.liveQa && call.liveQa.status && call.liveQa.status !== "none" ? (
+          <Lozenge tone={LIVE_QA_STATUS_TONE[call.liveQa.status] ?? "warning"}>
+            {LIVE_QA_STATUS_LABEL[call.liveQa.status] ?? call.liveQa.reason?.replace(/-/g, " ") ?? "Live QA"}
+          </Lozenge>
+        ) : null}
         <SentimentBubble value={call.sentiment} trend={call.sentimentTrend} />
-        {!isHuman && <Lozenge tone="selected">Bot</Lozenge>}
+        {!isHuman && <Lozenge tone="selected">{call.agentCard?.displayName ?? "Bot"}</Lozenge>}
       </div>
 
       {/* Last line */}

@@ -27,6 +27,7 @@ import {
   createPromise,
   movePromise,
   reschedulePromise,
+  resendPromiseConfirm,
   usePaymentPlans,
   usePromises,
 } from "@/api/promises";
@@ -137,7 +138,20 @@ function PromisesPage() {
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Plan creation failed"),
   });
 
+  const resendMutation = useMutation({
+    mutationFn: (p: Ptp) => resendPromiseConfirm(p),
+    onSuccess: (_r, p) => {
+      invalidate();
+      toast.success(`Confirm resent · ${p.customerName}`);
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Resend failed"),
+  });
+
   const handleMark = (p: Ptp, status: PromiseStatus, opts?: { paidAmount?: number }) => {
+    if (status === "kept" && !(p.paidAmount && p.paidAmount > 0)) {
+      toast.error("Kept requires a recorded payment on the ledger");
+      return;
+    }
     markMutation.mutate({ p, status, opts });
     if (detailId === p.id) setDetailId(null);
   };
@@ -150,8 +164,14 @@ function PromisesPage() {
   const handleDropStatus = (id: string, status: PromiseStatus) => {
     const p = promisesData.find((x) => x.id === id);
     if (!p || p.status === status) return;
+    if (status === "kept" && !(p.paidAmount && p.paidAmount > 0)) {
+      toast.error("Kept requires a recorded payment on the ledger");
+      return;
+    }
     handleMark(p, status);
   };
+
+  const handleResend = (p: Ptp) => resendMutation.mutate(p);
 
   const handleCreate = (input: CreateInput) => createMutation.mutate(input);
   const handleCreatePlan = (input: PlanInput) => planMutation.mutate(input);
@@ -195,39 +215,41 @@ function PromisesPage() {
           </div>
         </div>
 
-        {/* Scrollable body */}
-        <div className="flex-1 space-y-200 overflow-y-auto px-300 py-200">
-          <MetricsStrip m={metrics} />
-          <FiltersBar
-            filters={filters}
-            onChange={patchFilters}
-            owners={owners}
-            counts={metrics.counts}
-          />
+        <div className="min-h-0 flex-1 overflow-y-auto p-150">
+          <div className="space-y-200">
+            <MetricsStrip m={metrics} />
+            <FiltersBar
+              filters={filters}
+              onChange={patchFilters}
+              owners={owners}
+              counts={metrics.counts}
+            />
 
-          {followUps.length > 0 && (
-            <div className="flex items-start gap-150 rounded-large border border-border-danger-subtle bg-background-danger-subtler/60 px-150 py-100 text-body-small">
-              <Inbox className="mt-025 h-4 w-4 text-text-danger" />
-              <div className="flex-1">
-                <div className="font-semibold text-text-danger-bolder">Broken promises routed to Follow-up Queue</div>
-                <div className="text-text-danger-bolder/80">
-                  {followUps.slice(0, 3).map((f) => `${f.customerName} · ${f.promiseId}`).join(" · ")}
-                  {followUps.length > 3 && ` · +${followUps.length - 3} more`}
+            {followUps.length > 0 && (
+              <div className="flex items-start gap-150 rounded-large border border-border-danger-subtle bg-background-danger-subtler/60 px-150 py-100 text-body-small">
+                <Inbox className="mt-025 h-4 w-4 text-text-danger" />
+                <div className="flex-1">
+                  <div className="font-semibold text-text-danger-bolder">Broken promises routed to Follow-up Queue</div>
+                  <div className="text-text-danger-bolder/80">
+                    {followUps.slice(0, 3).map((f) => `${f.customerName} · ${f.promiseId}`).join(" · ")}
+                    {followUps.length > 3 && ` · +${followUps.length - 3} more`}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <PromisePipeline
-            promises={filtered}
-            counts={metrics.counts}
-            subtotals={metrics.subtotals}
-            onOpen={(p) => setDetailId(p.id)}
-            onMark={handleMark}
-            onDropStatus={handleDropStatus}
-          />
+            <PromisePipeline
+              promises={filtered}
+              counts={metrics.counts}
+              subtotals={metrics.subtotals}
+              onOpen={(p) => setDetailId(p.id)}
+              onMark={handleMark}
+              onDropStatus={handleDropStatus}
+              onResend={handleResend}
+            />
 
-          <PaymentPlansTable plans={plansData} onOpen={setPlanDetail} />
+            <PaymentPlansTable plans={plansData} onOpen={setPlanDetail} />
+          </div>
         </div>
       </div>
 
@@ -250,6 +272,7 @@ function PromisesPage() {
         onOpenChange={(v) => !v && setDetailId(null)}
         onMark={handleMark}
         onReschedule={handleReschedule}
+        onResend={handleResend}
       />
       <PlanDetailDrawer plan={planDetail} onOpenChange={(v) => !v && setPlanDetail(null)} />
     </AppShell>

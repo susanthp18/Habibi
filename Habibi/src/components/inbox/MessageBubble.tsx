@@ -1,9 +1,17 @@
-import { Check, CheckCheck, X } from "lucide-react";
+import { Check, CheckCheck, Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/data/inbox-seed";
 
 function Ticks({ status }: { status: Message["delivery"] }) {
   if (!status) return null;
+  if (status === "pending") {
+    return (
+      <Clock
+        className="h-3.5 w-3.5 text-text-inverse/50"
+        aria-label="Queued — not yet sent"
+      />
+    );
+  }
   if (status === "failed") {
     return <X className="h-3.5 w-3.5 text-text-danger" aria-label="Delivery failed" />;
   }
@@ -27,7 +35,7 @@ export function MessageBubble({
   const isMine = message.sender !== "customer";
 
   const bubbleClass = cn(
-    "relative max-w-[78%] rounded-xxlarge px-200 py-100 text-body leading-snug",
+    "relative max-w-[78%] rounded-xxlarge px-200 py-100 text-body leading-relaxed whitespace-pre-wrap break-words",
     !isMine && "bg-surface text-text border border-border rounded-bl-md",
     message.sender === "bot" && "bg-background-brand-subtlest text-text rounded-br-md",
     message.sender === "agent" && "bg-background-brand-bold text-text-inverse rounded-br-md",

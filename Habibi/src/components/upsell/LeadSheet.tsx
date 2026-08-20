@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -35,7 +35,7 @@ import {
   type LeadStage,
   type Priority,
 } from "@/data/upsell-seed";
-import { addLeadFollowUp, markLeadFollowUpDone, patchLead, revalidateLead } from "@/api/upsell";
+import { addLeadFollowUp, leadContactChannel, markLeadFollowUpDone, patchLead, revalidateLead } from "@/api/upsell";
 import { useProducts } from "@/api/products";
 import { humanNames, useStaff } from "@/api/staff";
 import { teamNames, useTeams } from "@/api/teams";
@@ -114,8 +114,12 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
     d.setMinutes(0, 0, 0);
     return d.toISOString().slice(0, 16);
   });
-  const [fuChannel, setFuChannel] = useState<FollowUpChannel>("voice");
+  const [fuChannel, setFuChannel] = useState<FollowUpChannel>(() => leadContactChannel(lead.source));
   const [fuNote, setFuNote] = useState("");
+
+  useEffect(() => {
+    setFuChannel(leadContactChannel(lead.source));
+  }, [lead.id, lead.source]);
 
   const failing = useMemo(() => lead.eligibilityFlags.filter((f) => !f.ok), [lead]);
   const leadMutation = useMutation({
@@ -137,7 +141,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
   // badge on this drawer does not, so a rep could work a lead the customer has
   // since opted out of. This re-checks against today's facts before they dial.
   const revalidateMutation = useMutation({
-    mutationFn: () => revalidateLead(lead),
+    mutationFn: () => revalidateLead(lead, fuChannel),
     onSuccess: (result) => {
       onMutate();
       if (result.eligible) toast.success("Still eligible");

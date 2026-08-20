@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createLazyFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Lock } from "lucide-react";
@@ -9,33 +9,26 @@ import { CallDetailDrawer } from "@/components/audit/CallDetailDrawer";
 import { defaultFilters, filterCalls, type AuditFilterState } from "@/data/audit-seed";
 import { useCalls } from "@/api/audit";
 import { Lozenge } from "@/components/ui/lozenge";
+import { LoadingState } from "@/components/ui/loading-state";
 
 export const Route = createLazyFileRoute("/audit")({
   component: AuditPage,
 });
 
 function AuditPage() {
+  const { id } = Route.useSearch();
   const [filters, setFilters] = useState<AuditFilterState>(defaultFilters);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(id ?? null);
 
   const { data: calls = [], isLoading, isError, error, refetch } = useCalls();
 
+  useEffect(() => {
+    if (id) setOpenId(id);
+  }, [id]);
+
   const rows = useMemo(() => filterCalls(calls, filters), [calls, filters]);
   const openCall = useMemo(() => rows.find((r) => r.id === openId) ?? calls.find((c) => c.id === openId) ?? null, [calls, openId, rows]);
-
-  const toggle = (id: string) =>
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const toggleAll = (all: boolean) => {
-    if (all) setSelected(new Set(rows.map((r) => r.id)));
-    else setSelected(new Set());
-  };
 
   const handleExport = () => {
     const count = selected.size || rows.length;
@@ -68,8 +61,8 @@ function AuditPage() {
         />
 
         {isLoading && calls.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center text-body text-text-subtle">
-            Loading calls…
+          <div className="flex flex-1 items-center justify-center">
+            <LoadingState label="Loading calls" />
           </div>
         ) : isError && calls.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
@@ -86,14 +79,15 @@ function AuditPage() {
             </button>
           </div>
         ) : (
-          <CallsTable
-            rows={rows}
-            selected={selected}
-            onToggle={toggle}
-            onToggleAll={toggleAll}
-            openId={openId}
-            onOpen={setOpenId}
-          />
+          <div className="min-h-0 flex-1 overflow-hidden p-150">
+            <CallsTable
+              rows={rows}
+              selected={selected}
+              onSelectedChange={setSelected}
+              openId={openId}
+              onOpen={setOpenId}
+            />
+          </div>
         )}
       </div>
 

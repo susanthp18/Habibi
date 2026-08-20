@@ -60,7 +60,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
+    <div className="flex shrink-0 flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
       <div className="relative min-w-[13.75rem] flex-1">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
         <Input

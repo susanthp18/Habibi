@@ -1,0 +1,1857 @@
+{
+  "tsc": {
+    "errors": 0,
+    "notes": "tsc --noEmit exit 0, empty output. TypeScript 5.8.3 local."
+  },
+  "knip": {
+    "unusedFiles": 33,
+    "unusedDependencies": 27,
+    "unusedExports": [
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "sentimentBucket",
+        "line": 389
+      },
+      {
+        "file": "src/data/upsell-seed.ts",
+        "name": "productMap",
+        "line": 155
+      },
+      {
+        "file": "src/data/upsell-seed.ts",
+        "name": "fmtDate",
+        "line": 208
+      },
+      {
+        "file": "src/api/audit.ts",
+        "name": "fetchCalls",
+        "line": 25
+      },
+      {
+        "file": "src/components/ui/lozenge.tsx",
+        "name": "lozengeVariants",
+        "line": 52
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "fetchBilling",
+        "line": 85
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "saveBudgetRule",
+        "line": 105
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "deleteBudgetRule",
+        "line": 121
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "changePct",
+        "line": 147
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "inr",
+        "line": 147
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "inrCompact",
+        "line": 147
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "sumRange",
+        "line": 147
+      },
+      {
+        "file": "src/api/billing.ts",
+        "name": "usageUnits",
+        "line": 147
+      },
+      {
+        "file": "src/api/bot-analytics.ts",
+        "name": "fetchBotAnalytics",
+        "line": 39
+      },
+      {
+        "file": "src/data/callbacks-seed.ts",
+        "name": "QUEUES",
+        "line": 132
+      },
+      {
+        "file": "src/data/callbacks-seed.ts",
+        "name": "AGENTS",
+        "line": 134
+      },
+      {
+        "file": "src/data/callbacks-seed.ts",
+        "name": "CURRENT_AGENT",
+        "line": 144
+      },
+      {
+        "file": "src/api/callbacks.ts",
+        "name": "UNASSIGNED",
+        "line": 37
+      },
+      {
+        "file": "src/api/callbacks.ts",
+        "name": "markMissed",
+        "line": 135
+      },
+      {
+        "file": "src/api/customers.ts",
+        "name": "fetchCustomers",
+        "line": 16
+      },
+      {
+        "file": "src/api/staff.ts",
+        "name": "fetchStaff",
+        "line": 35
+      },
+      {
+        "file": "src/api/staff.ts",
+        "name": "staffRoster",
+        "line": 48
+      },
+      {
+        "file": "src/api/teams.ts",
+        "name": "fetchTeams",
+        "line": 25
+      },
+      {
+        "file": "src/api/teams.ts",
+        "name": "teamRoster",
+        "line": 36
+      },
+      {
+        "file": "src/lib/workspace-nav.ts",
+        "name": "workItemDestination",
+        "line": 4
+      },
+      {
+        "file": "src/data/compliance-seed.ts",
+        "name": "setViolationStatus",
+        "line": 400
+      },
+      {
+        "file": "src/api/compliance.ts",
+        "name": "fetchViolations",
+        "line": 27
+      },
+      {
+        "file": "src/api/compliance.ts",
+        "name": "addViolationNote",
+        "line": 125
+      },
+      {
+        "file": "src/api/me.ts",
+        "name": "fetchMe",
+        "line": 34
+      },
+      {
+        "file": "src/data/consent-seed.ts",
+        "name": "channelStatus",
+        "line": 280
+      },
+      {
+        "file": "src/data/consent-seed.ts",
+        "name": "isWithinAllowedWindow",
+        "line": 284
+      },
+      {
+        "file": "src/data/consent-seed.ts",
+        "name": "isConsentExpired",
+        "line": 290
+      },
+      {
+        "file": "src/data/consent-seed.ts",
+        "name": "isContactableNow",
+        "line": 309
+      },
+      {
+        "file": "src/api/consent.ts",
+        "name": "fetchConsent",
+        "line": 27
+      },
+      {
+        "file": "src/components/ui/sheet.tsx",
+        "name": "SheetPortal",
+        "line": 113
+      },
+      {
+        "file": "src/components/ui/sheet.tsx",
+        "name": "SheetOverlay",
+        "line": 114
+      },
+      {
+        "file": "src/components/ui/sheet.tsx",
+        "name": "SheetClose",
+        "line": 116
+      },
+      {
+        "file": "src/data/disputes-seed.ts",
+        "name": "listAssignees",
+        "line": 347
+      },
+      {
+        "file": "src/components/records/RecordsTag.tsx",
+        "name": "tagHueFor",
+        "line": 20
+      },
+      {
+        "file": "src/api/dashboard.ts",
+        "name": "fetchDashboard",
+        "line": 105
+      },
+      {
+        "file": "src/api/disputes.ts",
+        "name": "UNASSIGNED",
+        "line": 34
+      },
+      {
+        "file": "src/api/disputes.ts",
+        "name": "fetchDisputes",
+        "line": 46
+      },
+      {
+        "file": "src/data/documents-seed.ts",
+        "name": "fmtMoney",
+        "line": 6
+      },
+      {
+        "file": "src/data/documents-seed.ts",
+        "name": "CURRENT_AGENT",
+        "line": 229
+      },
+      {
+        "file": "src/data/documents-seed.ts",
+        "name": "listAssignees",
+        "line": 382
+      },
+      {
+        "file": "src/data/documents-seed.ts",
+        "name": "customerPool",
+        "line": 550
+      },
+      {
+        "file": "src/api/documents.ts",
+        "name": "fetchDocuments",
+        "line": 37
+      },
+      {
+        "file": "src/api/documents.ts",
+        "name": "setStatus",
+        "line": 99
+      },
+      {
+        "file": "src/api/floor.ts",
+        "name": "fetchFloor",
+        "line": 50
+      },
+      {
+        "file": "src/data/floor-seed.ts",
+        "name": "topicOptions",
+        "line": 63
+      },
+      {
+        "file": "src/api/inbox.ts",
+        "name": "fetchConversations",
+        "line": 74
+      },
+      {
+        "file": "src/api/inbox.ts",
+        "name": "fetchCannedResponses",
+        "line": 136
+      },
+      {
+        "file": "src/api/presence.ts",
+        "name": "fetchPresence",
+        "line": 37
+      },
+      {
+        "file": "src/api/presence.ts",
+        "name": "patchPresence",
+        "line": 42
+      },
+      {
+        "file": "src/api/handoff.ts",
+        "name": "fetchHandoffQueue",
+        "line": 147
+      },
+      {
+        "file": "src/api/handoff.ts",
+        "name": "fetchHandoffActive",
+        "line": 164
+      },
+      {
+        "file": "src/api/handoff.ts",
+        "name": "fetchHandoffSession",
+        "line": 170
+      },
+      {
+        "file": "src/api/handoff.ts",
+        "name": "claimHandoff",
+        "line": 203
+      },
+      {
+        "file": "src/api/handoff.ts",
+        "name": "wrapUpHandoff",
+        "line": 250
+      },
+      {
+        "file": "src/api/workspace.ts",
+        "name": "fetchWorkItems",
+        "line": 86
+      },
+      {
+        "file": "src/api/workspace.ts",
+        "name": "fetchWorkspaceSummary",
+        "line": 162
+      },
+      {
+        "file": "src/api/integrations.ts",
+        "name": "fetchProviders",
+        "line": 28
+      },
+      {
+        "file": "src/api/integrations.ts",
+        "name": "setProviderEnabled",
+        "line": 43
+      },
+      {
+        "file": "src/api/integrations.ts",
+        "name": "testProviderConnection",
+        "line": 74
+      },
+      {
+        "file": "src/api/integrations.ts",
+        "name": "fetchProviderTestLogs",
+        "line": 85
+      },
+      {
+        "file": "src/components/ui/alert-dialog.tsx",
+        "name": "AlertDialogPortal",
+        "line": 105
+      },
+      {
+        "file": "src/components/ui/alert-dialog.tsx",
+        "name": "AlertDialogOverlay",
+        "line": 106
+      },
+      {
+        "file": "src/components/ui/alert-dialog.tsx",
+        "name": "AlertDialogTrigger",
+        "line": 107
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "fetchKbStats",
+        "line": 127
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "fetchKbDocuments",
+        "line": 138
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "fetchKbChunks",
+        "line": 147
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "fetchKbIndexJob",
+        "line": 378
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "fetchKbFaqs",
+        "line": 493
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "fetchKbGaps",
+        "line": 561
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "fetchKbSnapshots",
+        "line": 609
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuCheckboxItem",
+        "line": 177
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuRadioItem",
+        "line": 178
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuShortcut",
+        "line": 181
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuGroup",
+        "line": 182
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuPortal",
+        "line": 183
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuSub",
+        "line": 184
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuSubContent",
+        "line": 185
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuSubTrigger",
+        "line": 186
+      },
+      {
+        "file": "src/components/ui/dropdown-menu.tsx",
+        "name": "DropdownMenuRadioGroup",
+        "line": 187
+      },
+      {
+        "file": "src/data/kb-seed.ts",
+        "name": "chunkPreview",
+        "line": 205
+      },
+      {
+        "file": "src/api/promises.ts",
+        "name": "fetchPromises",
+        "line": 32
+      },
+      {
+        "file": "src/api/promises.ts",
+        "name": "fetchPaymentPlans",
+        "line": 37
+      },
+      {
+        "file": "src/components/flow/FlowCanvas.tsx",
+        "name": "emptyGraph",
+        "line": 423
+      },
+      {
+        "file": "src/api/flow.ts",
+        "name": "fetchFlowTools",
+        "line": 212
+      },
+      {
+        "file": "src/api/flow.ts",
+        "name": "fetchReservedKeys",
+        "line": 216
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchPromptVersions",
+        "line": 90
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchPublishedPromptVersion",
+        "line": 95
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchPersonaPresets",
+        "line": 110
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchTtsVoices",
+        "line": 115
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchTtsVoiceCatalog",
+        "line": 200
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchTtsPricing",
+        "line": 253
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchTtsSyncRuns",
+        "line": 279
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "useTtsVoiceCatalog",
+        "line": 305
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchBotDeployments",
+        "line": 350
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "useTtsVoices",
+        "line": 405
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "estimatePromptTokens",
+        "line": 421
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "createPromptVersion",
+        "line": 454
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "patchPromptVersion",
+        "line": 476
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "restorePromptVersionAsDraft",
+        "line": 528
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "rollbackBotDeployment",
+        "line": 547
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "discardPromptVersion",
+        "line": 576
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "lintPromptVersion",
+        "line": 596
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "fetchActiveBotDeployment",
+        "line": 661
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "publishStudioDraft",
+        "line": 707
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "ensureStudioDraft",
+        "line": 741
+      },
+      {
+        "file": "src/data/prompt-studio-seed.ts",
+        "name": "diffPrompts",
+        "line": 275
+      },
+      {
+        "file": "src/data/prompt-studio-seed.ts",
+        "name": "estimateTokens",
+        "line": 306
+      },
+      {
+        "file": "src/data/prompt-studio-seed.ts",
+        "name": "formatConfigBlock",
+        "line": 318
+      },
+      {
+        "file": "src/api/qa.ts",
+        "name": "fetchScorecards",
+        "line": 24
+      },
+      {
+        "file": "src/api/qa.ts",
+        "name": "fetchRubric",
+        "line": 33
+      },
+      {
+        "file": "src/api/qa.ts",
+        "name": "fetchCoachingActions",
+        "line": 93
+      },
+      {
+        "file": "src/api/qa.ts",
+        "name": "fetchCalibrationSessions",
+        "line": 147
+      },
+      {
+        "file": "src/data/qa-seed.ts",
+        "name": "findCall",
+        "line": 419
+      },
+      {
+        "file": "src/api/redaction.ts",
+        "name": "fetchRedactionRecords",
+        "line": 41
+      },
+      {
+        "file": "src/api/redaction.ts",
+        "name": "fetchRedactionRules",
+        "line": 54
+      },
+      {
+        "file": "src/api/redaction.ts",
+        "name": "fetchExportJobs",
+        "line": 79
+      },
+      {
+        "file": "src/data/redaction-seed.ts",
+        "name": "detectPii",
+        "line": 146
+      },
+      {
+        "file": "src/data/redaction-seed.ts",
+        "name": "formatDuration",
+        "line": 328
+      },
+      {
+        "file": "src/api/routing.ts",
+        "name": "fetchRoutingRules",
+        "line": 59
+      },
+      {
+        "file": "src/api/routing.ts",
+        "name": "fetchRoutingAudit",
+        "line": 73
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "name": "evaluateRule",
+        "line": 296
+      },
+      {
+        "file": "src/api/sandbox.ts",
+        "name": "fetchSandboxScenarios",
+        "line": 137
+      },
+      {
+        "file": "src/api/sandbox.ts",
+        "name": "fetchSandboxRun",
+        "line": 160
+      },
+      {
+        "file": "src/api/sandbox.ts",
+        "name": "useSandboxRun",
+        "line": 180
+      },
+      {
+        "file": "src/api/sandbox.ts",
+        "name": "INTENT_KEYS",
+        "line": 323
+      },
+      {
+        "file": "src/api/voice-sandbox.ts",
+        "name": "fetchTuningPresets",
+        "line": 70
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "KB_SNAPSHOTS",
+        "line": 95
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "classifyIntent",
+        "line": 322
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "estimateSentiment",
+        "line": 345
+      },
+      {
+        "file": "src/api/upsell.ts",
+        "name": "fetchLeads",
+        "line": 57
+      },
+      {
+        "file": "src/api/products.ts",
+        "name": "fetchProducts",
+        "line": 52
+      },
+      {
+        "file": "src/api/products.ts",
+        "name": "productCatalog",
+        "line": 69
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "fetchWebhookEndpoints",
+        "line": 27
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "fetchWebhookDeliveries",
+        "line": 32
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "fetchEventCatalog",
+        "line": 43
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "useEventCatalog",
+        "line": 64
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "createWebhookEndpoint",
+        "line": 74
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "updateWebhookEndpoint",
+        "line": 98
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "deleteWebhookEndpoint",
+        "line": 116
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "rotateWebhookSecret",
+        "line": 126
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "testFireWebhook",
+        "line": 137
+      },
+      {
+        "file": "src/api/webhooks.ts",
+        "name": "retryWebhookDelivery",
+        "line": 148
+      },
+      {
+        "file": "src/data/webhooks-seed.ts",
+        "name": "statusHttpBucket",
+        "line": 405
+      },
+      {
+        "file": "src/components/ui/select.tsx",
+        "name": "SelectGroup",
+        "line": 143
+      },
+      {
+        "file": "src/components/ui/select.tsx",
+        "name": "SelectLabel",
+        "line": 147
+      },
+      {
+        "file": "src/components/ui/select.tsx",
+        "name": "SelectSeparator",
+        "line": 149
+      },
+      {
+        "file": "src/components/ui/select.tsx",
+        "name": "SelectScrollUpButton",
+        "line": 150
+      },
+      {
+        "file": "src/components/ui/select.tsx",
+        "name": "SelectScrollDownButton",
+        "line": 151
+      },
+      {
+        "file": "src/components/trace/TurnTraceView.tsx",
+        "name": "TurnCard",
+        "line": 73
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "useDarkMode",
+        "line": 1
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "buildSmoothPath",
+        "line": 2
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "chartIndexFromPointer",
+        "line": 2
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "valueToY",
+        "line": 2
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "DEFAULT_PADS",
+        "line": 2
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "ChartTooltip",
+        "line": 3
+      },
+      {
+        "file": "src/components/ui/spinner.tsx",
+        "name": "spinnerVariants",
+        "line": 55
+      },
+      {
+        "file": "src/components/ui/badge.tsx",
+        "name": "badgeVariants",
+        "line": 36
+      },
+      {
+        "file": "src/components/customer360/ContactabilityPill.tsx",
+        "name": "contactabilityState",
+        "line": 18
+      },
+      {
+        "file": "src/components/inbox/meta.tsx",
+        "name": "channelMeta",
+        "line": 16
+      },
+      {
+        "file": "src/components/inbox/meta.tsx",
+        "name": "resolveChannelMeta",
+        "line": 27
+      },
+      {
+        "file": "src/components/inbox/meta.tsx",
+        "name": "sentimentColor",
+        "line": 44
+      },
+      {
+        "file": "src/components/inbox/meta.tsx",
+        "name": "chipStatus",
+        "line": 59
+      },
+      {
+        "file": "src/components/inbox/meta.tsx",
+        "name": "initials",
+        "line": 76
+      },
+      {
+        "file": "src/components/inbox/meta.tsx",
+        "name": "avatarColor",
+        "line": 94
+      },
+      {
+        "file": "src/data/workspace-seed.ts",
+        "name": "outsideWindowCount",
+        "line": 148
+      },
+      {
+        "file": "src/components/ui/popover.tsx",
+        "name": "PopoverAnchor",
+        "line": 31
+      },
+      {
+        "file": "src/components/kb/KbTagEditor.tsx",
+        "name": "KB_TAG_SUGGESTIONS",
+        "line": 7
+      },
+      {
+        "file": "src/components/ui/dialog.tsx",
+        "name": "DialogPortal",
+        "line": 107
+      },
+      {
+        "file": "src/components/ui/dialog.tsx",
+        "name": "DialogOverlay",
+        "line": 108
+      },
+      {
+        "file": "src/components/ui/dialog.tsx",
+        "name": "DialogTrigger",
+        "line": 109
+      },
+      {
+        "file": "src/components/ui/dialog.tsx",
+        "name": "DialogClose",
+        "line": 110
+      },
+      {
+        "file": "src/components/ui/dialog.tsx",
+        "name": "DialogDescription",
+        "line": 115
+      },
+      {
+        "file": "src/components/prompt-studio/VoiceCatalogBrowser.tsx",
+        "name": "LOCALE_PRESETS",
+        "line": 43
+      },
+      {
+        "file": "src/components/flow/FlowConditionEdge.tsx",
+        "name": "describeCondition",
+        "line": 16
+      },
+      {
+        "file": "src/components/flow/FlowConditionEdge.tsx",
+        "name": "FlowConditionEdge",
+        "line": 40
+      },
+      {
+        "file": "src/components/flow/FlowNodes.tsx",
+        "name": "ConversationNode",
+        "line": 47
+      },
+      {
+        "file": "src/components/flow/FlowNodes.tsx",
+        "name": "EndNode",
+        "line": 113
+      },
+      {
+        "file": "src/components/prompt-studio/useVoicePreview.ts",
+        "name": "VOICE_DEMO_LINE",
+        "line": 6
+      },
+      {
+        "file": "src/api/trace.ts",
+        "name": "fetchTurnTrace",
+        "line": 60
+      },
+      {
+        "file": "src/api/call-cost.ts",
+        "name": "fetchCallCost",
+        "line": 42
+      },
+      {
+        "file": "src/components/ui/tag.tsx",
+        "name": "Tag",
+        "line": 36
+      },
+      {
+        "file": "src/components/ui/tag.tsx",
+        "name": "tagVariants",
+        "line": 43
+      },
+      {
+        "file": "src/components/ui/command.tsx",
+        "name": "Command",
+        "line": 134
+      },
+      {
+        "file": "src/components/ui/command.tsx",
+        "name": "CommandShortcut",
+        "line": 141
+      }
+    ],
+    "unusedTypes": [
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "Channel",
+        "line": 4
+      },
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "Direction",
+        "line": 5
+      },
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "HandlerKind",
+        "line": 6
+      },
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "Speaker",
+        "line": 7
+      },
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "SentimentBucket",
+        "line": 8
+      },
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "Disposition",
+        "line": 10
+      },
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "DisclosureCheck",
+        "line": 29
+      },
+      {
+        "file": "src/data/audit-seed.ts",
+        "name": "DateRange",
+        "line": 365
+      },
+      {
+        "file": "src/data/upsell-seed.ts",
+        "name": "EligibilityFlag",
+        "line": 21
+      },
+      {
+        "file": "src/data/upsell-seed.ts",
+        "name": "LeadEventKind",
+        "line": 35
+      },
+      {
+        "file": "src/api/bot-analytics.ts",
+        "name": "DailyPoint",
+        "line": 68
+      },
+      {
+        "file": "src/api/bot-analytics.ts",
+        "name": "EscalationReason",
+        "line": 69
+      },
+      {
+        "file": "src/api/bot-analytics.ts",
+        "name": "IntentAgg",
+        "line": 70
+      },
+      {
+        "file": "src/api/bot-analytics.ts",
+        "name": "TurnsBucket",
+        "line": 72
+      },
+      {
+        "file": "src/api/bot-analytics.ts",
+        "name": "UnansweredQuestion",
+        "line": 73
+      },
+      {
+        "file": "src/data/callbacks-seed.ts",
+        "name": "CbReminder",
+        "line": 35
+      },
+      {
+        "file": "src/data/compliance-seed.ts",
+        "name": "ActorKind",
+        "line": 6
+      },
+      {
+        "file": "src/data/compliance-seed.ts",
+        "name": "RuleCategory",
+        "line": 7
+      },
+      {
+        "file": "src/data/compliance-seed.ts",
+        "name": "ViolationNote",
+        "line": 18
+      },
+      {
+        "file": "src/data/compliance-seed.ts",
+        "name": "CompDateRange",
+        "line": 258
+      },
+      {
+        "file": "src/api/compliance.ts",
+        "name": "ViolationStatus",
+        "line": 129
+      },
+      {
+        "file": "src/data/consent-seed.ts",
+        "name": "ConsentAuditEntry",
+        "line": 34
+      },
+      {
+        "file": "src/data/consent-seed.ts",
+        "name": "ContactableReason",
+        "line": 294
+      },
+      {
+        "file": "src/data/consent-seed.ts",
+        "name": "ContactableResult",
+        "line": 303
+      },
+      {
+        "file": "src/data/disputes-seed.ts",
+        "name": "DisputePriority",
+        "line": 25
+      },
+      {
+        "file": "src/data/disputes-seed.ts",
+        "name": "DisputeEvent",
+        "line": 34
+      },
+      {
+        "file": "src/api/dashboard.ts",
+        "name": "SentimentDistribution",
+        "line": 35
+      },
+      {
+        "file": "src/api/dashboard.ts",
+        "name": "BotVsHumanSlice",
+        "line": 36
+      },
+      {
+        "file": "src/data/documents-seed.ts",
+        "name": "AgingTone",
+        "line": 324
+      },
+      {
+        "file": "src/api/documents.ts",
+        "name": "DocStatus",
+        "line": 167
+      },
+      {
+        "file": "src/api/documents.ts",
+        "name": "DocType",
+        "line": 167
+      },
+      {
+        "file": "src/data/floor-seed.ts",
+        "name": "Risk",
+        "line": 3
+      },
+      {
+        "file": "src/data/floor-seed.ts",
+        "name": "AgentFloorStatus",
+        "line": 5
+      },
+      {
+        "file": "src/data/floor-seed.ts",
+        "name": "RecentTurn",
+        "line": 7
+      },
+      {
+        "file": "src/data/floor-seed.ts",
+        "name": "AlertKind",
+        "line": 35
+      },
+      {
+        "file": "src/api/inbox.ts",
+        "name": "CannedResponse",
+        "line": 25
+      },
+      {
+        "file": "src/api/presence.ts",
+        "name": "AgentPresence",
+        "line": 9
+      },
+      {
+        "file": "src/api/handoff.ts",
+        "name": "Speaker",
+        "line": 29
+      },
+      {
+        "file": "src/api/handoff.ts",
+        "name": "HandoffQueueItem",
+        "line": 94
+      },
+      {
+        "file": "src/api/workspace.ts",
+        "name": "WorkspaceStats",
+        "line": 126
+      },
+      {
+        "file": "src/api/workspace.ts",
+        "name": "WorkspaceNextCallback",
+        "line": 138
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "KbDocument",
+        "line": 21
+      },
+      {
+        "file": "src/api/kb.ts",
+        "name": "KbStats",
+        "line": 54
+      },
+      {
+        "file": "src/api/flow.ts",
+        "name": "FlowInstructionType",
+        "line": 13
+      },
+      {
+        "file": "src/api/flow.ts",
+        "name": "FlowVariableType",
+        "line": 14
+      },
+      {
+        "file": "src/api/flow.ts",
+        "name": "FlowMatch",
+        "line": 16
+      },
+      {
+        "file": "src/api/flow.ts",
+        "name": "FlowExpressionClause",
+        "line": 81
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "PromptVersionDraftInput",
+        "line": 40
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "PromptVersionPatchInput",
+        "line": 51
+      },
+      {
+        "file": "src/api/prompt-studio.ts",
+        "name": "TtsPriceTier",
+        "line": 171
+      },
+      {
+        "file": "src/api/qa.ts",
+        "name": "Rubric",
+        "line": 175
+      },
+      {
+        "file": "src/data/qa-seed.ts",
+        "name": "ScorecardStatus",
+        "line": 5
+      },
+      {
+        "file": "src/data/qa-seed.ts",
+        "name": "CalibrationReviewerScore",
+        "line": 65
+      },
+      {
+        "file": "src/data/redaction-seed.ts",
+        "name": "RedactionTurn",
+        "line": 28
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "name": "NodeEval",
+        "line": 277
+      },
+      {
+        "file": "src/api/sandbox.ts",
+        "name": "SandboxRunDetail",
+        "line": 96
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "Difficulty",
+        "line": 4
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "Role",
+        "line": 5
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "SandboxChunkMeta",
+        "line": 20
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "ScenarioTurn",
+        "line": 74
+      },
+      {
+        "file": "src/data/sandbox-seed.ts",
+        "name": "KbSnapshot",
+        "line": 93
+      },
+      {
+        "file": "src/data/webhooks-seed.ts",
+        "name": "EndpointStatus",
+        "line": 2
+      },
+      {
+        "file": "src/data/webhooks-seed.ts",
+        "name": "RetryPolicy",
+        "line": 38
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "BarDatum",
+        "line": 6
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "DonutSlice",
+        "line": 7
+      },
+      {
+        "file": "src/components/charts/index.ts",
+        "name": "Segment",
+        "line": 8
+      },
+      {
+        "file": "src/components/ui/badge.tsx",
+        "name": "BadgeProps",
+        "line": 29
+      },
+      {
+        "file": "src/components/flow/FlowConditionEdge.tsx",
+        "name": "ConditionEdgeData",
+        "line": 35
+      },
+      {
+        "file": "src/api/trace.ts",
+        "name": "TraceToolCall",
+        "line": 13
+      },
+      {
+        "file": "src/api/trace.ts",
+        "name": "TraceRetrieval",
+        "line": 24
+      },
+      {
+        "file": "src/api/trace.ts",
+        "name": "TraceLatency",
+        "line": 33
+      },
+      {
+        "file": "src/data/customer360-seed.ts",
+        "name": "PtpStatus",
+        "line": 10
+      },
+      {
+        "file": "src/data/customer360-seed.ts",
+        "name": "Product",
+        "line": 13
+      },
+      {
+        "file": "src/data/customer360-seed.ts",
+        "name": "AccountFacts",
+        "line": 107
+      },
+      {
+        "file": "src/components/ui/button.tsx",
+        "name": "ButtonProps",
+        "line": 61
+      },
+      {
+        "file": "src/components/callbacks/NewCallbackSheet.tsx",
+        "name": "CustomerOption",
+        "line": 22
+      },
+      {
+        "file": "src/components/disputes/NewDisputeSheet.tsx",
+        "name": "DisputeCustomerOption",
+        "line": 10
+      },
+      {
+        "file": "src/components/documents/NewRequestSheet.tsx",
+        "name": "DocumentCustomerOption",
+        "line": 16
+      },
+      {
+        "file": "src/data/integrations-seed.ts",
+        "name": "ProviderField",
+        "line": 7
+      },
+      {
+        "file": "src/data/integrations-seed.ts",
+        "name": "UsageStat",
+        "line": 18
+      },
+      {
+        "file": "src/components/kb/KbToolbar.tsx",
+        "name": "KbDocFilters",
+        "line": 10
+      },
+      {
+        "file": "src/data/promises-seed.ts",
+        "name": "PtpEvent",
+        "line": 11
+      },
+      {
+        "file": "src/data/promises-seed.ts",
+        "name": "PlanStatus",
+        "line": 43
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "AgentTuningLlm",
+        "line": 3
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "AgentTuningTts",
+        "line": 12
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "AgentTuningStt",
+        "line": 23
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "AgentTuningVad",
+        "line": 28
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "AgentTuningTurn",
+        "line": 35
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "BargeInMode",
+        "line": 41
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "MuteStrategyId",
+        "line": 42
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "IdleLadderStep",
+        "line": 43
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "name": "AgentTuningInteraction",
+        "line": 45
+      },
+      {
+        "file": "src/data/inbox-seed.ts",
+        "name": "Sender",
+        "line": 2
+      },
+      {
+        "file": "src/data/inbox-seed.ts",
+        "name": "DeliveryStatus",
+        "line": 7
+      },
+      {
+        "file": "src/data/inbox-seed.ts",
+        "name": "SystemEvent",
+        "line": 17
+      },
+      {
+        "file": "src/data/inbox-seed.ts",
+        "name": "ThreadContext",
+        "line": 26
+      },
+      {
+        "file": "src/components/sandbox/voice/liveEvents.ts",
+        "name": "CrmEntityEvent",
+        "line": 12
+      },
+      {
+        "file": "src/components/sandbox/voice/liveEvents.ts",
+        "name": "RagHitsEvent",
+        "line": 21
+      },
+      {
+        "file": "src/components/sandbox/voice/liveEvents.ts",
+        "name": "FlowNodeEvent",
+        "line": 30
+      },
+      {
+        "file": "src/components/sandbox/voice/liveEvents.ts",
+        "name": "ContextCardEvent",
+        "line": 55
+      },
+      {
+        "file": "src/components/sandbox/voice/liveEvents.ts",
+        "name": "TurnAudioEvent",
+        "line": 60
+      },
+      {
+        "file": "src/components/sandbox/voice/liveEvents.ts",
+        "name": "SessionBoundEvent",
+        "line": 121
+      }
+    ],
+    "unusedFilesList": [
+      "src/api/offer-health.ts",
+      "src/hooks/use-mobile.tsx",
+      "src/components/documents/StatusPill.tsx",
+      "src/components/floor/AlertLane.tsx",
+      "src/components/floor/CallTile.tsx",
+      "src/components/records/index.ts",
+      "src/components/sandbox/ScenarioList.tsx",
+      "src/components/ui/aspect-ratio.tsx",
+      "src/components/ui/avatar.tsx",
+      "src/components/ui/breadcrumb.tsx",
+      "src/components/ui/calendar.tsx",
+      "src/components/ui/card.tsx",
+      "src/components/ui/carousel.tsx",
+      "src/components/ui/chart.tsx",
+      "src/components/ui/collapsible.tsx",
+      "src/components/ui/context-menu.tsx",
+      "src/components/ui/drawer.tsx",
+      "src/components/ui/form.tsx",
+      "src/components/ui/hover-card.tsx",
+      "src/components/ui/input-otp.tsx",
+      "src/components/ui/link.tsx",
+      "src/components/ui/menubar.tsx",
+      "src/components/ui/navigation-menu.tsx",
+      "src/components/ui/pagination.tsx",
+      "src/components/ui/progress.tsx",
+      "src/components/ui/radio-group.tsx",
+      "src/components/ui/resizable.tsx",
+      "src/components/ui/scroll-area.tsx",
+      "src/components/ui/section-message.tsx",
+      "src/components/ui/table.tsx",
+      "src/components/ui/toggle-group.tsx",
+      "src/components/ui/toggle.tsx",
+      "src/components/ui/tooltip.tsx"
+    ],
+    "unusedDepsList": [
+      "@hookform/resolvers",
+      "@pipecat-ai/client-react",
+      "@radix-ui/react-aspect-ratio",
+      "@radix-ui/react-avatar",
+      "@radix-ui/react-collapsible",
+      "@radix-ui/react-context-menu",
+      "@radix-ui/react-hover-card",
+      "@radix-ui/react-menubar",
+      "@radix-ui/react-navigation-menu",
+      "@radix-ui/react-progress",
+      "@radix-ui/react-radio-group",
+      "@radix-ui/react-scroll-area",
+      "@radix-ui/react-toggle",
+      "@radix-ui/react-toggle-group",
+      "@radix-ui/react-tooltip",
+      "@tanstack/router-plugin",
+      "date-fns",
+      "embla-carousel-react",
+      "input-otp",
+      "liveline",
+      "react-day-picker",
+      "react-hook-form",
+      "react-resizable-panels",
+      "recharts",
+      "tailwindcss",
+      "tw-animate-css",
+      "vaul"
+    ]
+  },
+  "oxlint": {
+    "count": 44,
+    "filesScanned": 409,
+    "rules": 96,
+    "byCode": {
+      "unicorn(no-thenable)": 16,
+      "eslint(no-unused-vars)": 12,
+      "unicorn(no-new-array)": 3,
+      "unicorn(prefer-string-starts-ends-with)": 2,
+      "unicorn(no-useless-fallback-in-spread)": 9,
+      "eslint(no-unused-expressions)": 2
+    },
+    "items": [
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 158,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 168,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 178,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 188,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 198,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 208,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 218,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 228,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/data/routing-seed.ts",
+        "line": 365,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/components/routing/InspectorPanel.tsx",
+        "line": 3,
+        "code": "eslint(no-unused-vars)",
+        "message": "Identifier 'TabsContent' is imported but never used."
+      },
+      {
+        "file": "src/data/prompt-studio-seed.ts",
+        "line": 280,
+        "code": "unicorn(no-new-array)",
+        "message": "Do not use `new Array(singleArgument)`."
+      },
+      {
+        "file": "src/components/workspace/StatsStrip.tsx",
+        "line": 21,
+        "code": "unicorn(prefer-string-starts-ends-with)",
+        "message": "Prefer String#startsWith over a regex with a caret."
+      },
+      {
+        "file": "src/components/workspace/StatsStrip.tsx",
+        "line": 28,
+        "code": "unicorn(prefer-string-starts-ends-with)",
+        "message": "Prefer String#startsWith over a regex with a caret."
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "line": 186,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "line": 187,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "line": 188,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "line": 189,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "line": 190,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/data/agent-tuning.ts",
+        "line": 191,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/api/routing.ts",
+        "line": 51,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/api/routing.ts",
+        "line": 98,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/api/routing.ts",
+        "line": 114,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/components/routing/RuleEditor.tsx",
+        "line": 136,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/components/routing/RuleEditor.tsx",
+        "line": 147,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/components/routing/RuleEditor.tsx",
+        "line": 147,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/components/routing/RuleEditor.tsx",
+        "line": 155,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/components/routing/RuleEditor.tsx",
+        "line": 155,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/components/routing/RuleEditor.tsx",
+        "line": 163,
+        "code": "unicorn(no-thenable)",
+        "message": "Do not add `then` to an object."
+      },
+      {
+        "file": "src/components/routing/RuleEditor.tsx",
+        "line": 163,
+        "code": "unicorn(no-useless-fallback-in-spread)",
+        "message": "Empty fallbacks in spreads are unnecessary"
+      },
+      {
+        "file": "src/components/integrations/ProviderDrawer.tsx",
+        "line": 81,
+        "code": "eslint(no-unused-expressions)",
+        "message": "Expected expression to be used"
+      },
+      {
+        "file": "src/lib/workspace-nav.ts",
+        "line": 33,
+        "code": "eslint(no-unused-vars)",
+        "message": "Type alias 'NavigateFn' is declared but never used."
+      },
+      {
+        "file": "src/api/kb.ts",
+        "line": 419,
+        "code": "unicorn(no-new-array)",
+        "message": "Do not use `new Array(singleArgument)`."
+      },
+      {
+        "file": "src/routes/billing.tsx",
+        "line": 1,
+        "code": "eslint(no-unused-vars)",
+        "message": "Identifier 'useMemo' is imported but never used."
+      },
+      {
+        "file": "src/routes/redaction.tsx",
+        "line": 3,
+        "code": "eslint(no-unused-vars)",
+        "message": "Identifier 'useMutation' is imported but never used."
+      },
+      {
+        "file": "src/routes/redaction.tsx",
+        "line": 40,
+        "code": "eslint(no-unused-vars)",
+        "message": "Type 'RedactionRules' is imported but never used."
+      },
+      {
+        "file": "src/routes/prompt-studio.lazy.tsx",
+        "line": 90,
+        "code": "eslint(no-unused-vars)",
+        "message": "Variable 'flowValid' is declared but never used. Unused variables should start with a '_'."
+      },
+      {
+        "file": "src/components/qa/RubricScorer.tsx",
+        "line": 3,
+        "code": "eslint(no-unused-vars)",
+        "message": "Type 'Scorecard' is imported but never used."
+      },
+      {
+        "file": "src/components/callbacks/CallbackPill.tsx",
+        "line": 1,
+        "code": "eslint(no-unused-vars)",
+        "message": "Identifier 'MessageSquare' is imported but never used."
+      },
+      {
+        "file": "src/components/consent/ConsentStatsStrip.tsx",
+        "line": 2,
+        "code": "eslint(no-unused-vars)",
+        "message": "Identifier 'contactableSummary' is imported but never used."
+      },
+      {
+        "file": "src/components/charts/points.ts",
+        "line": 76,
+        "code": "unicorn(no-new-array)",
+        "message": "Do not use `new Array(singleArgument)`."
+      },
+      {
+        "file": "src/components/consent/AllowedHoursEditor.tsx",
+        "line": 24,
+        "code": "eslint(no-unused-expressions)",
+        "message": "Expected expression to be used"
+      },
+      {
+        "file": "src/components/upsell/NewLeadSheet.tsx",
+        "line": 60,
+        "code": "eslint(no-unused-vars)",
+        "message": "Variable 'teamOptions' is declared but never used. Unused variables should start with a '_'."
+      },
+      {
+        "file": "src/components/redaction/AudioBeepTimeline.tsx",
+        "line": 1,
+        "code": "eslint(no-unused-vars)",
+        "message": "Type 'AudioSegment' is imported but never used."
+      },
+      {
+        "file": "src/components/upsell/LeadTable.tsx",
+        "line": 21,
+        "code": "eslint(no-unused-vars)",
+        "message": "Identifier 'RecordsTag' is imported but never used."
+      }
+    ]
+  },
+  "biome": {
+    "total": 1274,
+    "errors": 1119,
+    "warnings": 138,
+    "infos": 17,
+    "format": 409,
+    "organizeImports": 325,
+    "parse": 42,
+    "lint": 498,
+    "lintByRule": {
+      "lint/a11y/useButtonType": 120,
+      "lint/correctness/useExhaustiveDependencies": 55,
+      "lint/style/noNonNullAssertion": 54,
+      "lint/suspicious/noExplicitAny": 45,
+      "lint/suspicious/noArrayIndexKey": 37,
+      "lint/a11y/noStaticElementInteractions": 29,
+      "lint/a11y/useKeyWithClickEvents": 20,
+      "lint/suspicious/useIterableCallbackReturn": 16,
+      "lint/suspicious/noThenProperty": 15,
+      "lint/style/useTemplate": 14,
+      "lint/a11y/noLabelWithoutControl": 12,
+      "lint/style/useImportType": 11,
+      "lint/correctness/noUnusedImports": 9,
+      "lint/a11y/noSvgWithoutTitle": 8,
+      "lint/a11y/useSemanticElements": 8,
+      "lint/complexity/noImportantStyles": 6,
+      "lint/complexity/useOptionalChain": 5,
+      "lint/a11y/useAriaPropsSupportedByRole": 5,
+      "lint/suspicious/noShadowRestrictedNames": 4,
+      "lint/correctness/useParseIntRadix": 3,
+      "lint/style/useConst": 3,
+      "lint/correctness/noUnusedVariables": 3,
+      "lint/suspicious/noAssignInExpressions": 3,
+      "lint/a11y/noNoninteractiveTabindex": 2,
+      "lint/a11y/useFocusableInteractive": 2,
+      "lint/security/noDangerouslySetInnerHtml": 2,
+      "lint/suspicious/noPrototypeBuiltins": 1,
+      "lint/suspicious/noConfusingVoidType": 1,
+      "lint/a11y/noAutofocus": 1,
+      "lint/a11y/useAriaPropsForRole": 1,
+      "lint/a11y/noRedundantRoles": 1,
+      "lint/correctness/noUnknownMediaFeatureName": 1,
+      "lint/correctness/noInvalidPositionAtImportRule": 1
+    }
+  }
+}

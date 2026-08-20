@@ -1,53 +1,57 @@
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { StackedPoint } from "@/data/dashboard-seed";
+import { ChartCard, ChartEmpty, ChartStage, ModernBars, SnapshotPill } from "@/components/charts";
 
 function fmtDate(d: string) {
   const dt = new Date(d);
   return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+const COLORS = {
+  voice: "#1868db",
+  whatsapp: "#5b7f24",
+  chat: "#e06c00",
+};
+
 export function CallVolumeChart({ data }: { data: StackedPoint[] }) {
+  const bars = data.map((d) => ({
+    label: fmtDate(d.date),
+    value: d.voice + d.whatsapp + d.chat,
+    stack: [
+      { key: "voice", value: d.voice, color: COLORS.voice, label: "Voice" },
+      { key: "whatsapp", value: d.whatsapp, color: COLORS.whatsapp, label: "WhatsApp" },
+      { key: "chat", value: d.chat, color: COLORS.chat, label: "Chat" },
+    ],
+  }));
+
   return (
-    <div className="flex h-full flex-col rounded-large border border-border bg-surface p-200">
-      <div className="mb-100">
-        <h3 className="text-sm font-semibold text-text">Call volume by channel</h3>
-        <p className="text-xs text-text-subtle">Voice · WhatsApp · Chat &amp; SMS</p>
+    <ChartCard
+      title="Call volume by channel"
+      subtitle="Voice · WhatsApp · Chat & SMS"
+      action={<SnapshotPill />}
+    >
+      <div className="mb-100 flex flex-wrap gap-150 text-[11px] text-text-subtle">
+        {(
+          [
+            ["Voice", COLORS.voice],
+            ["WhatsApp", COLORS.whatsapp],
+            ["Chat", COLORS.chat],
+          ] as const
+        ).map(([label, color]) => (
+          <span key={label} className="inline-flex items-center gap-050">
+            <span className="size-1.5 rounded-full" style={{ background: color }} />
+            {label}
+          </span>
+        ))}
       </div>
-      <div className="min-h-0 flex-1">
+      <ChartStage className="min-h-0 flex-1">
         {data.length === 0 ? (
-          <div className="flex h-full min-h-[200px] items-center justify-center text-body-small text-text-subtle">
-            No interactions in this period.
-          </div>
+          <ChartEmpty>No interactions in this period.</ChartEmpty>
         ) : (
-        <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tickFormatter={fmtDate}
-              tick={{ fontSize: 11, fill: "var(--text-secondary)" }}
-              axisLine={false}
-              tickLine={false}
-              minTickGap={24}
-            />
-            <YAxis tick={{ fontSize: 11, fill: "var(--text-secondary)" }} axisLine={false} tickLine={false} width={36} />
-            <Tooltip
-              contentStyle={{
-                background: "var(--surface)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                fontSize: 12,
-              }}
-              labelFormatter={(v) => fmtDate(String(v))}
-            />
-            <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
-            <Bar dataKey="voice" stackId="a" fill="var(--background-brand-bold)" name="Voice" radius={[0, 0, 0, 0]} />
-            <Bar dataKey="whatsapp" stackId="a" fill="var(--chart-success-bold)" name="WhatsApp" />
-            <Bar dataKey="chat" stackId="a" fill="var(--chart-warning-bold)" name="Chat" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+          <div className="box-border flex h-full min-h-[12rem] items-stretch p-150">
+            <ModernBars data={bars} className="h-full w-full" height={220} />
+          </div>
         )}
-      </div>
-    </div>
+      </ChartStage>
+    </ChartCard>
   );
 }

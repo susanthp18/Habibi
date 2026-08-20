@@ -125,6 +125,29 @@ jobs:
           print(f"schema drift check passed ({len(want_tables)} tables, {len(want_cols)} columns verified)")
           PY
 
+      # The check above derives its expectations from op.create_table /
+      # op.add_column, so it catches "sql/ is behind Alembic" — one direction.
+      # It cannot catch the reverse: a column declared in sql/*.sql that no
+      # migration creates, which every FRESH database has and every EXISTING
+      # deployment silently lacks. That asymmetry never shows up in development,
+      # because developers run against fresh databases. Three columns had
+      # drifted this way before tests/test_schema_parity.py went in.
+      - name: Create scratch database for schema parity
+        run: |
+          PGPASSWORD=collections psql -h localhost -U collections -d collections \
+            -c "DROP DATABASE IF EXISTS collections_parity" \
+            -c "CREATE DATABASE collections_parity"
+
+      # tests/test_rls.py enables FORCE ROW LEVEL SECURITY and creates a login
+      # role, so it needs a database of its own that it is free to rebuild.
+      # Without it the enforcement half of that file skips, and the derivation
+      # half — which needs no scratch database — still runs.
+      - name: Create scratch database for row-level security
+        run: |
+          PGPASSWORD=collections psql -h localhost -U collections -d collections \
+            -c "DROP DATABASE IF EXISTS collections_rls" \
+            -c "CREATE DATABASE collections_rls"
+
       - name: Seed demo graph
         run: python scripts/seed_demo.py
 
@@ -132,3 +155,5 @@ jobs:
         run: pytest -q
         env:
           RUN_ALEMBIC_ROUNDTRIP: "0"
+          SCHEMA_PARITY_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_parity
+          RLS_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_rls

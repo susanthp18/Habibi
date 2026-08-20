@@ -1,3 +1,6 @@
+import { LivelineSpark } from "@/components/charts";
+import { cn } from "@/lib/utils";
+
 type Props = {
   data: number[];
   width?: number;
@@ -7,38 +10,31 @@ type Props = {
   className?: string;
 };
 
+/** Resolve design-token colors to hex for canvas rendering. */
+function resolveStroke(stroke: string) {
+  if (stroke.startsWith("#")) return stroke;
+  if (stroke.includes("brand")) return "#1868db";
+  if (stroke.includes("success") || stroke.includes("emerald")) return "#5b7f24";
+  if (stroke.includes("warning") || stroke.includes("amber")) return "#e06c00";
+  if (stroke.includes("danger") || stroke.includes("red")) return "#e2483d";
+  return "#1868db";
+}
+
 export function Sparkline({
   data,
-  width = 120,
+  width,
   height = 32,
   stroke = "var(--background-brand-bold)",
-  fill = "rgba(24, 119, 242, 0.12)",
   className,
 }: Props) {
   if (!data.length) return null;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const step = width / (data.length - 1 || 1);
-  const points = data.map((v, i) => {
-    const x = i * step;
-    const y = height - ((v - min) / range) * (height - 4) - 2;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const path = `M${points.join(" L")}`;
-  const area = `${path} L${width},${height} L0,${height} Z`;
-
   return (
-    <svg
-      className={className}
-      viewBox={`0 0 ${width} ${height}`}
-      width={width}
+    <LivelineSpark
+      data={data}
       height={height}
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      <path d={area} fill={fill} />
-      <path d={path} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+      color={resolveStroke(stroke)}
+      className={cn(className)}
+      style={width ? { width } : undefined}
+    />
   );
 }

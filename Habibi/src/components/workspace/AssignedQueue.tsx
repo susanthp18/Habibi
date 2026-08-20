@@ -2,16 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, ChevronRight, Filter, Inbox, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { bucketWorkItems, useWorkItems, type WorkItem } from "@/api/workspace";
-import { type QueueRow, type SlaLevel } from "@/data/workspace-seed";
+import { bucketWorkItems, enactedByLabel, useWorkItems, type WorkItem } from "@/api/workspace";
+import { type SlaLevel } from "@/data/workspace-seed";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { SlaPill } from "@/components/ui/SlaPill";
 import { Badge } from "@/components/ui/badge";
+import {
+  RecordsAvatarMark,
+  RecordsTable,
+  type RecordsColumn,
+} from "@/components/records/RecordsTable";
 
-type TabKey = "disputes" | "callbacks" | "docs" | "ptps" | "followups";
+type TabKey = "disputes" | "callbacks" | "docs" | "ptps" | "followups" | "bounces";
 
 const TAB_META: { key: TabKey; label: string }[] = [
   { key: "disputes", label: "Disputes" },
@@ -19,22 +23,19 @@ const TAB_META: { key: TabKey; label: string }[] = [
   { key: "docs", label: "Doc requests" },
   { key: "ptps", label: "Broken PTPs" },
   { key: "followups", label: "Followups" },
+  { key: "bounces", label: "Bounces" },
 ];
 
 const SLA_OPTIONS: SlaLevel[] = ["ok", "warn", "breach"];
 
-/** Fixed list viewport (~6–7 rows). Same height on every chip so Disputes(3)
- *  vs Callbacks(7) doesn't jump the page layout or leave a stretched void. */
-const QUEUE_VIEWPORT = "h-[22.5rem]";
-
-// Filter *buttons*, not status chips — these stay hand-styled on purpose. A Lozenge is a
-// status readout; wearing one as a toggle would fight the button's own padding and hit area.
 const slaChipIdle = "bg-surface-sunken text-text-subtle border border-transparent";
 const slaChipActive: Record<SlaLevel, string> = {
   ok: "border-border-success/25 bg-background-success text-text-success",
   warn: "border-border-warning/35 bg-background-warning text-text-warning",
   breach: "border-border-danger/30 bg-background-danger text-text-danger",
 };
+
+const SLA_RANK: Record<SlaLevel, number> = { breach: 3, warn: 2, ok: 1 };
 
 export function AssignedQueue() {
   const navigate = useNavigate();
@@ -44,14 +45,6 @@ export function AssignedQueue() {
   const [slaFilter, setSlaFilter] = useState<Set<SlaLevel>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // Rows animate on first mount only. Without this gate, refetches (15s stale
-  // time), filter changes and tab switches re-trigger the stagger on every row.
-  const [animateRows, setAnimateRows] = useState(true);
-  useEffect(() => {
-    const t = window.setTimeout(() => setAnimateRows(false), 600);
-    return () => window.clearTimeout(t);
-  }, []);
-
   const buckets = useMemo(() => bucketWorkItems(items ?? []), [items]);
 
   const tabs: { key: TabKey; label: string; rows: WorkItem[] }[] = TAB_META.map((t) => ({
@@ -60,10 +53,15 @@ export function AssignedQueue() {
   }));
 
   const current = tabs.find((t) => t.key === active) ?? tabs[0]!;
-
-  // Empty tabs stay hidden (they only add noise — e.g. "Followups: 0"), unless
-  // the user is currently viewing that tab.
   const visibleTabs = tabs.filter((t) => t.key === active || t.rows.length > 0);
+
+  // Prefer a non-empty tab on first load when disputes is empty.
+  useEffect(() => {
+    if (!items?.length) return;
+    if ((buckets[active] as WorkItem[] | undefined)?.length) return;
+    const first = TAB_META.find((t) => (buckets[t.key] as WorkItem[]).length > 0);
+    if (first) setActive(first.key);
+  }, [items, buckets, active]);
 
   const filteredRows = useMemo(() => {
     let rows = current.rows;
@@ -95,14 +93,143 @@ export function AssignedQueue() {
     });
   };
 
+  const columns = useMemo<RecordsColumn<WorkItem>[]>(
+    () => [
+      {
+        id: "customer",
+        header: "Customer",
+        sticky: true,
+        sortable: true,
+        sortValue: (row) => row.customer,
+        className: "min-w-[13rem]",
+        cell: (row) => (
+          <button
+            type="button"
+            onClick={() => navigateWorkItem(navigate, row)}
+            className="flex min-w-0 items-center gap-100 text-left"
+          >
+            <RecordsAvatarMark label={row.customer || "?"} />
+            <span className="min-w-0">
+              <span className="block truncate text-body font-medium text-text-brand hover:underline">
+                {row.customer || "Unknown"}
+              </span>
+              <span className="block truncate text-body-small text-text-subtlest">
+                {row.accountId || "—"}
+              </span>
+            </span>
+          </button>
+        ),
+        footer: (visible) => (
+          <span className="text-body-small">
+            <span className="font-semibold tabular text-text">{visible.length}</span>{" "}
+            <span className="text-text-subtlest">items</span>
+          </span>
+        ),
+      },
+      {
+        id: "type",
+        header: "Type",
+        sortable: true,
+        sortValue: (row) => row.type,
+        className: "min-w-[7rem] whitespace-nowrap",
+        cell: (row) => (
+          <span className="inline-flex items-center gap-075">
+            <span className="text-body text-text">{row.type}</span>
+            {enactedByLabel(row.enactedBy) ? (
+              <span className="rounded-medium bg-surface-sunken px-075 py-025 text-body-small text-text-subtlest">
+                {enactedByLabel(row.enactedBy)}
+              </span>
+            ) : null}
+          </span>
+        ),
+      },
+      {
+        id: "detail",
+        header: "Detail",
+        className: "min-w-[22rem]",
+        cell: (row) => (
+          <span className="line-clamp-2 text-body text-text-subtle" title={row.detail}>
+            {row.detail}
+          </span>
+        ),
+      },
+      {
+        id: "amount",
+        header: "Amount",
+        sortable: true,
+        sortValue: (row) => (typeof row.amount === "number" ? row.amount : -1),
+        align: "right",
+        className: "min-w-[7rem] whitespace-nowrap",
+        headerClassName: "min-w-[7rem]",
+        cell: (row) => {
+          const amount = row.amount;
+          const hasAmount = typeof amount === "number" && Number.isFinite(amount);
+          return (
+            <span className="text-body font-medium tabular-nums text-text">
+              {hasAmount ? `₹${amount.toLocaleString("en-IN")}` : "—"}
+            </span>
+          );
+        },
+        footer: (visible) => {
+          const sum = visible.reduce(
+            (s, r) => s + (typeof r.amount === "number" && Number.isFinite(r.amount) ? r.amount : 0),
+            0,
+          );
+          return sum > 0 ? (
+            <span className="text-body-small font-semibold tabular-nums text-text">
+              ₹{sum.toLocaleString("en-IN")}
+            </span>
+          ) : (
+            <span className="text-text-subtlest">—</span>
+          );
+        },
+      },
+      {
+        id: "sla",
+        header: "SLA",
+        sortable: true,
+        sortValue: (row) => SLA_RANK[row.sla] ?? 0,
+        className: "min-w-[9rem] whitespace-nowrap",
+        cell: (row) => <SlaPill level={row.sla} label={row.slaLabel} />,
+        footer: (visible) => {
+          const breach = visible.filter((r) => r.sla === "breach").length;
+          return <span className="text-body-small text-text-subtlest">{breach} breach</span>;
+        },
+      },
+      {
+        id: "age",
+        header: "Age",
+        sortable: true,
+        sortValue: (row) => row.ageHours ?? 0,
+        className: "min-w-[4.5rem] whitespace-nowrap",
+        cell: (row) => <span className="text-body tabular-nums text-text-subtle">{row.ageHours}h</span>,
+      },
+      {
+        id: "open",
+        header: "Open",
+        align: "right",
+        className: "min-w-[5.5rem] whitespace-nowrap",
+        cell: (row) => (
+          <button
+            type="button"
+            onClick={() => navigateWorkItem(navigate, row)}
+            className="inline-flex items-center gap-050 rounded-medium border border-border-brand/25 bg-background-brand-subtlest px-150 py-050 text-body-small font-medium text-text-brand transition-colors hover:border-border-brand/40 hover:bg-background-brand-subtlest-hovered"
+          >
+            Open
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        ),
+      },
+    ],
+    [navigate],
+  );
+
   return (
     <section className="overflow-hidden rounded-xlarge border border-border bg-surface">
       <div className="flex items-center justify-between gap-150 border-b border-border px-250 py-200">
         <div>
           <h2 className="heading-xsmall text-text">My assigned queue</h2>
-          <p className="mt-025 text-body-small text-text-subtle">
-            Items routed to you across channels
-          </p>
+          <p className="mt-025 text-body-small text-text-subtle">Items routed to you across channels</p>
         </div>
         <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
           <PopoverTrigger asChild>
@@ -150,9 +277,7 @@ export function AssignedQueue() {
               />
             </div>
             <div>
-              <div className="mb-075 text-body-small font-medium text-text-subtlest">
-                SLA
-              </div>
+              <div className="mb-075 text-body-small font-medium text-text-subtlest">SLA</div>
               <div className="flex flex-wrap gap-075">
                 {SLA_OPTIONS.map((level) => (
                   <button
@@ -173,7 +298,6 @@ export function AssignedQueue() {
         </Popover>
       </div>
 
-      {/* Pill tabs */}
       <div className="border-b border-border bg-surface-sunken/60 px-200 py-150">
         <div className="flex gap-075 overflow-x-auto" role="tablist" aria-label="Queue tabs">
           {visibleTabs.map((t) => {
@@ -228,162 +352,46 @@ export function AssignedQueue() {
       )}
 
       <div
-        className={cn(QUEUE_VIEWPORT, "overflow-auto overscroll-contain bg-surface-sunken/25")}
+        className="min-h-[16rem] overflow-hidden bg-surface-sunken/25 p-100"
         role="tabpanel"
         id="queue-tabpanel"
         aria-labelledby={`queue-tab-${active}`}
       >
-        <table className="w-full text-body tabular">
-          <caption className="sr-only">
-            My assigned queue — {current.label}, {filteredRows.length} item
-            {filteredRows.length === 1 ? "" : "s"}
-          </caption>
-          <thead className="sticky top-0 z-10 bg-surface shadow-[0_1px_0_var(--border)]">
-            <tr className="border-b-2 border-border text-left text-body-small font-weight-bold-token text-text-subtlest">
-              <th className="px-250 py-150">Customer</th>
-              <th className="px-150 py-150">Type</th>
-              <th className="px-150 py-150">Detail</th>
-              <th className="px-150 py-150 text-right">Amount</th>
-              <th className="px-150 py-150">SLA</th>
-              <th className="px-150 py-150">Age</th>
-              <th className="px-250 py-150" />
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <>
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={`queue-skeleton-${i}`} className="border-t border-border bg-surface">
-                    <td className="px-250 py-150">
-                      <Skeleton className="h-4 w-36" />
-                      <Skeleton className="mt-075 h-3 w-24" />
-                    </td>
-                    <td className="px-150 py-150">
-                      <Skeleton className="h-4 w-16" />
-                    </td>
-                    <td className="px-150 py-150">
-                      <Skeleton className="h-4 w-64 max-w-full" />
-                    </td>
-                    <td className="px-150 py-150">
-                      <Skeleton className="ml-auto h-4 w-20" />
-                    </td>
-                    <td className="px-150 py-150">
-                      <Skeleton className="h-4 w-20" />
-                    </td>
-                    <td className="px-150 py-150">
-                      <Skeleton className="h-4 w-10" />
-                    </td>
-                    <td className="px-250 py-150">
-                      <Skeleton className="ml-auto h-6 w-16" />
-                    </td>
-                  </tr>
-                ))}
-              </>
-            )}
-            {isError && !isLoading && (
-              <tr className="bg-surface">
-                <td colSpan={7} className="px-250 py-500">
-                  <div className="flex flex-col items-center gap-150 text-center">
-                    <AlertTriangle className="h-5 w-5 text-text-danger" />
-                    <div className="text-body text-text-subtle">
-                      Couldn&rsquo;t load your queue.
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void refetch()}
-                      className="rounded-medium border border-border bg-surface px-150 py-075 text-body-small font-medium text-text transition-colors hover:bg-surface-sunken"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            )}
-            {!isLoading && !isError && filteredRows.length === 0 && (
-              <tr className="bg-surface">
-                <td colSpan={7} className="px-250 py-500">
-                  <div className="flex flex-col items-center gap-150 text-center">
-                    <Inbox className="h-5 w-5 text-text-subtlest" />
-                    <div className="text-body text-text-subtle">
-                      {current.rows.length === 0
-                        ? "Nothing in this tab right now. New items assigned to you will appear here."
-                        : "No rows match your filters."}
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            )}
-            {!isLoading &&
-              !isError &&
-              filteredRows.map((row, i) => (
-                <QueueRowView
-                  key={row.id}
-                  row={row}
-                  index={i}
-                  animate={animateRows}
-                  onOpen={() => navigateWorkItem(navigate, row)}
-                />
-              ))}
-          </tbody>
-        </table>
+        {isError && !isLoading ? (
+          <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
+            <AlertTriangle className="h-5 w-5 text-text-danger" />
+            <div className="text-body text-text-subtle">Couldn&rsquo;t load your queue.</div>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="rounded-medium border border-border bg-surface px-150 py-075 text-body-small font-medium text-text transition-colors hover:bg-surface-sunken"
+            >
+              Retry
+            </button>
+          </div>
+        ) : !isLoading && filteredRows.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
+            <Inbox className="h-5 w-5 text-text-subtlest" />
+            <div className="text-body text-text-subtle">
+              {current.rows.length === 0
+                ? "Nothing in this tab right now. New items assigned to you will appear here."
+                : "No rows match your filters."}
+            </div>
+          </div>
+        ) : (
+          <RecordsTable
+            rows={filteredRows}
+            getRowId={(row) => row.id}
+            columns={columns}
+            isLoading={isLoading}
+            emptyMessage="No rows match your filters."
+            ariaLabel={`My assigned queue — ${current.label}`}
+            defaultSort={{ id: "sla", dir: -1 }}
+            className="h-full border-0 shadow-none"
+            tableClassName="min-w-[72rem]"
+          />
+        )}
       </div>
     </section>
-  );
-}
-
-function QueueRowView({
-  row,
-  index,
-  animate,
-  onOpen,
-}: {
-  row: QueueRow | WorkItem;
-  index: number;
-  animate: boolean;
-  onOpen: () => void;
-}) {
-  const amount = row.amount;
-  const hasAmount = typeof amount === "number" && Number.isFinite(amount);
-  return (
-    <tr
-      className={cn(
-        "border-t border-border bg-surface transition-colors hover:bg-background-brand-subtlest/40",
-        animate && "animate-fade-up",
-      )}
-      style={animate ? { animationDelay: `${index * 30}ms` } : undefined}
-    >
-      <td className="px-250 py-150">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="focus-ring rounded-small font-medium text-text transition-colors hover:text-text-brand hover:underline"
-          title="Open this item"
-        >
-          {row.customer || "Unknown"}
-        </button>
-        <div className="font-mono text-body-small text-text-subtlest">{row.accountId || "—"}</div>
-      </td>
-      <td className="px-150 py-150 text-text">{row.type}</td>
-      <td className="max-w-[13.75rem] truncate px-150 py-150 text-text-subtle" title={row.detail}>
-        {row.detail}
-      </td>
-      <td className="px-150 py-150 text-right font-mono font-medium text-text">
-        {hasAmount ? `₹${amount.toLocaleString("en-IN")}` : "—"}
-      </td>
-      <td className="px-150 py-150">
-        <SlaPill level={row.sla} label={row.slaLabel} />
-      </td>
-      <td className="px-150 py-150 text-text-subtle">{row.ageHours}h</td>
-      <td className="px-250 py-150 text-right">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="inline-flex items-center gap-050 rounded-medium border border-border-brand/25 bg-background-brand-subtlest/50 px-150 py-050 text-body-small font-medium text-text-brand transition-colors hover:border-border-brand/40 hover:bg-background-brand-subtlest"
-        >
-          Open
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-      </td>
-    </tr>
   );
 }

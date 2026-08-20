@@ -76,6 +76,7 @@ export interface DocumentRequest {
   requestedAt: string;
   deliveryChannel: "email" | "whatsapp";
   status: DocStatus;
+  source?: string;
 }
 
 export interface CustomerNote {

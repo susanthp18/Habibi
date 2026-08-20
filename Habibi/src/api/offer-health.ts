@@ -22,9 +22,22 @@ export interface OfferHealthAlert {
   message: string;
 }
 
+export interface OfferEngineState {
+  /** off | shadow | live. Shadow scores and logs but never speaks. */
+  mode: string;
+  scorer: string;
+  abSplit: Array<{ variant: string; share: number }>;
+  /** Unwindowed: null means the engine has never logged a decision at all. */
+  lastDecisionAt: string | null;
+}
+
 export interface OfferHealth {
   window: string;
   includesSimulated: boolean;
+  // What the engine is configured to do, alongside what it did. Every rate
+  // below is null on an engine that has never run, and a wall of dashes cannot
+  // by itself distinguish "off", "shadow by design" and "a quiet week".
+  engine: OfferEngineState;
   volume: {
     decisions: number;
     approved: number;
@@ -117,6 +130,7 @@ export interface OfferHealth {
 const mockOfferHealth: OfferHealth = {
   window: "30d",
   includesSimulated: false,
+  engine: { mode: "live", scorer: "rule", abSplit: [], lastDecisionAt: "2026-08-17T09:00:00Z" },
   volume: { decisions: 1240, approved: 806, presented: 677, customers: 412, interactions: 1180 },
   funnel: {
     coverage: 0.65,
@@ -195,6 +209,40 @@ export function useOfferHealth(
     queryFn: () => fetchOfferHealth(window, includeSimulated),
     // These are rolling aggregates over days; refetching per render buys
     // nothing and the queries scan the decision log.
+    staleTime: 60_000,
+  });
+}
+
+export type TunerCopyItem = { name: string; value: number; current: number };
+
+export type TunerSuggestions = {
+  mode: string;
+  applied: boolean;
+  note: string;
+  copyToEnv: TunerCopyItem[];
+  evidence?: { presented?: number; declined?: number; days?: number };
+  treatment?: {
+    mode: string;
+    applied: boolean;
+    note: string;
+    copyToEnv: TunerCopyItem[];
+    evidence?: { actionable?: number; fieldVisits?: number; days?: number };
+  };
+};
+
+export function useTunerSuggestions(days = 14) {
+  return useQuery({
+    queryKey: ["tuner-suggestions", days],
+    queryFn: async () =>
+      USE_MOCK
+        ? mockDelay({
+            mode: "shadow",
+            applied: false,
+            note: "insufficient_log",
+            copyToEnv: [],
+            treatment: { mode: "shadow", applied: false, note: "insufficient_log", copyToEnv: [] },
+          } satisfies TunerSuggestions)
+        : apiGet<TunerSuggestions>(`/offers/tuner-suggestions?days=${days}`),
     staleTime: 60_000,
   });
 }

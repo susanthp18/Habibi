@@ -1,5 +1,8 @@
 // Bot Analytics — synthetic conversation intelligence data.
 
+/** Voice production budget: user-stop → first audio (Pipecat 2026 practice). */
+export const VOICE_TTFA_SLO_MS = 800;
+
 export type ChannelKey = "all" | "voice" | "whatsapp" | "sms";
 export type RangeKey = "7d" | "30d" | "90d";
 

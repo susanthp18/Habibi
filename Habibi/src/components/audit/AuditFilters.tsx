@@ -111,6 +111,7 @@ export function AuditFilters({
           <Filter className="h-3.5 w-3.5" />
           Flagged only
           <Switch
+            aria-label="Flagged only"
             checked={filters.flaggedOnly}
             onCheckedChange={(v) => set("flaggedOnly", v)}
           />

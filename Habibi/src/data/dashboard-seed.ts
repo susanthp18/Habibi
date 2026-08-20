@@ -116,6 +116,16 @@ export const kpis: Kpi[] = [
     tone: "warning",
   },
   {
+    key: "timeToFirstTouch",
+    label: "Time to first touch",
+    value: "1.4h",
+    delta: -18.0,
+    deltaGood: "down",
+    sub: "median hours bounce→first contact",
+    spark: sparkline(14, 4, 1.2),
+    tone: "brand",
+  },
+  {
     key: "csat",
     label: "Avg Sentiment / CSAT",
     value: "0.62",

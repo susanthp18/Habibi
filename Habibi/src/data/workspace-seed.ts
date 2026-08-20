@@ -13,14 +13,14 @@ export interface QueueRow {
 }
 
 export const stats = {
-  callsHandled: 27,
-  callsHandledDelta: "+4 vs yesterday",
-  aht: "4m 12s",
+  callsHandled: 31,
+  callsHandledDelta: "+5 vs prior 7d",
+  aht: "4m 22s",
   ahtDelta: "-38s vs team",
-  resolutions: 22,
-  resolutionRate: "81%",
-  promisesCount: 6,
-  promisesAmount: 12480,
+  resolutions: 24,
+  resolutionRate: "77%",
+  promisesCount: 8,
+  promisesAmount: 18640,
 };
 
 export const disputes: QueueRow[] = [
@@ -129,6 +129,17 @@ export const brokenPtps: QueueRow[] = [
     slaLabel: "Follow up today",
   },
 ];
+
+export const nextLead = {
+  id: "LD-1001",
+  customer: "Vikram Rao",
+  accountId: "AC-77410",
+  productName: "Top-up Loan",
+  amount: 150000,
+  stage: "interested",
+  window: "17:00–20:00",
+  reason: "Highest-value open lead on your queue",
+};
 
 export const nextCallback = {
   customer: "Meera Iyer",

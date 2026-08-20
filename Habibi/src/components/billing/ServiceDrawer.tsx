@@ -1,5 +1,4 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   changePct,
   inr,
@@ -10,6 +9,7 @@ import {
   type Service,
   type Tenant,
 } from "@/data/billing-seed";
+import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 import { cn } from "@/lib/utils";
 
 export function ServiceDrawer({
@@ -35,7 +35,9 @@ export function ServiceDrawer({
   const delta = changePct(cost, prev);
   const units = usageUnits(cost, service.unitCostInr);
 
-  const series = current.map((d) => ({ date: d.date, v: d.values[service.id] ?? 0 }));
+  const values = current.map((d) => d.values[service.id] ?? 0);
+  const labels = current.map((d) => d.date);
+  const stroke = service.color.startsWith("#") ? service.color : "#1868db";
 
   const tenantRows = tenants
     .map((t) => ({
@@ -76,36 +78,24 @@ export function ServiceDrawer({
 
           <div>
             <div className="mb-050 text-body-small font-semibold text-text">Daily spend</div>
-            <div className="h-40">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={series} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id={`fill-${service.id}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={service.color} stopOpacity={0.4} />
-                      <stop offset="100%" stopColor={service.color} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="date" hide />
-                  <YAxis hide />
-                  <Tooltip
-                    contentStyle={{
-                      fontSize: 11,
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                      background: "var(--surface)",
-                    }}
-                    formatter={(v: number) => inrCompact(v)}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="v"
-                    stroke={service.color}
-                    strokeWidth={1.5}
-                    fill={`url(#fill-${service.id})`}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            <ChartStage
+              toolbar={
+                <>
+                  <span className="text-[11px] text-text-subtlest">Trend snapshot</span>
+                  <SnapshotPill />
+                </>
+              }
+            >
+              <LivelineTrend
+                values={values}
+                labels={labels}
+                color={stroke}
+                height={160}
+                formatValue={inrCompact}
+                formatTime={(i) => labels[i]?.slice(5) ?? ""}
+                fill
+              />
+            </ChartStage>
           </div>
 
           <div>

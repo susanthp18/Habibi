@@ -1,13 +1,16 @@
-import { Copy, Send, Sparkles } from "lucide-react";
+import { Copy, Send, Sparkles, BookOpen } from "lucide-react";
 import type { Suggestion } from "@/data/handoff-seed";
 import { Lozenge } from "@/components/ui/lozenge";
+
+type Canned = { id: string; label: string; text: string };
 
 type Props = {
   items: Suggestion[];
   onInsert: (s: Suggestion) => void;
+  canned?: Canned[];
 };
 
-export function AISuggestedResponses({ items, onInsert }: Props) {
+export function AISuggestedResponses({ items, onInsert, canned = [] }: Props) {
   return (
     <div className="rounded-large border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-150 py-100">
@@ -15,9 +18,7 @@ export function AISuggestedResponses({ items, onInsert }: Props) {
           <Sparkles className="h-3.5 w-3.5 text-text-brand" />
           AI suggestions
         </div>
-        <Lozenge tone="selected">
-          {items.length} live
-        </Lozenge>
+        <Lozenge tone="selected">{items.length} live</Lozenge>
       </div>
       <ul className="divide-y divide-border">
         {items.length === 0 && (
@@ -55,6 +56,35 @@ export function AISuggestedResponses({ items, onInsert }: Props) {
           </li>
         ))}
       </ul>
+      {canned.length > 0 && (
+        <div className="border-t border-border px-150 py-100">
+          <div className="mb-075 flex items-center gap-075 text-body-small font-semibold text-text-subtle">
+            <BookOpen className="h-3.5 w-3.5" />
+            Playbooks
+          </div>
+          <ul className="space-y-050">
+            {canned.slice(0, 4).map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onInsert({
+                      id: `canned-${c.id}`,
+                      title: c.label,
+                      body: c.text,
+                      source: "Playbook",
+                      showAfter: 0,
+                    })
+                  }
+                  className="w-full truncate rounded-medium px-075 py-050 text-left text-body-small text-text hover:bg-surface-sunken"
+                >
+                  {c.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

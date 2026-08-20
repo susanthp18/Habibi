@@ -4,6 +4,7 @@ import { Settings2, PlayCircle } from "lucide-react";
 import { healthTone, usageSeries, type Env, type Provider } from "@/data/integrations-seed";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
+import { LivelineSpark } from "@/components/charts";
 
 type Props = {
   provider: Provider;
@@ -17,17 +18,7 @@ type Props = {
 
 function Sparkline({ id, env }: { id: Provider["id"]; env: Env }) {
   const values = usageSeries(id, env);
-  const max = Math.max(...values, 1);
-  const w = 120, h = 28;
-  const step = w / (values.length - 1);
-  const path = values.map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(h - (v / max) * h).toFixed(1)}`).join(" ");
-  const area = `${path} L${w},${h} L0,${h} Z`;
-  return (
-    <svg width={w} height={h} className="text-text-brand">
-      <path d={area} fill="currentColor" opacity="0.12" />
-      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
+  return <LivelineSpark data={values} color="#1868db" height={28} className="w-[7.5rem]" />;
 }
 
 export function ProviderCard({ provider, env, selected, testing, onOpen, onTest, onToggle }: Props) {
@@ -52,7 +43,11 @@ export function ProviderCard({ provider, env, selected, testing, onOpen, onTest,
           </div>
           <div className="text-body-small text-text-subtle">{provider.capability} · {provider.vendor}</div>
         </div>
-        <Switch checked={cfg.enabled} onCheckedChange={onToggle} />
+        <Switch
+          aria-label={`Enable ${provider.name}`}
+          checked={cfg.enabled}
+          onCheckedChange={onToggle}
+        />
       </div>
 
       <div className="mt-150 flex items-center gap-100 text-body-small">

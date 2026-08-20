@@ -25,7 +25,9 @@ export function HeroKpiCard({ kpi }: { kpi: HeroKpi }) {
           <div className="text-3xl font-semibold text-text tabular">{kpi.value}</div>
           <div className="mt-050 text-xs text-text-subtlest">{kpi.sub}</div>
         </div>
-        <Sparkline data={kpi.spark} width={140} height={44} />
+        <div className="w-[8.75rem] overflow-hidden rounded-medium bg-surface-sunken">
+          <Sparkline data={kpi.spark} width={140} height={44} />
+        </div>
       </div>
     </div>
   );

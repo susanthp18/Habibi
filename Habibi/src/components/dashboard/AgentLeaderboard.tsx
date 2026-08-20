@@ -1,6 +1,12 @@
+import { useMemo } from "react";
 import { Medal, Trophy } from "lucide-react";
 import type { LeaderRow } from "@/data/dashboard-seed";
 import { cn } from "@/lib/utils";
+import {
+  RecordsAvatarMark,
+  RecordsTable,
+  type RecordsColumn,
+} from "@/components/records/RecordsTable";
 
 function medalTone(rank: number) {
   if (rank === 1) return "text-text-warning";
@@ -10,8 +16,99 @@ function medalTone(rank: number) {
 }
 
 export function AgentLeaderboard({ rows, onOpen }: { rows: LeaderRow[]; onOpen?: (r: LeaderRow) => void }) {
+  const columns = useMemo<RecordsColumn<LeaderRow>[]>(
+    () => [
+      {
+        id: "rank",
+        header: "#",
+        sortable: true,
+        sortValue: (r) => r.rank,
+        className: "min-w-[3.5rem] whitespace-nowrap",
+        cell: (r) => (
+          <span className={cn("inline-flex items-center gap-050 text-body-small font-semibold tabular", medalTone(r.rank))}>
+            {r.rank <= 3 ? <Medal className="h-3.5 w-3.5" /> : null}
+            {r.rank}
+          </span>
+        ),
+      },
+      {
+        id: "agent",
+        header: "Agent",
+        sticky: true,
+        sortable: true,
+        sortValue: (r) => r.name,
+        className: "min-w-[11rem]",
+        cell: (r) => (
+          <div className="flex min-w-0 items-center gap-100">
+            <RecordsAvatarMark label={r.name} />
+            <span className="min-w-0">
+              <span className="block truncate text-body font-medium text-text">{r.name}</span>
+              <span className="block truncate text-body-small text-text-subtlest">{r.team}</span>
+            </span>
+          </div>
+        ),
+        footer: (visible) => (
+          <span className="text-body-small">
+            <span className="font-semibold tabular text-text">{visible.length}</span>{" "}
+            <span className="text-text-subtlest">agents</span>
+          </span>
+        ),
+      },
+      {
+        id: "calls",
+        header: "Calls",
+        sortable: true,
+        sortValue: (r) => r.calls,
+        align: "right",
+        className: "min-w-[4.5rem] whitespace-nowrap",
+        cell: (r) => <span className="tabular-nums text-text">{r.calls}</span>,
+        footer: (visible) => (
+          <span className="tabular-nums">{visible.reduce((s, r) => s + r.calls, 0).toLocaleString("en-IN")}</span>
+        ),
+      },
+      {
+        id: "aht",
+        header: "AHT",
+        sortable: true,
+        sortValue: (r) => r.aht,
+        align: "right",
+        className: "min-w-[5rem] whitespace-nowrap",
+        cell: (r) => <span className="tabular-nums text-text-subtle">{r.aht}</span>,
+      },
+      {
+        id: "upsell",
+        header: "Upsell",
+        sortable: true,
+        sortValue: (r) => r.upsell ?? -1,
+        align: "right",
+        className: "min-w-[5rem] whitespace-nowrap",
+        cell: (r) =>
+          r.upsell == null ? (
+            <span className="text-text-subtlest">—</span>
+          ) : (
+            <span className="tabular-nums text-text-success">{r.upsell.toFixed(1)}%</span>
+          ),
+      },
+      {
+        id: "csat",
+        header: "CSAT",
+        sortable: true,
+        sortValue: (r) => r.csat ?? -1,
+        align: "right",
+        className: "min-w-[4.5rem] whitespace-nowrap",
+        cell: (r) =>
+          r.csat == null ? (
+            <span className="text-text-subtlest">—</span>
+          ) : (
+            <span className="tabular-nums text-text">{r.csat.toFixed(2)}</span>
+          ),
+      },
+    ],
+    [],
+  );
+
   return (
-    <div className="flex h-full flex-col rounded-large border border-border bg-surface">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-large border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-200 py-150">
         <div>
           <h3 className="text-sm font-semibold text-text">Agent leaderboard</h3>
@@ -19,65 +116,17 @@ export function AgentLeaderboard({ rows, onOpen }: { rows: LeaderRow[]; onOpen?:
         </div>
         <Trophy className="h-4 w-4 text-text-warning" />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-surface-sunken text-body-small text-text-subtle">
-            <tr>
-              <th className="px-200 py-100 text-left font-medium">#</th>
-              <th className="px-200 py-100 text-left font-medium">Agent</th>
-              <th className="px-200 py-100 text-right font-medium">Calls</th>
-              <th className="px-200 py-100 text-right font-medium">AHT</th>
-              <th className="px-200 py-100 text-right font-medium">Upsell</th>
-              <th className="px-200 py-100 text-right font-medium">CSAT</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr
-                key={r.rank}
-                onClick={() => onOpen?.(r)}
-                className="cursor-pointer border-t border-border transition-colors hover:bg-background-brand-subtlest/40"
-              >
-                <td className="px-200 py-150 align-middle">
-                  <span className={cn("inline-flex items-center gap-050 text-xs font-semibold tabular", medalTone(r.rank))}>
-                    {r.rank <= 3 ? <Medal className="h-3.5 w-3.5" /> : null}
-                    {r.rank}
-                  </span>
-                </td>
-                <td className="px-200 py-150">
-                  <div className="text-sm font-medium text-text">{r.name}</div>
-                  <div className="text-body-small text-text-subtlest">{r.team}</div>
-                </td>
-                <td className="px-200 py-150 text-right tabular">{r.calls}</td>
-                <td className="px-200 py-150 text-right tabular">{r.aht}</td>
-                {/* A dash, not a number: the rep captured no leads in this
-                    window. This column used to be `12 + rank * 1.3`. */}
-                <td className="px-200 py-150 text-right tabular text-text-success">
-                  {r.upsell == null ? (
-                    <span className="text-text-subtlest">—</span>
-                  ) : (
-                    `${r.upsell.toFixed(1)}%`
-                  )}
-                </td>
-                <td className="px-200 py-150 text-right tabular">
-                  {r.csat == null ? (
-                    <span className="text-text-subtlest">—</span>
-                  ) : (
-                    r.csat.toFixed(2)
-                  )}
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-200 py-400 text-center text-body-small text-text-subtle">
-                  No agent activity in this period.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <RecordsTable
+        rows={rows}
+        getRowId={(r) => `${r.rank}-${r.name}`}
+        columns={columns}
+        defaultSort={{ id: "rank", dir: 1 }}
+        onRowClick={onOpen}
+        ariaLabel="Agent leaderboard"
+        tableClassName="min-w-[36rem]"
+        className="min-h-0 flex-1 rounded-none border-0"
+        emptyMessage="No agent activity in this period."
+      />
     </div>
   );
 }

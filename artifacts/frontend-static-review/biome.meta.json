@@ -1,0 +1,9 @@
+{
+  "name": "biome",
+  "code": 1,
+  "signal": null,
+  "timedOut": false,
+  "elapsedMs": 75942,
+  "stdoutBytes": 339549,
+  "stderrBytes": 436
+}

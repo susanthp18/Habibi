@@ -9,7 +9,8 @@ type Props = {
 };
 
 /**
- * BigBound AI mark — architectural 'B' monogram over an ascending trend line.
+ * Previous in-app mark — architectural 'B' monogram over an ascending trend line.
+ * Kept on disk, unused by shell chrome. Live mark is `EqualizerMark`.
  *
  * Two decisions worth keeping:
  *

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { RefreshCw, Power, PowerOff, FileUp, X, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { Lozenge } from "@/components/ui/lozenge";
 
 export type KbDocumentMetaPatch = {
   title: string;
@@ -120,88 +121,148 @@ export function DocumentInspector({
   };
 
   return (
-    <aside className="flex h-full max-h-[inherit] min-h-0 w-full flex-col overflow-hidden rounded-large border border-border bg-surface">
-      <div className="shrink-0 border-b border-border p-150">
-        <div className="flex items-start justify-between gap-100">
-          <div className="min-w-0 flex-1 space-y-100">
-            <div className="text-body-small font-semibold text-text-subtlest">
-              {DOC_TYPE_LABEL[doc.type]} · {doc.version}
+    <aside className="flex h-full min-h-0 w-[24rem] shrink-0 flex-col border-l border-border bg-surface">
+      <div className="flex shrink-0 items-start justify-between gap-100 border-b border-border px-200 py-150">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-075">
+            <Lozenge tone="neutral">{DOC_TYPE_LABEL[doc.type]}</Lozenge>
+            <span className="text-body-small text-text-subtlest">{doc.version}</span>
+            <Lozenge tone={doc.enabled ? "success" : "neutral"}>
+              {doc.enabled ? "Enabled" : "Disabled"}
+            </Lozenge>
+          </div>
+          <p className="mt-075 truncate text-body-small text-text-subtlest" title={doc.filename}>
+            {doc.filename}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="focus-ring grid h-400 w-400 shrink-0 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken"
+          aria-label="Close inspector"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="space-y-150 border-b border-border px-200 py-150">
+          <div>
+            <Label className="text-body-small text-text-subtlest">Title</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mt-050 h-400 text-body font-semibold"
+              disabled={busy}
+            />
+          </div>
+          {staleRemote && (
+            <div className="rounded-medium border border-border-warning bg-background-warning-subtler px-100 py-050 text-body-small text-text-warning-bolder">
+              This document changed elsewhere. Your edits are kept — saving will overwrite the newer
+              version.
             </div>
+          )}
+          <div className="space-y-075">
+            <Label className="text-body-small text-text-subtlest">Tags</Label>
+            <KbTagEditor tags={tags} onChange={setTags} disabled={busy} />
+          </div>
+          <div className="grid grid-cols-2 gap-150">
             <div>
-              <Label className="text-body-small text-text-subtlest">Title</Label>
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="mt-050 h-400 text-body font-semibold"
+              <div className="mb-050 flex items-center justify-between text-body-small text-text-subtlest">
+                <span>Chunk size</span>
+                <span className="font-mono text-text">{chunkSize}</span>
+              </div>
+              <Slider
+                min={200}
+                max={1500}
+                step={32}
+                value={[chunkSize]}
+                onValueChange={(v) => {
+                  const next = v[0];
+                  setChunkSize(next);
+                  if (overlap >= next) setOverlap(Math.max(0, next - 1));
+                }}
                 disabled={busy}
               />
             </div>
-            <div className="truncate text-body-small text-text-subtlest">{doc.filename}</div>
-            {staleRemote && (
-              <div className="rounded-medium border border-border-warning bg-background-warning-subtler px-100 py-050 text-body-small text-text-warning-bolder">
-                This document changed elsewhere. Your edits are kept — saving
-                will overwrite the newer version.
+            <div>
+              <div className="mb-050 flex items-center justify-between text-body-small text-text-subtlest">
+                <span>Overlap</span>
+                <span className="font-mono text-text">{overlap}</span>
               </div>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-medium p-050 text-text-subtlest hover:bg-surface-sunken"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="mt-150 space-y-075">
-          <Label className="text-body-small text-text-subtlest">Tags</Label>
-          <KbTagEditor tags={tags} onChange={setTags} disabled={busy} />
-        </div>
-
-        <div className="mt-150 grid grid-cols-2 gap-150">
-          <div>
-            <div className="mb-050 flex items-center justify-between text-body-small text-text-subtlest">
-              <span>Chunk size</span>
-              <span className="font-mono text-text">{chunkSize}</span>
+              <Slider
+                min={0}
+                max={Math.min(200, Math.max(0, chunkSize - 1))}
+                step={8}
+                value={[Math.min(overlap, chunkSize - 1)]}
+                onValueChange={(v) => setOverlap(v[0])}
+                disabled={busy}
+              />
             </div>
-            <Slider
-              min={200}
-              max={1500}
-              step={32}
-              value={[chunkSize]}
-              onValueChange={(v) => {
-                const next = v[0];
-                setChunkSize(next);
-                if (overlap >= next) setOverlap(Math.max(0, next - 1));
-              }}
-              disabled={busy}
-            />
           </div>
-          <div>
-            <div className="mb-050 flex items-center justify-between text-body-small text-text-subtlest">
-              <span>Overlap</span>
-              <span className="font-mono text-text">{overlap}</span>
-            </div>
-            <Slider
-              min={0}
-              max={Math.min(200, Math.max(0, chunkSize - 1))}
-              step={8}
-              value={[Math.min(overlap, chunkSize - 1)]}
-              onValueChange={(v) => setOverlap(v[0])}
-              disabled={busy}
-            />
+          <div className="truncate font-mono text-body-small text-text-subtlest">
+            embed={doc.embeddingModel} · id={doc.id}
           </div>
-        </div>
-        <div className="mt-050 truncate font-mono text-body-small text-text-subtlest">
-          embed={doc.embeddingModel}
+          {dirty && (
+            <p className="text-body-small text-text-warning-bolder">
+              Unsaved changes
+              {(chunkSize !== doc.chunkSize || overlap !== doc.overlap) &&
+                " — changing chunk settings will re-index if the doc is enabled."}
+            </p>
+          )}
         </div>
 
-        <div className="mt-150 flex flex-wrap gap-075">
-          <Button size="sm" onClick={() => void save()} disabled={!dirty || busy}>
+        <div className="px-200 py-150">
+          <div className="mb-100 flex items-center justify-between">
+            <div className="text-body-small font-semibold text-text-subtlest">
+              Chunks ({chunks.length})
+            </div>
+            <div className="text-body-small text-text-subtlest">Updated by {doc.updatedBy}</div>
+          </div>
+          {chunks.length === 0 ? (
+            <div className="rounded-medium border border-dashed border-border px-150 py-300 text-center text-body-small text-text-subtlest">
+              No chunks yet — enable and re-index, or sync from source_db.
+            </div>
+          ) : (
+            <ul className="space-y-075">
+              {chunks.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenChunk(c)}
+                    className="w-full rounded-medium border border-border bg-surface p-100 text-left transition-colors hover:border-border-brand/40 hover:bg-background-brand-subtlest/40"
+                  >
+                    <div className="flex items-center justify-between text-body-small text-text-subtlest">
+                      <span className="font-mono">#{c.index}</span>
+                      <span>
+                        {c.tokens} tok · {c.hits} hits
+                      </span>
+                    </div>
+                    <div className="mt-025 truncate text-body-small font-medium text-text-subtle">
+                      {c.heading}
+                    </div>
+                    <div className="mt-025 line-clamp-2 text-body-small text-text">{c.text}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-border px-200 py-150">
+        <div className="flex flex-wrap gap-075">
+          <Button size="sm" variant="primary" onClick={() => void save()} disabled={!dirty || busy}>
             <Save className="mr-050 h-3 w-3" />
             {savingMeta ? "Saving…" : "Save"}
           </Button>
-          <Button size="sm" variant="outline" onClick={onReindex} disabled={busy}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onReindex}
+            disabled={busy}
+            title="Re-chunk the current file. Prefer Sync from source_db for the HDFC corpus."
+          >
             <RefreshCw className={`mr-050 h-3 w-3 ${reindexing ? "animate-spin" : ""}`} />
             Re-index
           </Button>
@@ -216,7 +277,13 @@ export function DocumentInspector({
               </>
             )}
           </Button>
-          <Button size="sm" variant="outline" onClick={onNewVersion} disabled={busy}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onNewVersion}
+            disabled={busy}
+            title="Upload replacement bytes for this document."
+          >
             <FileUp className="mr-050 h-3 w-3" /> New version
           </Button>
           <Button
@@ -230,63 +297,6 @@ export function DocumentInspector({
             {deleting ? "Deleting…" : "Delete"}
           </Button>
         </div>
-        <p className="mt-100 text-body-small leading-relaxed text-text-subtlest">
-          <span className="font-medium text-text-subtle">Re-index</span> re-chunks the current
-          file. <span className="font-medium text-text-subtle">New version</span> uploads
-          replacement bytes. Prefer{" "}
-          <span className="font-medium text-text-subtle">Sync from source_db</span> for the HDFC
-          corpus.
-        </p>
-        <div className="mt-100 flex flex-wrap gap-x-150 gap-y-050 font-mono text-body-small text-text-subtlest">
-          <span>id={doc.id}</span>
-          <span>
-            status={doc.status}
-            {doc.enabled ? " · enabled" : " · disabled"}
-          </span>
-        </div>
-        {dirty && (
-          <p className="mt-100 text-body-small text-text-warning-bolder">
-            Unsaved changes
-            {(chunkSize !== doc.chunkSize || overlap !== doc.overlap) &&
-              " — changing chunk settings will re-index if the doc is enabled."}
-          </p>
-        )}
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-150">
-        <div className="mb-100 flex items-center justify-between">
-          <div className="text-body-small font-semibold text-text-subtlest">
-            Chunks ({chunks.length})
-          </div>
-          <div className="text-body-small text-text-subtlest">Updated by {doc.updatedBy}</div>
-        </div>
-        {chunks.length === 0 ? (
-          <div className="rounded-medium border border-dashed border-border px-150 py-300 text-center text-body-small text-text-subtlest">
-            No chunks yet — enable and re-index, or sync from source_db.
-          </div>
-        ) : (
-          <ul className="space-y-075">
-            {chunks.map((c) => (
-              <li key={c.id}>
-                <button
-                  onClick={() => onOpenChunk(c)}
-                  className="w-full rounded-medium border border-border bg-surface p-100 text-left transition-colors hover:border-border-brand/40 hover:bg-background-brand-subtlest/40"
-                >
-                  <div className="flex items-center justify-between text-body-small text-text-subtlest">
-                    <span className="font-mono">#{c.index}</span>
-                    <span>
-                      {c.tokens} tok · {c.hits} hits
-                    </span>
-                  </div>
-                  <div className="mt-025 truncate text-body-small font-medium text-text-subtle">
-                    {c.heading}
-                  </div>
-                  <div className="mt-025 line-clamp-2 text-body-small text-text">{c.text}</div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>

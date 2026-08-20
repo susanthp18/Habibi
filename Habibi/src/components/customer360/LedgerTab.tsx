@@ -3,6 +3,7 @@ import type { Customer, LedgerEntry, LedgerType } from "@/data/customer360-seed"
 import { fmtDate, fmtMoney } from "@/data/customer360-seed";
 import { StatusChip, ledgerTypeTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
+import { FilterTable, type FilterChip, type FilterTableColumn } from "@/components/records/FilterTable";
 
 const TYPE_LABEL: Record<LedgerType, string> = {
   charge: "Charge",
@@ -12,16 +13,17 @@ const TYPE_LABEL: Record<LedgerType, string> = {
   waiver: "Waiver",
 };
 
+const TYPE_DOT: Record<LedgerType, string> = {
+  charge: "var(--icon-accent-blue)",
+  payment: "var(--icon-accent-green)",
+  fee: "var(--icon-accent-orange)",
+  adjustment: "var(--icon-accent-gray)",
+  waiver: "var(--icon-accent-teal)",
+};
+
 const TYPES: LedgerType[] = ["charge", "payment", "fee", "adjustment", "waiver"];
 
 export function LedgerTab({ customer }: { customer: Customer }) {
-  const [enabled, setEnabled] = useState<Record<LedgerType, boolean>>({
-    charge: true,
-    payment: true,
-    fee: true,
-    adjustment: true,
-    waiver: true,
-  });
   const [range, setRange] = useState<90 | 180 | 365>(180);
 
   const summary = useMemo(() => {
@@ -33,10 +35,75 @@ export function LedgerTab({ customer }: { customer: Customer }) {
     return { principal, fees, payments, lastPayment, total };
   }, [customer]);
 
-  const rows = useMemo(() => {
+  const ranged = useMemo(() => {
     const cutoff = Date.now() - range * 86400_000;
-    return customer.ledger.filter((r) => enabled[r.type] && new Date(r.date).getTime() >= cutoff);
-  }, [customer.ledger, enabled, range]);
+    return customer.ledger.filter((r) => new Date(r.date).getTime() >= cutoff);
+  }, [customer.ledger, range]);
+
+  const chips = useMemo<FilterChip<LedgerType>[]>(() => {
+    const counts = Object.fromEntries(TYPES.map((t) => [t, 0])) as Record<LedgerType, number>;
+    for (const r of ranged) counts[r.type] += 1;
+    return [
+      { key: "all", label: "All", count: ranged.length },
+      ...TYPES.map((t) => ({ key: t, label: TYPE_LABEL[t], dot: TYPE_DOT[t], count: counts[t] })),
+    ];
+  }, [ranged]);
+
+  const columns = useMemo<FilterTableColumn<LedgerEntry>[]>(
+    () => [
+      {
+        id: "date",
+        header: "Date",
+        width: "0.9fr",
+        cell: (r) => <span className="text-body-small tabular-nums text-text-subtle">{fmtDate(r.date)}</span>,
+      },
+      {
+        id: "description",
+        header: "Description",
+        width: "1.8fr",
+        cell: (r) => (
+          <div className="min-w-0">
+            <div className="truncate text-body text-text">{r.description}</div>
+            {r.invoiceId ? (
+              <div className="truncate text-body-small text-text-subtlest">Invoice · {r.invoiceId}</div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "type",
+        header: "Type",
+        width: "0.8fr",
+        cell: (r) => <StatusChip label={TYPE_LABEL[r.type]} tone={ledgerTypeTone(r.type)} />,
+      },
+      {
+        id: "amount",
+        header: "Amount",
+        width: "0.8fr",
+        className: "text-right",
+        cell: (r) => (
+          <span
+            className={cn(
+              "text-body font-medium tabular-nums",
+              r.amount < 0 ? "text-text-success" : "text-text",
+            )}
+          >
+            {fmtMoney(r.amount)}
+          </span>
+        ),
+      },
+      {
+        id: "balance",
+        header: "Balance",
+        width: "0.8fr",
+        className: "text-right",
+        cell: (r) => (
+          <span className="text-body tabular-nums text-text-subtle">{fmtMoney(r.balance)}</span>
+        ),
+      },
+    ],
+    [],
+  );
 
   return (
     <div className="space-y-200">
@@ -48,91 +115,45 @@ export function LedgerTab({ customer }: { customer: Customer }) {
         <StatTile label="Last payment" value={summary.lastPayment ? fmtDate(summary.lastPayment.date) : "—"} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
-        <span className="text-body-small font-semibold text-text-subtle">Types</span>
-        {TYPES.map((t) => (
+      <div className="flex items-center justify-end gap-050">
+        <span className="text-body-small text-text-subtle">Range</span>
+        {[90, 180, 365].map((r) => (
           <button
-            key={t}
+            key={r}
             type="button"
-            onClick={() => setEnabled((e) => ({ ...e, [t]: !e[t] }))}
+            onClick={() => setRange(r as 90 | 180 | 365)}
             className={cn(
-              "rounded-medium border px-100 py-025 text-body-small font-medium capitalize",
-              enabled[t]
-                ? "border-border-brand bg-background-brand-bold text-white"
-                : "border-border bg-surface text-text-subtle hover:bg-background-brand-subtlest hover:text-text-brand",
+              "rounded-medium px-100 py-025 text-body-small font-medium",
+              range === r ? "bg-background-brand-boldest text-white" : "text-text-subtle hover:bg-surface-sunken",
             )}
           >
-            {TYPE_LABEL[t]}
+            {r}d
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-050">
-          <span className="text-body-small text-text-subtle">Range</span>
-          {[90, 180, 365].map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRange(r as 90 | 180 | 365)}
-              className={cn(
-                "rounded-medium px-100 py-025 text-body-small font-medium",
-                range === r ? "bg-background-brand-boldest text-white" : "text-text-subtle hover:bg-surface-sunken",
-              )}
-            >
-              {r}d
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div className="overflow-hidden rounded-large border border-border bg-surface">
-        <table className="w-full text-sm">
-          <thead className="bg-surface-sunken text-body-small text-text-subtle">
-            <tr>
-              <th className="px-200 py-100 text-left font-medium">Date</th>
-              <th className="px-200 py-100 text-left font-medium">Description</th>
-              <th className="px-200 py-100 text-left font-medium">Type</th>
-              <th className="px-200 py-100 text-right font-medium">Amount</th>
-              <th className="px-200 py-100 text-right font-medium">Balance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <LedgerRow key={r.id} r={r} />
-            ))}
-            {!rows.length && (
-              <tr>
-                <td colSpan={5} className="px-200 py-400 text-center text-sm text-text-subtlest">
-                  No entries in this window.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <FilterTable
+        rows={ranged}
+        getRowId={(r) => r.id}
+        getStatus={(r) => r.type}
+        chips={chips}
+        columns={columns}
+        emptyMessage="No entries in this window."
+        ariaLabel="Account ledger"
+      />
     </div>
   );
 }
 
-function LedgerRow({ r }: { r: LedgerEntry }) {
-  const isCredit = r.amount < 0;
-  return (
-    <tr className="border-t border-border hover:bg-background-brand-subtlest/30">
-      <td className="px-200 py-150 text-xs text-text-subtle tabular">{fmtDate(r.date)}</td>
-      <td className="px-200 py-150">
-        <div className="text-sm text-text">{r.description}</div>
-        {r.invoiceId && <div className="text-body-small text-text-subtlest">Invoice · {r.invoiceId}</div>}
-      </td>
-      <td className="px-200 py-150">
-        <StatusChip label={TYPE_LABEL[r.type]} tone={ledgerTypeTone(r.type)} />
-      </td>
-      <td className={cn("px-200 py-150 text-right text-sm font-medium tabular", isCredit ? "text-text-success" : "text-text")}>
-        {fmtMoney(r.amount)}
-      </td>
-      <td className="px-200 py-150 text-right text-sm text-text-subtle tabular">{fmtMoney(r.balance)}</td>
-    </tr>
-  );
-}
-
-function StatTile({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "brand" | "success" | "warning" }) {
+function StatTile({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "brand" | "success" | "warning";
+}) {
   const toneClass =
     tone === "brand"
       ? "text-text-brand"

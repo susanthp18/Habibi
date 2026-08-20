@@ -1,30 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
-import { StatsStrip } from "@/components/floor/StatsStrip";
+import { StatsStrip, type FloorFocus } from "@/components/floor/StatsStrip";
+import { WorkforceStrip } from "@/components/floor/WorkforceStrip";
 import { FilterBar, type Filters } from "@/components/floor/FilterBar";
-import { CallTile } from "@/components/floor/CallTile";
-import { AlertLane } from "@/components/floor/AlertLane";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useFloor, useSupervisorAction, type FloorSnapshot } from "@/api/floor";
+import { PriorityLane } from "@/components/floor/PriorityLane";
+import { LiveTable } from "@/components/floor/LiveTable";
+import { Inspector } from "@/components/floor/Inspector";
+import { ApprovalsQueue } from "@/components/floor/ApprovalsQueue";
+import { LoadingState } from "@/components/ui/loading-state";
+import { useAckFloorAlert, useFloor, useSupervisorAction, type FloorSnapshot } from "@/api/floor";
 import { USE_MOCK } from "@/api/config";
-import type { ActiveCall } from "@/data/floor-seed";
+import type { ActiveCall, FloorAction, FloorAlert } from "@/data/floor-seed";
 
 export const Route = createFileRoute("/floor")({
   head: () => ({
     meta: [
-      { title: "Floor Command Center — Live Ops" },
+      { title: "Floor Command — Live Ops" },
       {
         name: "description",
         content:
-          "Supervisor cockpit for monitoring every active bot and human call in real time — listen in, whisper to agents, or barge in with force-handoff.",
-      },
-      { property: "og:title", content: "Floor Command Center — Live Ops" },
-      {
-        property: "og:description",
-        content:
-          "Live grid of active calls with sentiment, topics, and supervisor actions across bot + human handled sessions.",
+          "Supervisor console for live exceptions, agent presence, and intervention across bot and human sessions.",
       },
     ],
   }),
@@ -37,7 +34,7 @@ function FloorPage() {
     <AppShell>
       {isLoading && !data ? (
         <div className="grid h-full place-items-center p-400">
-          <Skeleton className="h-40 w-full max-w-3xl" />
+          <LoadingState label="Loading floor" />
         </div>
       ) : isError && !data ? (
         <div className="grid h-full place-items-center text-body text-text-danger">
@@ -54,27 +51,23 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
   const { data } = useFloor();
   const snapshot = data ?? initial;
   const actionMut = useSupervisorAction();
+  const ackMut = useAckFloorAlert();
+  const navigate = useNavigate();
 
   const [calls, setCalls] = useState<ActiveCall[]>(snapshot.calls);
+  const [alerts, setAlerts] = useState<FloorAlert[]>(snapshot.alerts);
   const [listeningId, setListeningId] = useState<string | null>(null);
-  const [whisperId, setWhisperId] = useState<string | null>(null);
-  const [flashId, setFlashId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<FloorFocus>("all");
+  const [filters, setFilters] = useState<Filters>({ q: "", channels: [], handler: "all" });
 
-  // Sync from server polls (live) — mock keeps local drift below.
   useEffect(() => {
-    if (!USE_MOCK) setCalls(snapshot.calls);
-  }, [snapshot.calls]);
+    if (!USE_MOCK) {
+      setCalls(snapshot.calls);
+      setAlerts(snapshot.alerts);
+    }
+  }, [snapshot.calls, snapshot.alerts]);
 
-  const [filters, setFilters] = useState<Filters>({
-    q: "",
-    channels: [],
-    handler: "all",
-    sentiment: "all",
-    topic: "all",
-    sort: "risk",
-  });
-
-  // Mock-only: local duration/sentiment tick for demo liveliness.
   useEffect(() => {
     if (!USE_MOCK) return;
     const iv = window.setInterval(() => {
@@ -95,75 +88,79 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
     return () => window.clearInterval(iv);
   }, []);
 
-  const alerts = snapshot.alerts;
-
   const liveStats = useMemo(() => {
     const avg = calls.reduce((s, c) => s + c.sentiment, 0) / Math.max(calls.length, 1);
-    const escalations = calls.filter((c) => c.handler.kind === "human").length;
     return {
       ...snapshot.stats,
       callsInProgress: calls.length,
       avgSentiment: Number(avg.toFixed(2)),
-      escalationRate: Number((escalations / Math.max(calls.length, 1)).toFixed(2)),
-      longestWaitSec: calls.length ? Math.max(...calls.map((c) => c.durationSec)) : 0,
+      criticalAlerts: alerts.filter((a) => a.severity >= 3).length,
+      botAtRisk: calls.filter((c) => c.handler.kind === "bot" && c.risk !== "low").length,
     };
-  }, [calls, snapshot.stats]);
+  }, [calls, alerts, snapshot.stats]);
 
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
-    let list = calls.filter((c) => {
+    return calls.filter((c) => {
       if (q) {
         const hay = `${c.customer} ${c.accountTail} ${c.handler.name} ${c.topic}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (filters.channels.length && !filters.channels.includes(c.channel)) return false;
       if (filters.handler !== "all" && c.handler.kind !== filters.handler) return false;
-      if (filters.topic !== "all" && c.topic !== filters.topic) return false;
-      if (filters.sentiment !== "all") {
-        if (filters.sentiment === "positive" && !(c.sentiment > 0.25)) return false;
-        if (filters.sentiment === "negative" && !(c.sentiment < -0.2)) return false;
-        if (filters.sentiment === "neutral" && (c.sentiment > 0.25 || c.sentiment < -0.2)) return false;
+      if (focus === "critical") {
+        const flagged = alerts.some((a) => a.callId === c.id && a.severity >= 3);
+        if (!(c.risk === "high" || flagged)) return false;
       }
+      if (focus === "queue" && !c.pendingHandoff) return false;
+      if (focus === "bot-risk" && !(c.handler.kind === "bot" && c.risk !== "low")) return false;
+      if (focus === "human" && c.handler.kind !== "human") return false;
       return true;
     });
+  }, [calls, filters, focus, alerts]);
 
-    list = [...list].sort((a, b) => {
-      if (filters.sort === "duration") return b.durationSec - a.durationSec;
-      if (filters.sort === "sentiment") return a.sentiment - b.sentiment;
-      const rank = { high: 3, medium: 2, low: 1 } as const;
-      return rank[b.risk] - rank[a.risk];
-    });
-    return list;
-  }, [calls, filters]);
+  const selected = calls.find((c) => c.id === selectedId) ?? null;
 
-  const handleListenToggle = (id: string) => {
-    const turningOn = listeningId !== id;
-    setListeningId(turningOn ? id : null);
-    if (turningOn) {
-      actionMut.mutate(
-        { interactionId: id, action: "listen_in" },
-        { onError: (e) => toast.error(e instanceof Error ? e.message : "Listen failed") },
-      );
+  const runAction = (id: string, action: FloorAction, note?: string) => {
+    const call = calls.find((c) => c.id === id);
+    if (!call) return;
+
+    if (action === "inbox") {
+      void navigate({
+        to: "/inbox",
+        search: { conversationId: call.conversationId ?? undefined },
+      });
+      return;
     }
-  };
 
-  const handleWhisperSubmit = (id: string, text: string) => {
-    if (USE_MOCK) {
-      setCalls((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, lastLine: `[whisper to agent] ${text}` } : c)),
-      );
+    if (action === "listen") {
+      const turningOn = listeningId !== id;
+      setListeningId(turningOn ? id : null);
+      setSelectedId(id);
+      if (turningOn) {
+        actionMut.mutate(
+          { interactionId: id, action: "listen_in" },
+          { onError: (e) => toast.error(e instanceof Error ? e.message : "Listen failed") },
+        );
+        toast.message("Listening logged — transcript is in the inspector. Live audio is not on this plane yet.");
+      }
+      return;
     }
-    actionMut.mutate(
-      { interactionId: id, action: "whisper", note: text },
-      {
-        onSuccess: () => toast.success("Whisper logged"),
-        onError: (e) => toast.error(e instanceof Error ? e.message : "Whisper failed"),
-      },
-    );
-    setWhisperId(null);
-  };
 
-  const handleBarge = (id: string) => {
+    if (action === "whisper") {
+      setSelectedId(id);
+      if (note) {
+        actionMut.mutate(
+          { interactionId: id, action: "whisper", note },
+          {
+            onSuccess: () => toast.success("Whisper logged"),
+            onError: (e) => toast.error(e instanceof Error ? e.message : "Whisper failed"),
+          },
+        );
+      }
+      return;
+    }
+
     if (USE_MOCK) {
       setCalls((prev) =>
         prev.map((c) =>
@@ -172,6 +169,7 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
                 ...c,
                 handler: { kind: "human", name: "You (supervisor)", initials: "SU" },
                 lastLine: "[system] Supervisor took over the call.",
+                pendingHandoff: false,
               }
             : c,
         ),
@@ -180,25 +178,48 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
     actionMut.mutate(
       { interactionId: id, action: "barge" },
       {
-        onSuccess: () => toast.success("Barge recorded"),
+        onSuccess: (data) => {
+          const joined = Boolean(data && typeof data === "object" && "audioJoined" in data && data.audioJoined);
+          toast.success(joined ? "Taken over — you are on the live call" : "Handoff taken — CRM takeover (no Twilio leg)");
+          void navigate({
+            to: "/handoff",
+            search: { interactionId: id, customerId: call.customerId },
+          });
+        },
         onError: (e) => toast.error(e instanceof Error ? e.message : "Barge failed"),
       },
     );
   };
 
-  const handleFocusAlert = (id: string) => {
-    setFlashId(id);
-    window.setTimeout(() => setFlashId(null), 1500);
+  const handleAck = (alertId: string) => {
+    if (USE_MOCK) setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    ackMut.mutate(alertId, {
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Ack failed"),
+    });
   };
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
       {!USE_MOCK && (
         <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
-          Live floor · listen / whisper / barge write supervisor audit only (no media plane yet)
+          Live floor · Listen is the transcript. Whisper coaches the next bot turn. Barge takes over a live Twilio call.
         </div>
       )}
-      <StatsStrip stats={liveStats} />
+      <StatsStrip stats={liveStats} focus={focus} onFocus={setFocus} />
+      <WorkforceStrip
+        agents={snapshot.agents}
+        onSelect={(id) => {
+          if (id) setSelectedId(id);
+        }}
+      />
+      <ApprovalsQueue />
+      <PriorityLane
+        alerts={alerts}
+        calls={calls}
+        onFocus={(id) => setSelectedId(id)}
+        onAction={(id, action) => runAction(id, action)}
+        onAck={handleAck}
+      />
       <FilterBar
         value={filters}
         onChange={setFilters}
@@ -206,53 +227,19 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
         totalCount={calls.length}
       />
 
-      <div className="xl:hidden">
-        <AlertLane
-          alerts={alerts}
-          calls={calls}
-          onFocus={handleFocusAlert}
-          onListen={handleListenToggle}
-          onBarge={handleBarge}
-          compact
-        />
-      </div>
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-200 py-200">
-          {filtered.length === 0 ? (
-            <div className="grid h-full place-items-center text-body text-text-subtlest">
-              {calls.length === 0 ? "No active calls right now." : "No calls match these filters."}
-            </div>
-          ) : (
-            <div
-              className="grid gap-150"
-              style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
-            >
-              {filtered.map((call) => (
-                <CallTile
-                  key={call.id}
-                  call={call}
-                  listening={listeningId === call.id}
-                  whisperOpen={whisperId === call.id}
-                  onListenToggle={() => handleListenToggle(call.id)}
-                  onWhisperOpen={() => setWhisperId(call.id)}
-                  onWhisperClose={() => setWhisperId(null)}
-                  onWhisperSubmit={(text) => handleWhisperSubmit(call.id, text)}
-                  onBarge={() => handleBarge(call.id)}
-                  flash={flashId === call.id}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <AlertLane
-          alerts={alerts}
-          calls={calls}
-          onFocus={handleFocusAlert}
-          onListen={handleListenToggle}
-          onBarge={handleBarge}
-        />
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <LiveTable rows={filtered} activeId={selectedId} onSelect={(c) => setSelectedId(c.id)} />
+        {selected && (
+          <div className="absolute inset-y-0 right-0 z-20 flex shadow-overlay xl:static xl:z-auto xl:shadow-none">
+            <Inspector
+              call={selected}
+              listening={listeningId === selected.id}
+              onClose={() => setSelectedId(null)}
+              onAction={(action, call) => runAction(call.id, action)}
+              onWhisper={(text) => runAction(selected.id, "whisper", text)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

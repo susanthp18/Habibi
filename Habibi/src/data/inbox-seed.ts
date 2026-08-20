@@ -1,10 +1,15 @@
-export type Channel = "whatsapp" | "sms" | "email" | "voice";
+// Mirrors the conversations.channel CHECK constraint (sql/04_interactions.sql).
+// Narrower than the database, the inbox drops threads it was meant to show.
+export type Channel = "whatsapp" | "sms" | "email" | "chat" | "voice";
 export type Sender = "customer" | "bot" | "agent";
 /** Stored conversation status — "mine" is derived (assignedUserId === me). */
 export type ThreadStatus = "bot" | "needs_human" | "escalated" | "assigned";
 export type SlaLevel = "ok" | "warn" | "breach";
 export type Sentiment = "positive" | "neutral" | "negative";
-export type DeliveryStatus = "sent" | "delivered" | "read" | "failed";
+// "pending" = queued by the API, not yet accepted by the provider. It must be
+// distinguishable from a delivered message: rendering both as "no tick" is how
+// an agent spent six minutes replying to a customer who saw nothing.
+export type DeliveryStatus = "pending" | "sent" | "delivered" | "read" | "failed";
 
 export interface Message {
   id: string;
@@ -69,6 +74,7 @@ export interface Thread {
   lastPreview: string;
   lastFrom: Sender;
   sentiment: Sentiment;
+  handlerBotId?: string | null;
   ragSuggestions: string[];
   /** Optional grounded draft from shared kb_retrieve (same as Test Retrieval). */
   ragDraftAnswer?: string | null;
@@ -95,7 +101,7 @@ export const cannedResponses = [
   {
     id: "c4",
     label: "Late-fee waiver policy",
-    text: "As a first-time waiver, we can apply a one-time reversal of ₹500 on the late fee. Would you like me to raise the request?",
+    text: "I can't approve a fee reversal on this channel. I'll log a specialist review against the live authority ceiling — they'll confirm what, if anything, can be reversed.",
   },
   {
     id: "c5",
@@ -172,9 +178,9 @@ export const threads: Thread[] = [
     ],
     messages: [
       { id: "m1", sender: "customer", text: "Hi, I want to know if my late fee can be waived this month.", time: "3:20 PM" },
-      { id: "m2", sender: "bot", text: "Hi Anita — since this is your first late payment in 12 months, you're eligible for a one-time waiver of ₹500. Should I raise the waiver request?", time: "3:21 PM", delivery: "read" },
+      { id: "m2", sender: "bot", text: "I can't approve a fee reversal on this chat. I'll log a specialist review against the live authority ceiling — they'll confirm what, if anything, can be reversed.", time: "3:21 PM", delivery: "read" },
       { id: "m3", sender: "customer", text: "Yes please.", time: "3:22 PM" },
-      { id: "m4", sender: "bot", text: "Waiver request raised. You'll see the reversal in 2 business days. Anything else?", time: "3:22 PM", delivery: "read" },
+      { id: "m4", sender: "bot", text: "I've logged a fee-waiver review. A specialist will confirm the outcome. Anything else?", time: "3:22 PM", delivery: "read" },
       { id: "m5", sender: "customer", text: "Thanks, that's all I needed for now.", time: "3:29 PM" },
     ],
     context: {
@@ -188,7 +194,7 @@ export const threads: Thread[] = [
       lastPromise: { amount: 12500, date: "05 Nov 2025", status: "Kept" },
       openDisputes: [],
       recentInteractions: [
-        { id: "i1", kind: "chat", summary: "Late-fee waiver granted", when: "just now", sentiment: "positive" },
+        { id: "i1", kind: "chat", summary: "Late-fee waiver logged for review", when: "just now", sentiment: "positive" },
       ],
     },
   },

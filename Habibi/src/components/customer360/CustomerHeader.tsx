@@ -103,10 +103,12 @@ export function CustomerHeader({
             variant="outline"
             size="sm"
             className="h-9"
-            onClick={() => toast.info("Opens Handoff Hub for this account.")}
+            asChild
           >
-            <Headphones className="h-3.5 w-3.5" />
-            Handoff
+            <Link to="/handoff" search={{ customerId: customer.id }}>
+              <Headphones className="h-3.5 w-3.5" />
+              Handoff
+            </Link>
           </Button>
           <Button
             size="sm"

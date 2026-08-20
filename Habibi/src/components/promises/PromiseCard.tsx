@@ -7,6 +7,7 @@ interface Props {
   promise: Promise;
   onOpen: (p: Promise) => void;
   onMark: (p: Promise, status: PromiseStatus) => void;
+  onResend?: (p: Promise) => void;
 }
 
 const channelIcon = {
@@ -23,7 +24,7 @@ function daysDelta(iso: string) {
   return Math.round((then - today) / 86400000);
 }
 
-export function PromiseCard({ promise: p, onOpen, onMark }: Props) {
+export function PromiseCard({ promise: p, onOpen, onMark, onResend }: Props) {
   const CIcon = channelIcon[p.channel];
   const dd = daysDelta(p.promisedDate);
   const dayLabel =
@@ -43,7 +44,7 @@ export function PromiseCard({ promise: p, onOpen, onMark }: Props) {
         e.dataTransfer.effectAllowed = "move";
       }}
       className={cn(
-        "group rounded-medium border bg-surface p-150 shadow-raised transition-shadow",
+        "group min-w-0 overflow-hidden rounded-medium border bg-surface p-150 shadow-raised transition-shadow",
         p.status === "broken" ? "border-border-danger-subtle" : "border-border",
       )}
     >
@@ -71,7 +72,7 @@ export function PromiseCard({ promise: p, onOpen, onMark }: Props) {
           </div>
         </div>
 
-        <div className="mt-100 flex items-center gap-075">
+        <div className="mt-100 flex min-w-0 flex-wrap items-center gap-075">
           <span
             className={cn(
               "rounded px-075 py-025 text-body-small font-medium tabular-nums",
@@ -103,14 +104,27 @@ export function PromiseCard({ promise: p, onOpen, onMark }: Props) {
             {p.reminderStatus === "off" ? "Off" : p.reminderStatus === "sent" ? "Sent" : "Scheduled"}
           </span>
         </div>
+        {(p.confirmChannel || p.paymentIntentStatus || p.payLinkSent) && (
+          <div className="mt-075 text-body-small text-text-subtle">
+            {p.payLinkSent
+              ? `Link sent via ${p.confirmChannel ?? "message"}${p.phoneLast4 ? ` ···${p.phoneLast4}` : ""}`
+              : p.confirmStatus === "suppressed"
+                ? "Link suppressed — channel opted out"
+                : p.paymentIntentStatus
+                  ? `Intent ${p.paymentIntentStatus}`
+                  : null}
+          </div>
+        )}
       </button>
 
       {(p.status === "upcoming" || p.status === "due_today") && (
-        <div className="mt-100 flex items-center gap-050 border-t border-border pt-100 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="mt-100 flex min-w-0 flex-wrap items-center gap-050 border-t border-border pt-100 opacity-0 transition-opacity group-hover:opacity-100">
           <Button
             size="sm"
             variant="ghost"
-            className="h-300 flex-1 px-100 text-body-small text-text-success-bolder hover:bg-background-success-subtler"
+            className="h-300 flex-1 px-100 text-body-small text-text-success-bolder hover:bg-background-success-subtler disabled:opacity-40"
+            disabled={!(p.paidAmount && p.paidAmount > 0)}
+            title={!(p.paidAmount && p.paidAmount > 0) ? "Kept requires a recorded payment" : undefined}
             onClick={(e) => {
               e.stopPropagation();
               onMark(p, "kept");
@@ -152,6 +166,19 @@ export function PromiseCard({ promise: p, onOpen, onMark }: Props) {
           >
             <MoreHorizontal className="h-3 w-3" />
           </Button>
+          {onResend && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-300 px-100 text-body-small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onResend(p);
+              }}
+            >
+              Resend
+            </Button>
+          )}
         </div>
       )}
     </div>

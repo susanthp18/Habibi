@@ -1,20 +1,41 @@
 import { useState } from "react";
 import { CheckCircle2, FileText, Save, X } from "lucide-react";
+import type { WrapUpPayload } from "@/api/handoff";
 
 type Props = {
   open: boolean;
   dispositions: string[];
   onClose: () => void;
-  onSave: (payload: { disposition: string; notes: string; ptp: boolean }) => void;
+  onSave: (payload: WrapUpPayload) => void;
   saved: boolean;
+  saving?: boolean;
+  defaultNotes?: string;
+  defaultPtpAmount?: number;
+  error?: string | null;
 };
 
-export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props) {
-  const [disposition, setDisposition] = useState(dispositions[0]);
-  const [notes, setNotes] = useState(
-    "Payment gateway failure on 12 Jul confirmed — no debit. Dispute closed. PTP captured: ₹12,180 now + ₹36,540 by 31 Jul. Waiver ₹450 applied. Customer sentiment ended positive.",
+export function WrapUpBar({
+  open,
+  dispositions,
+  onClose,
+  onSave,
+  saved,
+  saving,
+  defaultNotes = "",
+  defaultPtpAmount,
+  error,
+}: Props) {
+  const [disposition, setDisposition] = useState(dispositions[0] ?? "");
+  const [notes, setNotes] = useState(defaultNotes);
+  const [ptp, setPtp] = useState(false);
+  const [ptpAmount, setPtpAmount] = useState(
+    defaultPtpAmount ? String(defaultPtpAmount) : "",
   );
-  const [ptp, setPtp] = useState(true);
+  const [ptpDate, setPtpDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  });
 
   if (!open && !saved) return null;
 
@@ -28,8 +49,8 @@ export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props)
               Wrap-up saved · pushed to CRM
             </div>
             <div className="text-body-small text-text-subtle">
-              Disposition <span className="font-semibold">{disposition}</span> · PTP flagged for
-              tracking · summary written to Audit Trail.
+              Disposition <span className="font-semibold">{disposition}</span>
+              {ptp ? " · PTP flagged for tracking" : ""} · summary written to Audit Trail.
             </div>
           </div>
           <button
@@ -82,6 +103,24 @@ export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props)
             />
             Log Promise-to-Pay
           </label>
+          {ptp && (
+            <div className="mt-075 grid grid-cols-2 gap-075">
+              <input
+                type="number"
+                min={1}
+                value={ptpAmount}
+                onChange={(e) => setPtpAmount(e.target.value)}
+                placeholder="Amount"
+                className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text"
+              />
+              <input
+                type="date"
+                value={ptpDate}
+                onChange={(e) => setPtpDate(e.target.value)}
+                className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text"
+              />
+            </div>
+          )}
         </div>
 
         <div>
@@ -92,16 +131,26 @@ export function WrapUpBar({ open, dispositions, onClose, onSave, saved }: Props)
             rows={3}
             className="mt-050 w-full resize-none rounded-medium border border-border bg-surface px-100 py-075 text-body-small text-text focus:border-border-brand focus:outline-none"
           />
+          {error ? <p className="mt-050 text-body-small text-text-danger">{error}</p> : null}
         </div>
 
         <div className="flex items-end">
           <button
             type="button"
-            onClick={() => onSave({ disposition, notes, ptp })}
-            className="flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body-small font-semibold text-white hover:bg-background-brand-bold-hovered"
+            disabled={saving || (ptp && (!ptpAmount || !ptpDate))}
+            onClick={() =>
+              onSave({
+                disposition,
+                notes,
+                ptp,
+                ptpAmount: ptp ? Number(ptpAmount) : undefined,
+                ptpDate: ptp ? ptpDate : undefined,
+              })
+            }
+            className="flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body-small font-semibold text-white hover:bg-background-brand-bold-hovered disabled:opacity-60"
           >
             <Save className="h-3.5 w-3.5" />
-            Save & writeback
+            {saving ? "Saving…" : "Save & writeback"}
           </button>
         </div>
       </div>

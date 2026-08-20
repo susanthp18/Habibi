@@ -17,7 +17,7 @@ import {
 import { Lozenge } from "@/components/ui/lozenge";
 import { MaskedInput } from "./MaskedInput";
 import { toast } from "sonner";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -45,7 +45,8 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
   const locked = Boolean(cfg.credentialsLocked);
   const t = healthTone(cfg.health);
 
-  const usage = usageSeries(provider.id, env).map((v, i) => ({ day: `D${i + 1}`, value: v }));
+  const usageValues = usageSeries(provider.id, env);
+  const usageLabels = usageValues.map((_, i) => `D${i + 1}`);
   const providerLogs = logs.filter(l => l.providerId === provider.id).slice().reverse();
 
   const setField = (key: string, val: string) => {
@@ -183,27 +184,29 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
                   </div>
                 ))}
               </div>
-              <div className="mt-150 rounded-medium border border-border bg-surface p-100">
+              <div className="mt-150">
                 <div className="mb-050 flex items-center justify-between">
                   <div className="text-body-small font-semibold text-text">14-day {cfg.unitLabel} volume</div>
                   <div className="text-body-small text-text-subtlest">Cost: {cfg.costMonth}</div>
                 </div>
-                <div className="h-32">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={usage} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id={`grad-${provider.id}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--background-brand-bold)" stopOpacity={0.4} />
-                          <stop offset="100%" stopColor="var(--background-brand-bold)" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="day" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 9 }} axisLine={false} tickLine={false} width={30} />
-                      <Tooltip cursor={{ stroke: "rgba(0,0,0,0.1)" }} contentStyle={{ fontSize: 11, borderRadius: 6 }} />
-                      <Area type="monotone" dataKey="value" stroke="var(--background-brand-bold)" strokeWidth={1.5} fill={`url(#grad-${provider.id})`} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                <ChartStage
+                  toolbar={
+                    <>
+                      <span className="text-[11px] text-text-subtlest">Usage snapshot</span>
+                      <SnapshotPill />
+                    </>
+                  }
+                >
+                  <LivelineTrend
+                    values={usageValues}
+                    labels={usageLabels}
+                    color="#1868db"
+                    height={128}
+                    formatValue={(v) => Math.round(v).toLocaleString()}
+                    formatTime={(i) => usageLabels[i] ?? ""}
+                    fill
+                  />
+                </ChartStage>
               </div>
             </TabsContent>
 

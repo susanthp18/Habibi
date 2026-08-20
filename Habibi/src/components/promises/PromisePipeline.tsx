@@ -10,6 +10,7 @@ interface Props {
   onOpen: (p: Promise) => void;
   onMark: (p: Promise, status: PromiseStatus) => void;
   onDropStatus: (promiseId: string, status: PromiseStatus) => void;
+  onResend?: (p: Promise) => void;
 }
 
 const columnAccent: Record<PromiseStatus, string> = {
@@ -20,11 +21,11 @@ const columnAccent: Record<PromiseStatus, string> = {
   partial: "border-t-orange-500",
 };
 
-export function PromisePipeline({ promises, counts, subtotals, onOpen, onMark, onDropStatus }: Props) {
+export function PromisePipeline({ promises, counts, subtotals, onOpen, onMark, onDropStatus, onResend }: Props) {
   const [dragOver, setDragOver] = useState<PromiseStatus | null>(null);
 
   return (
-    <div className="flex gap-150 overflow-x-auto pb-100">
+    <div className="flex h-[22rem] gap-150 overflow-x-auto pb-100">
       {STATUS_ORDER.map((status) => {
         const items = promises.filter((p) => p.status === status);
         return (
@@ -43,7 +44,7 @@ export function PromisePipeline({ promises, counts, subtotals, onOpen, onMark, o
               setDragOver(null);
             }}
             className={cn(
-              "flex w-[17.5rem] shrink-0 flex-col rounded-large border border-t-2 bg-surface-sunken/60 transition-colors",
+              "flex h-full w-[18.75rem] shrink-0 flex-col rounded-large border border-t-2 bg-surface-sunken/60 transition-colors",
               columnAccent[status],
               dragOver === status ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40" : "border-border",
             )}
@@ -56,14 +57,14 @@ export function PromisePipeline({ promises, counts, subtotals, onOpen, onMark, o
                 </div>
               </div>
             </div>
-            <div className="flex-1 space-y-100 overflow-y-auto p-100">
+            <div className="min-h-0 flex-1 space-y-100 overflow-x-hidden overflow-y-auto p-100">
               {items.length === 0 ? (
                 <div className="rounded border border-dashed border-border p-200 text-center text-body-small text-text-subtlest">
                   No promises
                 </div>
               ) : (
                 items.map((p) => (
-                  <PromiseCard key={p.id} promise={p} onOpen={onOpen} onMark={onMark} />
+                  <PromiseCard key={p.id} promise={p} onOpen={onOpen} onMark={onMark} onResend={onResend} />
                 ))
               )}
             </div>

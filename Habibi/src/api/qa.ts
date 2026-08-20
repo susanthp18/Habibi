@@ -30,13 +30,52 @@ export function useScorecards() {
   return useQuery({ queryKey: ["scorecards"], queryFn: fetchScorecards, staleTime: 15_000 });
 }
 
-export async function fetchRubric(): Promise<Rubric> {
-  if (USE_MOCK) return mockDelay(defaultRubric);
-  return apiGet<Rubric>("/rubric");
+export type QaCoverage = {
+  windowDays: number;
+  completed: number;
+  scored: number;
+  coverage: number | null;
+  pendingReview: number;
+  criticalFails: number;
+};
+
+export async function fetchQaCoverage(): Promise<QaCoverage> {
+  if (USE_MOCK) {
+    return mockDelay({
+      windowDays: 7,
+      completed: 24,
+      scored: 18,
+      coverage: 0.75,
+      pendingReview: 10,
+      criticalFails: 2,
+    });
+  }
+  return apiGet<QaCoverage>("/qa/coverage");
 }
 
-export function useRubric() {
-  return useQuery({ queryKey: ["rubric"], queryFn: fetchRubric, staleTime: 5 * 60_000 });
+export function useQaCoverage() {
+  return useQuery({ queryKey: ["qa-coverage"], queryFn: fetchQaCoverage, staleTime: 30_000 });
+}
+
+export async function fetchQaInteractionPack(interactionId: string): Promise<Record<string, unknown>> {
+  if (USE_MOCK) {
+    return mockDelay({ interactionId, transcript: "", flags: [], liveQa: [] });
+  }
+  return apiGet(`/qa/interactions/${encodeURIComponent(interactionId)}/pack`);
+}
+
+export async function fetchRubric(rubricId?: string | null): Promise<Rubric> {
+  if (USE_MOCK) return mockDelay(defaultRubric);
+  const q = rubricId ? `?rubricId=${encodeURIComponent(rubricId)}` : "";
+  return apiGet<Rubric>(`/rubric${q}`);
+}
+
+export function useRubric(rubricId?: string | null) {
+  return useQuery({
+    queryKey: ["rubric", rubricId ?? "default"],
+    queryFn: () => fetchRubric(rubricId),
+    staleTime: 5 * 60_000,
+  });
 }
 
 function mutateSeedScorecard(

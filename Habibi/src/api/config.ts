@@ -121,21 +121,27 @@ export async function apiGet<T>(path: string, init?: { signal?: AbortSignal }): 
     credentials: "include",
     signal: requestSignal(init?.signal),
   });
+  if (res.status === 204) return undefined as T;
   if (!res.ok) {
     throw new Error(`GET ${path} failed: ${await errorDetail(res)}`);
   }
-  return (await res.json()) as T;
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 async function apiSend<T>(
   method: "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
-  init?: { signal?: AbortSignal },
+  init?: { signal?: AbortSignal; headers?: Record<string, string> },
 ): Promise<T> {
   const headers = authHeaders(
     body !== undefined ? { "Content-Type": "application/json" } : undefined,
   );
+  if (init?.headers) {
+    for (const [k, v] of Object.entries(init.headers)) headers.set(k, v);
+  }
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
@@ -152,8 +158,12 @@ async function apiSend<T>(
   return JSON.parse(text) as T;
 }
 
-export function apiPost<T>(path: string, body: unknown): Promise<T> {
-  return apiSend<T>("POST", path, body);
+export function apiPost<T>(
+  path: string,
+  body: unknown,
+  init?: { signal?: AbortSignal; headers?: Record<string, string> },
+): Promise<T> {
+  return apiSend<T>("POST", path, body, init);
 }
 
 export function apiPatch<T>(path: string, body: unknown): Promise<T> {
@@ -164,7 +174,18 @@ export function apiDelete<T = void>(path: string): Promise<T> {
   return apiSend<T>("DELETE", path);
 }
 
-/** POST that returns a binary Blob (e.g. TTS audio/mpeg). */
+/** GET that returns a binary Blob (skill zip, reports). */
+export async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: authHeaders({ Accept: "application/zip, application/octet-stream, application/json" }),
+    credentials: "include",
+    signal: withTimeout(60_000),
+  });
+  if (!res.ok) {
+    throw new Error(await errorDetail(res));
+  }
+  return { blob: await res.blob(), headers: res.headers };
+}
 export async function apiPostBlob(
   path: string,
   body: unknown,
@@ -198,4 +219,46 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
     throw new Error(await errorDetail(res));
   }
   return (await res.json()) as T;
+}
+
+/** SSE GET. No default 30s timeout — the stream is the response. */
+export async function apiEventStream(
+  path: string,
+  onEvent: (event: string, data: unknown) => void,
+  init?: { signal?: AbortSignal },
+): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: authHeaders({ Accept: "text/event-stream" }),
+    credentials: "include",
+    signal: init?.signal,
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} failed: ${await errorDetail(res)}`);
+  }
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const blocks = buf.split("\n\n");
+    buf = blocks.pop() ?? "";
+    for (const block of blocks) {
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      }
+      const raw = dataLines.join("\n");
+      if (!raw) continue;
+      try {
+        onEvent(event, JSON.parse(raw) as unknown);
+      } catch {
+        onEvent(event, raw);
+      }
+    }
+  }
 }

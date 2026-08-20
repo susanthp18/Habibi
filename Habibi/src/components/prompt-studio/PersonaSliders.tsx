@@ -5,7 +5,6 @@ import { Slider } from "@/components/ui/slider";
 import { previewTts } from "@/api/prompt-studio";
 import {
   LANGUAGES,
-  PRESETS,
   renderPersonaPreview,
   type PersonaPreset,
   type PersonaState,
@@ -25,12 +24,21 @@ const TRAITS: Array<{ key: PersonaTraitKey; label: string; lo: string; hi: strin
 type Props = {
   value: PersonaState;
   onChange: (next: PersonaState) => void;
-  presets?: PersonaPreset[];
+  /**
+   * Required, and deliberately not defaulted.
+   *
+   * This used to default to the hardcoded `PRESETS` mock, which is the same
+   * failure as the `?? PRESETS` fallback removed from the studio: a tenant with
+   * an empty persona_presets table saw four presets that do not exist and could
+   * apply a template from nowhere. A default parameter hides it even better
+   * than `??` does, because nothing at the call site looks wrong.
+   */
+  presets: PersonaPreset[];
   /** Current TTS voice settings — used to speak the persona preview. */
   voice?: VoiceConfig;
 };
 
-export function PersonaSliders({ value, onChange, presets = PRESETS, voice }: Props) {
+export function PersonaSliders({ value, onChange, presets, voice }: Props) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);

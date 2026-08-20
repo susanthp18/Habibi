@@ -8,9 +8,10 @@ type Props = {
   turns: TranscriptTurn[];
   streaming: boolean;
   latestSpeaker?: Speaker;
+  speakers?: Record<string, string>;
 };
 
-export function LiveTranscript({ turns, streaming, latestSpeaker }: Props) {
+export function LiveTranscript({ turns, streaming, latestSpeaker, speakers }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -60,7 +61,7 @@ export function LiveTranscript({ turns, streaming, latestSpeaker }: Props) {
       >
         <div className="mx-auto max-w-3xl space-y-150">
           {turns.map((t) => (
-            <TranscriptBubble key={t.id} turn={t} />
+            <TranscriptBubble key={t.id} turn={t} speakers={speakers} />
           ))}
           {streaming && latestSpeaker && latestSpeaker !== "system" && (
             <TypingIndicator speaker={latestSpeaker} />
@@ -91,16 +92,43 @@ function LegendPill({ color, label }: { color: string; label: string }) {
   );
 }
 
-function speakerMeta(sp: Speaker) {
+function speakerMeta(sp: Speaker, speakers?: Record<string, string>) {
   switch (sp) {
     case "agent":
-      return { name: "You", Icon: Headphones, align: "right" as const, tone: "brand" as const };
+      return {
+        name: speakers?.agent || "You",
+        Icon: Headphones,
+        align: "right" as const,
+        tone: "brand" as const,
+      };
     case "customer":
-      return { name: "Priya Menon", Icon: User, align: "left" as const, tone: "neutral" as const };
+      return {
+        name: speakers?.customer || "Customer",
+        Icon: User,
+        align: "left" as const,
+        tone: "neutral" as const,
+      };
     case "bot":
-      return { name: "Bot · BigBound", Icon: Bot, align: "left" as const, tone: "warn" as const };
+      return {
+        name: speakers?.bot || "Bot",
+        Icon: Bot,
+        align: "left" as const,
+        tone: "warn" as const,
+      };
     case "system":
-      return { name: "System", Icon: Info, align: "center" as const, tone: "system" as const };
+      return {
+        name: speakers?.system || "System",
+        Icon: Info,
+        align: "center" as const,
+        tone: "system" as const,
+      };
+    default:
+      return {
+        name: speakers?.[sp] || sp,
+        Icon: User,
+        align: "left" as const,
+        tone: "neutral" as const,
+      };
   }
 }
 
@@ -110,8 +138,14 @@ function fmtTime(at: number) {
   return `${m}:${s}`;
 }
 
-function TranscriptBubble({ turn }: { turn: TranscriptTurn }) {
-  const meta = speakerMeta(turn.speaker);
+function TranscriptBubble({
+  turn,
+  speakers,
+}: {
+  turn: TranscriptTurn;
+  speakers?: Record<string, string>;
+}) {
+  const meta = speakerMeta(turn.speaker, speakers);
 
   if (meta.align === "center") {
     return (

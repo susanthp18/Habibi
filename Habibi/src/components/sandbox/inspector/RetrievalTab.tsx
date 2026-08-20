@@ -71,6 +71,7 @@ export function RetrievalTab({
           </span>
           <Link
             to="/knowledge-base"
+            search={{ tab: "test" }}
             className="inline-flex items-center gap-050 hover:text-text-subtle"
           >
             Open KB <ExternalLink className="h-3 w-3" />
@@ -101,7 +102,7 @@ export function RetrievalTab({
         <span>
           Top {chunks.length} chunks · {lastBot.latencyMs}ms · {lastBot.tokens}t
         </span>
-        <Link to="/knowledge-base" className="inline-flex items-center gap-050 hover:text-text-subtle">
+        <Link to="/knowledge-base" search={{ tab: "test" }} className="inline-flex items-center gap-050 hover:text-text-subtle">
           Open KB <ExternalLink className="h-3 w-3" />
         </Link>
       </div>
@@ -134,7 +135,7 @@ function LiveRetrieval({ hits }: { hits: LiveRagHit[] }) {
         <span>
           {hits.length} retrieval {hits.length === 1 ? "call" : "calls"} this session
         </span>
-        <Link to="/knowledge-base" className="inline-flex items-center gap-050 hover:text-text-subtle">
+        <Link to="/knowledge-base" search={{ tab: "test" }} className="inline-flex items-center gap-050 hover:text-text-subtle">
           Open KB <ExternalLink className="h-3 w-3" />
         </Link>
       </div>

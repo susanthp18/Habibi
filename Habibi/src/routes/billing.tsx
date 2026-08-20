@@ -19,6 +19,7 @@ import {
 } from "@/api/billing";
 import type { BudgetRule, Env, Period, Service } from "@/data/billing-seed";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/ui/loading-state";
 
 export const Route = createFileRoute("/billing")({
   head: () => ({
@@ -94,8 +95,8 @@ function BillingPage() {
         />
 
         {isLoading && !data ? (
-          <div className="flex flex-1 items-center justify-center text-body text-text-subtle">
-            Loading billing data…
+          <div className="flex flex-1 items-center justify-center">
+            <LoadingState label="Loading billing data" />
           </div>
         ) : isError && !data ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">

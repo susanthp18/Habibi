@@ -53,6 +53,9 @@ export interface ConsentRecord {
   onDndRegistry: boolean;
   optOutLog: OptOutEvent[];
   audit: ConsentAuditEntry[];
+  outreachToday?: number;
+  dailyCap?: number;
+  lastDecisionReason?: string | null;
 }
 
 // ---- helpers ----
