@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 # Allow `python -m voice.spike` and `python voice/spike.py` from backend/.
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -79,22 +80,6 @@ def azure_speech_region() -> str:
 def azure_speech_default_voice() -> str:
     load_env()
     return (os.getenv("AZURE_SPEECH_TTS_VOICE_DEFAULT") or "en-IN-AartiNeural").strip()
-
-
-def twilio_account_sid() -> str | None:
-    return _optional("TWILIO_ACCOUNT_SID")
-
-
-def twilio_auth_token() -> str | None:
-    return _optional("TWILIO_AUTH_TOKEN")
-
-
-def twilio_phone_number() -> str | None:
-    return _optional("TWILIO_PHONE_NUMBER")
-
-
-def supervisor_callback_phone() -> str | None:
-    return _optional("SUPERVISOR_CALLBACK_PHONE")
 
 
 def voice_handoff_mode() -> str:
@@ -247,23 +232,34 @@ def kb_enrich_fallback() -> str:
 
 
 def voice_flow_graph() -> str:
-    """``legacy`` (9 nodes) | ``hub`` (collections_hub merges 4) | ``db``.
+    """``legacy`` | ``hub`` | ``db`` | ``auto`` (default).
 
-    Defaults to legacy. Both alternatives ship flagged because they are the
-    changes with real behavioural risk, and ``session.extra["flowGraph"]``
-    overrides this per call so the Sandbox can A/B without a redeploy.
+    ``auto`` (unset) runs the Prompt Studio graph when the published version
+    actually has nodes, otherwise the hardcoded collections script. ``legacy``
+    is the kill-switch that ignores an authored graph. ``db`` always prefers
+    the authored graph (and still falls back if it is empty or fails to
+    compile). ``hub`` is the merged collections_hub experiment.
 
-    ``db`` runs the flow authored in Prompt Studio and stored on the published
-    ``prompt_versions.flow`` (see voice/flows_dynamic.py). It falls back to
-    legacy for any call whose deployment has no authored graph, so switching it
-    on cannot silence a bot that has nothing to run.
-
-    An unrecognised value falls back to legacy rather than raising: an operator
-    typo must not take voice down.
+    An unrecognised value falls back to ``auto`` rather than raising: an
+    operator typo must not take voice down.
     """
     load_env()
     raw = (os.getenv("VOICE_FLOW_GRAPH") or "").strip().lower()
-    return raw if raw in {"hub", "db"} else "legacy"
+    return raw if raw in {"hub", "db", "legacy", "auto"} else "auto"
+
+
+def voice_uses_authored_flow(graph_data: Any, *, override: str | None = None) -> bool:
+    """Whether this call should compile ``prompt_versions.flow`` instead of Python.
+
+    ``legacy`` / ``hub`` never do. ``db`` / ``auto`` do when the stored JSON
+    has nodes. Sandbox per-call override is ``session.extra["flowGraph"]``.
+    """
+    mode = (override or voice_flow_graph()).strip().lower()
+    if mode in {"legacy", "hub"}:
+        return False
+    from flow_graph import is_authored
+
+    return is_authored(graph_data)
 
 
 def voice_tool_change_messages() -> bool:

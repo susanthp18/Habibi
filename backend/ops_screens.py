@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import time
@@ -20,12 +21,31 @@ from sqlalchemy import text
 
 import db
 
-TENANT_ID = db.TENANT_ID  # legacy alias; always prefer _tenant()
+logger = logging.getLogger(__name__)
 
+
+def _floor_agent_card(row: dict[str, Any], fallback_name: str) -> dict[str, str] | None:
+    bot_id = row.get("handler_bot_id")
+    if not bot_id:
+        return None
+    display = fallback_name
+    try:
+        from agent_core.cards.defaults import card_for
+
+        display = card_for(str(bot_id)).identity.display_name
+    except KeyError:
+        pass
+    return {"botId": str(bot_id), "displayName": display}
 
 def _tenant() -> str:
-    """Read tenant dynamically so tests/env overrides apply."""
-    return getattr(db, "TENANT_ID", None) or os.getenv("TENANT_ID") or "tenant-hdfc"
+    """Read tenant dynamically so tests/env overrides apply.
+
+    Delegates rather than re-deriving. The previous fallback chain ended in
+    ``"tenant-hdfc"``, a tenant id that exists nowhere — had it ever been
+    reached, these screens would have queried a tenant with no rows instead of
+    failing.
+    """
+    return db.current_tenant()
 
 
 def _validate_webhook_url(url: str) -> str:
@@ -260,6 +280,97 @@ def _risk_from_sentiment(avg: float | None) -> str:
     return "low"
 
 
+_THREAT_MARKERS = (
+    "ombudsman",
+    "threat",
+    "lawyer",
+    "rbi",
+    "abuse",
+    "police",
+    "harass",
+)
+_HIGH_FLAGS = frozenset(
+    {
+        "auto-escalate",
+        "abuse-detected",
+        "compliance-miss",
+        "missing-recording-disclosure",
+        "waiver-blocked",
+        "authority-cap-exceeded",
+        "hours-breach",
+        "identity-before-verify",
+        "third-party-leak",
+        "opt-out-ignored",
+        "missing-mini-miranda",
+    }
+)
+
+
+def _recommended_action(
+    *,
+    channel: str,
+    handler_kind: str,
+    alert_kind: str | None,
+    severity: int,
+    reason: str | None,
+    pending_handoff: bool,
+) -> str:
+    if channel in {"whatsapp", "sms"}:
+        return "inbox"
+    reason_l = (reason or "").lower()
+    threat = any(w in reason_l for w in _THREAT_MARKERS)
+    if pending_handoff or alert_kind in {"escalation", "silence", "loop_detected"}:
+        return "barge"
+    if alert_kind == "compliance" or threat:
+        return "barge"
+    if alert_kind == "sentiment_drop" and (severity >= 3 or handler_kind == "bot"):
+        return "barge" if handler_kind == "bot" or threat else "whisper"
+    if alert_kind == "sentiment_drop" and handler_kind == "human":
+        return "whisper"
+    if alert_kind == "long_hold":
+        return "listen"
+    return "listen"
+
+
+def _composite_risk(
+    *,
+    sentiment: float,
+    trend: float,
+    flags: list[str],
+    alert_max_sev: int,
+    duration_sec: int,
+    customer_risk: str | None,
+    pending_handoff: bool,
+    dnd: bool,
+) -> str:
+    score = 0
+    if sentiment <= -0.35:
+        score += 3
+    elif sentiment <= -0.1:
+        score += 1
+    if trend <= -0.15:
+        score += 2
+    if alert_max_sev >= 3:
+        score += 3
+    elif alert_max_sev >= 2:
+        score += 1
+    if any(f in _HIGH_FLAGS for f in flags):
+        score += 3
+    if pending_handoff:
+        score += 2
+    if duration_sec >= 480:
+        score += 1
+    if (customer_risk or "").lower() in {"critical", "high"}:
+        score += 1
+    if dnd:
+        score += 1
+    if score >= 5:
+        return "high"
+    if score >= 2:
+        return "medium"
+    return "low"
+
+
 def _initials(name: str) -> str:
     parts = [p for p in (name or "").split() if p]
     if not parts:
@@ -282,6 +393,7 @@ def _channel(raw: str | None) -> str:
 
 
 def get_floor_snapshot() -> dict[str, Any]:
+    tenant = _tenant()
     with db.engine.connect() as conn:
         rows = db._rows(
             conn.execute(
@@ -289,37 +401,159 @@ def get_floor_snapshot() -> dict[str, Any]:
                     """
                     SELECT
                       i.id,
+                      i.customer_id,
+                      i.account_id,
                       i.channel,
                       i.handler_kind,
+                      i.handler_user_id,
+                      i.handler_bot_id,
                       COALESCE(u.name, b.name, 'Unassigned') AS handler_name,
                       c.name AS customer_name,
+                      c.risk AS customer_risk,
+                      c.dnd,
+                      c.language,
                       RIGHT(COALESCE(a.id, ''), 4) AS account_tail,
+                      a.outstanding,
                       COALESCE(i.primary_intent, i.disposition, i.summary, 'Live session') AS topic,
                       COALESCE(i.avg_sentiment, 0) AS avg_sentiment,
-                      i.started_at,
                       COALESCE(
                         EXTRACT(EPOCH FROM (now() - i.started_at))::int,
                         i.duration_sec,
                         0
                       ) AS duration_sec,
-                      c.language,
-                      (
-                        SELECT t.text FROM interaction_transcript t
-                        WHERE t.interaction_id = i.id
-                        ORDER BY t.turn_index DESC LIMIT 1
-                      ) AS last_line
+                      conv.id AS conversation_id,
+                      conv.status AS conversation_status,
+                      h.id AS pending_handoff_id,
+                      EXTRACT(EPOCH FROM (now() - COALESCE(h.requested_at, h.created_at)))::int
+                        AS handoff_wait_sec
                     FROM interactions i
                     JOIN customers c ON c.id = i.customer_id
                     LEFT JOIN accounts a ON a.id = i.account_id
                     LEFT JOIN users u ON u.id = i.handler_user_id
                     LEFT JOIN bots b ON b.id = i.handler_bot_id
+                    LEFT JOIN LATERAL (
+                      SELECT id, status FROM conversations
+                      WHERE interaction_id = i.id
+                      ORDER BY created_at DESC LIMIT 1
+                    ) conv ON true
+                    LEFT JOIN LATERAL (
+                      SELECT id, requested_at, created_at FROM interaction_handoffs
+                      WHERE interaction_id = i.id
+                        AND completed_at IS NULL
+                        AND accepted_at IS NULL
+                      ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                      LIMIT 1
+                    ) h ON true
                     WHERE i.tenant_id = :tenant AND i.status = 'active'
                     ORDER BY i.started_at ASC NULLS LAST
                     """
                 ),
-                {"tenant": _tenant()},
+                {"tenant": tenant},
             )
         )
+        ids = [r["id"] for r in rows]
+        flags_by: dict[str, list[str]] = {i: [] for i in ids}
+        trend_by: dict[str, float] = {i: 0.0 for i in ids}
+        turns_by: dict[str, list[dict[str, str]]] = {i: [] for i in ids}
+        last_line_by: dict[str, str] = {}
+        if ids:
+            for fr in db._rows(
+                conn.execute(
+                    text(
+                        """
+                        SELECT interaction_id, flag
+                        FROM interaction_flags
+                        WHERE interaction_id = ANY(:ids)
+                        ORDER BY created_at DESC
+                        """
+                    ),
+                    {"ids": ids},
+                )
+            ):
+                bucket = flags_by.setdefault(fr["interaction_id"], [])
+                if len(bucket) < 8:
+                    bucket.append(fr["flag"])
+
+            scores: dict[str, list[float]] = {}
+            for sr in db._rows(
+                conn.execute(
+                    text(
+                        """
+                        SELECT interaction_id, score FROM (
+                          SELECT interaction_id, score,
+                                 ROW_NUMBER() OVER (
+                                   PARTITION BY interaction_id
+                                   ORDER BY at_sec DESC, created_at DESC
+                                 ) AS rn
+                          FROM interaction_sentiment
+                          WHERE interaction_id = ANY(:ids)
+                        ) x WHERE rn <= 2
+                        """
+                    ),
+                    {"ids": ids},
+                )
+            ):
+                scores.setdefault(sr["interaction_id"], []).append(float(sr["score"] or 0))
+            for iid, vals in scores.items():
+                if len(vals) >= 2:
+                    trend_by[iid] = round(vals[0] - vals[1], 3)
+
+            turn_rows = db._rows(
+                conn.execute(
+                    text(
+                        """
+                        SELECT interaction_id, speaker, text FROM (
+                          SELECT interaction_id, speaker, text, turn_index,
+                                 ROW_NUMBER() OVER (
+                                   PARTITION BY interaction_id ORDER BY turn_index DESC
+                                 ) AS rn
+                          FROM interaction_transcript
+                          WHERE interaction_id = ANY(:ids)
+                        ) x WHERE rn <= 4
+                        ORDER BY interaction_id, turn_index
+                        """
+                    ),
+                    {"ids": ids},
+                )
+            )
+            for tr in turn_rows:
+                iid = tr["interaction_id"]
+                turns_by.setdefault(iid, []).append(
+                    {"speaker": tr["speaker"] or "system", "text": (tr["text"] or "")[:240]}
+                )
+                last_line_by[iid] = (tr["text"] or "—")[:160]
+
+        offer_by: dict[str, dict[str, Any]] = {}
+        authority_by: dict[str, dict[str, Any]] = {}
+        live_qa_by: dict[str, dict[str, Any]] = {}
+        audio_by: dict[str, bool] = {}
+        if ids:
+            try:
+                from agent_core.reco import policy as offer_policy
+
+                offer_by = offer_policy.snapshots_for_interactions(
+                    conn, tenant_id=tenant, interaction_ids=ids
+                )
+            except Exception:
+                logger.exception("floor offer policy snapshots failed")
+            try:
+                from agent_core.authority import policy as authority_policy
+
+                authority_by = authority_policy.snapshots_for_interactions(
+                    conn, tenant_id=tenant, interaction_ids=ids
+                )
+            except Exception:
+                logger.exception("floor authority policy snapshots failed")
+            try:
+                from agent_core.live_qa import policy as live_qa_policy
+
+                live_qa_by = live_qa_policy.snapshots_for_interactions(
+                    conn, tenant_id=tenant, interaction_ids=ids
+                )
+                audio_by = live_qa_policy.audio_capable_map(conn, ids)
+            except Exception:
+                logger.exception("floor live_qa snapshots failed")
+
         alerts = db._rows(
             conn.execute(
                 text(
@@ -329,75 +563,208 @@ def get_floor_snapshot() -> dict[str, Any]:
                     JOIN interactions i ON i.id = la.interaction_id
                     WHERE i.tenant_id = :tenant
                       AND la.acknowledged_at IS NULL
-                      AND la.kind IN ('sentiment_drop','compliance','long_hold','escalation')
                     ORDER BY la.created_at DESC
                     LIMIT 40
                     """
                 ),
-                {"tenant": _tenant()},
+                {"tenant": tenant},
             )
         )
-        queue_depth = conn.execute(
+        alert_sev_by: dict[str, int] = {}
+        alerts_by_call: dict[str, list[dict[str, Any]]] = {}
+        for a in alerts:
+            sev = _severity_num(a["severity"])
+            iid = a["interaction_id"]
+            alert_sev_by[iid] = max(alert_sev_by.get(iid, 0), sev)
+            alerts_by_call.setdefault(iid, []).append(a)
+
+        queue_row = conn.execute(
             text(
                 """
-                SELECT count(*) FROM interactions
-                WHERE tenant_id = :tenant AND status = 'active' AND handler_kind = 'human'
+                SELECT
+                  count(*)::int AS depth,
+                  COALESCE(
+                    max(EXTRACT(EPOCH FROM (now() - COALESCE(h.requested_at, h.created_at))))::int,
+                    0
+                  ) AS longest_wait
+                FROM interaction_handoffs h
+                JOIN interactions i ON i.id = h.interaction_id
+                WHERE i.tenant_id = :tenant
+                  AND h.accepted_at IS NULL
+                  AND h.completed_at IS NULL
                 """
             ),
-            {"tenant": _tenant()},
+            {"tenant": tenant},
+        ).mappings().one()
+        inbox_waiting = conn.execute(
+            text(
+                """
+                SELECT count(*) FROM conversations conv
+                JOIN interactions i ON i.id = conv.interaction_id
+                WHERE i.tenant_id = :tenant AND conv.status = 'needs_human'
+                """
+            ),
+            {"tenant": tenant},
         ).scalar() or 0
+
+        presence_rows = db._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT
+                      ap.user_id,
+                      u.name,
+                      ap.status,
+                      ap.since_at,
+                      ap.interaction_id,
+                      c.name AS customer_name
+                    FROM agent_presence ap
+                    JOIN users u ON u.id = ap.user_id
+                    LEFT JOIN interactions i ON i.id = ap.interaction_id
+                    LEFT JOIN customers c ON c.id = i.customer_id
+                    WHERE u.tenant_id = :tenant AND u.status = 'active'
+                    ORDER BY u.name
+                    """
+                ),
+                {"tenant": tenant},
+            )
+        )
+
+    on_call_users = {
+        r["handler_user_id"]: r for r in rows if r.get("handler_user_id") and r.get("handler_kind") == "human"
+    }
 
     calls: list[dict[str, Any]] = []
     for r in rows:
+        iid = r["id"]
         name = r["handler_name"] or "Unassigned"
         sent = float(r["avg_sentiment"] or 0)
-        topic = (r["topic"] or "Live session").strip()[:48]
+        trend = trend_by.get(iid, 0.0)
+        flags = flags_by.get(iid, [])
+        pending = bool(r.get("pending_handoff_id"))
+        channel = _channel(r["channel"])
+        handler_kind = r["handler_kind"] if r["handler_kind"] in {"bot", "human"} else "human"
+        duration = max(0, int(r["duration_sec"] or 0))
+        top_alert = (alerts_by_call.get(iid) or [None])[0]
+        action = _recommended_action(
+            channel=channel,
+            handler_kind=handler_kind,
+            alert_kind=(top_alert or {}).get("kind") if top_alert else None,
+            severity=_severity_num((top_alert or {}).get("severity")) if top_alert else 0,
+            reason=(top_alert or {}).get("reason") if top_alert else None,
+            pending_handoff=pending,
+        )
+        turns = turns_by.get(iid, [])
+        last_line = last_line_by.get(iid) or "—"
         calls.append(
             {
-                "id": r["id"],
+                "id": iid,
+                "customerId": r["customer_id"],
+                "accountId": r["account_id"] or "",
+                "conversationId": r.get("conversation_id"),
+                "handlerUserId": r.get("handler_user_id"),
+                "handlerBotId": r.get("handler_bot_id"),
+                "agentCard": _floor_agent_card(r, name) if handler_kind == "bot" else None,
                 "handler": {
-                    "kind": r["handler_kind"] if r["handler_kind"] in {"bot", "human"} else "human",
+                    "kind": handler_kind,
                     "name": name,
                     "initials": _initials(name),
                 },
                 "customer": r["customer_name"] or "Unknown",
                 "accountTail": (r["account_tail"] or "----")[-4:],
-                "channel": _channel(r["channel"]),
-                "topic": topic,
-                "durationSec": max(0, int(r["duration_sec"] or 0)),
+                "channel": channel,
+                "topic": (r["topic"] or "Live session").strip()[:48],
+                "durationSec": duration,
                 "sentiment": round(sent, 3),
-                "sentimentTrend": 0.0,
-                "risk": _risk_from_sentiment(sent),
-                "lastLine": (r["last_line"] or "—")[:160],
+                "sentimentTrend": trend,
+                "risk": _composite_risk(
+                    sentiment=sent,
+                    trend=trend,
+                    flags=flags,
+                    alert_max_sev=alert_sev_by.get(iid, 0),
+                    duration_sec=duration,
+                    customer_risk=r.get("customer_risk"),
+                    pending_handoff=pending,
+                    dnd=bool(r.get("dnd")),
+                ),
+                "lastLine": last_line,
                 "language": (r["language"] or "EN-IN"),
+                "flags": flags,
+                "pendingHandoff": pending,
+                "outstanding": float(r["outstanding"] or 0),
+                "customerRisk": (r.get("customer_risk") or "medium"),
+                "dnd": bool(r.get("dnd")),
+                "recentTurns": turns,
+                "recommendedAction": action,
+                "offerPolicy": offer_by.get(iid),
+                "authorityPolicy": authority_by.get(iid),
+                "liveQa": {**(live_qa_by.get(iid) or {}), "audioCapable": bool(audio_by.get(iid))},
             }
         )
 
-    floor_alerts = [
-        {
-            "id": a["id"],
-            "callId": a["interaction_id"],
-            "kind": a["kind"],
-            "severity": _severity_num(a["severity"]),
-            "reason": a["reason"] or a["kind"],
-            "at": _rel_age(a["created_at"]),
-        }
-        for a in alerts
-    ]
+    call_by_id = {c["id"]: c for c in calls}
+    floor_alerts = []
+    for a in alerts:
+        call = call_by_id.get(a["interaction_id"])
+        sev = _severity_num(a["severity"])
+        kind = a["kind"] or "escalation"
+        action = _recommended_action(
+            channel=call["channel"] if call else "voice",
+            handler_kind=call["handler"]["kind"] if call else "bot",
+            alert_kind=kind,
+            severity=sev,
+            reason=a["reason"],
+            pending_handoff=bool(call and call["pendingHandoff"]),
+        )
+        floor_alerts.append(
+            {
+                "id": a["id"],
+                "callId": a["interaction_id"],
+                "kind": kind,
+                "severity": sev,
+                "reason": a["reason"] or kind,
+                "at": _rel_age(a["created_at"]),
+                "recommendedAction": action,
+            }
+        )
+
+    agents = []
+    available = on_call = 0
+    for p in presence_rows:
+        uid = p["user_id"]
+        live = on_call_users.get(uid)
+        derived = "on_call" if live else (p["status"] or "offline")
+        if derived == "on_call":
+            on_call += 1
+        elif derived == "available":
+            available += 1
+        agents.append(
+            {
+                "userId": uid,
+                "name": p["name"] or uid,
+                "initials": _initials(p["name"] or uid),
+                "status": derived,
+                "sinceAt": p["since_at"].isoformat() if hasattr(p["since_at"], "isoformat") else str(p["since_at"] or ""),
+                "interactionId": (live["id"] if live else p.get("interaction_id")),
+                "customer": (live["customer_name"] if live else p.get("customer_name")),
+            }
+        )
 
     n = len(calls)
     avg = sum(c["sentiment"] for c in calls) / n if n else 0.0
-    humans = sum(1 for c in calls if c["handler"]["kind"] == "human")
-    bots = n - humans
+    critical = sum(1 for a in floor_alerts if a["severity"] >= 3)
+    bot_at_risk = sum(1 for c in calls if c["handler"]["kind"] == "bot" and c["risk"] != "low")
     stats = {
         "callsInProgress": n,
         "avgSentiment": round(avg, 2),
-        "escalationRate": round(humans / n, 2) if n else 0.0,
-        "queueDepth": int(queue_depth),
-        "botContainment": round(bots / n, 2) if n else 0.0,
-        "longestWaitSec": max((c["durationSec"] for c in calls), default=0),
+        "criticalAlerts": critical,
+        "queueDepth": int(queue_row["depth"] or 0) + int(inbox_waiting),
+        "agentsAvailable": available,
+        "agentsOnCall": on_call,
+        "botAtRisk": bot_at_risk,
+        "longestWaitSec": int(queue_row["longest_wait"] or 0),
     }
-    return {"calls": calls, "alerts": floor_alerts, "stats": stats}
+    return {"calls": calls, "alerts": floor_alerts, "stats": stats, "agents": agents}
 
 
 def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
@@ -442,8 +809,11 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                 "note": note,
             },
         )
-        # Audit-only for listen/whisper. Barge / force_handoff reassigns handler when possible.
+        # Audit-only for listen/whisper. Barge / force_handoff reassigns handler
+        # and ensures a handoff row exists so /handoff/{id} can open.
         if action in {"barge", "force_handoff"}:
+            uid = db._actor_user_id()
+            mapping = row._mapping
             conn.execute(
                 text(
                     """
@@ -455,9 +825,94 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                     WHERE id = :id AND tenant_id = :tenant
                     """
                 ),
-                {"id": interaction_id, "uid": db._actor_user_id(), "tenant": tenant},
+                {"id": interaction_id, "uid": uid, "tenant": tenant},
             )
-    return {"id": aid, "ok": True, "action": action, "interactionId": interaction_id}
+            open_ho = conn.execute(
+                text(
+                    """
+                    SELECT id FROM interaction_handoffs
+                    WHERE interaction_id = :iid AND completed_at IS NULL
+                    ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"iid": interaction_id},
+            ).fetchone()
+            if open_ho is not None:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE interaction_handoffs
+                        SET to_user_id = :uid,
+                            accepted_at = COALESCE(accepted_at, now())
+                        WHERE id = :id
+                        """
+                    ),
+                    {"uid": uid, "id": open_ho._mapping["id"]},
+                )
+            else:
+                from_kind = "bot" if mapping["handler_bot_id"] else "human"
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO interaction_handoffs (
+                          id, interaction_id, from_kind, from_user_id, from_bot_id,
+                          to_kind, to_user_id, reason, queue,
+                          requested_at, accepted_at, created_at
+                        ) VALUES (
+                          :id, :iid, :from_kind, :from_user, :from_bot,
+                          'human', :uid, 'routing_rule', 'Supervisor barge',
+                          now(), now(), now()
+                        )
+                        """
+                    ),
+                    {
+                        "id": _sid("ho"),
+                        "iid": interaction_id,
+                        "from_kind": from_kind,
+                        "from_user": mapping["handler_user_id"] if from_kind == "human" else None,
+                        "from_bot": mapping["handler_bot_id"],
+                        "uid": uid,
+                    },
+                )
+    audio_joined = False
+    if action in {"barge", "force_handoff"}:
+        try:
+            from agent_core.live_qa.enact import barge_audio
+
+            result = barge_audio(interaction_id, reason=action)
+            audio_joined = bool(result.get("audio"))
+        except Exception:
+            logger.exception("supervisor barge audio failed for %s", interaction_id)
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE supervisor_actions
+                        SET audio_joined = :joined
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": aid, "joined": audio_joined},
+                )
+        except Exception:
+            logger.exception("supervisor audio_joined update failed for %s", aid)
+        try:
+            from agent_core.live_qa import decisions as live_decisions
+
+            pending = live_decisions.pending_auto_barge(interaction_id)
+            if pending:
+                live_decisions.mark_enacted(pending.get("id"), ref=aid)
+        except Exception:
+            logger.exception("live_qa mark_enacted from supervisor failed")
+    return {
+        "id": aid,
+        "ok": True,
+        "action": action,
+        "interactionId": interaction_id,
+        "audioJoined": audio_joined,
+    }
 
 
 def ack_floor_alert(alert_id: str) -> dict[str, Any]:
@@ -1062,7 +1517,6 @@ def _provider_health(
 
 
 def list_providers(environment: str = "sandbox") -> list[dict[str, Any]]:
-    env = environment if environment in {"sandbox", "production"} else "sandbox"
     # Both environments up front. `enabled`, `health` and `latency_ms` live in
     # provider_configs keyed by (tenant, environment) and patch_provider_enabled
     # writes one environment at a time — copying the requested env's status into

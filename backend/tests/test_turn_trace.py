@@ -88,14 +88,16 @@ def test_tool_calls_and_retrievals_nest_under_their_turn(db_tx, interaction) -> 
         text(
             """
             INSERT INTO retrieval_logs
-              (id, interaction_id, transcript_turn_id, query, top_chunks, latency_ms)
-            VALUES ('RL-T1', :ix, :turn, 'policy coverage',
+              (id, tenant_id, interaction_id, transcript_turn_id, query,
+               top_chunks, latency_ms)
+            VALUES ('RL-T1', :tenant, :ix, :turn, 'policy coverage',
                     CAST(:chunks AS jsonb), 45)
             """
         ),
         # Bound, not inlined: the ':' in a JSON literal is a bind marker to
         # SQLAlchemy and turns "score":0.82 into a parameter named '0'.
         {
+            "tenant": db.current_tenant(),
             "ix": interaction,
             "turn": turn_id,
             "chunks": '[{"chunkId":"CH-1","score":0.82}]',
@@ -137,8 +139,6 @@ def test_a_non_canonical_turn_id_still_resolves(db_tx, interaction) -> None:
     `f"{ix}-T{n}"` as an FK dangles exactly on those rows — so this test plants
     one deliberately.
     """
-    import bot_jobs
-
     odd_id = f"{interaction}-T-next-{uuid.uuid4().hex[:8]}"
     db_tx.execute(
         text("UPDATE interaction_transcript SET id = :new WHERE interaction_id = :ix AND turn_index = 1"),
@@ -242,6 +242,28 @@ def test_tool_output_is_redacted_on_the_way_out(db_tx, interaction) -> None:
     assert "charged twice" in str(call["args"])
 
 
+def test_trace_carries_nullable_agent_skill_connector(db_tx, interaction) -> None:
+    import bot_jobs
+
+    bot_jobs.record_tool_call(
+        db_tx,
+        interaction_id=interaction,
+        transcript_turn_id=_turn_id(db_tx, interaction, 1),
+        channel="voice",
+        tool_name="get_customer_context",
+        args={},
+        result_ok=True,
+        agent_id="collections",
+        skill_id="ptp-negotiate",
+        connector_id=None,
+    )
+    trace = db.get_turn_trace(interaction)
+    call = next(t for t in trace if t["turnIndex"] == 1)["toolCalls"][0]
+    assert call["agentId"] == "collections"
+    assert call["skillId"] == "ptp-negotiate"
+    assert call["connectorId"] is None
+
+
 def test_transcript_text_is_redacted(db_tx, interaction) -> None:
     db_tx.execute(
         text("UPDATE interaction_transcript SET text = :t WHERE interaction_id = :ix AND turn_index = 1"),
@@ -260,12 +282,19 @@ def test_transcript_text_is_redacted(db_tx, interaction) -> None:
 
 def test_operator_retrieval_has_no_turn(db_tx) -> None:
     """POST /kb/retrieve passes neither interaction nor turn — it must still
-    write its log row rather than failing a NOT NULL."""
+    write its log row rather than failing a NOT NULL.
+
+    It does carry a tenant, though. This row is the reason ``retrieval_logs``
+    was given its own ``tenant_id`` in migration 0062: its three parent links
+    are all optional, so a row like this one belonged to no tenant and would
+    have been invisible to everybody once policies were enforcing.
+    """
     db_tx.execute(
         text(
-            "INSERT INTO retrieval_logs (id, query, top_chunks) "
-            "VALUES ('RL-ORPHAN', 'operator test query', CAST('[]' AS jsonb))"
-        )
+            "INSERT INTO retrieval_logs (id, tenant_id, query, top_chunks) "
+            "VALUES ('RL-ORPHAN', :tenant, 'operator test query', CAST('[]' AS jsonb))"
+        ),
+        {"tenant": db.current_tenant()},
     )
 
     row = db_tx.execute(

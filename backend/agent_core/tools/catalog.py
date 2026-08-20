@@ -239,7 +239,7 @@ IDENTIFY_CUSTOMER = _r(
 CREATE_PROMISE_TO_PAY = _r(
     ToolSpec(
         name="create_promise_to_pay",
-        description="Record the customer's promise to pay an amount by a date. Does not collect payment.",
+        description="Record the customer's promise to pay an amount by a date. Records the promise and sends a written confirm with a pay link.",
         args=(
             ArgSpec(
                 name="amount",
@@ -286,6 +286,62 @@ FLAG_DISPUTE = _r(
         channels=BOTH,
         entity="dispute",
         deep_link="/disputes?id={id}",
+    )
+)
+
+EVALUATE_AUTHORITY = _r(
+    ToolSpec(
+        name="evaluate_authority",
+        description=(
+            "Ask the authority matrix what — if anything — may close on this call "
+            "for a fee waiver, bounce-charge reversal, settlement or restructuring. "
+            "Returns a verdict (auto_approve, cap_inr, or escalate) and an approved "
+            "rupee amount that is already inside policy. Never invent a figure this "
+            "tool did not return. Call it before quoting any waiver or settlement "
+            "amount, and before apply_goodwill."
+        ),
+        args=(
+            ArgSpec(
+                name="fee_type",
+                type="string",
+                description="What they asked to reverse or settle.",
+                enum=("late_fee", "bounce_charge", "settlement", "restructuring"),
+                aliases=("feeType", "type"),
+            ),
+            ArgSpec(
+                name="asked_amount",
+                type="number",
+                description="Rupee amount they asked for, if they named one.",
+                aliases=("askedAmount", "amount"),
+            ),
+        ),
+        channels=BOTH,
+    )
+)
+
+APPLY_GOODWILL = _r(
+    ToolSpec(
+        name="apply_goodwill",
+        description=(
+            "Post an in-policy late-fee goodwill waiver that evaluate_authority "
+            "already approved. Amount must be at or below the approved amount. "
+            "Do not call this for settlement, restructuring, or bounce charges."
+        ),
+        args=(
+            ArgSpec(
+                name="decision_id",
+                type="string",
+                description="The decisionId evaluate_authority returned.",
+                required=True,
+                aliases=("decisionId",),
+            ),
+            ArgSpec(
+                name="amount",
+                type="number",
+                description="Rupees to reverse. Must be ≤ the approved amount.",
+            ),
+        ),
+        channels=BOTH,
     )
 )
 
@@ -365,6 +421,87 @@ ESCALATE_TO_HUMAN = _r(
     )
 )
 
+HANDOFF_TO_AGENT = _r(
+    ToolSpec(
+        name="handoff_to_agent",
+        description=(
+            "Transfer this conversation to another first-party agent card. "
+            "Only call this tool — never announce a transfer in prose. The target "
+            "must be on this card's handoff allowlist."
+        ),
+        args=(
+            ArgSpec(
+                name="target_bot_id",
+                type="string",
+                description="Destination bot id (e.g. kaia-v2-4, insurance-v1).",
+                required=True,
+            ),
+            ArgSpec(
+                name="reason",
+                type="string",
+                description="Why this specialist should take the call.",
+                required=True,
+            ),
+            ArgSpec(
+                name="payload",
+                type="string",
+                description="Compact JSON context for the receiving card.",
+            ),
+        ),
+        channels=BOTH,
+    )
+)
+
+LOAD_SKILL = _r(
+    ToolSpec(
+        name="load_skill",
+        description=(
+            "Load a signed skill's instructions into this turn. Pass the slug from "
+            "the Skills list. Replaces any previously loaded skill body. Does not "
+            "grant extra tools beyond that skill's allowlist."
+        ),
+        args=(
+            ArgSpec(
+                name="slug",
+                type="string",
+                description="Skill slug (e.g. ptp-negotiate, hardship-intake).",
+                required=True,
+            ),
+            ArgSpec(
+                name="include_references",
+                type="boolean",
+                description="If true, also load references/ text. Still grants no extra tools.",
+            ),
+        ),
+        channels=BOTH,
+    )
+)
+
+RUN_SKILL_SCRIPT = _r(
+    ToolSpec(
+        name="run_skill_script",
+        description=(
+            "Run an allowlisted pure function (JSON in, JSON out). No shell, no "
+            "network, no ledger writes. Scripts: emi_remaining, promise_date_in_window."
+        ),
+        args=(
+            ArgSpec(
+                name="name",
+                type="string",
+                description="Script name.",
+                required=True,
+                enum=("emi_remaining", "promise_date_in_window"),
+            ),
+            ArgSpec(
+                name="payload",
+                type="string",
+                description="JSON object of script arguments.",
+            ),
+        ),
+        channels=BOTH,
+    )
+)
+
 REQUEST_DOCUMENTS = _r(
     ToolSpec(
         name="request_documents",
@@ -396,6 +533,34 @@ REQUEST_DOCUMENTS = _r(
             ),
         ),
         channels=BOTH,
+        entity="document_request",
+        deep_link="/documents?id={id}",
+    )
+)
+
+INGEST_CUSTOMER_DOCUMENT = _r(
+    ToolSpec(
+        name="ingest_customer_document",
+        description=(
+            "File a customer-sent receipt or KYC photo as a document request "
+            "(source=vision). Text/WhatsApp only — never on a live voice turn."
+        ),
+        args=(
+            ArgSpec(
+                name="filename",
+                type="string",
+                description="Original filename of the image.",
+                required=True,
+            ),
+            ArgSpec(
+                name="mime_type",
+                type="string",
+                description="Image MIME type, e.g. image/jpeg.",
+                required=True,
+                aliases=("mimeType",),
+            ),
+        ),
+        channels=TEXT_ONLY,
         entity="document_request",
         deep_link="/documents?id={id}",
     )

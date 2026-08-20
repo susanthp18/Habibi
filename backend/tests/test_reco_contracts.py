@@ -137,7 +137,7 @@ def test_lead_round_trips_identically_through_list_and_detail(db_tx) -> None:
     )
 
     detail = db._lead_by_id(db_tx, lead_id)
-    listed = next((l for l in db.list_leads() if l["id"] == lead_id), None)
+    listed = next((lead for lead in db.list_leads() if lead["id"] == lead_id), None)
     assert listed is not None, "lead created but absent from list_leads"
 
     # Compare every field both paths claim to serve. Restricting the assertion

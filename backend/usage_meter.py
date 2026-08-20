@@ -72,10 +72,6 @@ def _quantize_money(value: Decimal) -> Decimal:
     return value.quantize(_PRICE_BOOK_QUANT, rounding=ROUND_HALF_UP)
 
 
-def _env_float(name: str) -> float:
-    return float(_env_decimal(name))
-
-
 def _env_decimal(name: str) -> Decimal:
     """Price/FX lookup as Decimal.
 
@@ -89,10 +85,6 @@ def _env_decimal(name: str) -> Decimal:
         return Decimal(raw)
     except (InvalidOperation, ValueError):
         return Decimal(_DEFAULTS.get(name, "0"))
-
-
-def fx_rate() -> float:
-    return float(fx_rate_decimal())
 
 
 def fx_rate_decimal() -> Decimal:
@@ -209,10 +201,14 @@ def _engine():
 
 
 def _tenant_id() -> str:
-    # load_env() for parity with _env_name()/_env_decimal(): without it a
-    # TENANT_ID defined only in .env silently metered to the default tenant.
-    load_env()
-    return (os.getenv("TENANT_ID") or "hdfc.retail").strip() or "hdfc.retail"
+    # Was a second, independent read of the environment. It carried a comment
+    # explaining that without load_env() a TENANT_ID defined only in .env would
+    # silently meter to the default tenant — correct, and true of `db` as well,
+    # which is the half that was actually wrong. `db` now reads .env for this
+    # key too, so metering and querying cannot name different tenants.
+    import db
+
+    return db.current_tenant()
 
 
 # --- Ambient call attribution ----------------------------------------------

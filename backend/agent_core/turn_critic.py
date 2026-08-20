@@ -41,8 +41,8 @@ import json
 import logging
 import os
 import re
-import time
 from dataclasses import dataclass
+from collections.abc import Iterable
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 #: every turn stops sounding like an agent and starts sounding like it is
 #: arguing with itself, and each directive costs context the conversation needs.
 MAX_CORRECTIONS_PER_CALL = 4
+
 
 #: How many recent bot turns the repetition check looks back over.
 _REPEAT_WINDOW = 4
@@ -80,6 +81,33 @@ KIND_UNANSWERED = "unanswered"
 SEVERITY_HIGH = "high"
 SEVERITY_MEDIUM = "medium"
 
+#: Per-kind ceilings, because a single shared budget is starved by whichever
+#: detector is noisiest — and the noisiest one runs first.
+#:
+#: Observed: a call spent all four corrections on guardrail flags inside its
+#: first 71 seconds, and was then unable to correct anything for the remaining
+#: four minutes. The repetition it went on to produce was exactly what the
+#: budget existed to catch. Reserving capacity per kind means a compliance
+#: burst can no longer consume the whole call's ability to self-correct.
+MAX_CORRECTIONS_PER_KIND: dict[str, int] = {
+    KIND_GUARDRAIL: 2,
+    KIND_REPETITION: 2,
+    KIND_LANGUAGE: 1,
+    KIND_UNANSWERED: 1,
+}
+
+
+
+#: Flags that mean "you have not yet said something you must", as opposed to
+#: "you said something you must not". The two need opposite directives, and
+#: conflating them is what put a recording disclosure on every turn of a call.
+_OMISSION_PREFIXES = ("missing-", "no-", "not-", "unstated-", "undisclosed-")
+
+
+def _is_omission(flag: str) -> bool:
+    f = flag.strip().lower()
+    return f.startswith(_OMISSION_PREFIXES)
+
 
 @dataclass(frozen=True)
 class Correction:
@@ -89,6 +117,9 @@ class Correction:
     directive: str
     severity: str = SEVERITY_MEDIUM
     source: str = "deterministic"
+    #: Guardrail flags this correction addressed, so the caller can avoid
+    #: steering on the same rule twice in one call.
+    flags: tuple[str, ...] = ()
 
     def to_message(self) -> dict[str, str]:
         """Developer message shape the context injector expects."""
@@ -130,7 +161,9 @@ def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower())
 
 
-def _guardrail_correction(flags: Any) -> Correction | None:
+def _guardrail_correction(
+    flags: Any, already_corrected: Iterable[str] | None = None
+) -> Correction | None:
     """Turn the flags persist.py already computed into a live directive.
 
     Accepts whatever ``evaluate_guardrails`` returns — a list of strings, a list
@@ -151,16 +184,40 @@ def _guardrail_correction(flags: Any) -> Correction | None:
         return None
     # dict.fromkeys preserves order while de-duplicating; three is enough to
     # name the problem without turning the directive into a report.
-    listed = ", ".join(list(dict.fromkeys(names))[:3])
-    return Correction(
-        kind=KIND_GUARDRAIL,
-        severity=SEVERITY_HIGH,
-        directive=(
+    unique = list(dict.fromkeys(names))
+    fresh = [n for n in unique if n.lower() not in {c.lower() for c in (already_corrected or ())}]
+    if not fresh:
+        # Already steered on this rule. Repeating the directive does not make
+        # the model more compliant — it makes the instruction louder than the
+        # conversation, which is how one missing disclosure became a disclosure
+        # on every single turn.
+        return None
+
+    listed = ", ".join(fresh[:3])
+    omissions = [n for n in fresh if _is_omission(n)]
+    if omissions and len(omissions) == len(fresh):
+        # Nothing was said wrongly; something required was left unsaid. Telling
+        # the model not to "repeat that wording" describes a mistake it did not
+        # make, and it resolves the contradiction by saying the missing thing
+        # over and over.
+        directive = (
+            f"You have not yet satisfied a required disclosure ({listed}). Say it "
+            "once, naturally, early in your next reply — then treat it as done "
+            "and never repeat it for the rest of this call. Do not mention that "
+            "you were reminded."
+        )
+    else:
+        directive = (
             f"Your last reply broke a compliance rule ({listed}). Do not repeat "
             "that wording. Correct course naturally in your next reply without "
             "apologising for a system error, drawing attention to the mistake, "
             "or telling the caller you were corrected."
-        ),
+        )
+    return Correction(
+        kind=KIND_GUARDRAIL,
+        severity=SEVERITY_HIGH,
+        directive=directive,
+        flags=tuple(fresh),
     )
 
 
@@ -370,6 +427,7 @@ def critique_turn(
     guardrail_flags: Any = None,
     recent_bot_turns: list[str] | None = None,
     allow_llm: bool = True,
+    already_corrected: Iterable[str] | None = None,
 ) -> Correction | None:
     """At most one correction for one bot turn. Never raises.
 
@@ -380,9 +438,17 @@ def critique_turn(
     if not enabled():
         return None
     try:
-        correction = _guardrail_correction(guardrail_flags)
+        correction = _guardrail_correction(guardrail_flags, already_corrected)
         if correction is not None:
             return correction
+        if guardrail_flags:
+            # This turn carried a compliance flag and it has already been
+            # steered on. Stop here rather than falling through to the
+            # repetition, language and (paid) unanswered checks: the turn's
+            # problem is known, a second directive about a different aspect of
+            # the same bad turn adds noise, and the LLM check would bill for
+            # re-diagnosing a turn we have already diagnosed.
+            return None
 
         correction = _repetition_correction(bot_text, recent_bot_turns)
         if correction is not None:

@@ -180,13 +180,17 @@ def _pg_write(session_id: str, payload: dict[str, Any]) -> None:
             conn.execute(
                 text(
                     f"""
-                    INSERT INTO {_TABLE} (id, payload)
-                    VALUES (:id, CAST(:payload AS jsonb))
+                    INSERT INTO {_TABLE} (id, tenant_id, payload)
+                    VALUES (:id, :tenant_id, CAST(:payload AS jsonb))
                     ON CONFLICT (id) DO UPDATE
                       SET payload = EXCLUDED.payload, updated_at = now()
                     """
                 ),
-                {"id": session_id, "payload": json.dumps(payload)},
+                {
+                    "id": session_id,
+                    "tenant_id": db.current_tenant(),
+                    "payload": json.dumps(payload),
+                },
             )
     except Exception as exc:
         raise SessionStoreUnavailable(f"voice session write failed: {exc}") from exc

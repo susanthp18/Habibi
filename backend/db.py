@@ -12,16 +12,20 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
+import tenant_context
+import visibility
 from env_utils import env_int as _env_int
 from pg_errors import is_unique_violation as _is_unique_violation
 from schemas import (
     CallResponse,
     CustomerResponse,
     DashboardResponse,
-    HandoffResponse,
+    HandoffQueueItem,
+    HandoffQueueResponse,
+    HandoffSessionResponse,
     LeadResponse,
     ProductResponse,
 )
@@ -43,26 +47,67 @@ class OwnerBotNotFound(KeyError):
     """
 
 
-def _read_env_database_url() -> str | None:
+def _read_env_file(key: str) -> str | None:
+    """Read one key from ``backend/.env`` without mutating ``os.environ``.
+
+    Was ``_read_env_database_url``, hard-coded to a single key. It needs to
+    serve TENANT_ID too: ``.env`` sets TENANT_ID, ``env_loader.load_env()``
+    publishes it to the environment, and modules that call ``load_env()``
+    (``usage_meter``) therefore saw a value this module did not. The two agreed
+    only because the ``.env`` entry happened to repeat the default below — set
+    ``.env`` to any other tenant and metering would bill one tenant while every
+    query read another. Under row-level security that divergence stops being a
+    billing discrepancy and becomes an empty application.
+
+    Deliberately does not call ``load_env()``: importing ``db`` must not have
+    the side effect of publishing the whole ``.env`` into the process, which
+    would change what every later import sees.
+    """
     env_file = BASE / ".env"
     if not env_file.exists():
         return None
     for line in env_file.read_text(encoding="utf-8").splitlines():
         line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        key, value = line.split("=", 1)
-        if key == "DATABASE_URL":
-            return value
+        name, value = line.split("=", 1)
+        if name.strip() == key:
+            return value.strip().strip('"').strip("'")
     return None
 
 
-DATABASE_URL = os.getenv("DATABASE_URL") or _read_env_database_url() or DEFAULT_DATABASE_URL
+DATABASE_URL = os.getenv("DATABASE_URL") or _read_env_file("DATABASE_URL") or DEFAULT_DATABASE_URL
 
 # Tenant + acting user are config, not literals sprinkled through the SQL.
-# Phase 5 replaces both: tenant from the request GUC (RLS), actor from the JWT.
-TENANT_ID = os.getenv("TENANT_ID", "hdfc.retail")
+#
+# TENANT_ID is the *process* tenant: the value a process falls back to when
+# nothing has bound one. Read it through `_tenant()` rather than referencing the
+# constant, so that a request able to carry its own tenant is a change in one
+# place instead of ninety. Actor identity is already request-scoped this way
+# (`actor_context`); this is the same seam for tenancy.
+TENANT_ID = os.getenv("TENANT_ID") or _read_env_file("TENANT_ID") or "hdfc.retail"
 ACTOR_USER_ID = os.getenv("ACTOR_USER_ID", "priya-nair")
+
+
+def current_tenant() -> str:
+    """The tenant this call is acting for.
+
+    Public name for other modules: `db.current_tenant()` replaces the four
+    different spellings that grew up around `db.TENANT_ID` (direct reference,
+    `getattr(db, "TENANT_ID", None)`, a private `_tenant()` copy in
+    `ops_screens`, and a second `os.getenv` read in `usage_meter`). They agreed
+    by accident; under row-level security a disagreement between the value in a
+    SQL predicate and the value in the `app.tenant_id` GUC is not a visible
+    error — every query simply returns nothing.
+    """
+    return tenant_context.current_tenant()
+
+
+# Module-internal alias. `db.py` writes `_tenant()` several dozen times, and the
+# short name keeps those parameter dicts on one line as they were.
+_tenant = current_tenant
 
 
 # Binding concurrency ceiling: default QueuePool was pool_size=5 + max_overflow=10
@@ -76,14 +121,190 @@ _PROCESS_ROLE = (os.getenv("DB_PROCESS_ROLE") or "api").strip().lower()
 _DEFAULT_STATEMENT_TIMEOUT_MS = 60000 if _PROCESS_ROLE in {"worker", "bot_worker", "voice"} else 15000
 DB_STATEMENT_TIMEOUT_MS = max(1000, _env_int("DB_STATEMENT_TIMEOUT_MS", _DEFAULT_STATEMENT_TIMEOUT_MS))
 
+# The tenant travels to Postgres as a libpq *startup* parameter, not as a
+# statement issued after connecting. That choice is the whole safety argument
+# for turning row-level security on:
+#
+#   - a startup parameter is set before the connection can run anything, so
+#     there is no window in which `app.tenant_id` is unset;
+#   - it is not transactional, so a ROLLBACK — including the one the pool
+#     issues on every return-to-pool — cannot silently unset it.
+#
+# An RLS policy comparing against an unset GUC matches no rows, so a connection
+# that could lose the value would not fail loudly; it would return empty
+# results for every query in the application. This closes that door.
 engine: Engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     pool_size=DB_POOL_SIZE,
     max_overflow=DB_MAX_OVERFLOW,
     pool_recycle=DB_POOL_RECYCLE,
-    connect_args={"options": f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}"},
+    connect_args={
+        "options": (
+            f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS} "
+            f"-c {tenant_context.GUC}={tenant_context.validate(TENANT_ID)}"
+        )
+    },
 )
+
+
+@event.listens_for(engine, "begin")
+def _bind_tenant_for_transaction(conn) -> None:
+    """Override the connection's startup tenant when a call bound its own.
+
+    `SET LOCAL` scopes the override to this transaction, so it cannot outlive
+    the work that asked for it and reach the next borrower of a pooled
+    connection. When nothing is bound — the case for every call today — this
+    costs a ContextVar read and issues no statement.
+
+    Interpolating the value is safe here and only here: `validate()` has already
+    constrained it to `[A-Za-z0-9._:-]`, and Postgres does not accept bind
+    parameters in `SET`.
+    """
+    tenant = tenant_context.current_tenant()
+    if tenant == TENANT_ID:
+        return
+    conn.exec_driver_sql(f"SET LOCAL {tenant_context.GUC} = '{tenant_context.validate(tenant)}'")
+
+
+# Screen-list caps. Most list accessors here return every matching row, which
+# was correct against a demo seed and is not correct against a real portfolio:
+# the query cost, the response size and the memory to build it all scale with
+# how long the deployment has been running.
+#
+# Bounding them has to be additive, because the routes return a bare JSON array
+# and the frontend consumes it as one. So: a default cap that makes the query
+# safe, an opt-in `limit` up to a hard ceiling, and an `offset` to page.
+DEFAULT_LIST_LIMIT = max(1, _env_int("DEFAULT_LIST_LIMIT", 200))
+MAX_LIST_LIMIT = max(DEFAULT_LIST_LIMIT, _env_int("MAX_LIST_LIMIT", 1000))
+# Calls carry their whole transcript inline, so a call row is orders of
+# magnitude larger than a customer row and gets its own, tighter default.
+DEFAULT_CALLS_LIMIT = max(1, _env_int("DEFAULT_CALLS_LIMIT", 100))
+# Child collections rendered inside one customer's 360 view. Bounded by that
+# customer's own history rather than the portfolio, so the ceiling can be
+# generous — but not absent: a five-year-old account with a thousand notes
+# should render its recent ones, not every one ever written.
+DEFAULT_DETAIL_LIMIT = max(1, _env_int("DEFAULT_DETAIL_LIMIT", 100))
+
+
+def clamp_list_limit(limit: int | None, default: int = DEFAULT_LIST_LIMIT) -> int:
+    """Resolve a caller-supplied page size to a safe one.
+
+    ``None`` means "use the default", not "unbounded" — an accessor must have no
+    way to express an unbounded read, or the next caller will express one.
+    """
+    if limit is None:
+        return min(default, MAX_LIST_LIMIT)
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        return min(default, MAX_LIST_LIMIT)
+    return max(1, min(value, MAX_LIST_LIMIT))
+
+
+def clamp_offset(offset: int | None) -> int:
+    try:
+        return max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+#: Tables ``_assert_tenant_owns`` will guard. An allow-list because the table
+#: name is interpolated into SQL — every entry here is a literal in this file,
+#: never a caller-supplied string.
+_CUSTOMER_SCOPED_TABLES: frozenset[str] = frozenset(
+    {
+        "accounts",
+        "callbacks",
+        "consent_records",
+        "conversations",
+        "disputes",
+        "document_requests",
+        "interactions",
+        "leads",
+        "payment_plans",
+        "promises",
+        "treatment_holds",
+        "authority_decisions",
+    }
+)
+
+
+#: Substituted into any query built through :func:`_sql`. Constant — see
+#: ``visibility.CUSTOMER_PREDICATE`` for why it is bind-parameterised rather
+#: than assembled per actor.
+_VIS_PREDICATE = "AND " + visibility.predicate("c")
+
+
+def _sql(query: str) -> Any:
+    """``text()``, with the customer-visibility marker substituted.
+
+    Queries that read customer data write ``/*VISIBILITY*/`` where the scope
+    predicate belongs and are built through this instead of ``text()``. One
+    definition, one place to review, and no per-actor string assembly.
+
+    A query that forgets to use this keeps the marker as an inert SQL comment
+    and is therefore *unscoped* — fail-open, which is the wrong direction. That
+    is deliberately not defended against here, because a syntactic guard would
+    only catch the queries that already remembered the marker. What catches it
+    is ``tests/test_object_visibility.py``, which asserts the behaviour for
+    every customer-facing accessor and fails when a new one is not covered.
+    """
+    return text(query.replace("/*VISIBILITY*/", _VIS_PREDICATE))
+
+
+def _vis_params() -> dict[str, Any]:
+    """Bind parameters for the marker, for the actor of the current request."""
+    return visibility.params()
+
+
+def _assert_tenant_owns(conn: Any, table: str, row_id: str | None) -> None:
+    """Refuse a by-id operation on a row belonging to another tenant.
+
+    The list accessors were leaking whole screens across tenants; the by-id
+    paths leak one record at a time, to a caller who supplies the id — which is
+    the worse of the two, because it is the shape someone probes deliberately
+    rather than stumbles into. Every table guarded here carries ``customer_id``,
+    so tenancy is exactly one join away.
+
+    Raises ``KeyError``, which these callers already translate to 404, rather
+    than a distinct forbidden error. That is deliberate: answering "that exists
+    but is not yours" confirms the id, and an enumerable id is most of what an
+    attacker needs. Not-found reveals nothing either way.
+
+    This is a guard, not the mechanism. The structural fix is the row-level
+    security in ``rls.py``, where a query that forgets its predicate returns
+    nothing regardless of what the Python says — but that is inert until the
+    application stops connecting as a superuser.
+    """
+    if table not in _CUSTOMER_SCOPED_TABLES:
+        raise ValueError(f"_assert_tenant_owns: {table!r} is not an allow-listed table")
+    if not row_id:
+        raise KeyError(f"{table}_not_found")
+    join = (
+        "WHERE t.id = :row_id AND t.tenant_id = :tenant_id"
+        if table == "customers"
+        else "JOIN customers c ON c.id = t.customer_id "
+        "WHERE t.id = :row_id AND c.tenant_id = :tenant_id"
+    )
+    found = conn.execute(
+        text(f"SELECT 1 FROM {table} t {join}"),
+        {"row_id": row_id, "tenant_id": _tenant()},
+    ).fetchone()
+    if not found:
+        raise KeyError(f"{table}_not_found")
+
+
+def _assert_tenant_owns_customer(conn: Any, customer_id: str | None) -> None:
+    """The same guard where the id *is* the customer id."""
+    if not customer_id:
+        raise KeyError("customer_not_found")
+    found = conn.execute(
+        text("SELECT 1 FROM customers WHERE id = :row_id AND tenant_id = :tenant_id"),
+        {"row_id": customer_id, "tenant_id": _tenant()},
+    ).fetchone()
+    if not found:
+        raise KeyError("customer_not_found")
 
 
 def pool_snapshot() -> dict[str, Any]:
@@ -185,10 +406,6 @@ def _short_product(product: str | None) -> str:
     return "Card"
 
 
-def _spark(seed: int, length: int = 14) -> list[int]:
-    return [max(0, round(seed + ((i % 5) - 2) * (seed * 0.06))) for i in range(length)]
-
-
 def _account_tail(account_id: str | None) -> str | None:
     return account_id[-4:] if account_id else None
 
@@ -247,8 +464,46 @@ def get_current_user() -> dict[str, Any]:
             "kind": "human",
             "team": row["team"],
             "status": row["status"],
-            "tenantId": TENANT_ID,
+            "tenantId": _tenant(),
         }
+
+
+def replace_role_permissions(role_id: str, permission_ids: list[str]) -> dict[str, Any]:
+    """Replace the grant set for one role. Admin keeps admin.write."""
+    import authz
+
+    rid = (role_id or "").strip()
+    wanted = [p for p in permission_ids if p in authz.ALL_PERMISSIONS]
+    with engine.begin() as conn:
+        role = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, name FROM roles
+                     WHERE tenant_id = :t AND (id = :id OR lower(name) = lower(:id))
+                     LIMIT 1
+                    """
+                ),
+                {"t": _tenant(), "id": rid},
+            )
+        )
+        if not role:
+            raise KeyError("role_not_found")
+        if authz._normalize_role(role["name"]) == "admin" and authz.ADMIN_WRITE not in wanted:
+            wanted.append(authz.ADMIN_WRITE)
+        conn.execute(text("DELETE FROM role_permissions WHERE role_id = :id"), {"id": role["id"]})
+        for pid in wanted:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO role_permissions (role_id, permission_id)
+                    VALUES (:rid, :pid)
+                    ON CONFLICT DO NOTHING
+                    """
+                ),
+                {"rid": role["id"], "pid": pid},
+            )
+    return {"id": role["id"], "name": role["name"], "permissionIds": sorted(wanted)}
 
 
 _PRESENCE_STATUSES = frozenset({"available", "on_break", "wrap_up", "offline"})
@@ -394,7 +649,7 @@ def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str
         ),
         {
             "id": _id("ACT"),
-            "tenant_id": TENANT_ID,
+            "tenant_id": _tenant(),
             "entity_type": entity_type,
             "entity_id": entity_id,
             "actor_user_id": _actor_user_id(),
@@ -431,15 +686,23 @@ def _idempotent_response(conn: Any, key: str | None, endpoint: str) -> dict[str,
     """
     if not key:
         return None
-    # Two-int form: hashing a concatenation would need a separator, and text
-    # fields cannot carry NUL. (endpoint, key) is also the table's identity.
+    # Two-int form. The first int folds tenant into endpoint with a separator:
+    # a hash collision between two (tenant, endpoint) pairs costs one spurious
+    # shared lock — extra serialisation, never a wrong answer, because identity
+    # is enforced by the primary key and by the SELECT below, not by the lock.
     conn.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:endpoint), hashtext(:key))"),
-        {"endpoint": endpoint, "key": key},
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "  hashtext(:tenant_id || '/' || :endpoint), hashtext(:key))"
+        ),
+        {"tenant_id": _tenant(), "endpoint": endpoint, "key": key},
     )
     row = conn.execute(
-        text("SELECT response FROM idempotency_keys WHERE key = :key AND endpoint = :endpoint"),
-        {"key": key, "endpoint": endpoint},
+        text(
+            "SELECT response FROM idempotency_keys "
+            " WHERE tenant_id = :tenant_id AND key = :key AND endpoint = :endpoint"
+        ),
+        {"tenant_id": _tenant(), "key": key, "endpoint": endpoint},
     ).fetchone()
     return row[0] if row else None
 
@@ -450,12 +713,17 @@ def _store_idempotent_response(conn: Any, key: str | None, endpoint: str, respon
     conn.execute(
         text(
             """
-            INSERT INTO idempotency_keys (key, endpoint, response)
-            VALUES (:key, :endpoint, CAST(:response AS jsonb))
-            ON CONFLICT (endpoint, key) DO NOTHING
+            INSERT INTO idempotency_keys (tenant_id, key, endpoint, response)
+            VALUES (:tenant_id, :key, :endpoint, CAST(:response AS jsonb))
+            ON CONFLICT (tenant_id, endpoint, key) DO NOTHING
             """
         ),
-        {"key": key, "endpoint": endpoint, "response": json.dumps(response)},
+        {
+            "tenant_id": _tenant(),
+            "key": key,
+            "endpoint": endpoint,
+            "response": json.dumps(response),
+        },
     )
 
 
@@ -570,7 +838,15 @@ def _doc_requested_via(
     interaction_channel: str | None,
     has_interaction: bool,
 ) -> str:
-    if requested_via in {"bot_voice", "bot_chat", "agent"}:
+    if requested_via in {
+        "bot_voice",
+        "bot_chat",
+        "agent",
+        "mcp",
+        "clerk",
+        "vision",
+        "inbox",
+    }:
         return requested_via
     return _callback_source(handler_kind, interaction_channel, has_interaction)
 
@@ -645,16 +921,33 @@ def _sla_label(value: str | None) -> str:
     return f"{round(hours / 24)}d left"
 
 
-def _base_customer_row(conn: Any, customer_id: str | None = None) -> list[dict[str, Any]]:
+def _base_customer_row(
+    conn: Any,
+    customer_id: str | None = None,
+    *,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[dict[str, Any]]:
     # Always tenant-scoped, like every other customer-facing read in this
     # module: this feeds both list_customers() and get_customer(), so an
     # unscoped query here is the one that hands another tenant's PII to the
     # Customer 360 screen.
-    where = "WHERE c.tenant_id = :tenant_id"
-    params: dict[str, Any] = {"tenant_id": TENANT_ID}
+    #
+    # It carries the object-level scope for the same reason. Both the list and
+    # the single-customer lookup come through here, so `get_customer` on a
+    # customer outside the actor's book returns no row and the route answers
+    # 404 — without a second check written somewhere else and kept in step.
+    where = f"WHERE c.tenant_id = :tenant_id AND {visibility.predicate('c')}"
+    params: dict[str, Any] = {"tenant_id": _tenant(), **_vis_params()}
     if customer_id:
         where += " AND c.id = :customer_id"
         params["customer_id"] = customer_id
+    # A single-customer lookup needs no page; a full list must have one.
+    page_sql = ""
+    if not customer_id:
+        params["limit"] = clamp_list_limit(limit, DEFAULT_LIST_LIMIT)
+        params["offset"] = clamp_offset(offset)
+        page_sql = "LIMIT :limit OFFSET :offset"
     return _rows(
         conn.execute(
             text(
@@ -697,7 +990,8 @@ def _base_customer_row(conn: Any, customer_id: str | None = None) -> list[dict[s
                 ) a ON true
                 LEFT JOIN products p ON p.id = a.product_id
                 {where}
-                ORDER BY c.name
+                ORDER BY c.name, c.id
+                {page_sql}
                 """
             ),
             params,
@@ -828,9 +1122,15 @@ def _customer_contract(conn: Any, row: dict[str, Any], include_detail: bool) -> 
     return CustomerResponse(**customer)
 
 
-def list_customers() -> list[dict[str, Any]]:
+def list_customers(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    """Customer list, bounded. ``include_detail=False`` issues no per-row query,
+    so this is one indexed read plus serialization — the cost was the row count,
+    not a fan-out."""
     with engine.connect() as conn:
-        return [_dump(_customer_contract(conn, row, include_detail=False)) for row in _base_customer_row(conn)]
+        return [
+            _dump(_customer_contract(conn, row, include_detail=False))
+            for row in _base_customer_row(conn, limit=limit, offset=offset)
+        ]
 
 
 def get_customer(customer_id: str) -> dict[str, Any] | None:
@@ -863,7 +1163,7 @@ def _customer_activity_preview(conn: Any, customer_id: str, limit: int = 8) -> l
                 LIMIT :limit
                 """
             ),
-            {"customer_id": customer_id, "tenant_id": TENANT_ID, "limit": limit},
+            {"customer_id": customer_id, "tenant_id": _tenant(), "limit": limit},
         )
     )
     return [
@@ -880,6 +1180,8 @@ def _customer_activity_preview(conn: Any, customer_id: str, limit: int = 8) -> l
 
 
 def get_customer_insights(customer_id: str) -> dict[str, Any] | None:
+    from agent_core.reco import policy
+    from agent_core.authority import policy as authority_policy
     from customer_insights import derive_insights
 
     customer = get_customer(customer_id)
@@ -887,15 +1189,33 @@ def get_customer_insights(customer_id: str) -> dict[str, Any] | None:
         return None
     with engine.connect() as conn:
         activity = _customer_activity_preview(conn, customer_id)
-    return derive_insights(customer, activity=activity or None)
+        offer = policy.snapshot(
+            conn, customer_id=customer_id, tenant_id=_tenant()
+        )
+        authority = authority_policy.snapshot(
+            conn, customer_id=customer_id, tenant_id=_tenant()
+        )
+    return derive_insights(
+        customer,
+        activity=activity or None,
+        offer_policy=offer,
+        authority_policy=authority,
+    )
 
 
 def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
-    where = "WHERE i.customer_id = :customer_id" if customer_id else ""
-    params = {"customer_id": customer_id}
-    limit_sql = "LIMIT :limit" if limit else ""
-    if limit:
-        params["limit"] = limit
+    # Tenant-scoped unconditionally. Filtering on customer_id alone was safe
+    # only because every live caller passes one and customers are themselves
+    # tenant-scoped; the customer_id=None path selected across tenants, and
+    # neither the limit nor the tenant were required by the signature.
+    where = "WHERE i.tenant_id = :tenant_id"
+    params: dict[str, Any] = {"tenant_id": _tenant()}
+    if customer_id:
+        where += " AND i.customer_id = :customer_id"
+        params["customer_id"] = customer_id
+    # No unbounded branch: this loads full transcripts per interaction.
+    params["limit"] = clamp_list_limit(limit, DEFAULT_CALLS_LIMIT)
+    limit_sql = "LIMIT :limit"
     interactions = _rows(
         conn.execute(
             text(
@@ -980,9 +1300,10 @@ def _promise_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
                 LEFT JOIN bots b ON b.id = p.owner_bot_id
                 WHERE p.customer_id = :customer_id
                 ORDER BY p.promised_at DESC
+                LIMIT :limit
                 """
             ),
-            {"customer_id": customer_id},
+            {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
         )
     )
     return [
@@ -1011,9 +1332,10 @@ def _dispute_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
                 LEFT JOIN users u ON u.id = d.assignee_user_id
                 WHERE d.customer_id = :customer_id
                 ORDER BY d.created_at DESC
+                LIMIT :limit
                 """
             ),
-            {"customer_id": customer_id},
+            {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
         )
     )
     return [
@@ -1036,13 +1358,15 @@ def _document_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
         conn.execute(
             text(
                 """
-                SELECT id, doc_type, delivery_channel, status, created_at
+                SELECT id, doc_type, delivery_channel, status, created_at,
+                       requested_via, source
                 FROM document_requests
                 WHERE customer_id = :customer_id
                 ORDER BY created_at DESC
+                LIMIT :limit
                 """
             ),
-            {"customer_id": customer_id},
+            {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
         )
     )
     return [
@@ -1053,6 +1377,7 @@ def _document_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
             "requestedAt": r["created_at"],
             "deliveryChannel": _doc_channel(r["delivery_channel"]),
             "status": r["status"],
+            "source": r.get("source") or "crm",
         }
         for r in rows
     ]
@@ -1068,9 +1393,10 @@ def _note_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
                 LEFT JOIN users u ON u.id = n.author_user_id
                 WHERE n.customer_id = :customer_id
                 ORDER BY n.created_at DESC
+                LIMIT :limit
                 """
             ),
-            {"customer_id": customer_id},
+            {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
         )
     )
     return [{"id": r["id"], "author": r["author"], "at": r["created_at"], "text": r["text"], "pinned": r["pinned"]} for r in rows]
@@ -1099,24 +1425,41 @@ def _promise_events(conn: Any, promise_ids: list[str]) -> dict[str, list[dict[st
     return grouped
 
 
-def list_promises() -> list[dict[str, Any]]:
+def list_promises(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Promise-to-Pay screen feed (richer than the Customer 360 contract)."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT p.id, p.customer_id, c.name AS customer_name, p.account_id,
                            p.amount, p.promised_at, p.created_at, p.channel, p.status,
                            p.reminder_status, p.paid_amount, p.plan_id, p.owner_kind,
-                           COALESCE(u.name, b.name) AS owner
+                           COALESCE(u.name, b.name) AS owner,
+                           pi.status AS payment_intent_status,
+                           pi.confirm_channel,
+                           pi.suppression_reason,
+                           pi.phone_last4,
+                           pi.id AS payment_intent_id
                     FROM promises p
                     JOIN customers c ON c.id = p.customer_id
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
                     LEFT JOIN users u ON u.id = p.owner_user_id
                     LEFT JOIN bots b ON b.id = p.owner_bot_id
+                    LEFT JOIN LATERAL (
+                        SELECT status, confirm_channel, suppression_reason, phone_last4, id
+                        FROM payment_intents
+                        WHERE promise_id = p.id
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    ) pi ON true
                     ORDER BY p.promised_at DESC
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
             )
         )
         events = _promise_events(conn, [r["id"] for r in rows])
@@ -1141,6 +1484,16 @@ def list_promises() -> list[dict[str, Any]]:
                     "notes": None,
                     "planId": r["plan_id"],
                     "events": evts,
+                    "confirmChannel": r.get("confirm_channel"),
+                    "confirmStatus": (
+                        "suppressed"
+                        if r.get("suppression_reason") and r.get("payment_intent_status") not in {"sent", "opened", "paid"}
+                        else r.get("payment_intent_status")
+                    ),
+                    "paymentIntentStatus": r.get("payment_intent_status"),
+                    "paymentIntentId": r.get("payment_intent_id"),
+                    "payLinkSent": r.get("payment_intent_status") in {"sent", "opened", "paid"},
+                    "phoneLast4": r.get("phone_last4"),
                 }
             )
         return result
@@ -1481,12 +1834,13 @@ def _callback_reminders(conn: Any, callback_ids: list[str]) -> dict[str, list[di
     return grouped
 
 
-def list_callbacks() -> list[dict[str, Any]]:
+def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Callback & Scheduling Manager feed (richer than the Phase 3A write contract)."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT cb.id, cb.customer_id, c.name AS customer_name, cb.account_id,
                            cb.reason, cb.scheduled_at, cb.window_mins, cb.dnd_active,
@@ -1498,12 +1852,16 @@ def list_callbacks() -> list[dict[str, Any]]:
                            i.channel AS interaction_channel, i.handler_kind
                     FROM callbacks cb
                     JOIN customers c ON c.id = cb.customer_id
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
                     LEFT JOIN users u ON u.id = cb.assignee_user_id
                     LEFT JOIN teams t ON t.id = cb.team_id
                     LEFT JOIN interactions i ON i.id = cb.interaction_id
-                    ORDER BY cb.scheduled_at
+                    ORDER BY cb.scheduled_at, cb.id
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
             )
         )
         ids = [r["id"] for r in rows]
@@ -1796,12 +2154,13 @@ def _ensure_channels_complete(channels: list[dict[str, Any]], fallback_at: str) 
     return complete
 
 
-def list_consent() -> list[dict[str, Any]]:
+def list_consent(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Consent & Communication Preferences feed (richer than Customer 360 consent)."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT cr.id, cr.customer_id, cr.dnd_registry, cr.expires_at,
                            cr.allowed_days, cr.allowed_hours, cr.created_at,
@@ -1810,6 +2169,8 @@ def list_consent() -> list[dict[str, Any]]:
                            a.id AS account_id
                     FROM consent_records cr
                     JOIN customers c ON c.id = cr.customer_id
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
                     LEFT JOIN LATERAL (
                       SELECT *
                       FROM accounts a
@@ -1821,8 +2182,10 @@ def list_consent() -> list[dict[str, Any]]:
                       LIMIT 1
                     ) a ON true
                     ORDER BY c.name
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
             )
         )
         consent_ids = [r["id"] for r in rows]
@@ -1830,6 +2193,13 @@ def list_consent() -> list[dict[str, Any]]:
         channels = _consent_channels_grouped(conn, consent_ids)
         optouts = _consent_optouts_grouped(conn, consent_ids)
         audits = _consent_audit_grouped(conn, customer_ids)
+        usage: dict[str, dict[str, Any]] = {}
+        try:
+            import contact_policy
+
+            usage = contact_policy.ledger_usage(conn, customer_ids)
+        except Exception:
+            logger.exception("contact_policy ledger_usage failed")
         result: list[dict[str, Any]] = []
         for r in rows:
             created = r["created_at"]
@@ -1850,6 +2220,13 @@ def list_consent() -> list[dict[str, Any]]:
                     "action": "Consent captured",
                 }
             ]
+            stats = usage.get(r["customer_id"]) or {}
+            by_ch = stats.get("byChannel") or {}
+            complete = _ensure_channels_complete(channels.get(r["id"]) or [], created)
+            for item in complete:
+                db_ch = "voice" if item["channel"] == "call" else item["channel"]
+                if db_ch in by_ch:
+                    item["usedThisWeek"] = by_ch[db_ch]
             result.append(
                 {
                     "id": r["id"],
@@ -1860,7 +2237,7 @@ def list_consent() -> list[dict[str, Any]]:
                     "email": r["email"] or "",
                     "timezone": r["timezone"] or "Asia/Kolkata",
                     "segment": _consent_segment(r["segment"]),
-                    "channels": _ensure_channels_complete(channels.get(r["id"]) or [], created),
+                    "channels": complete,
                     "allowedWindow": {
                         "days": _parse_allowed_days(r["allowed_days"]),
                         "startHour": start_h,
@@ -1870,17 +2247,40 @@ def list_consent() -> list[dict[str, Any]]:
                     "onDndRegistry": bool(r["dnd_registry"] or r["customer_dnd"]),
                     "optOutLog": optouts.get(r["id"]) or [],
                     "audit": audit,
+                    "outreachToday": int(stats.get("outreachToday") or 0),
+                    "dailyCap": int(stats.get("dailyCap") or 3),
+                    "lastDecisionReason": stats.get("lastDecisionReason"),
                 }
             )
         return result
 
 
-def list_disputes() -> list[dict[str, Any]]:
+def get_contact_policy(customer_id: str, channel: str = "whatsapp", purpose: str = "outreach") -> dict[str, Any]:
+    """Dry-run of the contact gate for Inbox / Floor / Consent pills."""
+    import contact_policy
+
+    with engine.connect() as conn:
+        if _one(conn.execute(text("SELECT 1 FROM customers WHERE id = :id AND tenant_id = :tid"), {"id": customer_id, "tid": _tenant()})) is None:
+            raise KeyError("customer_not_found")
+        decision = contact_policy.evaluate(
+            conn,
+            customer_id=customer_id,
+            channel=channel,
+            purpose=purpose,
+        )
+    payload = decision.as_dict()
+    payload["channel"] = contact_policy.normalize_channel(channel)
+    payload["purpose"] = purpose if purpose in contact_policy.PURPOSES else "outreach"
+    return payload
+
+
+def list_disputes(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Disputes & Exceptions queue feed (richer than the Customer 360 contract)."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT d.id, d.customer_id, c.name AS customer_name, d.account_id,
                            d.type, d.disputed_amount, d.source, d.transcript_snippet,
@@ -1889,11 +2289,15 @@ def list_disputes() -> list[dict[str, Any]]:
                            u.name AS assignee, i.channel AS interaction_channel
                     FROM disputes d
                     JOIN customers c ON c.id = d.customer_id
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
                     LEFT JOIN users u ON u.id = d.assignee_user_id
                     LEFT JOIN interactions i ON i.id = d.interaction_id
-                    ORDER BY d.created_at DESC
+                    ORDER BY d.created_at DESC, d.id
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
             )
         )
         ids = [r["id"] for r in rows]
@@ -1932,18 +2336,19 @@ def list_disputes() -> list[dict[str, Any]]:
         return result
 
 
-def list_documents() -> list[dict[str, Any]]:
+def list_documents(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Document Fulfilment Desk feed (richer than the Customer 360 contract)."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT dr.id, dr.customer_id, c.name AS customer_name, dr.account_id,
                            dr.doc_type, dr.period, dr.requested_via, dr.delivery_channel,
                            dr.delivery_target, dr.status, dr.template_id, dr.generated_at,
                            dr.sent_at, dr.failed_reason, dr.size_kb, dr.attempts,
-                           dr.created_at, dr.interaction_id,
+                           dr.created_at, dr.interaction_id, dr.source,
                            c.phone_primary, c.email,
                            u.name AS assignee,
                            i.channel AS interaction_channel, i.handler_kind,
@@ -1952,6 +2357,8 @@ def list_documents() -> list[dict[str, Any]]:
                            da.sent_at AS delivery_sent_at
                     FROM document_requests dr
                     JOIN customers c ON c.id = dr.customer_id
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
                     LEFT JOIN users u ON u.id = dr.assignee_user_id
                     LEFT JOIN interactions i ON i.id = dr.interaction_id
                     LEFT JOIN LATERAL (
@@ -1969,8 +2376,10 @@ def list_documents() -> list[dict[str, Any]]:
                       LIMIT 1
                     ) da ON true
                     ORDER BY dr.created_at DESC
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
             )
         )
         ids = [r["id"] for r in rows]
@@ -2006,6 +2415,7 @@ def list_documents() -> list[dict[str, Any]]:
                         r["interaction_channel"],
                         bool(r["interaction_id"]),
                     ),
+                    "source": r.get("source") or "crm",
                     "requestedAt": requested_at,
                     "deliveryChannel": channel,
                     "deliveryTarget": _doc_delivery_target(
@@ -2025,20 +2435,25 @@ def list_documents() -> list[dict[str, Any]]:
         return result
 
 
-def list_payment_plans() -> list[dict[str, Any]]:
+def list_payment_plans(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Payment-plans table for the Promises screen; owner/cadence/start derived."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         plans = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT pp.id, pp.customer_id, c.name AS customer_name, pp.account_id,
                            pp.total_amount, pp.created_at
                     FROM payment_plans pp
                     JOIN customers c ON c.id = pp.customer_id
-                    ORDER BY pp.created_at DESC
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
+                    ORDER BY pp.created_at DESC, pp.id
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
             )
         )
         if not plans:
@@ -2115,11 +2530,21 @@ def list_payment_plans() -> list[dict[str, Any]]:
         return result
 
 
-def list_calls() -> list[dict[str, Any]]:
+def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    """Audit-screen call list, newest first.
+
+    Bounded and tenant-scoped. Both were missing: the outer query selected every
+    interaction the deployment had ever recorded, and the four child queries
+    below then loaded *every transcript turn of every one of them* into memory
+    to assemble the response. That is fine against a demo seed and is a
+    guaranteed outage against a real portfolio.
+    """
+    page = clamp_list_limit(limit, DEFAULT_CALLS_LIMIT)
+    skip = clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT
                       i.id,
@@ -2145,9 +2570,13 @@ def list_calls() -> list[dict[str, Any]]:
                     JOIN customers c ON c.id = i.customer_id
                     LEFT JOIN users u ON u.id = i.handler_user_id
                     LEFT JOIN bots b ON b.id = i.handler_bot_id
+                    WHERE i.tenant_id = :tenant_id
+                      /*VISIBILITY*/
                     ORDER BY i.started_at DESC NULLS LAST, i.id
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"tenant_id": _tenant(), "limit": page, "offset": skip, **_vis_params()},
             )
         )
         # Four child tables, one query each — not four per interaction. The
@@ -2245,7 +2674,10 @@ def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
     """Offer catalog. Inactive products stay retrievable for historical leads —
     a lead captured last month must still render its product name after the
     product is switched off."""
-    clause = "" if include_inactive else " WHERE is_active IS TRUE"
+    # Tenant first, so the optional is_active filter cannot be the only
+    # predicate — include_inactive=True used to widen this to every tenant's
+    # catalog rather than only to this tenant's retired products.
+    clause = "" if include_inactive else " AND is_active IS TRUE"
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -2255,10 +2687,12 @@ def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
                            ticket_min, ticket_max, roi, roi_numeric,
                            tenor_months_min, tenor_months_max,
                            margin_score, is_active, channels
-                    FROM products{clause}
+                    FROM products
+                    WHERE tenant_id = :tenant_id{clause}
                     ORDER BY COALESCE(category, type), name, id
                     """
-                )
+                ),
+                {"tenant_id": _tenant()},
             )
         )
     return [
@@ -2287,11 +2721,74 @@ def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
     ]
 
 
-def list_leads() -> list[dict[str, Any]]:
+# Filters the pipeline screen actually offers, resolved server-side. They used
+# to be applied only in the browser, over whatever the first page happened to
+# contain — so "All owners" on a 5,000-lead book filtered 200 rows and said
+# nothing about it.
+#
+# Every parameter is CAST to text before the NULL test. Postgres cannot infer a
+# type for a bare placeholder in `$1 IS NULL` and rejects the statement with
+# AmbiguousParameter; the cast is what tells it what an absent filter is.
+_LEAD_FILTER_SQL = """
+              AND (CAST(:stage      AS text) IS NULL OR l.stage = :stage)
+              AND (CAST(:owner      AS text) IS NULL OR u.name = :owner)
+              AND (CAST(:team       AS text) IS NULL OR t.name = :team)
+              AND (CAST(:product_id AS text) IS NULL OR l.product_id = :product_id)
+              AND (CAST(:source     AS text) IS NULL OR l.source = :source)
+              -- Comma-separated, because the screen's priority and sentiment
+              -- controls are multi-select. A single-value filter here would
+              -- have forced those two to stay client-side, and then the KPI
+              -- strip and the board would be describing different sets.
+              AND (
+                CAST(:priority AS text) IS NULL
+                OR l.priority = ANY(string_to_array(:priority, ','))
+              )
+              AND (
+                CAST(:sentiment AS text) IS NULL
+                OR l.sentiment_at_capture = ANY(string_to_array(:sentiment, ','))
+              )
+              AND (
+                CAST(:q AS text) IS NULL
+                OR l.id ILIKE '%%' || :q || '%%'
+                OR c.name ILIKE '%%' || :q || '%%'
+                OR COALESCE(l.account_id, '') ILIKE '%%' || :q || '%%'
+                OR COALESCE(p.name, '') ILIKE '%%' || :q || '%%'
+                OR COALESCE(l.transcript_snippet, '') ILIKE '%%' || :q || '%%'
+              )
+"""
+
+
+def _lead_filter_params(filters: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalise the screen's filter vocabulary. "all" and "" both mean unset."""
+    f = filters or {}
+
+    def pick(key: str) -> str | None:
+        raw = str(f.get(key) or "").strip()
+        return None if not raw or raw == "all" else raw
+
+    return {
+        "stage": pick("stage"),
+        "owner": pick("owner"),
+        "team": pick("team"),
+        "product_id": pick("productId"),
+        "source": pick("source"),
+        "priority": pick("priority"),
+        "sentiment": pick("sentiment"),
+        "q": pick("q"),
+    }
+
+
+def list_leads(
+    *,
+    limit: int | None = None,
+    offset: int | None = None,
+    filters: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT
                       l.id,
@@ -2318,12 +2815,26 @@ def list_leads() -> list[dict[str, Any]]:
                       t.name AS team
                     FROM leads l
                     JOIN customers c ON c.id = l.customer_id
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
                     LEFT JOIN products p ON p.id = l.product_id
                     LEFT JOIN users u ON u.id = l.owner_user_id
                     LEFT JOIN teams t ON t.id = l.team_id
-                    ORDER BY l.captured_at DESC NULLS LAST, l.id
+                    WHERE TRUE
                     """
-                )
+                    + _LEAD_FILTER_SQL
+                    + """
+                    ORDER BY l.captured_at DESC NULLS LAST, l.id
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                {
+                    "limit": page,
+                    "offset": skip,
+                    "tenant_id": _tenant(),
+                    **_vis_params(),
+                    **_lead_filter_params(filters),
+                },
             )
         )
         # Three bulk queries rather than 3N. The list endpoint is the ONLY
@@ -2386,6 +2897,141 @@ def list_leads() -> list[dict[str, Any]]:
                 )
             )
     return leads
+
+
+def lead_metrics(filters: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The pipeline KPI strip, computed over the whole book.
+
+    These numbers were derived in the browser from whatever ``GET /leads``
+    returned, and that endpoint pages at 200. Below the page size the answer
+    happened to be right; above it "Conversion (30d)" quietly described the 200
+    most recently captured leads while the header claimed to be showing
+    everything. A summary statistic computed from a page is not a summary
+    statistic.
+
+    Definitions match the client-side ones they replace, deliberately: a lead's
+    value is its won amount once won and its estimate before that; conversion
+    is won-over-captured within the last 30 days, by capture date; and
+    time-to-close spans every closed lead, not just recent ones.
+    """
+    params = {"tenant_id": _tenant(), **_vis_params(), **_lead_filter_params(filters)}
+    with engine.connect() as conn:
+        row = _one(
+            conn.execute(
+                _sql(
+                    """
+                    WITH scoped AS (
+                      SELECT
+                        l.stage,
+                        l.captured_at,
+                        l.closed_at,
+                        COALESCE(
+                          CASE WHEN l.stage = 'won'
+                               THEN COALESCE(l.won_amount, l.estimated_value)
+                               ELSE l.estimated_value END,
+                          0
+                        ) AS value
+                      FROM leads l
+                      JOIN customers c ON c.id = l.customer_id
+                       AND c.tenant_id = :tenant_id
+                       /*VISIBILITY*/
+                      LEFT JOIN products p ON p.id = l.product_id
+                      LEFT JOIN users u ON u.id = l.owner_user_id
+                      LEFT JOIN teams t ON t.id = l.team_id
+                      WHERE TRUE
+                    """
+                    + _LEAD_FILTER_SQL
+                    + """
+                    )
+                    SELECT
+                      COUNT(*)::int                                              AS total,
+                      COUNT(*) FILTER (
+                        WHERE stage IN ('interested','contacted','qualified')
+                      )::int                                                     AS open_leads,
+                      COALESCE(SUM(value) FILTER (
+                        WHERE stage IN ('interested','contacted','qualified')
+                      ), 0)::float                                               AS pipeline_value,
+                      COUNT(*) FILTER (
+                        WHERE stage = 'won' AND closed_at > now() - interval '7 days'
+                      )::int                                                     AS won_week,
+                      COALESCE(SUM(value) FILTER (
+                        WHERE stage = 'won' AND closed_at > now() - interval '7 days'
+                      ), 0)::float                                               AS won_week_amount,
+                      COUNT(*) FILTER (
+                        WHERE captured_at > now() - interval '30 days'
+                      )::int                                                     AS captured_30d,
+                      COUNT(*) FILTER (
+                        WHERE captured_at > now() - interval '30 days' AND stage = 'won'
+                      )::int                                                     AS won_30d,
+                      AVG(
+                        EXTRACT(EPOCH FROM (closed_at - captured_at)) / 86400.0
+                      ) FILTER (WHERE closed_at IS NOT NULL)                     AS avg_days_to_close
+                    FROM scoped
+                    """
+                ),
+                params,
+            )
+        ) or {}
+
+        by_stage = {
+            r["stage"]: {"count": r["n"], "amount": float(r["amount"] or 0)}
+            for r in _rows(
+                conn.execute(
+                    _sql(
+                        """
+                        SELECT
+                          l.stage,
+                          COUNT(*)::int AS n,
+                          COALESCE(SUM(
+                            COALESCE(
+                              CASE WHEN l.stage = 'won'
+                                   THEN COALESCE(l.won_amount, l.estimated_value)
+                                   ELSE l.estimated_value END,
+                              0
+                            )
+                          ), 0)::float AS amount
+                        FROM leads l
+                        JOIN customers c ON c.id = l.customer_id
+                         AND c.tenant_id = :tenant_id
+                         /*VISIBILITY*/
+                        LEFT JOIN products p ON p.id = l.product_id
+                        LEFT JOIN users u ON u.id = l.owner_user_id
+                        LEFT JOIN teams t ON t.id = l.team_id
+                        WHERE TRUE
+                        """
+                        + _LEAD_FILTER_SQL
+                        + """
+                        GROUP BY 1
+                        """
+                    ),
+                    params,
+                )
+            )
+        }
+
+    captured_30d = int(row.get("captured_30d") or 0)
+    won_30d = int(row.get("won_30d") or 0)
+    avg_days = row.get("avg_days_to_close")
+    return {
+        "total": int(row.get("total") or 0),
+        "openLeads": int(row.get("open_leads") or 0),
+        "pipelineValue": float(row.get("pipeline_value") or 0),
+        "wonWeek": int(row.get("won_week") or 0),
+        "wonWeekAmount": float(row.get("won_week_amount") or 0),
+        # None, not 0, when nothing was captured in the window. "no leads to
+        # convert" and "converted none of them" are different facts and the
+        # strip renders them differently.
+        "conversionRate": (
+            round(won_30d / captured_30d * 100) if captured_30d else None
+        ),
+        "captured30d": captured_30d,
+        "won30d": won_30d,
+        "avgDaysToClose": None if avg_days is None else round(float(avg_days)),
+        "perStage": {
+            stage: by_stage.get(stage, {"count": 0, "amount": 0.0})
+            for stage in ("interested", "contacted", "qualified", "won", "lost")
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2498,11 +3144,14 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
         + ix_segment
         + ix_team
     )
-    params: dict[str, Any] = {"tenant_id": TENANT_ID, "days": days}
+    params: dict[str, Any] = {"tenant_id": _tenant(), "days": days}
     if families:
         params["families"] = families
     if handler_kind:
         params["handler_kind"] = handler_kind
+
+    ttft_hours: float | None = None
+    ttft_n = 0
 
     # Bound intervals are interpolated as literal day counts from a fixed dict,
     # never from the caller's string — _dashboard_window maps any unknown range
@@ -2729,6 +3378,36 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
             )
         )
 
+        ttft_hours = None
+        ttft_n = 0
+        try:
+            ttft = _one(
+                conn.execute(
+                    text(
+                        f"""
+                        SELECT
+                          percentile_cont(0.5) WITHIN GROUP (
+                            ORDER BY EXTRACT(EPOCH FROM (pe.first_touch_at - pe.occurred_at)) / 3600.0
+                          ) AS hours,
+                          count(*) FILTER (WHERE pe.first_touch_at IS NOT NULL)::int AS touched
+                        FROM payment_events pe
+                        JOIN customers c ON c.id = pe.customer_id
+                        WHERE pe.kind = 'bounce'
+                          AND c.tenant_id = :tenant_id
+                          AND pe.occurred_at >= {since_cur}
+                          AND pe.occurred_at < {until_cur}
+                          AND pe.first_touch_at IS NOT NULL
+                        """
+                    ),
+                    params,
+                )
+            ) or {}
+            if ttft.get("hours") is not None:
+                ttft_hours = float(ttft["hours"])
+            ttft_n = int(ttft.get("touched") or 0)
+        except Exception:
+            logger.debug("time-to-first-touch kpi skipped", exc_info=True)
+
     interactions = summary.get("interactions") or 0
     human = summary.get("human_handled") or 0
     bot = max(interactions - human, 0)
@@ -2861,6 +3540,20 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
                 "sub": f"{promises_cur.get('kept') or 0} kept of {settled} settled",
                 "spark": [],
                 "tone": "warning",
+            },
+            {
+                "key": "timeToFirstTouch",
+                "label": "Time to first touch",
+                "value": f"{ttft_hours:.1f}h" if ttft_hours is not None else "—",
+                "delta": None,
+                "deltaGood": "down",
+                "sub": (
+                    f"median hours bounce→contact · {ttft_n} touched"
+                    if ttft_n
+                    else "median hours bounce→first contact"
+                ),
+                "spark": [],
+                "tone": "brand",
             },
             {
                 "key": "csat",
@@ -2999,7 +3692,8 @@ def get_turn_trace(interaction_id: str) -> list[dict[str, Any]]:
                 text(
                     """
                     SELECT transcript_turn_id, tool_name, args, result_ok, error,
-                           result_preview, latency_ms, channel, created_at
+                           result_preview, latency_ms, channel, created_at,
+                           agent_id, skill_id, connector_id
                     FROM bot_tool_calls
                     WHERE interaction_id = :ix
                     ORDER BY created_at
@@ -3039,6 +3733,9 @@ def get_turn_trace(interaction_id: str) -> list[dict[str, Any]]:
                 "args": _trace_redact(r["args"]),
                 "resultPreview": _trace_redact(r["result_preview"]),
                 "at": r["created_at"],
+                "agentId": r.get("agent_id"),
+                "skillId": r.get("skill_id"),
+                "connectorId": r.get("connector_id"),
             }
         )
 
@@ -3115,8 +3812,234 @@ def get_turn_trace(interaction_id: str) -> list[dict[str, Any]]:
     return out
 
 
-def get_handoff_session() -> dict[str, Any] | None:
+HANDOFF_DISPOSITIONS = [
+    "PTP captured",
+    "Payment taken",
+    "Dispute - under review",
+    "Info provided",
+    "Callback scheduled",
+    "Escalated to supervisor",
+    "Unresolved - retry",
+]
+
+# Checklist catalog for the hub — disclosure rules, not the full violation taxonomy.
+_HANDOFF_DISCLOSURE_RULES = (
+    ("rule-recording", "Recording disclosure read"),
+    ("rule-identity", "Identity verified"),
+    ("rule-mini-miranda", "Mini-Miranda / debt-collection notice"),
+    ("rule-payment", "Payment terms / data-use consent"),
+)
+
+
+def _epoch_ms(value: Any) -> int:
+    if value is None:
+        return int(datetime.now(timezone.utc).timestamp() * 1000)
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return int(value.timestamp() * 1000)
+    if isinstance(value, (int, float)):
+        return int(value)
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _iso_ts(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+def _handoff_status(ix_status: str | None, claimed: bool) -> str:
+    if ix_status == "completed":
+        return "completed"
+    if claimed:
+        return "active"
+    return "pending_claim"
+
+
+def _actor_team_id(conn: Any) -> str | None:
+    row = _one(
+        conn.execute(
+            text("SELECT team_id FROM users WHERE id = :id"),
+            {"id": _actor_user_id()},
+        )
+    )
+    return row["team_id"] if row else None
+
+
+def _handoff_queue_visible(conn: Any, to_team_id: str | None) -> bool:
+    """Whether this unclaimed handoff belongs on the actor's queue."""
+    vis = visibility.resolve(_actor_user_id())
+    if vis.is_unrestricted:
+        return True
+    if not to_team_id:
+        return True
+    actor_team = _actor_team_id(conn)
+    if vis.scope == visibility.TEAM:
+        supervised = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT 1 FROM teams
+                    WHERE id = :tid AND supervisor_user_id = :uid
+                    """
+                ),
+                {"tid": to_team_id, "uid": _actor_user_id()},
+            )
+        )
+        return bool(supervised) or to_team_id == actor_team
+    return to_team_id == actor_team
+
+
+def _handoff_queue_sql_filter() -> str:
+    """Bind-parameterised team filter for the unclaimed queue."""
+    return """
+      AND (
+        :vis_all
+        OR h.to_team_id IS NULL
+        OR h.to_team_id = :actor_team
+        OR (:vis_team AND h.to_team_id IN (
+              SELECT t.id FROM teams t WHERE t.supervisor_user_id = :vis_actor
+            ))
+      )
+    """
+
+
+def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
+    actor = _actor_user_id()
+    vis = visibility.resolve(actor)
     with engine.connect() as conn:
+        actor_team = _actor_team_id(conn)
+        params: dict[str, Any] = {
+            "tenant_id": _tenant(),
+            "actor": actor,
+            "actor_team": actor_team,
+            "vis_all": vis.is_unrestricted,
+            "vis_team": vis.scope == visibility.TEAM,
+            "vis_actor": actor,
+        }
+        customer_sql = ""
+        if customer_id:
+            customer_sql = "AND i.customer_id = :customer_id"
+            params["customer_id"] = customer_id
+        rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT
+                      i.id AS interaction_id,
+                      h.id AS handoff_id,
+                      i.customer_id,
+                      c.name AS customer_name,
+                      COALESCE(i.account_id, '') AS account_id,
+                      h.reason,
+                      h.queue,
+                      COALESCE(c.risk, 'medium') AS risk,
+                      h.requested_at,
+                      EXTRACT(EPOCH FROM (now() - COALESCE(h.requested_at, h.created_at)))::int AS wait_sec
+                    FROM interaction_handoffs h
+                    JOIN interactions i ON i.id = h.interaction_id
+                    JOIN customers c ON c.id = i.customer_id
+                    WHERE i.tenant_id = :tenant_id
+                      AND i.status = 'active'
+                      AND h.to_user_id IS NULL
+                      AND h.accepted_at IS NULL
+                      AND h.completed_at IS NULL
+                      {customer_sql}
+                      {_handoff_queue_sql_filter()}
+                    ORDER BY h.requested_at ASC NULLS LAST, h.created_at ASC
+                    LIMIT 50
+                    """
+                ),
+                params,
+            )
+        )
+        mine = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT i.id
+                    FROM interaction_handoffs h
+                    JOIN interactions i ON i.id = h.interaction_id
+                    WHERE i.tenant_id = :tenant_id
+                      AND i.status = 'active'
+                      AND h.completed_at IS NULL
+                      AND h.accepted_at IS NOT NULL
+                      AND (
+                        h.to_user_id = :actor
+                        OR i.handler_user_id = :actor
+                      )
+                    ORDER BY h.accepted_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"tenant_id": _tenant(), "actor": actor},
+            )
+        )
+    items = [
+        _dump(
+            HandoffQueueItem(
+                interactionId=r["interaction_id"],
+                handoffId=r["handoff_id"],
+                customerId=r["customer_id"],
+                customerName=r["customer_name"],
+                accountId=r["account_id"] or "",
+                reason=r["reason"],
+                queue=r["queue"],
+                risk=str(r["risk"] or "medium"),
+                waitSec=max(0, int(r["wait_sec"] or 0)),
+                requestedAt=_iso_ts(r["requested_at"]),
+            )
+        )
+        for r in rows
+    ]
+    return _dump(
+        HandoffQueueResponse(
+            items=items,
+            activeInteractionId=mine["id"] if mine else None,
+        )
+    )
+
+
+def get_active_handoff_session() -> dict[str, Any] | None:
+    actor = _actor_user_id()
+    with engine.connect() as conn:
+        row = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT i.id
+                    FROM interaction_handoffs h
+                    JOIN interactions i ON i.id = h.interaction_id
+                    WHERE i.tenant_id = :tenant_id
+                      AND i.status = 'active'
+                      AND h.completed_at IS NULL
+                      AND h.accepted_at IS NOT NULL
+                      AND (
+                        h.to_user_id = :actor
+                        OR i.handler_user_id = :actor
+                      )
+                    ORDER BY h.accepted_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"tenant_id": _tenant(), "actor": actor},
+            )
+        )
+    if row is None:
+        return None
+    return get_handoff_session(row["id"])
+
+
+def get_handoff_session(interaction_id: str) -> dict[str, Any]:
+    with engine.connect() as conn:
+        _assert_tenant_owns(conn, "interactions", interaction_id)
         row = _one(
             conn.execute(
                 text(
@@ -3128,22 +4051,70 @@ def get_handoff_session() -> dict[str, Any] | None:
                       i.account_id,
                       i.channel,
                       i.status,
-                      i.disposition,
-                      i.summary,
-                      i.avg_sentiment,
-                      COALESCE(u.name, b.name) AS handler
+                      i.started_at,
+                      i.handler_user_id,
+                      i.transferred_from_bot_id,
+                      COALESCE(u.name, '') AS handler_name,
+                      COALESCE(tb.name, fb.name, '') AS transferred_from,
+                      c.risk,
+                      c.phone_primary,
+                      c.preferred_window,
+                      c.dnd,
+                      a.product_id,
+                      p.name AS product,
+                      a.opened_on,
+                      a.outstanding AS account_outstanding,
+                      h.id AS handoff_id,
+                      h.reason,
+                      h.to_user_id,
+                      h.accepted_at,
+                      h.completed_at,
+                      h.to_team_id,
+                      conv.id AS conversation_id
                     FROM interactions i
                     JOIN customers c ON c.id = i.customer_id
                     LEFT JOIN users u ON u.id = i.handler_user_id
-                    LEFT JOIN bots b ON b.id = i.handler_bot_id
-                    ORDER BY (i.status = 'active') DESC, i.started_at DESC NULLS LAST
-                    LIMIT 1
+                    LEFT JOIN bots tb ON tb.id = i.transferred_from_bot_id
+                    LEFT JOIN bots fb ON fb.id = i.handler_bot_id
+                    LEFT JOIN accounts a ON a.id = i.account_id
+                    LEFT JOIN products p ON p.id = a.product_id
+                    LEFT JOIN LATERAL (
+                      SELECT id, reason, to_user_id, accepted_at, completed_at, to_team_id
+                      FROM interaction_handoffs
+                      WHERE interaction_id = i.id
+                      ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                      LIMIT 1
+                    ) h ON true
+                    LEFT JOIN LATERAL (
+                      SELECT id FROM conversations
+                      WHERE interaction_id = i.id
+                      ORDER BY created_at DESC
+                      LIMIT 1
+                    ) conv ON true
+                    WHERE i.id = :id
                     """
-                )
+                ),
+                {"id": interaction_id},
             )
         )
-        if row is None:
-            return None
+        if row is None or not row.get("handoff_id"):
+            raise KeyError("handoff_not_found")
+
+        actor = _actor_user_id()
+        claimed = bool(row["accepted_at"] and (row["to_user_id"] or row["handler_user_id"]))
+        is_mine = row["to_user_id"] == actor or row["handler_user_id"] == actor
+        import authz
+
+        is_supervisor = authz.has_permission(actor, authz.SUPERVISOR_READ)
+        if claimed and not is_mine and not is_supervisor:
+            raise PermissionError("handoff_not_assigned")
+        if not claimed and not _handoff_queue_visible(conn, row.get("to_team_id")) and not is_supervisor:
+            raise PermissionError("handoff_not_assigned")
+
+        status = _handoff_status(row["status"], bool(row["accepted_at"] or is_mine))
+        claimed_flag = bool(row["accepted_at"] or is_mine)
+        monitor = bool(is_supervisor and not is_mine)
+
         transcript = _rows(
             conn.execute(
                 text(
@@ -3154,57 +4125,643 @@ def get_handoff_session() -> dict[str, Any] | None:
                     ORDER BY turn_index
                     """
                 ),
-                {"interaction_id": row["id"]},
+                {"interaction_id": interaction_id},
             )
         )
-        suggestions = _rows(
+        sentiment_rows = _rows(
             conn.execute(
                 text(
                     """
-                    SELECT id, 'Suggested response' AS title, suggestion_text AS body, source, 1 AS "showAfter"
+                    SELECT score
+                    FROM interaction_sentiment
+                    WHERE interaction_id = :interaction_id
+                    ORDER BY at_sec, created_at
+                    """
+                ),
+                {"interaction_id": interaction_id},
+            )
+        )
+        suggestion_sql = """
+                    SELECT id, suggestion_text AS body, source, accepted
                     FROM ai_response_suggestions
                     WHERE interaction_id = :interaction_id
                     ORDER BY created_at
                     """
+        suggestion_params: dict[str, Any] = {"interaction_id": interaction_id}
+        if row.get("conversation_id"):
+            suggestion_sql = """
+                    SELECT id, suggestion_text AS body, source, accepted
+                    FROM ai_response_suggestions
+                    WHERE interaction_id = :interaction_id
+                       OR conversation_id = :conversation_id
+                    ORDER BY created_at
+                    """
+            suggestion_params["conversation_id"] = row["conversation_id"]
+        suggestions = _rows(
+            conn.execute(text(suggestion_sql), suggestion_params)
+        )
+        alerts = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, kind, severity, reason
+                    FROM live_alerts
+                    WHERE interaction_id = :interaction_id
+                      AND acknowledged_at IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT 8
+                    """
                 ),
-                {"interaction_id": row["id"]},
+                {"interaction_id": interaction_id},
             )
         )
-        customer = get_customer(row["customer_id"]) or {}
-    return _dump(
-        HandoffResponse(
-            activeCall={
-                "customerName": row["customer_name"],
-                "accountId": row["account_id"],
-                "phone": (customer.get("contact") or {}).get("phonePrimary", ""),
-                "channel": f"{row['channel'].title()} · Postgres",
-                "agentName": row["handler"] or "Unassigned",
-                "transferredFrom": "Bot · Kaia v2.4",
-                "escalationReason": row["disposition"] or "Live handoff",
-                "startedAt": int(datetime.now().timestamp() * 1000),
-            },
-            customerContext={
-                "risk": str(customer.get("risk", "medium")).title(),
-                "outstanding": customer.get("outstanding") or 0,
-                "currency": "₹",
-                "lastPromise": ((customer.get("promises") or [{}])[0] if customer.get("promises") else {"amount": 0, "date": "", "status": "upcoming"}),
-                "nextEmi": ((customer.get("emi") or [{}])[0] if customer.get("emi") else {"amount": 0, "dueDate": "", "daysOverdue": 0}),
-                "openDisputes": len(customer.get("disputes") or []),
-                "dnd": {"allowed": not (customer.get("contact") or {}).get("dnd", False), "window": (customer.get("contact") or {}).get("preferredWindow", ""), "channels": ["Voice", "WhatsApp"]},
-                "tenureMonths": 34,
-                "product": (customer.get("account") or {}).get("product", "Credit Card"),
-            },
-            transcriptScript=transcript,
-            suggestions=suggestions,
-            complianceItems=[
-                {"id": "c1", "label": "Recording disclosure read", "required": True, "autoAt": 3},
-                {"id": "c2", "label": "Identity verified", "required": True, "autoAt": 28},
-                {"id": "c3", "label": "Mini-Miranda / debt-collection notice", "required": True},
-                {"id": "c4", "label": "DND & consent window checked", "required": True, "autoAt": 1},
-            ],
-            dispositions=["PTP captured", "Payment taken", "Dispute - under review", "Info provided", "Callback scheduled", "Escalated to supervisor", "Unresolved - retry"],
+        context = _handoff_customer_context(conn, row)
+        compliance = _handoff_compliance_items(conn, interaction_id)
+        bot_name = row["transferred_from"] or "Bot"
+        speakers = {
+            "customer": row["customer_name"],
+            "agent": "You" if is_mine else (row["handler_name"] or "Agent"),
+            "bot": f"Bot · {bot_name}",
+            "system": "System",
+        }
+        channel = row["channel"] or "voice"
+        channel_label = channel.replace("_", " ").title()
+        reason = row["reason"] or "routing_rule"
+        started_at = _epoch_ms(row["started_at"])
+        outstanding = float(row["account_outstanding"] or 0)
+        context["outstanding"] = outstanding
+        context["risk"] = str(row["risk"] or "medium").title()
+        context["product"] = row["product"] or context.get("product") or ""
+
+    session = HandoffSessionResponse(
+        interactionId=interaction_id,
+        handoffId=row["handoff_id"],
+        customerId=row["customer_id"],
+        conversationId=row.get("conversation_id"),
+        status=status,  # type: ignore[arg-type]
+        claimed=claimed_flag,
+        monitor=monitor,
+        activeCall={
+            "interactionId": interaction_id,
+            "handoffId": row["handoff_id"],
+            "customerId": row["customer_id"],
+            "conversationId": row.get("conversation_id"),
+            "customerName": row["customer_name"],
+            "accountId": row["account_id"] or "",
+            "phone": row["phone_primary"] or "",
+            "channel": channel_label,
+            "agentName": "You" if is_mine else (row["handler_name"] or "Unassigned"),
+            "transferredFrom": f"Bot · {bot_name}" if bot_name else "",
+            "escalationReason": reason.replace("_", " "),
+            "startedAt": started_at,
+            "status": status,
+            "claimed": claimed_flag,
+            "risk": str(row["risk"] or "medium"),
+            "handlerUserId": row["handler_user_id"],
+        },
+        customerContext=context,
+        transcriptScript=transcript,
+        sentimentSeries=_handoff_sentiment_series(sentiment_rows, transcript),
+        suggestions=[
+            {
+                "id": s["id"],
+                "title": "Suggested response",
+                "body": s["body"],
+                "source": s["source"] or "",
+                "showAfter": 0,
+                "accepted": bool(s["accepted"]),
+            }
+            for s in suggestions
+        ],
+        complianceItems=compliance,
+        alerts=[
+            {
+                "id": a["id"],
+                "kind": a["kind"],
+                "severity": a["severity"] or "medium",
+                "reason": a["reason"],
+            }
+            for a in alerts
+        ],
+        dispositions=list(HANDOFF_DISPOSITIONS),
+        speakers=speakers,
+    )
+    return _dump(session)
+
+
+def _handoff_sentiment_series(
+    sentiment_rows: list[dict[str, Any]],
+    transcript: list[dict[str, Any]],
+) -> list[float]:
+    if sentiment_rows:
+        return [float(r["score"] or 0) for r in sentiment_rows]
+    running = 0.0
+    series: list[float] = []
+    for turn in transcript:
+        delta = turn.get("sentimentDelta")
+        if delta is not None:
+            running = max(-1.0, min(1.0, running + float(delta)))
+            series.append(running)
+    return series
+
+
+def _handoff_customer_context(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
+    customer_id = row["customer_id"]
+    account_id = row.get("account_id")
+    last_promise = _one(
+        conn.execute(
+            text(
+                """
+                SELECT amount, promised_at, status
+                FROM promises
+                WHERE customer_id = :cid
+                ORDER BY promised_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": customer_id},
         )
     )
+    next_emi = None
+    if account_id:
+        next_emi = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT amount, due_date, status
+                    FROM emi_installments
+                    WHERE account_id = :aid
+                      AND status IN ('overdue', 'upcoming', 'partial')
+                    ORDER BY
+                      CASE status WHEN 'overdue' THEN 0 WHEN 'partial' THEN 1 ELSE 2 END,
+                      due_date ASC
+                    LIMIT 1
+                    """
+                ),
+                {"aid": account_id},
+            )
+        )
+    open_disputes = _one(
+        conn.execute(
+            text(
+                """
+                SELECT count(*)::int AS n
+                FROM disputes
+                WHERE customer_id = :cid
+                  AND status IN ('new', 'under_review', 'awaiting_customer')
+                """
+            ),
+            {"cid": customer_id},
+        )
+    )
+    consents = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT cc.channel, cc.status
+                FROM consent_records cr
+                JOIN channel_consents cc ON cc.consent_id = cr.id
+                WHERE cr.customer_id = :cid
+                """
+            ),
+            {"cid": customer_id},
+        )
+    )
+    allowed_channels = [
+        (c["channel"] or "").replace("_", " ").title()
+        for c in consents
+        if c["status"] == "opted_in"
+    ]
+    if not allowed_channels:
+        allowed_channels = ["Voice", "WhatsApp"]
+    tenure = 0
+    opened = row.get("opened_on")
+    if isinstance(opened, datetime):
+        opened = opened.date()
+    if isinstance(opened, date):
+        tenure = max(0, (date.today() - opened).days // 30)
+    last = None
+    if last_promise:
+        last = {
+            "amount": float(last_promise["amount"] or 0),
+            "date": _iso_ts(last_promise["promised_at"]) or "",
+            "status": last_promise["status"] or "upcoming",
+        }
+    emi = None
+    if next_emi:
+        due = next_emi["due_date"]
+        due_d = due.date() if isinstance(due, datetime) else due
+        days = 0
+        if isinstance(due_d, date):
+            days = max(0, (date.today() - due_d).days)
+        emi = {
+            "amount": float(next_emi["amount"] or 0),
+            "dueDate": _iso_ts(due) or "",
+            "daysOverdue": days if (next_emi["status"] == "overdue") else 0,
+        }
+    return {
+        "risk": str(row.get("risk") or "medium").title(),
+        "outstanding": 0,
+        "currency": "₹",
+        "lastPromise": last,
+        "nextEmi": emi,
+        "openDisputes": int((open_disputes or {}).get("n") or 0),
+        "dnd": {
+            "allowed": not bool(row.get("dnd")),
+            "window": row.get("preferred_window") or "",
+            "channels": allowed_channels,
+        },
+        "tenureMonths": tenure,
+        "product": row.get("product") or "",
+        "offerPolicy": _handoff_offer_policy(conn, row),
+        "authorityPolicy": _handoff_authority_policy(conn, row),
+        "liveQa": _handoff_live_qa(conn, row),
+    }
+
+
+def _handoff_offer_policy(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.reco import policy
+
+    try:
+        return policy.snapshot(
+            conn,
+            customer_id=row["customer_id"],
+            tenant_id=_tenant(),
+            interaction_id=row.get("id"),
+        )
+    except Exception:
+        logger.exception("offer policy snapshot failed for handoff %s", row.get("id"))
+        return policy.empty()
+
+
+def _handoff_authority_policy(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.authority import policy
+
+    try:
+        return policy.snapshot(
+            conn,
+            customer_id=row["customer_id"],
+            tenant_id=_tenant(),
+            interaction_id=row.get("id"),
+        )
+    except Exception:
+        logger.exception("authority policy snapshot failed for handoff %s", row.get("id"))
+        return policy.empty()
+
+
+def _handoff_live_qa(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.live_qa import policy
+
+    try:
+        snap = policy.snapshot(
+            conn,
+            tenant_id=_tenant(),
+            interaction_id=row.get("id"),
+        )
+        capable = policy.audio_capable_map(conn, [row.get("id") or ""])
+        snap["audioCapable"] = bool(capable.get(row.get("id")))
+        return snap
+    except Exception:
+        logger.exception("live_qa snapshot failed for handoff %s", row.get("id"))
+        return policy.empty()
+
+
+def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, Any]]:
+    disclosures = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, rule_id, label, read
+                FROM interaction_disclosures
+                WHERE interaction_id = :iid
+                ORDER BY created_at
+                """
+            ),
+            {"iid": interaction_id},
+        )
+    )
+    by_rule: dict[str, dict[str, Any]] = {}
+    by_label: dict[str, dict[str, Any]] = {}
+    for d in disclosures:
+        if d.get("rule_id"):
+            by_rule[d["rule_id"]] = d
+        by_label[(d.get("label") or "").lower()] = d
+    identity = _one(
+        conn.execute(
+            text(
+                """
+                SELECT id, status, method
+                FROM identity_verifications
+                WHERE interaction_id = :iid
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ),
+            {"iid": interaction_id},
+        )
+    )
+    items: list[dict[str, Any]] = []
+    for rule_id, label in _HANDOFF_DISCLOSURE_RULES:
+        row = by_rule.get(rule_id) or by_label.get(label.lower())
+        checked = bool(row and row.get("read"))
+        locked = False
+        item_id = row["id"] if row else rule_id
+        if rule_id == "rule-identity":
+            verified = bool(identity and identity.get("status") == "verified")
+            checked = checked or verified
+            locked = verified
+            item_id = "identity" if not row else row["id"]
+        items.append(
+            {
+                "id": item_id,
+                "label": label,
+                "required": rule_id != "rule-payment",
+                "checked": checked,
+                "locked": locked,
+                "ruleId": rule_id,
+            }
+        )
+    dnd_row = by_label.get("dnd & consent window checked")
+    items.append(
+        {
+            "id": dnd_row["id"] if dnd_row else "dnd-consent",
+            "label": "DND & consent window checked",
+            "required": True,
+            "checked": bool(dnd_row and dnd_row.get("read")),
+            "locked": False,
+            "ruleId": None,
+        }
+    )
+    return items
+
+
+def claim_handoff(interaction_id: str) -> dict[str, Any]:
+    actor = _actor_user_id()
+    with engine.begin() as conn:
+        _assert_tenant_owns(conn, "interactions", interaction_id)
+        ho = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT h.id, h.to_user_id, h.accepted_at, h.completed_at, h.to_team_id,
+                           i.status, i.handler_user_id
+                    FROM interaction_handoffs h
+                    JOIN interactions i ON i.id = h.interaction_id
+                    WHERE h.interaction_id = :iid
+                    ORDER BY h.requested_at DESC NULLS LAST, h.created_at DESC
+                    LIMIT 1
+                    FOR UPDATE OF h
+                    """
+                ),
+                {"iid": interaction_id},
+            )
+        )
+        if ho is None:
+            raise KeyError("handoff_not_found")
+        if ho["completed_at"] is not None or ho["status"] == "completed":
+            raise ValueError("handoff_already_completed")
+        if ho["to_user_id"] and ho["to_user_id"] != actor:
+            raise ValueError("handoff_already_claimed")
+        if ho["accepted_at"] and ho["to_user_id"] == actor:
+            pass  # idempotent re-claim
+        else:
+            if not _handoff_queue_visible(conn, ho.get("to_team_id")):
+                raise PermissionError("handoff_not_assigned")
+            updated = conn.execute(
+                text(
+                    """
+                    UPDATE interaction_handoffs
+                    SET to_user_id = :uid, accepted_at = COALESCE(accepted_at, now())
+                    WHERE id = :id
+                      AND (to_user_id IS NULL OR to_user_id = :uid)
+                      AND completed_at IS NULL
+                    RETURNING id
+                    """
+                ),
+                {"id": ho["id"], "uid": actor},
+            ).fetchone()
+            if updated is None:
+                raise ValueError("handoff_already_claimed")
+        conn.execute(
+            text(
+                """
+                UPDATE interactions
+                SET handler_kind = 'human',
+                    handler_user_id = :uid,
+                    handler_bot_id = NULL,
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": interaction_id, "uid": actor},
+        )
+        existing = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id FROM interaction_participants
+                    WHERE interaction_id = :iid
+                      AND participant_kind = 'human'
+                      AND user_id = :uid
+                      AND left_at IS NULL
+                    LIMIT 1
+                    """
+                ),
+                {"iid": interaction_id, "uid": actor},
+            )
+        )
+        if existing is None:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO interaction_participants (
+                      id, interaction_id, participant_kind, user_id, role, joined_at
+                    ) VALUES (
+                      :id, :iid, 'human', :uid, 'primary', now()
+                    )
+                    """
+                ),
+                {"id": _id("IP"), "iid": interaction_id, "uid": actor},
+            )
+        _activity(
+            conn,
+            "interaction",
+            interaction_id,
+            "handoff_claimed",
+            "Handoff claimed",
+            None,
+        )
+    return get_handoff_session(interaction_id)
+
+
+def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    actor = _actor_user_id()
+    item_id = (payload.get("itemId") or "").strip()
+    rule_id = (payload.get("ruleId") or "").strip() or None
+    label = (payload.get("label") or "").strip()
+    read = bool(payload.get("read", True))
+    with engine.begin() as conn:
+        _assert_tenant_owns(conn, "interactions", interaction_id)
+        _assert_handoff_assignee(conn, interaction_id, actor)
+        if item_id == "identity" or rule_id == "rule-identity":
+            ident = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id, status FROM identity_verifications
+                        WHERE interaction_id = :iid
+                        ORDER BY created_at DESC LIMIT 1
+                        """
+                    ),
+                    {"iid": interaction_id},
+                )
+            )
+            if ident and ident["status"] == "verified":
+                raise ValueError("identity_locked")
+            if read:
+                cust = _one(
+                    conn.execute(
+                        text("SELECT customer_id FROM interactions WHERE id = :id"),
+                        {"id": interaction_id},
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO identity_verifications (
+                          id, interaction_id, customer_id, method, status,
+                          attempt_count, verified_at
+                        ) VALUES (
+                          :id, :iid, :cid, 'manual', 'verified', 1, now()
+                        )
+                        """
+                    ),
+                    {
+                        "id": _id("IV"),
+                        "iid": interaction_id,
+                        "cid": cust["customer_id"],
+                    },
+                )
+            rule_id = rule_id or "rule-identity"
+            label = label or "Identity verified"
+        if not label:
+            for rid, lbl in _HANDOFF_DISCLOSURE_RULES:
+                if rid == rule_id or rid == item_id:
+                    label = lbl
+                    rule_id = rid
+                    break
+            if item_id == "dnd-consent":
+                label = "DND & consent window checked"
+        if not label:
+            raise ValueError("disclosure_label_required")
+        existing = None
+        if item_id and not item_id.startswith("rule-") and item_id not in {"identity", "dnd-consent"}:
+            existing = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id FROM interaction_disclosures
+                        WHERE id = :id AND interaction_id = :iid
+                        """
+                    ),
+                    {"id": item_id, "iid": interaction_id},
+                )
+            )
+        if existing:
+            conn.execute(
+                text(
+                    """
+                    UPDATE interaction_disclosures
+                    SET read = :read, read_at_sec = COALESCE(read_at_sec, 0),
+                        read_by_kind = 'human', read_by_user_id = :uid, read_by_bot_id = NULL
+                    WHERE id = :id
+                    """
+                ),
+                {"id": existing["id"], "read": read, "uid": actor},
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO interaction_disclosures (
+                      id, interaction_id, rule_id, label, read, read_at_sec,
+                      read_by_kind, read_by_user_id
+                    ) VALUES (
+                      :id, :iid, :rule_id, :label, :read, 0, 'human', :uid
+                    )
+                    """
+                ),
+                {
+                    "id": _id("DISC"),
+                    "iid": interaction_id,
+                    "rule_id": rule_id,
+                    "label": label,
+                    "read": read,
+                    "uid": actor,
+                },
+            )
+    return get_handoff_session(interaction_id)
+
+
+def accept_handoff_suggestion(interaction_id: str, suggestion_id: str) -> dict[str, Any]:
+    actor = _actor_user_id()
+    with engine.begin() as conn:
+        _assert_tenant_owns(conn, "interactions", interaction_id)
+        _assert_handoff_assignee(conn, interaction_id, actor)
+        row = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id FROM ai_response_suggestions
+                    WHERE id = :sid
+                      AND (interaction_id = :iid OR conversation_id IN (
+                            SELECT id FROM conversations WHERE interaction_id = :iid
+                          ))
+                    """
+                ),
+                {"sid": suggestion_id, "iid": interaction_id},
+            )
+        )
+        if row is None:
+            raise KeyError("suggestion_not_found")
+        conn.execute(
+            text(
+                """
+                UPDATE ai_response_suggestions
+                SET accepted = true,
+                    accepted_by_user_id = :uid,
+                    accepted_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": suggestion_id, "uid": actor},
+        )
+    return get_handoff_session(interaction_id)
+
+
+def _assert_handoff_assignee(conn: Any, interaction_id: str, actor: str) -> None:
+    row = _one(
+        conn.execute(
+            text(
+                """
+                SELECT i.handler_user_id, h.to_user_id
+                FROM interactions i
+                LEFT JOIN LATERAL (
+                  SELECT to_user_id FROM interaction_handoffs
+                  WHERE interaction_id = i.id
+                  ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                  LIMIT 1
+                ) h ON true
+                WHERE i.id = :id
+                """
+            ),
+            {"id": interaction_id},
+        )
+    )
+    if row is None:
+        raise KeyError("interaction_not_found")
+    if row["handler_user_id"] != actor and row["to_user_id"] != actor:
+        raise PermissionError("handoff_not_assigned")
 
 
 def _promise_by_id(conn: Any, promise_id: str) -> dict[str, Any]:
@@ -3242,13 +4799,16 @@ def _document_by_id(conn: Any, document_id: str) -> dict[str, Any]:
 # unmapped event is a labelling gap, not a reason to hide history.
 _LEAD_EVENT_KINDS: dict[str, str] = {
     "lead_created": "created",
-    "lead_captured": "created",
     "lead_updated": "stage_moved",
     "lead_stage_moved": "stage_moved",
     "lead_assigned": "assigned",
     "lead_team_changed": "team_changed",
     "lead_offer_edited": "offer_edited",
     "lead_followup_created": "followup_scheduled",
+    # Rendered as a scheduling event rather than a new timeline vocabulary
+    # word: the note carries "Follow-up overdue" and the channel and time, so
+    # the reader loses nothing, and the UI's LeadEventKind union stays closed.
+    "lead_followup_overdue": "followup_scheduled",
     "followup_updated": "followup_done",
     "lead_won": "won",
     "lead_lost": "lost",
@@ -3274,6 +4834,9 @@ def _lead_events(conn: Any, lead_id: str) -> list[dict[str, Any]]:
                 LEFT JOIN users u ON u.id = ae.actor_user_id
                 LEFT JOIN bots b ON b.id = ae.actor_bot_id
                 WHERE ae.entity_type = 'lead' AND ae.entity_id = :id
+                  -- See _lead_events_bulk: lead_captured duplicates the fact
+                  -- lead_created already records on this timeline.
+                  AND ae.kind <> 'lead_captured'
                 ORDER BY ae.at DESC, ae.id DESC
                 LIMIT 100
                 """
@@ -3289,7 +4852,7 @@ def _lead_followups(conn: Any, lead_id: str) -> list[dict[str, Any]]:
         conn.execute(
             text(
                 """
-                SELECT id, due_at AS at, 'voice' AS channel, note, status = 'done' AS done
+                SELECT id, due_at AS at, COALESCE(channel, 'voice') AS channel, note, status = 'done' AS done
                 FROM followups
                 WHERE lead_id = :lead_id
                 ORDER BY due_at
@@ -3312,7 +4875,7 @@ def _lead_followups_bulk(conn: Any, lead_ids: list[str]) -> dict[str, list[dict[
         conn.execute(
             text(
                 """
-                SELECT lead_id, id, due_at AS at, 'voice' AS channel, note,
+                SELECT lead_id, id, due_at AS at, COALESCE(channel, 'voice') AS channel, note,
                        status = 'done' AS done
                 FROM followups
                 WHERE lead_id = ANY(:ids)
@@ -3342,6 +4905,11 @@ def _lead_events_bulk(conn: Any, lead_ids: list[str]) -> dict[str, list[dict[str
                 LEFT JOIN users u ON u.id = ae.actor_user_id
                 LEFT JOIN bots b ON b.id = ae.actor_bot_id
                 WHERE ae.entity_type = 'lead' AND ae.entity_id = ANY(:ids)
+                  -- lead_captured is the offer funnel's numerator, written for
+                  -- the same act that writes lead_created. Both belong in the
+                  -- table; showing both in the drawer would put "Lead created"
+                  -- on the timeline twice.
+                  AND ae.kind <> 'lead_captured'
                 ORDER BY ae.entity_id, ae.at DESC, ae.id DESC
                 """
             ),
@@ -3466,6 +5034,17 @@ def _create_promise(
     """
     cached = _idempotent_response(conn, idempotency_key, endpoint)
     if cached:
+        try:
+            import promise_fulfillment
+
+            pid = cached.get("id")
+            if pid:
+                fulfillment = promise_fulfillment.fulfill(conn, pid)
+                cached = dict(cached)
+                cached["_fulfillment"] = fulfillment.as_dict()
+                cached["_spoken"] = fulfillment.spoken_summary
+        except Exception:
+            logger.exception("ptp fulfill on idempotent replay failed promise=%s", cached.get("id"))
         return cached
     customer_id = payload["customerId"]
     _ensure_customer(conn, customer_id)
@@ -3513,19 +5092,39 @@ def _create_promise(
         },
     )
     _activity(conn, "promise", promise_id, "promise_created", "Promise-to-pay captured", f"Amount {payload['amount']}", customer_id)
+    try:
+        import promise_fulfillment
+
+        fulfillment = promise_fulfillment.fulfill(conn, promise_id)
+    except Exception:
+        logger.exception("ptp fulfill failed promise=%s", promise_id)
+        fulfillment = None
     response = _promise_by_id(conn, promise_id)
+    if fulfillment is not None:
+        response["_fulfillment"] = fulfillment.as_dict()
+        response["_spoken"] = fulfillment.spoken_summary
     _store_idempotent_response(conn, idempotency_key, endpoint, response)
     return response
 
 
 def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
-        row = _one(conn.execute(text("SELECT status, customer_id FROM promises WHERE id = :id"), {"id": promise_id}))
+        _assert_tenant_owns(conn, "promises", promise_id)
+        row = _one(
+            conn.execute(
+                text("SELECT status, customer_id, amount, paid_amount FROM promises WHERE id = :id"),
+                {"id": promise_id},
+            )
+        )
         if row is None:
             raise KeyError("promise_not_found")
         next_status = payload.get("status")
         if row["status"] == "kept" and next_status in {"broken", "partial"}:
             raise ValueError("kept promise cannot move to broken/partial")
+        if next_status == "kept":
+            current_paid = float(row["paid_amount"] or 0)
+            if current_paid < float(row["amount"] or 0):
+                raise ValueError("kept_requires_payment")
         updates = []
         params = {"id": promise_id}
         if next_status:
@@ -3552,6 +5151,19 @@ def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             )
         _activity(conn, "promise", promise_id, "promise_updated", "Promise updated", next_status, row["customer_id"])
         return _promise_by_id(conn, promise_id)
+
+
+def resend_promise_confirm(promise_id: str) -> dict[str, Any]:
+    """Re-enqueue the written PTP confirm on the existing open intent."""
+    import promise_fulfillment
+
+    with engine.begin() as conn:
+        _assert_tenant_owns(conn, "promises", promise_id)
+        result = promise_fulfillment.fulfill(conn, promise_id, resend=True)
+        row = _promise_by_id(conn, promise_id)
+        row["_fulfillment"] = result.as_dict()
+        row["_spoken"] = result.spoken_summary
+        return row
 
 
 def create_payment_plan(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3647,6 +5259,7 @@ def patch_dispute(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write,
     so an explicit None clears the column (used to unassign)."""
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "disputes", dispute_id)
         row = _one(conn.execute(text("SELECT customer_id, assignee_user_id FROM disputes WHERE id = :id"), {"id": dispute_id}))
         if row is None:
             raise KeyError("dispute_not_found")
@@ -3670,6 +5283,14 @@ def patch_dispute(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             conn.execute(text(f"UPDATE disputes SET {', '.join(updates)} WHERE id = :id"), params)
 
         status = payload.get("status")
+        resolution = payload.get("resolutionCode")
+        if status == "resolved" and resolution == "valid_waive_fee":
+            try:
+                from agent_core.authority import enact as authority_enact
+
+                authority_enact.post_waiver_for_dispute(conn, dispute_id=dispute_id)
+            except Exception:
+                logger.exception("goodwill ledger post failed for dispute %s", dispute_id)
         if "assigneeUserId" in payload and payload["assigneeUserId"] is None:
             label, note = "Dispute unassigned", None
         elif payload.get("assigneeUserId"):
@@ -3687,6 +5308,7 @@ def add_dispute_note(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]
     """Free-text note on a dispute. activity_events IS the timeline store, so the
     note is a first-class timeline entry rather than a separate table."""
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "disputes", dispute_id)
         row = _one(conn.execute(text("SELECT customer_id FROM disputes WHERE id = :id"), {"id": dispute_id}))
         if row is None:
             raise KeyError("dispute_not_found")
@@ -3717,7 +5339,7 @@ def add_dispute_evidence(dispute_id: str, payload: dict[str, Any]) -> dict[str, 
                 "dispute_id": dispute_id,
                 # Storage layout is the server's concern — clients don't dictate paths.
                 "storage_ref": payload.get("storageRef")
-                or f"minio://dispute-evidence/{TENANT_ID}/{dispute_id}/{payload['filename']}",
+                or f"minio://dispute-evidence/{_tenant()}/{dispute_id}/{payload['filename']}",
                 "filename": payload["filename"],
                 "mime_type": payload["mimeType"],
                 "size_bytes": payload.get("sizeBytes"),
@@ -3809,6 +5431,7 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write,
     so an explicit None clears assignee_user_id (unassign)."""
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "callbacks", callback_id)
         row = _one(
             conn.execute(
                 text(
@@ -3882,6 +5505,7 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "callbacks", callback_id)
         row = _one(
             conn.execute(
                 text("SELECT customer_id, status FROM callbacks WHERE id = :id"),
@@ -3999,7 +5623,16 @@ def create_lead(
     idempotency_key: str | None = None,
     *,
     allow_duplicate: bool = False,
+    emitted: list[str] | None = None,
 ) -> dict[str, Any]:
+    """Capture a lead. ``emitted`` is an out-parameter: the names of the
+    analytics events that actually landed.
+
+    The bot tool reports those names back to the model, and it must not claim
+    an event whose row was never written — so the fact has to travel out of
+    here rather than being assumed by the caller. It is not part of the API
+    response because it is not part of the lead.
+    """
     endpoint = "POST /leads"
     with engine.begin() as conn:
         # Same contract as create_promise / create_dispute / create_callback.
@@ -4109,7 +5742,54 @@ def create_lead(
                     capture.touch_primary_intent(conn, payload.get("interactionId"), "upsell_opportunity")
         except Exception:
             logger.exception("lead eligibility capture failed for %s", lead_id)
+        # The offer funnel's numerator. This lives here, in the one function
+        # every capture path goes through, rather than in the bot tool that
+        # used to own it: a lead captured from the UI — including the "Capture
+        # lead" button on a decision the engine itself recommended — emitted
+        # only `lead_created`, which nothing counts. The funnel's denominator
+        # (close_probe_presented) came from the call and its numerator came
+        # from one caller of three, so close-probe conversion was structurally
+        # understated and no arithmetic on it meant anything.
+        #
+        # Its own savepoint: an eligibility failure above must not swallow the
+        # funnel event, and a funnel-event failure must not lose the lead.
+        try:
+            import capture
+
+            with conn.begin_nested():
+                bot_id = payload.get("actorBotId")
+                capture.record_lead_captured(
+                    conn,
+                    interaction_id=payload.get("interactionId"),
+                    lead_id=lead_id,
+                    product_id=product_id,
+                    actor_bot_id=bot_id,
+                    actor_user_id=None if bot_id else _actor_user_id(),
+                )
+            if emitted is not None:
+                emitted.append("lead_captured")
+        except Exception:
+            logger.exception("lead_captured event failed for %s", lead_id)
         _activity(conn, "lead", lead_id, "lead_created", "Lead created", None, customer_id)
+        decision_id = payload.get("decisionId")
+        if decision_id:
+            try:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE offer_decisions
+                        SET lead_id = :lead_id,
+                            response = COALESCE(response, 'interested'),
+                            responded_at = COALESCE(responded_at, now()),
+                            presented = true,
+                            presented_at = COALESCE(presented_at, now())
+                        WHERE id = :id AND tenant_id = :tenant
+                        """
+                    ),
+                    {"id": decision_id, "lead_id": lead_id, "tenant": _tenant()},
+                )
+            except Exception:
+                logger.exception("attach_lead failed for decision %s", decision_id)
         response = _lead_by_id(conn, lead_id)
         _store_idempotent_response(conn, idempotency_key, endpoint, response)
         return response
@@ -4132,6 +5812,7 @@ _CLOSED_LEAD_STAGES = frozenset({"won", "lost"})
 
 def patch_lead(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "leads", lead_id)
         row = _one(
             conn.execute(
                 text(
@@ -4319,20 +6000,142 @@ def revalidate_open_leads(limit: int = 500) -> dict[str, Any]:
     return {"checked": checked, "blocked": blocked, "blockedCount": len(blocked)}
 
 
+def sweep_due_followups(limit: int = 500) -> dict[str, Any]:
+    """Escalate lead follow-ups whose moment has passed.
+
+    Nothing acted on a due follow-up. An agent scheduled a callback for Tuesday
+    at 11:00, Tuesday came and went, and the row sat at ``normal`` priority
+    among every other open item — the entire pipeline was a passive record that
+    depended on a human noticing. This is the smallest honest fix: the system
+    now notices.
+
+    It deliberately does **not** contact anyone. Sending on a customer's behalf
+    is a contact-policy decision with consent, calling hours and frequency caps
+    attached to it, and a background sweep is the wrong place to make one
+    silently. What it does is raise the work where a human will see it.
+
+    Idempotent by construction: the only rows it touches are those not already
+    at ``high``, so a second pass over the same follow-up is a no-op and no
+    "already escalated" bookkeeping column is needed.
+    """
+    escalated: list[dict[str, Any]] = []
+    with engine.begin() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT f.id, f.lead_id, f.customer_id, f.due_at, f.channel
+                    FROM followups f
+                    JOIN leads l ON l.id = f.lead_id
+                    WHERE f.status IN ('open', 'in_progress')
+                      AND f.priority <> 'high'
+                      AND f.due_at <= now()
+                      AND l.stage = ANY(:stages)
+                    ORDER BY f.due_at
+                    LIMIT :lim
+                    FOR UPDATE OF f SKIP LOCKED
+                    """
+                ),
+                {"stages": list(OPEN_LEAD_STAGES), "lim": max(1, int(limit))},
+            )
+        )
+        for row in rows:
+            conn.execute(
+                text("UPDATE followups SET priority = 'high', updated_at = now() WHERE id = :id"),
+                {"id": row["id"]},
+            )
+            # The lead carries the priority the board sorts and colours by, so
+            # escalating only the follow-up would raise the work in the queue
+            # and leave it looking routine on the pipeline.
+            conn.execute(
+                text(
+                    "UPDATE leads SET priority = 'high', updated_at = now()"
+                    " WHERE id = :id AND priority IN ('low', 'normal')"
+                ),
+                {"id": row["lead_id"]},
+            )
+            _activity(
+                conn,
+                "lead",
+                row["lead_id"],
+                "lead_followup_overdue",
+                "Follow-up overdue",
+                # _rows already serialises timestamps to ISO strings — do not
+                # reach for strftime here.
+                f"{row['channel']} follow-up was due {row['due_at']}",
+                row["customer_id"],
+            )
+            escalated.append({"followupId": row["id"], "leadId": row["lead_id"]})
+    return {"escalated": len(escalated), "leads": [e["leadId"] for e in escalated]}
+
+
+def _lead_followup_channel(channel: str | None) -> str:
+    if channel in {"voice", "whatsapp", "email", "sms"}:
+        return channel
+    return "voice"
+
+
+def _parse_followup_due(scheduled_at: Any) -> datetime:
+    """Resolve the requested slot to an aware UTC instant.
+
+    Parsed rather than passed through as a string because the contact-policy
+    check needs an actual moment to convert into the customer's local time —
+    "is 03:00 inside the calling window" is not a question you can ask of text.
+    A missing or unparseable value means now, which is what the previous
+    ``or datetime.now()`` fallback meant too.
+    """
+    if isinstance(scheduled_at, datetime):
+        parsed = scheduled_at
+    else:
+        raw = str(scheduled_at or "").strip()
+        if not raw:
+            return datetime.now(timezone.utc)
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.now(timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def add_lead_followup(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "leads", lead_id)
         row = _one(conn.execute(text("SELECT customer_id, owner_user_id FROM leads WHERE id = :id"), {"id": lead_id}))
         if row is None:
             raise KeyError("lead_not_found")
         followup_id = _id("FU")
+        channel = _lead_followup_channel(payload.get("channel"))
+        due_at = _parse_followup_due(payload.get("scheduledAt"))
+
+        # The sales side used to book touches the collections side would never
+        # have been allowed to make. Nothing here consulted consent, DND or the
+        # RBI 08:00–19:00 calling window, so a voice follow-up could be diaried
+        # for 03:00 on an opted-out customer and the first person to find out
+        # was the rep who dialled it.
+        import contact_policy
+
+        blocked = contact_policy.blocks_scheduling(
+            conn, customer_id=row["customer_id"], channel=channel, at=due_at
+        )
+        if blocked:
+            raise ValueError(f"contact_policy:{blocked}")
+
         conn.execute(
             text(
                 """
-                INSERT INTO followups (id, lead_id, customer_id, assignee_user_id, status, priority, due_at, note)
-                VALUES (:id, :lead_id, :customer_id, :assignee_user_id, 'open', 'normal', :due_at, :note)
+                INSERT INTO followups (id, lead_id, customer_id, assignee_user_id, status, priority, due_at, note, channel)
+                VALUES (:id, :lead_id, :customer_id, :assignee_user_id, 'open', 'normal', :due_at, :note, :channel)
                 """
             ),
-            {"id": followup_id, "lead_id": lead_id, "customer_id": row["customer_id"], "assignee_user_id": row["owner_user_id"] or _actor_user_id(), "due_at": payload.get("scheduledAt") or datetime.now(timezone.utc).isoformat(), "note": payload.get("note") or "Lead follow-up"},
+            {
+                "id": followup_id,
+                "lead_id": lead_id,
+                "customer_id": row["customer_id"],
+                "assignee_user_id": row["owner_user_id"] or _actor_user_id(),
+                "due_at": due_at,
+                "note": payload.get("note") or "Lead follow-up",
+                "channel": channel,
+            },
         )
         _activity(conn, "lead", lead_id, "lead_followup_created", "Lead follow-up scheduled", None, row["customer_id"])
         return {"id": followup_id, "status": "open"}
@@ -4388,8 +6191,24 @@ def create_document_request(
             _ensure_document_template(conn, template_id, doc_type)
 
         requested_via = payload.get("requestedVia") or "agent"
-        if requested_via not in {"bot_voice", "bot_chat", "agent"}:
+        if requested_via not in {
+            "bot_voice",
+            "bot_chat",
+            "agent",
+            "mcp",
+            "clerk",
+            "vision",
+            "inbox",
+        }:
             requested_via = "agent"
+        source = payload.get("source") or {
+            "vision": "vision",
+            "inbox": "vision",
+            "mcp": "mcp",
+            "clerk": "clerk",
+        }.get(requested_via, "crm")
+        if source not in {"crm", "vision", "clerk", "mcp"}:
+            source = "crm"
 
         conn.execute(
             text(
@@ -4397,11 +6216,13 @@ def create_document_request(
                 INSERT INTO document_requests
                   (id, customer_id, account_id, interaction_id, assignee_user_id,
                    doc_type, period, requested_via, template_id,
-                   delivery_channel, delivery_target, status, attempts, priority, sla_due_at)
+                   delivery_channel, delivery_target, status, attempts, priority, sla_due_at,
+                   source)
                 VALUES
                   (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id,
                    :doc_type, :period, :requested_via, :template_id,
-                   :delivery_channel, :delivery_target, 'requested', 0, 'normal', now() + interval '1 day')
+                   :delivery_channel, :delivery_target, 'requested', 0, 'normal', now() + interval '1 day',
+                   :source)
                 """
             ),
             {
@@ -4416,6 +6237,7 @@ def create_document_request(
                 "template_id": template_id,
                 "delivery_channel": channel,
                 "delivery_target": delivery_target,
+                "source": source,
             },
         )
         # Optional file metadata — server owns storage_ref; never trust a client path.
@@ -4436,6 +6258,7 @@ def create_document_request(
 def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write."""
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "document_requests", document_id)
         row = _one(
             conn.execute(
                 text(
@@ -4559,6 +6382,7 @@ def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[st
 
 def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "document_requests", document_id)
         row = _one(
             conn.execute(
                 text(
@@ -4572,7 +6396,20 @@ def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> 
         )
         if row is None:
             raise KeyError("document_not_found")
+        import contact_policy
+
         attempt_id = _id("DLV")
+        channel = contact_policy.normalize_channel(row["delivery_channel"] or "whatsapp")
+        contact_policy.require_admit(
+            conn,
+            customer_id=row["customer_id"],
+            channel=channel,
+            purpose="outreach",
+            session_key=document_id,
+            source="doc_delivery",
+            related_id=attempt_id,
+            actor_kind="human",
+        )
         next_attempt = int(row["attempts"] or 0) + 1
         status = payload.get("status") or "queued"
         conn.execute(
@@ -4620,11 +6457,11 @@ def _ensure_document_template(conn: Any, template_id: str, doc_type: str) -> Non
     conn.execute(
         text(
             """
-            INSERT INTO document_templates (id, name, doc_type, preview_lines)
-            VALUES (:id, :name, :doc_type, '[]'::jsonb)
+            INSERT INTO document_templates (id, tenant_id, name, doc_type, preview_lines)
+            VALUES (:id, :tenant_id, :name, :doc_type, '[]'::jsonb)
             """
         ),
-        {"id": template_id, "name": template_id, "doc_type": doc_type},
+        {"id": template_id, "tenant_id": _tenant(), "name": template_id, "doc_type": doc_type},
     )
 
 
@@ -4643,9 +6480,14 @@ def _ensure_document_file(
             {"id": document_id},
         )
     )
-    storage_ref = f"minio://documents/{TENANT_ID}/{document_id}.pdf"
-    fname = filename or f"{document_id}.pdf"
     mime = mime_type or "application/pdf"
+    if mime.startswith("image/"):
+        ext = ".jpg" if "jpeg" in mime or mime.endswith("/jpg") else ".png" if "png" in mime else ".webp"
+        storage_ref = f"minio://documents/{_tenant()}/{document_id}{ext}"
+        fname = filename or f"{document_id}{ext}"
+    else:
+        storage_ref = f"minio://documents/{_tenant()}/{document_id}.pdf"
+        fname = filename or f"{document_id}.pdf"
     size_bytes = int(size_kb * 1024) if size_kb is not None else None
     if existing:
         if size_bytes is not None:
@@ -4731,6 +6573,7 @@ def _channel_status_from_patch(item: dict[str, Any]) -> str:
 def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write."""
     with engine.begin() as conn:
+        _assert_tenant_owns_customer(conn, customer_id)
         _ensure_customer(conn, customer_id)
         consent_id = _ensure_consent_record(conn, customer_id)
 
@@ -4781,7 +6624,6 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             status = _channel_status_from_patch(item)
             source = item.get("source") or "Agent"
             cap = item.get("frequencyCapPerWeek")
-            used = item.get("usedThisWeek")
             params: dict[str, Any] = {
                 "id": f"{consent_id}-{channel_value}",
                 "consent_id": consent_id,
@@ -4789,7 +6631,6 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "status": status,
                 "source": source,
                 "cap": cap,
-                "used": used,
             }
             conn.execute(
                 text(
@@ -4798,13 +6639,12 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                       (id, consent_id, channel, status, source, weekly_frequency_cap, used_this_week, captured_at)
                     VALUES
                       (:id, :consent_id, :channel, :status, :source,
-                       COALESCE(:cap, 3), COALESCE(:used, 0), now())
+                       COALESCE(:cap, 3), 0, now())
                     ON CONFLICT (consent_id, channel)
                     DO UPDATE SET
                       status = EXCLUDED.status,
                       source = EXCLUDED.source,
                       weekly_frequency_cap = COALESCE(:cap, channel_consents.weekly_frequency_cap),
-                      used_this_week = COALESCE(:used, channel_consents.used_this_week),
                       captured_at = now()
                     """
                 ),
@@ -5458,7 +7298,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                     LIMIT :gap_lim
                     """
                 ),
-                {"tenant_id": TENANT_ID, "gap_lim": _BOT_ANALYTICS_GAP_LIMIT},
+                {"tenant_id": _tenant(), "gap_lim": _BOT_ANALYTICS_GAP_LIMIT},
             )
         )
 
@@ -5474,6 +7314,56 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                       ) AS turns
                     FROM interactions i
                     WHERE {where_sql}
+                    """
+                ),
+                params,
+            )
+        )
+
+        by_card_rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT
+                      coalesce(nullif(trim(i.handler_bot_id), ''), 'unknown') AS bot_id,
+                      count(*)::int AS sessions,
+                      count(*) FILTER (
+                        WHERE i.handler_kind = 'bot' AND i.query_resolved
+                      )::int AS contained,
+                      count(*) FILTER (
+                        WHERE EXISTS (
+                          SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = i.id
+                        )
+                      )::int AS escalated,
+                      coalesce(
+                        percentile_cont(0.99) WITHIN GROUP (ORDER BY i.latency_ms),
+                        0
+                      )::float AS latency_p99
+                    FROM interactions i
+                    WHERE {where_sql}
+                    GROUP BY 1
+                    ORDER BY sessions DESC, bot_id
+                    """
+                ),
+                params,
+            )
+        )
+
+        skill_rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT
+                      coalesce(nullif(trim(c.skill_id), ''), 'none') AS skill_id,
+                      count(*)::int AS activations
+                    FROM bot_tool_calls c
+                    JOIN interactions i ON i.id = c.interaction_id
+                    WHERE {where_sql}
+                      AND c.skill_id IS NOT NULL
+                      AND trim(c.skill_id) <> ''
+                    GROUP BY 1
+                    ORDER BY activations DESC, skill_id
+                    LIMIT 24
                     """
                 ),
                 params,
@@ -5609,6 +7499,32 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
         {"id": "confirmed", "label": "Confirmed resolution", "count": int(funnel.get("confirmed") or 0)},
     ]
 
+    by_card = [
+        {
+            "botId": r["bot_id"],
+            "sessions": int(r["sessions"] or 0),
+            "contained": int(r["contained"] or 0),
+            "escalated": int(r["escalated"] or 0),
+            "containment": round(
+                (int(r["contained"] or 0) / int(r["sessions"] or 1)) * 100.0, 1
+            )
+            if int(r["sessions"] or 0)
+            else 0.0,
+            "handoffRate": round(
+                (int(r["escalated"] or 0) / int(r["sessions"] or 1)) * 100.0, 1
+            )
+            if int(r["sessions"] or 0)
+            else 0.0,
+            "latencyP99": round(float(r["latency_p99"] or 0), 1),
+            "sloMs": 800,
+        }
+        for r in by_card_rows
+    ]
+    skill_histogram = [
+        {"skillId": r["skill_id"], "activations": int(r["activations"] or 0)}
+        for r in skill_rows
+    ]
+
     return {
         "dailySeries": daily_series,
         "intentAggs": intent_aggs,
@@ -5616,6 +7532,8 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
         "unansweredQuestions": unanswered,
         "turnsHistogram": turns_histogram,
         "funnelStages": funnel_stages,
+        "byCard": by_card,
+        "skillHistogram": skill_histogram,
     }
 
 
@@ -5625,6 +7543,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
 # ---------------------------------------------------------------------------
 
 _QA_DEFAULT_RUBRIC_ID = "rubric-v1"
+_QA_CLERK_RUBRIC_ID = "rubric-clerk-sms"
 _QA_STATUSES = frozenset({"unscored", "ai_draft", "final"})
 
 
@@ -5753,6 +7672,32 @@ def load_rubric_tree(rubric_id: str | None = None) -> dict[str, Any] | None:
     """
     with engine.connect() as conn:
         return _load_rubric_tree(conn, rubric_id or _QA_DEFAULT_RUBRIC_ID)
+
+
+def rubric_id_for_interaction(interaction_id: str) -> str | None:
+    """Voice collections rubric, or the clerk SMS rubric. Never mix them.
+
+    A clerk WhatsApp/SMS must not be scored against recording-disclosure or
+    barge criteria. If the clerk rubric is missing, return None so autoscore
+    skips rather than using the voice tree.
+    """
+    with engine.connect() as conn:
+        row = _one(
+            conn.execute(
+                text("SELECT channel, handler_kind FROM interactions WHERE id = :id"),
+                {"id": interaction_id},
+            )
+        )
+        if row is None:
+            return _QA_DEFAULT_RUBRIC_ID
+        channel = str(row.get("channel") or "")
+        if channel in {"sms", "whatsapp"} or str(row.get("handler_kind") or "") == "system":
+            exists = conn.execute(
+                text("SELECT 1 FROM qa_rubrics WHERE id = :id AND enabled = true"),
+                {"id": _QA_CLERK_RUBRIC_ID},
+            ).first()
+            return _QA_CLERK_RUBRIC_ID if exists else None
+        return _QA_DEFAULT_RUBRIC_ID
 
 
 def _qa_all_criteria(rubric: dict[str, Any]) -> list[dict[str, Any]]:
@@ -5967,14 +7912,26 @@ def _scorecard_rows_to_screen(
 ) -> list[dict[str, Any]]:
     if not rows:
         return []
-    rubric = rubric or _load_rubric_tree(conn, rows[0].get("rubric_id") or _QA_DEFAULT_RUBRIC_ID)
-    if rubric is None:
-        raise KeyError("rubric_not_found")
+    trees: dict[str, dict[str, Any] | None] = {}
+
+    def tree_for(rubric_id: str | None) -> dict[str, Any] | None:
+        key = rubric_id or _QA_DEFAULT_RUBRIC_ID
+        if key not in trees:
+            trees[key] = _load_rubric_tree(conn, key)
+        return trees[key]
+
+    if rubric is not None:
+        trees[rubric.get("id") or _QA_DEFAULT_RUBRIC_ID] = rubric
+    fallback = tree_for(_QA_DEFAULT_RUBRIC_ID)
     entries_by = _qa_entries_grouped(conn, [r["id"] for r in rows])
     result: list[dict[str, Any]] = []
     for r in rows:
+        rid = r.get("rubric_id") or _QA_DEFAULT_RUBRIC_ID
+        tree = tree_for(rid) or fallback
+        if tree is None:
+            raise KeyError("rubric_not_found")
         agent_id = r["subject_user_name"] or r["subject_bot_name"] or r["handler_name"] or "Unknown"
-        entries = _qa_pad_entries(rubric, entries_by.get(r["id"]) or [])
+        entries = _qa_pad_entries(tree, entries_by.get(r["id"]) or [])
         result.append(
             {
                 "id": r["id"],
@@ -5988,6 +7945,7 @@ def _scorecard_rows_to_screen(
                 "entries": entries,
                 "scoredAt": r["scored_at"],
                 "createdAt": r["created_at"],
+                "rubricId": rid,
             }
         )
     return result
@@ -5996,7 +7954,6 @@ def _scorecard_rows_to_screen(
 def list_scorecards() -> list[dict[str, Any]]:
     """QA Scoring Queue — screen Scorecard shape."""
     with engine.connect() as conn:
-        rubric = _load_rubric_tree(conn)
         rows = _rows(
             conn.execute(
                 text(
@@ -6016,7 +7973,52 @@ def list_scorecards() -> list[dict[str, Any]]:
                 )
             )
         )
-        return _scorecard_rows_to_screen(conn, rows, rubric)
+        return _scorecard_rows_to_screen(conn, rows)
+
+
+def qa_coverage_stats(*, days: int = 7) -> dict[str, Any]:
+    """Share of completed interactions that have a scorecard in the window."""
+    window = max(1, min(int(days), 90))
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT
+                  count(*) FILTER (
+                    WHERE i.status IN ('completed', 'abandoned')
+                      AND i.ended_at >= now() - CAST(:window AS interval)
+                  )::int AS completed,
+                  count(*) FILTER (
+                    WHERE i.status IN ('completed', 'abandoned')
+                      AND i.ended_at >= now() - CAST(:window AS interval)
+                      AND qs.id IS NOT NULL
+                  )::int AS scored,
+                  count(*) FILTER (
+                    WHERE qs.status = 'ai_draft'
+                      AND qs.created_at >= now() - CAST(:window AS interval)
+                  )::int AS pending_review,
+                  count(*) FILTER (
+                    WHERE qs.band = 'red'
+                      AND qs.created_at >= now() - CAST(:window AS interval)
+                  )::int AS critical
+                FROM interactions i
+                LEFT JOIN qa_scorecards qs ON qs.interaction_id = i.id
+                WHERE i.tenant_id = :tenant
+                """
+            ),
+            {"tenant": current_tenant(), "window": f"{window} days"},
+        ).mappings().one()
+    completed = int(row["completed"] or 0)
+    scored = int(row["scored"] or 0)
+    coverage = (scored / completed) if completed else None
+    return {
+        "windowDays": window,
+        "completed": completed,
+        "scored": scored,
+        "coverage": round(coverage, 4) if coverage is not None else None,
+        "pendingReview": int(row["pending_review"] or 0),
+        "criticalFails": int(row["critical"] or 0),
+    }
 
 
 def _scorecard_by_id(conn: Any, scorecard_id: str) -> dict[str, Any]:
@@ -6251,7 +8253,7 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
                    :channel, :direction, 'completed', :disposition, :summary, now(), '{}'::jsonb)
                 """
             ),
-            {"id": interaction_id, "tenant_id": TENANT_ID, "customer_id": customer_id, "account_id": payload.get("accountId") or _first_account_id(conn, customer_id), "handler_kind": handler_kind, "handler_user_id": handler_user_id, "handler_bot_id": handler_bot_id, "channel": payload.get("channel") or "voice", "direction": payload.get("direction") or "outbound", "disposition": payload.get("disposition"), "summary": payload.get("summary")},
+            {"id": interaction_id, "tenant_id": _tenant(), "customer_id": customer_id, "account_id": payload.get("accountId") or _first_account_id(conn, customer_id), "handler_kind": handler_kind, "handler_user_id": handler_user_id, "handler_bot_id": handler_bot_id, "channel": payload.get("channel") or "voice", "direction": payload.get("direction") or "outbound", "disposition": payload.get("disposition"), "summary": payload.get("summary")},
         )
         for idx, turn in enumerate(payload.get("transcript") or []):
             conn.execute(
@@ -6284,13 +8286,40 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
 def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
     endpoint = f"POST /interactions/{interaction_id}/wrap-up"
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "interactions", interaction_id)
         cached = _idempotent_response(conn, idempotency_key, endpoint)
         if cached:
             return cached
         interaction = _ensure_interaction(conn, interaction_id)
         conn.execute(
-            text("UPDATE interactions SET disposition = :disposition, summary = COALESCE(:notes, summary), status = 'completed' WHERE id = :id"),
-            {"id": interaction_id, "disposition": payload["disposition"], "notes": payload.get("notes")},
+            text(
+                """
+                UPDATE interactions
+                SET disposition = :disposition,
+                    summary = COALESCE(:notes, summary),
+                    status = 'completed',
+                    ended_at = COALESCE(ended_at, now()),
+                    ptp_captured = ptp_captured OR :ptp,
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {
+                "id": interaction_id,
+                "disposition": payload["disposition"],
+                "notes": payload.get("notes"),
+                "ptp": bool(payload.get("promise")),
+            },
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE interaction_handoffs
+                SET completed_at = now()
+                WHERE interaction_id = :id AND completed_at IS NULL
+                """
+            ),
+            {"id": interaction_id},
         )
         for flag in payload.get("flags") or []:
             conn.execute(text("INSERT INTO interaction_flags (id, interaction_id, flag, severity) VALUES (:id, :interaction_id, :flag, 'medium')"), {"id": _id("FLAG"), "interaction_id": interaction_id, "flag": flag})
@@ -6428,22 +8457,53 @@ def _inbox_channel(channel: str | None) -> str:
 
 
 def _inbox_delivery(status: str | None, sender: str) -> str | None:
+    """Map the stored delivery status onto what the bubble shows.
+
+    ``sending`` used to collapse to None, which renders as no tick at all —
+    byte-identical to a message with nothing to report. An agent reply that was
+    queued and never posted therefore looked exactly like one that had gone
+    out. It was: the WhatsApp outbound worker was not running, two replies sat
+    in ``whatsapp_outbound_jobs`` for six minutes, the composer said nothing,
+    and the agent kept typing at a customer who could not see them.
+
+    "In flight" is a state the sender needs to see, so it now has its own.
+    ``cancelled`` stays hidden: that message was deliberately withdrawn and was
+    never going to arrive.
+    """
     if sender not in {"bot", "agent"}:
         return None
     if status in {"sent", "delivered", "read", "failed"}:
         return status
-    if status in {"sending", "cancelled"}:
+    if status == "sending":
+        return "pending"
+    if status == "cancelled":
         return None
     return "delivered"
 
 
-def _inbox_contactable(dnd: bool, preferred_window: str | None) -> bool:
-    if dnd:
-        return False
-    # Evaluate against "now" in IST — same window helper as callbacks.
-    return not _outside_preferred_window(
-        datetime.now(_IST).isoformat(), preferred_window
-    )
+def _inbox_contactable(
+    conn: Any,
+    customer_id: str,
+    dnd: bool,
+    preferred_window: str | None,
+    channel: str = "whatsapp",
+) -> bool:
+    try:
+        import contact_policy
+
+        decision = contact_policy.evaluate(
+            conn,
+            customer_id=customer_id,
+            channel=channel,
+            purpose="outreach",
+        )
+        return bool(decision.allowed)
+    except Exception:
+        if dnd:
+            return False
+        return not _outside_preferred_window(
+            datetime.now(_IST).isoformat(), preferred_window
+        )
 
 
 def _inbox_aging(dpd: int | None) -> str:
@@ -6670,7 +8730,7 @@ def _thread_context(conn: Any, customer_id: str, account_id: str | None, risk: s
 
     return {
         "riskLevel": _inbox_risk(risk),
-        "contactableNow": _inbox_contactable(bool(dnd), preferred_window),
+        "contactableNow": _inbox_contactable(conn, customer_id, bool(dnd), preferred_window),
         "contactWindow": preferred_window or "10:00-19:00 IST",
         "outstanding": float(outstanding or 0),
         "outstandingAging": _inbox_aging(dpd),
@@ -6697,29 +8757,56 @@ def _thread_context(conn: Any, customer_id: str, account_id: str | None, risk: s
     }
 
 
+#: A bot turn that has been pending longer than this is not "typing" — it is
+#: stuck. Nothing composes a reply for a minute, so past that the indicator is
+#: reporting a dead worker while telling the agent to keep waiting.
+_TYPING_STALE_AFTER = "60 seconds"
+
+
 def _bot_typing_by_conversation(conn: Any, conversation_ids: list[str]) -> dict[str, bool]:
-    """True when a bot turn is queued/running or an outbound draft is mid-send."""
+    """True when the BOT owes this conversation a reply, right now.
+
+    Two things used to be conflated into this flag and neither belonged:
+
+    * an *agent's* own outbound message sitting at ``sending``. The composer
+      then displayed "Bot is typing…" back at the human who had just taken over
+      and pressed Send — describing their own message as the bot's, and
+      implying something was still coming;
+    * a job with no upper age bound. When the WhatsApp worker is not running,
+      queued rows never advance, so the indicator ran for as long as the
+      process stayed down. It read as "any moment now" for six minutes.
+
+    Narrowed to bot work, and bounded — a stale queue is a worker problem, and
+    an animated ellipsis is the wrong way to report one.
+    """
     if not conversation_ids:
         return {}
     rows = _rows(
         conn.execute(
             text(
-                """
+                f"""
                 SELECT conversation_id
                 FROM bot_turn_jobs
                 WHERE conversation_id = ANY(:ids)
                   AND status IN ('queued', 'running')
+                  AND updated_at > now() - interval '{_TYPING_STALE_AFTER}'
                 UNION
                 SELECT conversation_id
                 FROM whatsapp_outbound_jobs
                 WHERE conversation_id = ANY(:ids)
                   AND status IN ('queued', 'running')
+                  AND updated_at > now() - interval '{_TYPING_STALE_AFTER}'
+                  -- Bot drafts only. An agent send in flight is shown on the
+                  -- agent's own bubble (see _inbox_delivery), not as the bot
+                  -- speaking.
+                  AND source IS DISTINCT FROM 'inbox_reply'
                 UNION
                 SELECT conversation_id
                 FROM messages
                 WHERE conversation_id = ANY(:ids)
-                  AND sender IN ('bot', 'agent')
+                  AND sender = 'bot'
                   AND delivery_status = 'sending'
+                  AND COALESCE(sent_at, created_at) > now() - interval '{_TYPING_STALE_AFTER}'
                 """
             ),
             {"ids": conversation_ids},
@@ -6789,6 +8876,7 @@ def _serialize_conversation(
         "sentiment": _inbox_sentiment(row["sentiment_label"], row["avg_sentiment"]),
         "ragSuggestions": suggestions[:5],
         "ragDraftAnswer": draft,
+        "handlerBotId": row.get("handler_bot_id"),
         "messages": messages,
         "context": _thread_context(
             conn,
@@ -6840,6 +8928,7 @@ def _conversation_base_rows(
                   a.dpd,
                   i.sentiment_label,
                   i.avg_sentiment,
+                  i.handler_bot_id,
                   (
                     SELECT MAX(COALESCE(m.sent_at, m.created_at))
                     FROM messages m
@@ -6959,7 +9048,7 @@ def list_canned_responses() -> list[dict[str, Any]]:
                     ORDER BY label
                     """
                 ),
-                {"tenant_id": TENANT_ID},
+                {"tenant_id": _tenant()},
             )
         )
         return [{"id": r["id"], "label": r["label"], "text": r["body"]} for r in rows]
@@ -7230,7 +9319,24 @@ def refresh_conversation_suggestions(
     import kb_retrieve
 
     with engine.connect() as conn:
-        query = _conversation_rag_query(conn, conversation_id)
+        try:
+            query = _conversation_rag_query(conn, conversation_id)
+        except ValueError as exc:
+            if str(exc) != "conversation_has_no_messages":
+                raise
+            # Not a bad request. A conversation with nothing to retrieve
+            # against is an ordinary state — a voice call escalated into the
+            # inbox keeps its turns in interaction_transcript, not messages, so
+            # every poll of that thread 400'd. There is nothing to suggest, and
+            # "nothing to suggest" is an empty list.
+            return {
+                "conversationId": conversation_id,
+                "ragSuggestions": [],
+                "draftAnswer": None,
+                "chatModel": None,
+                "latencyMs": 0,
+                "logId": None,
+            }
 
     # Over-fetch then score-gate so we can fill top_k after filtering.
     fetch_k = max(top_k * 2, 8)
@@ -7419,12 +9525,15 @@ def create_kb_snapshot(*, label: str | None = None) -> dict[str, Any]:
         conn.execute(
             text(
                 """
-                INSERT INTO kb_snapshots (id, label, document_ids, faq_ids, created_at)
-                VALUES (:id, :label, CAST(:document_ids AS jsonb), CAST(:faq_ids AS jsonb), now())
+                INSERT INTO kb_snapshots
+                  (id, tenant_id, label, document_ids, faq_ids, created_at)
+                VALUES (:id, :tenant_id, :label, CAST(:document_ids AS jsonb),
+                        CAST(:faq_ids AS jsonb), now())
                 """
             ),
             {
                 "id": snap_id,
+                "tenant_id": _tenant(),
                 "label": label_text,
                 "document_ids": json.dumps(doc_ids),
                 "faq_ids": json.dumps(faq_ids),
@@ -7440,7 +9549,8 @@ def create_kb_snapshot(*, label: str | None = None) -> dict[str, Any]:
     }
 
 
-def list_kb_snapshots() -> list[dict[str, Any]]:
+def list_kb_snapshots(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -7449,8 +9559,10 @@ def list_kb_snapshots() -> list[dict[str, Any]]:
                     SELECT id, label, document_ids, faq_ids, created_at
                     FROM kb_snapshots
                     ORDER BY created_at DESC, id DESC
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip},
             )
         )
     out = []
@@ -7485,6 +9597,7 @@ def list_kb_snapshots() -> list[dict[str, Any]]:
 def takeover_conversation(conversation_id: str) -> dict[str, Any]:
     me_id = _actor_user_id()
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "conversations", conversation_id)
         row = _one(
             conn.execute(
                 text("SELECT id, customer_id, status, assigned_user_id FROM conversations WHERE id = :id"),
@@ -7540,6 +9653,7 @@ def return_conversation_to_bot(conversation_id: str) -> dict[str, Any]:
     """Agent hands the thread back so inbound WhatsApp turns enqueue bot jobs again."""
     me_id = _actor_user_id()
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "conversations", conversation_id)
         row = _one(
             conn.execute(
                 text(
@@ -7606,9 +9720,311 @@ def return_conversation_to_bot(conversation_id: str) -> dict[str, Any]:
     return result
 
 
+def handoff_to_agent(
+    *,
+    interaction_id: str,
+    from_bot_id: str | None,
+    target_bot_id: str,
+    reason: str,
+    payload: str | None = None,
+) -> dict[str, Any]:
+    """Move a live bot-handled interaction to another first-party card.
+
+    Writes ``transferred_from_bot_id`` / ``handler_bot_id``. Does not open a
+    human handoff — that is ``escalate_to_human``. Calling this is the only
+    way a transfer is recorded; transcript prose does not reach here.
+    """
+    target = (target_bot_id or "").strip()
+    if not target:
+        raise ValueError("target_bot_required")
+    with engine.begin() as conn:
+        if not _one(conn.execute(text("SELECT 1 FROM bots WHERE id = :id"), {"id": target})):
+            raise KeyError(f"bot_not_found:{target}")
+        ix = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, handler_kind, handler_bot_id, tenant_id
+                    FROM interactions WHERE id = :id
+                    """
+                ),
+                {"id": interaction_id},
+            )
+        )
+        if ix is None:
+            raise KeyError("interaction_not_found")
+        if ix["handler_kind"] != "bot":
+            raise ValueError("handoff_not_bot_handled")
+        source = from_bot_id or ix["handler_bot_id"]
+        if source == target:
+            raise ValueError("handoff_same_bot")
+        conn.execute(
+            text(
+                """
+                UPDATE interactions
+                SET transferred_from_bot_id = COALESCE(handler_bot_id, :from_bot),
+                    handler_bot_id = :target,
+                    handler_kind = 'bot',
+                    handler_user_id = NULL,
+                    updated_at = now()
+                WHERE id = :id AND handler_kind = 'bot'
+                """
+            ),
+            {"id": interaction_id, "from_bot": source, "target": target},
+        )
+        _activity(
+            conn,
+            "interaction",
+            interaction_id,
+            "agent_handoff",
+            f"Handed to {target}",
+            (reason or "")[:240],
+            None,
+        )
+    return {
+        "ok": True,
+        "fromBotId": source,
+        "targetBotId": target,
+        "reason": reason,
+        "payload": payload,
+        "interactionId": interaction_id,
+    }
+
+
+def list_bot_ids() -> set[str]:
+    with engine.connect() as conn:
+        return {r["id"] for r in _rows(conn.execute(text("SELECT id FROM bots")))}
+
+
+def get_latest_context_summary(interaction_id: str) -> dict[str, Any] | None:
+    with engine.connect() as conn:
+        r = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, interaction_id, upto_turn, summary, model_profile, created_at
+                    FROM context_summaries
+                    WHERE interaction_id = :id
+                    ORDER BY upto_turn DESC
+                    LIMIT 1
+                    """
+                ),
+                {"id": interaction_id},
+            )
+        )
+        return dict(r) if r else None
+
+
+def save_context_summary(
+    *,
+    interaction_id: str,
+    upto_turn: int,
+    summary: str,
+    model_profile: str = "analysis",
+) -> dict[str, Any]:
+    sid = _id("CSUM")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO context_summaries (
+                  id, tenant_id, interaction_id, upto_turn, summary, model_profile
+                ) VALUES (
+                  :id, :tenant, :ix, :upto, :summary, :profile
+                )
+                ON CONFLICT (interaction_id, upto_turn) DO UPDATE
+                  SET summary = EXCLUDED.summary,
+                      model_profile = EXCLUDED.model_profile
+                """
+            ),
+            {
+                "id": sid,
+                "tenant": _tenant(),
+                "ix": interaction_id,
+                "upto": int(upto_turn),
+                "summary": summary,
+                "profile": model_profile,
+            },
+        )
+    row = get_latest_context_summary(interaction_id)
+    assert row is not None
+    return row
+
+
+def _latest_twin_gate_report() -> dict[str, Any] | None:
+    """Newest twin run, shaped for compiler G11. None if the table is missing."""
+    try:
+        from agent_core.twin import latest_gate_report
+
+        return latest_gate_report()
+    except Exception:
+        return None
+
+
+def get_latest_eval_report(*, bot_id: str, kind: str) -> dict[str, Any] | None:
+    """Newest report for this bot whose suite matches ``kind`` (regression/redteam)."""
+    with engine.connect() as conn:
+        r = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT r.id, r.status, r.summary, r.suite_id, r.bot_id, r.created_at
+                    FROM eval_reports r
+                    JOIN eval_suites s ON s.id = r.suite_id
+                    WHERE r.bot_id = :bot AND s.kind = :kind
+                    ORDER BY r.created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"bot": bot_id, "kind": kind},
+            )
+        )
+        return dict(r) if r else None
+
+
+def save_eval_report(
+    *,
+    suite_id: str,
+    bot_id: str | None,
+    status: str,
+    summary: dict[str, Any],
+    trials: list[dict[str, Any]] | None = None,
+    prompt_version_id: str | None = None,
+    origin: str = "manual",
+) -> dict[str, Any]:
+    rid = _id("EVR")
+    origin = origin if origin in {"manual", "scheduled", "canary", "upgrade"} else "manual"
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO eval_reports (
+                  id, tenant_id, suite_id, bot_id, prompt_version_id, status, summary, origin
+                ) VALUES (
+                  :id, :tenant, :suite, :bot, :pv, :status, CAST(:summary AS jsonb), :origin
+                )
+                """
+            ),
+            {
+                "id": rid,
+                "tenant": _tenant(),
+                "suite": suite_id,
+                "bot": bot_id,
+                "pv": prompt_version_id,
+                "status": status,
+                "summary": _jsonb(summary),
+                "origin": origin,
+            },
+        )
+        for trial in trials or []:
+            tid = _id("EVT")
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO eval_trials (
+                      id, report_id, task_id, redteam_case_id, k, passed,
+                      transcript, tool_calls, crm_outcomes, grader_verdicts
+                    ) VALUES (
+                      :id, :report, :task, :redteam, 1, :passed,
+                      CAST(:transcript AS jsonb), CAST(:tools AS jsonb),
+                      CAST(:crm AS jsonb), CAST(:verdicts AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "id": tid,
+                    "report": rid,
+                    "task": trial.get("taskId")
+                    if str(trial.get("taskId") or "").startswith("task-")
+                    else None,
+                    "redteam": trial.get("taskId")
+                    if str(trial.get("taskId") or "").startswith("rt-")
+                    else None,
+                    "passed": bool(trial.get("passed")),
+                    "transcript": _jsonb([]),
+                    "tools": _jsonb([]),
+                    "crm": _jsonb({}),
+                    "verdicts": _jsonb(trial.get("verdict") or {}),
+                },
+            )
+    return {"id": rid, "status": status, "summary": summary, "botId": bot_id, "suiteId": suite_id, "origin": origin}
+
+
+def list_eval_reports(
+    *, kind: str | None = None, bot_id: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    clauses = ["r.tenant_id = :tenant"]
+    params: dict[str, Any] = {"tenant": _tenant(), "n": max(1, min(int(limit), 200))}
+    if kind:
+        clauses.append("s.kind = :kind")
+        params["kind"] = kind
+    if bot_id:
+        clauses.append("r.bot_id = :bot_id")
+        params["bot_id"] = bot_id
+    where = " AND ".join(clauses)
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT r.id, r.suite_id, r.bot_id, r.status, r.summary, r.created_at, r.origin,
+                           s.kind, s.name AS suite_name
+                    FROM eval_reports r
+                    JOIN eval_suites s ON s.id = r.suite_id
+                    WHERE {where}
+                    ORDER BY r.created_at DESC
+                    LIMIT :n
+                    """
+                ),
+                params,
+            )
+        )
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": r["id"],
+                "suiteId": r["suite_id"],
+                "suiteName": r.get("suite_name"),
+                "kind": r.get("kind"),
+                "botId": r.get("bot_id"),
+                "status": r["status"],
+                "summary": r.get("summary") or {},
+                "origin": r.get("origin") or "manual",
+                "createdAt": str(r["created_at"]) if r.get("created_at") else None,
+            }
+        )
+    return out
+
+
+def list_eval_suites(*, kind: str | None = None) -> list[dict[str, Any]]:
+    clauses = ["tenant_id = :tenant"]
+    params: dict[str, Any] = {"tenant": _tenant()}
+    if kind:
+        clauses.append("kind = :kind")
+        params["kind"] = kind
+    where = " AND ".join(clauses)
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT id, kind, name, description, created_at
+                    FROM eval_suites
+                    WHERE {where}
+                    ORDER BY kind, id
+                    """
+                ),
+                params,
+            )
+        )
+        return [dict(r) for r in rows]
+
+
 def escalate_conversation_to_human(conversation_id: str, *, reason: str = "escalated") -> dict[str, Any]:
     """Bot / routing path → needs_human. Cancels pending bot jobs."""
     with engine.begin() as conn:
+        _assert_tenant_owns(conn, "conversations", conversation_id)
         row = _one(
             conn.execute(
                 text("SELECT id, customer_id, status FROM conversations WHERE id = :id"),
@@ -7742,6 +10158,36 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
         channel, _is_mine = _guards(row)
 
         if channel == "whatsapp":
+            import contact_policy
+
+            last_customer_at = row["last_customer_at"]
+            if isinstance(last_customer_at, str):
+                last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
+            in_window = False
+            if last_customer_at is not None:
+                at = last_customer_at
+                if getattr(at, "tzinfo", None) is None:
+                    at = at.replace(tzinfo=timezone.utc)
+                in_window = datetime.now(timezone.utc) - at.astimezone(timezone.utc) <= timedelta(hours=24)
+            purpose = "in_session" if in_window else "outreach"
+            actor = None
+            try:
+                import actor_context
+                actor = actor_context.get_actor_user_id()
+            except Exception:
+                actor = me_id
+            contact_policy.require_admit(
+                conn,
+                customer_id=row["customer_id"],
+                channel="whatsapp",
+                purpose=purpose,
+                session_key=conversation_id,
+                source="inbox_reply",
+                related_id=msg_id,
+                actor_kind="human",
+                actor_user_id=actor,
+            )
+
             import whatsapp as wa
             import whatsapp_outbound as wa_out
 
@@ -7765,9 +10211,24 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
                 customer_id=row["customer_id"],
                 to_phone=to_phone,
                 body=text_value,
+                purpose=purpose,
+                source="inbox_reply",
             )
             _finalize(conn, row)
         else:
+            import contact_policy
+
+            contact_policy.require_admit(
+                conn,
+                customer_id=row["customer_id"],
+                channel=channel,
+                purpose="outreach",
+                session_key=conversation_id,
+                source="inbox_reply",
+                related_id=msg_id,
+                actor_kind="human",
+                actor_user_id=me_id,
+            )
             conn.execute(
                 text(
                     """
@@ -7908,7 +10369,7 @@ def _ensure_whatsapp_customer(conn: Any, phone: str, profile_name: str | None) -
             ON CONFLICT (id) DO NOTHING
             """
         ),
-        {"id": customer_id, "tenant_id": TENANT_ID, "name": name, "phone": phone},
+        {"id": customer_id, "tenant_id": _tenant(), "name": name, "phone": phone},
     )
     # Prefer personal-loan if present, else any product.
     product = _one(conn.execute(text("SELECT id FROM products WHERE id = 'personal-loan'")))
@@ -7985,7 +10446,7 @@ def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
         ),
         {
             "id": interaction_id,
-            "tenant_id": TENANT_ID,
+            "tenant_id": _tenant(),
             "customer_id": customer_id,
             "account_id": account["id"] if account else None,
             "bot_id": bot["id"],
@@ -8696,7 +11157,7 @@ def list_redaction_records(
     that record's position in the sort (exclusive).
     """
     capped = max(1, min(int(limit or 100), 200))
-    params: dict[str, Any] = {"tenant_id": TENANT_ID, "limit": capped}
+    params: dict[str, Any] = {"tenant_id": _tenant(), "limit": capped}
     cursor_sql = ""
     if before_id:
         # The cursor must compare on the same key the ORDER BY uses. Comparing
@@ -8734,7 +11195,7 @@ def get_redaction_record(redaction_id: str) -> dict[str, Any]:
         row = _one(
             conn.execute(
                 text(_REDACTION_LIST_SQL + " AND rr.id = :id"),
-                {"tenant_id": TENANT_ID, "id": redaction_id},
+                {"tenant_id": _tenant(), "id": redaction_id},
             )
         )
         if row is None:
@@ -8755,7 +11216,7 @@ def list_redaction_rules() -> list[dict[str, Any]]:
                     ORDER BY pii_type
                     """
                 ),
-                {"tenant_id": TENANT_ID},
+                {"tenant_id": _tenant()},
             )
         )
         by_type = {r["pii_type"]: r for r in rows if r["pii_type"] in _PII_TYPES}
@@ -8789,7 +11250,7 @@ def get_redaction_rule(pii_type: str) -> dict[str, Any] | None:
                     WHERE tenant_id = :tenant_id AND pii_type = :pii_type
                     """
                 ),
-                {"tenant_id": TENANT_ID, "pii_type": pii_type},
+                {"tenant_id": _tenant(), "pii_type": pii_type},
             )
         )
     return _map_redaction_rule(pii_type, row)
@@ -8926,7 +11387,7 @@ def get_routing_rule(rule_id: str) -> dict[str, Any] | None:
         row = _one(
             conn.execute(
                 text(_ROUTING_RULE_SELECT + " AND r.id = :rule_id"),
-                {"tenant_id": TENANT_ID, "rule_id": rule_id},
+                {"tenant_id": _tenant(), "rule_id": rule_id},
             )
         )
     return _map_routing_rule(row) if row else None
@@ -8938,7 +11399,7 @@ def list_routing_rules() -> list[dict[str, Any]]:
         rows = _rows(
             conn.execute(
                 text(_ROUTING_RULE_SELECT + " ORDER BY r.priority ASC, r.id"),
-                {"tenant_id": TENANT_ID},
+                {"tenant_id": _tenant()},
             )
         )
     return [_map_routing_rule(r) for r in rows]
@@ -9031,7 +11492,7 @@ def _resolve_team_id(conn: Any, action_key: str, params: dict[str, str] | None) 
         by_id = _one(
             conn.execute(
                 text("SELECT id FROM teams WHERE id = :id AND tenant_id = :t"),
-                {"id": hint, "t": TENANT_ID},
+                {"id": hint, "t": _tenant()},
             )
         )
         if by_id:
@@ -9048,7 +11509,7 @@ def _resolve_team_id(conn: Any, action_key: str, params: dict[str, str] | None) 
                     LIMIT 1
                     """
                 ),
-                {"t": TENANT_ID, "name": hint},
+                {"t": _tenant(), "name": hint},
             )
         )
         if by_name:
@@ -9068,7 +11529,7 @@ def _resolve_assignee_for_team(conn: Any, team_id: str | None) -> tuple[str | No
                 FROM teams WHERE id = :id AND tenant_id = :t
                 """
             ),
-            {"id": team_id, "t": TENANT_ID},
+            {"id": team_id, "t": _tenant()},
         )
     )
     if not team:
@@ -9084,7 +11545,7 @@ def _resolve_assignee_for_team(conn: Any, team_id: str | None) -> tuple[str | No
                     LIMIT 1
                     """
                 ),
-                {"t": TENANT_ID},
+                {"t": _tenant()},
             )
         )
     if not team:
@@ -9117,7 +11578,7 @@ def _resolve_assignee_for_team(conn: Any, team_id: str | None) -> tuple[str | No
                     WHERE id = 'card-collections' AND tenant_id = :t
                     """
                 ),
-                {"t": TENANT_ID},
+                {"t": _tenant()},
             )
         )
         if fallback and fallback.get("supervisor_user_id"):
@@ -9136,12 +11597,6 @@ def _match_routing_rule(
     sandbox_run_id: str | None = None,
 ) -> dict[str, Any]:
     """First matching enabled rule → decision dict, logging the execution.
-
-    Shared by :func:`evaluate_routing_rules` and the single-transaction voice
-    escalation. The two used to carry copies of this loop and had already
-    drifted: the escalation copy dropped ``actionParams`` from both the matched
-    and unmatched decision, so the same routing decision had two shapes
-    depending on which entry point produced it.
 
     Connection-scoped on purpose — the escalation path is already inside a
     transaction and must not open a nested one.
@@ -9209,183 +11664,68 @@ def _match_routing_rule(
     }
 
 
-def evaluate_routing_rules(
-    context: dict[str, Any],
-    *,
-    interaction_id: str | None = None,
-    sandbox_run_id: str | None = None,
-) -> dict[str, Any]:
-    """First matching enabled rule by priority → assignee / team.
+#: Escalation reasons that should also stop outbound collections. Warm-
+#: transferring a borrower who has just described losing their job, and then
+#: dialling them again tomorrow morning because the campaign says so, is the
+#: single most complained-about thing a collections floor does. Until now
+#: "hardship" was a routing label that expired with the call.
+_ESCALATION_HOLDS = {"hardship": "hardship", "dispute": "dispute"}
 
-    Mirrors Habibi ``evaluateRules`` (AND of when-nodes; OR groups inside a node).
-    Persists a ``routing_rule_executions`` row for the firing rule (and skips for
-    non-matches to keep the log focused).
+#: Hours a specialist has to pick the case up. Matches the roadmap's "hardship
+#: as a first-class object with specialist SLA"; the hold itself does not
+#: expire on it — an unattended hardship case must stay held, not quietly
+#: resume dunning.
+_HOLD_SLA_HOURS = 24
+
+
+def _hold_on_escalation(
+    conn: Any, *, customer_id: str | None, reason: str, interaction_id: str | None
+) -> None:
+    """Place a treatment hold when an escalation says to stop collecting.
+
+    ``ON CONFLICT DO NOTHING`` against the partial unique index, so a second
+    escalation on the same call is a no-op rather than an error. Failures are
+    swallowed: an escalation must complete even if the hold cannot be written,
+    because a customer stuck mid-transfer is a worse outcome than a hold that
+    has to be placed by hand.
     """
-    ctx = {str(k): v for k, v in (context or {}).items()}
-    rules = list_routing_rules()
-    with engine.begin() as conn:
-        return _match_routing_rule(
-            conn,
-            rules,
-            ctx,
-            interaction_id=interaction_id,
-            sandbox_run_id=sandbox_run_id,
-        )
-
-
-def create_conversation_from_interaction(
-    interaction_id: str,
-    *,
-    reason: str = "escalated",
-    assignee_user_id: str | None = None,
-    team_id: str | None = None,
-) -> dict[str, Any]:
-    """Open (or reuse) an inbox conversation for a voice interaction and escalate it.
-
-    Voice writes ``interactions`` without an inbox row; escalate needs a
-    ``conversation_id`` for ``escalate_conversation_to_human``.
-    """
-    ix = (interaction_id or "").strip()
-    if not ix:
-        raise ValueError("interaction_id_required")
-
-    with engine.begin() as conn:
-        interaction = _one(
+    kind = _ESCALATION_HOLDS.get(reason)
+    if not kind or not customer_id:
+        return
+    try:
+        nested = conn.begin_nested()
+        try:
             conn.execute(
                 text(
                     """
-                    SELECT id, customer_id, channel, status
-                    FROM interactions WHERE id = :id
-                    """
-                ),
-                {"id": ix},
-            )
-        )
-        if interaction is None:
-            raise KeyError("interaction_not_found")
-
-        existing = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT id FROM conversations
-                    WHERE interaction_id = :ix
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {"ix": ix},
-            )
-        )
-        now = datetime.now(timezone.utc)
-        if existing:
-            conversation_id = existing["id"]
-        else:
-            # Inbox channel vocab historically excluded voice — use voice when allowed,
-            # else fall back to chat so the CHECK constraint never blocks escalation.
-            channel = interaction.get("channel") or "voice"
-            if channel not in {"whatsapp", "sms", "email", "chat", "voice"}:
-                channel = "chat"
-            conversation_id = _id("CV")
-            nested = conn.begin_nested()
-            try:
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO conversations
-                          (id, interaction_id, customer_id, assigned_user_id,
-                           status, channel, created_at, updated_at)
-                        VALUES
-                          (:id, :interaction_id, :customer_id, :assignee,
-                           'needs_human', :channel, :now, :now)
-                        """
-                    ),
-                    {
-                        "id": conversation_id,
-                        "interaction_id": ix,
-                        "customer_id": interaction["customer_id"],
-                        "assignee": assignee_user_id,
-                        "channel": channel,
-                        "now": now,
-                    },
-                )
-                nested.commit()
-            except Exception as exc:
-                nested.rollback()
-                # Only retry as chat when the channel CHECK rejects 'voice'
-                # (pre-migration DBs). Propagate all other failures.
-                from sqlalchemy.exc import IntegrityError
-
-                msg = str(getattr(exc, "orig", exc)).lower()
-                is_channel_check = (
-                    isinstance(exc, IntegrityError)
-                    and channel == "voice"
-                    and ("channel" in msg or "check" in msg)
-                )
-                if not is_channel_check:
-                    raise
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO conversations
-                          (id, interaction_id, customer_id, assigned_user_id,
-                           status, channel, created_at, updated_at)
-                        VALUES
-                          (:id, :interaction_id, :customer_id, :assignee,
-                           'needs_human', 'chat', :now, :now)
-                        """
-                    ),
-                    {
-                        "id": conversation_id,
-                        "interaction_id": ix,
-                        "customer_id": interaction["customer_id"],
-                        "assignee": assignee_user_id,
-                        "now": now,
-                    },
-                )
-            # Seed a system note so agents see why this landed in inbox.
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO messages (id, conversation_id, sender, body, sent_at, created_at)
-                    VALUES (:id, :cid, 'system', :body, :now, :now)
+                    INSERT INTO treatment_holds (
+                      id, tenant_id, customer_id, kind, reason, source,
+                      interaction_id, placed_by_user_id, sla_due_at
+                    ) VALUES (
+                      :id, :tenant_id, :customer_id, :kind, :reason, 'bot',
+                      :interaction_id, NULL, now() + make_interval(hours => :sla)
+                    )
+                    ON CONFLICT (customer_id, COALESCE(account_id, ''), kind)
+                    WHERE released_at IS NULL
+                    DO NOTHING
                     """
                 ),
                 {
-                    "id": _id("MSG"),
-                    "cid": conversation_id,
-                    "body": f"Escalated from voice · {reason}"[:500],
-                    "now": now,
+                    "id": _id("THD"),
+                    "tenant_id": _tenant(),
+                    "customer_id": customer_id,
+                    "kind": kind,
+                    "reason": f"Escalated from a call: {reason}",
+                    "interaction_id": interaction_id,
+                    "sla": _HOLD_SLA_HOURS,
                 },
             )
-
-        # Assign + mark needs_human (idempotent if already escalated).
-        sets = ["status = 'needs_human'", "updated_at = now()"]
-        params: dict[str, Any] = {"id": conversation_id}
-        if assignee_user_id:
-            sets.append("assigned_user_id = :assignee")
-            params["assignee"] = assignee_user_id
-        conn.execute(
-            text(f"UPDATE conversations SET {', '.join(sets)} WHERE id = :id"),
-            params,
-        )
-        _activity(
-            conn,
-            "conversation",
-            conversation_id,
-            "conversation_escalated",
-            "Escalated to human",
-            reason[:240],
-            interaction["customer_id"],
-        )
-
-    result = get_conversation(conversation_id)
-    if result is None:
-        raise KeyError("conversation_not_found")
-    # Attach routing hints not on the conversation serializer.
-    result["teamId"] = team_id
-    result["escalationReason"] = reason
-    return result
+            nested.commit()
+        except Exception:
+            nested.rollback()
+            raise
+    except Exception:
+        logger.exception("treatment hold on escalation failed for %s", customer_id)
 
 
 def escalate_voice_interaction(
@@ -9471,6 +11811,8 @@ def escalate_voice_interaction(
             {"id": ix},
         )
 
+        _hold_on_escalation(conn, customer_id=cid, reason=r, interaction_id=ix)
+
         note_id = None
         if note_text and cid:
             note_id = _id("NOTE")
@@ -9498,9 +11840,8 @@ def escalate_voice_interaction(
                 cid,
             )
 
-        # Routing match — same helper evaluate_routing_rules uses, but
-        # connection-scoped so it joins this transaction instead of opening a
-        # nested one.
+        # Routing match — connection-scoped so it joins this transaction
+        # instead of opening a nested one.
         decision = _match_routing_rule(conn, rules, ctx, interaction_id=ix)
 
         assignee_user_id = decision.get("assigneeUserId")
@@ -9674,7 +12015,7 @@ def list_routing_rule_executions(rule_id: str) -> list[dict[str, Any]]:
                     WHERE id = :id AND tenant_id = :tenant_id
                     """
                 ),
-                {"id": rule_id, "tenant_id": TENANT_ID},
+                {"id": rule_id, "tenant_id": _tenant()},
             )
         )
         if parent is None:
@@ -9777,11 +12118,15 @@ def _work_item_sla(
     """Compute (sla, slaLabel) server-side — seed strings like '1h 12m left' are not stored."""
     due = _as_utc(sla_due_at)
     now = datetime.now(timezone.utc)
+    if entity_type == "bounce" and status == "in_progress":
+        return "ok", "Awaiting pay"
     if due is None:
         if entity_type == "promise" and status == "broken":
             return "breach", "Follow up now"
         if entity_type == "promise":
             return "warn", "Follow up today"
+        if entity_type == "bounce":
+            return "warn", "First touch pending"
         return "ok", "Open"
 
     delta = (due - now).total_seconds()
@@ -9789,6 +12134,8 @@ def _work_item_sla(
         label = f"Overdue {_fmt_hm(delta)}"
         if entity_type == "promise" and status == "broken":
             return "breach", "Follow up now"
+        if entity_type == "bounce":
+            return "breach", label
         return "breach", label
 
     # Callbacks are "due at" appointments — "In …" reads better than "… left".
@@ -10005,10 +12352,78 @@ def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, di
                 "accountId": r.get("account_id"),
             }
 
+    bounce_ids = by_type.get("bounce") or []
+    if bounce_ids:
+        for r in _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, reason, amount, account_id, first_touch_channel, status
+                    FROM payment_events
+                    WHERE id = ANY(:ids)
+                    """
+                ),
+                {"ids": bounce_ids},
+            )
+        ):
+            why = (r["reason"] or "unknown").replace("_", " ")
+            amount = float(r["amount"]) if r["amount"] is not None else None
+            channel = r["first_touch_channel"]
+            if channel:
+                detail = f"{why} · sent via {channel}"
+            else:
+                detail = why
+            out[f"bounce:{r['id']}"] = {
+                "type": "EMI bounce",
+                "detail": detail,
+                "amount": amount,
+                "accountId": r.get("account_id"),
+            }
+
     return out
 
 
-def list_work_items(*, assignee: str | None = "me") -> list[dict[str, Any]]:
+def _enacted_by_map(conn: Any, entity_ids: list[str]) -> dict[str, str]:
+    """Latest treatment actor, plus clerk-sourced document requests."""
+    ids = [e for e in entity_ids if e]
+    if not ids:
+        return {}
+    out: dict[str, str] = {}
+    for r in _rows(
+        conn.execute(
+            text(
+                """
+                SELECT DISTINCT ON (trigger_ref) trigger_ref, enacted_by
+                  FROM treatment_decisions
+                 WHERE trigger_ref = ANY(:ids)
+                   AND enacted_by IS NOT NULL
+                 ORDER BY trigger_ref, created_at DESC
+                """
+            ),
+            {"ids": ids},
+        )
+    ):
+        actor = r.get("enacted_by")
+        if actor:
+            out[r["trigger_ref"]] = str(actor)
+    for r in _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id FROM document_requests
+                 WHERE id = ANY(:ids) AND source = 'clerk'
+                """
+            ),
+            {"ids": ids},
+        )
+    ):
+        out.setdefault(r["id"], "clerk_agent")
+    return out
+
+
+def list_work_items(
+    *, assignee: str | None = "me", limit: int | None = None, offset: int | None = None
+) -> list[dict[str, Any]]:
     """Assigned queue from the work_items view — screen QueueRow + entityType.
 
     assignee='me' (default) scopes to the acting user from /me (ACTOR_USER_ID).
@@ -10022,10 +12437,11 @@ def list_work_items(*, assignee: str | None = "me") -> list[dict[str, Any]]:
     else:
         assignee_id = assignee
 
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
-                text(
+                _sql(
                     """
                     SELECT
                       w.entity_type,
@@ -10041,6 +12457,8 @@ def list_work_items(*, assignee: str | None = "me") -> list[dict[str, Any]]:
                       a.id AS account_id
                     FROM work_items w
                     JOIN customers c ON c.id = w.customer_id
+                     AND c.tenant_id = :tenant_id
+                     /*VISIBILITY*/
                     LEFT JOIN LATERAL (
                       SELECT id
                       FROM accounts
@@ -10061,12 +12479,19 @@ def list_work_items(*, assignee: str | None = "me") -> list[dict[str, Any]]:
                       w.sla_due_at ASC NULLS LAST,
                       w.created_at ASC,
                       w.entity_id
+                    LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"assignee_id": assignee_id},
+                {
+                    "assignee_id": assignee_id,
+                    "tenant_id": _tenant(), **_vis_params(),
+                    "limit": page,
+                    "offset": skip,
+                },
             )
         )
         enrichment = _work_item_enrichment(conn, rows)
+        enacted = _enacted_by_map(conn, [r["entity_id"] for r in rows])
         out: list[dict[str, Any]] = []
         for r in rows:
             key = f"{r['entity_type']}:{r['entity_id']}"
@@ -10092,6 +12517,8 @@ def list_work_items(*, assignee: str | None = "me") -> list[dict[str, Any]]:
                     "entityType": r["entity_type"],
                     "status": r["status"],
                     "assigneeUserId": r["assignee_user_id"],
+                    "customerId": r["customer_id"],
+                    "enactedBy": enacted.get(r["entity_id"]),
                 }
             )
         return out
@@ -10233,32 +12660,49 @@ def _map_prompt_version(r: dict[str, Any]) -> dict[str, Any]:
         # Authored conversation graph; '{}' on every version that predates flow
         # authoring, which flow_graph.parse_graph reads as "no graph".
         "flow": r.get("flow") if isinstance(r.get("flow"), dict) else {},
+        "botId": r.get("bot_id") or DEFAULT_BOT_ID,
+        "agentCard": r.get("agent_card") if isinstance(r.get("agent_card"), dict) else {},
     }
 
 
-def list_prompt_versions() -> list[dict[str, Any]]:
-    """Version history newest-first — editor rail."""
+def list_prompt_versions(
+    *,
+    limit: int | None = None,
+    offset: int | None = None,
+    bot_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Version history newest-first — editor rail. Grows with every draft."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
+    where = "WHERE p.bot_id = :bot_id" if bot_id else ""
+    params: dict[str, Any] = {"limit": page, "offset": skip}
+    if bot_id:
+        params["bot_id"] = bot_id
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
                 text(
-                    """
+                    f"""
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
-                      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
+                      p.persona, p.voice, p.guardrails, p.tuning, p.flow,
+                      p.bot_id, p.agent_card, p.created_at,
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
+                    {where}
                     ORDER BY p.created_at DESC, p.id DESC
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                params,
             )
         )
         return [_map_prompt_version(r) for r in rows]
 
 
-def get_published_prompt_version() -> dict[str, Any] | None:
+def get_published_prompt_version(bot_id: str | None = None) -> dict[str, Any] | None:
     """Editor live badge — must match active prod deployment (invariant)."""
+    bid = (bot_id or DEFAULT_BOT_ID).strip() or DEFAULT_BOT_ID
     with engine.connect() as conn:
         r = _one(
             conn.execute(
@@ -10266,14 +12710,16 @@ def get_published_prompt_version() -> dict[str, Any] | None:
                     """
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
-                      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
+                      p.persona, p.voice, p.guardrails, p.tuning, p.flow,
+                      p.bot_id, p.agent_card, p.created_at,
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
-                    WHERE p.status = 'published'
+                    WHERE p.status = 'published' AND p.bot_id = :bot_id
                     LIMIT 1
                     """
-                )
+                ),
+                {"bot_id": bid},
             )
         )
         return _map_prompt_version(r) if r else None
@@ -10287,7 +12733,8 @@ def get_prompt_version(version_id: str) -> dict[str, Any] | None:
                     """
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
-                      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
+                      p.persona, p.voice, p.guardrails, p.tuning, p.flow,
+                      p.bot_id, p.agent_card, p.created_at,
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
@@ -10300,6 +12747,437 @@ def get_prompt_version(version_id: str) -> dict[str, Any] | None:
         return _map_prompt_version(r) if r else None
 
 
+def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str, Any]]:
+    """Fleet index: first-party mouths plus tenant clones. Not a fifth first-party.
+
+    Reachability is stamped here rather than per card: it is a property of the
+    whole handoff graph, and a single card cannot know whether anything routes
+    to it.
+    """
+    from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
+    from agent_core.cards.routing import reachability, runtime_entry_bot_id
+
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for bot_id, name, version in FIRST_PARTY_BOTS:
+        out.append(_agent_studio_card_summary(bot_id, name, version, card_dump))
+        seen.add(bot_id)
+    where = "" if include_archived else " AND archived_at IS NULL"
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT id, name, version, archived_at FROM bots
+                     WHERE tenant_id = :tenant{where}
+                     ORDER BY name, id
+                    """
+                ),
+                {"tenant": _tenant()},
+            )
+        )
+    for r in rows:
+        if r["id"] in seen:
+            continue
+        summary = _agent_studio_card_summary(
+            r["id"], r["name"], r.get("version") or "1.0", card_dump
+        )
+        summary["archivedAt"] = _iso_ts(r.get("archived_at"))
+        out.append(summary)
+        seen.add(r["id"])
+
+    entry = runtime_entry_bot_id()
+    # A retired card cannot carry traffic, so its handoffs are not a path: leaving
+    # them in made a card look reachable through an agent that no longer answers.
+    routes = reachability(
+        [(c["botId"], c["agentCard"]) for c in out if not c.get("archivedAt")],
+        entry=entry,
+    )
+    for card in out:
+        card["entryBotId"] = entry
+        card["reachability"] = (
+            "archived" if card.get("archivedAt") else routes.get(card["botId"], "unreachable")
+        )
+    return out
+
+
+def _studio_card_versions(bot_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """(published, newest draft) for one bot, from one snapshot.
+
+    Two separate calls let a concurrent publish land between them and produce a
+    summary whose published id and card came from different rows.
+    """
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT
+                      p.id, p.label, p.summary, p.status, p.prompt,
+                      p.persona, p.voice, p.guardrails, p.tuning, p.flow,
+                      p.bot_id, p.agent_card, p.created_at,
+                      COALESCE(u.name, 'Unknown') AS author_name
+                    FROM prompt_versions p
+                    LEFT JOIN users u ON u.id = p.author_user_id
+                    WHERE p.bot_id = :bot_id AND p.status IN ('published', 'draft')
+                    ORDER BY p.created_at DESC, p.id DESC
+                    """
+                ),
+                {"bot_id": bot_id},
+            )
+        )
+    pub = next((r for r in rows if r["status"] == "published"), None)
+    draft = next((r for r in rows if r["status"] == "draft"), None)
+    return (
+        _map_prompt_version(pub) if pub else None,
+        _map_prompt_version(draft) if draft else None,
+    )
+
+
+def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
+    bot_id: str,
+    name: str,
+    version: str,
+    card_dump,
+    *,
+    versions: tuple[dict[str, Any] | None, dict[str, Any] | None] | None = None,
+) -> dict[str, Any]:
+    from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS
+
+    published, draft = versions if versions is not None else _studio_card_versions(bot_id)
+    dep = get_active_deployment(bot_id=bot_id, environment="production")
+
+    def _card_of(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        raw = (row or {}).get("agentCard")
+        return raw if isinstance(raw, dict) and raw else None
+
+    published_card = _card_of(published)
+    # The editor PATCHes the draft, so the draft is what it must read back.
+    # Returning the published card here is what made every Skills/Connectors
+    # toggle snap back: the write landed on the draft, the refetch returned the
+    # published row, and the UI reverted. It also left every cloned card — which
+    # has a draft and no published row — showing an empty card.
+    card = _card_of(draft) or published_card
+    source = "draft" if _card_of(draft) else ("published" if published_card else "default")
+    if card is None:
+        try:
+            card = card_dump(bot_id)
+        except KeyError:
+            # Not first-party and no version yet. An empty card is unauthorable,
+            # which made a bot row with no prompt version a dead end in the
+            # editor; a scaffold gives it something real to edit.
+            from agent_core.cards.defaults import scaffold_card
+
+            card = scaffold_card(bot_id, name)
+            source = "scaffold"
+    identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+    tools = card.get("tools") if isinstance(card.get("tools"), dict) else {}
+    skill_rows = card.get("skills") if isinstance(card.get("skills"), list) else []
+    if not skill_rows:
+        try:
+            from agent_core.skills.defaults import CARD_SKILLS
+
+            skill_rows = [
+                {"skill_id": slug, "version": "1", "pin": "exact"}
+                for slug in CARD_SKILLS.get(bot_id, ())
+            ]
+            if skill_rows:
+                card = {**card, "skills": skill_rows}
+        except Exception:
+            skill_rows = []
+    if dep:
+        status = "live"
+    elif published:
+        status = "published"
+    elif draft:
+        status = "draft"
+    else:
+        status = "empty"
+    return {
+        "botId": bot_id,
+        "name": identity.get("display_name") or name,
+        "version": version,
+        "slug": identity.get("slug") or bot_id,
+        "purpose": identity.get("purpose") or "",
+        "channels": identity.get("channels") or [],
+        "skills": [
+            s.get("skill_id")
+            for s in skill_rows
+            if isinstance(s, dict) and s.get("skill_id")
+        ],
+        "toolCount": len(tools.get("include") or []),
+        "evalStatus": (
+            (get_latest_eval_report(bot_id=bot_id, kind="redteam") or {}).get("status")
+            or (get_latest_eval_report(bot_id=bot_id, kind="regression") or {}).get("status")
+            or "skipped"
+        ),
+        # None, not 100: a card with no active deployment takes no traffic, and
+        # claiming 100% made every unpublished clone look live on the fleet index.
+        "trafficPct": (dep or {}).get("trafficPct") if dep else None,
+        "deploymentStatus": status,
+        "lastPublish": (dep or {}).get("publishedAt"),
+        "promptVersionId": (published or {}).get("id"),
+        "draftVersionId": (draft or {}).get("id"),
+        "hasDraft": draft is not None,
+        # What the editor edits vs what production is running — the Ship tab and
+        # the fleet badge need to tell those apart.
+        "cardSource": source,
+        # Explicit rather than inferred: the fleet guessed first-party from
+        # cardSource == "default", but a first-party card with a published row
+        # reports "published", so its Archive button enabled and then 409'd.
+        "isFirstParty": bot_id in FIRST_PARTY_BOT_IDS,
+        # Always present: set here rather than only on the tenant branch of
+        # list_agent_studio_cards, which left first-party rows without the key
+        # while the single-card endpoint always had it.
+        "archivedAt": None,
+        "agentCard": card,
+        "publishedCard": published_card or {},
+    }
+
+
+def _handoff_edges() -> list[tuple[str, Any]]:
+    """(bot_id, card) for every bot, from the draft when there is one.
+
+    Only the handoff arrays matter here, but the card column is one read either
+    way and parsing it in Python keeps the closure logic in one place.
+    """
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (p.bot_id) p.bot_id, p.agent_card
+                      FROM prompt_versions p
+                      JOIN bots b ON b.id = p.bot_id
+                     WHERE p.status IN ('published', 'draft')
+                       AND b.archived_at IS NULL
+                     ORDER BY p.bot_id, (p.status = 'draft') DESC, p.created_at DESC
+                    """
+                )
+            )
+        )
+    return [(r["bot_id"], _as_dict(r.get("agent_card"))) for r in rows]
+
+
+def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
+    """One card by id — without building the whole fleet to throw it away."""
+    from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
+    from agent_core.cards.routing import reachability, runtime_entry_bot_id
+
+    bid = (bot_id or "").strip()
+    if not bid:
+        return None
+    archived_at = None
+    summary: dict[str, Any] | None = None
+    for fp_id, name, version in FIRST_PARTY_BOTS:
+        if fp_id == bid:
+            summary = _agent_studio_card_summary(bid, name, version, card_dump)
+            break
+    if summary is None:
+        with engine.connect() as conn:
+            row = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id, name, version, archived_at FROM bots
+                         WHERE id = :id AND tenant_id = :tenant
+                        """
+                    ),
+                    {"id": bid, "tenant": _tenant()},
+                )
+            )
+        if not row:
+            return None
+        archived_at = _iso_ts(row.get("archived_at"))
+        summary = _agent_studio_card_summary(
+            bid, row["name"], row.get("version") or "1.0", card_dump
+        )
+    summary["archivedAt"] = archived_at
+
+    entry = runtime_entry_bot_id()
+    edges = {b: c for b, c in _handoff_edges()}
+    edges[bid] = summary["agentCard"]  # unsaved-but-loaded card wins for this one
+    summary["entryBotId"] = entry
+    summary["reachability"] = (
+        "archived" if archived_at else reachability(list(edges.items()), entry=entry).get(bid, "unreachable")
+    )
+    return summary
+
+
+def archive_agent_studio_card(bot_id: str) -> dict[str, Any]:
+    """Retire a tenant card. Never deletes — the row is referenced by audit.
+
+    ``bots.id`` is a foreign key on interactions, eval_reports, activity_events
+    and a2a_tasks. A DELETE would cascade the deployments and NULL the audit
+    trail of every call the agent ever handled, so retirement is a timestamp.
+
+    Refused when the card is first-party (re-seeded on boot) or when it is the
+    runtime entry point — inbound traffic would resolve to a retired bot.
+
+    A live production deployment is retired here rather than refused. It used to
+    be a third guard, which made the whole feature unreachable: publish always
+    leaves an active deployment and rollback only swaps which one is active, so
+    no card that had ever shipped could be retired. Taking no traffic *is* what
+    archiving means, so retiring the deployment is the operation, not a side
+    effect. Restore does not redeploy — publish again to bring the card back.
+    """
+    from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS
+    from agent_core.cards.routing import runtime_entry_bot_id
+
+    bid = (bot_id or "").strip()
+    if not bid:
+        raise ValueError("bot_id_required")
+    if bid in FIRST_PARTY_BOT_IDS:
+        raise ValueError("first_party_card_not_archivable")
+    if bid == runtime_entry_bot_id():
+        raise ValueError("entry_card_not_archivable")
+    with engine.begin() as conn:
+        updated = conn.execute(
+            text(
+                """
+                UPDATE bots SET archived_at = now(), updated_at = now()
+                 WHERE id = :id AND tenant_id = :t AND archived_at IS NULL
+                """
+            ),
+            {"id": bid, "t": _tenant()},
+        ).rowcount
+        if updated:
+            retired = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id FROM bot_deployments
+                         WHERE bot_id = :id AND environment = 'production'
+                           AND status = 'active'
+                         LIMIT 1
+                        """
+                    ),
+                    {"id": bid},
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE bot_deployments
+                       SET status = 'retired', updated_at = now()
+                     WHERE bot_id = :id AND environment = 'production'
+                       AND status = 'active'
+                    """
+                ),
+                {"id": bid},
+            )
+            from agent_core import change_log
+
+            change_log.record_archive(
+                conn,
+                tenant_id=_tenant(),
+                actor_user_id=_actor_user_id() or "system",
+                entry_id=_id("AUD"),
+                bot_id=bid,
+                retired_deployment_id=(retired or {}).get("id"),
+            )
+    if not updated:
+        raise KeyError(f"agent_card_not_found_or_archived:{bid}")
+    return {"ok": True, "botId": bid, "archived": True}
+
+
+def restore_agent_studio_card(bot_id: str) -> dict[str, Any]:
+    """Undo an archive. The card returns exactly as it was left."""
+    bid = (bot_id or "").strip()
+    if not bid:
+        raise ValueError("bot_id_required")
+    with engine.begin() as conn:
+        updated = conn.execute(
+            text(
+                """
+                UPDATE bots SET archived_at = NULL, updated_at = now()
+                 WHERE id = :id AND tenant_id = :t AND archived_at IS NOT NULL
+                """
+            ),
+            {"id": bid, "t": _tenant()},
+        ).rowcount
+    if not updated:
+        raise KeyError(f"archived_card_not_found:{bid}")
+    return {"ok": True, "botId": bid, "archived": False}
+
+
+def agent_change_log(bot_id: str | None = None, *, limit: int = 50) -> dict[str, Any]:
+    """Publish / rollback / archive history, plus the chain-integrity verdict.
+
+    ``chain`` is reported alongside the entries rather than on a separate call:
+    a change log whose integrity you have to remember to check separately is one
+    nobody checks.
+    """
+    from agent_core import change_log
+
+    with engine.connect() as conn:
+        return {
+            "entries": change_log.read_entries(
+                conn, tenant_id=_tenant(), bot_id=bot_id, limit=limit
+            ),
+            "chain": change_log.verify_chain(conn, tenant_id=_tenant()),
+        }
+
+
+def compile_agent_studio_card(
+    bot_id: str,
+    *,
+    card_raw: dict[str, Any] | None = None,
+    flow: Any = None,
+    traffic_pct: int | None = None,
+    auto_rollback: list[str] | None = None,
+) -> dict[str, Any]:
+    from agent_core.cards.compile import compile_card
+    from agent_core.cards.defaults import card_dump
+    from agent_core.tools.catalog import CATALOG
+
+    published, draft = _studio_card_versions(bot_id)
+    card = card_raw if isinstance(card_raw, dict) and card_raw else None
+    if card is None:
+        # Compile preview must gate what publish will actually ship, and publish
+        # ships the draft. Falling straight to published reported a green compile
+        # for a draft whose card had not been checked.
+        for row in (draft, published):
+            candidate = (row or {}).get("agentCard")
+            if isinstance(candidate, dict) and candidate:
+                card = candidate
+                break
+    if not card:
+        try:
+            card = card_dump(bot_id)
+        except KeyError:
+            card = {}
+    graph = flow if flow is not None else ((draft or published or {}).get("flow") or {})
+    attached = None
+    try:
+        from agent_core.cards.schema import is_authored, parse_card
+        from agent_core.skills.persist import packs_for_slugs
+
+        raw = card if isinstance(card, dict) else {}
+        if is_authored(raw):
+            parsed = parse_card(raw)
+            attached = packs_for_slugs([r.skill_id for r in parsed.skills]) or None
+    except Exception:
+        attached = None
+    report = compile_card(
+        bot_id=bot_id,
+        card_raw=card,
+        flow=graph,
+        catalog_names=set(CATALOG.specs),
+        known_bot_ids=list_bot_ids(),
+        eval_report=get_latest_eval_report(bot_id=bot_id, kind="regression"),
+        redteam_report=get_latest_eval_report(bot_id=bot_id, kind="redteam"),
+        twin_report=_latest_twin_gate_report(),
+        attached_skills=attached,
+        # Without these the preview read the card's stored experiment while
+        # publish used the Ship tab's, so G12 reported "full ship" green and the
+        # very next call 422'd on "canary split requires auto_rollback".
+        traffic_pct=traffic_pct,
+        auto_rollback=auto_rollback,
+    )
+    return report.model_dump()
+
+
 def list_persona_presets() -> list[dict[str, Any]]:
     with engine.connect() as conn:
         rows = _rows(
@@ -10308,6 +13186,7 @@ def list_persona_presets() -> list[dict[str, Any]]:
                     """
                     SELECT id, name, config
                     FROM persona_presets
+                    WHERE tenant_id = :tenant_id
                     ORDER BY CASE id
                       WHEN 'empathetic' THEN 1
                       WHEN 'firm' THEN 2
@@ -10316,7 +13195,8 @@ def list_persona_presets() -> list[dict[str, Any]]:
                       ELSE 99
                     END, id
                     """
-                )
+                ),
+                {"tenant_id": _tenant()},
             )
         )
         out: list[dict[str, Any]] = []
@@ -10355,7 +13235,7 @@ def list_tts_voices() -> list[dict[str, Any]]:
                     """
                     SELECT id, name, config, enabled
                     FROM tts_voices
-                    WHERE enabled = true
+                    WHERE enabled = true AND tenant_id = :tenant_id
                     ORDER BY CASE id
                       WHEN 'priya' THEN 1
                       WHEN 'anjali' THEN 2
@@ -10366,7 +13246,8 @@ def list_tts_voices() -> list[dict[str, Any]]:
                       ELSE 99
                     END, name, id
                     """
-                )
+                ),
+                {"tenant_id": _tenant()},
             )
         )
         out: list[dict[str, Any]] = []
@@ -10597,8 +13478,21 @@ def list_tts_price_tiers() -> list[dict[str, Any]]:
     ]
 
 
+def tts_catalog_is_populated() -> bool:
+    """True when the Azure voice catalog has been synced at least once."""
+    with engine.connect() as conn:
+        return bool(_one(conn.execute(text("SELECT 1 FROM tts_voice_catalog LIMIT 1"))))
+
+
 def get_tts_voice_warning(short_name: str | None) -> dict[str, Any] | None:
-    """Warn when selected voice is missing / removed / deprecated."""
+    """Warn when selected voice is missing / removed / deprecated.
+
+    Returns None when the catalog has never been synced. An empty table means
+    "no catalog data", not "Azure removed every voice" — and because the caller
+    rewrites ``tts.voice`` to ``fallbackVoice``, judging on no data silently
+    forced every call onto the default voice regardless of what the operator
+    picked in Prompt Studio or the Tuning Studio.
+    """
     from tts_catalog_sync import DEFAULT_VOICE
 
     sn = (short_name or "").strip()
@@ -10606,6 +13500,10 @@ def get_tts_voice_warning(short_name: str | None) -> dict[str, Any] | None:
         return None
     entry = get_tts_voice_catalog_entry(sn)
     if entry is None:
+        # The fallback cannot be "missing" — rewriting it to itself is noise,
+        # and reporting it as broken is misleading in the Studio's voice picker.
+        if sn == DEFAULT_VOICE or not tts_catalog_is_populated():
+            return None
         return {
             "shortName": sn,
             "code": "missing",
@@ -10701,8 +13599,15 @@ def list_bot_deployments(
     *,
     environment: str | None = None,
     status: str | None = None,
+    bot_id: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Runtime deployments — authoritative for what runs."""
+    """Runtime deployments — authoritative for what runs.
+
+    Paged: this table gains a row on every publish, so it grows with release
+    cadence rather than staying at the handful the demo has.
+    """
     clauses = ["1=1"]
     params: dict[str, Any] = {}
     if environment in ("sandbox", "production"):
@@ -10711,6 +13616,9 @@ def list_bot_deployments(
     if status in ("active", "rolled_back", "retired"):
         clauses.append("d.status = :status")
         params["status"] = status
+    if bot_id:
+        clauses.append("d.bot_id = :bot_id")
+        params["bot_id"] = bot_id
     where = " AND ".join(clauses)
     with engine.connect() as conn:
         rows = _rows(
@@ -10727,9 +13635,10 @@ def list_bot_deployments(
                     LEFT JOIN users u ON u.id = d.published_by_user_id
                     WHERE {where}
                     ORDER BY d.published_at DESC NULLS LAST, d.id DESC
+                    LIMIT :limit OFFSET :offset
                     """
                 ),
-                params,
+                {**params, "limit": clamp_list_limit(limit), "offset": clamp_offset(offset)},
             )
         )
         out: list[dict[str, Any]] = []
@@ -10771,6 +13680,7 @@ _ACTIVE_DEPLOYMENT_SELECT = """
       d.id, d.bot_id, d.prompt_version_id, d.kb_snapshot_id,
       d.tts_voice_id, d.environment, d.status,
       d.published_at, d.rollback_deployment_id, d.voice_config, d.tuning,
+      d.traffic_pct, d.shadow, d.eval_report_id,
       COALESCE(u.name, d.published_by_user_id) AS published_by
     FROM bot_deployments d
     LEFT JOIN users u ON u.id = d.published_by_user_id
@@ -10803,14 +13713,19 @@ def get_active_deployment(
 ) -> dict[str, Any] | None:
     """Authoritative runtime loader. One active row per (bot, env) expected.
 
-    Multi-bot note: still filtered by bot_id even though prompt_versions are
-    global (Phase 5 structural change required for true multi-bot prompts).
+    Multi-bot: filtered by bot_id. One published prompt per bot.
     """
     bid = (bot_id or DEFAULT_BOT_ID).strip() or DEFAULT_BOT_ID
     env = environment if environment in ("sandbox", "production") else "production"
     with engine.connect() as conn:
         row = _fetch_active_deployment_row(conn, bot_id=bid, environment=env)
         return _map_bot_deployment_row(row) if row else None
+
+
+def get_deployment(deployment_id: str) -> dict[str, Any] | None:
+    """Load a deployment by id, including retired baselines used by canary split."""
+    with engine.connect() as conn:
+        return _fetch_bot_deployment(conn, deployment_id)
 
 
 def _latest_kb_snapshot_id(conn: Any) -> str | None:
@@ -10831,7 +13746,8 @@ def _latest_kb_snapshot_id(conn: Any) -> str | None:
 _PROMPT_VERSION_SELECT = """
     SELECT
       p.id, p.label, p.summary, p.status, p.prompt,
-      p.persona, p.voice, p.guardrails, p.tuning, p.flow, p.created_at,
+      p.persona, p.voice, p.guardrails, p.tuning, p.flow,
+      p.bot_id, p.agent_card, p.created_at,
       COALESCE(u.name, 'Unknown') AS author_name
     FROM prompt_versions p
     LEFT JOIN users u ON u.id = p.author_user_id
@@ -10883,6 +13799,9 @@ def _map_bot_deployment_row(r: dict[str, Any]) -> dict[str, Any]:
         "rollbackDeploymentId": r.get("rollback_deployment_id"),
         "voiceConfig": _as_dict(r.get("voice_config")),
         "tuning": tuning,
+        "trafficPct": int(r.get("traffic_pct") or 100),
+        "shadow": bool(r.get("shadow")),
+        "evalReportId": r.get("eval_report_id"),
     }
 
 
@@ -10895,6 +13814,7 @@ def _fetch_bot_deployment(conn: Any, deployment_id: str) -> dict[str, Any] | Non
                   d.id, d.bot_id, d.prompt_version_id, d.kb_snapshot_id,
                   d.tts_voice_id, d.environment, d.status,
                   d.published_at, d.rollback_deployment_id, d.voice_config, d.tuning,
+                  d.traffic_pct, d.shadow, d.eval_report_id,
                   COALESCE(u.name, d.published_by_user_id) AS published_by
                 FROM bot_deployments d
                 LEFT JOIN users u ON u.id = d.published_by_user_id
@@ -10926,22 +13846,58 @@ def create_prompt_version(payload: dict[str, Any]) -> dict[str, Any]:
         # Avoid colliding with an existing id (e.g. republish of same label slug).
         if _one(conn.execute(text("SELECT 1 FROM prompt_versions WHERE id = :id"), {"id": version_id})):
             version_id = f"{version_id}-{uuid.uuid4().hex[:6]}"
+        bot_id = str(payload.get("botId") or payload.get("bot_id") or DEFAULT_BOT_ID).strip() or DEFAULT_BOT_ID
+        if not _one(conn.execute(text("SELECT 1 FROM bots WHERE id = :id"), {"id": bot_id})):
+            raise KeyError(f"bot_not_found:{bot_id}")
+        card_raw = payload.get("agentCard") if "agentCard" in payload else payload.get("agent_card")
+        if card_raw is None:
+            # Inherit this bot's current card before reaching for the on-disk
+            # first-party default. Autosave and publish both create versions
+            # without an agentCard, so jumping straight to card_dump reset every
+            # authored skill/tool edit on a first-party bot, and wiped the card
+            # outright on a tenant clone (card_dump raises for those ids).
+            inherited = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT agent_card FROM prompt_versions
+                         WHERE bot_id = :bot_id
+                           AND status IN ('published', 'draft')
+                           AND agent_card IS NOT NULL
+                           AND agent_card <> '{}'::jsonb
+                         ORDER BY (status = 'published') DESC, created_at DESC, id DESC
+                         LIMIT 1
+                        """
+                    ),
+                    {"bot_id": bot_id},
+                )
+            )
+            card_raw = _as_dict((inherited or {}).get("agent_card")) or None
+        if card_raw is None:
+            try:
+                from agent_core.cards.defaults import card_dump as _card_dump
+
+                card_raw = _card_dump(bot_id)
+            except KeyError:
+                card_raw = {}
         conn.execute(
             text(
                 """
                 INSERT INTO prompt_versions (
-                  id, author_user_id, status, prompt, persona, voice, guardrails,
-                  tuning, flow, label, summary, created_at, updated_at
+                  id, tenant_id, bot_id, author_user_id, status, prompt, persona, voice,
+                  guardrails, tuning, flow, agent_card, label, summary, created_at, updated_at
                 ) VALUES (
-                  :id, :author, 'draft', :prompt,
+                  :id, :tenant_id, :bot_id, :author, 'draft', :prompt,
                   CAST(:persona AS jsonb), CAST(:voice AS jsonb), CAST(:guardrails AS jsonb),
-                  CAST(:tuning AS jsonb), CAST(:flow AS jsonb),
+                  CAST(:tuning AS jsonb), CAST(:flow AS jsonb), CAST(:agent_card AS jsonb),
                   :label, :summary, now(), now()
                 )
                 """
             ),
             {
                 "id": version_id,
+                "tenant_id": _tenant(),
+                "bot_id": bot_id,
                 "author": _actor_user_id(),
                 "prompt": payload["prompt"],
                 "persona": _jsonb(payload["persona"]),
@@ -10951,6 +13907,7 @@ def create_prompt_version(payload: dict[str, Any]) -> dict[str, Any]:
                 # Absent flow stores '{}', which parse_graph reads as "no graph"
                 # and the runtime treats as "use the built-in flow".
                 "flow": _jsonb(payload.get("flow") or {}),
+                "agent_card": _jsonb(card_raw if isinstance(card_raw, dict) else {}),
                 "label": label,
                 "summary": payload.get("summary") or "",
             },
@@ -11015,6 +13972,22 @@ def patch_prompt_version(version_id: str, payload: dict[str, Any]) -> dict[str, 
             sets = [s for s in sets if not s.startswith("tuning =")]
             sets.append("tuning = CAST(:tuning AS jsonb)")
             params["tuning"] = _jsonb(normalize_tuning(payload["tuning"]))
+        # Key present vs omitted, not truthiness: an explicit {} means "no
+        # authored graph" (use the built-in script). A missing key leaves the
+        # stored graph alone so a save that never opened the flow tab cannot
+        # wipe one.
+        if "flow" in payload:
+            flow_val = payload["flow"]
+            if hasattr(flow_val, "model_dump"):
+                flow_val = flow_val.model_dump()
+            sets.append("flow = CAST(:flow AS jsonb)")
+            params["flow"] = _jsonb(flow_val or {})
+        card_val = payload["agentCard"] if "agentCard" in payload else payload.get("agent_card") if "agent_card" in payload else None
+        if "agentCard" in payload or "agent_card" in payload:
+            if hasattr(card_val, "model_dump"):
+                card_val = card_val.model_dump()
+            sets.append("agent_card = CAST(:agent_card AS jsonb)")
+            params["agent_card"] = _jsonb(card_val if isinstance(card_val, dict) else {})
         if not sets:
             row = _fetch_prompt_version(conn, version_id)
             assert row is not None
@@ -11029,12 +14002,39 @@ def patch_prompt_version(version_id: str, payload: dict[str, Any]) -> dict[str, 
     return row
 
 
+def _change_log_components(
+    conn: Any, version_id: str, target: dict[str, Any], summary: str
+) -> dict[str, Any]:
+    """The version as the change log hashes it.
+
+    Read back rather than taken from ``target``: the publishing transaction
+    rewrites ``agent_card`` (the shipped experiment) and ``tuning`` before this
+    point, so the in-memory copy is stale and the digest would describe a
+    version that was never live.
+    """
+    row = _one(
+        conn.execute(
+            text(
+                """
+                SELECT id, label, prompt, persona, voice, guardrails, flow, agent_card
+                  FROM prompt_versions WHERE id = :id
+                """
+            ),
+            {"id": version_id},
+        )
+    ) or {}
+    return {**dict(row), "label": row.get("label") or target.get("label"), "summary": summary}
+
+
 def publish_prompt_version(
     version_id: str,
     summary: str = "",
     *,
     kb_snapshot_id: str | None = None,
     tuning: dict[str, Any] | None = None,
+    traffic_pct: int | None = None,
+    shadow: bool = False,
+    auto_rollback: list[str] | None = None,
 ) -> dict[str, Any]:
     """Archive current published → promote draft → swap active prod deployment.
 
@@ -11045,16 +14045,11 @@ def publish_prompt_version(
     from agent_core.tuning import apply_voice_config_overlay, default_tuning, normalize_tuning
 
     with engine.begin() as conn:
-        # Serialize publish/rollback for this bot+env (single-active invariant).
-        conn.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-            {"k": f"{DEFAULT_BOT_ID}:production"},
-        )
         target = _one(
             conn.execute(
                 text(
                     """
-                    SELECT id, status, voice, label, tuning
+                    SELECT id, status, voice, label, tuning, flow, bot_id, agent_card
                     FROM prompt_versions WHERE id = :id
                     """
                 ),
@@ -11065,6 +14060,99 @@ def publish_prompt_version(
             raise KeyError(f"prompt_version_not_found: {version_id}")
         if target["status"] != "draft":
             raise ValueError("prompt_version_not_draft")
+
+        bot_id = str(target.get("bot_id") or DEFAULT_BOT_ID).strip() or DEFAULT_BOT_ID
+        # Serialize publish/rollback for this bot+env (single-active invariant).
+        conn.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": f"{bot_id}:production"},
+        )
+
+        # Compiler: flow + Agent Card gates. Empty card is legacy (G0 skipped).
+        from agent_core.cards.compile import compile_card, assert_publishable as _assert_card
+        from agent_core.tools.catalog import CATALOG as _CATALOG
+
+        known_bots = {r["id"] for r in _rows(conn.execute(text("SELECT id FROM bots")))}
+        card_raw = target.get("agent_card") if isinstance(target.get("agent_card"), dict) else {}
+        attached = None
+        try:
+            from agent_core.cards.schema import is_authored, parse_card
+            from agent_core.skills.persist import packs_for_slugs, sync_attachments_from_card
+
+            if is_authored(card_raw):
+                parsed = parse_card(card_raw)
+                attached = packs_for_slugs([r.skill_id for r in parsed.skills]) or None
+        except Exception:
+            attached = None
+        exp = card_raw.get("experiment") if isinstance(card_raw.get("experiment"), dict) else {}
+        pct = traffic_pct if traffic_pct is not None else int(exp.get("traffic_pct") or 100)
+        triggers = auto_rollback if auto_rollback is not None else list(exp.get("auto_rollback") or [])
+        a2a_raw = card_raw.get("a2a") if isinstance(card_raw.get("a2a"), dict) else {}
+        cert_ok = None
+        if a2a_raw.get("expose"):
+            try:
+                from agent_core.a2a import partner_has_cert
+
+                cert_ok = partner_has_cert(bot_id)
+            except Exception:
+                cert_ok = False
+        import authz as _authz
+
+        uid = _actor_user_id()
+        has_publish = bool(uid and _authz.has_permission(uid, _authz.AGENT_PUBLISH))
+        report = compile_card(
+            bot_id=bot_id,
+            card_raw=card_raw,
+            flow=target.get("flow"),
+            catalog_names=set(_CATALOG.specs),
+            known_bot_ids=known_bots,
+            eval_report=get_latest_eval_report(bot_id=bot_id, kind="regression"),
+            redteam_report=get_latest_eval_report(bot_id=bot_id, kind="redteam"),
+            twin_report=_latest_twin_gate_report(),
+            attached_skills=attached,
+            traffic_pct=pct,
+            auto_rollback=triggers,
+            has_publish=has_publish,
+            a2a_cert_ok=cert_ok,
+        )
+        _assert_card(report)
+        # Fold the shipped experiment back into the card. The deployment row
+        # recorded the split, but the card kept whatever it was authored with —
+        # so the Studio's Ship tab, which reads the card, showed 100% after a
+        # 40% canary and would silently re-ship at full traffic on the next
+        # publish. Only valid triggers are stored: CardExperiment types them as
+        # a Literal, so an unknown one would make the card unparseable.
+        shipped_card = card_raw
+        try:
+            from agent_core.cards.compile import _ROLLBACK_TRIGGERS
+            from agent_core.cards.schema import is_authored as _is_authored
+
+            if _is_authored(card_raw):
+                shipped_exp = {
+                    "traffic_pct": int(pct),
+                    "shadow": bool(shadow),
+                    "auto_rollback": [t for t in triggers if t in _ROLLBACK_TRIGGERS],
+                }
+                if (card_raw.get("experiment") or {}) != shipped_exp:
+                    shipped_card = {**card_raw, "experiment": shipped_exp}
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE prompt_versions
+                            SET agent_card = CAST(:card AS jsonb), updated_at = now()
+                            WHERE id = :id
+                            """
+                        ),
+                        {"id": version_id, "card": _jsonb(shipped_card)},
+                    )
+        except Exception:
+            logger.exception("could not persist the shipped experiment onto the card")
+        try:
+            from agent_core.skills.persist import sync_attachments_from_card
+
+            sync_attachments_from_card(version_id, card_raw)
+        except Exception:
+            logger.exception("skill attachment sync failed")
 
         note = (summary or "").strip()
         voice = _prompt_voice(target.get("voice"))
@@ -11078,7 +14166,7 @@ def publish_prompt_version(
             tts_voice_id = resolve_prompt_azure_voice(voice) or _DEFAULT_AZURE_TTS_VOICE
 
         prior = _fetch_active_deployment_row(
-            conn, bot_id=DEFAULT_BOT_ID, environment="production"
+            conn, bot_id=bot_id, environment="production"
         )
         resolved_snap = kb_snapshot_id
         if not resolved_snap:
@@ -11127,15 +14215,33 @@ def publish_prompt_version(
             {"id": version_id, "tuning": _jsonb(resolved_tuning)},
         )
 
+        # Captured while it is still the live row — the change log diffs the
+        # incoming version against the one it replaces, and the next statement
+        # archives it.
+        previously_published = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, label, prompt, persona, voice, guardrails, flow, agent_card
+                      FROM prompt_versions
+                     WHERE bot_id = :bot_id AND status = 'published'
+                     LIMIT 1
+                    """
+                ),
+                {"bot_id": bot_id},
+            )
+        )
+
         try:
             conn.execute(
                 text(
                     """
                     UPDATE prompt_versions
                     SET status = 'archived', updated_at = now()
-                    WHERE status = 'published'
+                    WHERE status = 'published' AND bot_id = :bot_id
                     """
-                )
+                ),
+                {"bot_id": bot_id},
             )
             conn.execute(
                 text(
@@ -11178,18 +14284,19 @@ def publish_prompt_version(
                     INSERT INTO bot_deployments (
                       id, bot_id, prompt_version_id, kb_snapshot_id, tts_voice_id,
                       environment, status, published_by_user_id, published_at,
-                      rollback_deployment_id, voice_config, tuning, created_at, updated_at
+                      rollback_deployment_id, voice_config, tuning,
+                      traffic_pct, shadow, created_at, updated_at
                     ) VALUES (
                       :id, :bot_id, :prompt_version_id, :kb_snapshot_id, :tts_voice_id,
                       'production', 'active', :actor, now(),
                       :rollback_id, CAST(:voice_config AS jsonb), CAST(:tuning AS jsonb),
-                      now(), now()
+                      :traffic_pct, :shadow, now(), now()
                     )
                     """
                 ),
                 {
                     "id": dep_id,
-                    "bot_id": DEFAULT_BOT_ID,
+                    "bot_id": bot_id,
                     "prompt_version_id": version_id,
                     "kb_snapshot_id": resolved_snap,
                     "tts_voice_id": tts_voice_id,
@@ -11197,7 +14304,45 @@ def publish_prompt_version(
                     "rollback_id": prior["id"] if prior else None,
                     "voice_config": _jsonb(voice_config),
                     "tuning": _jsonb(resolved_tuning),
+                    "traffic_pct": pct,
+                    "shadow": bool(shadow),
                 },
+            )
+            try:
+                from agent_core.canary import record_experiment
+
+                record_experiment(
+                    conn,
+                    bot_id=bot_id,
+                    canary_deployment_id=dep_id,
+                    baseline_deployment_id=prior["id"] if prior else None,
+                    traffic_pct=pct,
+                    shadow=bool(shadow),
+                    auto_rollback=list(triggers or []),
+                )
+            except Exception:
+                logger.exception("canary experiment record failed")
+
+            # Change log — inside the transaction on purpose. A record that can
+            # be lost when the process dies mid-publish is worse than none,
+            # because it looks complete. Not wrapped in try/except for the same
+            # reason: if the agent's configuration history cannot be written,
+            # the configuration must not change either.
+            from agent_core import change_log
+
+            change_log.record_publish(
+                conn,
+                tenant_id=_tenant(),
+                actor_user_id=uid or "system",
+                entry_id=_id("AUD"),
+                bot_id=bot_id,
+                version=_change_log_components(conn, version_id, target, note),
+                previous_version=previously_published,
+                deployment_id=dep_id,
+                traffic_pct=pct,
+                shadow=bool(shadow),
+                auto_rollback=list(triggers or []),
+                report=report,
             )
         except IntegrityError as exc:
             raise ValueError("publish_conflict") from exc
@@ -11216,7 +14361,8 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
             conn.execute(
                 text(
                     """
-                    SELECT id, label, prompt, persona, voice, guardrails, tuning, flow
+                    SELECT id, label, prompt, persona, voice, guardrails, tuning, flow,
+                           bot_id, agent_card
                     FROM prompt_versions WHERE id = :id
                     """
                 ),
@@ -11233,18 +14379,20 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
             text(
                 """
                 INSERT INTO prompt_versions (
-                  id, author_user_id, status, prompt, persona, voice, guardrails,
-                  tuning, flow, label, summary, created_at, updated_at
+                  id, tenant_id, bot_id, author_user_id, status, prompt, persona, voice,
+                  guardrails, tuning, flow, agent_card, label, summary, created_at, updated_at
                 ) VALUES (
-                  :id, :author, 'draft', :prompt,
+                  :id, :tenant_id, :bot_id, :author, 'draft', :prompt,
                   CAST(:persona AS jsonb), CAST(:voice AS jsonb), CAST(:guardrails AS jsonb),
-                  CAST(:tuning AS jsonb), CAST(:flow AS jsonb),
+                  CAST(:tuning AS jsonb), CAST(:flow AS jsonb), CAST(:agent_card AS jsonb),
                   :label, :summary, now(), now()
                 )
                 """
             ),
             {
                 "id": new_id,
+                "tenant_id": _tenant(),
+                "bot_id": source.get("bot_id") or DEFAULT_BOT_ID,
                 "author": _actor_user_id(),
                 "prompt": source["prompt"],
                 "persona": _jsonb(_as_dict(source.get("persona"))),
@@ -11254,6 +14402,7 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
                 # Carried across: a restore that dropped the graph would produce
                 # a draft that is not actually the version it claims to restore.
                 "flow": _jsonb(_as_dict(source.get("flow"))),
+                "agent_card": _jsonb(_as_dict(source.get("agent_card"))),
                 "label": None,
                 "summary": f"restored from {src_label}",
             },
@@ -11344,9 +14493,10 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                     """
                     UPDATE prompt_versions
                     SET status = 'archived', updated_at = now()
-                    WHERE status = 'published'
+                    WHERE status = 'published' AND bot_id = :bot_id
                     """
-                )
+                ),
+                {"bot_id": target["bot_id"]},
             )
             conn.execute(
                 text(
@@ -11399,6 +14549,21 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                     "voice_config": _jsonb(_as_dict(target.get("voice_config"))),
                     "tuning": _jsonb(_as_dict(target.get("tuning"))),
                 },
+            )
+
+            # A rollback changes what callers hear exactly as much as a publish
+            # does, so it belongs in the same chain.
+            from agent_core import change_log
+
+            change_log.record_rollback(
+                conn,
+                tenant_id=_tenant(),
+                actor_user_id=_actor_user_id() or "system",
+                entry_id=_id("AUD"),
+                bot_id=target["bot_id"],
+                to_deployment_id=new_id,
+                from_deployment_id=current["id"] if current else None,
+                version_id=prompt_version_id,
             )
         except IntegrityError as exc:
             raise ValueError("publish_conflict") from exc
@@ -11491,10 +14656,17 @@ _KB_DOC_SELECT = """
 """
 
 
-def list_kb_documents() -> list[dict[str, Any]]:
+def list_kb_documents(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
-            conn.execute(text(_KB_DOC_SELECT + " ORDER BY d.updated_at DESC, d.id ASC"))
+            conn.execute(
+                text(
+                    _KB_DOC_SELECT
+                    + " ORDER BY d.updated_at DESC, d.id ASC LIMIT :limit OFFSET :offset"
+                ),
+                {"limit": page, "offset": skip},
+            )
         )
     return [_serialize_kb_document(r) for r in rows]
 
@@ -11510,7 +14682,16 @@ def get_kb_document(document_id: str) -> dict[str, Any] | None:
     return _serialize_kb_document(row) if row else None
 
 
-def list_kb_chunks(document_id: str) -> list[dict[str, Any]]:
+def list_kb_chunks(
+    document_id: str, *, limit: int | None = None, offset: int | None = None
+) -> list[dict[str, Any]]:
+    """Chunks of one document, newest ingest first within chunk order.
+
+    Bounded because every row carries its full chunk ``text``: a long policy PDF
+    is thousands of chunks, and the chunk viewer only ever renders a page of
+    them. This was the largest single response the API could produce.
+    """
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -11520,9 +14701,10 @@ def list_kb_chunks(document_id: str) -> list[dict[str, Any]]:
                     FROM kb_chunks
                     WHERE document_id = :id
                     ORDER BY chunk_index ASC, created_at ASC
+                    LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"id": document_id},
+                {"id": document_id, "limit": page, "offset": skip},
             )
         )
     return [
@@ -11588,7 +14770,7 @@ def get_kb_stats() -> dict[str, Any]:
                       )
                     """
                 ),
-                {"tenant_id": TENANT_ID},
+                {"tenant_id": _tenant()},
             )
         ) or {"n": 0}
         score_row = _one(
@@ -11935,8 +15117,6 @@ def create_kb_document_from_upload(
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
     """Multipart upload → MinIO + kb_source_files (+ optional index job)."""
-    import json
-
     import kb_ingest
     import storage as object_store
 
@@ -12026,11 +15206,11 @@ def _kb_upload_rows(
             text(
                 """
                 INSERT INTO kb_documents (
-                  id, updated_by_user_id, type, version, status, enabled,
+                  id, tenant_id, updated_by_user_id, type, version, status, enabled,
                   chunk_size, chunk_overlap, title, tags, embedding_model,
                   product_key, source_path, created_at, updated_at
                 ) VALUES (
-                  :id, :actor, :type, 'v1.0', :status, :enabled,
+                  :id, :tenant_id, :actor, :type, 'v1.0', :status, :enabled,
                   :chunk_size, :overlap, :title, CAST(:tags AS jsonb), NULL,
                   NULL, NULL, now(), now()
                 )
@@ -12038,6 +15218,7 @@ def _kb_upload_rows(
             ),
             {
                 "id": doc_id,
+                "tenant_id": _tenant(),
                 "actor": _actor_user_id(),
                 "type": doc_type,
                 "status": status,
@@ -12277,7 +15458,8 @@ def _serialize_kb_faq(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def list_kb_faqs() -> list[dict[str, Any]]:
+def list_kb_faqs(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -12287,8 +15469,10 @@ def list_kb_faqs() -> list[dict[str, Any]]:
                            linked_document_id, updated_at
                     FROM faq_pairs
                     ORDER BY updated_at DESC, id ASC
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip},
             )
         )
     return [_serialize_kb_faq(r) for r in rows]
@@ -12536,7 +15720,7 @@ def record_kb_gap(
 
     params = {
         "id": _id("GAP"),
-        "tenant_id": TENANT_ID,
+        "tenant_id": _tenant(),
         "question": q,
         "top_intent": top_intent,
     }
@@ -12592,7 +15776,7 @@ def purge_stale_kb_gaps(*, ttl_days: int = 90, conn: Any | None = None) -> int:
            )
         """
     )
-    params = {"tenant_id": TENANT_ID, "window": f"{max(1, int(ttl_days))} days"}
+    params = {"tenant_id": _tenant(), "window": f"{max(1, int(ttl_days))} days"}
     if conn is not None:
         return conn.execute(sql, params).rowcount or 0
     with engine.begin() as own:
@@ -12633,7 +15817,7 @@ def list_kb_gaps() -> list[dict[str, Any]]:
                     LIMIT :lim
                     """
                 ),
-                {"tenant_id": TENANT_ID, "lim": KB_GAP_LIST_LIMIT},
+                {"tenant_id": _tenant(), "lim": KB_GAP_LIST_LIMIT},
             )
         )
     out: list[dict[str, Any]] = []
@@ -12688,7 +15872,7 @@ def _link_kb_gap_conn(
                 WHERE id = :id AND tenant_id = :tenant_id
                 """
             ),
-            {"id": gap_id, "tenant_id": TENANT_ID},
+            {"id": gap_id, "tenant_id": _tenant()},
         )
     )
     if not gap:
@@ -12883,36 +16067,14 @@ def list_sandbox_scenarios() -> list[dict[str, Any]]:
                     """
                     SELECT id, name, sim_persona, turns, created_at
                     FROM sandbox_scenarios
+                    WHERE tenant_id = :tenant_id
                     ORDER BY created_at ASC, id ASC
                     """
-                )
+                ),
+                {"tenant_id": _tenant()},
             )
         )
         return [_map_sandbox_scenario(r) for r in rows]
-
-
-def get_sandbox_scenario(scenario_id: str) -> dict[str, Any] | None:
-    with engine.connect() as conn:
-        r = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT id, name, sim_persona, turns, created_at
-                    FROM sandbox_scenarios
-                    WHERE id = :id
-                    """
-                ),
-                {"id": scenario_id},
-            )
-        )
-        if r is None:
-            return None
-        mapped = _map_sandbox_scenario(r)
-        # Runner needs full persona extras (accountNo / dueDate / bankName).
-        sim = _as_dict(r.get("sim_persona"))
-        mapped["persona"] = _sandbox_persona_from_sim(sim)
-        mapped["name"] = r.get("name") or mapped["title"]
-        return mapped
 
 
 def _chunk_meta_grouped(conn: Any, chunk_ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -13398,7 +16560,7 @@ def billing_overview(
                 {
                     "start": start,
                     "end": end,
-                    "primary": TENANT_ID,
+                    "primary": _tenant(),
                     "services": list(_METERED_SERVICE_IDS),
                 },
             )
@@ -13840,6 +17002,7 @@ def _model_spend(
                        bs.unit AS unit,
                        bs.color,
                        COALESCE(ue.model, '(unspecified)') AS model,
+                       COALESCE(ue.source_ref, '(unspecified)') AS source_ref,
                        SUM(ue.units)    AS units,
                        SUM(ue.cost_inr) AS cost,
                        COUNT(DISTINCT ue.interaction_id) AS calls
@@ -13850,7 +17013,7 @@ def _model_spend(
                    AND ue.environment = :env
                    AND ue.service_id = ANY(:services)
                    {tenant_sql}
-                 GROUP BY ue.service_id, bs.name, bs.unit, bs.color, ue.model
+                 GROUP BY ue.service_id, bs.name, bs.unit, bs.color, ue.model, ue.source_ref
                  ORDER BY SUM(ue.cost_inr) DESC
                 """
             ),
@@ -13864,6 +17027,7 @@ def _model_spend(
             "unit": r["unit"],
             "color": r["color"],
             "model": r["model"],
+            "sourceRef": r.get("source_ref"),
             "units": _fnum(r["units"]),
             "costInr": _fnum(r["cost"]),
             "calls": int(r["calls"] or 0),
@@ -14019,24 +17183,428 @@ def billing_export_csv(
 
 # Phase 3B seed-chip close-out (coaching / calibration / redaction writes /
 # routing writes / workspace rolling stats). Keep call sites as db.*.
+# Redundant aliases are explicit re-exports so F401 does not treat them as dead.
+# get_calibration_session stays in followups_db — only patch uses it.
+# ---------------------------------------------------------------------------
+# Treatment holds (P3)
+#
+# The veto that had no home. Hardship, an open dispute, a regulatory complaint,
+# bereavement and a matter with legal all mean "stop dunning this borrower",
+# and all five used to live as prose in the policy corpus or as a routing rule
+# that fired only when a human was already on the call. As rows they bind the
+# bot at 02:00 exactly as they bind a supervisor.
+# ---------------------------------------------------------------------------
+
+HOLD_KINDS = ("hardship", "dispute", "complaint", "bereavement", "legal")
+HOLD_SOURCES = ("manual", "bot", "system", "regulator")
+
+
+def list_treatment_holds(
+    *,
+    customer_id: str | None = None,
+    active_only: bool = True,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[dict[str, Any]]:
+    """Holds visible to the caller. Tenant- and object-scoped like any queue."""
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
+    where = ["c.tenant_id = :tenant_id"]
+    params: dict[str, Any] = {
+        "tenant_id": _tenant(),
+        "limit": page,
+        "offset": skip,
+        **_vis_params(),
+    }
+    if customer_id:
+        where.append("h.customer_id = :customer_id")
+        params["customer_id"] = customer_id
+    if active_only:
+        where.append(
+            "h.released_at IS NULL AND h.starts_at <= now()"
+            " AND (h.expires_at IS NULL OR h.expires_at > now())"
+        )
+    clause = " AND ".join(where)
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                _sql(
+                    f"""
+                    SELECT h.id, h.customer_id, c.name AS customer_name, h.account_id,
+                           h.kind, h.reason, h.source, h.interaction_id,
+                           h.sla_due_at, h.starts_at, h.expires_at,
+                           h.released_at, h.released_reason, h.created_at,
+                           p.name AS placed_by, s.name AS specialist
+                    FROM treatment_holds h
+                    JOIN customers c ON c.id = h.customer_id
+                     /*VISIBILITY*/
+                    LEFT JOIN users p ON p.id = h.placed_by_user_id
+                    LEFT JOIN users s ON s.id = h.specialist_user_id
+                    WHERE {clause}
+                    ORDER BY h.starts_at DESC, h.id
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                params,
+            )
+        )
+    return [
+        {
+            "id": r["id"],
+            "customerId": r["customer_id"],
+            "customerName": r["customer_name"],
+            "accountId": r["account_id"],
+            "kind": r["kind"],
+            "reason": r["reason"],
+            "source": r["source"],
+            "interactionId": r["interaction_id"],
+            "slaDueAt": r["sla_due_at"],
+            "startsAt": r["starts_at"],
+            "expiresAt": r["expires_at"],
+            "releasedAt": r["released_at"],
+            "releasedReason": r["released_reason"],
+            "placedBy": r["placed_by"],
+            "specialist": r["specialist"],
+            "active": r["released_at"] is None,
+            "createdAt": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def create_treatment_hold(payload: dict[str, Any]) -> dict[str, Any]:
+    """Place a hold. Re-placing an active one is a no-op, not an error.
+
+    Idempotent by design rather than by an idempotency key: a bot that hears
+    "I lost my job" twice in one call, and an agent who clicks twice, must both
+    end with one hold. The partial unique index is what enforces it; this
+    surfaces the existing row instead of a 409 so the caller's flow continues.
+    """
+    kind = str(payload.get("kind") or "").strip().lower()
+    if kind not in HOLD_KINDS:
+        raise ValueError(f"invalid_kind: {kind}")
+    source = str(payload.get("source") or "manual").strip().lower()
+    if source not in HOLD_SOURCES:
+        raise ValueError(f"invalid_source: {source}")
+    customer_id = payload.get("customerId")
+
+    with engine.begin() as conn:
+        _assert_tenant_owns_customer(conn, customer_id)
+        account_id = payload.get("accountId")
+        if account_id:
+            _assert_tenant_owns(conn, "accounts", account_id)
+        existing = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id FROM treatment_holds
+                    WHERE customer_id = :cid
+                      AND COALESCE(account_id, '') = COALESCE(:aid, '')
+                      AND kind = :kind
+                      AND released_at IS NULL
+                    """
+                ),
+                {"cid": customer_id, "aid": account_id, "kind": kind},
+            )
+        )
+        if existing:
+            return _treatment_hold(conn, existing["id"])
+
+        hold_id = _id("THD")
+        conn.execute(
+            text(
+                """
+                INSERT INTO treatment_holds (
+                  id, tenant_id, customer_id, account_id, kind, reason, source,
+                  interaction_id, placed_by_user_id, specialist_user_id,
+                  sla_due_at, expires_at
+                ) VALUES (
+                  :id, :tenant_id, :customer_id, :account_id, :kind, :reason, :source,
+                  :interaction_id, :placed_by, :specialist, :sla_due_at, :expires_at
+                )
+                """
+            ),
+            {
+                "id": hold_id,
+                "tenant_id": _tenant(),
+                "customer_id": customer_id,
+                "account_id": account_id,
+                "kind": kind,
+                "reason": payload.get("reason"),
+                "source": source,
+                "interaction_id": payload.get("interactionId"),
+                "placed_by": _actor_user_id(),
+                "specialist": payload.get("specialistUserId"),
+                "sla_due_at": payload.get("slaDueAt"),
+                "expires_at": payload.get("expiresAt"),
+            },
+        )
+        record_activity(
+            conn,
+            "customer",
+            str(customer_id),
+            "hold_placed",
+            f"{kind.capitalize()} hold placed",
+            payload.get("reason"),
+            str(customer_id),
+        )
+        return _treatment_hold(conn, hold_id)
+
+
+def release_treatment_hold(
+    hold_id: str, payload: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Lift a hold. Releasing an already-released one is idempotent."""
+    body = payload or {}
+    with engine.begin() as conn:
+        _assert_tenant_owns(conn, "treatment_holds", hold_id)
+        conn.execute(
+            text(
+                """
+                UPDATE treatment_holds
+                SET released_at = now(),
+                    released_by_user_id = :actor,
+                    released_reason = :reason
+                WHERE id = :id AND released_at IS NULL
+                """
+            ),
+            {"id": hold_id, "actor": _actor_user_id(), "reason": body.get("reason")},
+        )
+        row = _treatment_hold(conn, hold_id)
+        record_activity(
+            conn,
+            "customer",
+            str(row["customerId"]),
+            "hold_released",
+            f"{str(row['kind']).capitalize()} hold released",
+            body.get("reason"),
+            str(row["customerId"]),
+        )
+        return row
+
+
+def _treatment_hold(conn: Any, hold_id: str) -> dict[str, Any]:
+    row = _one(
+        conn.execute(
+            text(
+                """
+                SELECT h.id, h.customer_id, h.account_id, h.kind, h.reason, h.source,
+                       h.interaction_id, h.sla_due_at, h.starts_at, h.expires_at,
+                       h.released_at, h.released_reason, h.created_at
+                FROM treatment_holds h WHERE h.id = :id
+                """
+            ),
+            {"id": hold_id},
+        )
+    )
+    if row is None:
+        raise KeyError("treatment_holds_not_found")
+    return {
+        "id": row["id"],
+        "customerId": row["customer_id"],
+        "accountId": row["account_id"],
+        "kind": row["kind"],
+        "reason": row["reason"],
+        "source": row["source"],
+        "interactionId": row["interaction_id"],
+        "slaDueAt": row["sla_due_at"],
+        "startsAt": row["starts_at"],
+        "expiresAt": row["expires_at"],
+        "releasedAt": row["released_at"],
+        "releasedReason": row["released_reason"],
+        "active": row["released_at"] is None,
+        "createdAt": row["created_at"],
+    }
+
+
+def next_treatment(
+    *,
+    customer_id: str,
+    account_id: str | None = None,
+    trigger: str = "manual",
+) -> dict[str, Any]:
+    """What the treatment engine would do for this borrower, right now.
+
+    Read-only from the caller's point of view. The engine does write a decision
+    row — that is deliberate, since the shadow corpus should be built from the
+    questions people actually ask — but it enacts nothing outside live mode.
+    """
+    from agent_core.treatment import Trigger, recommend_treatment
+
+    with engine.connect() as conn:
+        _assert_tenant_owns_customer(conn, customer_id)
+        if account_id:
+            _assert_tenant_owns(conn, "accounts", account_id)
+    result = recommend_treatment(
+        customer_id=customer_id,
+        account_id=account_id,
+        trigger=Trigger(kind=trigger),
+    )
+    return result.to_payload()
+
+
+def list_treatment_cases(
+    *,
+    customer_id: str | None = None,
+    open_only: bool = True,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[dict[str, Any]]:
+    """The ladder, one row per case, with every rung it has walked.
+
+    A case is ``(customer, trigger kind, trigger ref)`` — one bounce, one broken
+    promise. The single-decision view answers "what did the engine say?"; this
+    answers the question a floor lead actually has, which is "what has already
+    been tried on this account and what is left".
+    """
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
+    where = ["c.tenant_id = :tenant_id", "td.trigger_ref IS NOT NULL"]
+    params: dict[str, Any] = {
+        "tenant_id": _tenant(),
+        "limit": page,
+        "offset": skip,
+        **_vis_params(),
+    }
+    if customer_id:
+        where.append("td.customer_id = :customer_id")
+        params["customer_id"] = customer_id
+    if open_only:
+        where.append(
+            "NOT EXISTS (SELECT 1 FROM treatment_decisions r"
+            " WHERE r.customer_id = td.customer_id AND r.trigger_kind = td.trigger_kind"
+            "   AND r.trigger_ref = td.trigger_ref AND r.outcome IN ('paid','ptp'))"
+        )
+    clause = " AND ".join(where)
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                _sql(
+                    f"""
+                    SELECT td.customer_id, c.name AS customer_name, td.account_id,
+                           td.trigger_kind, td.trigger_ref,
+                           count(*)::int AS decisions,
+                           count(*) FILTER (WHERE td.enacted)::int AS attempts,
+                           max(td.created_at) AS last_decided_at,
+                           max(td.enacted_at) AS last_attempt_at,
+                           (array_agg(td.chosen_action ORDER BY td.created_at DESC))[1]
+                             AS last_action,
+                           (array_agg(td.outcome ORDER BY td.created_at DESC))[1]
+                             AS last_outcome,
+                           (array_agg(td.suppression_reason ORDER BY td.created_at DESC))[1]
+                             AS last_suppression,
+                           (array_agg(td.rationale ORDER BY td.created_at DESC))[1]
+                             AS last_rationale,
+                           array_remove(
+                             array_agg(td.chosen_action ORDER BY td.created_at)
+                               FILTER (WHERE td.enacted), NULL
+                           ) AS ladder
+                    FROM treatment_decisions td
+                    JOIN customers c ON c.id = td.customer_id
+                     /*VISIBILITY*/
+                    WHERE {clause}
+                    GROUP BY td.customer_id, c.name, td.account_id,
+                             td.trigger_kind, td.trigger_ref
+                    ORDER BY max(td.created_at) DESC
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                params,
+            )
+        )
+    return [
+        {
+            "id": f"{r['trigger_kind']}:{r['trigger_ref']}",
+            "customerId": r["customer_id"],
+            "customerName": r["customer_name"],
+            "accountId": r["account_id"],
+            "trigger": r["trigger_kind"],
+            "triggerRef": r["trigger_ref"],
+            "decisions": r["decisions"],
+            "attempts": r["attempts"],
+            "ladder": list(r["ladder"] or []),
+            "lastAction": r["last_action"],
+            "lastOutcome": r["last_outcome"],
+            "lastSuppression": r["last_suppression"],
+            "rationale": r["last_rationale"],
+            "lastDecidedAt": r["last_decided_at"],
+            "lastAttemptAt": r["last_attempt_at"],
+        }
+        for r in rows
+    ]
+
+
+def treatment_insights(days: int = 14) -> dict[str, Any]:
+    """The shadow-rollout scoreboard behind ``GET /treatment/insights``."""
+    from agent_core.treatment import decisions as treatment_decisions
+
+    with engine.connect() as conn:
+        return treatment_decisions.insights(conn, days=days)
+
+
+def next_authority(
+    *,
+    customer_id: str,
+    account_id: str | None = None,
+    fee_type: str = "late_fee",
+    asked_amount: float | None = None,
+    interaction_id: str | None = None,
+) -> dict[str, Any]:
+    """What the authority matrix would allow on this call, right now.
+
+    Writes a decision row (the shadow corpus) and enacts nothing outside live
+    mode. Safe to call from Handoff / Floor / 360.
+    """
+    from agent_core.authority import recommend_authority
+
+    with engine.connect() as conn:
+        _assert_tenant_owns_customer(conn, customer_id)
+        if account_id:
+            _assert_tenant_owns(conn, "accounts", account_id)
+    result = recommend_authority(
+        customer_id=customer_id,
+        account_id=account_id,
+        interaction_id=interaction_id,
+        fee_type=fee_type,
+        asked_amount=asked_amount,
+    )
+    return result.to_payload()
+
+
+def apply_authority(payload: dict[str, Any]) -> dict[str, Any]:
+    """Post the goodwill the matrix already approved. Live mode only."""
+    from agent_core.authority import enact as authority_enact
+    from agent_core.authority.enact import AuthorityError
+
+    decision_id = payload["decisionId"]
+    with engine.begin() as conn:
+        _assert_tenant_owns(conn, "authority_decisions", decision_id)
+        try:
+            return authority_enact.apply_goodwill(
+                decision_id=decision_id,
+                amount=payload.get("amount"),
+                dispute_id=payload.get("disputeId"),
+                conn=conn,
+            )
+        except AuthorityError as exc:
+            raise ValueError(str(exc)) from exc
+
+
 from followups_db import (  # noqa: E402
-    create_coaching_action,
-    create_export_job,
-    create_routing_rule,
-    delete_routing_rule,
-    get_calibration_session,
-    list_calibration_sessions,
-    list_coaching_actions,
-    list_export_jobs,
-    list_routing_audit,
-    patch_audio_segment_mute,
-    patch_calibration_session,
-    patch_coaching_action,
-    patch_export_job,
-    patch_pii_finding,
-    patch_redaction_record,
-    patch_redaction_rule,
-    patch_routing_rule,
-    reorder_routing_rules,
-    workspace_summary,
+    create_coaching_action as create_coaching_action,
+    create_export_job as create_export_job,
+    create_routing_rule as create_routing_rule,
+    delete_routing_rule as delete_routing_rule,
+    list_calibration_sessions as list_calibration_sessions,
+    list_coaching_actions as list_coaching_actions,
+    list_export_jobs as list_export_jobs,
+    list_routing_audit as list_routing_audit,
+    patch_audio_segment_mute as patch_audio_segment_mute,
+    patch_calibration_session as patch_calibration_session,
+    patch_coaching_action as patch_coaching_action,
+    patch_export_job as patch_export_job,
+    patch_pii_finding as patch_pii_finding,
+    patch_redaction_record as patch_redaction_record,
+    patch_redaction_rule as patch_redaction_rule,
+    patch_routing_rule as patch_routing_rule,
+    reorder_routing_rules as reorder_routing_rules,
+    workspace_summary as workspace_summary,
 )

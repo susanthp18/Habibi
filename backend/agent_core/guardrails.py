@@ -15,6 +15,12 @@ try:
 except ValueError:
     _DEFAULT_HARD_MAX_TURNS = 3
 
+#: The turn by which the recording disclosure must have happened. Turn 0 is the
+#: greeting, so a bot that has said nothing about recording by the time it takes
+#: its second turn is late. Kept as a name because the number is a compliance
+#: decision, not an implementation detail.
+_DISCLOSURE_DEADLINE_TURN = 1
+
 
 def evaluate_guardrails(
     *,
@@ -26,6 +32,8 @@ def evaluate_guardrails(
     elapsed_seconds: float,
     customer_bot_exchanges: int,
     hard_max_turns: int | None = None,
+    max_waiver_inr: float | None = None,
+    recording_disclosed: bool = False,
 ) -> list[str]:
     flags: list[str] = []
     prohibited = [str(p).lower() for p in (guardrails.get("prohibited") or []) if str(p).strip()]
@@ -42,6 +50,17 @@ def evaluate_guardrails(
     if guardrails.get("neverPromiseWaiver") and intent == "waiver_request":
         if re.search(r"\b(waive|waiver|waived)\b", bot_l) and "goodwill" not in bot_l:
             flags.append("waiver-blocked")
+
+    if max_waiver_inr is not None and intent in {"waiver_request", "dispute"}:
+        for match in re.finditer(r"₹\s*([\d,]+(?:\.\d+)?)|(\d[\d,]{2,})\s*(?:rupees|rs\.?)\b", bot_l):
+            raw = (match.group(1) or match.group(2) or "").replace(",", "")
+            try:
+                quoted = float(raw)
+            except ValueError:
+                continue
+            if quoted > float(max_waiver_inr) + 0.009:
+                flags.append("authority-cap-exceeded")
+                break
 
     # Hard enforce: never quote rates / APR (not prompt-only).
     if guardrails.get("neverQuoteRate"):
@@ -96,8 +115,18 @@ def evaluate_guardrails(
     if max_seconds and elapsed_seconds >= max_seconds:
         flags.append("max-seconds")
 
-    if guardrails.get("alwaysDiscloseRecording") and turn_index <= 1:
-        if "record" not in bot_l:
+    # Whether the disclosure has been made is a fact about the CALL, not about
+    # one turn. This used to read `turn_index <= 1 and "record" not in bot_l`,
+    # which asks every one of the first two turns to contain the disclosure
+    # independently. A call that opened with "...this call is recorded for
+    # quality and compliance" was therefore flagged on turn 1 for not saying it
+    # a second time (VS-92CDE3F088). The flag reached the turn critic, which
+    # injected "you have not yet satisfied a required disclosure — say it once,
+    # early in your next reply", and the caller then heard the disclosure twice
+    # more. Read the history instead: satisfied once is satisfied for the call.
+    if guardrails.get("alwaysDiscloseRecording"):
+        disclosed = bool(recording_disclosed) or "record" in bot_l
+        if not disclosed and turn_index >= _DISCLOSURE_DEADLINE_TURN:
             flags.append("missing-recording-disclosure")
 
     # De-dup while preserving first-seen order: "auto-escalate" can be raised by
@@ -114,6 +143,7 @@ def should_halt(flags: list[str]) -> bool:
             "max-turns",
             "max-seconds",
             "waiver-blocked",
+            "authority-cap-exceeded",
             "rate-quoted",
             "politics-religion-engaged",
         )

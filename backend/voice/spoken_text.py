@@ -53,6 +53,21 @@ _MARKDOWN = re.compile(r"[*_`#|]+")
 # alternatives — the caller needs to hear the "or".
 _SLASH_ALTERNATIVES = re.compile(r"(?<=[^\W\d_])\s*/\s*(?=[^\W\d_])")
 
+# Date and time FORMAT tokens, which are instructions to a machine and were
+# never meant to leave the prompt. A node asking the model to collect "a
+# concrete YYYY-MM-DD date" got "tell me how much you'll pay and the exact date
+# in YYYY-MM-DD you'll pay it by" read aloud to a caller (VS-92CDE3F088); Azure
+# pronounces it letter by letter. Dropping the token is the faithful spoken
+# reading — there is no date format a caller needs to hear — and the preposition
+# that introduced it ("in the format", "at", "by") goes with it so the
+# sentence still parses.
+#
+# Uppercase only, deliberately: case-insensitively, [YMDH]{2,4} matches
+# ordinary words ("my", "hmm") and this would start eating speech.
+_FORMAT_TOKEN = re.compile(
+    r"\b(?:(?:at|in|on|by)\s+(?:the\s+)?(?:format\s+)?)?(?:[YMDH]{2,4}[-/:]){1,2}[YMDH]{2,4}\b"
+)
+
 # Left over once delimiters go: " , ?" or ",," or " ." Collapse to what a
 # person would say.
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?])")
@@ -78,6 +93,7 @@ def to_spoken(text: str) -> str:
 
     body = _BRACKETS.sub(" ", body)
     body = _MARKDOWN.sub("", body)
+    body = _FORMAT_TOKEN.sub("", body)
     body = _SLASH_ALTERNATIVES.sub(" or ", body)
     body = _SPACE_BEFORE_PUNCT.sub(r"\1", body)
     body = _REPEATED_PUNCT.sub(lambda m: m.group(0)[-1], body)

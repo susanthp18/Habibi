@@ -47,10 +47,28 @@ def supervisor_phone() -> str:
 
 
 def handoff_mode() -> str:
-    mode = (_env("VOICE_HANDOFF_MODE", "callback_queue") or "callback_queue").lower()
-    if mode in {"warm", "warm_transfer", "conference"}:
-        return "warm"
-    return "callback_queue"
+    """The mode the *runtime* will actually use, for status reporting.
+
+    Delegates to :func:`voice.config.voice_handoff_mode` rather than re-parsing
+    the variable. This used to be a third, more lenient copy of that logic, so
+    ``GET /twilio/voice/status`` could report a mode the escalation path would
+    never choose — a status endpoint disagreeing with the behaviour it claims to
+    describe is worse than no status endpoint.
+
+    The strict version raises on an unrecognised value; a status read must not
+    500, so the same fallback ``voice.tools._transfer_mode`` applies is mirrored
+    here, with the misconfiguration logged rather than hidden.
+    """
+    try:
+        from voice.config import voice_handoff_mode
+
+        return voice_handoff_mode()
+    except RuntimeError as exc:
+        logger.error("VOICE_HANDOFF_MODE is invalid (%s) — reporting callback_queue", exc)
+        return "callback_queue"
+    except Exception:
+        logger.exception("handoff mode unreadable — reporting callback_queue")
+        return "callback_queue"
 
 
 def voice_public_base_url() -> str:

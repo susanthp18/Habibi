@@ -8,6 +8,11 @@ Usage (from backend/):
 Drains:
   1) whatsapp_outbound_jobs (agent sends — always on)
   2) bot_turn_jobs (bot replies — gated by BOT_RUNTIME_ENABLED)
+  3) promise_reminders (PTP due/confirm) + settle_promises (due_today / auto-break)
+  4) bounce last-resort voice (payment_events.next_voice_at)
+  5) due treatment plans (TREATMENT_MODE=live only)
+  6) treatment follow-through: outcome attribution + ladder re-decision
+  7) the delinquent-book sweep (TREATMENT_SWEEP=1) — the corpus generator
 """
 
 from __future__ import annotations
@@ -24,8 +29,14 @@ from env_loader import load_env
 
 load_env()
 
+import azure_openai
 import bot_jobs
 import db
+import payment_events
+from agent_core.treatment import enact as treatment_enact
+from agent_core.treatment import followthrough as treatment_followthrough
+from agent_core.treatment import sweep as treatment_sweep
+import promise_fulfillment
 import whatsapp_outbound
 
 logging.basicConfig(
@@ -40,6 +51,7 @@ logger = logging.getLogger("bot_worker")
 # starves bot_turn_jobs indefinitely — customers get no bot reply at all while
 # agent sends drain.
 BOT_PRIORITY_EVERY = 4
+SETTLE_EVERY = 20
 _iteration = 0
 
 
@@ -51,10 +63,52 @@ def process_one_any() -> bool:
     bot_enabled = bot_jobs.bot_runtime_enabled()
     bot_first = bot_enabled and _iteration % BOT_PRIORITY_EVERY == 0
 
+    if _iteration % SETTLE_EVERY == 1:
+        try:
+            promise_fulfillment.settle_promises(db.engine)
+        except Exception:
+            logger.exception("settle_promises failed")
+
     if bot_first and bot_jobs.process_one(db.engine):
         return True
     if whatsapp_outbound.process_one(db.engine):
         return True
+    if promise_fulfillment.process_one_reminder(db.engine):
+        return True
+    if payment_events.process_one_voice(db.engine):
+        return True
+    # Treatment plans whose moment has arrived. Returns False immediately
+    # outside TREATMENT_MODE=live, so a shadow deployment pays one env read per
+    # iteration and touches nothing.
+    if treatment_enact.process_one(db.engine):
+        return True
+    # Attribution and ladder re-decision. Runs in shadow too — labelling what
+    # happened is not an intervention, and the counterfactuals are most of what
+    # the shadow fortnight is for.
+    if treatment_followthrough.process_one(db.engine):
+        return True
+    # The book sweep, last of the treatment loops on purpose. It is the only
+    # one that generates work rather than finishing it, so a backlog of due
+    # plans or unattributed outcomes must drain before more decisions are made
+    # — otherwise a large book pushes the queue further behind every iteration.
+    # Off unless TREATMENT_SWEEP is set.
+    if treatment_sweep.process_one(db.engine):
+        return True
+    try:
+        from agent_core.clerk import process_one as clerk_one, sweep_overdue
+
+        if _iteration % SETTLE_EVERY == 1:
+            sweep_overdue()
+            try:
+                from agent_core.canary import sweep_rollbacks
+
+                sweep_rollbacks()
+            except Exception:
+                logger.exception("canary sweep failed")
+        if clerk_one():
+            return True
+    except Exception:
+        logger.exception("clerk drain failed")
     if bot_enabled and not bot_first:
         return bot_jobs.process_one(db.engine)
     return False
@@ -92,6 +146,13 @@ def main() -> None:
         return
 
     logger.info("bot_worker started poll=%.1fs env=%s", args.poll, bot_jobs.bot_environment())
+    # This worker is idle almost all the time and wakes when a customer sends a
+    # message, so without warming the pool its FIRST Azure call of every turn
+    # pays cold start — measured at 11.2s for an intent classification that
+    # takes 1.9s warm, and 13.1s for a KB lookup that takes 4.0s warm. The
+    # customer waits behind all of it. Warm at start, then keep it warm while
+    # idle (below).
+    azure_openai.prewarm(force=True)
     stop = False
 
     def _stop(*_args: object) -> None:
@@ -112,6 +173,14 @@ def main() -> None:
             time.sleep(args.poll)
             continue
         if not did:
+            # Idle tick. prewarm() is a no-op until PREWARM_IDLE_SECONDS have
+            # passed, so this costs one tiny completion every few minutes and
+            # keeps the TLS connection and the deployment hot for whenever the
+            # next customer actually writes in.
+            try:
+                azure_openai.prewarm()
+            except Exception:
+                logger.debug("idle prewarm failed", exc_info=True)
             time.sleep(args.poll)
 
 

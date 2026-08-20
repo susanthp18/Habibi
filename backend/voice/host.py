@@ -227,6 +227,10 @@ async def run_websocket_session(websocket: Any) -> None:
 async def _dispatch(runner_args: Any, label: str) -> None:
     from voice.bot import bot
 
+    # Admission control lives inside bot(), not here: the standalone
+    # `python -m voice.bot` runner never reaches this function, and one gate at
+    # the shared funnel is the only way both hosting modes get the same cap
+    # (and the only way a call cannot consume two slots).
     runner_args.handle_sigint = False
     runner_args.shared_runner = await get_runner()
     try:

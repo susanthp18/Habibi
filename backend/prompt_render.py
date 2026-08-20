@@ -90,6 +90,31 @@ def render_system_prompt(template: str, context: Mapping[str, Any]) -> str:
     return _render(template, context, SYSTEM_SAFE_VARIABLES)
 
 
+_CRM_ONLY_VARIABLES = KNOWN_VARIABLES - SYSTEM_SAFE_VARIABLES
+_CRM_TOKEN_RE = re.compile(
+    r"\{(" + "|".join(sorted(re.escape(n) for n in _CRM_ONLY_VARIABLES)) + r")\}"
+)
+
+
+def strip_unrendered_crm_tokens(text: str) -> str:
+    """Drop lines that still reference a CRM field after system rendering.
+
+    A system prompt may only interpolate ``SYSTEM_SAFE_VARIABLES``, so a CRM
+    token survives substitution as a literal ``{account_no}`` and the model
+    reads it out. Substituting it instead is worse: at call start the values are
+    placeholders, which produced the live line "Reference their account XXXX and
+    the overdue amount of 0 due on ." — a system policy asserting the account is
+    "XXXX" and nothing is owed.
+
+    The whole line goes, not just the token: "Reference their account
+    {account_no}" is not a sentence once the token is removed, and the real
+    values are already on the untrusted CRM card, so the line is redundant
+    rather than merely unrendered.
+    """
+    kept = [line for line in (text or "").splitlines() if not _CRM_TOKEN_RE.search(line)]
+    return "\n".join(kept).strip()
+
+
 def _inert_value(value: Any) -> str:
     """Render a CRM value so it cannot escape the untrusted-context block.
 

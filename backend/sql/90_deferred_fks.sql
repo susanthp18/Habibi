@@ -35,5 +35,11 @@ BEGIN
       ADD CONSTRAINT fk_followups_lead
       FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE;
   END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_payment_events_intent') THEN
+    ALTER TABLE payment_events
+      ADD CONSTRAINT fk_payment_events_intent
+      FOREIGN KEY (payment_intent_id) REFERENCES payment_intents(id) ON DELETE SET NULL;
+  END IF;
 END $$;
 

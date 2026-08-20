@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from prompt_render import format_untrusted_crm_card, render_system_prompt
+from prompt_render import (
+    format_untrusted_crm_card,
+    render_system_prompt,
+    strip_unrendered_crm_tokens,
+)
 
+from agent_core.compaction import RAW_LAST_N, bound_history
 from agent_core.prompt import build_system_prompt, default_context
 from agent_core.understanding import analyze_turn
 
@@ -29,7 +34,10 @@ def assemble_turn_messages(
     context: dict[str, Any] | None = None,
     history: list[dict[str, Any]] | None = None,
     context_blocks: list[str] | None = None,
-    history_limit: int = 12,
+    history_limit: int = RAW_LAST_N,
+    prior_summary: str | None = None,
+    skill_catalog: str = "",
+    active_skill_message: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build chat messages + intent/sentiment for one customer turn.
 
@@ -38,7 +46,9 @@ def assemble_turn_messages(
     """
     ctx = default_context(context if isinstance(context, dict) else None)
     # System policy: static tokens only. CRM fields ride a delimited developer card.
-    rendered = render_system_prompt(prompt_template, ctx)
+    # A CRM token cannot render here, so leaving it in means the model reads
+    # "{account_no}" aloud. Same treatment as voice and the text channel.
+    rendered = strip_unrendered_crm_tokens(render_system_prompt(prompt_template, ctx))
     # Sandbox only, and the sandbox already makes two Azure calls per turn
     # (retrieval embedding + the reply), so one more is in keeping. It is also
     # the surface where the Inspector's Intent and Sentiment tabs are read, so
@@ -58,6 +68,7 @@ def assemble_turn_messages(
                 persona=persona,
                 guardrails=guardrails,
                 context_blocks=list(context_blocks or []),
+                skill_catalog=skill_catalog,
             ),
         },
         {
@@ -65,7 +76,20 @@ def assemble_turn_messages(
             "content": format_untrusted_crm_card(ctx),
         },
     ]
-    recent_history = (history or [])[-history_limit:] if history_limit > 0 else []
+    if active_skill_message and active_skill_message.get("content"):
+        messages.append(active_skill_message)
+    recent_history, summary = bound_history(
+        list(history or []),
+        last_n=history_limit,
+        prior_summary=prior_summary,
+    )
+    if summary:
+        messages.append(
+            {
+                "role": "developer",
+                "content": "Prior turns (summarized, analysis profile):\n" + summary.strip(),
+            }
+        )
     for h in recent_history:
         if not isinstance(h, dict):
             continue

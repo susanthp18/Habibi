@@ -27,6 +27,7 @@ DECLARE
     'customer_notes',
     'accounts',
     'emi_installments',
+    'payment_events',
     'consent_records',
     'channel_consents',
     'interactions',
@@ -37,11 +38,17 @@ DECLARE
     'payment_plans',
     'promises',
     'promise_reminders',
+    'payment_intents',
     'promise_installments',
     'disputes',
     'document_templates',
     'document_requests',
     'callbacks',
+    'treatment_holds',
+    'mandates',
+    'mandate_presentations',
+    'policy_rule_sets',
+    'policy_rules',
     'redaction_rule_configs',
     'redaction_records',
     'export_jobs',
@@ -91,7 +98,7 @@ BEGIN
   END LOOP;
 END $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_prompt_versions_one_published
-  ON prompt_versions ((status))
-  WHERE status = 'published';
+-- Unique published-prompt rule lives in sql/09_bot_config.sql
+-- (ux_prompt_versions_one_published_per_bot). Do not recreate a tenant-global
+-- or status-only unique here — that is what made a fleet impossible.
 

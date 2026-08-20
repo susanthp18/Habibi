@@ -92,7 +92,37 @@ def compute_metrics(customer: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_nba(customer: dict[str, Any], metrics: dict[str, Any]) -> list[dict[str, Any]]:
+def _offer_nba(policy: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Grow-class action. Never a pitch when the engine said stay quiet."""
+    if not policy:
+        return None
+    status = policy.get("status")
+    if status not in {"ready", "presented", "interested", "open_lead"}:
+        return None
+    product = policy.get("productName") or "an eligible product"
+    amount = policy.get("suggestedAmount")
+    amt = f" · ₹{int(amount):,}" if amount else ""
+    window = policy.get("preferredWindow")
+    follow = status in {"open_lead", "interested"}
+    reason = policy.get("talkTrack") or "Engine-approved offer for this account."
+    if window:
+        reason = f"{reason} Preferred window: {window}."
+    return {
+        "id": "nba-offer",
+        "rank": 99,
+        "title": f"{'Follow up' if follow else 'Pitch'} {product}{amt}",
+        "reason": reason,
+        "action": "offer",
+        "priority": "medium",
+        "leadId": policy.get("leadId"),
+    }
+
+
+def build_nba(
+    customer: dict[str, Any],
+    metrics: dict[str, Any],
+    offer_policy: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     consent = customer.get("consent") or []
     contact = customer.get("contact") or {}
@@ -204,6 +234,10 @@ def build_nba(customer: dict[str, Any], metrics: dict[str, Any]) -> list[dict[st
             }
         )
 
+    offer_item = _offer_nba(offer_policy)
+    if offer_item:
+        items.append(offer_item)
+
     if not items:
         items.append(
             {
@@ -223,7 +257,13 @@ def build_nba(customer: dict[str, Any], metrics: dict[str, Any]) -> list[dict[st
     return items[:5]
 
 
-def build_summary(customer: dict[str, Any], metrics: dict[str, Any], nba: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_summary(
+    customer: dict[str, Any],
+    metrics: dict[str, Any],
+    nba: list[dict[str, Any]],
+    offer_policy: dict[str, Any] | None = None,
+    authority_policy: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     bullets: list[dict[str, Any]] = []
     account = customer.get("account") or {}
     name = customer.get("name") or "Customer"
@@ -305,6 +345,44 @@ def build_summary(customer: dict[str, Any], metrics: dict[str, Any], nba: list[d
             }
         )
 
+    if authority_policy and authority_policy.get("status") not in {None, "none"}:
+        status = authority_policy.get("status")
+        if status == "escalate":
+            text = (
+                "Live goodwill is out of policy: "
+                f"{authority_policy.get('reasonLabel') or authority_policy.get('reason') or 'escalate'}. "
+                "Do not quote a waiver or settlement figure."
+            )
+        elif status == "applied":
+            amt = authority_policy.get("approvedAmount")
+            text = f"Goodwill already posted{f' ({_inr(amt)})' if amt else ''}."
+        else:
+            amt = authority_policy.get("approvedAmount")
+            text = (
+                f"In-policy late-fee goodwill up to {_inr(amt)}."
+                if amt
+                else "Authority matrix has an allowed move — do not invent a larger figure."
+            )
+        bullets.append(
+            {
+                "id": "ins-authority",
+                "text": text,
+                "source": "from authority matrix",
+                "confidence": "high",
+            }
+        )
+
+    if offer_policy and offer_policy.get("status") == "suppressed":
+        label = offer_policy.get("suppressionLabel") or offer_policy.get("suppressionReason") or "stayed quiet"
+        bullets.append(
+            {
+                "id": "ins-offer-quiet",
+                "text": f"Offer engine quiet: {label}. Do not freelance a product.",
+                "source": "from offer policy",
+                "confidence": "high",
+            }
+        )
+
     if nba:
         bullets.append(
             {
@@ -380,10 +458,15 @@ def synthesize_activity(customer: dict[str, Any]) -> list[dict[str, Any]]:
     return items[:8]
 
 
-def derive_insights(customer: dict[str, Any], activity: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def derive_insights(
+    customer: dict[str, Any],
+    activity: list[dict[str, Any]] | None = None,
+    offer_policy: dict[str, Any] | None = None,
+    authority_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     metrics = compute_metrics(customer)
-    nba = build_nba(customer, metrics)
-    summary = build_summary(customer, metrics, nba)
+    nba = build_nba(customer, metrics, offer_policy)
+    summary = build_summary(customer, metrics, nba, offer_policy, authority_policy)
     preview = activity if activity else synthesize_activity(customer)
     return {
         "customerId": customer.get("id"),
@@ -392,4 +475,6 @@ def derive_insights(customer: dict[str, Any], activity: list[dict[str, Any]] | N
         "metrics": metrics,
         "activity": preview[:8],
         "generatedAt": _now().isoformat().replace("+00:00", "Z"),
+        "offerPolicy": offer_policy,
+        "authorityPolicy": authority_policy,
     }

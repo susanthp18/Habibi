@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from agent_core.tools.catalog import (
@@ -475,12 +475,16 @@ def capture_lead(
         "priority": prio,
         "eligibilityFlags": flags,
         "channel": channel,
+        # Attribution for the funnel event create_lead now emits on every
+        # path. Without it a bot capture would be logged as a system actor.
+        "actorBotId": bot_id,
     }
     # Same CRM-write failure contract as the sibling handlers: the model gets a
     # structured result it can speak around instead of an exception escaping
     # into the turn loop.
+    analytics: list[str] = []
     try:
-        lead = db.create_lead(payload, idempotency_key=idempotency_key)
+        lead = db.create_lead(payload, idempotency_key=idempotency_key, emitted=analytics)
     except ValueError as exc:
         # Race: another writer captured the same product between the lookup
         # above and this insert. The advisory lock in create_lead makes this the
@@ -525,21 +529,11 @@ def capture_lead(
     # Each event is committed independently so a failure in the second does not
     # retract the first — clearing the list wholesale reported a lead_captured
     # that HAD been written as if it had not.
-    analytics: list[str] = []
-    try:
-        with db.engine.begin() as conn:
-            capture.record_lead_captured(
-                conn,
-                interaction_id=interaction_id,
-                lead_id=lead_id,
-                product_id=pid,
-                actor_bot_id=bot_id,
-            )
-        analytics.append("lead_captured")
-    except Exception:
-        # The lead row is the durable artifact; analytics events must not undo it.
-        logger.exception("lead_captured event failed for %s", lead_id)
-
+    #
+    # `lead_captured` is no longer emitted here. It is emitted inside
+    # create_lead, which is the one path every capture goes through; doing it
+    # in both places wrote the event twice for a bot capture and not at all for
+    # a human one. `analytics` carries out what actually landed in there.
     if interaction_id:
         try:
             with db.engine.begin() as conn:
@@ -756,6 +750,8 @@ def create_promise_to_pay(
         except Exception:
             logger.exception("mark_ptp_captured failed")
 
+    fulfillment = (row or {}).get("_fulfillment") or {}
+    spoken = (row or {}).get("_spoken") or "confirm the amount and date back to them"
     return ToolResult(
         ok=True,
         data={
@@ -763,8 +759,12 @@ def create_promise_to_pay(
             "amount": _row_field(row, "amount", amt),
             "promisedDate": date_s,
             "status": _row_field(row, "status"),
+            "confirmChannel": fulfillment.get("confirmChannel"),
+            "phoneLast4": fulfillment.get("phoneLast4"),
+            "payLinkSent": bool(fulfillment.get("payLinkSent")),
+            "suppressed": bool(fulfillment.get("suppressed")),
         },
-        spoken_summary="confirm the amount and date back to them",
+        spoken_summary=spoken,
         entity=_entity("create_promise_to_pay"),
         entity_id=promise_id,
         deep_link=_link("create_promise_to_pay", promise_id),
@@ -841,6 +841,77 @@ def flag_dispute(
     )
 
 
+def evaluate_authority(
+    *,
+    customer_id: str,
+    fee_type: str | None = None,
+    asked_amount: float | None = None,
+    interaction_id: str | None = None,
+    account_id: str | None = None,
+    identity_verified: bool = True,
+) -> ToolResult:
+    """Ask the matrix. Never raises into the caller."""
+    from agent_core.authority import recommend_authority
+
+    result = recommend_authority(
+        customer_id=customer_id,
+        account_id=account_id,
+        interaction_id=interaction_id,
+        fee_type=fee_type or "late_fee",
+        asked_amount=asked_amount,
+        identity_verified=identity_verified,
+    )
+    payload = result.to_tool_payload()
+    return ToolResult(
+        ok=True,
+        data=payload,
+        spoken_summary=payload.get("say"),
+    )
+
+
+def apply_goodwill(
+    *,
+    decision_id: str,
+    amount: float | None = None,
+    dispute_id: str | None = None,
+) -> ToolResult:
+    from agent_core.authority import enact as authority_enact
+    from agent_core.authority.enact import AuthorityError
+
+    try:
+        posted = authority_enact.apply_goodwill(
+            decision_id=decision_id,
+            amount=amount,
+            dispute_id=dispute_id,
+        )
+    except AuthorityError as exc:
+        reason = str(exc)
+        return ToolResult(
+            ok=False,
+            error=reason,
+            spoken_summary=(
+                "do not confirm a waiver; log a fee_waiver dispute and offer a specialist"
+                if reason in {"shadow_mode", "verdict_escalate", "amount_above_cap"}
+                else "apologise and offer a specialist callback"
+            ),
+        )
+    except Exception:
+        logger.exception("apply_goodwill failed")
+        return ToolResult(
+            ok=False,
+            error="crm_write_failed",
+            spoken_summary="apologise and offer a specialist callback",
+        )
+    return ToolResult(
+        ok=True,
+        data=posted,
+        spoken_summary="confirm the goodwill reversal briefly, without offering more",
+        entity="dispute",
+        entity_id=posted.get("disputeId"),
+        analytics=["goodwill_applied"],
+    )
+
+
 def request_callback(
     *,
     customer_id: str,
@@ -909,4 +980,78 @@ def request_callback(
         entity_id=callback_id,
         deep_link=_link("request_callback", callback_id),
         analytics=["callback_requested"],
+    )
+
+
+def handoff_to_agent(
+    *,
+    interaction_id: str | None,
+    from_bot_id: str | None,
+    target_bot_id: str,
+    reason: str,
+    payload: str | None = None,
+    allowlist: set[str] | frozenset[str] | None = None,
+) -> ToolResult:
+    """Typed agent-to-agent transfer. Prose cannot activate this.
+
+    ``allowlist`` is the publishing card's handoff targets. A missing
+    interaction is a soft fail — the model can still speak, but no row moves.
+    """
+    target = (target_bot_id or "").strip()
+    reason_n = (reason or "").strip() or "specialist_needed"
+    if not target:
+        return ToolResult(ok=False, error="target_bot_required", spoken_summary="stay on this topic")
+    if allowlist is not None and target not in allowlist:
+        return ToolResult(
+            ok=False,
+            error="handoff_not_allowlisted",
+            data={"targetBotId": target},
+            spoken_summary="stay on this topic; do not say you are transferring",
+        )
+    if not interaction_id:
+        return ToolResult(
+            ok=False,
+            error="no_interaction",
+            spoken_summary="stay on this topic",
+        )
+    try:
+        import db
+
+        row = db.handoff_to_agent(
+            interaction_id=interaction_id,
+            from_bot_id=from_bot_id,
+            target_bot_id=target,
+            reason=reason_n,
+            payload=payload,
+        )
+    except KeyError:
+        return ToolResult(
+            ok=False,
+            error="bot_not_found",
+            data={"targetBotId": target},
+            spoken_summary="stay on this topic",
+        )
+    except ValueError as exc:
+        return ToolResult(
+            ok=False,
+            error=str(exc),
+            data={"targetBotId": target},
+            spoken_summary="stay on this topic; do not say you are transferring",
+        )
+    except Exception:
+        logger.exception("handoff_to_agent failed ix=%s target=%s", interaction_id, target)
+        return ToolResult(
+            ok=False,
+            error="crm_write_failed",
+            spoken_summary="apologise and continue; do not claim a transfer happened",
+        )
+    return ToolResult(
+        ok=True,
+        data={
+            "fromBotId": row.get("fromBotId"),
+            "targetBotId": row.get("targetBotId"),
+            "reason": reason_n,
+        },
+        spoken_summary="one short sentence that a specialist will continue, then stop",
+        analytics=["agent_handoff"],
     )

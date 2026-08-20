@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS offer_decisions (
   -- a first-class provenance value so every dashboard, the trainer and the
   -- replay harness can exclude it with one predicate instead of each inventing
   -- its own heuristic for "is this real".
-  mode TEXT NOT NULL DEFAULT 'live' CHECK (mode IN ('live','shadow','simulated')),
+  mode TEXT NOT NULL DEFAULT 'live',
   -- A/B arm (RECO_AB_SPLIT, or session.extra.recoVariant). NULL when no
   -- experiment is running. Recorded per decision because two arms can share a
   -- recommender — a mode holdout runs the same scorer and says nothing — and
@@ -125,12 +125,20 @@ CREATE TABLE IF NOT EXISTS offer_decisions (
   score numeric(6,4),
   presented boolean NOT NULL DEFAULT false,
   presented_at timestamptz,
-  response TEXT CHECK (response IN ('interested','declined','deferred','not_reached')),
+  response TEXT,
   responded_at timestamptz,
   lead_id TEXT REFERENCES leads(id) ON DELETE SET NULL,
   suppression_reason TEXT,
   latency_ms INTEGER,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  -- Named to match the migration that created them in existing deployments.
+  -- Inline CHECKs auto-name as offer_decisions_<col>_check, which left the two
+  -- sources describing one rule under two names and, for `response`, with two
+  -- different texts.
+  CONSTRAINT ck_offer_decisions_mode CHECK (mode IN ('live','shadow','simulated')),
+  CONSTRAINT ck_offer_decisions_response CHECK (
+    response IS NULL OR response IN ('interested','declined','deferred','not_reached')
+  )
 );
 CREATE INDEX IF NOT EXISTS idx_offer_decisions_customer ON offer_decisions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_offer_decisions_interaction ON offer_decisions(interaction_id);

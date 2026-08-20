@@ -23,7 +23,13 @@ from voice.context_edit import CRM_CARD_PREFIX
 from voice.session import VoiceSession
 
 # Tools whose writes appear in CallContext.open_work / customer_card.
-CARD_AFFECTING = {"create_promise_to_pay", "flag_dispute", "request_documents"}
+CARD_AFFECTING = {
+    "create_promise_to_pay",
+    "flag_dispute",
+    "request_documents",
+    "evaluate_authority",
+    "apply_goodwill",
+}
 # Written by voice, but invisible to the card.
 NOT_CARD_AFFECTING = {"request_callback", "capture_lead", "add_customer_note"}
 

@@ -147,6 +147,10 @@ def test_handle_dispute_survives_the_merge() -> None:
         node = state.nodes["handle_dispute"]()
         assert node["pre_actions"][0]["type"] == "tts_say"
         assert node["respond_immediately"] is True
+        advertised = _names(node["functions"])
+        assert "evaluate_authority" in advertised
+        assert "apply_goodwill" in advertised
+        assert "flag_dispute" in advertised
 
 
 # ---------------------------------------------------------------- transitions
@@ -212,12 +216,6 @@ def test_an_unknown_graph_value_falls_back_to_legacy() -> None:
     """An operator typo must not take voice down."""
     state, _tools, _initial, _globals = _flow("hubb")
     assert set(state.nodes) == LEGACY_NODES
-
-
-def test_flow_graph_defaults_to_legacy() -> None:
-    from voice import config as voice_config
-
-    assert voice_config.voice_flow_graph() == "legacy"
 
 
 # ------------------------------------------------------------ hub task message

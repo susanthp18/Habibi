@@ -29,6 +29,34 @@ def test_blocked_waiver_maps_to_the_guarantee_rule() -> None:
     assert persist.rule_for_flag("waiver-blocked") == "r-guarantee"
 
 
+def test_quoting_above_the_authority_cap_maps_to_the_guarantee_rule() -> None:
+    assert persist.rule_for_flag("authority-cap-exceeded") == "r-guarantee"
+
+
+def test_hours_breach_maps_to_the_dnd_window_rule() -> None:
+    assert persist.rule_for_flag("hours-breach") == "r-dnd-win"
+
+
+def test_identity_before_verify_maps_to_the_verify_rule() -> None:
+    assert persist.rule_for_flag("identity-before-verify") == "r-verify"
+
+
+def test_missing_mini_miranda_maps_to_the_disclosure_rule() -> None:
+    assert persist.rule_for_flag("missing-mini-miranda") == "r-mm"
+
+
+def test_third_party_leak_maps_to_the_disclosure_rule() -> None:
+    assert persist.rule_for_flag("third-party-leak") == "r-third"
+
+
+def test_opt_out_ignored_maps_to_the_dnd_disclosure_rule() -> None:
+    assert persist.rule_for_flag("opt-out-ignored") == "r-dnd-disc"
+
+
+def test_rate_quoted_maps_to_the_false_claim_rule() -> None:
+    assert persist.rule_for_flag("rate-quoted") == "r-false"
+
+
 def test_a_prohibited_legal_threat_maps_to_the_threat_rule() -> None:
     assert persist.rule_for_flag("prohibited:court") == "r-threat"
 

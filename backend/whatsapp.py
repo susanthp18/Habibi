@@ -57,16 +57,21 @@ def verify_signature(app_secret: str | None, raw_body: bytes, header: str | None
     return hmac.compare_digest(expected, provided)
 
 
-def send_text_message(*, to_phone: str, body: str) -> dict[str, Any]:
+def send_text_message(*, to_phone: str, body: str, preview_url: bool = False) -> dict[str, Any]:
     """Send a free-form WhatsApp text message. Raises ValueError on API/config errors."""
     import circuit_breaker
 
     return circuit_breaker.get_breaker("whatsapp_meta").call(
-        _send_text_message_uncircuited, to_phone=to_phone, body=body
+        _send_text_message_uncircuited,
+        to_phone=to_phone,
+        body=body,
+        preview_url=preview_url,
     )
 
 
-def _send_text_message_uncircuited(*, to_phone: str, body: str) -> dict[str, Any]:
+def _send_text_message_uncircuited(
+    *, to_phone: str, body: str, preview_url: bool = False
+) -> dict[str, Any]:
     """Send a free-form WhatsApp text message. Raises ValueError on API/config errors."""
     cfg = config()
     token = cfg["token"]
@@ -83,8 +88,87 @@ def _send_text_message_uncircuited(*, to_phone: str, body: str) -> dict[str, Any
         "recipient_type": "individual",
         "to": to,
         "type": "text",
-        "text": {"preview_url": False, "body": body},
+        "text": {"preview_url": bool(preview_url), "body": body},
     }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise ValueError(_classify_send_error(exc.code, detail)) from exc
+    except urllib.error.URLError as exc:
+        raise ValueError(f"whatsapp_send_failed:network:{exc.reason}") from exc
+
+
+def send_template_message(
+    *,
+    to_phone: str,
+    template_name: str,
+    template_lang: str = "en_US",
+    body_params: list[str] | None = None,
+) -> dict[str, Any]:
+    """Send a WhatsApp utility template. Raises ValueError on API/config errors."""
+    import circuit_breaker
+
+    return circuit_breaker.get_breaker("whatsapp_meta").call(
+        _send_template_message_uncircuited,
+        to_phone=to_phone,
+        template_name=template_name,
+        template_lang=template_lang,
+        body_params=body_params,
+    )
+
+
+def _send_template_message_uncircuited(
+    *,
+    to_phone: str,
+    template_name: str,
+    template_lang: str = "en_US",
+    body_params: list[str] | None = None,
+) -> dict[str, Any]:
+    cfg = config()
+    token = cfg["token"]
+    phone_number_id = cfg["phone_number_id"]
+    version = cfg["api_version"] or "v25.0"
+    if not token or not phone_number_id:
+        raise ValueError("whatsapp_not_configured")
+    to = normalize_phone(to_phone)
+    if not to:
+        raise ValueError("whatsapp_missing_recipient")
+    if not (template_name or "").strip():
+        raise ValueError("whatsapp_template_missing")
+    url = f"https://graph.facebook.com/{version}/{phone_number_id}/messages"
+    components: list[dict[str, Any]] = []
+    if body_params:
+        components.append(
+            {
+                "type": "body",
+                "parameters": [{"type": "text", "text": str(p)} for p in body_params],
+            }
+        )
+    payload: dict[str, Any] = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": template_name.strip(),
+            "language": {"code": (template_lang or "en_US").strip() or "en_US"},
+        },
+    }
+    if components:
+        payload["template"]["components"] = components
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,

@@ -125,6 +125,15 @@ def voice_budget_s() -> float:
     thrown away on 60% of questions while buying the caller nothing, and those
     are the questions that get the wrong answer.
 
+    This now covers planning and retrieval only — the answerability judge is
+    guaranteed its own floor on top (:func:`judge_reserve_s`), so the two are
+    no longer competing for one pot. Measured here: planner 1.8-2.4s, embed
+    ~0.5-1.0s, so 2.5s covers both.
+
+    Worst-case retrieval is therefore 2.5 + 3.5 = 6.0s, which is not 6s of
+    silence: search_knowledge_base speaks a ~2.5s acknowledgement as the call
+    starts, so the quiet stretch the dead-air watchdog measures is ~3.5s.
+
     Set KB_VOICE_PLAN_BUDGET_S to override.
     """
     return _budget_s("KB_VOICE_PLAN_BUDGET_S", 2.5)
@@ -137,6 +146,44 @@ def text_budget_s() -> float:
 
 def budget_for(channel: str) -> float:
     return voice_budget_s() if channel == "voice" else text_budget_s()
+
+
+def judge_reserve_s() -> float:
+    """Wall clock the judge is guaranteed, on top of the retrieval budget.
+
+    3.5s, and the number is measured rather than chosen. On the payload the
+    real retrieval hands it — 8 passages, ~14k snippet chars before the 700-char
+    per-passage clamp — the call runs 2.10s median and 2.41s max, already at
+    ``low`` reasoning effort. 3.5s is that maximum plus headroom for a slow
+    minute.
+
+    Two earlier values were both too small to work. At 1.2s ``_call_tool``
+    passed the budget straight through as the request timeout and killed every
+    call mid-flight; the exception was swallowed by a ``logger.debug``, so the
+    judge silently never ran on any channel, warm or cold, while the only trace
+    was "judge_unavailable". At 2.5s it timed out roughly one call in four. A
+    reserve smaller than the call it reserves for buys nothing but a slower
+    failure.
+
+    The budget is shared, and sharing it first-come-first-served means the
+    planner takes whatever it needs and the judge inherits the remainder. On
+    call VS-92CDE3F088 the planner returned in 1796ms of a 2500ms budget, the
+    embed took another 355ms, and the judge was left 0.13s — below
+    ``_MIN_CALL_BUDGET_S``, so it never ran at all. The call answered a travel
+    insurance question from passages nothing had vetted and logged
+    "kb answerability degraded (judge_unavailable)". That is not an occasional
+    degradation; with these numbers it is every voice lookup.
+
+    Guaranteeing is the fix rather than simply enlarging the budget: a bigger
+    shared pot is still spendable entirely by whichever call runs first. See
+    :meth:`Deadline.guaranteed` — this is a floor added to the retrieval
+    budget, not a slice taken out of it, so worst-case retrieval is
+    ``budget_for(channel) + judge_reserve_s()``.
+
+    Set KB_JUDGE_RESERVE_S to override; 0 disables the answerability check by
+    starving it, which is the old behaviour and is not recommended.
+    """
+    return _budget_s("KB_JUDGE_RESERVE_S", 3.5)
 
 
 def _reasoning_effort() -> str | None:
@@ -242,6 +289,22 @@ def _format_recent(recent: list[tuple[str, str]] | None) -> str:
     return ("Run-up:\n" + "\n".join(lines) + "\n\n") if lines else ""
 
 
+def _looks_like_timeout(exc: BaseException) -> bool:
+    """Timeout, by class name rather than by import.
+
+    The exception can arrive as ``openai.APITimeoutError``, ``httpx.*Timeout``
+    or a bare ``TimeoutError`` depending on where it was raised, and importing
+    all three here to isinstance against them makes this module depend on the
+    transport it deliberately does not otherwise touch.
+    """
+    seen: BaseException | None = exc
+    while seen is not None:
+        if "timeout" in type(seen).__name__.lower():
+            return True
+        seen = seen.__cause__ or seen.__context__
+    return False
+
+
 def _call_tool(
     *,
     system: str,
@@ -280,8 +343,21 @@ def _call_tool(
     except azure_openai.AzureBusyError:
         logger.info("kb model call shed — azure analysis saturated")
         return None
-    except Exception:
-        logger.debug("kb model call failed", exc_info=True)
+    except Exception as exc:
+        # A budget too small for the call it funds is a configuration problem
+        # the operator can fix, and it is indistinguishable from every other
+        # failure downstream: the caller sees only reason="judge_unavailable".
+        # At logger.debug this hid a judge that timed out on 100% of calls
+        # through an entire round of budget tuning. Name the budget.
+        if _looks_like_timeout(exc):
+            logger.warning(
+                "kb model call timed out at %.2fs budget (%s) — raise "
+                "KB_JUDGE_RESERVE_S / the channel plan budget if this repeats",
+                budget,
+                tool_name,
+            )
+        else:
+            logger.debug("kb model call failed", exc_info=True)
         return None
 
     calls = result.get("toolCalls") or []
@@ -500,8 +576,26 @@ class Deadline:
     def __init__(self, budget_s: float) -> None:
         self._deadline = time.monotonic() + max(0.0, budget_s)
 
-    def remaining(self) -> float:
-        return max(0.0, self._deadline - time.monotonic())
+    def remaining(self, *, reserve: float = 0.0) -> float:
+        """Seconds left, optionally holding ``reserve`` back for a later call."""
+        return max(0.0, self._deadline - time.monotonic() - max(0.0, reserve))
+
+    def guaranteed(self, floor: float) -> float:
+        """At least ``floor`` seconds, even once the deadline has passed.
+
+        Subtracting a reserve from the *planner's* timeout does not actually
+        reserve anything: the deadline is absolute wall clock, and the embed and
+        the vector search spend it too. Measured on the text channel at a 4.0s
+        budget -- planner 2.9s, embed 0.5s, retrieval ~0.6s -- the judge was
+        offered 0.0s and skipped on every call, warm or cold, logging
+        "kb answerability degraded (judge_unavailable)" every single time. A
+        reserve that is only ever a hint is not a reserve.
+
+        The judge decides whether the model may answer from these passages at
+        all, so it gets a floor rather than a remainder. The cost is bounded and
+        explicit: worst-case retrieval is the budget plus this floor.
+        """
+        return max(self.remaining(), max(0.0, floor))
 
     def expired(self) -> bool:
         return self.remaining() <= 0.0

@@ -61,6 +61,27 @@ def _voice_flow_graph() -> str:
         return "legacy"
 
 
+#: Money-shaped goals are the ones the outstanding balance actually answers.
+#: Everything else — a dispute, a document request, a policy question — is a
+#: goal the balance interrupts rather than serves.
+#:
+#: Module scope so ``voice.flow_export`` can name the same set when it
+#: materialises this script as an authored graph, instead of restating it.
+MONEY_GOAL_INTENTS: frozenset[str] = frozenset(
+    {
+        "payment",
+        "promise_to_pay",
+        "ptp",
+        "balance",
+        "dues",
+        "emi",
+        "hardship",
+        "settlement",
+        "negotiation",
+    }
+)
+
+
 def build_collections_flow(
     session: VoiceSession,
     *,
@@ -78,6 +99,8 @@ def build_collections_flow(
     on_upsell_engaged: Callable[[], None] | None = None,
     graph: str | None = None,
     sink: Any | None = None,
+    allowed_tool_names: set[str] | None = None,
+    attached_skills: list[Any] | None = None,
 ) -> tuple[ToolState, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
     """Wire tools + node factories.
 
@@ -113,28 +136,15 @@ def build_collections_flow(
         on_kb_tool_used=on_kb_tool_used,
         spoke_this_response=spoke_this_response,
         sink=sink,
+        allowed_tool_names=allowed_tool_names,
+        attached_skills=attached_skills,
     )
 
     # role_message persists across nodes until re-set; re-state on RESET nodes.
     role = role_message
 
     # ---------------------------------------------------------------- goal
-    # Money-shaped goals are the ones the outstanding balance actually answers.
-    # Everything else — a dispute, a document request, a policy question — is a
-    # goal the balance interrupts rather than serves.
-    _MONEY_INTENTS = frozenset(
-        {
-            "payment",
-            "promise_to_pay",
-            "ptp",
-            "balance",
-            "dues",
-            "emi",
-            "hardship",
-            "settlement",
-            "negotiation",
-        }
-    )
+    _MONEY_INTENTS = MONEY_GOAL_INTENTS
 
     def _goal_directive() -> str:
         """Opening directive for the hub, conditioned on why the caller called.
@@ -147,6 +157,17 @@ def build_collections_flow(
         """
         goal = (session.call_goal or "").strip()
         intent = (session.call_goal_intent or "").strip().lower()
+        if state.position_stated:
+            # The hub is re-entered — after a negotiation, an upsell, a
+            # dispute — and this directive is appended to the context every
+            # single time. Unconditional, it reads as "open with the balance"
+            # on each return, which is how one caller was read the same
+            # outstanding and minimum due three times in four minutes.
+            return (
+                "You have already told the caller their outstanding and "
+                "minimum due on this call. Do NOT state either figure again "
+                "unless they ask for it. Pick up from what they just said."
+            )
         position_first = (
             "Call get_account_position first. In one short sentence, state "
             "outstanding and minimum due in INR. If accountTail is missing, "
@@ -383,6 +404,9 @@ def build_collections_flow(
                         "Payment / promise to pay → create_promise_to_pay. "
                         "Callback later → request_callback. "
                         "Dispute or 'already paid' → begin_dispute. "
+                        "Fee waiver, bounce reversal, settlement or restructuring → "
+                        "begin_dispute. Do not quote a rupee figure until "
+                        "evaluate_authority returns one. "
                         "Statement, no-dues certificate, interest certificate or "
                         "receipt → request_documents. "
                         "If they name two intents, acknowledge both and handle "
@@ -398,9 +422,14 @@ def build_collections_flow(
                         # (5) PTP mechanics — from negotiate_ptp
                         "For a promise to pay: confirm an amount greater than 0 "
                         "that does not exceed the outstanding by more than 5%, and "
-                        "a concrete YYYY-MM-DD date, then call "
-                        "create_promise_to_pay. If they prefer a later call, use "
-                        "request_callback. Do not invent waivers.\n"
+                        "a specific calendar date, then call "
+                        "create_promise_to_pay. Ask for the date the way a person "
+                        "would and convert it to YYYY-MM-DD yourself for the tool "
+                        "argument — never say a date format out loud. "
+                        "Speak the amount, date, and the "
+                        "channel last-4 the written confirm went to. Never read a "
+                        "payment URL aloud and never invent a link. If they prefer "
+                        "a later call, use request_callback. Do not invent waivers.\n"
                         # (6) upsell gating — the engine chooses, not the model
                         "NEVER name a product you were not given by "
                         "recommend_next_offer. Do not guess product ids. If the "
@@ -467,7 +496,15 @@ def build_collections_flow(
                     "content": (
                         "Help the caller commit to a promise-to-pay. Confirm amount "
                         "(must be > 0 and not exceed outstanding by more than 5%) and a "
-                        "concrete YYYY-MM-DD date, then call create_promise_to_pay. "
+                        "specific calendar date, then call create_promise_to_pay. "
+                        "ASK for the date the way a person would — \"which day this "
+                        "week?\" — and convert it to YYYY-MM-DD yourself when you "
+                        "fill in the tool argument. Never say a date format aloud: "
+                        "one call asked the caller for \"the exact date in "
+                        "YYYY-MM-DD\" and the letters were read out one by one. "
+                        "After it returns, confirm the amount, date, and the channel "
+                        "the link was sent to (WhatsApp or SMS last-4). Never read a "
+                        "payment URL aloud and never invent a link. "
                         "If they prefer a later call, use request_callback. Do not "
                         "invent waivers. Policy questions: search_knowledge_base."
                     ),
@@ -500,13 +537,17 @@ def build_collections_flow(
                     "content": (
                         "Capture the dispute carefully. Classify as paid_already, "
                         "wrong_amount, not_my_account, fee_waiver, duplicate_charge, or "
-                        "fraud. Call flag_dispute with type, optional amount, and a short "
-                        "summary. Do not promise a waiver or resolution."
+                        "fraud. For a fee_waiver, call evaluate_authority first and do "
+                        "not quote any rupee figure it did not return. Otherwise call "
+                        "flag_dispute with type, optional amount, and a short summary. "
+                        "Do not promise a waiver or resolution the matrix did not approve."
                     ),
                 }
             ],
             "functions": [
                 tools["flag_dispute"],
+                tools["evaluate_authority"],
+                tools["apply_goodwill"],
                 tools["return_to_position"],
             ],
             # APPEND (default): keep the dispute the caller already stated on the hub.
@@ -542,15 +583,35 @@ def build_collections_flow(
                         "On clear interest call capture_lead with the offerId. If "
                         "they decline or sound frustrated, call decline_offer then "
                         "begin_wrap_up. Never promise approval, rates, or limits — "
-                        "capture interest only."
+                        "capture interest only.\n"
+                        "The caller may raise something that is not about the offer "
+                        "— a product or policy question, a new request, anything at "
+                        "all. Answer THAT instead: use search_knowledge_base for "
+                        "product and policy questions and say what it returns. Do "
+                        "not qualify them for a lead they did not ask for, and do "
+                        "not offer to transfer them unless they ask. When the new "
+                        "topic needs the account again, call return_to_position; "
+                        "when they are done, call begin_wrap_up so the call closes "
+                        "properly."
                     ),
                 }
             ],
-            # Node-scoped tools (Flows best practice): recommend → capture/decline → exit.
+            # Node-scoped tools: recommend -> capture/decline -> exit, plus a way
+            # back to the hub.
+            #
+            # `return_to_position` is here because without it this node was a
+            # trap. On call VS-9BC3DD9725 the caller asked about travel insurance
+            # benefits while parked here; the node's only script was the offer
+            # ladder, so the bot spent three and a half minutes qualifying a lead
+            # nobody asked for — country, dates, duration, personal or family —
+            # never called the knowledge base that had the answer, and never
+            # reached pre_close, so the call had no ending. The caller hung up on
+            # a question.
             "functions": [
                 tools["recommend_next_offer"],
                 tools["capture_lead"],
                 tools["decline_offer"],
+                tools["return_to_position"],
                 tools["begin_wrap_up"],
             ],
             # Topic hop: collapse the collections negotiation into a summary before

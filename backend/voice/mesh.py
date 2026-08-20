@@ -2,11 +2,9 @@
 
 Enabled when ``VOICE_MULTI_AGENT_ENABLED=true``.
 
-Roles
------
-* ``collections`` — default Flows graph (PTP / dispute / escalate)
-* ``insurance``   — upsell / product FAQ specialist (activated on gated_upsell)
-* ``supervisor_brief`` — short handoff brief for warm transfer (future)
+Roles are data (``mesh_roles.json``), not Python constants. The file is the
+shape a future Agent Card subset uses: ``name``, ``description``, ``tools[]``.
+Adding a specialist is an edit to that file, not a code change.
 
 Without ``REDIS_URL`` the mesh stays in-process (LocalWorkerBus). With Redis,
 workers can run across processes using Pipecat's RedisBus when available.
@@ -14,16 +12,18 @@ workers can run across processes using Pipecat's RedisBus when available.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from pathlib import Path
+from typing import Any
 
 from voice import config as voice_config
 
 logger = logging.getLogger(__name__)
 
-SpecialistHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+_ROLES_PATH = Path(__file__).with_name("mesh_roles.json")
 
 
 @dataclass
@@ -33,37 +33,51 @@ class MeshRole:
     tools: tuple[str, ...] = ()
 
 
-ROLES: dict[str, MeshRole] = {
-    "collections": MeshRole(
-        name="collections",
-        description="Debt collections, PTP, dispute, callback, escalate",
-        tools=(
-            "verify_identity",
-            "get_account_position",
-            "create_promise_to_pay",
-            "flag_dispute",
-            "request_callback",
-            "escalate_to_human",
-            "search_knowledge_base",
-        ),
-    ),
-    "insurance": MeshRole(
-        name="insurance",
-        description="Product eligibility, lead capture, insurance FAQ",
-        tools=(
-            "check_product_eligibility",
-            "capture_lead",
-            "request_documents",
-            "search_knowledge_base",
-            "escalate_to_human",
-        ),
-    ),
-    "supervisor_brief": MeshRole(
-        name="supervisor_brief",
-        description="Compact handoff brief for warm-transfer agent",
-        tools=(),
-    ),
-}
+# Populated by ``reload_roles``. Importers that did ``from voice.mesh import
+# ROLES`` keep seeing updates because this is the same dict object.
+ROLES: dict[str, MeshRole] = {}
+
+
+def load_roles(path: Path | None = None) -> dict[str, MeshRole]:
+    """Read role cards from JSON. Raises on a malformed pack — silent empty
+    would look like a disabled mesh."""
+    src = path or _ROLES_PATH
+    raw = json.loads(src.read_text(encoding="utf-8"))
+    entries = raw.get("roles") if isinstance(raw, dict) else raw
+    if not isinstance(entries, list) or not entries:
+        raise ValueError(f"mesh_roles_empty:{src}")
+    loaded: dict[str, MeshRole] = {}
+    for item in entries:
+        if not isinstance(item, dict):
+            raise ValueError(f"mesh_role_not_object:{src}")
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise ValueError(f"mesh_role_missing_name:{src}")
+        if name in loaded:
+            raise ValueError(f"mesh_role_duplicate:{name}")
+        tools = item.get("tools") or ()
+        if not isinstance(tools, (list, tuple)) or any(
+            not isinstance(t, str) or not t.strip() for t in tools
+        ):
+            raise ValueError(f"mesh_role_invalid_tools:{name}")
+        loaded[name] = MeshRole(
+            name=name,
+            description=str(item.get("description") or ""),
+            tools=tuple(str(t).strip() for t in tools),
+        )
+    return loaded
+
+
+def reload_roles(path: Path | None = None) -> dict[str, MeshRole]:
+    """Replace the in-process role map. Tests use a temp file; production
+    loads ``mesh_roles.json`` once at import."""
+    loaded = load_roles(path)
+    ROLES.clear()
+    ROLES.update(loaded)
+    return ROLES
+
+
+reload_roles()
 
 
 @dataclass
@@ -136,16 +150,3 @@ def status(session_id: str | None = None) -> dict[str, Any]:
         "roles": list(ROLES.keys()),
         "redisUrlSet": bool(voice_config.redis_url()),
     }
-
-
-async def maybe_activate_insurance_on_upsell(session_id: str | None = None) -> str:
-    """Called when Flows enters gated_upsell — switches specialist role."""
-    if not enabled():
-        return active_role(session_id)
-    return activate_role("insurance", session_id)
-
-
-async def maybe_restore_collections(session_id: str | None = None) -> str:
-    if not enabled():
-        return active_role(session_id)
-    return activate_role("collections", session_id)

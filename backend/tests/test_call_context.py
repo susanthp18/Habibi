@@ -80,6 +80,25 @@ def _ctx(**kw) -> CallContext:
     return ctx
 
 
+def test_crm_card_instructs_authority_lookup():
+    card = _ctx().crm_card()
+    assert "evaluate_authority" in card
+
+
+def test_crm_card_surfaces_an_allowed_goodwill_move():
+    ctx = _ctx()
+    ctx.authority_snapshot = {
+        "status": "cap",
+        "approvedAmount": 500,
+        "mode": "shadow",
+        "reasonLabel": "In-policy goodwill ceiling",
+    }
+    card = ctx.crm_card()
+    assert "500" in card
+    assert "shadow" in card.lower()
+    assert "do not apply" in card.lower() or "do not quote more" in card.lower()
+
+
 def test_crm_card_states_facts_as_authoritative():
     card = _ctx().crm_card()
     assert "Ravi Kumar" in card

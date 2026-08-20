@@ -56,7 +56,7 @@ def _bucket_limit(bucket: str) -> int:
 def _tenant_id() -> str:
     import db
 
-    return getattr(db, "TENANT_ID", None) or "default"
+    return db.current_tenant()
 
 
 def throttle_metrics() -> dict[str, int]:

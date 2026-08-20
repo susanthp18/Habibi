@@ -23,11 +23,14 @@ import db
 import whatsapp as wa
 from agent_core import lexicon
 from agent_core.deployment import load_active_bundle
-from agent_core.intent import classify_intent, resolve_intent
 from agent_core.prompt import build_system_prompt, default_context
-from agent_core.sentiment import estimate_sentiment, sentiment_label
+from agent_core.sentiment import sentiment_label
 from agent_core.understanding import analyze_turn
-from prompt_render import render_prompt
+from prompt_render import (
+    format_untrusted_crm_card,
+    render_system_prompt,
+    strip_unrendered_crm_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +139,24 @@ def _policy_gate(engine: Engine, conv: dict[str, Any]) -> str | None:
         return "whatsapp_opted_out"
     if not _within_24h(conv.get("last_customer_at")):
         return "whatsapp_window_closed"
+    try:
+        import contact_policy
+
+        with engine.begin() as conn:
+            decision = contact_policy.admit(
+                conn,
+                customer_id=conv.get("customer_id"),
+                channel="whatsapp",
+                purpose="in_session",
+                session_key=conv.get("id"),
+                source="bot_reply",
+                related_id=conv.get("id"),
+                actor_kind="bot",
+            )
+        if not decision.allowed:
+            return decision.reason or "contact_policy"
+    except Exception:
+        logger.exception("contact_policy bot gate failed conversation=%s", conv.get("id"))
     return None
 
 
@@ -455,6 +476,9 @@ def _build_messages(
     history: list[dict[str, str]],
     customer_text: str,
     intent: str,
+    prior_summary: str | None = None,
+    skill_prefix: str = "",
+    active_skill_message: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     ctx = default_context(
         {
@@ -466,17 +490,33 @@ def _build_messages(
             "language": conv.get("language") or "English",
         }
     )
-    rendered = render_prompt(bundle.get("prompt") or "", ctx)
+    # Same rule as voice and the sandbox: system policy interpolates operator
+    # tokens only. render_prompt put CRM fields directly into the system string
+    # with no delimiter, so a customer-controlled name landed inside the policy
+    # — and before identification the defaults rendered as "Reference their
+    # account XXXX and the overdue amount of 0 due on ." The values now ride the
+    # delimited untrusted card appended below, which this channel never had.
+    rendered = strip_unrendered_crm_tokens(render_system_prompt(bundle.get("prompt") or "", ctx))
     system = build_system_prompt(
         rendered_prompt=rendered,
         persona=bundle.get("persona") or {},
         guardrails=bundle.get("guardrails") or {},
         context_blocks=[],
+        skill_catalog=skill_prefix,
+        # Without this the shared builder framed every reply as "Speak as the
+        # voice collections agent ... short spoken sentences", so the WhatsApp
+        # bot believed it was on a call and disclosed call recording into a
+        # chat thread. The builder now states the medium instead.
+        channel="whatsapp",
     )
     disclosed = _history_already_disclosed_recording(history)
     system += (
-        "\n\n## Channel\n"
-        "- You are replying on WhatsApp text (not voice). For money/collections turns keep "
+        # "## WhatsApp behaviour", not a second "## Channel":
+        # build_system_prompt now owns a "## Channel" section naming the
+        # medium, and two headings of the same name in one prompt is how
+        # contradictory rules end up filed under a single title.
+        "\n\n## WhatsApp behaviour\n"
+        "- For money/collections turns keep "
         "replies short (1–4 sentences). For product / policy / exclusions questions, send "
         "the concrete details from KB (bullet list is fine; up to ~8–12 bullets).\n"
         "- Money facts MUST come from CRM tools (get_customer_context / get_emi_schedule / "
@@ -503,7 +543,24 @@ def _build_messages(
         f"unless the customer's latest message is about dues, EMI, payment, or PTP.\n"
         f"\n{_dialog_control_block(intent=intent, customer_text=customer_text, disclosed_recording=disclosed)}\n"
     )
-    messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system},
+        # The CRM snapshot, delimited and labelled untrusted — the same
+        # developer card the sandbox and the voice runtime send. This channel
+        # previously carried the account context only as text spliced into the
+        # system prompt, so there was nothing marking it as data rather than
+        # policy.
+        {"role": "developer", "content": format_untrusted_crm_card(ctx)},
+    ]
+    if active_skill_message and active_skill_message.get("content"):
+        messages.append(active_skill_message)
+    if prior_summary:
+        messages.append(
+            {
+                "role": "developer",
+                "content": "Prior turns (summarized, analysis profile):\n" + prior_summary.strip(),
+            }
+        )
     # History already includes the latest customer turn when taken from DB;
     # still append customer_text if history is empty.
     if history:
@@ -645,6 +702,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             bot_jobs.bot_environment(),
             bot_id=_bot_id(),
             fallback_environments=("sandbox", "production"),
+            customer_id=conv.get("customer_id"),
         )
         guardrails = bundle.get("guardrails") or {}
     except KeyError as exc:
@@ -806,18 +864,50 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         history = _message_history(
             engine,
             conversation_id,
-            hist_limit,
+            hist_limit * 4,
             since=reset_at,
         )
+        from agent_core.compaction import bound_history
+
+        prior_summary = None
+        ix = conv.get("interaction_id") or job.get("interaction_id")
+        if ix:
+            try:
+                row = db.get_latest_context_summary(str(ix))
+                prior_summary = (row or {}).get("summary")
+            except Exception:
+                prior_summary = None
+        compacted, summary = bound_history(
+            history,
+            last_n=hist_limit,
+            prior_summary=prior_summary,
+        )
+        if ix and summary and len(history) > hist_limit:
+            try:
+                db.save_context_summary(
+                    interaction_id=str(ix),
+                    upto_turn=max(0, len(history) - len(compacted)),
+                    summary=summary,
+                )
+            except Exception:
+                logger.exception("context summary persist failed")
+        history = compacted
         # If the reset window is empty (race), still answer the latest ask alone.
         if not history:
             history = [{"role": "user", "content": customer_text}]
+        from agent_core.skills.runtime import mouth_turn_state
+        from agent_core.tools.catalog import CATALOG
+
+        skill_state = mouth_turn_state(bundle.get("agentCard") or {}, intent=intent)
         messages = _build_messages(
             bundle=bundle,
             conv=conv,
             history=history,
             customer_text=customer_text,
             intent=intent,
+            prior_summary=summary,
+            skill_prefix=skill_state["prefix"],
+            active_skill_message=skill_state["body_message"],
         )
 
         tool_ctx = bot_tools.ToolContext(
@@ -835,6 +925,14 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             # being pitched a product because an English lexicon scored 0.00.
             sentiment=sentiment,
         )
+        tool_ctx.allowed_tools = skill_state["allowed"]
+        tool_ctx.attached_skills = skill_state["packs"]
+        tool_ctx.active_skill = skill_state["active_slug"]
+        turn_tools = (
+            CATALOG.openai_tools(skill_state["offered"])
+            if skill_state["offered"] is not None
+            else bot_tools.TOOL_DEFINITIONS
+        )
 
         tool_failures = 0
         for _ in range(_max_tool_iterations()):
@@ -845,12 +943,15 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                     bot_jobs.mark_cancelled(conn, job_id, "takeover_mid_flight")
                 return
 
-            result = azure_openai.chat_with_tools(
-                messages,
-                tools=bot_tools.TOOL_DEFINITIONS,
-                temperature=0.2,
-                max_completion_tokens=500,
-            )
+            from agent_core.telemetry import span as _span
+
+            with _span("gen_ai.chat", gen_ai_operation_name="chat"):
+                result = azure_openai.chat_with_tools(
+                    messages,
+                    tools=turn_tools,
+                    temperature=0.2,
+                    max_completion_tokens=500,
+                )
             tool_calls = result.get("toolCalls") or []
             if not tool_calls:
                 final_text = (result.get("content") or "").strip()
@@ -871,7 +972,12 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             messages.append(raw_msg)
 
             for tc in tool_calls:
-                ok, payload, latency_ms = bot_tools.execute_tool(tool_ctx, tc["name"], tc["arguments"])
+                with _span(
+                    "gen_ai.execute_tool",
+                    gen_ai_operation_name="execute_tool",
+                    gen_ai_tool_name=tc["name"],
+                ):
+                    ok, payload, latency_ms = bot_tools.execute_tool(tool_ctx, tc["name"], tc["arguments"])
                 preview = json.dumps(payload)[:1500]
                 try:
                     parsed_args = json.loads(tc["arguments"] or "{}")
@@ -900,6 +1006,22 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                         "content": json.dumps(payload),
                     }
                 )
+                if ok and tc["name"] == "load_skill" and tool_ctx.active_skill:
+                    from agent_core.skills.intersect import offered_tools as _offered
+                    from agent_core.skills.runtime import body_developer_message as _skill_body
+
+                    pack = next((p for p in tool_ctx.attached_skills if getattr(p, "slug", None) == tool_ctx.active_skill), None)
+                    if pack:
+                        messages.append(_skill_body(pack))
+                    if skill_state.get("card") is not None:
+                        turn_tools = CATALOG.openai_tools(
+                            _offered(
+                                skill_state["card"],
+                                catalog_names=set(CATALOG.specs),
+                                attached_skills=tool_ctx.attached_skills,
+                                active_slug=tool_ctx.active_skill,
+                            )
+                        )
                 if tool_ctx.escalated:
                     with engine.begin() as conn:
                         bot_jobs.mark_succeeded(conn, job_id)
@@ -1123,6 +1245,25 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 capture.rollup_interaction(conn, ix, channel_hint="whatsapp", force_summary=False)
         except Exception:
             logger.exception("whatsapp transcript/rollup capture failed job=%s", job_id)
+        try:
+            from voice import persist as voice_persist
+
+            voice_persist.evaluate_and_flag_bot_turn(
+                interaction_id=ix,
+                customer_text=customer_text,
+                bot_text=final_text,
+                intent=intent or "out_of_scope",
+                guardrails=guardrails if isinstance(guardrails, dict) else {},
+                turn_index=int(turn_count or 0),
+                elapsed_seconds=0,
+                customer_bot_exchanges=int(turn_count or 0),
+                identity_verified=bool(fresh.get("customer_id")),
+                third_party=False,
+                channel="whatsapp",
+                customer_id=fresh.get("customer_id"),
+            )
+        except Exception:
+            logger.exception("whatsapp live_qa failed job=%s", job_id)
 
     with engine.begin() as conn:
         bot_jobs.mark_succeeded(conn, job_id, outbound_message_id=msg_id)

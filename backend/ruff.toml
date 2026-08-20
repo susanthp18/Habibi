@@ -1,0 +1,16 @@
+# Default rule set (E4/E7/E9 + F). Do not auto-fix unused names without
+# checking whether they are re-exports or leftover after a refactor.
+target-version = "py312"
+
+[lint]
+# `from module import name as name` is an explicit re-export (PEP 484).
+
+[lint.per-file-ignores]
+# These modules set DB_PROCESS_ROLE / sys.path / load_env() before importing
+# db and friends. Moving those imports to the top binds config too early.
+"bot_worker.py" = ["E402"]
+"worker.py" = ["E402"]
+"voice/bot.py" = ["E402"]
+"voice/spike.py" = ["E402"]
+"voice/workers/*.py" = ["E402"]
+"scripts/*.py" = ["E402"]

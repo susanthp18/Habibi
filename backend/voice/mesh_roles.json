@@ -1,0 +1,49 @@
+{
+  "schema_version": "1",
+  "roles": [
+    {
+      "name": "intake",
+      "description": "Identify the caller, disclose recording, route to a specialist",
+      "tools": [
+        "verify_identity",
+        "get_customer_context",
+        "handoff_to_agent",
+        "escalate_to_human",
+        "search_knowledge_base"
+      ]
+    },
+    {
+      "name": "collections",
+      "description": "Debt collections, PTP, dispute, callback, escalate",
+      "tools": [
+        "verify_identity",
+        "get_account_position",
+        "create_promise_to_pay",
+        "flag_dispute",
+        "evaluate_authority",
+        "apply_goodwill",
+        "request_callback",
+        "escalate_to_human",
+        "handoff_to_agent",
+        "search_knowledge_base"
+      ]
+    },
+    {
+      "name": "insurance",
+      "description": "Product eligibility, lead capture, insurance FAQ",
+      "tools": [
+        "check_product_eligibility",
+        "capture_lead",
+        "request_documents",
+        "search_knowledge_base",
+        "escalate_to_human",
+        "handoff_to_agent"
+      ]
+    },
+    {
+      "name": "supervisor_brief",
+      "description": "Compact handoff brief for warm-transfer agent",
+      "tools": []
+    }
+  ]
+}

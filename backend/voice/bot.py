@@ -30,9 +30,9 @@ os.environ.setdefault("DB_PROCESS_ROLE", "voice")
 from loguru import logger
 
 from agent_core import default_context, default_tuning, load_active_bundle, voice_params_from_config
-from prompt_render import render_prompt
+from prompt_render import render_system_prompt, strip_unrendered_crm_tokens
 from voice import config as voice_config
-from voice.context_edit import CRM_CARD_PREFIX, replace_developer_block
+from voice.context_edit import replace_developer_block
 from voice.crm_sink import CrmSink, bind_session_start
 from voice.flows import build_collections_flow
 from voice.latency import KeepAliveAzureLLMService, prewarm_llm_connection
@@ -59,26 +59,21 @@ from voice.tuning_apply import (
 def _system_instruction_from_bundle(bundle: dict, context: dict | None = None) -> str:
     """Lean voice system prompt — authored prompt + guardrails + voice rules only."""
     ctx = default_context(context)
-    rendered = render_prompt(bundle.get("prompt") or "", ctx)
-    # Call-start defaults are XXXX / 0 / empty due_date. Leaving those lines in
-    # the system prompt makes the model speak them literally (seen in logs:
-    # "account XXXX"). Strip unresolved CRM placeholders until real values exist.
-    rendered = _strip_unresolved_crm_placeholders(rendered)
-    return build_voice_system_prompt(rendered, bundle.get("guardrails") or {})
+    # System policy takes operator tokens only. This used to call render_prompt,
+    # which substitutes CRM fields straight into the system string — the one
+    # thing prompt_render.py exists to prevent, and the reason the call-start
+    # defaults leaked out as "account XXXX". The real values reach the model on
+    # the untrusted developer card (ctx.crm_card_message), refreshed as the call
+    # learns who it is talking to, so nothing is lost by leaving them out here.
+    rendered = render_system_prompt(bundle.get("prompt") or "", ctx)
+    rendered = strip_unrendered_crm_tokens(rendered)
+    prompt = build_voice_system_prompt(rendered, bundle.get("guardrails") or {})
+    from agent_core.skills.runtime import mouth_turn_state
 
-
-def _strip_unresolved_crm_placeholders(text: str) -> str:
-    kept: list[str] = []
-    for line in (text or "").splitlines():
-        low = line.lower()
-        if "xxxx" in low:
-            continue
-        if "overdue amount of 0" in low or "overdue amount of {overdue_amount}" in low:
-            continue
-        if "due on ." in low or low.rstrip().endswith("due on"):
-            continue
-        kept.append(line)
-    return "\n".join(kept).strip()
+    prefix = mouth_turn_state(bundle.get("agentCard") or {}).get("prefix") or ""
+    if prefix:
+        prompt = prompt.rstrip() + "\n\n" + prefix
+    return prompt
 
 
 _TUNE_MSG_TYPES = frozenset({"tune", "agent_tuning", "tuning", "tuning_delta"})
@@ -140,6 +135,31 @@ def _extract_tune_delta(message) -> dict | None:
 _MAX_CALL_DURATION_SECS = 10 * 60
 # Worker-level silence backstop under the aggregator idle ladder.
 _WORKER_IDLE_TIMEOUT_SECS = 180
+
+# Dead-air watchdog.
+#
+# Pipecat's UserIdleController starts its timer on BotStoppedSpeakingFrame and
+# re-arms nowhere else. Every silence that follows a bot turn is therefore
+# covered — and every silence that does NOT is invisible to it. A transition
+# into a listen-first node, a tool call that resolves without a reply, or a
+# chain of transition tools that never reaches speech all leave no timer
+# running at all: on VS-92CDE3F088 the line was mute for 24 seconds with the
+# ladder configured and not one strike logged.
+#
+# This watchdog measures silence itself, from frames, and feeds the same ladder.
+# The poll interval is deliberately coarse — it is a backstop, not a turn timer.
+_DEADAIR_POLL_SECS = 1.0
+#: Added to the configured idle timeout before the watchdog acts, so the
+#: aggregator's own timer always wins when it is armed and the watchdog only
+#: speaks for the silences nothing else can see.
+_DEADAIR_GRACE_SECS = 2.0
+#: Floor for the watchdog, independent of tuning. A 2s idle_timeout is a
+#: turn-taking preference; hanging on it as a dead-air threshold would nudge
+#: over ordinary thinking pauses.
+_DEADAIR_MIN_SECS = 6.0
+#: One quiet stretch must not burn two rungs of the ladder just because two
+#: timers noticed it.
+_IDLE_REFIRE_GUARD_SECS = 4.0
 
 # In-call context summarisation prompt. Pipecat's default is generic and, in
 # session VS-0D653BF9C3, produced a summary asserting the account was
@@ -372,7 +392,11 @@ async def run_bot(transport, runner_args) -> None:
     if sandbox_session and isinstance(sandbox_session.get("persona"), dict):
         bundle = {**bundle, "sandboxPersona": sandbox_session["persona"]}
 
-    bot_id = _db.DEFAULT_BOT_ID
+    bot_id = (
+        bundle.get("botId")
+        or (bundle.get("promptVersion") or {}).get("botId")
+        or _db.DEFAULT_BOT_ID
+    )
     # Sandbox Live: reuse the VS- id minted by voice_sandbox.start_voice_sandbox
     # so the session file, voice_sessions row, and CRM interaction join on one key.
     # Non-sandbox transports keep a fresh uuid4 id.
@@ -420,7 +444,17 @@ async def run_bot(transport, runner_args) -> None:
                 )
         except Exception:
             logger.exception("Twilio caller lookup failed")
-    sink = CrmSink(session, guardrails=bundle.get("guardrails") or {})
+    # A bundle carrying a sandbox persona is a rehearsal: the "caller" is a
+    # tester reading a script and no customer is contacted. The contact rules
+    # (calling window, DND) must not judge it — flagging a 20:43 rehearsal as an
+    # RBI hours breach cost a high-severity self-correction on turn one.
+    is_simulated = isinstance(bundle.get("sandboxPersona"), dict)
+    sink = CrmSink(
+        session,
+        guardrails=bundle.get("guardrails") or {},
+        direction=str(bundle.get("callDirection") or "inbound"),
+        simulated=is_simulated,
+    )
     system_instruction = _system_instruction_from_bundle(bundle)
     vparams = voice_params_from_config(
         bundle.get("voiceConfig"),
@@ -655,11 +689,22 @@ async def run_bot(transport, runner_args) -> None:
 
     # Silence ladder (§6) — escalate nudge → direct → close.
     idle_strikes = 0
+    # When the ladder last fired. Two independent timers can now reach it —
+    # Pipecat's UserIdleController and the dead-air watchdog below — and a
+    # strike raised twice for one silence would skip a rung and hang up early.
+    last_idle_fired = 0.0
+    # Constructed here rather than with the other observers further down: the
+    # idle handler below closes over it, and a closure that resolves at call
+    # time would only fail once, on a real call, in the branch nobody tests.
+    from voice.bot_turn_state import BotTurnStateObserver
+
+    bot_turn_state = BotTurnStateObserver()
     idle_ladder = list(tuning["interaction"].get("idle_ladder") or ["nudge", "direct", "close"])
     # Single-flight end: idle ladder / worker idle / max-duration must not stack
     # with each other or with Flows end_conversation (feedback #4).
     ending = False
     duration_task: asyncio.Task | None = None
+    deadair_task: asyncio.Task | None = None
 
     def _claim_end(reason: str) -> bool:
         nonlocal ending
@@ -677,12 +722,36 @@ async def run_bot(transport, runner_args) -> None:
         session.extra.setdefault("ending_reason", reason)
         if duration_task is not None and not duration_task.done():
             duration_task.cancel()
+        if deadair_task is not None and not deadair_task.done():
+            deadair_task.cancel()
         return True
 
     @user_aggregator.event_handler("on_user_turn_idle")
     async def on_user_turn_idle(aggregator):
-        nonlocal idle_strikes
+        nonlocal idle_strikes, last_idle_fired
         if ending or session.extra.get("ending"):
+            return
+        # Two timers, one ladder. The aggregator's timer and the dead-air
+        # watchdog cover different silences and overlap in the middle; without
+        # this, one quiet stretch can burn two rungs and close a call that had
+        # only gone quiet once.
+        now = time.monotonic()
+        if last_idle_fired and (now - last_idle_fired) < _IDLE_REFIRE_GUARD_SECS:
+            return
+        last_idle_fired = now
+        # Whose silence is it?
+        #
+        # The aggregator's timer measures silence on the wire, and the bot
+        # thinking is silence on the wire. A node transition plus a context
+        # summarisation can take six seconds, and firing a nudge into that gap
+        # requests a second turn while the first is still being generated — the
+        # caller then hears two replies two seconds apart. Do not count a strike
+        # either: the caller has not failed to respond to anything yet.
+        if bot_turn_state.busy():
+            logger.debug(
+                "idle suppressed · session={} · bot mid-turn",
+                session.session_id,
+            )
             return
         idle_strikes += 1
         step_idx = min(idle_strikes - 1, len(idle_ladder) - 1)
@@ -857,6 +926,12 @@ async def run_bot(transport, runner_args) -> None:
 
         spawn_session_task(session.session_id, _run())
 
+    from agent_core.skills.runtime import mouth_turn_state as _mouth_turn_state
+
+    _skill_state = _mouth_turn_state(bundle.get("agentCard") or {})
+    _allowed_tools = _skill_state.get("allowed")
+    _attached_skills = _skill_state.get("packs") or []
+
     _tool_state, _tools, initial_node, global_fns = build_collections_flow(
         session,
         role_message=system_instruction,
@@ -872,15 +947,17 @@ async def run_bot(transport, runner_args) -> None:
         spoke_this_response=lambda: spoke_probe.spoke_this_response,
         on_upsell_engaged=_on_upsell_engaged,
         sink=sink,
+        allowed_tool_names=_allowed_tools,
+        attached_skills=_attached_skills,
     )
 
-    # VOICE_FLOW_GRAPH=db swaps in the graph authored in Prompt Studio. Built
-    # after the hardcoded flow rather than instead of it, so any failure — no
-    # authored graph on this deployment, a graph that no longer compiles — keeps
-    # the call on the flow that was already working. The cost is building both,
-    # which is pure object construction with no I/O.
+    # Authored Prompt Studio graph when the published version has nodes, unless
+    # VOICE_FLOW_GRAPH=legacy|hub is an explicit kill-switch. Built after the
+    # hardcoded flow rather than instead of it, so any failure — empty graph,
+    # compile error — keeps the call on the flow that was already working.
     _authored = bundle.get("flow")
-    if _authored and voice_config.voice_flow_graph() == "db":
+    _flow_override = session.extra.get("flowGraph")
+    if voice_config.voice_uses_authored_flow(_authored, override=_flow_override):
         try:
             from voice.flows_dynamic import build_authored_flow
 
@@ -900,6 +977,8 @@ async def run_bot(transport, runner_args) -> None:
                 spoke_this_response=lambda: spoke_probe.spoke_this_response,
                 on_upsell_engaged=_on_upsell_engaged,
                 sink=sink,
+                allowed_tool_names=_allowed_tools,
+                attached_skills=_attached_skills,
             )
             logger.info("voice flow: using authored graph from prompt version")
         except Exception:
@@ -1000,6 +1079,9 @@ async def run_bot(transport, runner_args) -> None:
     metrics_obs = sink.build_observer()
     if metrics_obs is not None:
         observers.append(metrics_obs)
+
+    # Built above, next to the idle state it guards.
+    observers.append(bot_turn_state)
 
     # Per-service latency attribution. Prerequisite (enable_metrics=True) is
     # already set on PipelineParams below. The observer is passive — it only
@@ -1172,6 +1254,11 @@ async def run_bot(transport, runner_args) -> None:
     async def _mesh_activate_insurance_action(action: dict) -> None:
         try:
             from voice import mesh_bus
+            from agent_core.cards.handoff_policy import insurance_handoff_allowed
+
+            if not insurance_handoff_allowed(bot_id, bundle.get("agentCard")):
+                logger.info("insurance handoff not on card — skip mesh_activate_insurance")
+                return
 
             role = await mesh_bus.activate_and_publish(
                 "insurance",
@@ -1395,13 +1482,80 @@ async def run_bot(transport, runner_args) -> None:
         except Exception:
             logger.exception("max-duration watchdog failed")
 
+    async def _deadair_watchdog() -> None:
+        """Break silences Pipecat's idle timer structurally cannot see.
+
+        ``UserIdleController`` arms on ``BotStoppedSpeakingFrame`` and re-arms
+        nowhere else, so a turn in which the bot never speaks leaves no timer
+        running: a transition into a listen-first node, a tool that resolved
+        without a reply, or a run of transition tools that never reaches speech.
+        The measurement here is of the audio itself, so it holds regardless of
+        which of those produced the gap.
+
+        Deliberately routed through ``on_user_turn_idle`` rather than speaking
+        on its own: one ladder, one strike count, one place that decides when a
+        quiet line becomes a goodbye.
+        """
+        base = idle_timeout if idle_timeout is not None else 6.0
+        if base <= 0:
+            return  # idle detection switched off; the watchdog respects that
+        threshold = max(_DEADAIR_MIN_SECS, float(base) + _DEADAIR_GRACE_SECS)
+        try:
+            while True:
+                await asyncio.sleep(_DEADAIR_POLL_SECS)
+                if ending or session.extra.get("ending"):
+                    return
+                # busy() covers the legitimate quiet: generating, mid-tool, or
+                # between stages. Only silence the bot does not already owe a
+                # turn for counts as dead air.
+                if bot_turn_state.busy():
+                    continue
+                if bot_turn_state.silent_for() < threshold:
+                    continue
+                logger.info(
+                    "Dead air · session={} · silent={:.1f}s · no idle timer was armed",
+                    session.session_id,
+                    bot_turn_state.silent_for(),
+                )
+                await on_user_turn_idle(user_aggregator)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("dead-air watchdog failed")
+
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
-        nonlocal idle_strikes, duration_task
+        nonlocal idle_strikes, duration_task, deadair_task
         idle_strikes = 0
         logger.info("Client connected · session={}", session.session_id)
+        # Starts the silence clock. Until this, a call that never makes a sound
+        # has no origin to measure from and the dead-air watchdog cannot see it
+        # — which is exactly how VS-18FE21E37A stayed mute for 77 seconds.
+        bot_turn_state.mark_call_started()
         _spawn_bg(prewarm_llm_connection(force=True))
         duration_task = asyncio.create_task(_max_duration_watchdog())
+        deadair_task = asyncio.create_task(_deadair_watchdog())
+
+        # The carrier's own id for this call, and which way it was placed.
+        # ``voice_sessions.provider_call_id`` and its unique index have existed
+        # since sql/12_crosscutting.sql, and every layer between here and the
+        # INSERT already carried the argument — it was simply never supplied, so
+        # the column was NULL on every row ever written. Without it a call in
+        # the carrier's logs and the interaction in the CRM cannot be joined:
+        # no cost attribution, no recording lookup, no way to answer "which
+        # customer was CA…?" after the fact.
+        #
+        # ``call_sid`` is populated in the transport-detection block above from
+        # ``call_data`` or the stream's custom parameters; SmallWebRTC sandbox
+        # calls legitimately have none, which is why the index is partial.
+        provider_call_id = str(session.extra.get("call_sid") or "").strip() or None
+        twilio_params = session.extra.get("twilio_params")
+        call_type = str(
+            (twilio_params or {}).get("call_type")
+            if isinstance(twilio_params, dict)
+            else session.extra.get("call_type") or ""
+        ).strip().lower()
+        direction = "outbound" if call_type == "outbound" else "inbound"
 
         try:
             row = await asyncio.to_thread(
@@ -1409,6 +1563,8 @@ async def run_bot(transport, runner_args) -> None:
                 session,
                 deployment_id=bundle.get("deploymentId"),
                 transport=transport_name,
+                provider_call_id=provider_call_id,
+                direction=direction,
                 bot_id=bot_id,
             )
             await sink.start()
@@ -1541,6 +1697,8 @@ async def run_bot(transport, runner_args) -> None:
         try:
             if duration_task is not None and not duration_task.done():
                 duration_task.cancel()
+            if deadair_task is not None and not deadair_task.done():
+                deadair_task.cancel()
         except Exception:
             logger.exception("duration task cancel failed")
         try:
@@ -1629,6 +1787,36 @@ async def run_bot(transport, runner_args) -> None:
 
 
 async def bot(runner_args):
+    """Single entry point for every hosting mode — and so the admission gate.
+
+    Both the embedded host (``voice.host._dispatch``) and the standalone
+    ``python -m voice.bot`` runner land here, which is why the concurrency cap
+    lives at this level rather than in the host: gating only the host would
+    leave the compose stack's voice worker uncapped, and gating both would let
+    one call consume two slots.
+    """
+    from voice import admission
+
+    # Before create_transport: refusing after the transport is up means the
+    # expensive part (STT/TTS connections, flow build) already happened, and the
+    # caller has already heard the line open.
+    try:
+        slot_token = admission.acquire(label="voice")
+    except admission.AtCapacity as exc:
+        logger.warning("refusing call: {}", exc)
+        await admission.refuse(runner_args, label="voice")
+        return
+
+    try:
+        await _bot_session(runner_args)
+    finally:
+        # finally, not after the await: a cancelled session (deploy drain,
+        # client vanishing) must return its slot too, or the effective cap
+        # ratchets down until the process serves nothing.
+        admission.release(slot_token)
+
+
+async def _bot_session(runner_args):
     from pipecat.evals.transport import EvalTransportParams
     from pipecat.runner.utils import create_transport
     from pipecat.transports.base_transport import TransportParams
@@ -1663,11 +1851,37 @@ def _ensure_utf8_stdio() -> None:
                 pass
 
 
+def _warm_before_serving() -> None:
+    """Pay the cold-start before a caller can arrive, not during their call.
+
+    The first call after a restart runs every one-time cost inside the window
+    the browser is waiting on: WebRTC has already sent its offer and is holding
+    an unanswered handshake. On VS-22F820E252 the pipeline took 61s to become
+    ready, the client re-offered at 70s, that renegotiation tore down the
+    in-flight connection, and the call died at "Starting live voice session…"
+    without ever connecting. The largest single number in that window was a
+    62-second Azure warm-up.
+
+    Doing it here costs the operator a slower `python -m voice.bot` and costs
+    the first caller nothing. Best-effort: a runner that cannot reach Azure at
+    boot must still start and serve.
+    """
+    try:
+        import azure_openai
+
+        ms = azure_openai.prewarm(force=True)
+        if ms:
+            logger.info("voice runner warm · azure %.0f ms · ready to take calls", ms)
+    except Exception:
+        logger.warning("startup warm failed — the first call pays it instead", exc_info=True)
+
+
 if __name__ == "__main__":
     _ensure_utf8_stdio()
     # Before anything imports and starts logging: without this the product's
     # standard-library loggers never reach loguru's sink. See voice/log_bridge.py.
     log_bridge.install()
+    _warm_before_serving()
     from pipecat.runner.run import main
 
     main()

@@ -3,8 +3,9 @@
 The counterpart to ``voice/flows.py``: same output contract
 (``state, tools, initial_node_factory, global_functions``), but the graph comes
 from ``prompt_versions.flow`` instead of Python. Selected by
-``VOICE_FLOW_GRAPH=db``; anything else keeps the hardcoded flow, so this cannot
-change a call until it is deliberately switched on.
+``VOICE_FLOW_GRAPH=db`` or the default ``auto`` (when the published version
+has nodes); ``legacy`` / ``hub`` keep the hardcoded flow, so this cannot
+change a call until it is deliberately allowed.
 
 How a graph becomes a conversation
 ----------------------------------
@@ -77,6 +78,52 @@ EXTRACT_TOOL = "extract_details"
 _TYPE_JSON = {"string": "string", "number": "number", "boolean": "boolean"}
 
 
+#: Live call state an authored graph may interpolate or branch on. Keys are the
+#: contract the Flow editor advertises, so renaming one breaks published graphs.
+SESSION_VARIABLES: tuple[str, ...] = (
+    "call_goal",
+    "call_goal_intent",
+    "identity_verified",
+    "outstanding",
+    "turn_index",
+    "intent",
+    "sentiment",
+    "language",
+)
+
+
+def session_variables(session: Any) -> dict[str, str]:
+    """Project live call state into the flow variable bag.
+
+    Read on every render and every edge evaluation rather than snapshotted at
+    build time: ``call_goal`` is captured at the discover_intent node, long
+    after the graph compiles, and it is the whole point of the
+    goal-conditioned hub. A build-time snapshot would always be empty.
+
+    Session-only and allocation-cheap — no database read, because this runs
+    inside condition evaluation on the audio path.
+    """
+    understanding = getattr(session, "understanding", None)
+
+    def _u(field: str) -> Any:
+        return getattr(understanding, field, None) if understanding is not None else None
+
+    verified = bool(getattr(session, "identity_verified", False))
+    sentiment = _u("sentiment")
+    return {
+        "call_goal": getattr(session, "call_goal", None) or "",
+        "call_goal_intent": getattr(session, "call_goal_intent", None) or "",
+        # Lower-cased so an authored `equals true` clause matches — Python's
+        # str(True) is "True" and the comparison is exact.
+        "identity_verified": "true" if verified else "false",
+        "outstanding": str(getattr(session, "outstanding", "") or ""),
+        "turn_index": str(getattr(session, "turn_index", 0) or 0),
+        "intent": _u("intent") or "",
+        "sentiment": "" if sentiment is None else str(sentiment),
+        "language": _u("language") or "",
+    }
+
+
 def build_authored_flow(
     session: VoiceSession,
     graph_data: Any,
@@ -95,6 +142,8 @@ def build_authored_flow(
     on_upsell_engaged: Callable[[], None] | None = None,
     sink: Any | None = None,
     initial_variables: dict[str, Any] | None = None,
+    allowed_tool_names: set[str] | None = None,
+    attached_skills: list[Any] | None = None,
 ) -> tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
     """Compile an authored graph. Mirrors ``build_collections_flow``'s contract."""
     graph: FlowGraph = parse_graph(graph_data)
@@ -102,7 +151,7 @@ def build_authored_flow(
     if start is None:
         raise ValueError("authored flow has no start node")
 
-    variables = FlowVariables(initial_variables)
+    variables = FlowVariables(initial_variables, context=lambda: session_variables(session))
     # Populated below; handed to build_tools by reference so the built-in tools'
     # _node(name) lookups see the authored nodes.
     nodes: dict[str, Callable[[], dict[str, Any]]] = {}
@@ -122,6 +171,8 @@ def build_authored_flow(
         spoke_this_response=spoke_this_response,
         on_upsell_engaged=on_upsell_engaged,
         sink=sink,
+        allowed_tool_names=allowed_tool_names,
+        attached_skills=attached_skills,
     )
 
     by_id = {node.id: node for node in graph.nodes}
@@ -297,6 +348,7 @@ def build_authored_flow(
                 return config
 
             instructions = variables.render(node.data.instructions)
+            entry_line = variables.render(node.data.entryLine).strip()
             if node.data.instructionType == "say" and instructions:
                 # Verbatim delivery: say exactly this, do not improvise.
                 config["pre_actions"] = [{"type": "tts_say", "text": instructions}]
@@ -310,6 +362,18 @@ def build_authored_flow(
                     }
                 ]
             else:
+                if entry_line:
+                    # Spoken the instant the step is entered, ahead of any
+                    # generation. append_text_to_context=False keeps it out of
+                    # the transcript the model reasons over, matching how the
+                    # built-in script uses its bridge lines.
+                    config["pre_actions"] = [
+                        {
+                            "type": "tts_say",
+                            "text": entry_line,
+                            "append_text_to_context": False,
+                        }
+                    ]
                 config["task_messages"] = [
                     {"role": "developer", "content": instructions}
                 ]
@@ -335,7 +399,29 @@ def build_authored_flow(
                 functions.append(_extract_tool(node))
 
             config["functions"] = functions
-            config["respond_immediately"] = bool(node.data.respondImmediately)
+
+            # "Listen first" is a claim about whose turn it is, and the graph
+            # cannot know that — only the call can. A step entered because the
+            # CALLER just spoke owes them a reply: waiting produces silence
+            # neither side will break. On VS-92CDE3F088 the caller answered
+            # "payment plan discussion", begin_negotiate moved the flow to a
+            # listen-first step, and the line stayed dead for 24 seconds until
+            # the caller gave up and spoke again. Pipecat's idle ladder cannot
+            # rescue this: UserIdleController only arms its timer on
+            # BotStoppedSpeakingFrame, and no bot turn ever happened.
+            #
+            # An entry line settles the debt on its own, so a step that speaks
+            # on entry may still listen.
+            respond = bool(node.data.respondImmediately)
+            if not respond and not entry_line:
+                if (getattr(session, "last_speaker", None) or "") == "customer":
+                    logger.info(
+                        "authored flow: node %s responds immediately — the caller "
+                        "spoke last and listening again would be dead air",
+                        node.key,
+                    )
+                    respond = True
+            config["respond_immediately"] = respond
 
             post_actions: list[dict[str, Any]] = []
             # Deterministic edges are resolved by a post-action rather than by a
