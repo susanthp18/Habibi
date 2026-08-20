@@ -45,6 +45,8 @@ DENIED: frozenset[str] = frozenset(
         "flag_dispute",
         "capture_lead",
         "decline_offer",
+        "evaluate_authority",
+        "apply_goodwill",
         "recommend_next_offer",
         "request_documents",
         "request_callback",

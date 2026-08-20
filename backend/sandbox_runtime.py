@@ -45,10 +45,14 @@ _SANDBOX_TOOL_NAMES = (
     "search_knowledge_base",
     "create_promise_to_pay",
     "flag_dispute",
+    "evaluate_authority",
+    "apply_goodwill",
     "request_callback",
     "check_product_eligibility",
     "capture_lead",
     "request_documents",
+    "load_skill",
+    "run_skill_script",
 )
 _SANDBOX_MAX_TOOL_ITERS = 4
 # Ceiling on a single tool result as handed back to the model. Generous enough
@@ -79,12 +83,16 @@ def _run_sandbox_tool_loop(
     run_id: str,
     temperature: float,
     max_tokens: int,
+    agent_card: dict[str, Any] | None = None,
 ) -> tuple[str, int, int, list[dict[str, Any]]]:
     """Shared catalog tools under a max-iteration budget (unification Phase D)."""
+    from agent_core.skills.runtime import mouth_turn_state
     from agent_core.tools.catalog import CATALOG
     from bot_tools import ToolContext, execute_tool
 
-    tools = CATALOG.openai_tools(list(_SANDBOX_TOOL_NAMES))
+    skill_state = mouth_turn_state(agent_card or {}, intent=intent)
+    offered = skill_state["offered"]
+    tools = CATALOG.openai_tools(list(offered) if offered is not None else list(_SANDBOX_TOOL_NAMES))
     ctx = ToolContext(
         job_id=f"sandbox-{run_id}",
         conversation_id=f"sandbox-{run_id}",
@@ -94,6 +102,9 @@ def _run_sandbox_tool_loop(
         customer_text=customer_text,
         intent=intent or "general",
     )
+    ctx.allowed_tools = skill_state["allowed"]
+    ctx.attached_skills = skill_state["packs"]
+    ctx.active_skill = skill_state["active_slug"]
     working = list(messages)
     tool_trace: list[dict[str, Any]] = []
     total_tokens = 0
@@ -269,13 +280,16 @@ def create_sandbox_run(payload: dict[str, Any]) -> dict[str, Any]:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO sandbox_scenarios (id, name, sim_persona, turns)
-                        VALUES (:id, :name, CAST(:persona AS jsonb), CAST(:turns AS jsonb))
+                        INSERT INTO sandbox_scenarios
+                          (id, tenant_id, name, sim_persona, turns)
+                        VALUES (:id, :tenant_id, :name, CAST(:persona AS jsonb),
+                                CAST(:turns AS jsonb))
                         ON CONFLICT (id) DO NOTHING
                         """
                     ),
                     {
                         "id": scenario_id,
+                        "tenant_id": db.current_tenant(),
                         "name": str(payload.get("scenarioTitle") or scenario_id),
                         "persona": json.dumps(payload.get("persona") or {}),
                         "turns": json.dumps([]),
@@ -423,6 +437,10 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"sandbox_max_turns:{effective_max}")
 
     persona = version["persona"] if isinstance(version.get("persona"), dict) else {}
+    from agent_core.skills.runtime import mouth_turn_state
+
+    skill_slug = str(payload.get("skillSlug") or payload.get("skill_slug") or "").strip() or None
+    skill_state = mouth_turn_state(version.get("agentCard") or {}, active_slug=skill_slug)
     # Server-authoritative history — prefer DB turns over client payload.
     history: list[dict[str, Any]] = []
     with db.engine.connect() as hist_conn:
@@ -475,6 +493,14 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not chip_results:
         chip_results = results[:3]
 
+    prior_summary = None
+    interaction_id = str(payload.get("interactionId") or payload.get("interaction_id") or "").strip() or None
+    if interaction_id:
+        try:
+            row = db.get_latest_context_summary(interaction_id)
+            prior_summary = (row or {}).get("summary")
+        except Exception:
+            prior_summary = None
     assembled = assemble_turn_messages(
         prompt_template=version["prompt"],
         persona=persona,
@@ -483,9 +509,19 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         context=payload.get("context") if isinstance(payload.get("context"), dict) else None,
         history=history,
         context_blocks=context_blocks,
+        prior_summary=prior_summary,
+        skill_catalog=skill_state["prefix"],
+        active_skill_message=None,
     )
     messages = assembled["messages"]
     intent = assembled["intent"]
+    skill_state = mouth_turn_state(
+        version.get("agentCard") or {},
+        intent=str(intent or ""),
+        active_slug=skill_slug,
+    )
+    if skill_state["body_message"]:
+        messages.insert(min(2, len(messages)), skill_state["body_message"])
     intent_scores = assembled["intent_scores"]
     sentiment = assembled["sentiment"]
     sent_label = assembled["sentiment_label"]
@@ -498,30 +534,35 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         or turn_context.get("customer_id")
         or (payload.get("customerId") or "")
     ).strip()
+    from agent_core.telemetry import span as _span
+
     try:
-        if _sandbox_tools_enabled(payload, turn_context) and customer_id:
-            bot_text, chat_latency, tokens, tool_trace = _run_sandbox_tool_loop(
-                messages=messages,
-                customer_text=customer_text,
-                intent=str(intent or "general"),
-                customer_id=customer_id,
-                run_id=run_id,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        else:
-            chat = azure_openai.chat_complete_detailed(
-                messages,
-                temperature=temperature,
-                max_completion_tokens=max_tokens,
-            )
-            bot_text = chat["content"] or "I understand. Let me help you with that."
-            chat_latency = int(chat["latencyMs"] or 0)
-            tokens = int(
-                chat.get("totalTokens")
-                or ((chat.get("promptTokens") or 0) + (chat.get("completionTokens") or 0))
-                or max(1, len(bot_text) // 4)
-            )
+        with _span("gen_ai.invoke_agent", gen_ai_operation_name="invoke_agent", gen_ai_agent_name="sandbox"):
+            if _sandbox_tools_enabled(payload, turn_context) and customer_id:
+                bot_text, chat_latency, tokens, tool_trace = _run_sandbox_tool_loop(
+                    messages=messages,
+                    customer_text=customer_text,
+                    intent=str(intent or "general"),
+                    customer_id=customer_id,
+                    run_id=run_id,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    agent_card=version.get("agentCard") if isinstance(version.get("agentCard"), dict) else None,
+                )
+            else:
+                with _span("gen_ai.chat", gen_ai_operation_name="chat"):
+                    chat = azure_openai.chat_complete_detailed(
+                        messages,
+                        temperature=temperature,
+                        max_completion_tokens=max_tokens,
+                    )
+                bot_text = chat["content"] or "I understand. Let me help you with that."
+                chat_latency = int(chat["latencyMs"] or 0)
+                tokens = int(
+                    chat.get("totalTokens")
+                    or ((chat.get("promptTokens") or 0) + (chat.get("completionTokens") or 0))
+                    or max(1, len(bot_text) // 4)
+                )
     except Exception as exc:
         logger.exception("sandbox chat failed")
         raise RuntimeError(f"sandbox_chat_failed: {exc}") from exc

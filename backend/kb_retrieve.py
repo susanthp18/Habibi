@@ -608,10 +608,10 @@ def retrieve(
             text(
                 """
                 INSERT INTO retrieval_logs (
-                  id, interaction_id, sandbox_run_id, transcript_turn_id, query,
-                  top_chunks, latency_ms, selected_answer_source, created_at
+                  id, tenant_id, interaction_id, sandbox_run_id, transcript_turn_id,
+                  query, top_chunks, latency_ms, selected_answer_source, created_at
                 ) VALUES (
-                  :id, :interaction_id, :sandbox_run_id, :transcript_turn_id, :query,
+                  :id, :tenant_id, :interaction_id, :sandbox_run_id, :transcript_turn_id, :query,
                   CAST(:top_chunks AS jsonb),
                   :latency_ms, :selected_answer_source, now()
                 )
@@ -619,6 +619,7 @@ def retrieve(
             ),
             {
                 "id": log_id,
+                "tenant_id": db.current_tenant(),
                 "interaction_id": interaction_id,
                 "sandbox_run_id": sandbox_run_id,
                 "transcript_turn_id": transcript_turn_id,

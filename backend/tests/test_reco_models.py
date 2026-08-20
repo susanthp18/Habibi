@@ -9,7 +9,6 @@ are what runs when the infrastructure is having a bad day.
 from __future__ import annotations
 
 import json
-import math
 import random
 from datetime import datetime, timedelta, timezone
 
@@ -367,8 +366,6 @@ def test_reranker_drops_ids_the_engine_never_approved(monkeypatch):
     monkeypatch.setattr(
         models, "_strip_fence", lambda raw: raw
     )
-
-    import agent_core.reco.models as m
 
     class _FakeAzure:
         @staticmethod

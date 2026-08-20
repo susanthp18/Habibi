@@ -7,9 +7,7 @@ Phone comes from WHATSAPP_TEST_TO (synthetic fallback for non-prod only).
 from __future__ import annotations
 
 import os
-import sys
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 import psycopg
 

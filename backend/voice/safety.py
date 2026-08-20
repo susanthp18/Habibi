@@ -36,15 +36,6 @@ _HOLD_RE = re.compile(
     re.I,
 )
 
-_BOT_Q_RE = re.compile(
-    r"\b("
-    r"are\s+you\s+(a\s+)?(bot|robot|ai|artificial)|"
-    r"am\s+i\s+(talking|speaking)\s+to\s+(a\s+)?(bot|robot|ai|human)|"
-    r"is\s+this\s+(a\s+)?(bot|recording|automated)"
-    r")\b",
-    re.I,
-)
-
 # Indic scripts — caller not on Latin en-IN.
 _INDIC_SCRIPT_RE = re.compile(
     r"[\u0900-\u097F"  # Devanagari (Hindi/Marathi)
@@ -100,10 +91,6 @@ def detect_legal(text: str) -> bool:
 
 def detect_hold_request(text: str) -> bool:
     return bool(_HOLD_RE.search(text or ""))
-
-
-def detect_bot_question(text: str) -> bool:
-    return bool(_BOT_Q_RE.search(text or ""))
 
 
 def rolling_sentiment_collapsed(scores: list[float]) -> bool:

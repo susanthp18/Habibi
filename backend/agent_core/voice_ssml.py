@@ -12,14 +12,6 @@ from typing import Any
 from azure_speech import build_ssml, resolve_azure_voice_name
 
 
-def _coalesce(*vals: Any) -> Any:
-    """First non-None value (0 is preserved, unlike ``or``). Last arg is the default."""
-    for v in vals:
-        if v is not None:
-            return v
-    return vals[-1]
-
-
 def _num(*vals: Any, default: float) -> float:
     """First value that coerces to a finite float, else ``default``."""
     for v in vals:

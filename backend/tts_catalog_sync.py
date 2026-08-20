@@ -256,6 +256,27 @@ def run_sync(
                     unchanged += 1
 
             if params:
+                # Every derived tier must exist before the voice insert:
+                # price_tier is a foreign key, the insert below is a single
+                # executemany, and one unknown tier aborts the whole batch. That
+                # is exactly how the catalog ended up empty — Azure returned
+                # DragonHD voices, 'hd' was missing from a fresh install, and
+                # all 774 rows rolled back. Registering unknown tiers as they
+                # appear keeps the next new Azure tier from doing it again;
+                # price stays NULL until someone fills it in.
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO tts_price_tiers (tier, label, is_premium, notes)
+                        VALUES (:tier, :label, true, 'Auto-registered by catalog sync')
+                        ON CONFLICT (tier) DO NOTHING
+                        """
+                    ),
+                    [
+                        {"tier": t, "label": t.replace("_", " ").title()}
+                        for t in sorted({p["price_tier"] for p in params})
+                    ],
+                )
                 conn.execute(
                     text(
                         """

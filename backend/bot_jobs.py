@@ -380,6 +380,9 @@ def record_tool_call(
     error: str | None = None,
     result_preview: str | None = None,
     latency_ms: int | None = None,
+    agent_id: str | None = None,
+    skill_id: str | None = None,
+    connector_id: str | None = None,
 ) -> str:
     """Audit one CRM tool call, on any channel.
 
@@ -400,11 +403,13 @@ def record_tool_call(
             INSERT INTO bot_tool_calls (
               id, job_id, conversation_id, interaction_id, transcript_turn_id,
               channel, tool_name, args,
-              result_ok, error, result_preview, latency_ms
+              result_ok, error, result_preview, latency_ms,
+              agent_id, skill_id, connector_id
             ) VALUES (
               :id, :job_id, :conversation_id, :interaction_id, :transcript_turn_id,
               :channel, :tool_name, CAST(:args AS jsonb),
-              :result_ok, :error, :result_preview, :latency_ms
+              :result_ok, :error, :result_preview, :latency_ms,
+              :agent_id, :skill_id, :connector_id
             )
             """
         ),
@@ -421,6 +426,9 @@ def record_tool_call(
             "error": (error or "")[:MAX_JOB_ERROR_CHARS] if error else None,
             "result_preview": (result_preview or "")[:MAX_JOB_ERROR_CHARS] if result_preview else None,
             "latency_ms": latency_ms,
+            "agent_id": agent_id,
+            "skill_id": skill_id,
+            "connector_id": connector_id,
         },
     )
     return tid

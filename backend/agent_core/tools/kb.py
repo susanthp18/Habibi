@@ -578,6 +578,10 @@ def search_knowledge_base(
         tool_query=query or "",
         available_products=_catalog_for_plan(kb_snapshot_id),
         recent=recent,
+        # The full retrieval budget. The judge no longer takes a slice out of
+        # this one — it gets a guaranteed floor of its own further down (see
+        # Deadline.guaranteed), so subtracting here as well would starve the
+        # planner to pay for something already paid for.
         budget=deadline.remaining(),
         fallback=kb_plan.RetrievalPlan(
             query=expanded,
@@ -668,7 +672,11 @@ def search_knowledge_base(
     verdict = kb_plan.judge_passages(
         question=customer_text or q,
         passages=results,
-        budget=deadline.remaining(),
+        # Guaranteed, not whatever the planner and the embed happened to leave.
+        # Reserving out of the planner's timeout alone left this at 0.0s on
+        # every measured call, so the answerability check never ran once and
+        # every reply was built from unvetted passages.
+        budget=deadline.guaranteed(kb_plan.judge_reserve_s()),
     )
     if verdict.source == kb_plan.SOURCE_LLM and verdict.keep:
         order = verdict.keep + [i for i in range(len(results)) if i not in verdict.keep]

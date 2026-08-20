@@ -6,8 +6,6 @@ API_KEY is set, and CORS must be outermost so 401s carry Access-Control-*.
 
 from __future__ import annotations
 
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 

@@ -225,6 +225,30 @@ def llm_enabled() -> bool:
     }
 
 
+#: Wall-clock budget for the enrichment call, per turn.
+#:
+#: This runs on the critical path of a live WhatsApp reply — the customer is
+#: watching a typing indicator while it works — and everything it produces is
+#: optional: the keyword baseline is already in hand and is returned on any
+#: failure. A component that degrades gracefully on error must also degrade on
+#: time. Without a budget one turn spent 51 seconds here to enrich a reply that
+#: took 1.8 seconds to generate.
+_DEFAULT_TIMEOUT_S = 6.0
+
+
+def _timeout_s() -> float:
+    raw = (os.getenv("UNDERSTANDING_LLM_TIMEOUT_S") or "").strip()
+    if not raw:
+        return _DEFAULT_TIMEOUT_S
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        logger.warning(
+            "UNDERSTANDING_LLM_TIMEOUT_S is not a number: %r - using %s", raw, _DEFAULT_TIMEOUT_S
+        )
+        return _DEFAULT_TIMEOUT_S
+
+
 def _max_tokens() -> int:
     """Completion budget for the analysis call.
 
@@ -354,6 +378,10 @@ def _ask_llm(
             temperature=0.0,
             max_completion_tokens=_max_tokens(),
             profile=azure_openai.PROFILE_ANALYSIS,
+            # Per-request, and it forces max_retries=0 inside chat_with_tools.
+            # The analysis client's own 8s cap is the lane's ceiling; this is
+            # what a live turn can actually afford to wait.
+            timeout=_timeout_s(),
         )
     except azure_openai.AzureBusyError:
         # Shed rather than queue. Analysis is the lowest-value Azure caller in

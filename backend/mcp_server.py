@@ -38,7 +38,7 @@ def _transport() -> str:
     return (os.getenv("MCP_TRANSPORT") or "stdio").strip().lower()
 
 
-async def _serve() -> None:
+async def _serve_stdio() -> None:
     try:
         from mcp.server import Server
         from mcp.server.stdio import stdio_server
@@ -68,23 +68,11 @@ async def _serve() -> None:
 
     @server.call_tool()
     async def _call(name: str, arguments: dict) -> list[TextContent]:
-        # to_thread: every handler underneath is synchronous SQLAlchemy, and
-        # blocking the MCP event loop would stall concurrent requests.
         try:
             result = await asyncio.to_thread(mcp_tools.call_tool, name, arguments)
         except mcp_tools.McpToolError as exc:
-            # Returned as content rather than raised: a caller mistake is
-            # information the agent can act on, not a transport failure.
             return [TextContent(type="text", text=json.dumps({"error": str(exc)}))]
         return [TextContent(type="text", text=json.dumps(result, default=str))]
-
-    transport = _transport()
-    if transport != "stdio":
-        raise SystemExit(
-            f"MCP_TRANSPORT={transport} is not supported yet. Only stdio is "
-            "implemented — a network transport needs an auth story reviewed "
-            "alongside it (see the module docstring)."
-        )
 
     logger.info("mcp server starting on stdio · tools=%s", len(mcp_tools.list_tools()))
     async with stdio_server() as (read, write):
@@ -93,7 +81,21 @@ async def _serve() -> None:
 
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), stream=sys.stderr)
-    asyncio.run(_serve())
+    transport = _transport()
+    if transport == "http":
+        from agent_core.mcp_http.http_app import serve_http
+        from agent_core.platform_flags import mcp_http_enabled
+
+        if not mcp_http_enabled():
+            raise SystemExit("MCP_HTTP_ENABLED must be true for MCP_TRANSPORT=http")
+        if not (os.getenv("MCP_API_KEY") or "").strip():
+            raise SystemExit("MCP_API_KEY is required for HTTP transport")
+        logger.info("mcp server starting on streamable HTTP")
+        serve_http()
+        return
+    if transport != "stdio":
+        raise SystemExit(f"MCP_TRANSPORT={transport} is not supported. Use stdio or http.")
+    asyncio.run(_serve_stdio())
 
 
 if __name__ == "__main__":

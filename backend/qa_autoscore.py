@@ -151,12 +151,21 @@ def score_interaction(
     import db
     import transcript_view
 
+    if not rubric_id:
+        rubric_id = db.rubric_id_for_interaction(interaction_id)
+        if not rubric_id:
+            logger.info("qa autoscore: no channel-appropriate rubric for %s", interaction_id)
+            return None
+
     rubric = db.load_rubric_tree(rubric_id)
     if not rubric:
         logger.warning("qa autoscore: no rubric available")
         return None
     criteria = _flat_criteria(rubric)
     if not criteria:
+        return None
+
+    if _has_final_scorecard(interaction_id):
         return None
 
     transcript = transcript_view.fenced_transcript(interaction_id, limit=TRANSCRIPT_TURNS)
@@ -191,6 +200,12 @@ def score_interaction(
     if valid is None:
         return None
 
+    locked = _live_locked_criteria(interaction_id)
+    if locked:
+        valid = {cid: pair for cid, pair in valid.items() if cid not in locked}
+        if not valid:
+            return None
+
     entries = [
         {
             "criterionId": cid,
@@ -206,7 +221,10 @@ def score_interaction(
         for cid, (score, note) in valid.items()
     ]
 
+    existing_id = _existing_scorecard_id(interaction_id)
     try:
+        if existing_id:
+            return db.patch_scorecard(existing_id, {"entries": entries, "status": "ai_draft"})
         return db.create_scorecard(
             {
                 "interactionId": interaction_id,
@@ -281,6 +299,63 @@ def _validate(
     return out
 
 
+def _existing_scorecard_id(interaction_id: str) -> str | None:
+    import db
+
+    with db.engine.connect() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT id FROM qa_scorecards
+                WHERE interaction_id = :id AND status = 'ai_draft'
+                LIMIT 1
+                """
+            ),
+            {"id": interaction_id},
+        ).mappings().first()
+    return str(row["id"]) if row else None
+
+
+def _has_final_scorecard(interaction_id: str) -> bool:
+    import db
+
+    with db.engine.connect() as conn:
+        return bool(
+            conn.execute(
+                text(
+                    """
+                    SELECT 1 FROM qa_scorecards
+                    WHERE interaction_id = :id AND status = 'final'
+                    LIMIT 1
+                    """
+                ),
+                {"id": interaction_id},
+            ).fetchone()
+        )
+
+
+def _live_locked_criteria(interaction_id: str) -> set[str]:
+    """Criterion ids whose score came from live evidence — the LLM must not clobber them."""
+    import db
+
+    with db.engine.connect() as conn:
+        rows = db._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT e.criterion_id
+                    FROM qa_scorecard_entries e
+                    JOIN qa_scorecards s ON s.id = e.scorecard_id
+                    WHERE s.interaction_id = :id
+                      AND e.note LIKE '[live]%'
+                    """
+                ),
+                {"id": interaction_id},
+            )
+        )
+    return {r["criterion_id"] for r in rows}
+
+
 # ---------------------------------------------------------------------------
 # Batch selection
 # ---------------------------------------------------------------------------
@@ -293,8 +368,17 @@ _SELECT_SQL = """
        AND i.handler_kind = 'bot'
        AND i.ended_at BETWEEN now() - CAST(:max_age AS interval)
                           AND now() - CAST(:min_age AS interval)
-       AND NOT EXISTS (
-             SELECT 1 FROM qa_scorecards q WHERE q.interaction_id = i.id
+       AND (
+             NOT EXISTS (
+               SELECT 1 FROM qa_scorecards q WHERE q.interaction_id = i.id
+             )
+          OR EXISTS (
+               SELECT 1 FROM qa_scorecards q
+               JOIN qa_scorecard_entries e ON e.scorecard_id = q.id
+              WHERE q.interaction_id = i.id
+                AND q.status = 'ai_draft'
+                AND (e.note IS NULL OR e.note NOT LIKE '[live]%')
+             )
            )
        AND (
              SELECT count(*) FROM interaction_transcript t
@@ -325,7 +409,7 @@ def pending_interactions(*, limit: int = 10) -> list[str]:
                 conn.execute(
                     text(_SELECT_SQL),
                     {
-                        "tenant_id": db.TENANT_ID,
+                        "tenant_id": db.current_tenant(),
                         "min_age": "5 minutes",
                         "max_age": "24 hours",
                         "min_turns": 4,

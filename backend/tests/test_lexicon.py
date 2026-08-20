@@ -162,8 +162,6 @@ def test_sentiment_no_longer_double_penalises_one_word() -> None:
     The score is clamped at -1.0 either way, but the pre-clamp value fed the
     rolling average that drives sentiment-collapse escalation.
     """
-    from agent_core.sentiment import estimate_sentiment
-
     assert lexicon.abuse_hits("this is fucking ridiculous") == 1
 
 

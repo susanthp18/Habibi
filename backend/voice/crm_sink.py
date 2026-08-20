@@ -65,9 +65,27 @@ class CrmSink:
         session: VoiceSession,
         *,
         guardrails: dict[str, Any] | None = None,
+        direction: str = "inbound",
+        simulated: bool = False,
     ) -> None:
         self.session = session
         self.guardrails = guardrails or {}
+        # What kind of contact this is, for the rules that only govern contact
+        # attempts. Voice defaults to "inbound" because that is what this
+        # transport is — a caller dialled in. Outbound campaigns set it
+        # explicitly, which is the direction that owes a calling window.
+        self.call_direction = direction
+        self.simulated_call = bool(simulated)
+        #: Corrections already spent, per kind, and the guardrail rules already
+        #: steered on. Both exist so one detector cannot monopolise the budget
+        #: or repeat itself.
+        self._corrections_by_kind: dict[str, int] = {}
+        self._corrected_flags: set[str] = set()
+        # Whether ANY bot turn in this call has stated the recording
+        # disclosure. The guardrail evaluator sees one turn at a time and
+        # cannot answer that on its own; without it a compliant greeting is
+        # followed by a false "missing-recording-disclosure" on the next turn.
+        self._recording_disclosed = False
         # Billable consumption for this call. Fed by the metrics observer and
         # finalised in stop(); see voice/usage.py for why STT is derived.
         self.usage = VoiceUsageMeter(session)
@@ -295,6 +313,11 @@ class CrmSink:
         line = (text or "").strip()
         if not line:
             return
+        # Both callers of this method are the only two places a turn is
+        # recorded, which makes it the one honest place to answer "who spoke
+        # last?" — a question the flow compiler asks before deciding whether a
+        # listen-first step is patience or dead air.
+        self.session.last_speaker = speaker
         self._recent_turns.append((speaker, line))
         if len(self._recent_turns) > self._RECENT_TURNS_KEPT:
             del self._recent_turns[: -self._RECENT_TURNS_KEPT]
@@ -406,7 +429,9 @@ class CrmSink:
             if job is None:
                 break
             try:
-                if job.kind == "critique":
+                if job.kind == "whisper":
+                    await self._handle_whisper(job)
+                elif job.kind == "critique":
                     await self._handle_critique(job)
                 else:
                     await asyncio.to_thread(self._handle_understanding, job)
@@ -436,10 +461,25 @@ class CrmSink:
                 understanding=self.session.understanding,
                 guardrail_flags=p.get("guardrail_flags"),
                 recent_bot_turns=list(p.get("recent_bot_turns") or []),
+                already_corrected=self._corrected_flags,
             )
         )
         if correction is None:
             return
+        # Per-kind ceiling as well as the call total. One noisy detector used to
+        # be able to spend the entire budget — a compliance burst in the first
+        # minute left nothing to catch the repetition that filled the next four.
+        kind_cap = turn_critic.MAX_CORRECTIONS_PER_KIND.get(
+            correction.kind, turn_critic.MAX_CORRECTIONS_PER_CALL
+        )
+        if self._corrections_by_kind.get(correction.kind, 0) >= kind_cap:
+            return
+        self._corrections_by_kind[correction.kind] = (
+            self._corrections_by_kind.get(correction.kind, 0) + 1
+        )
+        # Remember the rules already steered on, so the same one is not raised
+        # twice in a call.
+        self._corrected_flags.update(f.lower() for f in correction.flags)
         self._corrections_sent += 1
         logger.info(
             "self-correction · session=%s · kind=%s · severity=%s · %s/%s",
@@ -453,6 +493,39 @@ class CrmSink:
             await self._on_correction(correction)
         except Exception:
             logger.debug("correction injection failed", exc_info=True)
+
+    async def _handle_whisper(self, job: _Job) -> None:
+        """Inject floor supervisor whispers. Not counted against the critic budget."""
+        if self._on_correction is None or self._closed:
+            return
+        from agent_core.live_qa.enact import whisper_correction
+
+        for note in job.payload.get("notes") or []:
+            correction = whisper_correction(str(note or ""))
+            if correction is None:
+                continue
+            try:
+                await self._on_correction(correction)
+            except Exception:
+                logger.debug("whisper injection failed", exc_info=True)
+
+    def _drain_whispers(self) -> None:
+        if self._closed or self._on_correction is None:
+            return
+        from agent_core.live_qa.enact import consume_whispers
+
+        notes = consume_whispers(self.session.interaction_id or "")
+        if not notes:
+            return
+        job = _Job("whisper", {"notes": notes})
+        loop = self._loop
+        try:
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._enqueue_analysis_job, job)
+            else:
+                self._enqueue_analysis_job(job)
+        except RuntimeError:
+            logger.debug("whisper enqueue after loop close", exc_info=True)
 
     def _handle_understanding(self, job: _Job) -> None:
         """Classify one turn and publish the result. Runs in a worker thread."""
@@ -763,6 +836,11 @@ class CrmSink:
             # this turn — comparing it against itself would score 1.0 and
             # report every single turn as a repetition.
             prior_bot_turns=list(self._recent_bot_texts),
+            # Snapshot of the calls-so-far disclosure state, taken before this
+            # turn is folded in below — the evaluator adds "or this turn says
+            # it" itself, and passing the post-fold value would make every turn
+            # look retroactively compliant.
+            recording_disclosed=self._recording_disclosed,
             ttfb_ms=int(ttfb) if ttfb is not None else None,
             ttfa_ms=int(ttfa) if ttfa is not None else None,
             tokens=int(tokens) if tokens is not None else None,
@@ -780,6 +858,8 @@ class CrmSink:
             tokens=int(tokens) if tokens is not None else None,
             **{_camel(k): v for k, v in breakdown.items()},
         )
+        if not self._recording_disclosed and "record" in text.lower():
+            self._recording_disclosed = True
         self._recent_bot_texts.append(text)
         if len(self._recent_bot_texts) > 8:
             self._recent_bot_texts = self._recent_bot_texts[-8:]
@@ -835,6 +915,31 @@ class CrmSink:
         if tokens and tokens > 0:
             self._pending_tokens = int(tokens)
 
+    def _auto_barge(self, interaction_id: str, reason: str) -> None:
+        from agent_core.live_qa import decisions as live_decisions
+        from agent_core.live_qa.enact import barge_audio
+
+        audio = barge_audio(interaction_id, reason=reason)
+        try:
+            persist.record_handoff(
+                interaction_id=interaction_id,
+                reason="compliance",
+            )
+        except Exception:
+            logger.exception("live_qa auto-barge handoff failed for %s", interaction_id)
+        pending = live_decisions.pending_auto_barge(interaction_id)
+        if pending:
+            live_decisions.mark_enacted(
+                pending.get("id"),
+                ref=str(audio.get("conference") or audio.get("reason") or ""),
+            )
+        logger.info(
+            "live_qa auto-barge · ix=%s · audio=%s · reason=%s",
+            interaction_id,
+            audio.get("audio"),
+            reason,
+        )
+
     def _write_customer_memory(self, interaction_id: str, payload: dict[str, Any]) -> None:
         """Persist what the *next* call should already know. Never fatal.
 
@@ -855,8 +960,6 @@ class CrmSink:
                 return
 
             commitments = memory.open_commitments(customer_id)
-            # SQL-derived commitments are the valuable half; if the summariser
-            # sheds (azure busy) we still write the row with summary=NULL.
             summary = memory.summarize_call(
                 interaction_id=interaction_id, customer_id=customer_id
             )
@@ -1148,6 +1251,9 @@ class CrmSink:
                 reason=str(p.get("reason") or ""),
             )
             return
+        if job.kind == "live_qa_barge":
+            self._auto_barge(ix, str(p.get("reason") or "live_qa"))
+            return
         if job.kind == "customer_turn":
             persist.append_transcript_turn(
                 interaction_id=ix,
@@ -1214,7 +1320,33 @@ class CrmSink:
                 turn_index=int(p["turn_index"]),
                 elapsed_seconds=float(p.get("at_sec") or 0),
                 customer_bot_exchanges=int(p.get("customer_bot_exchanges") or 0),
+                identity_verified=bool(self.session.identity_verified),
+                third_party=bool((self.session.extra or {}).get("third_party")),
+                channel="voice",
+                customer_id=self.session.customer_id,
+                account_id=self.session.account_id,
+                max_waiver_inr=_session_waiver_cap(self.session),
+                # A rehearsal reaches no customer, and an inbound caller chose
+                # the hour themselves. Without these the RBI calling-window
+                # check fired on turn 1 of a 20:43 sandbox call and spent a
+                # high-severity self-correction before anyone had spoken.
+                direction=self.call_direction,
+                simulated=self.simulated_call,
+                recording_disclosed=bool(p.get("recording_disclosed")),
             )
+            self._drain_whispers()
+            if "live-qa-auto-barge" in flags:
+                self.enqueue("live_qa_barge", reason=next(
+                    (f for f in flags if f in {
+                        "hours-breach",
+                        "third-party-leak",
+                        "identity-before-verify",
+                        "authority-cap-exceeded",
+                        "auto-escalate",
+                        "opt-out-ignored",
+                    }),
+                    "live_qa",
+                ))
             # The flags used to stop here, in a database row nobody reads until
             # the QA review. Hand them to the critic so the next turn can
             # actually change.
@@ -1279,8 +1411,14 @@ def bind_session_start(
     provider_call_id: str | None = None,
     customer_id: str | None = None,
     bot_id: str | None = None,
+    direction: str = "inbound",
 ) -> dict[str, Any]:
-    """Synchronous start — call from on_client_connected via to_thread."""
+    """Synchronous start — call from on_client_connected via to_thread.
+
+    ``direction`` is forwarded rather than left to ``start_voice_call``'s
+    default: an outbound dial recorded as ``inbound`` is not a cosmetic error,
+    it inverts every contact-attempt and answer-rate report built on the column.
+    """
     row = persist.start_voice_call(
         session_id=session.session_id,
         deployment_id=deployment_id,
@@ -1288,6 +1426,7 @@ def bind_session_start(
         provider_call_id=provider_call_id,
         customer_id=customer_id,
         bot_id=bot_id,
+        direction=direction,
     )
     session.interaction_id = row["interactionId"]
     session.customer_id = row["customerId"]
@@ -1296,3 +1435,14 @@ def bind_session_start(
     if row.get("startedAt"):
         session.call_started_at = row["startedAt"]
     return row
+
+
+def _session_waiver_cap(session: Any) -> float | None:
+    extra = getattr(session, "extra", None) or {}
+    raw = extra.get("max_waiver_inr")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None

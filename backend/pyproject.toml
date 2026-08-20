@@ -1,0 +1,18 @@
+[tool.vulture]
+# `.venv` must stay excluded — a full-tree scan hangs on site-packages.
+exclude = [".venv/", "alembic/", "__pycache__/", ".pytest_cache/"]
+min_confidence = 60
+ignore_decorators = [
+    "@app.*",
+    "@router.*",
+    "@pytest.fixture*",
+    "*.event_handler",
+    "@event.listens_for*",
+    "@server.*",
+    "@tool",
+    "@tool*",
+]
+ignore_names = [
+    "model_config",
+]
+paths = ["."]

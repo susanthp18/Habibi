@@ -42,7 +42,6 @@ def test_alembic_has_exactly_one_head() -> None:
     assert proc.returncode == 0, proc.stderr
     lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
     # alembic heads prints one line per head like: "<rev> (head)"
-    heads = [ln for ln in lines if "(head)" in ln or ln]
     # Filter noise — keep lines that look like revision ids
     rev_lines = [ln for ln in lines if "head" in ln.lower()]
     assert len(rev_lines) == 1, f"expected 1 alembic head, got: {lines}"

@@ -178,8 +178,9 @@ def _map_coaching(row: dict[str, Any], notes: list[dict[str, Any]]) -> dict[str,
     }
 
 
-def list_coaching_actions() -> list[dict[str, Any]]:
+def list_coaching_actions(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     d = _db()
+    page, skip = d.clamp_list_limit(limit), d.clamp_offset(offset)
     with d.engine.connect() as conn:
         rows = d._rows(
             conn.execute(
@@ -193,9 +194,10 @@ def list_coaching_actions() -> list[dict[str, Any]]:
                     LEFT JOIN bots b ON b.id = ca.subject_bot_id
                     WHERE ca.tenant_id = :tenant
                     ORDER BY ca.created_at DESC, ca.id
+                    LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"tenant": d.TENANT_ID},
+                {"tenant": d.current_tenant(), "limit": page, "offset": skip},
             )
         )
         notes = _coaching_notes_grouped(conn, [r["id"] for r in rows])
@@ -225,7 +227,7 @@ def create_coaching_action(payload: dict[str, Any]) -> dict[str, Any]:
                         WHERE sc.id = :id AND i.tenant_id = :tenant_id
                         """
                     ),
-                    {"id": scorecard_id, "tenant_id": d.TENANT_ID},
+                    {"id": scorecard_id, "tenant_id": d.current_tenant()},
                 )
             )
             if sc is None:
@@ -254,7 +256,7 @@ def create_coaching_action(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             {
                 "id": cid,
-                "tenant": d.TENANT_ID,
+                "tenant": d.current_tenant(),
                 "uid": user_id,
                 "bid": bot_id,
                 "sid": scorecard_id,
@@ -299,13 +301,13 @@ def patch_coaching_action(action_id: str, payload: dict[str, Any]) -> dict[str, 
                     "SELECT id, status FROM coaching_actions "
                     "WHERE id = :id AND tenant_id = :tenant"
                 ),
-                {"id": action_id, "tenant": d.TENANT_ID},
+                {"id": action_id, "tenant": d.current_tenant()},
             )
         )
         if existing is None:
             raise KeyError("coaching_action_not_found")
         sets: list[str] = []
-        params: dict[str, Any] = {"id": action_id, "tenant": d.TENANT_ID}
+        params: dict[str, Any] = {"id": action_id, "tenant": d.current_tenant()}
         if "status" in payload and payload["status"] is not None:
             st = _require_coach_status(str(payload["status"]))
             sets.append("status = :status")
@@ -401,15 +403,21 @@ def get_calibration_session(session_id: str) -> dict[str, Any] | None:
     """Single session with its criterion/reviewer data — no list-wide scan."""
     sessions = _calibration_sessions(
         _CALIBRATION_SESSION_SELECT + " AND cs.id = :session_id",
-        {"session_id": session_id, "tenant_id": _db().TENANT_ID},
+        {"session_id": session_id, "tenant_id": _db().current_tenant()},
     )
     return sessions[0] if sessions else None
 
 
-def list_calibration_sessions() -> list[dict[str, Any]]:
+def list_calibration_sessions(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    d = _db()
     return _calibration_sessions(
-        _CALIBRATION_SESSION_SELECT + " ORDER BY cs.created_at DESC, cs.id",
-        {"tenant_id": _db().TENANT_ID},
+        _CALIBRATION_SESSION_SELECT
+        + " ORDER BY cs.created_at DESC, cs.id LIMIT :limit OFFSET :offset",
+        {
+            "tenant_id": d.current_tenant(),
+            "limit": d.clamp_list_limit(limit),
+            "offset": d.clamp_offset(offset),
+        },
     )
 
 
@@ -496,7 +504,7 @@ def patch_calibration_session(
                     WHERE cs.id = :id AND i.tenant_id = :tenant_id
                     """
                 ),
-                {"id": session_id, "tenant_id": d.TENANT_ID},
+                {"id": session_id, "tenant_id": d.current_tenant()},
             )
         )
         if existing is None:
@@ -551,7 +559,7 @@ def patch_pii_finding(finding_id: str, payload: dict[str, Any]) -> dict[str, Any
                     WHERE f.id = :id AND i.tenant_id = :tenant
                     """
                 ),
-                {"id": finding_id, "tenant": d.TENANT_ID},
+                {"id": finding_id, "tenant": d.current_tenant()},
             )
         )
         if row is None:
@@ -592,7 +600,7 @@ def patch_audio_segment_mute(
                     LIMIT 1
                     """
                 ),
-                {"rid": redaction_id, "fid": finding_id, "tenant": d.TENANT_ID},
+                {"rid": redaction_id, "fid": finding_id, "tenant": d.current_tenant()},
             )
         )
         if row is None:
@@ -623,7 +631,7 @@ def patch_redaction_record(
                     WHERE r.id = :id AND i.tenant_id = :tenant
                     """
                 ),
-                {"id": redaction_id, "tenant": d.TENANT_ID},
+                {"id": redaction_id, "tenant": d.current_tenant()},
             )
         )
         if existing is None:
@@ -681,7 +689,7 @@ def patch_redaction_rule(pii_type: str, payload: dict[str, Any]) -> dict[str, An
                     LIMIT 1
                     """
                 ),
-                {"tenant": d.TENANT_ID, "t": pii_type},
+                {"tenant": d.current_tenant(), "t": pii_type},
             )
         )
         if row is None:
@@ -749,8 +757,9 @@ def _map_export_job(row: dict[str, Any], record_ids: list[str]) -> dict[str, Any
     }
 
 
-def list_export_jobs() -> list[dict[str, Any]]:
+def list_export_jobs(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     d = _db()
+    page, skip = d.clamp_list_limit(limit), d.clamp_offset(offset)
     with d.engine.connect() as conn:
         rows = d._rows(
             conn.execute(
@@ -768,9 +777,10 @@ def list_export_jobs() -> list[dict[str, Any]]:
                         AND i.tenant_id = :tenant
                     )
                     ORDER BY ej.created_at DESC, ej.id DESC
+                    LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"tenant": d.TENANT_ID},
+                {"tenant": d.current_tenant(), "limit": page, "offset": skip},
             )
         )
         if not rows:
@@ -817,7 +827,7 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
                     WHERE r.id = ANY(:ids) AND i.tenant_id = :tenant
                     """
                 ),
-                {"ids": record_ids, "tenant": d.TENANT_ID},
+                {"ids": record_ids, "tenant": d.current_tenant()},
             )
         )
         found_ids = {r["id"] for r in found}
@@ -845,19 +855,21 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
             text(
                 """
                 INSERT INTO export_jobs (
-                  id, actor_user_id, format, scope, watermark, status, storage_ref
+                  id, tenant_id, actor_user_id, format, scope, watermark, status,
+                  storage_ref
                 ) VALUES (
-                  :id, :uid, :fmt, CAST(:scope AS jsonb), :wm, 'ready', :ref
+                  :id, :tenant_id, :uid, :fmt, CAST(:scope AS jsonb), :wm, 'ready', :ref
                 )
                 """
             ),
             {
                 "id": job_id,
+                "tenant_id": d.current_tenant(),
                 "uid": d._actor_user_id(),
                 "fmt": fmt,
                 "scope": json.dumps(meta),
                 "wm": payload.get("watermark") or "",
-                "ref": f"minio://export-bundles/{d.TENANT_ID}/{job_id}.{fmt}",
+                "ref": f"minio://export-bundles/{d.current_tenant()}/{job_id}.{fmt}",
             },
         )
         for rid in record_ids:
@@ -917,7 +929,7 @@ def patch_export_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                     FOR UPDATE OF ej
                     """
                 ),
-                {"id": job_id, "tenant": d.TENANT_ID},
+                {"id": job_id, "tenant": d.current_tenant()},
             )
         )
         if row is None:
@@ -988,7 +1000,7 @@ def _routing_priority_next(conn: Any) -> int:
         text(
             "SELECT coalesce(max(priority), 0) + 10 FROM routing_rules WHERE tenant_id = :t"
         ),
-        {"t": d.TENANT_ID},
+        {"t": d.current_tenant()},
     ).scalar()
     return int(n or 10)
 
@@ -1031,7 +1043,7 @@ def create_routing_rule(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             {
                 "id": rule_id,
-                "tenant": d.TENANT_ID,
+                "tenant": d.current_tenant(),
                 "priority": int(priority),
                 "enabled": enabled,
                 "cond": json.dumps(when),
@@ -1069,7 +1081,7 @@ def patch_routing_rule(rule_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                     WHERE id = :id AND tenant_id = :tenant
                     """
                 ),
-                {"id": rule_id, "tenant": d.TENANT_ID},
+                {"id": rule_id, "tenant": d.current_tenant()},
             )
         )
         if existing is None:
@@ -1152,7 +1164,7 @@ def reorder_routing_rules(ordered_ids: list[str]) -> list[dict[str, Any]]:
                     WHERE id = :id AND tenant_id = :tenant
                     """
                 ),
-                {"id": rid, "p": (i + 1) * 10, "tenant": d.TENANT_ID},
+                {"id": rid, "p": (i + 1) * 10, "tenant": d.current_tenant()},
             )
             updated += int(result.rowcount or 0)
         if updated:
@@ -1177,7 +1189,7 @@ def delete_routing_rule(rule_id: str) -> None:
                     WHERE id = :id AND tenant_id = :tenant
                     """
                 ),
-                {"id": rule_id, "tenant": d.TENANT_ID},
+                {"id": rule_id, "tenant": d.current_tenant()},
             )
         )
         if existing is None:
@@ -1187,7 +1199,7 @@ def delete_routing_rule(rule_id: str) -> None:
         )
         conn.execute(
             text("DELETE FROM routing_rules WHERE id = :id AND tenant_id = :tenant"),
-            {"id": rule_id, "tenant": d.TENANT_ID},
+            {"id": rule_id, "tenant": d.current_tenant()},
         )
 
 
@@ -1232,7 +1244,7 @@ def list_routing_audit(limit: int = 100) -> list[dict[str, Any]]:
                     LIMIT :lim
                     """
                 ),
-                {"tenant": d.TENANT_ID, "lim": limit},
+                {"tenant": d.current_tenant(), "lim": limit},
             )
         )
         out: list[dict[str, Any]] = []
@@ -1266,6 +1278,75 @@ def list_routing_audit(limit: int = 100) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def _next_lead(conn: Any, assignee_id: str | None) -> dict[str, Any] | None:
+    """Highest-value open lead on this agent's queue, for the workspace rail."""
+    d = _db()
+    params: dict[str, Any] = {
+        "tenant": d.current_tenant(),
+        "stages": list(d.OPEN_LEAD_STAGES),
+    }
+    owner_clause = ""
+    if assignee_id:
+        owner_clause = "AND l.owner_user_id = :uid"
+        params["uid"] = assignee_id
+    row = d._one(
+        conn.execute(
+            text(
+                f"""
+                SELECT
+                  l.id,
+                  c.name AS customer_name,
+                  a.id AS account_id,
+                  COALESCE(p.name, l.product_id, 'Offer') AS product_name,
+                  COALESCE(l.estimated_value, l.offer_amount) AS amount,
+                  l.stage,
+                  c.preferred_window,
+                  l.transcript_snippet
+                FROM leads l
+                JOIN customers c ON c.id = l.customer_id
+                LEFT JOIN products p ON p.id = l.product_id
+                LEFT JOIN LATERAL (
+                  SELECT id FROM accounts
+                  WHERE customer_id = l.customer_id
+                  ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id
+                  LIMIT 1
+                ) a ON true
+                WHERE c.tenant_id = :tenant
+                  AND l.stage = ANY(:stages)
+                  {owner_clause}
+                ORDER BY
+                  CASE l.priority
+                    WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
+                    WHEN 'normal' THEN 2 ELSE 3
+                  END,
+                  COALESCE(l.estimated_value, l.offer_amount, 0) DESC,
+                  l.captured_at ASC NULLS LAST
+                LIMIT 1
+                """
+            ),
+            params,
+        )
+    )
+    if not row:
+        return None
+    product = row["product_name"] or "Offer"
+    window = row.get("preferred_window")
+    amount = row.get("amount")
+    reason = (row.get("transcript_snippet") or "").strip() or f"Open {row['stage']} lead"
+    if window:
+        reason = f"{reason} · {window}"
+    return {
+        "id": row["id"],
+        "customer": row["customer_name"] or "Unknown",
+        "accountId": row["account_id"] or "",
+        "productName": product,
+        "amount": float(amount) if amount is not None else None,
+        "stage": row["stage"],
+        "window": window,
+        "reason": reason[:180],
+    }
+
+
 def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
     """Honest rolling-window stats + next callback + SLA countdowns for My Workspace."""
     d = _db()
@@ -1279,13 +1360,13 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
     with d.engine.connect() as conn:
         anchor = conn.execute(
             text("SELECT max(started_at) FROM interactions WHERE tenant_id = :t"),
-            {"t": d.TENANT_ID},
+            {"t": d.current_tenant()},
         ).scalar()
         if anchor is None:
             anchor = datetime.now(timezone.utc)
 
         # Current 7d vs prior 7d, scoped to handler when assignee set
-        params: dict[str, Any] = {"tenant": d.TENANT_ID, "anchor": anchor}
+        params: dict[str, Any] = {"tenant": d.current_tenant(), "anchor": anchor}
         handler_clause = ""
         if assignee_id:
             handler_clause = "AND i.handler_user_id = :uid"
@@ -1339,11 +1420,11 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                       AND i.started_at <= CAST(:anchor AS timestamptz)
                     """
                 ),
-                {"tenant": d.TENANT_ID, "anchor": anchor},
+                {"tenant": d.current_tenant(), "anchor": anchor},
             )
         )
 
-        ptp_params: dict[str, Any] = {"tenant": d.TENANT_ID, "anchor": anchor}
+        ptp_params: dict[str, Any] = {"tenant": d.current_tenant(), "anchor": anchor}
         ptp_clause = ""
         if assignee_id:
             ptp_clause = "AND p.owner_user_id = :uid"
@@ -1419,7 +1500,7 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                     LIMIT 1
                     """
                 ),
-                {**cb_params, "tenant": d.TENANT_ID},
+                {**cb_params, "tenant": d.current_tenant()},
             )
         )
         next_cb = None
@@ -1470,9 +1551,10 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                     LIMIT 8
                     """
                 ),
-                {**wi_params, "tenant": d.TENANT_ID},
+                {**wi_params, "tenant": d.current_tenant()},
             )
         )
+        enacted = d._enacted_by_map(conn, [w["entity_id"] for w in wi_rows])
         sla_countdowns: list[dict[str, Any]] = []
         for w in wi_rows:
             sla, label = d._work_item_sla(
@@ -1484,6 +1566,7 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                 "document_request": "Doc",
                 "callback": "Callback",
                 "followup": "Follow-up",
+                "bounce": "Bounce",
             }.get(w["entity_type"], w["entity_type"])
             sla_countdowns.append(
                 {
@@ -1491,6 +1574,7 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                     "label": f"{kind} · {w['customer_name']}",
                     "remaining": label,
                     "level": sla,
+                    "enactedBy": enacted.get(w["entity_id"]),
                 }
             )
 
@@ -1509,7 +1593,7 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                       {cb_clause}
                     """
                 ),
-                {**cb_params, "tenant": d.TENANT_ID},
+                {**cb_params, "tenant": d.current_tenant()},
             )
         )
         for row in open_cbs:
@@ -1524,6 +1608,7 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
         return {
             "stats": stats,
             "nextCallback": next_cb,
+            "nextLead": _next_lead(conn, assignee_id),
             "slaCountdowns": sla_countdowns,
             "outsideWindowCount": outside,
         }

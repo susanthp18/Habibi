@@ -80,6 +80,7 @@ def test_build_tools_constructs(tools: dict) -> None:
         "begin_wrap_up",
         "end_call",
         "escalate_to_human",
+        "handoff_to_agent",
         # account servicing
         "get_customer_context",
         "get_account_position",
@@ -94,11 +95,15 @@ def test_build_tools_constructs(tools: dict) -> None:
         "request_callback",
         "begin_dispute",
         "flag_dispute",
+        "evaluate_authority",
+        "apply_goodwill",
         # offers — the engine chooses, the model only speaks
         "recommend_next_offer",
         "check_product_eligibility",
         "capture_lead",
         "decline_offer",
+        "load_skill",
+        "run_skill_script",
     }
 
 

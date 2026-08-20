@@ -101,7 +101,6 @@ class CallContext:
     open_work: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     kb_snapshot_id: str | None = None
-    product_keys_default: list[str] = field(default_factory=lambda: list(PRODUCT_KEYS_COLLECTIONS))
 
     persona: dict[str, Any] | None = None
     prompt_version_id: str | None = None
@@ -110,6 +109,10 @@ class CallContext:
     tuning: dict[str, Any] = field(default_factory=dict)
 
     identity_verified: bool = False
+
+    # Latest authority-matrix snapshot. Loaded after verify so the card can
+    # name the allowed rupee move without a second tool call every turn.
+    authority_snapshot: dict[str, Any] = field(default_factory=dict)
 
     # ----------------------------------------------------------------- load
 
@@ -205,6 +208,21 @@ class CallContext:
             ],
         }
 
+        self.authority_snapshot = {}
+        try:
+            from agent_core.authority import policy as authority_policy
+
+            with db.engine.connect() as conn:
+                self.authority_snapshot = authority_policy.snapshot(
+                    conn,
+                    customer_id=self.customer_id,
+                    tenant_id=db.current_tenant(),
+                    interaction_id=self.interaction_id,
+                )
+        except Exception:
+            logger.exception("authority snapshot failed for customer=%s", self.customer_id)
+            self.authority_snapshot = {}
+
     # -------------------------------------------------------------- inject
 
     def crm_card(self) -> str:
@@ -248,6 +266,32 @@ class CallContext:
         lines.append(
             "Use these numbers verbatim. If the caller disputes them, log a dispute; "
             "do not argue or recalculate."
+        )
+        snap = self.authority_snapshot or {}
+        status = (snap.get("status") or "none").strip().lower()
+        if status not in {"", "none"}:
+            allowed = _inr(snap.get("approvedAmount"))
+            reason = snap.get("reasonLabel") or snap.get("reason") or status
+            mode = snap.get("mode") or "shadow"
+            if status == "applied" and allowed:
+                lines.append(f"- Goodwill already posted: {allowed}. Do not offer more.")
+            elif status == "escalate":
+                lines.append(
+                    f"- Authority: escalate ({reason}). Do not quote a waiver or settlement figure."
+                )
+            elif allowed:
+                apply_hint = (
+                    "Call apply_goodwill only with this amount."
+                    if mode == "live"
+                    else "Shadow mode — do not apply; log a fee_waiver dispute instead."
+                )
+                lines.append(f"- Allowed goodwill: {allowed} (mode={mode}). Do not quote more. {apply_hint}")
+            else:
+                lines.append(f"- Authority: {status} ({reason}). Do not invent a rupee figure.")
+        lines.append(
+            "If the caller asks for a fee waiver, bounce reversal, settlement or "
+            "restructuring, call evaluate_authority before quoting any rupee figure. "
+            "Never invent an amount that tool did not return."
         )
         return "\n".join(lines)
 

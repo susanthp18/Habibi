@@ -11,7 +11,6 @@ from sqlalchemy import text
 
 import capture
 import db
-from agent_core.intent import classify_intent, resolve_intent
 from agent_core.sentiment import estimate_sentiment
 from agent_core.tools import domain
 from agent_core.tools import kb as kb_tool
@@ -64,15 +63,21 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = CATALOG.openai_tools(
         "search_knowledge_base",
         "create_promise_to_pay",
         "flag_dispute",
+        "evaluate_authority",
+        "apply_goodwill",
         "request_callback",
         "add_customer_note",
         "escalate_to_human",
+        "handoff_to_agent",
         "recommend_next_offer",
         "check_product_eligibility",
         "capture_lead",
         "decline_offer",
         "request_documents",
+        "ingest_customer_document",
         "identify_customer",
+        "load_skill",
+        "run_skill_script",
     ]
 )
 
@@ -147,13 +152,29 @@ class ToolContext:
         self.offered_product_ids: set[str] = set()
         self.offer_declined = False
         self.offers_presented = 0
+        self.authority_decision_id: str | None = None
+        # Phase 2 skill intersection. None = legacy unrestricted catalog.
+        self.allowed_tools: set[str] | None = None
+        self.active_skill: str | None = None
+        self.attached_skills: list[Any] = []
 
 
 def _tool_get_customer_context(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     customer = db.get_customer(ctx.customer_id)
     if not customer:
         raise KeyError("customer_not_found")
-    return _compact_customer(customer)
+    out = _compact_customer(customer)
+    try:
+        from agent_core.platform_flags import mcp_client_enabled
+        from agent_core.connectors.first_party import paylink_status
+
+        if mcp_client_enabled():
+            pay = paylink_status(ctx.customer_id)
+            if pay.get("status") and pay.get("status") != "none":
+                out["payLink"] = pay
+    except Exception:
+        logger.exception("paylink prefetch failed")
+    return out
 
 
 def _tool_get_payment_history(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -248,6 +269,11 @@ def _tool_create_promise(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
             "amount": result.data.get("amount"),
             "status": result.data.get("status"),
         },
+        "confirmChannel": result.data.get("confirmChannel"),
+        "phoneLast4": result.data.get("phoneLast4"),
+        "payLinkSent": result.data.get("payLinkSent"),
+        "suppressed": result.data.get("suppressed"),
+        "say": result.spoken_summary,
     }
 
 
@@ -273,6 +299,29 @@ def _tool_flag_dispute(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
             "type": result.data.get("type"),
         },
     }
+
+
+def _tool_evaluate_authority(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    result = domain.evaluate_authority(
+        customer_id=ctx.customer_id,
+        fee_type=args.get("fee_type") or "late_fee",
+        asked_amount=args.get("asked_amount"),
+        interaction_id=ctx.interaction_id,
+        identity_verified=True,
+    )
+    ctx.authority_decision_id = (result.data or {}).get("decisionId")
+    return {"ok": True, **(result.data or {})}
+
+
+def _tool_apply_goodwill(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    result = domain.apply_goodwill(
+        decision_id=str(args.get("decision_id") or ctx.authority_decision_id or ""),
+        amount=args.get("amount"),
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    return {"ok": True, **(result.data or {}), "say": result.spoken_summary}
 
 
 def _tool_request_callback(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -310,6 +359,33 @@ def _tool_escalate(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     ctx.escalated = True
     ctx.escalate_reason = reason
     return {"ok": True, "status": "needs_human", "reason": reason}
+
+
+def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.cards.defaults import card_for
+
+    target = str(args.get("target_bot_id") or "").strip()
+    reason = str(args.get("reason") or "").strip()
+    payload = args.get("payload")
+    allowlist: set[str] | None = None
+    if ctx.bot_id:
+        try:
+            allowlist = set(card_for(ctx.bot_id).handoff_targets())
+        except KeyError:
+            allowlist = None
+    result = domain.handoff_to_agent(
+        interaction_id=ctx.interaction_id,
+        from_bot_id=ctx.bot_id,
+        target_bot_id=target,
+        reason=reason,
+        payload=str(payload) if payload is not None else None,
+        allowlist=allowlist,
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    ctx.bot_id = target
+    return result.to_llm()
 
 
 def _tool_recommend_next_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -478,6 +554,25 @@ def _tool_request_documents(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     return payload
 
 
+def _tool_ingest_customer_document(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.vision import ingest_customer_document
+
+    result = ingest_customer_document(
+        customer_id=ctx.customer_id,
+        filename=(args.get("filename") or "").strip(),
+        mime_type=(args.get("mime_type") or "").strip(),
+        identity_verified=bool(ctx.customer_id) and ctx.customer_id != "UNKNOWN-CALLER",
+        interaction_id=ctx.interaction_id,
+        requested_via="bot_chat",
+    )
+    if not result.ok:
+        return {"ok": False, "error": result.error}
+    payload: dict[str, Any] = {"ok": True, **result.data}
+    if result.deep_link:
+        payload["deepLink"] = result.deep_link
+    return payload
+
+
 def _thread_phone_digits(conn: Any, conversation_id: str) -> str:
     """Digits of the phone number this WhatsApp thread is bound to.
 
@@ -578,6 +673,36 @@ def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
         return {"ok": True, **result}
 
 
+def _tool_load_skill(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.skills.runtime import load_skill
+
+    slug = str(args.get("slug") or "").strip()
+    include_refs = bool(args.get("include_references"))
+    result = load_skill(slug, list(ctx.attached_skills or []), include_references=include_refs)
+    if result.get("ok"):
+        ctx.active_skill = slug
+    return {k: v for k, v in result.items() if k != "message"} | (
+        {"body_loaded": True} if result.get("ok") else {}
+    )
+
+
+def _tool_run_skill_script(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.skills.scripts import run_script
+
+    name = str(args.get("name") or "").strip()
+    payload = args.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload or "{}")
+        except json.JSONDecodeError:
+            return {"ok": False, "error": "payload_must_be_json_object"}
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "payload_must_be_object"}
+    return run_script(name, payload)
+
+
 HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "get_customer_context": _tool_get_customer_context,
     "get_payment_history": _tool_get_payment_history,
@@ -585,15 +710,21 @@ HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "search_knowledge_base": _tool_search_knowledge_base,
     "create_promise_to_pay": _tool_create_promise,
     "flag_dispute": _tool_flag_dispute,
+    "evaluate_authority": _tool_evaluate_authority,
+    "apply_goodwill": _tool_apply_goodwill,
     "request_callback": _tool_request_callback,
     "add_customer_note": _tool_add_note,
     "escalate_to_human": _tool_escalate,
+    "handoff_to_agent": _tool_handoff_to_agent,
     "recommend_next_offer": _tool_recommend_next_offer,
     "check_product_eligibility": _tool_check_product_eligibility,
     "capture_lead": _tool_capture_lead,
     "decline_offer": _tool_decline_offer,
     "request_documents": _tool_request_documents,
+    "ingest_customer_document": _tool_ingest_customer_document,
     "identify_customer": _tool_identify_customer,
+    "load_skill": _tool_load_skill,
+    "run_skill_script": _tool_run_skill_script,
 }
 
 
@@ -606,6 +737,23 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
     except json.JSONDecodeError as exc:
         latency = int((time.perf_counter() - t0) * 1000)
         return False, {"error": f"invalid_json_args: {exc}"}, latency
+
+    if ctx.allowed_tools is not None and name not in ctx.allowed_tools:
+        latency = int((time.perf_counter() - t0) * 1000)
+        return False, {"error": "tool_not_on_card_or_skill", "tool": name}, latency
+
+    if name.startswith("ext."):
+        from agent_core.connectors.persist import dispatch
+
+        try:
+            result = dispatch(name, customer_id=ctx.customer_id)
+            latency = int((time.perf_counter() - t0) * 1000)
+            ok = not (isinstance(result, dict) and result.get("ok") is False)
+            return ok, result, latency
+        except Exception:
+            logger.exception("connector tool failed · %s", name)
+            latency = int((time.perf_counter() - t0) * 1000)
+            return False, {"error": "connector_call_failed"}, latency
 
     handler = HANDLERS.get(name)
     if handler is None:

@@ -357,6 +357,44 @@ def test_pending_excludes_already_scored(db_tx, interaction, rubric) -> None:
     assert interaction not in qa_autoscore.pending_interactions(limit=50)
 
 
+def test_autoscore_does_not_overwrite_live_locked_cells(
+    db_tx, interaction, rubric, fake_llm
+) -> None:
+    db.create_scorecard(
+        {
+            "interactionId": interaction,
+            "status": "ai_draft",
+            "entries": [
+                {
+                    "criterionId": "cmp-recording",
+                    "aiSuggested": 0,
+                    "score": 0,
+                    "note": "[live] Recording notice missing",
+                }
+            ],
+        }
+    )
+    fake_llm["response"] = _response(_full_scores(rubric, 5.0))
+
+    qa_autoscore.score_interaction(interaction)
+
+    row = db_tx.execute(
+        text(
+            """
+            SELECT e.final_score, e.ai_suggested_score, e.note
+              FROM qa_scorecard_entries e
+              JOIN qa_scorecards s ON s.id = e.scorecard_id
+             WHERE s.interaction_id = :ix AND e.criterion_id = 'cmp-recording'
+            """
+        ),
+        {"ix": interaction},
+    ).mappings().first()
+    assert row is not None
+    assert float(row["final_score"]) == 0
+    assert float(row["ai_suggested_score"]) == 0
+    assert str(row["note"]).startswith("[live]")
+
+
 def test_pending_excludes_human_handled(db_tx, interaction) -> None:
     """Auto-scoring a human agent is a people decision, not an engineering one."""
     db_tx.execute(

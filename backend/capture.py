@@ -1174,7 +1174,7 @@ def emit_commercial_event(
         ),
         {
             "id": event_id,
-            "tenant": _db.TENANT_ID,
+            "tenant": _db.current_tenant(),
             "entity_type": entity_type,
             "entity_id": entity_id,
             "actor_kind": actor_kind if actor_kind in {"human", "bot", "system", "customer"} else "system",
@@ -1459,7 +1459,25 @@ def record_lead_captured(
     lead_id: str,
     product_id: str,
     actor_bot_id: str | None = None,
+    actor_user_id: str | None = None,
 ) -> None:
+    """The offer funnel's numerator, for every capture path.
+
+    Two rows when the capture happened on a call: one against the interaction,
+    so Bot Analytics can join it to that call's ``offer_presented``, and one
+    against the lead. Anything counting conversions must count distinct leads
+    rather than rows — see agent_core/reco/observability.py.
+
+    Now that human captures come through here too, the actor has to be told
+    apart. Defaulting to a bot actor would have credited every lead a rep
+    raised in the UI to whichever bot id the process happened to configure.
+    """
+    actor_kind = "bot" if actor_bot_id else ("human" if actor_user_id else "system")
+    attribution: dict[str, Any] = {
+        "actor_kind": actor_kind,
+        "actor_bot_id": actor_bot_id,
+        "actor_user_id": actor_user_id,
+    }
     if interaction_id:
         mark_upsell_presented(conn, interaction_id)
         emit_commercial_event(
@@ -1470,7 +1488,7 @@ def record_lead_captured(
             label="Lead captured from conversation",
             note=lead_id,
             payload={"leadId": lead_id, "productId": product_id},
-            actor_bot_id=actor_bot_id,
+            **attribution,
         )
     emit_commercial_event(
         conn,
@@ -1480,7 +1498,7 @@ def record_lead_captured(
         label="Lead captured",
         note=product_id,
         payload={"interactionId": interaction_id, "productId": product_id},
-        actor_bot_id=actor_bot_id,
+        **attribution,
     )
 
 

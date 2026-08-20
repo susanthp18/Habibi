@@ -20,6 +20,8 @@ class FlowToolResponse(BaseModel):
     #: True when the tool moves the conversation on its own. Pairing one with
     #: graph edges on the same node gives the model two ways out of it.
     transitions: bool
+    #: True when the tool is a locked policy engine the author cannot unbind.
+    locked: bool = False
 
 
 RiskLevel = Literal["critical", "high", "medium", "low"]
@@ -127,6 +129,7 @@ class DocumentRequestResponse(BaseModel):
     requestedAt: str
     deliveryChannel: Literal["email", "whatsapp", "sms"]
     status: Literal["requested", "generating", "sent", "failed"]
+    source: str | None = None
 
 
 class CustomerNoteResponse(BaseModel):
@@ -176,8 +179,85 @@ class NbaItemResponse(BaseModel):
     rank: int
     title: str
     reason: str
-    action: Literal["ptp", "dispute", "statement", "call", "callback", "review"]
+    action: Literal["ptp", "dispute", "statement", "call", "callback", "review", "offer"]
     priority: Literal["high", "medium", "low"]
+    leadId: str | None = None
+
+
+class OfferPolicyResponse(BaseModel):
+    """Latest offer-engine snapshot for a customer or a live interaction.
+
+    Floor, Handoff, Customer 360 and Workspace all read this shape. ``status``
+    is the only field a chip needs; the rest is for the inspector / NBA card.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal[
+        "none",
+        "suppressed",
+        "shadow",
+        "ready",
+        "presented",
+        "interested",
+        "declined",
+        "open_lead",
+    ] = "none"
+    decisionId: str | None = None
+    customerId: str | None = None
+    interactionId: str | None = None
+    mode: str | None = None
+    channel: str | None = None
+    suppressionReason: str | None = None
+    suppressionLabel: str | None = None
+    productId: str | None = None
+    productName: str | None = None
+    suggestedAmount: float | None = None
+    talkTrack: str | None = None
+    reasonCodes: list[str] = []
+    score: float | None = None
+    presented: bool = False
+    response: str | None = None
+    leadId: str | None = None
+    leadStage: str | None = None
+    preferredWindow: str | None = None
+    createdAt: str | None = None
+
+
+class AuthorityPolicyResponse(BaseModel):
+    """Latest authority-matrix snapshot for a customer or a live interaction.
+
+    Floor, Handoff and Customer 360 all read this shape. ``status`` is the chip;
+    ``approvedAmount`` is the only rupee figure anyone may speak.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal[
+        "none",
+        "escalate",
+        "shadow",
+        "cap",
+        "auto_approve",
+        "applied",
+    ] = "none"
+    decisionId: str | None = None
+    customerId: str | None = None
+    accountId: str | None = None
+    interactionId: str | None = None
+    mode: str | None = None
+    feeType: str | None = None
+    askedAmount: float | None = None
+    verdict: str | None = None
+    approvedAmount: float | None = None
+    capAmount: float | None = None
+    reason: str | None = None
+    reasonLabel: str | None = None
+    reasonCodes: list[str] = []
+    talkTrack: str | None = None
+    enacted: bool = False
+    disputeId: str | None = None
+    createdAt: str | None = None
 
 
 class BehaviorMetricsResponse(BaseModel):
@@ -213,6 +293,8 @@ class CustomerInsightsResponse(BaseModel):
     metrics: BehaviorMetricsResponse
     activity: list[ActivityPreviewItemResponse] = []
     generatedAt: str
+    offerPolicy: OfferPolicyResponse | None = None
+    authorityPolicy: AuthorityPolicyResponse | None = None
 
 
 class CallResponse(BaseModel):
@@ -300,6 +382,35 @@ class LeadResponse(BaseModel):
     events: list[dict[str, Any]] = []
 
 
+class LeadStageTotals(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    count: int = 0
+    amount: float = 0.0
+
+
+class LeadMetricsResponse(BaseModel):
+    """Pipeline KPIs computed server-side over every matching lead.
+
+    ``conversionRate`` and ``avgDaysToClose`` are nullable because a zero
+    denominator is not a zero rate — a book with nothing captured this month
+    and a book that converted none of what it captured need opposite responses.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    total: int = 0
+    openLeads: int = 0
+    pipelineValue: float = 0.0
+    wonWeek: int = 0
+    wonWeekAmount: float = 0.0
+    conversionRate: int | None = None
+    captured30d: int = 0
+    won30d: int = 0
+    avgDaysToClose: int | None = None
+    perStage: dict[str, LeadStageTotals] = {}
+
+
 class StaffResponse(BaseModel):
     """Assignable actors (humans + bots). Frontend pickers resolve names → ids
     from this instead of hardcoded maps that silently drift from the DB."""
@@ -376,6 +487,12 @@ class PromiseListResponse(BaseModel):
     notes: str | None = None
     planId: str | None = None
     events: list[PtpEventResponse] = []
+    confirmChannel: Literal["whatsapp", "sms"] | None = None
+    confirmStatus: str | None = None
+    paymentIntentStatus: str | None = None
+    paymentIntentId: str | None = None
+    payLinkSent: bool = False
+    phoneLast4: str | None = None
 
 
 class InstallmentResponse(BaseModel):
@@ -492,6 +609,10 @@ class OfferHealthResponse(BaseModel):
 
     window: str
     includesSimulated: bool
+    # What the engine is set to do, not only what it did. Every rate here is
+    # null on an engine that has never run, and a panel showing nothing but
+    # dashes cannot say whether that is a dead recommender or a quiet week.
+    engine: dict[str, Any] = {}
     volume: dict[str, Any]
     funnel: dict[str, Any]
     latency: dict[str, Any]
@@ -506,13 +627,136 @@ class OfferHealthResponse(BaseModel):
     alerts: list[dict[str, Any]]
 
 
-class HandoffResponse(BaseModel):
-    activeCall: dict[str, Any]
-    customerContext: dict[str, Any]
-    transcriptScript: list[dict[str, Any]]
-    suggestions: list[dict[str, Any]] = []
-    complianceItems: list[dict[str, Any]] = []
+class HandoffLastPromise(BaseModel):
+    amount: float
+    date: str
+    status: str
+
+
+class HandoffNextEmi(BaseModel):
+    amount: float
+    dueDate: str
+    daysOverdue: int = 0
+
+
+class HandoffDnd(BaseModel):
+    allowed: bool
+    window: str = ""
+    channels: list[str] = []
+
+
+class HandoffActiveCall(BaseModel):
+    interactionId: str
+    handoffId: str
+    customerId: str
+    conversationId: str | None = None
+    customerName: str
+    accountId: str = ""
+    phone: str = ""
+    channel: str
+    agentName: str = "Unassigned"
+    transferredFrom: str = ""
+    escalationReason: str
+    startedAt: int
+    status: Literal["pending_claim", "active", "completed"]
+    claimed: bool
+    risk: str = "medium"
+    handlerUserId: str | None = None
+
+
+class HandoffCustomerContext(BaseModel):
+    risk: str
+    outstanding: float = 0
+    currency: str = "₹"
+    lastPromise: HandoffLastPromise | None = None
+    nextEmi: HandoffNextEmi | None = None
+    openDisputes: int = 0
+    dnd: HandoffDnd
+    tenureMonths: int = 0
+    product: str = ""
+    offerPolicy: OfferPolicyResponse | None = None
+    authorityPolicy: AuthorityPolicyResponse | None = None
+
+
+class HandoffTranscriptTurn(BaseModel):
+    id: str
+    speaker: str
+    text: str
+    at: int = 0
+    sentimentDelta: float | None = None
+
+
+class HandoffSuggestion(BaseModel):
+    id: str
+    title: str
+    body: str
+    source: str = ""
+    showAfter: int = 0
+    accepted: bool = False
+
+
+class HandoffComplianceItem(BaseModel):
+    id: str
+    label: str
+    required: bool = True
+    checked: bool = False
+    locked: bool = False
+    ruleId: str | None = None
+
+
+class HandoffAlertItem(BaseModel):
+    id: str
+    kind: str
+    severity: str = "medium"
+    reason: str | None = None
+
+
+class HandoffSessionResponse(BaseModel):
+    interactionId: str
+    handoffId: str
+    customerId: str
+    conversationId: str | None = None
+    status: Literal["pending_claim", "active", "completed"]
+    claimed: bool
+    monitor: bool = False
+    activeCall: HandoffActiveCall
+    customerContext: HandoffCustomerContext
+    transcriptScript: list[HandoffTranscriptTurn] = []
+    sentimentSeries: list[float] = []
+    suggestions: list[HandoffSuggestion] = []
+    complianceItems: list[HandoffComplianceItem] = []
+    alerts: list[HandoffAlertItem] = []
     dispositions: list[str] = []
+    speakers: dict[str, str] = {}
+
+
+# Back-compat alias — older callers imported HandoffResponse.
+HandoffResponse = HandoffSessionResponse
+
+
+class HandoffQueueItem(BaseModel):
+    interactionId: str
+    handoffId: str
+    customerId: str
+    customerName: str
+    accountId: str = ""
+    reason: str
+    queue: str | None = None
+    risk: str = "medium"
+    waitSec: int = 0
+    requestedAt: str | None = None
+
+
+class HandoffQueueResponse(BaseModel):
+    items: list[HandoffQueueItem] = []
+    activeInteractionId: str | None = None
+
+
+class HandoffDisclosureRequest(BaseModel):
+    itemId: str
+    ruleId: str | None = None
+    label: str | None = None
+    read: bool = True
 
 
 class PromiseCreateRequest(BaseModel):
@@ -695,6 +939,8 @@ class LeadCreateRequest(BaseModel):
     # Channel the offer would be made on — makes the consent gate channel-exact
     # instead of blocking a voice pitch because email was opted out.
     channel: Literal["voice", "whatsapp", "sms", "email", "chat"] | None = None
+    # Closes the loop on the offer_decisions row that approved this pitch.
+    decisionId: str | None = None
     # Supervisor override for the duplicate-open-lead guard.
     allowDuplicate: bool = False
 
@@ -784,11 +1030,12 @@ class DocumentListResponse(BaseModel):
         "kyc_letter",
     ]
     period: str | None = None
-    requestedVia: Literal["bot_voice", "bot_chat", "agent"]
+    requestedVia: Literal["bot_voice", "bot_chat", "agent", "mcp", "clerk", "vision", "inbox"]
     requestedAt: str
     deliveryChannel: Literal["whatsapp", "email", "sms"]
     deliveryTarget: str
     status: Literal["requested", "generating", "sent", "failed"]
+    source: Literal["crm", "vision", "clerk", "mcp"] = "crm"
     templateId: str
     generatedAt: str | None = None
     sentAt: str | None = None
@@ -896,6 +1143,22 @@ class ConsentListResponse(BaseModel):
     onDndRegistry: bool
     optOutLog: list[OptOutEventResponse] = []
     audit: list[ConsentAuditEntryResponse] = []
+    outreachToday: int = 0
+    dailyCap: int = 3
+    lastDecisionReason: str | None = None
+
+
+class ContactPolicyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    reason: str | None = None
+    touchCounted: bool = False
+    outreachToday: int = 0
+    dailyCap: int = 3
+    coalesced: bool = False
+    channel: str
+    purpose: str
 
 
 class ViolationTranscriptTurnResponse(BaseModel):
@@ -1042,6 +1305,26 @@ class BotAnalyticsFunnelStageResponse(BaseModel):
     count: int
 
 
+class BotAnalyticsCardAggResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    botId: str
+    sessions: int
+    contained: int
+    escalated: int
+    containment: float
+    handoffRate: float
+    latencyP99: float
+    sloMs: int = 800
+
+
+class BotAnalyticsSkillBucketResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    skillId: str
+    activations: int
+
+
 class BotAnalyticsResponse(BaseModel):
     """Conversation & Bot Analytics screen shape — live aggregates from interactions.
 
@@ -1056,6 +1339,8 @@ class BotAnalyticsResponse(BaseModel):
     unansweredQuestions: list[BotAnalyticsUnansweredQuestionResponse]
     turnsHistogram: list[BotAnalyticsTurnsBucketResponse]
     funnelStages: list[BotAnalyticsFunnelStageResponse]
+    byCard: list[BotAnalyticsCardAggResponse] = []
+    skillHistogram: list[BotAnalyticsSkillBucketResponse] = []
 
 
 class ScorecardEntryPatchRequest(BaseModel):
@@ -1127,6 +1412,7 @@ class ScorecardListResponse(BaseModel):
     entries: list[ScorecardEntryResponse]
     scoredAt: str | None = None
     createdAt: str
+    rubricId: str | None = None
 
 
 class RubricCriterionResponse(BaseModel):
@@ -1193,7 +1479,9 @@ class InboxMessageResponse(BaseModel):
     sender: Literal["customer", "bot", "agent"]
     text: str
     time: str
-    delivery: Literal["sent", "delivered", "read", "failed"] | None = None
+    # "pending" = accepted by the API and queued, not yet handed to the
+    # provider. Its own state on purpose — see db._inbox_delivery.
+    delivery: Literal["pending", "sent", "delivered", "read", "failed"] | None = None
 
 
 class InboxSystemEventResponse(BaseModel):
@@ -1254,7 +1542,14 @@ class ConversationListResponse(BaseModel):
     customer: str
     customerId: str
     accountId: str
-    channel: Literal["whatsapp", "sms", "email"]
+    # Every value the conversations.channel CHECK constraint permits, and the
+    # constraint is the authority — see tests/test_inbox_channel_contract.py.
+    #
+    # This listed three of the five. `response_model` validates the WHOLE list,
+    # so the first voice conversation ever written did not render as an odd row:
+    # it raised ResponseValidationError and took the entire inbox down with
+    # "Failed to load inbox: Failed to fetch". One sandbox call was enough.
+    channel: Literal["whatsapp", "sms", "email", "chat", "voice"]
     status: Literal["bot", "needs_human", "escalated", "assigned"]
     assignedUserId: str | None = None
     isMine: bool
@@ -1269,6 +1564,7 @@ class ConversationListResponse(BaseModel):
     sentiment: Literal["positive", "neutral", "negative"]
     ragSuggestions: list[str] = []
     ragDraftAnswer: str | None = None
+    handlerBotId: str | None = None
     messages: list[InboxMessageResponse | InboxSystemEventResponse] = []
     context: InboxThreadContextResponse
 
@@ -1703,6 +1999,7 @@ WorkItemEntityType = Literal[
     "promise",
     "followup",
     "lead",
+    "bounce",
 ]
 
 WorkItemSla = Literal["ok", "warn", "breach"]
@@ -1725,6 +2022,8 @@ class WorkItemResponse(BaseModel):
     entityType: WorkItemEntityType
     status: str | None = None
     assigneeUserId: str | None = None
+    customerId: str | None = None
+    enactedBy: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1802,6 +2101,8 @@ class PromptVersionResponse(BaseModel):
     # Authored conversation graph (backend/flow_graph.py). Empty on every
     # version created before flow authoring existed.
     flow: FlowGraph = Field(default_factory=FlowGraph)
+    botId: str = "kaia-v2-4"
+    agentCard: dict[str, Any] = Field(default_factory=dict)
 
 
 class PersonaPresetResponse(BaseModel):
@@ -1917,6 +2218,9 @@ class BotDeploymentResponse(BaseModel):
     rollbackDeploymentId: str | None
     voiceConfig: dict[str, Any]
     tuning: dict[str, Any] = Field(default_factory=dict)
+    trafficPct: int = 100
+    shadow: bool = False
+    evalReportId: str | None = None
 
 
 class PromptVersionCreateRequest(BaseModel):
@@ -1931,6 +2235,8 @@ class PromptVersionCreateRequest(BaseModel):
     guardrails: Guardrails
     summary: str = ""
     flow: FlowGraph | None = None
+    botId: str | None = None
+    agentCard: dict[str, Any] | None = None
 
 
 class PromptVersionPatchRequest(BaseModel):
@@ -1945,6 +2251,7 @@ class PromptVersionPatchRequest(BaseModel):
     guardrails: Guardrails | None = None
     summary: str | None = None
     flow: FlowGraph | None = None
+    agentCard: dict[str, Any] | None = None
 
 
 class PromptVersionPublishRequest(BaseModel):
@@ -1955,6 +2262,9 @@ class PromptVersionPublishRequest(BaseModel):
     summary: str = ""
     kbSnapshotId: str | None = None
     tuning: dict[str, Any] | None = None
+    trafficPct: int | None = None
+    shadow: bool = False
+    autoRollback: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -2369,6 +2679,7 @@ class BillingModelSpendResponse(BaseModel):
     unit: str
     color: str
     model: str
+    sourceRef: str | None = None
     units: float
     costInr: float
     calls: int
@@ -2700,6 +3011,20 @@ class WorkspaceSlaCountdownResponse(BaseModel):
     label: str
     remaining: str
     level: WorkItemSla
+    enactedBy: str | None = None
+
+
+class WorkspaceNextLeadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    customer: str
+    accountId: str
+    productName: str
+    amount: float | None = None
+    stage: str
+    window: str | None = None
+    reason: str
 
 
 class WorkspaceSummaryResponse(BaseModel):
@@ -2707,6 +3032,7 @@ class WorkspaceSummaryResponse(BaseModel):
 
     stats: WorkspaceStatsResponse
     nextCallback: WorkspaceNextCallbackResponse | None = None
+    nextLead: WorkspaceNextLeadResponse | None = None
     slaCountdowns: list[WorkspaceSlaCountdownResponse]
     outsideWindowCount: int
 
@@ -2719,9 +3045,11 @@ class FloorStatsResponse(BaseModel):
 
     callsInProgress: int
     avgSentiment: float
-    escalationRate: float
+    criticalAlerts: int
     queueDepth: int
-    botContainment: float
+    agentsAvailable: int
+    agentsOnCall: int
+    botAtRisk: int
     longestWaitSec: int
 
 
@@ -2731,6 +3059,7 @@ class FloorSnapshotResponse(BaseModel):
     calls: list[dict[str, Any]]
     alerts: list[dict[str, Any]]
     stats: FloorStatsResponse
+    agents: list[dict[str, Any]] = []
 
 
 class SupervisorActionRequest(BaseModel):
@@ -2800,3 +3129,42 @@ class VoiceSandboxTuneRequest(BaseModel):
 
     tuning: dict[str, Any] | None = None
 
+
+
+class TreatmentHoldCreateRequest(BaseModel):
+    """Place a collections hold — the veto the treatment engine reads.
+
+    ``kind`` is closed rather than free text because each value carries
+    different downstream behaviour: ``legal`` still permits a statutory notice,
+    ``dispute`` still permits a specialist call about the dispute itself, and
+    the rest stop outreach entirely. A new value with no rule behind it would
+    silently mean "no hold at all".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str
+    accountId: str | None = None
+    kind: Literal["hardship", "dispute", "complaint", "bereavement", "legal"]
+    reason: str | None = None
+    source: Literal["manual", "bot", "system", "regulator"] = "manual"
+    interactionId: str | None = None
+    specialistUserId: str | None = None
+    slaDueAt: str | None = None
+    expiresAt: str | None = None
+
+
+class TreatmentHoldReleaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = None
+
+
+class AuthorityApplyRequest(BaseModel):
+    """Post the goodwill the matrix already approved. Live mode only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisionId: str
+    amount: float | None = None
+    disputeId: str | None = None

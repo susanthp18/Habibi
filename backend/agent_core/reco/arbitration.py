@@ -53,10 +53,22 @@ def arbitrate(
     offers: Sequence[ScoredOffer],
     policy: Policy,
     channel: str,
+    external_suppression: str | None = None,
 ) -> Arbitration:
-    """Apply every gate in order of severity. First match wins and stops."""
+    """Apply every gate in order of severity. First match wins and stops.
+
+    ``external_suppression`` carries a reason decided outside this module —
+    today, a collections hold from ``treatment_holds``. The Digital Lending
+    Guidelines require a hard separation between collecting a debt and selling
+    a product, and the gates below can only see what the borrower said *on this
+    call*. A hardship hold a supervisor placed last Tuesday is exactly the case
+    they cannot see, and it is the one where a cross-sell does the most damage.
+    """
 
     # --- absolute contact rules -------------------------------------------
+    if external_suppression:
+        return _no(external_suppression)
+
     if features.dnd:
         return _no(SUPPRESS_DND)
 

@@ -80,6 +80,14 @@ class VoiceSession:
     # by which point `understanding` already describes a later turn).
     call_goal_turn_index: int | None = None
 
+    # Who spoke most recently. Read when a node transition lands on a step
+    # configured to listen first: if the CALLER spoke last they have already
+    # taken their turn and are waiting, so listening again is not patience, it
+    # is dead air — VS-92CDE3F088 sat silent for 24 seconds after
+    # begin_negotiate for exactly this reason. Set by the CRM sink, which sees
+    # both halves of every exchange. Session-only; nothing persists it.
+    last_speaker: str | None = None
+
     extra: dict[str, Any] = field(default_factory=dict)
 
     def at_sec(self, when: datetime | None = None) -> float:

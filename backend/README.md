@@ -64,10 +64,34 @@ Use Alembic for future schema changes:
 ```
 
 ## Run
+
+The API alone is not a working system. It **accepts** outbound work and queues
+it; a worker is what actually sends it. Start both.
+
 ```
 .venv/Scripts/python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
+```
+.venv/Scripts/python -m bot_worker
+```
+
 Interactive API docs: http://127.0.0.1:8000/docs
+
+| Process | Required for | Symptom when missing |
+|---|---|---|
+| `uvicorn main:app` (:8000) | everything | nothing loads |
+| `bot_worker` | WhatsApp sends (agent replies **and** bot turns), statutory SMS, clerk jobs | `POST /conversations/{id}/messages` returns **200** and the message never arrives — it sits in `whatsapp_outbound_jobs` at `queued` |
+| `voice.bot` (:7860) | voice calls, Call sandbox | Start call fails to connect |
+| `worker` | KB indexing | ingested documents never become searchable |
+
+`docker compose up` starts all four. Running natively, they are four terminals.
+
+To check whether anything is stuck:
+```
+docker exec collections_db psql -U collections -d collections -c "select status, count(*), now()-min(created_at) as oldest from whatsapp_outbound_jobs group by status"
+```
+A non-empty `queued` row with an `oldest` older than a few seconds means no
+worker is draining it.
 
 ## Endpoints
 | Method | Path | Notes |

@@ -63,7 +63,7 @@ def upload_recording(
     filename = f"{interaction_id}.wav"
     import db as _db
 
-    key = f"recordings/{_db.TENANT_ID}/{filename}"
+    key = f"recordings/{_db.current_tenant()}/{filename}"
 
     storage_ref: str | None = None
     try:

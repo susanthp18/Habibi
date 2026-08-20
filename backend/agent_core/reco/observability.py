@@ -43,7 +43,6 @@ REAL_MODES = ("live", "shadow")
 LATENCY_P99_BUDGET_MS = 150.0
 COVERAGE_DROP_ALERT = 0.20
 SUPPRESSION_CONCENTRATION_ALERT = 0.60
-FALLBACK_RATE_ALERT = 0.01
 CLOSE_PROBE_CONVERSION_FLOOR = 0.01
 
 
@@ -90,6 +89,23 @@ def offer_health(
     params = {"modes": _modes(include_simulated)}
 
     with db.engine.connect() as conn:
+        # What the engine is configured to do, alongside what it did. Without
+        # it this payload cannot distinguish a recommender that is off, one in
+        # shadow that will never present by design, and one running live that
+        # simply had a quiet week — and those three read identically as a wall
+        # of dashes. `lastDecisionAt` is unwindowed on purpose: "nothing in the
+        # last 30 days" and "nothing, ever" are the two answers that matter
+        # most when the panel is empty, and the window cannot tell them apart.
+        engine = _one(
+            conn,
+            """
+            SELECT MAX(created_at) AS last_decision_at
+            FROM offer_decisions
+            WHERE mode = ANY(:modes)
+            """,
+            params,
+        )
+
         totals = _one(
             conn,
             f"""
@@ -261,7 +277,16 @@ def offer_health(
             SELECT
               COUNT(*) FILTER (WHERE kind = 'close_probe_presented')::int AS asked,
               COUNT(*) FILTER (WHERE kind = 'offer_declined')::int        AS declined,
-              COUNT(*) FILTER (WHERE kind = 'lead_captured')::int         AS captured
+              -- DISTINCT on the lead, not a row count. record_lead_captured
+              -- writes the event twice when the capture happened on a call —
+              -- once against the interaction so Bot Analytics can join it to
+              -- the same call's offer_presented, once against the lead. Both
+              -- rows are wanted; counting both as conversions was not, and it
+              -- inflated close-probe conversion by 2x for exactly the captures
+              -- that came from a conversation.
+              COUNT(DISTINCT entity_id) FILTER (
+                WHERE kind = 'lead_captured' AND entity_type = 'lead'
+              )::int                                                      AS captured
             FROM activity_events
             WHERE at > now() - interval '{interval}'
               AND kind IN ('close_probe_presented', 'offer_declined', 'lead_captured')
@@ -316,6 +341,7 @@ def offer_health(
         probe=probe,
         aht=aht,
         include_simulated=include_simulated,
+        engine=engine,
     )
 
 
@@ -390,9 +416,40 @@ def _assemble(**parts: Any) -> dict[str, Any]:
             f"close probe converts at {probe_conversion:.2%} over {probe_asked} asks — reconsider it",
         )
 
+    from agent_core.reco import config
+
+    engine_mode = config.mode()
+    last_decision_at = (parts.get("engine") or {}).get("last_decision_at")
+
+    # An engine that logged nothing is a finding, not an empty chart. Ranked
+    # ahead of the tuned thresholds above because none of them can fire without
+    # rows, so a dark engine used to raise no alerts at all — the quietest
+    # possible failure.
+    if decisions == 0:
+        if engine_mode == config.MODE_OFF:
+            alert("engine", "RECO_MODE=off — the engine is disabled and logs nothing")
+        elif last_decision_at is None:
+            alert(
+                "engine",
+                "no offer decision has ever been logged — the engine runs inside a "
+                "bot conversation, so this is what an idle bot looks like",
+            )
+        else:
+            alert("engine", f"no offer decisions in this window (last was {last_decision_at:%Y-%m-%d})")
+    elif engine_mode == config.MODE_SHADOW and presented == 0:
+        # Not a fault. Stated anyway, because "presented 0" on a shadow engine
+        # is the expected outcome and reads as a broken funnel without it.
+        alert("engine", "RECO_MODE=shadow — decisions are scored and logged but never spoken")
+
     return {
         "window": parts["window"],
         "includesSimulated": parts["include_simulated"],
+        "engine": {
+            "mode": engine_mode,
+            "scorer": config.scorer_name(),
+            "abSplit": [{"variant": n, "share": s} for n, s in config.ab_split()],
+            "lastDecisionAt": last_decision_at.isoformat() if last_decision_at else None,
+        },
         "volume": {
             "decisions": decisions,
             "approved": approved,

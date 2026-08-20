@@ -13,5 +13,13 @@ python-multipart==0.0.32
 twilio>=9.0,<10
 redis>=5.0,<6
 websockets>=12.0,<16
+# Metrics exposition for /metrics. Pure Python, no transitive dependencies —
+# chosen over the OpenTelemetry SDK for this pass because a Prometheus text
+# endpoint is useful with `curl` alone, whereas OTLP traces are useful only
+# once a collector exists. Traces remain the next step, not a replacement.
+prometheus-client==0.26.0
+# Error tracking. Inert unless SENTRY_DSN is set, so this costs an unconfigured
+# deployment an import and nothing else.
+sentry-sdk==2.66.1
 # Dev / regression (auth CORS lock + readiness)
 pytest==9.1.1

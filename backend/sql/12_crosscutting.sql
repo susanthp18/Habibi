@@ -35,12 +35,19 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_id ON audit_log(tenant_id);
 -- Identity is (endpoint, key): callers scope replay lookups by both, so a
 -- global PK on `key` alone silently dropped the second endpoint's stored
 -- response and let the replay execute as a fresh write.
+-- Tenant leads the primary key (migration 20260812_0059). The key is
+-- client-supplied and clients reuse predictable ones, so without tenant here
+-- two tenants posting the same key to the same endpoint collide and the second
+-- is served the FIRST tenant's cached response body — a cross-tenant data leak,
+-- not merely a scoping gap, because the replay path returns the stored response
+-- without re-reading any row that a tenant predicate could filter.
 CREATE TABLE IF NOT EXISTS idempotency_keys (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
   endpoint TEXT NOT NULL,
   response jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (endpoint, key)
+  PRIMARY KEY (tenant_id, endpoint, key)
 );
 CREATE INDEX IF NOT EXISTS idx_idempotency_keys_endpoint ON idempotency_keys(endpoint);
 
@@ -138,6 +145,9 @@ CREATE TABLE IF NOT EXISTS bot_tool_calls (
   error TEXT,
   result_preview TEXT,
   latency_ms INTEGER,
+  agent_id TEXT,
+  skill_id TEXT,
+  connector_id TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ck_bot_tool_calls_attribution
     CHECK (job_id IS NOT NULL OR interaction_id IS NOT NULL)
@@ -158,6 +168,12 @@ CREATE TABLE IF NOT EXISTS whatsapp_outbound_jobs (
   customer_id TEXT REFERENCES customers(id),
   to_phone TEXT NOT NULL,
   body TEXT NOT NULL,
+  preview_url boolean NOT NULL DEFAULT false,
+  template_name TEXT,
+  template_lang TEXT,
+  template_params jsonb,
+  purpose TEXT,
+  source TEXT,
   attempt INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'queued',
   error TEXT,

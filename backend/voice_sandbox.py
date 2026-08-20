@@ -96,7 +96,19 @@ def voice_status() -> dict[str, Any]:
     from voice.host import embedded_host_enabled
 
     if embedded_host_enabled():
-        return {"ok": True, "webrtcUrl": _WEBRTC_PUBLIC, "detail": "embedded host"}
+        from voice import admission
+
+        # Capacity is reported ONLY on the embedded path. The counter is
+        # process-local (see voice/admission.py), so when the pipeline runs in a
+        # separate `voice` container this process's counter is permanently zero
+        # — reporting it would be worse than reporting nothing, because it would
+        # read as "plenty of headroom" during an overload.
+        return {
+            "ok": True,
+            "webrtcUrl": _WEBRTC_PUBLIC,
+            "detail": "embedded host",
+            "capacity": admission.snapshot(),
+        }
     try:
         with httpx.Client(timeout=1.5) as client:
             for path in ("/status", "/"):
