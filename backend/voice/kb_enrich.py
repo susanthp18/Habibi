@@ -354,6 +354,23 @@ class KbCache:
             except asyncio.TimeoutError:
                 self.wait_samples_ms.append(timeout_s * 1000.0)
                 logger.debug("kb speculation still running at %.0fms", timeout_s * 1000)
+                # Waiting ran out; the work did not. Finishing the retrieval
+                # that is already in flight is strictly cheaper than the inline
+                # path, which embeds the same question a second time — and
+                # slower, because it starts from zero. Call VS-92CDE3F088 spent
+                # two embeds on every KB turn and recorded 0 speculation hits
+                # out of 6 attempts for exactly this reason: an embed takes
+                # 350-1900ms and the wait was 120ms, so the speculation could
+                # never win and its result was thrown away every time.
+                if fallback == "inline":
+                    try:
+                        snippets = await asyncio.shield(spec.task)
+                    except Exception:
+                        logger.debug("kb speculation failed after wait", exc_info=True)
+                    else:
+                        if snippets:
+                            self.spec_hits += 1
+                            return snippets, "speculative_late"
             except Exception:
                 logger.debug("kb speculation failed", exc_info=True)
 

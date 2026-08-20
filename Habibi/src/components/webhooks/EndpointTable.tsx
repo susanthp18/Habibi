@@ -1,7 +1,7 @@
-import { MoreHorizontal, Zap, Pause, Play, KeyRound, Trash2, Pencil } from "lucide-react";
+import { useMemo } from "react";
+import { MoreHorizontal, Zap, Pause, Play, KeyRound, Trash2, Pencil, Link2, Radio } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,11 +13,17 @@ import { Lozenge } from "@/components/ui/lozenge";
 import type { Delivery, Endpoint } from "@/data/webhooks-seed";
 import { fmtRel } from "@/data/webhooks-seed";
 import { cn } from "@/lib/utils";
+import {
+  RecordsAvatarMark,
+  RecordsTable,
+  type RecordsColumn,
+} from "@/components/records/RecordsTable";
+import { RecordsTag } from "@/components/records/RecordsTag";
 
 function StatusBadge({ status }: { status: Endpoint["status"] }) {
   const map = { active: "success", paused: "neutral", broken: "danger" } as const;
   return (
-    <Lozenge tone={map[status]} className="capitalize">
+    <Lozenge tone={map[status] ?? "neutral"} className="capitalize">
       <span
         className={cn(
           "h-1.5 w-1.5 rounded-full",
@@ -36,8 +42,7 @@ export function EndpointTable({
   deliveries,
   selectedIds,
   activeId,
-  onToggleSelect,
-  onToggleAll,
+  onSelectedChange,
   onRowClick,
   onEdit,
   onTestFire,
@@ -49,8 +54,7 @@ export function EndpointTable({
   deliveries: Delivery[];
   selectedIds: Set<string>;
   activeId: string | null;
-  onToggleSelect: (id: string) => void;
-  onToggleAll: (v: boolean) => void;
+  onSelectedChange: (next: Set<string>) => void;
   onRowClick: (id: string) => void;
   onEdit: (ep: Endpoint) => void;
   onTestFire: (ep: Endpoint) => void;
@@ -58,145 +62,193 @@ export function EndpointTable({
   onRotate: (ep: Endpoint) => void;
   onDelete: (ep: Endpoint) => void;
 }) {
-  const lastByEp = new Map<string, Delivery>();
-  for (const d of deliveries) {
-    if (!lastByEp.has(d.endpointId)) lastByEp.set(d.endpointId, d);
-  }
+  const lastByEp = useMemo(() => {
+    const map = new Map<string, Delivery>();
+    for (const d of deliveries) {
+      if (!map.has(d.endpointId)) map.set(d.endpointId, d);
+    }
+    return map;
+  }, [deliveries]);
 
-  const allSelected = endpoints.length > 0 && endpoints.every((e) => selectedIds.has(e.id));
-  const someSelected = endpoints.some((e) => selectedIds.has(e.id));
+  const columns = useMemo<RecordsColumn<Endpoint>[]>(
+    () => [
+      {
+        id: "name",
+        header: "Name",
+        sticky: true,
+        sortable: true,
+        sortValue: (ep) => ep.name,
+        className: "min-w-[12rem]",
+        cell: (ep) => (
+          <button
+            type="button"
+            onClick={() => onRowClick(ep.id)}
+            className={cn("flex min-w-0 items-center gap-100 text-left", activeId === ep.id && "text-text-brand")}
+          >
+            <RecordsAvatarMark label={ep.name || "?"} />
+            <span className="min-w-0">
+              <span className="block truncate font-semibold text-text hover:underline">{ep.name}</span>
+              <Badge variant="outline" className="mt-025 text-body-small font-normal">
+                {ep.target}
+              </Badge>
+            </span>
+          </button>
+        ),
+        footer: (visible) => (
+          <span>
+            <span className="font-semibold tabular text-text">{visible.length}</span>{" "}
+            <span className="text-text-subtlest">endpoints</span>
+          </span>
+        ),
+      },
+      {
+        id: "url",
+        header: "URL",
+        headerIcon: <Link2 className="h-3.5 w-3.5" />,
+        sortable: true,
+        sortValue: (ep) => ep.url,
+        cell: (ep) => (
+          <code className="block max-w-[16rem] truncate rounded bg-surface-sunken px-075 py-025 font-mono text-body-small text-text-subtle">
+            {ep.url}
+          </code>
+        ),
+      },
+      {
+        id: "events",
+        header: "Events",
+        headerIcon: <Radio className="h-3.5 w-3.5" />,
+        cell: (ep) => (
+          <div className="flex flex-wrap gap-050">
+            {(ep.events ?? []).slice(0, 2).map((e) => (
+              <RecordsTag key={e} name={e} />
+            ))}
+            {(ep.events?.length ?? 0) > 2 ? (
+              <span className="rounded bg-surface-sunken px-075 py-025 text-body-small text-text-subtle">
+                +{ep.events.length - 2}
+              </span>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        sortValue: (ep) => (ep.status === "broken" ? 3 : ep.status === "paused" ? 2 : 1),
+        cell: (ep) => <StatusBadge status={ep.status} />,
+        footer: (visible) => {
+          const broken = visible.filter((e) => e.status === "broken").length;
+          return <span className="text-text-subtlest">{broken} broken</span>;
+        },
+      },
+      {
+        id: "last",
+        header: "Last delivery",
+        sortable: true,
+        sortValue: (ep) => {
+          const last = lastByEp.get(ep.id);
+          return last?.at ? new Date(last.at).getTime() : 0;
+        },
+        cell: (ep) => {
+          const last = lastByEp.get(ep.id);
+          if (!last) return <span className="text-text-subtlest">—</span>;
+          return (
+            <div className="flex items-center gap-075 text-body-small text-text-subtle">
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  last.status === "success" && "bg-background-success-bold",
+                  last.status === "client_err" && "bg-background-warning-bold",
+                  last.status === "server_err" && "bg-background-danger-bold",
+                  last.status === "pending" && "bg-background-accent-gray-subtle",
+                )}
+              />
+              {fmtRel(last.at)}
+              <span className="text-text-subtlest">· {last.httpStatus}</span>
+            </div>
+          );
+        },
+      },
+      {
+        id: "actions",
+        header: "",
+        align: "right",
+        cell: (ep) => {
+          const isPaused = ep.status === "paused";
+          return (
+            <div onClick={(e) => e.stopPropagation()}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-7 w-7">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => onEdit(ep)}>
+                    <Pencil className="mr-100 h-3.5 w-3.5" /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onTestFire(ep)}>
+                    <Zap className="mr-100 h-3.5 w-3.5" /> Test fire
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onTogglePause(ep)}>
+                    {isPaused ? (
+                      <>
+                        <Play className="mr-100 h-3.5 w-3.5" /> Resume
+                      </>
+                    ) : (
+                      <>
+                        <Pause className="mr-100 h-3.5 w-3.5" /> Pause
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onRotate(ep)}>
+                    <KeyRound className="mr-100 h-3.5 w-3.5" /> Rotate secret
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onDelete(ep)}
+                    className="text-text-danger focus:text-text-danger-bolder"
+                  >
+                    <Trash2 className="mr-100 h-3.5 w-3.5" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          );
+        },
+        footer: () =>
+          selectedIds.size > 0 ? (
+            <span className="text-text-subtlest">{selectedIds.size} selected</span>
+          ) : (
+            <span className="text-text-subtlest">—</span>
+          ),
+      },
+    ],
+    [
+      activeId,
+      lastByEp,
+      onRowClick,
+      onEdit,
+      onTestFire,
+      onTogglePause,
+      onRotate,
+      onDelete,
+      selectedIds.size,
+    ],
+  );
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full text-body">
-        <thead className="sticky top-0 z-10 bg-surface">
-          <tr className="border-b border-border text-left text-body-small font-semibold text-text-subtlest">
-            <th className="w-400 px-150 py-100">
-              <Checkbox
-                checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                onCheckedChange={(v) => onToggleAll(!!v)}
-              />
-            </th>
-            <th className="px-150 py-100">Name</th>
-            <th className="px-150 py-100">URL</th>
-            <th className="px-150 py-100">Events</th>
-            <th className="px-150 py-100">Status</th>
-            <th className="px-150 py-100">Last delivery</th>
-            <th className="w-500 px-150 py-100" />
-          </tr>
-        </thead>
-        <tbody>
-          {endpoints.map((ep) => {
-            const last = lastByEp.get(ep.id);
-            const isActiveRow = activeId === ep.id;
-            const isPaused = ep.status === "paused";
-            return (
-              <tr
-                key={ep.id}
-                onClick={() => onRowClick(ep.id)}
-                className={cn(
-                  "cursor-pointer border-b border-border transition-colors hover:bg-surface-sunken",
-                  isActiveRow && "bg-background-brand-subtlest/40",
-                )}
-              >
-                <td className="px-150 py-150" onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    checked={selectedIds.has(ep.id)}
-                    onCheckedChange={() => onToggleSelect(ep.id)}
-                  />
-                </td>
-                <td className="px-150 py-150">
-                  <div className="font-semibold text-text">{ep.name}</div>
-                  <Badge variant="outline" className="mt-025 text-body-small font-normal">
-                    {ep.target}
-                  </Badge>
-                </td>
-                <td className="max-w-[16.25rem] px-150 py-150">
-                  <code className="block truncate rounded bg-surface-sunken px-075 py-025 font-mono text-body-small text-text-subtle">
-                    {ep.url}
-                  </code>
-                </td>
-                <td className="px-150 py-150">
-                  <div className="flex flex-wrap gap-050">
-                    {ep.events.slice(0, 2).map((e) => (
-                      <span
-                        key={e}
-                        className="rounded bg-background-brand-subtlest px-075 py-025 font-mono text-body-small text-text-brand"
-                      >
-                        {e}
-                      </span>
-                    ))}
-                    {ep.events.length > 2 && (
-                      <span className="rounded bg-surface-sunken px-075 py-025 text-body-small text-text-subtle">
-                        +{ep.events.length - 2}
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-150 py-150">
-                  <StatusBadge status={ep.status} />
-                </td>
-                <td className="px-150 py-150 text-body-small text-text-subtle">
-                  {last ? (
-                    <div className="flex items-center gap-075">
-                      <span
-                        className={cn(
-                          "h-1.5 w-1.5 rounded-full",
-                          last.status === "success" && "bg-background-success-bold",
-                          last.status === "client_err" && "bg-background-warning-bold",
-                          last.status === "server_err" && "bg-background-danger-bold",
-                        )}
-                      />
-                      {fmtRel(last.at)}
-                      <span className="text-text-subtlest">· {last.httpStatus}</span>
-                    </div>
-                  ) : (
-                    <span className="text-text-subtlest">—</span>
-                  )}
-                </td>
-                <td className="px-150 py-150" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="icon" variant="ghost" className="h-7 w-7">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-44">
-                      <DropdownMenuItem onClick={() => onEdit(ep)}>
-                        <Pencil className="mr-100 h-3.5 w-3.5" /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onTestFire(ep)}>
-                        <Zap className="mr-100 h-3.5 w-3.5" /> Test fire
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onTogglePause(ep)}>
-                        {isPaused ? (
-                          <>
-                            <Play className="mr-100 h-3.5 w-3.5" /> Resume
-                          </>
-                        ) : (
-                          <>
-                            <Pause className="mr-100 h-3.5 w-3.5" /> Pause
-                          </>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onRotate(ep)}>
-                        <KeyRound className="mr-100 h-3.5 w-3.5" /> Rotate secret
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => onDelete(ep)}
-                        className="text-text-danger focus:text-text-danger-bolder"
-                      >
-                        <Trash2 className="mr-100 h-3.5 w-3.5" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <RecordsTable
+      rows={endpoints}
+      getRowId={(ep) => ep.id}
+      columns={columns}
+      selectable
+      selected={selectedIds}
+      onSelectedChange={onSelectedChange}
+      emptyMessage="No webhook endpoints yet."
+      ariaLabel="Webhook endpoints table"
+      defaultSort={{ id: "name", dir: 1 }}
+      className="h-full min-h-0"
+    />
   );
 }

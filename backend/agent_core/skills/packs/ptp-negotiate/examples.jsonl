@@ -1,0 +1,2 @@
+{"user": "I can pay 4000 on the 21st", "tools": ["run_skill_script", "create_promise_to_pay"]}
+{"user": "call me after 9pm", "tools": ["request_callback"], "note": "outside window — do not write PTP"}

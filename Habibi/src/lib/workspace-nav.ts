@@ -4,7 +4,8 @@ import type { WorkItem, WorkItemEntityType } from "@/api/workspace";
 export function workItemDestination(
   entityType: WorkItemEntityType | string,
   id: string,
-): { to: string; search?: Record<string, string | boolean> } {
+  customerId?: string | null,
+): { to: string; search?: Record<string, string | boolean>; params?: Record<string, string> } {
   switch (entityType) {
     case "dispute":
       return { to: "/disputes", search: { id } };
@@ -19,6 +20,11 @@ export function workItemDestination(
     case "followup":
       // Follow-ups are promise/lead chase items — land on Promises (broken PTP home).
       return { to: "/promises" };
+    case "bounce":
+      if (customerId) {
+        return { to: "/customers/$customerId", params: { customerId } };
+      }
+      return { to: "/customers" };
     default:
       return { to: "/" };
   }
@@ -37,10 +43,10 @@ export function navigateWorkItem(
   // Accept router navigate without fighting TanStack's branded search types.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   navigate: (opts: any) => unknown,
-  item: Pick<WorkItem, "id" | "entityType"> | { id: string; entityType: string },
+  item: Pick<WorkItem, "id" | "entityType" | "customerId"> | { id: string; entityType: string; customerId?: string | null },
 ): void {
-  const dest = workItemDestination(item.entityType, item.id);
-  void navigate({ to: dest.to, search: dest.search });
+  const dest = workItemDestination(item.entityType, item.id, item.customerId);
+  void navigate({ to: dest.to, search: dest.search, params: dest.params });
 }
 
 /** Infer entity type from SLA countdown label prefixes produced by workspace_summary. */
@@ -51,6 +57,7 @@ export function entityTypeFromSlaLabel(label: string): WorkItemEntityType | null
   if (head.startsWith("doc")) return "document_request";
   if (head.startsWith("callback")) return "callback";
   if (head.startsWith("follow")) return "followup";
+  if (head.startsWith("bounce") || head.startsWith("emi bounce")) return "bounce";
   if (head.startsWith("lead")) return "lead";
   return null;
 }

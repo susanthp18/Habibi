@@ -1,113 +1,106 @@
 import { useMemo, useState } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { type DayPoint, type Service, inrCompact } from "@/data/billing-seed";
+import { ChartCard, ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 
 export function SpendTrendChart({ data, services }: { data: DayPoint[]; services: Service[] }) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
-  const rows = useMemo(
+  const labels = useMemo(
     () =>
-      data.map((d) => {
-        const row: Record<string, string | number> = { date: d.date };
-        let total = 0;
-        for (const s of services) {
-          const v = d.values[s.id] ?? 0;
-          row[s.id] = v;
-          total += v;
-        }
-        row.total = total;
-        return row;
-      }),
-    [data, services],
+      data.map((d) =>
+        new Date(d.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" }),
+      ),
+    [data],
   );
 
-  const fmtDay = (d: string) => {
-    const dt = new Date(d);
-    return dt.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
-  };
+  const series = useMemo(
+    () =>
+      services
+        .filter((s) => !hidden.has(s.id))
+        .map((s) => ({
+          id: s.id,
+          label: s.name,
+          values: data.map((d) => d.values[s.id] ?? 0),
+          color: s.color.startsWith("#") ? s.color : "#1868db",
+        })),
+    [data, services, hidden],
+  );
+
+  const totals = data.map((d) => Object.values(d.values).reduce((a, b) => a + b, 0));
+  const periodTotal = totals.reduce((a, b) => a + b, 0);
+
+  const fmtDay = (i: number) => labels[i] ?? "";
 
   return (
-    <div className="flex h-full min-h-[17.5rem] flex-col rounded-large border border-border bg-surface p-200">
-      <div className="mb-100 flex items-start justify-between">
-        <div>
-          <h3 className="text-body font-semibold text-text">Spend trend</h3>
-          <p className="text-body-small text-text-subtle">Daily cost stacked by service</p>
-        </div>
+    <ChartCard
+      title="Spend trend"
+      subtitle="Daily cost by service"
+      className="min-h-[17.5rem]"
+      action={
         <div className="text-right">
-          <div className="text-body-small text-text-subtlest">Period total</div>
-          <div className="text-body font-semibold text-text">
-            {inrCompact(rows.reduce((s, r) => s + (r.total as number), 0))}
-          </div>
+          <div className="text-[10.5px] text-text-subtlest">Period total</div>
+          <div className="text-body font-semibold tabular-nums text-text">{inrCompact(periodTotal)}</div>
         </div>
-      </div>
-      <div className="min-h-0 flex-1">
-        <ResponsiveContainer width="100%" height="100%" minHeight={220}>
-          <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tickFormatter={fmtDay}
-              tick={{ fontSize: 10, fill: "var(--text-muted)" }}
-              tickLine={false}
-              axisLine={false}
-              minTickGap={24}
-            />
-            <YAxis
-              tick={{ fontSize: 10, fill: "var(--text-muted)" }}
-              tickFormatter={(v: number) => inrCompact(v)}
-              tickLine={false}
-              axisLine={false}
-              width={55}
-            />
-            <Tooltip
-              contentStyle={{
-                fontSize: 11,
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-              }}
-              labelFormatter={fmtDay}
-              formatter={(v: number, name) => [inrCompact(v), name as string]}
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 10 }}
-              onClick={(o) => {
-                const dk = (o as { dataKey?: unknown }).dataKey;
-                if (typeof dk !== "string") return;
+      }
+    >
+      <div className="mb-100 flex flex-wrap gap-050">
+        {services.map((s) => {
+          const on = !hidden.has(s.id);
+          return (
+            <button
+              key={s.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() =>
                 setHidden((prev) => {
                   const next = new Set(prev);
-                  if (next.has(dk)) next.delete(dk);
-                  else next.add(dk);
+                  if (next.has(s.id)) next.delete(s.id);
+                  else next.add(s.id);
                   return next;
-                });
-              }}
-            />
-            {services.map((s) => (
-              <Area
-                key={s.id}
-                type="monotone"
-                dataKey={s.id}
-                name={s.name}
-                stackId="1"
-                stroke={s.color}
-                fill={s.color}
-                fillOpacity={hidden.has(s.id) ? 0 : 0.45}
-                strokeWidth={hidden.has(s.id) ? 0 : 1.2}
-                hide={hidden.has(s.id)}
-              />
-            ))}
-          </AreaChart>
-        </ResponsiveContainer>
+                })
+              }
+              className={`inline-flex items-center gap-050 rounded-full px-075 py-025 text-[11px] transition-[background-color,opacity,transform] duration-150 active:scale-[0.96] ${
+                on ? "bg-surface-sunken text-text" : "text-text-subtlest opacity-50"
+              }`}
+            >
+              <span className="size-1.5 rounded-full" style={{ background: s.color }} />
+              {s.name}
+            </button>
+          );
+        })}
       </div>
-    </div>
+      <ChartStage
+        toolbar={
+          <>
+            <span className="text-[11px] tabular-nums text-text-subtlest">Daily burn</span>
+            <SnapshotPill />
+          </>
+        }
+      >
+        {series.length === 0 ? (
+          <div className="flex min-h-[13.75rem] items-center justify-center text-body-small text-text-subtlest">
+            All series hidden.
+          </div>
+        ) : series.length === 1 ? (
+          <LivelineTrend
+            values={series[0].values}
+            color={series[0].color}
+            labels={labels}
+            height={220}
+            formatValue={inrCompact}
+            formatTime={fmtDay}
+            fill
+          />
+        ) : (
+          <LivelineTrend
+            series={series}
+            labels={labels}
+            height={220}
+            formatValue={inrCompact}
+            formatTime={fmtDay}
+          />
+        )}
+      </ChartStage>
+    </ChartCard>
   );
 }

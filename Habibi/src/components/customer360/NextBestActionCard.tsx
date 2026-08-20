@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarClock, FileText, HandCoins, PhoneCall, Scale } from "lucide-react";
+import { ArrowRight, CalendarClock, FileText, HandCoins, PhoneCall, Scale, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { NbaActionKind, NbaItem } from "@/lib/customerInsights";
 import { StatusChip, type ChipTone } from "./StatusChip";
@@ -17,6 +17,7 @@ const ACTION_ICON: Record<NbaActionKind, typeof PhoneCall> = {
   call: PhoneCall,
   callback: CalendarClock,
   review: Scale,
+  offer: Sparkles,
 };
 
 type Handlers = {

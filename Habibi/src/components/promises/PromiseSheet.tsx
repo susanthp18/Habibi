@@ -201,9 +201,10 @@ interface DetailProps {
   onOpenChange: (v: boolean) => void;
   onMark: (p: Promise, status: PromiseStatus, opts?: { paidAmount?: number }) => void;
   onReschedule: (p: Promise, newDate: string) => void;
+  onResend?: (p: Promise) => void;
 }
 
-export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule }: DetailProps) {
+export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule, onResend }: DetailProps) {
   const [partialAmt, setPartialAmt] = useState("");
   const [rescheduleDate, setRescheduleDate] = useState("");
 
@@ -237,6 +238,17 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
             <Meta label="Owner" value={promise.owner} />
             <Meta label="Reminder" value={promise.reminderStatus} />
             <Meta label="Account" value={`#${promise.accountTail}`} />
+            <Meta
+              label="Confirm"
+              value={
+                promise.payLinkSent
+                  ? `${promise.confirmChannel ?? "sent"}${promise.phoneLast4 ? ` ···${promise.phoneLast4}` : ""}`
+                  : promise.confirmStatus === "suppressed"
+                    ? "suppressed"
+                    : promise.paymentIntentStatus ?? "—"
+              }
+            />
+            <Meta label="Intent" value={promise.paymentIntentStatus ?? "—"} />
           </div>
 
           {promise.notes && (
@@ -272,12 +284,32 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
             </ol>
           </div>
 
+          {(promise.status === "upcoming" || promise.status === "due_today") && onResend && (
+            <div className="rounded-medium border border-border p-150">
+              <div className="mb-100 text-body-small font-semibold text-text-subtlest">Payment link</div>
+              <p className="mb-100 text-body-small text-text-subtle">
+                {promise.payLinkSent
+                  ? `Written confirm queued on ${promise.confirmChannel ?? "message"}${promise.phoneLast4 ? ` ending ${promise.phoneLast4}` : ""}.`
+                  : "No link has been delivered yet."}
+              </p>
+              <Button size="sm" variant="outline" onClick={() => onResend(promise)}>
+                Resend confirm
+              </Button>
+            </div>
+          )}
+
           {(promise.status === "upcoming" || promise.status === "due_today") && (
             <>
               <div className="rounded-medium border border-border p-150">
                 <div className="mb-100 text-body-small font-semibold text-text-subtlest">Mark outcome</div>
                 <div className="flex flex-wrap gap-100">
-                  <Button size="sm" onClick={() => onMark(promise, "kept")} className="bg-background-success-bold hover:bg-background-success-bold-pressed text-white">
+                  <Button
+                    size="sm"
+                    onClick={() => onMark(promise, "kept")}
+                    disabled={!(promise.paidAmount && promise.paidAmount > 0)}
+                    title={!(promise.paidAmount && promise.paidAmount > 0) ? "Kept requires a recorded payment" : undefined}
+                    className="bg-background-success-bold hover:bg-background-success-bold-pressed text-white disabled:opacity-40"
+                  >
                     Mark kept · {fmtMoney(promise.amount)}
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => onMark(promise, "broken")} className="border-border-danger-subtle text-text-danger-bolder hover:bg-background-danger-subtler">

@@ -12,21 +12,26 @@ import logging
 import os
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Callable
 
 from fastapi import Depends, Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import actor_context
+import authz
 import azure_openai
 import circuit_breaker
 import db
+import observability
+import request_context
 import flow_graph
+from agent_core.cards.compile import CompileError
 import kb_rate_limit
 import kb_retrieve
 import ops_screens
@@ -52,6 +57,7 @@ from schemas import (
     CannedResponseItem,
     ConsentListResponse,
     ConsentPatchRequest,
+    ContactPolicyResponse,
     ConversationListResponse,
     ConversationMessageCreateRequest,
     ConversationSuggestionsRefreshRequest,
@@ -72,11 +78,14 @@ from schemas import (
     EvidenceCreateRequest,
     FloorSnapshotResponse,
     FollowupPatchRequest,
-    HandoffResponse,
+    HandoffDisclosureRequest,
+    HandoffQueueResponse,
+    HandoffSessionResponse,
     InteractionCreateRequest,
     InteractionWrapUpRequest,
     LeadCreateRequest,
     LeadPatchRequest,
+    LeadMetricsResponse,
     LeadResponse,
     OptOutCreateRequest,
     PaymentPlanCreateRequest,
@@ -146,6 +155,9 @@ from schemas import (
     ViolationNoteCreateRequest,
     ViolationPatchRequest,
     VoiceSandboxStartRequest,
+    TreatmentHoldCreateRequest,
+    TreatmentHoldReleaseRequest,
+    AuthorityApplyRequest,
     VoiceSandboxTuneRequest,
     WebhookEndpointPatchRequest,
     WebhookEndpointUpsertRequest,
@@ -221,7 +233,10 @@ _AUTH_EXEMPT_PREFIXES = (
     "/twilio/voice/fallback",
     "/twilio/voice/stream-status",
     "/twilio/voice/call-status",
+    "/pay",
+    "/webhooks/payments",
     "/ws",
+    "/.well-known/agent-card.json",
     # SmallWebRTC signalling. The WebRTC client cannot attach our API-key
     # header to its offer POST, and the standalone runner it replaces has no
     # auth at all — so this is parity, not a downgrade. Only present when the
@@ -248,6 +263,8 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
+        if request.method == "POST" and path == "/a2a":
+            return await call_next(request)
         if any(path == p or path.startswith(p + "/") for p in _AUTH_EXEMPT_PREFIXES):
             return await call_next(request)
 
@@ -279,9 +296,13 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
 
         request.state.actor_user_id = actor_id
         token = actor_context.set_actor_user_id(actor_id)
+        # Separate binding for logs. Deliberately not read back into identity:
+        # see request_context's module docstring.
+        log_token = request_context.set_actor(actor_id)
         try:
             return await call_next(request)
         finally:
+            request_context.reset_actor(log_token)
             actor_context.reset_actor_user_id(token)
 
 
@@ -299,9 +320,57 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         raw = (request.headers.get("x-request-id") or "").strip()
         rid = self._SAFE_REQUEST_ID.sub("", raw)[:64] or uuid.uuid4().hex
         request.state.request_id = rid
-        response = await call_next(request)
+        # Also bind to a ContextVar: request.state is reachable only by code
+        # holding the Request, which is almost nothing — db, voice and worker
+        # threads all logged without it. See request_context for why.
+        token = request_context.set_request_id(rid)
+        try:
+            response = await call_next(request)
+        finally:
+            request_context.reset_request_id(token)
         response.headers["X-Request-Id"] = rid
         return response
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Count and time every request, labelled by ROUTE TEMPLATE.
+
+    Placed outside ApiKeyMiddleware so 401s and 403s are counted too — an auth
+    failure spike is exactly the thing worth alerting on, and instrumenting
+    inside the gate would make it invisible.
+
+    The route is resolved after ``call_next``, because Starlette only populates
+    ``scope["route"]`` once routing has happened. A request that matched no
+    route is labelled ``<unmatched>`` rather than by its raw path: 404 scans are
+    the classic way an unbounded label set gets into a metrics backend.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        started = time.perf_counter()
+        observability.http_in_flight.inc()
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        except Exception:
+            # An unhandled exception still becomes a 500 to the client, so it
+            # must appear in the metric as one rather than vanishing.
+            raise
+        finally:
+            observability.http_in_flight.dec()
+            route = request.scope.get("route")
+            template = getattr(route, "path", None) or "<unmatched>"
+            try:
+                observability.observe_request(
+                    method=request.method,
+                    route=template,
+                    status_code=status_code,
+                    seconds=time.perf_counter() - started,
+                )
+            except Exception:
+                # Instrumentation must never be the reason a request fails.
+                logger.debug("request metric failed", exc_info=True)
 
 
 # Controls whose enforcement is still deferred (see DATA_MODEL.md, "Scope of
@@ -339,6 +408,12 @@ def _assert_hardening_gate() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Before anything else logs: converting handlers after startup has already
+    # emitted its lines leaves the boot sequence in the old format, which is
+    # exactly the part you want structured when a deploy fails.
+    observability.setup_logging()
+    observability.setup_error_tracking()
+    observability.register_collectors()
     _assert_hardening_gate()
     # Mirror FE mock fail-closed: prod without credentials must not boot.
     has_auth = bool((os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map())
@@ -360,6 +435,13 @@ async def lifespan(_app: FastAPI):
                 raise
             logger.warning("actor identity config invalid (non-prod): continuing", exc_info=True)
         try:
+            # Catalog rows only, never grants — so the permissions an operator
+            # can assign exist in a fresh database without re-granting anything
+            # they previously revoked.
+            await asyncio.to_thread(authz.ensure_permission_catalog)
+        except Exception:
+            logger.warning("authz.ensure_permission_catalog failed", exc_info=True)
+        try:
             import usage_meter
 
             await asyncio.to_thread(usage_meter.sync_price_book)
@@ -371,6 +453,12 @@ async def lifespan(_app: FastAPI):
             await asyncio.to_thread(ensure_catalog_seeded, db.engine)
         except Exception:
             logger.warning("tts catalog boot seed failed", exc_info=True)
+        try:
+            from agent_core.skills.persist import ensure_first_party_skills
+
+            await asyncio.to_thread(ensure_first_party_skills)
+        except Exception:
+            logger.warning("skill catalog boot seed failed", exc_info=True)
         yield
     finally:
         # Before the DB engine goes away: live calls write CRM rows on teardown.
@@ -393,24 +481,71 @@ async def lifespan(_app: FastAPI):
         db.dispose_engine()
 
 
+async def _authz_guard(request: Request) -> None:
+    """Per-route permission check, applied to every route in the app.
+
+    Registered as a global dependency rather than 180 per-route ``Depends``
+    arguments so the policy is one reviewable table (``authz.ROUTE_PERMISSIONS``)
+    and so ``tests/test_authz.py`` can prove it covers the whole route table — a
+    forgotten ``Depends`` is silent, a missing registry row is a test failure.
+
+    Dependencies resolve after routing, so ``scope["route"].path`` is the path
+    *template* (``/customers/{customer_id}``), which is what the registry keys
+    on. Falling back to the raw path would mean a parameterised route never
+    matches and is therefore denied — the safe direction, but useless.
+    """
+    route = request.scope.get("route")
+    path_template = getattr(route, "path", None) or request.url.path
+    # Only an actor the auth middleware actually authenticated counts. Not
+    # actor_context.get_actor_user_id(), which falls back to the process default
+    # — that would hand an unauthenticated caller the default user's grants.
+    actor = getattr(request.state, "actor_user_id", None)
+    try:
+        authz.check(request.method, path_template, actor)
+    except authz.PermissionDenied as exc:
+        logger.warning(
+            "authz denied actor=%s %s %s (needs %s)",
+            actor, request.method, path_template, exc.permission,
+        )
+        observability.observe_authz_denial(route=path_template, permission=exc.permission)
+        raise HTTPException(status_code=403, detail=f"forbidden:{exc.permission}") from exc
+
+
 app = FastAPI(
     title="Collections Agent API",
     version="0.1.0",
     lifespan=lifespan,
+    dependencies=[Depends(_authz_guard)],
     # Prod: do not publish the OpenAPI schema unauthenticated.
     docs_url=None if _IS_PROD else "/docs",
     redoc_url=None if _IS_PROD else "/redoc",
     openapi_url=None if _IS_PROD else "/openapi.json",
 )
 
+class StreamingAwareGZipMiddleware(GZipMiddleware):
+    """GZip buffers StreamingResponse. SSE copilot (and any ``/stream``) must
+    flush event-by-event or Handoff sees the whisper only after the call ends.
+    """
+
+    async def __call__(self, scope, receive, send):  # type: ignore[no-untyped-def]
+        if scope["type"] == "http":
+            path = str(scope.get("path") or "")
+            if path.endswith("/stream"):
+                await self.app(scope, receive, send)
+                return
+        await super().__call__(scope, receive, send)
+
+
 # Starlette inserts each add_middleware at index 0 → last added is OUTERMOST.
-# Desired order (outer → inner): CORS → RequestId → ApiKey → GZip → route
-# so (1) preflight/401s always get CORS headers, (2) RequestId wraps ApiKey so
-# the 401/400 responses auth generates still carry X-Request-Id (previously
-# rejected requests were unattributable in the logs), and (3) ApiKey sees
-# OPTIONS only after CORS has claimed it — still pass OPTIONS through ApiKey.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# Desired order (outer → inner): CORS → RequestId → Metrics → ApiKey → GZip → route
+# so (1) preflight/401s always get CORS headers, (2) RequestId wraps everything
+# so the 401/400 responses auth generates still carry X-Request-Id (previously
+# rejected requests were unattributable in the logs), (3) Metrics wraps ApiKey so
+# auth failures are counted rather than invisible, and (4) ApiKey sees OPTIONS
+# only after CORS has claimed it — still pass OPTIONS through ApiKey.
+app.add_middleware(StreamingAwareGZipMiddleware, minimum_size=1024)
 app.add_middleware(ApiKeyMiddleware)
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
 _cors_origins = [o.strip() for o in (os.getenv("CORS_ORIGINS") or "").split(",") if o.strip()]
@@ -464,6 +599,8 @@ def _handle_write(fn, *args, **kwargs):
         return fn(*args, **kwargs)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IntegrityError as exc:
@@ -514,9 +651,173 @@ def ready():
     return result
 
 
+@app.get("/pay/{token}", response_class=HTMLResponse)
+def hosted_pay_page(token: str):
+    """Public hosted checkout for a payment intent. No app shell."""
+    import payments
+
+    with db.engine.begin() as conn:
+        intent = payments.load_intent_by_token(conn, token)
+        if intent is None:
+            raise HTTPException(status_code=404, detail="pay_link_not_found")
+        payments.mark_opened(conn, intent["id"])
+        intent["status"] = "opened" if intent["status"] in {"created", "sent"} else intent["status"]
+        return HTMLResponse(payments.render_pay_page(intent))
+
+
+@app.post("/pay/{token}/complete")
+def hosted_pay_complete(token: str, request: Request):
+    """Sandbox-only: post a payment against a hosted intent."""
+    import payments
+
+    if payments.is_production() or payments.provider() != "hosted":
+        raise HTTPException(status_code=403, detail="hosted_complete_disabled")
+    with db.engine.begin() as conn:
+        intent = payments.load_intent_by_token(conn, token)
+        if intent is None:
+            raise HTTPException(status_code=404, detail="pay_link_not_found")
+        try:
+            result = payments.record_payment(
+                conn,
+                public_token=token,
+                amount=intent["amount"],
+                provider_ref=f"hosted:{token[:8]}",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    accept = (request.headers.get("accept") or "").lower()
+    if "text/html" in accept or request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+        with db.engine.connect() as conn:
+            refreshed = payments.load_intent_by_token(conn, token) or intent
+        return HTMLResponse(payments.render_pay_page(refreshed))
+    return result
+
+
+@app.post("/webhooks/payments/{provider}")
+async def payment_provider_webhook(provider: str, request: Request):
+    """HMAC-verified PSP webhook → ledger + PTP allocate."""
+    import payments
+
+    raw = await request.body()
+    sig = request.headers.get("X-Payment-Signature") or request.headers.get("X-Razorpay-Signature")
+    if not payments.verify_webhook_signature(provider_name=provider, raw_body=raw, header=sig):
+        raise HTTPException(status_code=401, detail="invalid_signature")
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    parsed = payments.parse_webhook_payload(provider, body if isinstance(body, dict) else {})
+    amount = parsed.get("amount")
+    if amount is None:
+        raise HTTPException(status_code=400, detail="amount_required")
+    with db.engine.begin() as conn:
+        try:
+            return payments.record_payment(
+                conn,
+                intent_id=parsed.get("intent_id"),
+                public_token=parsed.get("public_token"),
+                amount=amount,
+                provider_ref=parsed.get("provider_ref"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/webhooks/collections/payment-events")
+async def payment_events_webhook(request: Request):
+    """HMAC-verified CBS bounce ingest → case + statutory pay-link."""
+    import payment_events as pe
+
+    raw = await request.body()
+    sig = (
+        request.headers.get("X-Payment-Events-Signature")
+        or request.headers.get("X-Payment-Signature")
+    )
+    if not pe.verify_webhook_signature(raw_body=raw, header=sig):
+        raise HTTPException(status_code=401, detail="invalid_signature")
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid_json")
+    with db.engine.begin() as conn:
+        try:
+            return pe.ingest(conn, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/sandbox/payment-events")
+def sandbox_payment_event(payload: dict[str, Any]):
+    """Dev-only: same ingest() as the HMAC webhook, source defaults to sandbox."""
+    import payment_events as pe
+    import payments
+
+    if payments.is_production():
+        raise HTTPException(status_code=403, detail="sandbox_payment_events_disabled")
+    body = dict(payload or {})
+    body.setdefault("source", "sandbox")
+    if not body.get("sourceRef") and not body.get("source_ref"):
+        body["sourceRef"] = f"sandbox-{secrets.token_hex(8)}"
+    with db.engine.begin() as conn:
+        try:
+            return pe.ingest(conn, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/twins")
+def list_simulation_twins():
+    from agent_core.twin import ensure_default_twin, list_twins
+
+    ensure_default_twin()
+    return list_twins()
+
+
+@app.post("/twins/{twin_id}/run")
+def run_simulation_twin(twin_id: str, payload: dict[str, Any] | None = None):
+    from agent_core.twin import replay_bounce_ladder
+
+    state = (payload or {}).get("state") if isinstance(payload, dict) else None
+    return replay_bounce_ladder(twin_id, state=state)
+
+
+@app.get("/work-runtime/jobs/{job_id}")
+def get_work_runtime_job(job_id: str):
+    from work_runtime import query
+
+    row = query(job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="work_job_not_found")
+    return row
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    """Prometheus exposition.
+
+    Authenticated and permission-gated like every other route, rather than
+    exempted the way ``/health`` is: this publishes pool occupancy, breaker
+    state and call volume, which is reconnaissance for an attacker and
+    commercially sensitive besides. A scraper gets its own ``API_KEY_MAP``
+    entry pointing at a service user holding ``perm-observability-read``.
+    """
+    body, content_type = observability.render()
+    return Response(content=body, media_type=content_type)
+
+
 @app.get("/customers", response_model=list[CustomerResponse])
-def list_customers():
-    return db.list_customers()
+def list_customers(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    """Bounded list. Omitting ``limit`` yields the default page, not everything."""
+    return db.list_customers(limit=limit, offset=offset)
 
 
 @app.get("/customers/{customer_id}", response_model=CustomerResponse)
@@ -535,6 +836,18 @@ def get_customer_insights(customer_id: str):
     return insights
 
 
+@app.get("/customers/{customer_id}/contact-policy", response_model=ContactPolicyResponse)
+def get_contact_policy(
+    customer_id: str,
+    channel: str = Query(default="whatsapp"),
+    purpose: str = Query(default="outreach"),
+):
+    try:
+        return db.get_contact_policy(customer_id, channel=channel, purpose=purpose)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all"):
     return db.get_dashboard(range, segment, team)
@@ -547,6 +860,13 @@ def get_bot_analytics(range: str = "30d", channel: str = "all"):
         return db.bot_analytics(range, channel)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/offers/tuner-suggestions")
+def get_tuner_suggestions(days: int = Query(14, ge=1, le=90)):
+    from agent_core.tuner import suggestions
+
+    return suggestions(days=days)
 
 
 @app.get("/offers/health", response_model=OfferHealthResponse)
@@ -664,8 +984,13 @@ def delete_budget_rule(budget_id: str, rule_id: str):
 
 
 @app.get("/calls", response_model=list[CallResponse])
-def list_calls():
-    return db.list_calls()
+def list_calls(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    """Bounded list. Each row carries its full transcript, so the default page
+    is deliberately smaller than for flat lists."""
+    return db.list_calls(limit=limit, offset=offset)
 
 
 @app.get("/interactions/{interaction_id}/cost", response_model=InteractionCostResponse)
@@ -704,9 +1029,68 @@ def list_products(includeInactive: bool = Query(False)):
     return db.list_products(include_inactive=includeInactive)
 
 
+def _lead_filters(
+    stage: str | None,
+    owner: str | None,
+    team: str | None,
+    productId: str | None,
+    source: str | None,
+    priority: str | None,
+    sentiment: str | None,
+    q: str | None,
+) -> dict[str, str | None]:
+    return {
+        "stage": stage,
+        "owner": owner,
+        "team": team,
+        "productId": productId,
+        "source": source,
+        "priority": priority,
+        "sentiment": sentiment,
+        "q": q,
+    }
+
+
 @app.get("/leads", response_model=list[LeadResponse])
-def list_leads():
-    return db.list_leads()
+def list_leads(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    stage: str | None = Query(default=None),
+    owner: str | None = Query(default=None, description="Owner display name, or 'all'"),
+    team: str | None = Query(default=None),
+    productId: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
+    sentiment: str | None = Query(default=None),
+    q: str | None = Query(default=None, description="Free text over id, customer, account, product, snippet"),
+):
+    return db.list_leads(
+        limit=limit,
+        offset=offset,
+        filters=_lead_filters(stage, owner, team, productId, source, priority, sentiment, q),
+    )
+
+
+@app.get("/leads/metrics", response_model=LeadMetricsResponse)
+def get_lead_metrics(
+    stage: str | None = Query(default=None),
+    owner: str | None = Query(default=None),
+    team: str | None = Query(default=None),
+    productId: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
+    sentiment: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+):
+    """Pipeline KPIs over the whole book, not over one page of it.
+
+    Declared before /leads/{lead_id} would be — there is no such route today,
+    but "metrics" is a legal lead id as far as a path parameter is concerned,
+    and the ordering is what keeps it that way.
+    """
+    return db.lead_metrics(
+        _lead_filters(stage, owner, team, productId, source, priority, sentiment, q)
+    )
 
 
 @app.get("/me", response_model=MeResponse)
@@ -732,9 +1116,13 @@ def patch_me_presence(payload: PresencePatchRequest):
 
 
 @app.get("/work-items", response_model=list[WorkItemResponse])
-def list_work_items(assignee: str | None = Query("me")):
+def list_work_items(
+    assignee: str | None = Query("me"),
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
     """Assigned queue from the work_items view. Default assignee=me is viewer-relative."""
-    return db.list_work_items(assignee=assignee)
+    return db.list_work_items(assignee=assignee, limit=limit, offset=offset)
 
 
 @app.get("/workspace/summary", response_model=WorkspaceSummaryResponse)
@@ -754,41 +1142,155 @@ def list_teams():
 
 
 @app.get("/promises", response_model=list[PromiseListResponse])
-def list_promises():
-    return db.list_promises()
+def list_promises(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_promises(limit=limit, offset=offset)
 
 
 @app.get("/payment-plans", response_model=list[PaymentPlanResponse])
-def list_payment_plans():
-    return db.list_payment_plans()
+def list_payment_plans(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_payment_plans(limit=limit, offset=offset)
 
 
 @app.get("/disputes", response_model=list[DisputeListResponse])
-def list_disputes():
-    return db.list_disputes()
+def list_disputes(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_disputes(limit=limit, offset=offset)
 
 
 @app.get("/callbacks", response_model=list[CallbackListResponse])
-def list_callbacks():
-    return db.list_callbacks()
+def list_callbacks(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_callbacks(limit=limit, offset=offset)
 
 
 @app.get("/consent", response_model=list[ConsentListResponse])
-def list_consent():
-    return db.list_consent()
+def list_consent(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_consent(limit=limit, offset=offset)
 
 
-@app.get("/handoff/active", response_model=HandoffResponse)
-def get_handoff_session():
-    session = db.get_handoff_session()
+def _handoff_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/handoff/queue", response_model=HandoffQueueResponse)
+def get_handoff_queue(customerId: str | None = Query(default=None)):
+    return db.list_handoff_queue(customer_id=customerId)
+
+
+@app.get("/handoff/active", response_model=HandoffSessionResponse)
+def get_handoff_active():
+    session = db.get_active_handoff_session()
     if session is None:
-        raise HTTPException(status_code=404, detail="No interactions seeded")
+        return Response(status_code=204)
     return session
+
+
+@app.get("/handoff/{interaction_id}", response_model=HandoffSessionResponse)
+def get_handoff_by_id(interaction_id: str):
+    return _handoff_call(db.get_handoff_session, interaction_id)
+
+
+@app.post("/handoff/{interaction_id}/claim", response_model=HandoffSessionResponse)
+def claim_handoff(interaction_id: str):
+    return _handoff_call(db.claim_handoff, interaction_id)
+
+
+@app.post("/handoff/{interaction_id}/disclosures", response_model=HandoffSessionResponse)
+def post_handoff_disclosure(interaction_id: str, payload: HandoffDisclosureRequest):
+    return _handoff_call(
+        db.record_handoff_disclosure,
+        interaction_id,
+        payload.model_dump(exclude_none=True),
+    )
+
+
+@app.post("/handoff/{interaction_id}/suggestions/{suggestion_id}/accept", response_model=HandoffSessionResponse)
+def accept_handoff_suggestion(interaction_id: str, suggestion_id: str):
+    return _handoff_call(db.accept_handoff_suggestion, interaction_id, suggestion_id)
 
 
 @app.get("/floor", response_model=FloorSnapshotResponse)
 def get_floor():
     return ops_screens.get_floor_snapshot()
+
+
+@app.get("/floor/copilot/{interaction_id}")
+def get_floor_copilot(interaction_id: str):
+    from agent_core.copilot import build
+
+    pack = build(interaction_id)
+    if pack is None:
+        raise HTTPException(status_code=404, detail="interaction_not_found")
+    return pack
+
+
+@app.get("/floor/copilot/{interaction_id}/stream")
+def stream_floor_copilot(interaction_id: str):
+    import json
+
+    from fastapi.responses import StreamingResponse
+    from agent_core.copilot import iter_events
+
+    events = iter_events(interaction_id)
+    first = next(events, None)
+    if first is None or first.get("type") == "error":
+        raise HTTPException(status_code=404, detail="interaction_not_found")
+
+    def _sse() -> Any:
+        yield f"event: {first['type']}\ndata: {json.dumps(first, default=str)}\n\n"
+        for event in events:
+            name = str(event.get("type") or "message")
+            yield f"event: {name}\ndata: {json.dumps(event, default=str)}\n\n"
+
+    return StreamingResponse(
+        _sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/floor/approvals")
+def list_floor_approvals():
+    from work_runtime.adapter_pg import list_jobs
+
+    return list_jobs(status="input_required")
+
+
+@app.post("/floor/approvals/{job_id}/signal")
+def signal_floor_approval(job_id: str, payload: dict[str, Any]):
+    from work_runtime import signal
+
+    name = str(payload.get("name") or payload.get("signal") or "").strip()
+    if name not in {"approve", "reject"}:
+        raise HTTPException(status_code=422, detail="signal_must_be_approve_or_reject")
+    try:
+        return signal(job_id, name, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/supervisor-actions")
@@ -927,6 +1429,11 @@ def patch_promise(promise_id: str, payload: PromisePatchRequest):
     return _handle_write(db.patch_promise, promise_id, payload.model_dump(exclude_none=True))
 
 
+@app.post("/promises/{promise_id}/resend-confirm")
+def resend_promise_confirm(promise_id: str):
+    return _handle_write(db.resend_promise_confirm, promise_id)
+
+
 @app.post("/payment-plans")
 def create_payment_plan(payload: PaymentPlanCreateRequest):
     return _handle_write(db.create_payment_plan, payload.model_dump())
@@ -1007,9 +1514,39 @@ def create_document_request(payload: DocumentRequestCreateRequest):
     return _handle_write(db.create_document_request, payload.model_dump(exclude_none=True))
 
 
+@app.post("/document-requests/ingest")
+async def ingest_document_request(
+    customer_id: str = Form(...),
+    conversation_id: str | None = Form(None),
+    interaction_id: str | None = Form(None),
+    file: UploadFile = File(...),
+):
+    from agent_core.vision import ingest_customer_document
+
+    raw = await _read_upload_capped(file, max_bytes=8 * 1024 * 1024)
+    result = ingest_customer_document(
+        customer_id=customer_id,
+        filename=file.filename or "receipt.jpg",
+        mime_type=file.content_type or "image/jpeg",
+        identity_verified=bool(customer_id) and customer_id != "UNKNOWN-CALLER",
+        interaction_id=interaction_id,
+        requested_via="inbox",
+        size_bytes=len(raw),
+    )
+    if not result.ok:
+        code = 403 if result.error == "identity_not_verified" else 400
+        if result.error == "vision_ingest_disabled":
+            code = 404
+        raise HTTPException(status_code=code, detail=result.error)
+    return result.data
+
+
 @app.get("/document-requests", response_model=list[DocumentListResponse])
-def list_document_requests():
-    return db.list_documents()
+def list_document_requests(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_documents(limit=limit, offset=offset)
 
 
 @app.patch("/document-requests/{document_id}", response_model=DocumentRequestResponse)
@@ -1039,6 +1576,35 @@ def opt_out(customer_id: str, payload: OptOutCreateRequest):
     return _handle_write(db.opt_out, customer_id, payload.model_dump(exclude_unset=True))
 
 
+@app.get("/compliance/rule-coverage")
+def get_rule_coverage():
+    """Per rule: does a detector exist, and what has it actually found?
+
+    The Compliance Risk page could previously show a rule with no violations
+    and a rule nobody is checking as the same thing — an empty row. Fifteen of
+    the sixteen seeded rules were in the second category. `state` is the
+    three-way answer: clean / breached / unverified.
+    """
+    from agent_core import compliance
+
+    return compliance.detector_coverage()
+
+
+@app.post("/compliance/rescan")
+def rescan_compliance(
+    limit: int = Query(200, ge=1, le=2000),
+    all: bool = Query(False, description="Drain the whole queue, not one batch"),
+):
+    """Re-judge interactions the ledger has not evaluated at this rules version.
+
+    The worker does this on a timer; this endpoint exists so a rule change can
+    be applied to history on demand instead of waiting for the next tick.
+    """
+    from agent_core import compliance
+
+    return compliance.backfill(batch=limit) if all else compliance.sweep(limit=limit)
+
+
 @app.get("/violations", response_model=list[ViolationListResponse])
 def list_violations():
     return db.list_violations()
@@ -1056,10 +1622,10 @@ def add_violation_note(violation_id: str, payload: ViolationNoteCreateRequest):
 
 
 @app.get("/rubric", response_model=RubricResponse)
-def get_rubric():
+def get_rubric(rubric_id: str | None = Query(default=None, alias="rubricId")):
     """Active Collections Interaction Rubric (screen defaultRubric shape)."""
     try:
-        return db.get_rubric()
+        return db.get_rubric(rubric_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1067,6 +1633,21 @@ def get_rubric():
 @app.get("/scorecards", response_model=list[ScorecardListResponse])
 def list_scorecards():
     return db.list_scorecards()
+
+
+@app.get("/qa/coverage")
+def qa_coverage(days: int = Query(default=7, ge=1, le=90)):
+    return db.qa_coverage_stats(days=days)
+
+
+@app.get("/qa/interactions/{interaction_id}/pack")
+def qa_interaction_pack(interaction_id: str):
+    from agent_core.live_qa.pack import build_pack
+
+    pack = build_pack(interaction_id)
+    if pack is None:
+        raise HTTPException(status_code=404, detail="interaction_not_found")
+    return pack
 
 
 @app.post("/scorecards", response_model=ScorecardListResponse)
@@ -1081,8 +1662,11 @@ def patch_scorecard(scorecard_id: str, payload: ScorecardPatchRequest):
 
 
 @app.get("/coaching-actions", response_model=list[CoachingActionResponse])
-def list_coaching_actions():
-    return db.list_coaching_actions()
+def list_coaching_actions(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_coaching_actions(limit=limit, offset=offset)
 
 
 @app.post("/coaching-actions", response_model=CoachingActionResponse)
@@ -1098,8 +1682,11 @@ def patch_coaching_action(action_id: str, payload: CoachingActionPatchRequest):
 
 
 @app.get("/calibration-sessions", response_model=list[CalibrationSessionResponse])
-def list_calibration_sessions():
-    return db.list_calibration_sessions()
+def list_calibration_sessions(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_calibration_sessions(limit=limit, offset=offset)
 
 
 @app.patch(
@@ -1163,8 +1750,11 @@ def patch_redaction_rule(pii_type: str, payload: RedactionRulePatchRequest):
 
 
 @app.get("/export-jobs", response_model=list[ExportJobResponse])
-def list_export_jobs():
-    return db.list_export_jobs()
+def list_export_jobs(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_export_jobs(limit=limit, offset=offset)
 
 
 @app.post("/export-jobs", response_model=ExportJobResponse)
@@ -1222,15 +1812,19 @@ def list_routing_audit():
 
 
 @app.get("/prompt-versions", response_model=list[PromptVersionResponse])
-def list_prompt_versions():
+def list_prompt_versions(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    botId: str | None = Query(default=None),
+):
     """Prompt Studio version history (newest first)."""
-    return db.list_prompt_versions()
+    return db.list_prompt_versions(limit=limit, offset=offset, bot_id=botId)
 
 
 @app.get("/prompt-versions/published", response_model=PromptVersionResponse)
-def get_published_prompt_version():
-    """Editor live badge — single published row (kept in sync with active prod deployment)."""
-    row = db.get_published_prompt_version()
+def get_published_prompt_version(botId: str | None = Query(default=None)):
+    """Editor live badge — published row for this bot (Collections by default)."""
+    row = db.get_published_prompt_version(botId)
     if row is None:
         raise HTTPException(status_code=404, detail="published_prompt_not_found")
     return row
@@ -1254,6 +1848,33 @@ def list_flow_tools():
     return flow_graph.tool_catalog()
 
 
+@app.get("/flow/built-in", response_model=FlowGraph)
+def get_built_in_flow(graph: str | None = Query(default=None)):
+    """The running built-in collections script, as an authored graph.
+
+    Lets the Flow tab start from what the agent actually does today instead of
+    a blank canvas. Derived from ``voice.flows.build_collections_flow`` on every
+    request, so it cannot drift from the Python it mirrors. Loading it only
+    fills the editor — the live agent keeps running the built-in script until
+    the draft is published.
+    """
+    from voice.flow_export import built_in_collections_graph
+
+    return built_in_collections_graph(graph=graph)
+
+
+@app.get("/flow/transitions", response_model=dict[str, list[str]])
+def get_flow_transitions():
+    """tool key -> node keys that tool moves the conversation to.
+
+    The built-in tools transition by node key, so a graph that uses reserved
+    keys has real transitions with no authored edges — twelve nodes and zero
+    lines on the canvas. The editor draws these as ghost edges so what leads
+    where is visible without inventing edges the runtime would ignore.
+    """
+    return flow_graph.implicit_transitions()
+
+
 @app.get("/flow/reserved-keys", response_model=dict[str, str])
 def list_flow_reserved_keys():
     """Node keys the built-in tools transition to by name.
@@ -1262,6 +1883,788 @@ def list_flow_reserved_keys():
     editor surfaces these so the choice is visible rather than a trap.
     """
     return flow_graph.RESERVED_NODE_KEYS
+
+
+@app.get("/agent-studio/cards")
+def list_agent_studio_cards(includeArchived: bool = Query(default=False)):
+    return db.list_agent_studio_cards(include_archived=includeArchived)
+
+
+@app.get("/agent-studio/templates")
+def list_agent_studio_templates():
+    from agent_core.cards.templates import templates
+
+    return templates()
+
+
+@app.post("/agent-studio/cards/clone")
+def clone_agent_studio_card(payload: dict[str, Any]):
+    from agent_core.cards.clone import clone_card
+
+    return _handle_write(
+        clone_card,
+        template_id=payload.get("templateId") or payload.get("template_id"),
+        source_bot_id=payload.get("sourceBotId") or payload.get("source_bot_id"),
+        name=payload.get("name"),
+    )
+
+
+@app.get("/agent-studio/cards/{bot_id}")
+def get_agent_studio_card(bot_id: str):
+    row = db.get_agent_studio_card(bot_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="agent_card_not_found")
+    return row
+
+
+@app.patch("/agent-studio/cards/{bot_id}")
+def patch_agent_studio_card(bot_id: str, payload: dict[str, Any]):
+    """Patch the latest draft for this bot, creating one from published if needed."""
+    card = payload.get("agentCard") or payload.get("agent_card")
+    versions = db.list_prompt_versions(bot_id=bot_id, limit=20)
+    draft = next((v for v in versions if v["status"] == "draft"), None)
+    if draft is None:
+        published = db.get_published_prompt_version(bot_id)
+        if published is None:
+            raise HTTPException(status_code=404, detail="agent_card_not_found")
+        draft = db.restore_prompt_version_as_draft(published["id"])
+    body: dict[str, Any] = {}
+    if isinstance(card, dict):
+        body["agentCard"] = card
+    if "flow" in payload:
+        body["flow"] = payload["flow"]
+    if not body:
+        return draft
+    return _handle_write(db.patch_prompt_version, draft["id"], body)
+
+
+@app.post("/agent-studio/cards/{bot_id}/archive")
+def archive_agent_studio_card(bot_id: str):
+    """Retire a tenant card. Refuses first-party, the runtime entry bot, and
+    anything with an active production deployment."""
+    return _handle_write(db.archive_agent_studio_card, bot_id)
+
+
+@app.post("/agent-studio/cards/{bot_id}/restore")
+def restore_agent_studio_card(bot_id: str):
+    return _handle_write(db.restore_agent_studio_card, bot_id)
+
+
+@app.get("/agent-studio/change-log")
+def get_agent_change_log(
+    botId: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    """Who changed what an agent says, when, and what the compiler said then.
+
+    Hash-chained: the response carries a `chain` verdict, so a rewritten or
+    deleted historical entry is visible rather than merely absent.
+    """
+    return db.agent_change_log(botId, limit=limit)
+
+
+@app.post("/agent-studio/cards/{bot_id}/compile")
+def compile_agent_studio_card(bot_id: str, payload: dict[str, Any] | None = None):
+    body = payload or {}
+    pct = body.get("trafficPct", body.get("traffic_pct"))
+    triggers = body.get("autoRollback", body.get("auto_rollback"))
+    return db.compile_agent_studio_card(
+        bot_id,
+        card_raw=body.get("agentCard") or body.get("agent_card"),
+        flow=body.get("flow"),
+        # Preview what publish will ship, not what the card was authored with.
+        traffic_pct=int(pct) if isinstance(pct, (int, float)) else None,
+        auto_rollback=[str(t) for t in triggers] if isinstance(triggers, list) else None,
+    )
+
+
+@app.post("/agent-studio/cards/{bot_id}/publish")
+def publish_agent_studio_card(bot_id: str, payload: PromptVersionPublishRequest):
+    versions = db.list_prompt_versions(bot_id=bot_id, limit=20)
+    draft = next((v for v in versions if v["status"] == "draft"), None)
+    if draft is None:
+        raise HTTPException(status_code=409, detail="no_draft_to_publish")
+    return publish_prompt_version(draft["id"], payload)
+
+
+@app.post("/agent-studio/cards/{bot_id}/connectors")
+def attach_agent_studio_connector(bot_id: str, payload: dict[str, Any]):
+    from agent_core.cards.clone import attach_connector_to_card
+
+    connector_id = str(payload.get("connectorId") or payload.get("connector_id") or "").strip()
+    if not connector_id:
+        raise HTTPException(status_code=422, detail="connector_id_required")
+    prefixes = payload.get("allowPrefixes") or payload.get("allow_prefixes")
+    return _handle_write(
+        attach_connector_to_card,
+        bot_id,
+        connector_id=connector_id,
+        allow_prefixes=prefixes,
+    )
+
+
+@app.get("/agent-studio/cards/{bot_id}/graph")
+def get_agent_studio_graph(bot_id: str):
+    card = db.get_agent_studio_card(bot_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="agent_card_not_found")
+    raw = card.get("agentCard") or {}
+    handoffs = raw.get("handoffs") if isinstance(raw, dict) else []
+    return {
+        "botId": bot_id,
+        "nodes": [{"id": c["botId"], "label": c["name"]} for c in db.list_agent_studio_cards()],
+        "edges": [
+            {"from": bot_id, "to": h.get("to_bot_id")}
+            for h in (handoffs or [])
+            if isinstance(h, dict)
+        ],
+    }
+
+
+@app.get("/agent-studio/skills")
+def list_agent_studio_skills():
+    from agent_core.skills.persist import list_skills
+
+    return list_skills()
+
+
+@app.get("/agent-studio/skills/scripts")
+def list_agent_studio_scripts():
+    """Allowlisted code-mode scripts. The editor's picker hardcoded this list, so
+    a new script was invisible and a removed one was still offered.
+
+    Declared above /skills/{skill_id} — FastAPI matches in definition order, and
+    the parameterised route would otherwise swallow "scripts".
+    """
+    from agent_core.skills.scripts import SCRIPT_NAMES
+
+    return [{"name": n} for n in SCRIPT_NAMES]
+
+
+@app.get("/agent-studio/skills/{skill_id}")
+def get_agent_studio_skill(skill_id: str):
+    from agent_core.skills.persist import get_skill
+
+    row = get_skill(skill_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="skill_not_found")
+    return row
+
+
+@app.post("/agent-studio/skills")
+def create_agent_studio_skill(payload: dict[str, Any]):
+    from agent_core.skills.persist import create_draft_skill
+
+    return _handle_write(create_draft_skill, payload)
+
+
+@app.patch("/agent-studio/skills/{skill_id}")
+def patch_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
+    from agent_core.skills.persist import patch_skill
+
+    return _handle_write(patch_skill, skill_id, payload)
+
+
+@app.delete("/agent-studio/skills/{skill_id}")
+def delete_agent_studio_skill(skill_id: str):
+    """Delete an unsigned tenant/gardener skill that no card is using.
+
+    First-party, signed, or attached skills are refused (409) rather than
+    orphaning a published card's pinned pack.
+    """
+    from agent_core.skills.persist import delete_skill
+
+    return _handle_write(delete_skill, skill_id)
+
+
+@app.post("/agent-studio/skills/{skill_id}/sign")
+def sign_agent_studio_skill(skill_id: str):
+    from agent_core.skills.persist import sign_skill
+
+    return _handle_write(sign_skill, skill_id)
+
+
+@app.post("/agent-studio/skills/{skill_id}/revert")
+def revert_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = None):
+    from agent_core.skills.persist import revert_skill
+
+    body = payload or {}
+    return _handle_write(revert_skill, skill_id, body.get("versionId") or body.get("version_id"))
+
+
+@app.post("/agent-studio/skills/{skill_id}/clone")
+def clone_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = None):
+    from agent_core.skills.persist import clone_skill
+
+    body = payload or {}
+    return _handle_write(clone_skill, skill_id, body.get("slug"))
+
+
+@app.post("/agent-studio/skills/{skill_id}/attach")
+def attach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
+    from agent_core.skills.persist import attach_skill_to_prompt
+
+    version_id = str(payload.get("promptVersionId") or payload.get("prompt_version_id") or "").strip()
+    if not version_id:
+        raise HTTPException(status_code=422, detail="prompt_version_id_required")
+    _handle_write(attach_skill_to_prompt, version_id, skill_id)
+    return {"ok": True}
+
+
+@app.post("/agent-studio/skills/{skill_id}/detach")
+def detach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
+    from agent_core.skills.persist import detach_skill_from_prompt
+
+    version_id = str(payload.get("promptVersionId") or payload.get("prompt_version_id") or "").strip()
+    if not version_id:
+        raise HTTPException(status_code=422, detail="prompt_version_id_required")
+    _handle_write(detach_skill_from_prompt, version_id, skill_id)
+    return {"ok": True}
+
+
+@app.get("/agent-studio/skills/{skill_id}/export")
+def export_agent_studio_skill(skill_id: str):
+    import io
+    import zipfile
+
+    from fastapi.responses import StreamingResponse
+    from agent_core.skills.persist import get_skill
+
+    row = get_skill(skill_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="skill_not_found")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("SKILL.md", row.get("markdown") or "")
+        refs = (row.get("pack") or {}).get("references") or {}
+        for name, body in refs.items():
+            zf.writestr(f"references/{name}", body)
+    buf.seek(0)
+    filename = f"{row.get('slug') or skill_id}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/agent-studio/skills/import")
+async def import_agent_studio_skill(file: UploadFile = File(...)):
+    import io
+    import zipfile
+
+    from agent_core.skills.pack import parse_skill_md
+    from agent_core.skills.persist import upsert_skill_from_pack
+
+    raw = await _read_upload_capped(file, max_bytes=2_000_000)
+    md = ""
+    refs: dict[str, str] = {}
+    if (file.filename or "").endswith(".md"):
+        md = raw.decode("utf-8")
+    else:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            for name in zf.namelist():
+                if name.endswith("SKILL.md"):
+                    md = zf.read(name).decode("utf-8")
+                elif "/references/" in name or name.startswith("references/"):
+                    refs[name.split("references/", 1)[-1]] = zf.read(name).decode("utf-8")
+    if not md:
+        raise HTTPException(status_code=422, detail="skill_md_missing")
+    pack = parse_skill_md(md)
+    pack.references = refs
+    pack.origin = "tenant"
+    pack.signed = False
+    return upsert_skill_from_pack(pack, origin="tenant", signed=False)
+
+
+@app.post("/agent-studio/skills/run-script")
+def run_agent_studio_script(payload: dict[str, Any]):
+    from agent_core.skills.scripts import run_script
+
+    name = str(payload.get("name") or "").strip()
+    args = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    return run_script(name, args)
+
+
+@app.post("/kb/gaps/{gap_id}/promote-skill")
+def promote_kb_gap_to_skill(gap_id: str):
+    from agent_core.skills.gardener import assert_unsigned, draft_from_gap
+    from agent_core.skills.persist import create_draft_skill
+
+    gaps = {g["id"]: g for g in db.list_kb_gaps()}
+    gap = gaps.get(gap_id)
+    if gap is None:
+        raise HTTPException(status_code=404, detail="kb_gap_not_found")
+    draft = draft_from_gap(
+        question=str(gap.get("question") or gap.get("text") or ""),
+        intent=gap.get("topIntent") or gap.get("top_intent") or gap.get("intent"),
+        gap_id=gap_id,
+    )
+    assert_unsigned(draft)
+    return create_draft_skill(
+        {
+            "slug": draft["slug"],
+            "description": draft["frontmatter"].get("description"),
+            "allowed_tools": draft["allowed_tools"],
+            "body": draft["body"],
+            "frontmatter": draft["frontmatter"],
+            "origin": "gardener",
+        }
+    )
+
+
+@app.get("/connectors")
+def list_connectors_api():
+    from agent_core.connectors.persist import list_connectors
+
+    return list_connectors()
+
+
+@app.post("/connectors")
+def upsert_connector_api(payload: dict[str, Any]):
+    from agent_core.connectors.persist import upsert_connector
+
+    return _handle_write(upsert_connector, payload)
+
+
+@app.get("/connectors/{connector_id}")
+def get_connector_api(connector_id: str):
+    from agent_core.connectors.persist import get_connector
+
+    row = get_connector(connector_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="connector_not_found")
+    return row
+
+
+@app.post("/connectors/{connector_id}/approve")
+def approve_connector_api(connector_id: str):
+    from agent_core.connectors.persist import approve
+
+    return _handle_write(approve, connector_id)
+
+
+@app.post("/connectors/{connector_id}/test")
+def test_connector_api(connector_id: str):
+    from agent_core.connectors.persist import health_test
+
+    return _handle_write(health_test, connector_id)
+
+
+@app.post("/connectors/{connector_id}/cimd")
+def cimd_connector_api(connector_id: str, payload: dict[str, Any]):
+    from agent_core.connectors.persist import cimd_connect
+
+    issuer = str(payload.get("issuer") or "").strip()
+    return _handle_write(cimd_connect, connector_id, issuer)
+
+
+@app.get("/vault/refs")
+def list_vault_refs_api():
+    from agent_core.vault.persist import list_refs
+
+    return list_refs()
+
+
+@app.post("/vault/refs")
+def put_vault_ref_api(payload: dict[str, Any]):
+    from agent_core.vault.persist import put_secret
+
+    return _handle_write(
+        put_secret,
+        name=str(payload.get("name") or ""),
+        purpose=str(payload.get("purpose") or "other"),
+        secret=str(payload.get("secret") or ""),
+    )
+
+
+@app.post("/vault/refs/{ref_id}/rotate")
+def rotate_vault_ref_api(ref_id: str, payload: dict[str, Any]):
+    from agent_core.vault.persist import rotate
+
+    return _handle_write(rotate, ref_id, str(payload.get("secret") or ""))
+
+
+@app.get("/mcp/keys")
+def list_mcp_keys_api():
+    from agent_core.mcp_http.auth import list_keys
+
+    return list_keys()
+
+
+@app.post("/mcp/keys")
+def mint_mcp_key_api(payload: dict[str, Any]):
+    from agent_core.mcp_http.auth import mint_key
+
+    scopes = payload.get("scopes") or []
+    if not isinstance(scopes, list):
+        raise HTTPException(status_code=422, detail="scopes_must_be_list")
+    return _handle_write(mint_key, name=str(payload.get("name") or "key"), scopes=scopes)
+
+
+@app.post("/mcp/keys/{key_id}/rotate")
+def rotate_mcp_key_api(key_id: str):
+    from agent_core.mcp_http.auth import rotate_key
+
+    return _handle_write(rotate_key, key_id)
+
+
+@app.post("/mcp/keys/{key_id}/revoke")
+def revoke_mcp_key_api(key_id: str):
+    from agent_core.mcp_http.auth import revoke_key
+
+    _handle_write(revoke_key, key_id)
+    return {"ok": True}
+
+
+@app.get("/mcp/tasks")
+def list_mcp_tasks_api(status: str | None = None):
+    from agent_core.mcp_http.tasks import list_tasks
+
+    return list_tasks(status=status)
+
+
+@app.get("/mcp/tasks/{task_id}")
+def get_mcp_task_api(task_id: str):
+    from agent_core.mcp_http.tasks import get_task
+
+    row = get_task(task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="mcp_task_not_found")
+    return row
+
+
+@app.get("/mcp/status")
+def mcp_status_api():
+    from agent_core.platform_flags import mcp_apps_enabled, mcp_http_enabled, mcp_tasks_enabled
+
+    host = (os.getenv("MCP_HTTP_HOST") or "127.0.0.1").strip()
+    port = os.getenv("MCP_HTTP_PORT") or "8081"
+    return {
+        "stdioCommand": "python -m mcp_server",
+        "httpEnabled": mcp_http_enabled(),
+        "httpUrl": f"http://{host}:{port}/mcp",
+        "tasksEnabled": mcp_tasks_enabled(),
+        "appsEnabled": mcp_apps_enabled(),
+        "mtls": bool((os.getenv("MCP_TLS_CAFILE") or "").strip()),
+        "resources": [
+            "customer://{id}",
+            "account://{id}/ledger",
+            "kb://snapshot/{id}",
+            "interaction://{id}/trace",
+            "policy://authority-matrix",
+        ],
+    }
+
+
+@app.get("/gateway/status")
+def gateway_status_api():
+    from agent_core.platform_flags import llm_gateway_enabled
+    from llm_gateway import canary as gw_canary
+    from llm_gateway.client import PROFILES, base_url, cap_inr
+
+    profiles = {}
+    for p in PROFILES:
+        env_model = os.getenv(f"LLM_GATEWAY_{p.upper()}_MODEL")
+        override = None
+        try:
+            override = gw_canary.model_for(p)
+        except Exception:
+            override = None
+        profiles[p] = {
+            "capInr": cap_inr(p),
+            "model": override or env_model,
+            "envModel": env_model,
+            "canaryModel": override,
+        }
+    return {
+        "enabled": llm_gateway_enabled(),
+        "baseUrl": base_url() or None,
+        "profiles": profiles,
+        "canary": gw_canary.current(),
+        "killSwitch": "azure_openai" if not llm_gateway_enabled() else None,
+        "voiceSloMs": 800,
+    }
+
+
+@app.get("/.well-known/agent-card.json")
+def a2a_well_known_card(request: Request, botId: str | None = Query(default=None)):
+    from agent_core import a2a as a2a_mod
+
+    try:
+        a2a_mod.require_partner({k.lower(): v for k, v in request.headers.items()})
+        return a2a_mod.agent_card_document(botId or db.DEFAULT_BOT_ID)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/a2a")
+def a2a_protocol_task(request: Request, payload: dict[str, Any]):
+    from agent_core import a2a as a2a_mod
+
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    try:
+        partner = a2a_mod.require_partner(headers)
+        dn = a2a_mod.client_cert_dn(headers)
+        inner = payload.get("input") if isinstance(payload.get("input"), dict) else {}
+        if payload.get("inputRequired") and "inputRequired" not in inner:
+            inner = {**inner, "inputRequired": True}
+        return a2a_mod.create_task(
+            partner=partner,
+            skill_id=str(payload.get("skillId") or payload.get("skill_id") or ""),
+            payload=inner or payload,
+            bot_id=str(payload.get("botId") or payload.get("bot_id") or db.DEFAULT_BOT_ID),
+            cert_dn=dn,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/a2a/partners")
+def list_a2a_partners():
+    from agent_core import a2a as a2a_mod
+
+    return a2a_mod.list_partners()
+
+
+@app.post("/a2a/partners")
+def upsert_a2a_partner(payload: dict[str, Any]):
+    from agent_core import a2a as a2a_mod
+
+    return _handle_write(a2a_mod.upsert_partner, payload)
+
+
+@app.get("/a2a/tasks")
+def list_a2a_tasks(limit: int = Query(default=50, ge=1, le=200)):
+    from agent_core import a2a as a2a_mod
+
+    return a2a_mod.list_tasks(limit=limit)
+
+
+@app.post("/a2a/tasks/{task_id}/signal")
+def signal_a2a_task(task_id: str, payload: dict[str, Any] | None = None):
+    from agent_core import a2a as a2a_mod
+
+    name = str((payload or {}).get("name") or "approve")
+    return _handle_write(a2a_mod.signal_task, task_id, name)
+
+
+@app.get("/compliance/policy-export")
+def export_policy_bundle(fmt: str = Query(default="opa")):
+    from agent_core.policy_export import bundle
+
+    try:
+        return bundle(fmt=fmt)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/eval/suites/{suite_id}/run")
+def run_eval_suite(suite_id: str, botId: str | None = Query(default=None)):
+    """Run a suite. ``botId`` files the report against the card that launched it.
+
+    Without it the report falls back to ``bot_id_for_suite``, which guesses from
+    the suite name — so a run started from a cloned card's Evals tab was filed
+    under kaia-v2-4 (or nothing), the tab kept reading "never run", and G7/G8
+    could never find a report for that card.
+    """
+    from agent_core.eval.run import run_named_suite
+
+    try:
+        return run_named_suite(suite_id, origin="manual", bot_id=botId or None)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/eval/suites")
+def list_eval_suites(kind: str | None = Query(default=None)):
+    return db.list_eval_suites(kind=kind)
+
+
+@app.get("/eval/reports")
+def list_eval_reports(
+    kind: str | None = Query(default=None),
+    botId: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Eval history. botId scopes it to one card — the Studio's Evals tab needs
+    this card's runs, not the whole tenant's."""
+    return db.list_eval_reports(kind=kind, bot_id=botId, limit=limit)
+
+
+@app.get("/eval/reports/{report_id}")
+def get_eval_report(report_id: str):
+    from sqlalchemy import text as _text
+
+    with db.engine.connect() as conn:
+        row = db._one(
+            conn.execute(_text("SELECT * FROM eval_reports WHERE id = :id"), {"id": report_id})
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="eval_report_not_found")
+    return dict(row)
+
+
+@app.post("/eval/schedule/run")
+def run_eval_schedule():
+    from agent_core.eval.schedule import run_continuous
+
+    try:
+        return run_continuous()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/eval/tasks/{task_id}/graduate")
+def graduate_eval_task(task_id: str):
+    from agent_core.eval.graduate import graduate_task
+
+    try:
+        return graduate_task(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/eval/critiques")
+def list_skill_critiques(limit: int = Query(default=50, ge=1, le=200)):
+    from agent_core.eval.critique import list_critiques
+
+    return list_critiques(limit=limit)
+
+
+@app.post("/eval/reports/{report_id}/critique")
+def critique_eval_report(report_id: str):
+    from agent_core.eval.critique import critique_from_report
+
+    try:
+        return critique_from_report(report_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/eval/disagreements")
+def list_qa_disagreements(limit: int = Query(default=50, ge=1, le=200)):
+    from agent_core.eval.disagreement import disagreements
+
+    return disagreements(limit=limit)
+
+
+@app.get("/eval/twin-corpus")
+def list_twin_corpus(limit: int = Query(default=50, ge=1, le=200)):
+    from agent_core.eval.corpus import list_corpus
+
+    return list_corpus(limit=limit)
+
+
+@app.post("/eval/twin-corpus/grow")
+def grow_twin_corpus(limit: int = Query(default=20, ge=1, le=100)):
+    from agent_core.eval.corpus import grow_from_kept_promises
+
+    try:
+        return grow_from_kept_promises(limit=limit)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/gateway/canary")
+def get_gateway_canary():
+    from llm_gateway import canary as gw_canary
+
+    return {"current": gw_canary.current(), "history": gw_canary.list_canaries()}
+
+
+@app.post("/gateway/canary")
+def propose_gateway_canary(payload: dict[str, Any]):
+    from llm_gateway import canary as gw_canary
+
+    try:
+        return gw_canary.propose(
+            str(payload.get("candidateModel") or payload.get("candidate_model") or ""),
+            skip_redteam=bool(payload.get("skipRedteam") or payload.get("skip_redteam")),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/gateway/canary/{canary_id}/promote")
+def promote_gateway_canary(canary_id: str, payload: dict[str, Any] | None = None):
+    from llm_gateway import canary as gw_canary
+
+    body = payload or {}
+    try:
+        return gw_canary.promote(
+            canary_id,
+            skip_redteam=bool(body.get("skipRedteam") or body.get("skip_redteam")),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/roles")
+def list_roles_catalog():
+    """Roles page. Grants are writable via PATCH."""
+    from sqlalchemy import text as _text
+
+    catalog = [
+        {"id": pid, "module": module, "action": action, "description": description}
+        for pid, module, action, description in authz.PERMISSION_CATALOG
+    ]
+    with db.engine.connect() as conn:
+        roles = db._rows(
+            conn.execute(
+                _text("SELECT id, name FROM roles WHERE tenant_id = :t ORDER BY name"),
+                {"t": db.current_tenant()},
+            )
+        )
+        grants = db._rows(
+            conn.execute(
+                _text(
+                    """
+                    SELECT r.id AS role_id, r.name AS role, rp.permission_id
+                    FROM role_permissions rp
+                    JOIN roles r ON r.id = rp.role_id
+                    WHERE r.tenant_id = :t
+                    ORDER BY r.name, rp.permission_id
+                    """
+                ),
+                {"t": db.current_tenant()},
+            )
+        )
+    by_role: dict[str, list[str]] = {}
+    for g in grants:
+        by_role.setdefault(g["role_id"], []).append(g["permission_id"])
+    publishers = sorted({g["role"] for g in grants if g["permission_id"] == authz.AGENT_PUBLISH})
+    return {
+        "permissions": catalog,
+        "agentPublishRoles": publishers,
+        "grants": grants,
+        "roles": [
+            {"id": r["id"], "name": r["name"], "permissionIds": by_role.get(r["id"], [])}
+            for r in roles
+        ],
+    }
+
+
+@app.patch("/roles/{role_id}/permissions")
+def patch_role_permissions(role_id: str, payload: dict[str, Any]):
+    ids = payload.get("permissionIds") or payload.get("permission_ids") or []
+    if not isinstance(ids, list):
+        raise HTTPException(status_code=422, detail="permission_ids_required")
+    return _handle_write(db.replace_role_permissions, role_id, [str(x) for x in ids])
 
 
 @app.post("/flow/validate", response_model=FlowValidation)
@@ -1406,9 +2809,14 @@ def tts_preview(payload: TtsPreviewRequest):
 def list_bot_deployments(
     environment: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    botId: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
 ):
     """Runtime deployments — authoritative for what runs (Sandbox / live)."""
-    return db.list_bot_deployments(environment=environment, status=status)
+    return db.list_bot_deployments(
+        environment=environment, status=status, bot_id=botId, limit=limit, offset=offset
+    )
 
 
 @app.get("/bot-deployments/active", response_model=BotDeploymentResponse)
@@ -1421,6 +2829,24 @@ def get_active_bot_deployment(
     if row is None:
         raise HTTPException(status_code=404, detail="active_deployment_not_found")
     return row
+
+
+@app.get("/bot-deployments/experiments")
+def list_deployment_experiments(botId: str | None = Query(default=None)):
+    from agent_core.canary import list_experiments
+
+    return list_experiments(bot_id=botId)
+
+
+@app.post("/bot-deployments/experiments/{experiment_id}/rollback")
+def rollback_deployment_experiment(experiment_id: str, payload: dict[str, Any] | None = None):
+    from agent_core.canary import rollback_experiment
+
+    reason = str((payload or {}).get("reason") or "manual")
+    try:
+        return rollback_experiment(experiment_id, reason=reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/prompt-versions", response_model=PromptVersionResponse)
@@ -1442,14 +2868,30 @@ def publish_prompt_version(version_id: str, payload: PromptVersionPublishRequest
 
     Optional kbSnapshotId / tuning from Sandbox Promote pin the deployment bundle.
     Concurrent publish that loses the unique published index returns 409.
+    An authored conversation graph with validation errors returns 422
+    ``flow_invalid`` — drafts stay savable; publish is the compiler.
     """
-    return _handle_write(
-        db.publish_prompt_version,
-        version_id,
-        payload.summary,
-        kb_snapshot_id=payload.kbSnapshotId,
-        tuning=payload.tuning,
-    )
+    try:
+        return db.publish_prompt_version(
+            version_id,
+            payload.summary,
+            kb_snapshot_id=payload.kbSnapshotId,
+            tuning=payload.tuning,
+            traffic_pct=payload.trafficPct,
+            shadow=payload.shadow,
+            auto_rollback=payload.autoRollback,
+        )
+    except flow_graph.FlowInvalidError as exc:
+        raise HTTPException(status_code=422, detail=exc.http_detail()) from exc
+    except CompileError as exc:
+        raise HTTPException(status_code=exc.report.http_status(), detail=exc.http_detail()) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        logger.warning("write rejected by a database constraint: %s", exc.orig)
+        raise HTTPException(status_code=409, detail="constraint_violation") from exc
 
 
 @app.post("/prompt-versions/lint", response_model=PromptLintResponse)
@@ -1764,6 +3206,26 @@ async def twilio_voice_incoming(request: Request):
             media_type="application/xml",
         )
 
+    # At capacity, say so and hang up rather than <Connect><Stream> into a
+    # process that will refuse the socket — the caller would otherwise get a
+    # connected line and silence. Only meaningful when the pipeline runs in
+    # THIS process: with a separate `voice` container the counter here is always
+    # zero, and the socket-level refusal in voice.bot is the only backstop.
+    if _EMBEDDED_VOICE_HOST:
+        from voice import admission
+
+        if not admission.has_capacity():
+            logger.warning(
+                "Twilio inbound refused at capacity CallSid=%s %s",
+                form.get("CallSid"), admission.snapshot(),
+            )
+            return Response(
+                content=twilio_ops.twiml_say_hangup(
+                    "All our agents are busy right now. Please call back in a few minutes."
+                ),
+                media_type="application/xml",
+            )
+
     try:
         stream_url = twilio_ops.media_stream_wss_url()
     except RuntimeError as exc:
@@ -1872,12 +3334,30 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
     to = str(payload.get("to") or payload.get("phone") or "").strip()
     if not to:
         raise HTTPException(status_code=400, detail="to_required")
+    customer_id = str(payload.get("customerId") or payload.get("customer_id") or "").strip()
+    import contact_policy
+
+    with db.engine.begin() as conn:
+        decision = contact_policy.admit(
+            conn,
+            customer_id=customer_id or None,
+            channel="voice",
+            purpose="outreach",
+            session_key=customer_id or to,
+            source="voice_outbound",
+            related_id=to,
+            actor_kind="human",
+        )
+    if not decision.allowed:
+        raise HTTPException(status_code=409, detail=decision.reason or "contact_policy")
     custom = {
         k: str(v)
         for k, v in (payload.get("custom") or {}).items()
         if v is not None
     }
-    if payload.get("customerId"):
+    if customer_id:
+        custom["customer_id"] = customer_id
+    elif payload.get("customerId"):
         custom["customer_id"] = str(payload["customerId"])
     try:
         return twilio_ops.start_outbound_call(to=to, custom=custom or None)
@@ -2020,8 +3500,11 @@ def kb_stats():
 
 
 @app.get("/kb/documents", response_model=list[KbDocumentResponse])
-def kb_list_documents():
-    return db.list_kb_documents()
+def kb_list_documents(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_kb_documents(limit=limit, offset=offset)
 
 
 @app.get("/kb/documents/{document_id}", response_model=KbDocumentResponse)
@@ -2033,10 +3516,14 @@ def kb_get_document(document_id: str):
 
 
 @app.get("/kb/documents/{document_id}/chunks", response_model=list[KbChunkResponse])
-def kb_list_chunks(document_id: str):
+def kb_list_chunks(
+    document_id: str,
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
     if not db.get_kb_document(document_id):
         raise HTTPException(status_code=404, detail="kb_document_not_found")
-    return db.list_kb_chunks(document_id)
+    return db.list_kb_chunks(document_id, limit=limit, offset=offset)
 
 
 @app.patch("/kb/documents/{document_id}", response_model=KbUploadResponse)
@@ -2184,8 +3671,11 @@ async def kb_new_version(document_id: str, file: UploadFile = File(...)):
 
 
 @app.get("/kb/faqs", response_model=list[KbFaqResponse])
-def kb_list_faqs():
-    return db.list_kb_faqs()
+def kb_list_faqs(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_kb_faqs(limit=limit, offset=offset)
 
 
 @app.post("/kb/faqs", response_model=KbFaqResponse)
@@ -2308,3 +3798,121 @@ async def whatsapp_webhook_receive(
         raise HTTPException(status_code=400, detail="invalid_json") from exc
     # Sync DB + enqueue off the event loop (this route is async def).
     return await asyncio.to_thread(db.process_whatsapp_webhook, payload)
+
+
+# ---------------------------------------------------------------------------
+# Next-best-treatment (P3)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/treatment/next")
+def treatment_next(
+    customerId: str = Query(...),
+    accountId: str | None = Query(default=None),
+    trigger: str = Query(default="manual"),
+):
+    """What should happen to this account next, and when.
+
+    Safe to call from a screen: outside ``TREATMENT_MODE=live`` the engine
+    decides, logs and enacts nothing. The decision row is written either way —
+    a supervisor asking "what would you do here?" is exactly the kind of
+    question the shadow corpus should be built from.
+    """
+    return _handle_write(
+        db.next_treatment, customer_id=customerId, account_id=accountId, trigger=trigger
+    )
+
+
+@app.get("/treatment/insights")
+def treatment_insights(days: int = Query(default=14, ge=1, le=90)):
+    """Coverage, suppression breakdown and action mix over a window.
+
+    The report the roadmap's exit criterion is written against: two weeks of
+    shadow logs with a suppression breakdown before any live auto-act.
+    """
+    return db.treatment_insights(days)
+
+
+@app.get("/treatment/holds")
+def list_treatment_holds(
+    customerId: str | None = Query(default=None),
+    activeOnly: bool = Query(default=True),
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_treatment_holds(
+        customer_id=customerId, active_only=activeOnly, limit=limit, offset=offset
+    )
+
+
+@app.post("/treatment/holds")
+def create_treatment_hold(payload: TreatmentHoldCreateRequest):
+    """Stop collections outreach for this borrower.
+
+    Not idempotency-keyed: re-placing an active hold returns the existing one.
+    A bot that hears "I lost my job" twice in one call and an agent who clicks
+    twice must both end with exactly one hold, and a 409 would leave the caller
+    deciding what to do about it.
+    """
+    return _handle_write(db.create_treatment_hold, payload.model_dump(exclude_none=True))
+
+
+@app.post("/treatment/holds/{hold_id}/release")
+def release_treatment_hold(hold_id: str, payload: TreatmentHoldReleaseRequest | None = None):
+    return _handle_write(
+        db.release_treatment_hold,
+        hold_id,
+        payload.model_dump(exclude_none=True) if payload else None,
+    )
+
+
+@app.get("/treatment/cases")
+def list_treatment_cases(
+    customerId: str | None = Query(default=None),
+    openOnly: bool = Query(default=True),
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    """One row per case, with the ladder it has already walked.
+
+    ``GET /treatment/next`` answers "what does the engine say?". A floor lead's
+    actual question is "what has been tried on this account, and what is left",
+    which is a different query.
+    """
+    return db.list_treatment_cases(
+        customer_id=customerId, open_only=openOnly, limit=limit, offset=offset
+    )
+
+
+# ---------------------------------------------------------------------------
+# Live authority matrix (P4)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/authority/next")
+def authority_next(
+    customerId: str = Query(...),
+    accountId: str | None = Query(default=None),
+    feeType: str = Query(default="late_fee"),
+    askedAmount: float | None = Query(default=None),
+    interactionId: str | None = Query(default=None),
+):
+    """What may close on this call, in rupees.
+
+    Safe to call from a screen: outside ``AUTHORITY_MODE=live`` the engine
+    decides, logs and posts nothing. The decision row is written either way.
+    """
+    return _handle_write(
+        db.next_authority,
+        customer_id=customerId,
+        account_id=accountId,
+        fee_type=feeType,
+        asked_amount=askedAmount,
+        interaction_id=interactionId,
+    )
+
+
+@app.post("/authority/apply")
+def authority_apply(payload: AuthorityApplyRequest):
+    """Post the goodwill the matrix already approved. Live mode only."""
+    return _handle_write(db.apply_authority, payload.model_dump(exclude_none=True))

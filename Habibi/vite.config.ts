@@ -14,6 +14,13 @@ export default defineConfig({
   },
   vite: {
     server: {
+      // Build output is not source. `npm run build` rewrites .output/ and .nitro/
+      // under the dev watcher, and chokidar raced an lstat against a file the
+      // build had just replaced — the FSWatcher error event is unhandled, so it
+      // killed the dev server outright.
+      watch: {
+        ignored: ["**/.output/**", "**/.nitro/**", "**/.tanstack/**", "**/dist/**"],
+      },
       proxy: {
         // Pipecat SmallWebRTC offer — Habibi Live voice never opens :7860 HTML.
         // Point VOICE_RTC_TARGET at the API (http://127.0.0.1:8000) when the

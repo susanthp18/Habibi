@@ -48,7 +48,7 @@ def ensure_unknown_caller() -> None:
                 ON CONFLICT (id) DO NOTHING
                 """
             ),
-            {"id": UNKNOWN_CALLER_ID, "tenant": db.TENANT_ID},
+            {"id": UNKNOWN_CALLER_ID, "tenant": db.current_tenant()},
         )
 
 
@@ -104,7 +104,7 @@ def start_voice_call(
             ),
             {
                 "id": interaction_id,
-                "tenant": db.TENANT_ID,
+                "tenant": db.current_tenant(),
                 "customer_id": cid,
                 "account_id": acct,
                 "bot_id": bid,
@@ -478,6 +478,14 @@ _FLAG_RULE_MAP = {
     # The bot said "waive"/"waiver" on a waiver_request turn despite
     # neverPromiseWaiver — an outcome the bot has no authority to promise.
     "waiver-blocked": "r-guarantee",
+    # Quoted a rupee figure above the authority-matrix ceiling.
+    "authority-cap-exceeded": "r-guarantee",
+    "missing-mini-miranda": "r-mm",
+    "identity-before-verify": "r-verify",
+    "hours-breach": "r-dnd-win",
+    "opt-out-ignored": "r-dnd-disc",
+    "third-party-leak": "r-third",
+    "rate-quoted": "r-false",
 }
 
 #: Flags that describe the *caller's* conduct or a session limit, not bot
@@ -658,6 +666,38 @@ def complete_voice_call(
             {"id": session_id, "status": vs_status, "ended": ended},
         )
 
+    try:
+        from agent_core.live_qa.scorecard import score_completed_interaction
+
+        score_completed_interaction(interaction_id)
+    except Exception:
+        logger.exception("live_qa scorecard-on-complete failed for %s", interaction_id)
+
+
+_LIVE_ALERT_FLAGS = frozenset(
+    {
+        "waiver-blocked",
+        "authority-cap-exceeded",
+        "missing-recording-disclosure",
+        "missing-mini-miranda",
+        "identity-before-verify",
+        "hours-breach",
+        "opt-out-ignored",
+        "third-party-leak",
+        "rate-quoted",
+    }
+)
+_BARGE_ALERT_FLAGS = frozenset(
+    {
+        "auto-escalate",
+        "hours-breach",
+        "third-party-leak",
+        "identity-before-verify",
+        "authority-cap-exceeded",
+        "opt-out-ignored",
+    }
+)
+
 
 def evaluate_and_flag_bot_turn(
     *,
@@ -669,6 +709,16 @@ def evaluate_and_flag_bot_turn(
     turn_index: int,
     elapsed_seconds: float,
     customer_bot_exchanges: int,
+    identity_verified: bool = False,
+    third_party: bool = False,
+    channel: str = "voice",
+    customer_id: str | None = None,
+    account_id: str | None = None,
+    max_waiver_inr: float | None = None,
+    now_hour: int | None = None,
+    direction: str = "outbound",
+    simulated: bool = False,
+    recording_disclosed: bool = False,
 ) -> list[str]:
     flags = evaluate_guardrails(
         customer_text=customer_text,
@@ -679,21 +729,61 @@ def evaluate_and_flag_bot_turn(
         elapsed_seconds=elapsed_seconds,
         customer_bot_exchanges=customer_bot_exchanges,
         hard_max_turns=50,  # voice calls are longer than sandbox
+        max_waiver_inr=max_waiver_inr,
+        # Whether an EARLIER turn already disclosed. Without it the check is
+        # per-turn and a compliant opening turn is followed by a false
+        # "missing-recording-disclosure" on the next one.
+        recording_disclosed=recording_disclosed,
     )
+    live_result = None
+    try:
+        from agent_core.clock import now_local
+        from agent_core.live_qa import TurnFacts, evaluate_live_qa
+
+        hour = now_hour if now_hour is not None else now_local().hour
+        live_result = evaluate_live_qa(
+            TurnFacts(
+                channel=channel or "voice",
+                bot_text=bot_text,
+                customer_text=customer_text,
+                turn_index=turn_index,
+                elapsed_seconds=elapsed_seconds,
+                identity_verified=identity_verified,
+                third_party=third_party,
+                now_hour=hour,
+                direction=direction,
+                simulated=simulated,
+                recording_disclosed=recording_disclosed
+                or "missing-recording-disclosure" not in flags,
+                miranda_disclosed=False,
+                guardrail_flags=tuple(flags),
+            ),
+            customer_id=customer_id,
+            account_id=account_id,
+            interaction_id=interaction_id,
+        )
+        for extra in live_result.flags:
+            if extra not in flags:
+                flags.append(extra)
+    except Exception:
+        logger.exception("live_qa turn failed for %s", interaction_id)
+
     for f in flags:
         try:
             append_interaction_flag(interaction_id=interaction_id, flag=f)
-            if f.startswith("prohibited:") or f in ("waiver-blocked", "missing-recording-disclosure"):
+            if f.startswith("prohibited:") or f in _LIVE_ALERT_FLAGS:
                 append_live_alert(
                     interaction_id=interaction_id,
                     kind="compliance",
                     reason=f,
+                    severity="high" if f in _BARGE_ALERT_FLAGS else "medium",
                 )
-            if f == "auto-escalate":
+            if f in _BARGE_ALERT_FLAGS:
                 append_live_alert(
                     interaction_id=interaction_id,
                     kind="escalation",
                     reason=f,
+                    severity="high",
                 )
             rule_id = rule_for_flag(f)
             if rule_id:
@@ -705,6 +795,8 @@ def evaluate_and_flag_bot_turn(
                 )
         except Exception:
             logger.exception("flag/alert write failed for %s", f)
+    if live_result is not None and live_result.auto_barge:
+        flags.append("live-qa-auto-barge")
     return flags
 
 
@@ -778,7 +870,7 @@ def lookup_customer_for_verify(
                         LIMIT 1
                         """
                     ),
-                    {"cid": found["id"], "tenant": db.TENANT_ID},
+                    {"cid": found["id"], "tenant": db.current_tenant()},
                 ).mappings().first()
                 return _pack(row) if row else None
 
@@ -808,7 +900,7 @@ def lookup_customer_for_verify(
                 {
                     "tail4": digits[-4:],
                     "unknown": UNKNOWN_CALLER_ID,
-                    "tenant": db.TENANT_ID,
+                    "tenant": db.current_tenant(),
                 },
             ).mappings().all()
             if len(matches) != 1:
@@ -834,7 +926,7 @@ def lookup_customer_for_verify(
                     LIMIT 2
                     """
                 ),
-                {"tail": tail, "unknown": UNKNOWN_CALLER_ID, "tenant": db.TENANT_ID},
+                {"tail": tail, "unknown": UNKNOWN_CALLER_ID, "tenant": db.current_tenant()},
             ).mappings().all()
             if len(matches) != 1:
                 return None
@@ -858,7 +950,7 @@ def lookup_customer_for_verify(
                     LIMIT 1
                     """
                 ),
-                {"cid": raw, "unknown": UNKNOWN_CALLER_ID, "tenant": db.TENANT_ID},
+                {"cid": raw, "unknown": UNKNOWN_CALLER_ID, "tenant": db.current_tenant()},
             ).mappings().first()
             return _pack(row) if row else None
 
@@ -1132,7 +1224,7 @@ def export_transcript_json(
     raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
     digest = hashlib.sha256(raw).hexdigest()
     filename = f"{interaction_id}.transcript.json"
-    key = f"transcripts/{db.TENANT_ID}/{filename}"
+    key = f"transcripts/{db.current_tenant()}/{filename}"
 
     storage_ref: str | None = None
     try:
@@ -1187,26 +1279,4 @@ def mark_ptp_captured(interaction_id: str) -> None:
                 """
             ),
             {"id": interaction_id},
-        )
-
-
-def rebind_customer(
-    *,
-    interaction_id: str,
-    customer_id: str,
-    method: str = "phone_match",
-    account_id: str | None = None,
-    bot_id: str | None = None,
-) -> dict[str, Any]:
-    """Rebind a live voice/chat interaction to a verified customer (Phase 3 lite)."""
-    import capture
-
-    with db.engine.begin() as conn:
-        return capture.rebind_interaction_customer(
-            conn,
-            interaction_id=interaction_id,
-            customer_id=customer_id,
-            method=method,
-            account_id=account_id,
-            actor_bot_id=bot_id or db.DEFAULT_BOT_ID,
         )

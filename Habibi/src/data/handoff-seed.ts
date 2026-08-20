@@ -59,6 +59,21 @@ export const customerContext = {
   },
   tenureMonths: 34,
   product: "Personal Loan · 5Y",
+  offerPolicy: {
+    status: "suppressed" as const,
+    suppressionReason: "open_dispute",
+    suppressionLabel: "Open dispute — do not pitch",
+    reasonCodes: ["open_dispute"],
+  },
+  authorityPolicy: {
+    status: "none" as const,
+    reasonCodes: [] as string[],
+  },
+  liveQa: {
+    status: "none" as const,
+    reason: null as string | null,
+    recommendedAction: "none",
+  },
 };
 
 export const transcriptScript: TranscriptTurn[] = [
@@ -93,9 +108,9 @@ export const suggestions: Suggestion[] = [
   },
   {
     id: "s3",
-    title: "Offer PTP + waiver check",
-    body: "You're eligible for a one-time late-fee waiver of ₹450 if we clear the overdue EMI today. Shall I apply it?",
-    source: "RAG · Late-fee waiver matrix",
+    title: "Check authority before quoting",
+    body: "I can check the live authority matrix for a late-fee goodwill ceiling. I will not quote a figure until that check returns one.",
+    source: "Playbook · Late-fee waiver matrix",
     showAfter: 55,
   },
   {

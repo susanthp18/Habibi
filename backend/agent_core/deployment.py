@@ -17,18 +17,37 @@ def load_active_bundle(
     *,
     bot_id: str | None = None,
     fallback_environments: tuple[str, ...] = (),
+    customer_id: str | None = None,
 ) -> dict[str, Any]:
     """Load active deployment + prompt version + voice config.
 
     Raises KeyError('active_deployment_not_found') when no active row exists
-    for the requested (or fallback) environment(s).
+    for the requested (or fallback) environment(s). Optional customer_id
+    hash-splits a running canary experiment; retired baselines load by id.
     """
     envs: list[str] = []
     for env in (environment, *fallback_environments):
         if env and env not in envs:
             envs.append(env)
     deployment: dict[str, Any] | None = None
+    resolved_bot = bot_id or db.DEFAULT_BOT_ID
     for env in envs:
+        dep_id = None
+        picked = False
+        try:
+            from agent_core.canary import pick_deployment_id
+
+            dep_id = pick_deployment_id(resolved_bot, environment=env, customer_id=customer_id)
+            picked = True
+        except Exception:
+            dep_id = None
+        if picked:
+            if not dep_id:
+                continue
+            deployment = db.get_deployment(dep_id)
+            if deployment:
+                break
+            continue
         deployment = db.get_active_deployment(bot_id=bot_id, environment=env)
         if deployment:
             break
@@ -69,6 +88,8 @@ def load_active_bundle(
         # authoring; voice/bot.py then keeps the built-in flow.
         "flow": version.get("flow") if isinstance(version.get("flow"), dict) else {},
         "promptVersion": version,
+        "agentCard": version.get("agentCard") if isinstance(version.get("agentCard"), dict) else {},
+        "botId": version.get("botId"),
     }
 
 
@@ -103,6 +124,11 @@ def resolve_prompt_bundle(
             "guardrails": guardrails,
             "flow": version.get("flow") if isinstance(version.get("flow"), dict) else {},
             "promptVersion": version,
+            # Without these the sandbox ran a draft with no skills prefix and no
+            # card tool-gating, while the live path had both — so "test in
+            # sandbox" did not exercise what publish was about to ship.
+            "agentCard": version.get("agentCard") if isinstance(version.get("agentCard"), dict) else {},
+            "botId": version.get("botId"),
         }
     return load_active_bundle(
         environment,

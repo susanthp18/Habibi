@@ -14,7 +14,7 @@ import os
 from typing import Any
 
 from voice import config as voice_config
-from voice.mesh import ROLES, activate_role, enabled, status
+from voice.mesh import ROLES, activate_role, enabled
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +156,3 @@ async def activate_and_publish(
         except Exception:
             logger.exception("BusActivateWorkerMessage publish failed")
     return active
-
-
-def mesh_status(session_id: str | None = None) -> dict[str, Any]:
-    st = status(session_id)
-    st["channel"] = CHANNEL
-    return st

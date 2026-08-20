@@ -2,6 +2,7 @@ import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { useTurnTrace, type TraceTurn } from "@/api/trace";
 import { USE_MOCK } from "@/api/config";
+import { LoadingState } from "@/components/ui/loading-state";
 
 /**
  * The persisted per-turn timeline for one interaction.
@@ -23,7 +24,13 @@ export function TurnTraceView({ interactionId }: { interactionId: string }) {
       <Empty>Traces are served by the API — switch off mock mode to view one.</Empty>
     );
   }
-  if (isLoading) return <Empty>Loading trace…</Empty>;
+  if (isLoading) {
+    return (
+      <Empty>
+        <LoadingState label="Loading trace" className="mx-auto" />
+      </Empty>
+    );
+  }
   if (isError) {
     return <Empty>{error instanceof Error ? error.message : "Trace unavailable."}</Empty>;
   }
@@ -108,6 +115,12 @@ export function TurnCard({ turn: t }: { turn: TraceTurn }) {
             {c.ok ? "✓" : "✗"}
           </span>
           <span className="text-text">{c.tool}</span>
+          {(c.agentId || c.skillId) && (
+            <span className="text-text-subtlest">
+              {c.agentId ?? "—"}
+              {c.skillId ? `/${c.skillId}` : ""}
+            </span>
+          )}
           {ms(c.latencyMs) && <span className="text-text-subtlest">{ms(c.latencyMs)}</span>}
           {c.error && <span className="text-text-danger">{c.error}</span>}
         </div>

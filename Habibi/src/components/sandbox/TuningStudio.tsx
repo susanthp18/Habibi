@@ -28,16 +28,30 @@ type Props = {
 
 type SectionKey = "voice" | "reasoning" | "listening" | "turn";
 
+// Badges describe WHEN a section's changes reach the agent, and that only
+// becomes a distinction once a call is up: with no session running, "live" and
+// "next call" both mean "at the next Start call". Shown unconditionally they
+// asserted something untrue half the time, so both are gated on `callLive` at
+// the call sites and the header carries the plain-language version.
 const LIVE_BADGE = (
-  <span className="rounded bg-background-success-subtler px-050 py-025 text-body-small font-semibold text-text-success-bolder">
+  <span
+    title="Applies to the call already in progress, without restarting it."
+    className="rounded bg-background-success-subtler px-050 py-025 text-body-small font-semibold text-text-success-bolder"
+  >
     live
   </span>
 );
 const NEXT_BADGE = (
-  <span className="rounded bg-background-warning-subtler px-050 py-025 text-body-small font-semibold text-text-warning-bolder">
+  <span
+    title="Cannot be hot-swapped — takes effect when the call is restarted."
+    className="rounded bg-background-warning-subtler px-050 py-025 text-body-small font-semibold text-text-warning-bolder"
+  >
     next call
   </span>
 );
+
+// How long the "Applied" confirmation stays up after a live change lands.
+const APPLIED_FLASH_MS = 2200;
 
 // Trailing-edge window for live tuning applies (slider drags, pitch typing).
 const LIVE_APPLY_DEBOUNCE_MS = 250;
@@ -88,6 +102,12 @@ export function TuningStudio({
     turn: false,
   });
   const [presetId, setPresetId] = useState("empathetic-collections");
+  // There is no Apply button here — every control writes straight through. That
+  // is the right behaviour for a tuning panel you are meant to move while
+  // listening, but with nothing on screen saying so it reads as a missing
+  // button, and people go looking for one. This flag is the acknowledgement:
+  // a change landed, and here is the proof.
+  const [appliedAt, setAppliedAt] = useState(0);
 
   const activePreset = AGENT_TUNING_PRESETS.find((p) => p.id === presetId);
   const dirtyVsPreset = useMemo(() => {
@@ -110,6 +130,12 @@ export function TuningStudio({
     [],
   );
 
+  useEffect(() => {
+    if (!appliedAt) return;
+    const t = setTimeout(() => setAppliedAt(0), APPLIED_FLASH_MS);
+    return () => clearTimeout(t);
+  }, [appliedAt]);
+
   const queueLiveApply = (delta: Partial<AgentTuning>) => {
     if (!onLiveApply) return;
     const merged = pendingLive.current;
@@ -122,7 +148,13 @@ export function TuningStudio({
       const payload = pendingLive.current;
       pendingLive.current = {};
       liveTimer.current = null;
-      if (Object.keys(payload).length) onLiveApply(payload);
+      if (Object.keys(payload).length) {
+        onLiveApply(payload);
+        // Only when a session exists. applyTune is a no-op without one, and
+        // claiming "Applied" for a write that never left the browser is worse
+        // than saying nothing.
+        if (callLive) setAppliedAt(Date.now());
+      }
     }, LIVE_APPLY_DEBOUNCE_MS);
   };
 
@@ -187,6 +219,31 @@ export function TuningStudio({
             ))}
           </select>
         </label>
+        {/*
+          The panel has no Apply button because every control applies itself.
+          Left unsaid, that reads as a missing button rather than a design, and
+          the two states differ enough that one sentence cannot cover both:
+          mid-call a change reaches the agent within a quarter of a second;
+          idle, it is held and handed over when the call starts.
+        */}
+        <p className="mt-075 text-body-small text-text-subtlest">
+          {callLive ? (
+            <>
+              Changes apply to the call in progress — no Apply needed.
+              <span
+                aria-live="polite"
+                className={cn(
+                  "ml-050 font-medium text-text-success-bolder transition-opacity duration-token-medium",
+                  appliedAt ? "opacity-100" : "opacity-0",
+                )}
+              >
+                Applied
+              </span>
+            </>
+          ) : (
+            "No Apply needed — these settings are used when you start the call."
+          )}
+        </p>
         {callLive && nextCallDirty && onRestartCall && (
           <button
             type="button"
@@ -201,7 +258,7 @@ export function TuningStudio({
       <div className="min-h-0 flex-1 overflow-y-auto p-100">
         <Section
           title="Voice & delivery"
-          badge={LIVE_BADGE}
+          badge={callLive ? LIVE_BADGE : null}
           open={open.voice}
           onToggle={() => setOpen((o) => ({ ...o, voice: !o.voice }))}
         >
@@ -258,13 +315,14 @@ export function TuningStudio({
                 },
               })
             }
-            nextCall
+            // Same rule as the section badges: only a distinction mid-call.
+            nextCall={callLive}
           />
         </Section>
 
         <Section
           title="Reasoning"
-          badge={LIVE_BADGE}
+          badge={callLive ? LIVE_BADGE : null}
           open={open.reasoning}
           onToggle={() => setOpen((o) => ({ ...o, reasoning: !o.reasoning }))}
         >
@@ -310,7 +368,7 @@ export function TuningStudio({
 
         <Section
           title="Listening"
-          badge={NEXT_BADGE}
+          badge={callLive ? NEXT_BADGE : null}
           open={open.listening}
           onToggle={() => setOpen((o) => ({ ...o, listening: !o.listening }))}
         >
@@ -352,7 +410,7 @@ export function TuningStudio({
 
         <Section
           title="Turn-taking"
-          badge={NEXT_BADGE}
+          badge={callLive ? NEXT_BADGE : null}
           open={open.turn}
           onToggle={() => setOpen((o) => ({ ...o, turn: !o.turn }))}
         >
@@ -412,6 +470,7 @@ function Section({
   children,
 }: {
   title: string;
+  /** Null while no call is running: see the note on LIVE_BADGE. */
   badge: React.ReactNode;
   open: boolean;
   onToggle: () => void;

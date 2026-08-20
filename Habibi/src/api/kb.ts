@@ -606,6 +606,13 @@ export async function linkKbGap(
   return apiPost<KbGap>(`/kb/gaps/${gapId}/link`, link);
 }
 
+export async function promoteGapToSkill(gapId: string): Promise<{ id: string; slug: string; signatureStatus?: string }> {
+  if (USE_MOCK) {
+    return mockDelay({ id: `skill-gardener-${gapId}`, slug: `gardener-${gapId}`, signatureStatus: "unsigned" });
+  }
+  return apiPost(`/kb/gaps/${gapId}/promote-skill`, {});
+}
+
 export async function fetchKbSnapshots(): Promise<KbSnapshot[]> {
   if (USE_MOCK) {
     return mockDelay([

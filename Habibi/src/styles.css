@@ -2,7 +2,7 @@
 @source "../src";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 /*
  * BigBound AI — Design System
@@ -10,9 +10,12 @@
  * Every hex value below is copied verbatim from Design.md's `colors:` / `typography:` / `rounded:` /
  * `spacing:` / `borders:` / `surfaces:` / `motion:` YAML — do not hand-tune a value here without
  * updating Design.md first. `rovo-*` tokens are intentionally omitted (unused AI sub-brand).
+ * `.dark` remaps the same token names to Atlassian dark counterparts so night mode is a class toggle.
  */
 
 :root {
+  color-scheme: light;
+
   /* ---- Neutrals & surfaces (text) ---- */
   --text: #292a2e;
   --text-accent-lime: #4c6b1f;
@@ -452,6 +455,345 @@
   --sentiment-positive: var(--text-success);
   --sentiment-neutral: var(--text-warning);
   --sentiment-negative: var(--text-danger);
+}
+
+/*
+ * Dark theme — Atlassian-aligned counterparts of the light Design.md tokens.
+ * Surfaces / text / borders invert; brand (#1868db) and bold action fills stay
+ * saturated so existing text-inverse (white) pairings keep contrast.
+ */
+html.dark {
+  color-scheme: dark;
+
+  --text: #c7d1db;
+  --text-accent-lime: #b3df72;
+  --text-accent-lime-bolder: #d3f1a7;
+  --text-accent-red: #fd9891;
+  --text-accent-red-bolder: #ffd5d2;
+  --text-accent-orange: #fbc828;
+  --text-accent-orange-bolder: #fce4a6;
+  --text-accent-yellow: #eed12b;
+  --text-accent-yellow-bolder: #f5e989;
+  --text-accent-green: #7ee2b8;
+  --text-accent-green-bolder: #baf3db;
+  --text-accent-teal: #9dd9ee;
+  --text-accent-teal-bolder: #c6edfb;
+  --text-accent-blue: #8fb8f6;
+  --text-accent-blue-bolder: #cfe1fd;
+  --text-accent-purple: #d8a0f7;
+  --text-accent-purple-bolder: #eed7fc;
+  --text-accent-magenta: #f797d2;
+  --text-accent-magenta-bolder: #fdd0ec;
+  --text-accent-gray: #9fadbc;
+  --text-accent-gray-bolder: #c7d1db;
+  --text-code-accent-1: #f797d2;
+  --text-code-accent-2: #8fb8f6;
+  --text-code-comments: #8c9bab;
+  --text-code-default: #9fadbc;
+  --text-code-functions: #7ee2b8;
+  --text-code-gutter: #738496;
+  --text-code-keywords: #fd9891;
+  --text-code-numbers: #eed12b;
+  --text-code-operators: #c7d1db;
+  --text-code-strings: #b3df72;
+  --text-code-tags: #fbc828;
+  --text-disabled: #7384967a;
+  --text-inverse: #ffffff;
+  --text-selected: #8fb8f6;
+  --text-brand: #8fb8f6;
+  --text-danger: #fd9891;
+  --text-danger-bolder: #ffd5d2;
+  --text-warning: #fbc828;
+  --text-warning-inverse: #1d2125;
+  --text-warning-bolder: #fce4a6;
+  --text-success: #b3df72;
+  --text-success-bolder: #d3f1a7;
+  --text-discovery: #d8a0f7;
+  --text-discovery-bolder: #eed7fc;
+  --text-information: #8fb8f6;
+  --text-information-bolder: #cfe1fd;
+  --text-subtlest: #8c9bab;
+  --text-subtle: #9fadbc;
+
+  --link: #8fb8f6;
+  --link-pressed: #cfe1fd;
+  --link-visited: #d8a0f7;
+  --link-visited-pressed: #eed7fc;
+
+  --icon: #c7d1db;
+  --icon-accent-lime: #b3df72;
+  --icon-accent-red: #f87168;
+  --icon-accent-orange: #fca700;
+  --icon-accent-yellow: #eed12b;
+  --icon-accent-green: #4bce97;
+  --icon-accent-teal: #6cc3e0;
+  --icon-accent-blue: #669df1;
+  --icon-accent-purple: #c97cf4;
+  --icon-accent-magenta: #e774bb;
+  --icon-accent-gray: #8c9bab;
+  --icon-disabled: #7384967a;
+  --icon-inverse: #ffffff;
+  --icon-selected: #8fb8f6;
+  --icon-brand: #8fb8f6;
+  --icon-danger: #f87168;
+  --icon-warning: #fca700;
+  --icon-warning-inverse: #1d2125;
+  --icon-success: #b3df72;
+  --icon-discovery: #c97cf4;
+  --icon-information: #669df1;
+  --icon-subtlest: #8c9bab;
+  --icon-subtle: #9fadbc;
+
+  --border: #a1bdd929;
+  --border-accent-lime: #94c748;
+  --border-accent-lime-subtle: #4c6b1f;
+  --border-accent-red: #f87168;
+  --border-accent-red-subtle: #872821;
+  --border-accent-orange: #fca700;
+  --border-accent-orange-subtle: #7a3b00;
+  --border-accent-yellow: #eed12b;
+  --border-accent-yellow-subtle: #7f5f01;
+  --border-accent-green: #4bce97;
+  --border-accent-green-subtle: #1f845a;
+  --border-accent-teal: #6cc3e0;
+  --border-accent-teal-subtle: #227d9b;
+  --border-accent-blue: #669df1;
+  --border-accent-blue-subtle: #1558bc;
+  --border-accent-purple: #c97cf4;
+  --border-accent-purple-subtle: #673286;
+  --border-accent-magenta: #e774bb;
+  --border-accent-magenta-subtle: #943d73;
+  --border-accent-gray: #8c9bab;
+  --border-accent-gray-subtle: #505258;
+  --border-code: #a1bdd929;
+  --border-disabled: #a1bdd914;
+  --border-focused: #669df1;
+  --border-input: #738496;
+  --border-inverse: #1d2125;
+  --border-selected: #669df1;
+  --border-brand: #669df1;
+  --border-danger: #f87168;
+  --border-danger-subtle: #872821;
+  --border-warning: #fca700;
+  --border-warning-subtle: #7a3b00;
+  --border-success: #94c748;
+  --border-success-subtle: #4c6b1f;
+  --border-discovery: #c97cf4;
+  --border-discovery-subtle: #673286;
+  --border-information: #669df1;
+  --border-information-subtle: #1558bc;
+  --border-bold: #8c9bab;
+
+  --background-accent-lime-subtlest: #2a3816;
+  --background-accent-lime-subtler: #37471f;
+  --background-accent-lime-subtle: #4c6b1f;
+  --background-accent-lime-bolder: #94c748;
+  --background-accent-red-subtlest: #4f1c16;
+  --background-accent-red-subtler: #5d1f1a;
+  --background-accent-red-subtle: #872821;
+  --background-accent-red-bolder: #f87168;
+  --background-accent-orange-subtlest: #5f3811;
+  --background-accent-orange-subtler: #693200;
+  --background-accent-orange-subtle: #7a3b00;
+  --background-accent-orange-bolder: #fca700;
+  --background-accent-yellow-subtlest: #533f04;
+  --background-accent-yellow-subtler: #7f5f01;
+  --background-accent-yellow-subtle: #946f00;
+  --background-accent-yellow-bolder: #eed12b;
+  --background-accent-green-subtlest: #164b35;
+  --background-accent-green-subtler: #1f845a;
+  --background-accent-green-subtle: #216e4e;
+  --background-accent-green-bolder: #4bce97;
+  --background-accent-teal-subtlest: #164555;
+  --background-accent-teal-subtler: #206a83;
+  --background-accent-teal-subtle: #227d9b;
+  --background-accent-teal-bolder: #6cc3e0;
+  --background-accent-blue-subtlest: #1c2b42;
+  --background-accent-blue-subtler: #123263;
+  --background-accent-blue-subtle: #1558bc;
+  --background-accent-blue-bolder: #669df1;
+  --background-accent-purple-subtlest: #2b2451;
+  --background-accent-purple-subtler: #48245d;
+  --background-accent-purple-subtle: #673286;
+  --background-accent-purple-bolder: #c97cf4;
+  --background-accent-magenta-subtlest: #50253f;
+  --background-accent-magenta-subtler: #673286;
+  --background-accent-magenta-subtle: #943d73;
+  --background-accent-magenta-bolder: #e774bb;
+  --background-accent-gray-subtlest: #22272b;
+  --background-accent-gray-subtler: #2c333a;
+  --background-accent-gray-subtle: #505258;
+  --background-accent-gray-bolder: #8c9bab;
+
+  --background-code-added-highlight: #164b35;
+  --background-code-added-line: #1f845a66;
+  --background-code-default: #1d2125;
+  --background-code-gutter: #22272b;
+  --background-code-highlight: #2c333a;
+  --background-code-removed-highlight: #4f1c16;
+  --background-code-removed-line: #5d1f1a66;
+
+  --background-disabled: #a1bdd914;
+  --background-input: #22272b;
+  --background-input-hovered: #2c333a;
+  --background-input-pressed: #22272b;
+  --background-inverse-subtle: #ffffff14;
+  --background-inverse-subtle-hovered: #ffffff24;
+  --background-inverse-subtle-pressed: #ffffff3d;
+  --background-neutral: #a1bdd914;
+  --background-neutral-hovered: #a1bdd924;
+  --background-neutral-pressed: #a1bdd936;
+  --background-neutral-subtle: #00000000;
+  --background-neutral-subtle-hovered: #a1bdd914;
+  --background-neutral-subtle-pressed: #a1bdd924;
+  --background-neutral-bold: #6b6e76;
+  --background-neutral-bold-hovered: #8c8f97;
+  --background-neutral-bold-pressed: #9fadbc;
+
+  --background-selected: #1c2b42;
+  --background-selected-hovered: #123263;
+  --background-selected-pressed: #144794;
+  --background-selected-bold: #1868db;
+  --background-selected-bold-hovered: #357de8;
+  --background-selected-bold-pressed: #1558bc;
+  --background-brand-subtlest: #1c2b42;
+  --background-brand-subtlest-hovered: #123263;
+  --background-brand-subtlest-pressed: #144794;
+  --background-brand-bold: #1868db;
+  --background-brand-bold-hovered: #357de8;
+  --background-brand-bold-pressed: #1558bc;
+  --background-brand-boldest: #144794;
+  --background-brand-boldest-hovered: #1868db;
+  --background-brand-boldest-pressed: #1558bc;
+
+  --background-danger: #4f1c16;
+  --background-danger-hovered: #5d1f1a;
+  --background-danger-pressed: #872821;
+  --background-danger-subtler: #5d1f1a;
+  --background-danger-subtler-hovered: #872821;
+  --background-danger-subtler-pressed: #ae2e24;
+  --background-danger-subtle: #872821;
+  --background-danger-bold: #c9372c;
+  --background-danger-bold-hovered: #e2483d;
+  --background-danger-bold-pressed: #ae2e24;
+  --background-warning: #533f04;
+  --background-warning-hovered: #7f5f01;
+  --background-warning-pressed: #946f00;
+  --background-warning-subtler: #7f5f01;
+  --background-warning-subtler-hovered: #946f00;
+  --background-warning-subtler-pressed: #b38600;
+  --background-warning-subtle: #946f00;
+  --background-warning-bold: #e2b203;
+  --background-warning-bold-hovered: #fbc828;
+  --background-warning-bold-pressed: #b38600;
+  --background-success: #2a3816;
+  --background-success-hovered: #37471f;
+  --background-success-pressed: #4c6b1f;
+  --background-success-subtler: #37471f;
+  --background-success-subtler-hovered: #4c6b1f;
+  --background-success-subtler-pressed: #5b7f24;
+  --background-success-subtle: #4c6b1f;
+  --background-success-bold: #5b7f24;
+  --background-success-bold-hovered: #6a9a23;
+  --background-success-bold-pressed: #4c6b1f;
+  --background-discovery: #2b2451;
+  --background-discovery-hovered: #352c63;
+  --background-discovery-pressed: #48245d;
+  --background-discovery-subtler: #352c63;
+  --background-discovery-subtler-hovered: #48245d;
+  --background-discovery-subtler-pressed: #673286;
+  --background-discovery-subtle: #48245d;
+  --background-discovery-bold: #964ac0;
+  --background-discovery-bold-hovered: #af59e1;
+  --background-discovery-bold-pressed: #803fa5;
+  --background-information: #1c2b42;
+  --background-information-hovered: #123263;
+  --background-information-pressed: #144794;
+  --background-information-subtler: #123263;
+  --background-information-subtler-hovered: #144794;
+  --background-information-subtler-pressed: #1558bc;
+  --background-information-subtle: #144794;
+  --background-information-bold: #1868db;
+  --background-information-bold-hovered: #357de8;
+  --background-information-bold-pressed: #1558bc;
+
+  --chart-categorical-1: #669df1;
+  --chart-categorical-2: #94c748;
+  --chart-categorical-3: #c97cf4;
+  --chart-categorical-4: #fca700;
+  --chart-categorical-5: #8fb8f6;
+  --chart-categorical-6: #af59e1;
+  --chart-categorical-7: #6cc3e0;
+  --chart-categorical-8: #f68909;
+  --chart-lime-bold: #94c748;
+  --chart-lime-bolder: #b3df72;
+  --chart-lime-boldest: #d3f1a7;
+  --chart-neutral: #8c9bab;
+  --chart-neutral-hovered: #9fadbc;
+  --chart-red-bold: #f87168;
+  --chart-red-bolder: #fd9891;
+  --chart-red-boldest: #ffd5d2;
+  --chart-orange-bold: #fca700;
+  --chart-orange-bolder: #fbc828;
+  --chart-orange-boldest: #fce4a6;
+  --chart-yellow-bold: #eed12b;
+  --chart-yellow-bolder: #f5e989;
+  --chart-yellow-boldest: #fef7c8;
+  --chart-green-bold: #4bce97;
+  --chart-green-bolder: #7ee2b8;
+  --chart-green-boldest: #baf3db;
+  --chart-teal-bold: #6cc3e0;
+  --chart-teal-bolder: #9dd9ee;
+  --chart-teal-boldest: #c6edfb;
+  --chart-blue-bold: #669df1;
+  --chart-blue-bolder: #8fb8f6;
+  --chart-blue-boldest: #cfe1fd;
+  --chart-purple-bold: #c97cf4;
+  --chart-purple-bolder: #d8a0f7;
+  --chart-purple-boldest: #eed7fc;
+  --chart-magenta-bold: #e774bb;
+  --chart-magenta-bolder: #f797d2;
+  --chart-magenta-boldest: #fdd0ec;
+  --chart-gray-bold: #8c9bab;
+  --chart-gray-bolder: #9fadbc;
+  --chart-gray-boldest: #c7d1db;
+  --chart-brand: #669df1;
+  --chart-danger: #f87168;
+  --chart-danger-bold: #fd9891;
+  --chart-warning: #fca700;
+  --chart-warning-bold: #fbc828;
+  --chart-success: #94c748;
+  --chart-success-bold: #b3df72;
+  --chart-discovery: #c97cf4;
+  --chart-discovery-bold: #d8a0f7;
+  --chart-information: #669df1;
+  --chart-information-bold: #8fb8f6;
+
+  --interaction-hovered: #a1bdd914;
+  --interaction-pressed: #a1bdd929;
+  --skeleton: #a1bdd914;
+  --skeleton-subtle: #a1bdd908;
+  --blanket: #030404a3;
+  --blanket-selected: #388bff29;
+  --blanket-danger: #ef5c4829;
+
+  --surface: #1d2125;
+  --surface-hovered: #22272b;
+  --surface-pressed: #2c333a;
+  --surface-sunken: #161a1d;
+  --surface-raised: #22272b;
+  --surface-raised-hovered: #2c333a;
+  --surface-raised-pressed: #38414a;
+  --surface-overlay: #282e33;
+  --surface-overlay-hovered: #2c333a;
+  --surface-overlay-pressed: #38414a;
+  --surface-container: #a1bdd908;
+  --surface-container-hovered: #a1bdd914;
+  --surface-container-pressed: #a1bdd924;
+
+  --shadow-raised: 0px 1px 1px #03040480, 0px 0px 1px #030404cc;
+  --shadow-overlay: 0px 8px 12px #03040499, 0px 0px 1px #030404cc;
+  --shadow-overflow: 0px 0px 8px #03040480, 0px 0px 1px #03040466;
 }
 
 @theme inline {
@@ -1005,6 +1347,25 @@
 }
 
 /*
+ * View Transitions for AnimatedThemeToggler must stay unlayered — UA view-transition
+ * styles are unlayered, and a clipped ::view-transition-new(root) inside @layer base
+ * can lose, leaving the old (light) snapshot on screen while the icon already flipped.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html[data-magicui-theme-vt="active"]::view-transition-group(root) {
+  animation-duration: var(--magicui-theme-toggle-vt-duration);
+}
+
+html[data-magicui-theme-vt="active"]::view-transition-new(root) {
+  clip-path: var(--magicui-theme-vt-clip-from);
+}
+
+/*
  * Scrollbars — unlayered so they win over Tailwind preflight / @layer base.
  */
 * {
@@ -1031,7 +1392,213 @@
   background-color: var(--background-brand-subtlest);
 }
 
-/* BigBound monogram mark.
+/* App equalizer mark (Uiverse.io / Nawsome). Native artboard is 75×100; bars
+   only occupy the bottom 50px, so the React wrapper crops to 75×52 and the
+   stage is pinned to the bottom. Scale is applied here so keyframe px values
+   stay intact. Motion is gated on .eq-mark--live + prefers-reduced-motion. */
+.eq-mark {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
+  align-self: center;
+  color: var(--text);
+}
+
+.eq-mark__stage {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 75px;
+  height: 100px;
+  transform-origin: bottom left;
+}
+
+.eq-mark__bar {
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 50%;
+  background: currentColor;
+  transform-origin: center bottom;
+}
+
+.eq-mark__bar:nth-child(1) {
+  left: 0;
+  transform: scale(1, 0.2);
+}
+.eq-mark__bar:nth-child(2) {
+  left: 15px;
+  transform: scale(1, 0.4);
+}
+.eq-mark__bar:nth-child(3) {
+  left: 30px;
+  transform: scale(1, 0.6);
+}
+.eq-mark__bar:nth-child(4) {
+  left: 45px;
+  transform: scale(1, 0.8);
+}
+.eq-mark__bar:nth-child(5) {
+  left: 60px;
+  transform: scale(1, 1);
+}
+
+.eq-mark__ball {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--background-brand-bold);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .eq-mark--live .eq-mark__bar:nth-child(1) {
+    animation: eq-bar-up-1 4s infinite;
+  }
+  .eq-mark--live .eq-mark__bar:nth-child(2) {
+    animation: eq-bar-up-2 4s infinite;
+  }
+  .eq-mark--live .eq-mark__bar:nth-child(3) {
+    animation: eq-bar-up-3 4s infinite;
+  }
+  .eq-mark--live .eq-mark__bar:nth-child(4) {
+    animation: eq-bar-up-4 4s infinite;
+  }
+  .eq-mark--live .eq-mark__bar:nth-child(5) {
+    animation: eq-bar-up-5 4s infinite;
+  }
+  .eq-mark--live .eq-mark__ball {
+    animation: eq-ball 4s infinite;
+  }
+}
+
+@keyframes eq-ball {
+  0% {
+    transform: translate(0, 0);
+  }
+  5% {
+    transform: translate(8px, -14px);
+  }
+  10% {
+    transform: translate(15px, -10px);
+  }
+  17% {
+    transform: translate(23px, -24px);
+  }
+  20% {
+    transform: translate(30px, -20px);
+  }
+  27% {
+    transform: translate(38px, -34px);
+  }
+  30% {
+    transform: translate(45px, -30px);
+  }
+  37% {
+    transform: translate(53px, -44px);
+  }
+  40% {
+    transform: translate(60px, -40px);
+  }
+  50% {
+    transform: translate(60px, 0);
+  }
+  57% {
+    transform: translate(53px, -14px);
+  }
+  60% {
+    transform: translate(45px, -10px);
+  }
+  67% {
+    transform: translate(37px, -24px);
+  }
+  70% {
+    transform: translate(30px, -20px);
+  }
+  77% {
+    transform: translate(22px, -34px);
+  }
+  80% {
+    transform: translate(15px, -30px);
+  }
+  87% {
+    transform: translate(7px, -44px);
+  }
+  90% {
+    transform: translate(0, -40px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes eq-bar-up-1 {
+  0%,
+  40% {
+    transform: scale(1, 0.2);
+  }
+  50%,
+  90% {
+    transform: scale(1, 1);
+  }
+  100% {
+    transform: scale(1, 0.2);
+  }
+}
+
+@keyframes eq-bar-up-2 {
+  0%,
+  40% {
+    transform: scale(1, 0.4);
+  }
+  50%,
+  90% {
+    transform: scale(1, 0.8);
+  }
+  100% {
+    transform: scale(1, 0.4);
+  }
+}
+
+@keyframes eq-bar-up-3 {
+  0%,
+  100% {
+    transform: scale(1, 0.6);
+  }
+}
+
+@keyframes eq-bar-up-4 {
+  0%,
+  40% {
+    transform: scale(1, 0.8);
+  }
+  50%,
+  90% {
+    transform: scale(1, 0.4);
+  }
+  100% {
+    transform: scale(1, 0.8);
+  }
+}
+
+@keyframes eq-bar-up-5 {
+  0%,
+  40% {
+    transform: scale(1, 1);
+  }
+  50%,
+  90% {
+    transform: scale(1, 0.2);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+/* BigBound monogram mark — kept on disk, unused by shell chrome.
    One gesture only: the trend line draws itself once on mount. No looping pulse, no
    travelling sheen, no glow — this sits at 28px beside the product name in the sidebar
    and anything repeating there reads as a notification, not as brand. */
@@ -1088,6 +1655,28 @@
   }
 }
 
+/* Pixel-grid loader — chevron / orbit wavefront for long-running work. */
+@keyframes pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  40%,
+  60% {
+    opacity: 1;
+  }
+}
+
+/* Shimmering loading label paired with the pixel grid. */
+@keyframes shimmer-text {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
 /* Typing indicator — was a translateY "bounce" (Design.md bans bounce/elastic easing in
  * product UI). Re-expressed as an opacity pulse using the inout-bold token; still a
  * legitimate transient-state animation, just no longer springy. */
@@ -1099,6 +1688,106 @@
   50% {
     opacity: 1;
   }
+}
+
+/* ── Modern chart chrome (Liveline + custom bars/donuts) ── */
+.chart-stage {
+  isolation: isolate;
+}
+
+.chart-cursor {
+  pointer-events: none;
+  position: absolute;
+  top: 8px;
+  bottom: 18px;
+  width: 1px;
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  transform: translateX(-50%);
+  z-index: 2;
+}
+
+.chart-tooltip-anchor {
+  pointer-events: none;
+  position: absolute;
+  top: 10px;
+  z-index: 3;
+}
+
+.chart-tooltip {
+  min-width: 11.5rem;
+  max-width: 16rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-overlay);
+  padding: 0.5rem 0.625rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.chart-tooltip-time {
+  font-size: 10.5px;
+  color: var(--text-subtlest);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.875rem;
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.chart-tooltip-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chart-tooltip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  color: var(--text-subtle);
+}
+
+.chart-tooltip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-tooltip-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* Records table: sticky identity column must paint opaque so scrolled cells
+ * cannot show through on hover/selection (translucent Tailwind paints used to bleed). */
+.records-table [data-sticky="true"] {
+  background-clip: padding-box;
+}
+.records-table tbody tr > [data-sticky="true"] {
+  background-color: var(--surface) !important;
+}
+.records-table tbody tr:hover > [data-sticky="true"] {
+  background-color: var(--background-brand-subtlest) !important;
+}
+.records-table tbody tr[data-state="selected"] > [data-sticky="true"],
+.records-table tbody tr[data-state="selected"]:hover > [data-sticky="true"] {
+  background-color: var(--background-selected) !important;
+}
+.records-table thead [data-sticky="true"],
+.records-table tfoot [data-sticky="true"] {
+  background-color: var(--surface-sunken) !important;
 }
 
 @utility animate-fade-up {

@@ -20,6 +20,7 @@ export const channelMeta: Record<
   whatsapp: { label: "WhatsApp", icon: MessageCircle, hue: "green" },
   sms: { label: "SMS", icon: MessageSquare, hue: "blue" },
   email: { label: "Email", icon: Mail, hue: "purple" },
+  chat: { label: "Web chat", icon: MessageCircle, hue: "teal" },
   voice: { label: "Voice", icon: Phone, hue: "magenta" },
 };
 

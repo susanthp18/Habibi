@@ -355,8 +355,19 @@ def test_purge_keeps_linked_and_repeated_gaps(db_tx):
         ),
         {"gid": linked},
     )
+    # purge_stale_kb_gaps is tenant-wide, so any row that is *already* stale in
+    # the fixture database counts toward `removed` too — which made this
+    # assertion depend on whatever the developer's demo seed happens to hold
+    # (one runtime-captured gap was enough to turn 1 into 2). Freshen the table,
+    # then age only this test's rows, so `removed` measures exactly these gaps.
+    # Both statements roll back with the fixture transaction.
+    db_tx.execute(text("UPDATE unanswered_questions SET last_seen_at = now()"))
     db_tx.execute(
-        text("UPDATE unanswered_questions SET last_seen_at = now() - interval '200 days'")
+        text(
+            "UPDATE unanswered_questions SET last_seen_at = now() - interval '200 days' "
+            "WHERE id = ANY(:ids)"
+        ),
+        {"ids": [once, twice, linked]},
     )
 
     removed = db.purge_stale_kb_gaps(ttl_days=90)
@@ -371,6 +382,11 @@ def test_purge_keeps_recent_gaps(db_tx):
     import db
 
     gap_id = db.record_kb_gap(question="does the plan cover trip cancellation", channel="voice")
+
+    # Same tenant-wide caveat as test_purge_keeps_linked_and_repeated_gaps: an
+    # already-stale seed row would make `== 0` fail for reasons unrelated to
+    # this test. Rolled back with the fixture.
+    db_tx.execute(text("UPDATE unanswered_questions SET last_seen_at = now()"))
 
     assert db.purge_stale_kb_gaps(ttl_days=90) == 0
     assert _gap_row(db_tx, gap_id) != {}

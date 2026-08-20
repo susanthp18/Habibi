@@ -48,6 +48,8 @@ export type PromptVersion = {
   guardrails: Guardrails;
   /** Authored conversation graph; absent on versions predating flow authoring. */
   flow?: FlowGraph;
+  botId?: string;
+  agentCard?: Record<string, unknown>;
 };
 
 export type PersonaPreset = {
@@ -66,17 +68,50 @@ export type TtsVoice = {
   duration: string;
 };
 
-export const KNOWN_VARIABLES = [
+/**
+ * Variables a *system* prompt may interpolate. Mirrors
+ * ``prompt_render.SYSTEM_SAFE_VARIABLES`` — static operator facts, never a
+ * customer-controlled field.
+ */
+export const SYSTEM_SAFE_VARIABLES = [
+  "agent_name",
+  "bank_name",
+  "language",
+  "time_of_day",
+] as const;
+
+/**
+ * CRM fields. Known to the platform, but **not substituted in a system
+ * prompt**: `render_system_prompt` only fills SYSTEM_SAFE_VARIABLES, and
+ * `strip_unrendered_crm_tokens` then deletes every line that still holds one.
+ * They live on the untrusted CRM context card the runtime attaches instead.
+ *
+ * Kept as its own list so the editor can say which is which. Offering all nine
+ * in one undifferentiated palette is how "Reference their account
+ * {account_no}" got written into a prompt and then silently vanished from the
+ * live policy — the author had no way to know the difference.
+ */
+export const CRM_VARIABLES = [
   "customer_name",
   "account_no",
   "overdue_amount",
   "due_date",
   "last_payment",
-  "agent_name",
-  "bank_name",
-  "language",
-  "time_of_day",
+] as const;
+
+export const KNOWN_VARIABLES: string[] = [
+  ...CRM_VARIABLES,
+  ...SYSTEM_SAFE_VARIABLES,
 ];
+
+/** CRM tokens present in a template — each one costs its whole line at runtime. */
+export function detectCrmVars(prompt: string): string[] {
+  const crm = new Set<string>(CRM_VARIABLES);
+  const matches = Array.from(prompt.matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g)).map(
+    (m) => m[1],
+  );
+  return Array.from(new Set(matches.filter((v) => crm.has(v))));
+}
 
 export const TTS_VOICES: TtsVoice[] = [
   { id: "priya", name: "Priya", gender: "Female", accent: "Indian English", duration: "0:03" },
@@ -89,28 +124,37 @@ export const TTS_VOICES: TtsVoice[] = [
 
 export const LANGUAGES = ["English", "Hindi", "Tamil", "Telugu", "Kannada", "Marathi", "Bengali", "Gujarati"];
 
+// Mirrors the persona_presets rows these stand in for, and CRM-token-free
+// for the same reason those are: every runtime renders a system prompt with
+// render_system_prompt and then deletes any line still holding a CRM token.
+// A mock that ships {customer_name} teaches the pattern that gets the line
+// silently dropped in production, which is exactly how the live Collections
+// prompt ended up losing two of its six lines.
 const EMPATHETIC_PROMPT = `You are {agent_name}, an inbound collections voice agent for {bank_name}.
-Greet {customer_name} warmly and acknowledge their situation before discussing dues.
-Reference their account {account_no} and the overdue amount of {overdue_amount} due on {due_date}.
+Greet the caller warmly and acknowledge their situation before discussing dues.
+Their account number, outstanding balance and due date arrive in the CRM context card — quote those figures verbatim and never invent one.
 Speak in {language}. Be patient, empathetic and non-judgemental.
 Always disclose that the call is recorded for quality and compliance.
-Never threaten legal action. Offer Promise-to-Pay options when the customer signals hardship.`;
+Never threaten legal action. Offer Promise-to-Pay options when the caller signals hardship.`;
 
-const FIRM_PROMPT = `You are {agent_name}, a BigBound AI agent for {bank_name}.
-Address {customer_name} directly and state the purpose of the call within the first two sentences.
-Clearly state the overdue amount {overdue_amount} on account {account_no}, past due since {due_date}.
-Speak in {language}. Be professional, direct and outcome-oriented.
-Disclose call recording. Do not promise waivers. Escalate to a human on any dispute.`;
+const FIRM_PROMPT = `You are {agent_name}, a collections agent for {bank_name}.
+Address the caller directly and state the purpose of the call within the first two sentences.
+State the overdue amount and due date from the CRM context card, exactly as given. Never estimate or round them.
+Speak in {language}. Be concise and outcome-focused; ask for a specific payment date.
+Always disclose that the call is recorded for quality and compliance.
+Never threaten legal action and never imply consequences the bank has not authorised.`;
 
-const COMPLIANCE_PROMPT = `You are {agent_name}, a compliance-first BigBound AI agent for {bank_name}.
-Begin every call with the recording disclosure and verify caller identity before sharing any account information.
-Reference {customer_name}, account {account_no}, dues {overdue_amount}, due on {due_date} only after verification.
-Speak in {language}. Never quote interest rates. Never promise fee waivers. Escalate on any dispute or hardship signal.`;
+const COMPLIANCE_PROMPT = `You are {agent_name}, a compliance-first collections agent for {bank_name}.
+Begin every call with the recording disclosure and verify the caller's identity before sharing any account information.
+Account details are in the CRM context card and may only be discussed after verification succeeds.
+Speak in {language}. Keep to the script; if a request falls outside policy, say so plainly and escalate.
+Never quote an interest rate, waiver or settlement figure that a tool has not returned.`;
 
-const UPSELL_PROMPT = `You are {agent_name}, a collections + relationship voice agent for {bank_name}.
-Resolve {customer_name}'s query about their overdue {overdue_amount} on account {account_no} first.
-Once the primary query is addressed, and eligibility permits, gently introduce one relevant product offer.
-Speak in {language}. Do not push if the customer is stressed or has raised a dispute.`;
+const UPSELL_PROMPT = `You are {agent_name}, a collections and relationship voice agent for {bank_name}.
+Resolve the caller's query about their overdue balance first — the figures are in the CRM context card.
+Only once the collections matter is settled and sentiment is not negative, mention at most one offer returned by recommend_next_offer.
+Speak in {language}. Never name a product the tool did not give you.
+Always disclose that the call is recorded for quality and compliance.`;
 
 export const PRESETS: PersonaPreset[] = [
   {

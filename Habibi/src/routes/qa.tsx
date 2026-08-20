@@ -22,6 +22,7 @@ import {
   saveScorecard,
   useCalibrationSessions,
   useCoachingActions,
+  useQaCoverage,
   useRubric,
   useScorecards,
 } from "@/api/qa";
@@ -39,6 +40,9 @@ import {
 type Tab = "queue" | "trends" | "calibration" | "coaching";
 
 export const Route = createFileRoute("/qa")({
+  validateSearch: (search: Record<string, unknown>): { callId?: string } => ({
+    callId: typeof search.callId === "string" ? search.callId : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "QA Scorecards & Coaching — BigBound AI" },
@@ -51,15 +55,21 @@ export const Route = createFileRoute("/qa")({
 });
 
 function QaPage() {
+  const { callId } = Route.useSearch();
   const queryClient = useQueryClient();
   const { data: remoteRubric } = useRubric();
   const { data: remoteScorecards } = useScorecards();
   const { data: remoteCoaching } = useCoachingActions();
   const { data: remoteCalibrations } = useCalibrationSessions();
+  const { data: coverage } = useQaCoverage();
+  const [activeScoreId, setActiveScoreId] = useState<string | null>(null);
+  const activeRubricId = (remoteScorecards ?? []).find((s) => s.id === activeScoreId)?.rubricId;
+  const { data: channelRubric } = useRubric(activeRubricId);
 
   // Local rubric edits (builder sheet) — live GET /rubric is the base.
   const [rubricOverride, setRubricOverride] = useState<Rubric | null>(null);
   const rubric = rubricOverride ?? remoteRubric ?? defaultRubric;
+  const canvasRubric = rubricOverride ?? channelRubric ?? rubric;
 
   // In-progress criterion edits until Save draft / Publish.
   const [draftEntries, setDraftEntries] = useState<Record<string, ScorecardEntry[]>>({});
@@ -73,7 +83,6 @@ function QaPage() {
   }, [remoteScorecards, draftEntries]);
 
   const [tab, setTab] = useState<Tab>("queue");
-  const [activeScoreId, setActiveScoreId] = useState<string | null>(null);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [rubricOpen, setRubricOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
@@ -81,9 +90,16 @@ function QaPage() {
 
   useEffect(() => {
     if (activeScoreId) return;
+    if (callId) {
+      const match = scorecards.find((s) => s.callId === callId);
+      if (match) {
+        setActiveScoreId(match.id);
+        return;
+      }
+    }
     const first = scorecards.find((s) => s.status !== "final") ?? scorecards[0];
     if (first) setActiveScoreId(first.id);
-  }, [scorecards, activeScoreId]);
+  }, [scorecards, activeScoreId, callId]);
 
   const activeScore = useMemo(
     () => scorecards.find((s) => s.id === activeScoreId) ?? null,
@@ -226,7 +242,13 @@ function QaPage() {
           </p>
         </header>
 
-        <QaStatsStrip scorecards={scorecards} coaching={coaching} calibrations={calibrations} rubric={rubric} />
+        <QaStatsStrip
+          scorecards={scorecards}
+          coaching={coaching}
+          calibrations={calibrations}
+          rubric={rubric}
+          coverage={coverage}
+        />
 
         <div className="shrink-0 border-b border-border bg-surface px-250">
           <div className="flex gap-050">
@@ -263,7 +285,7 @@ function QaPage() {
               <ScoringQueue scorecards={scorecards} activeId={activeScoreId} onSelect={setActiveScoreId} rubric={rubric} />
               <ScoringCanvas
                 scorecard={activeScore}
-                rubric={rubric}
+                rubric={canvasRubric}
                 onChangeEntries={updateEntries}
                 onPublish={publishScore}
                 onSaveDraft={saveDraft}

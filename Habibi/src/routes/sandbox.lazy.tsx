@@ -24,8 +24,10 @@ import {
 import { fetchVoiceStatus } from "@/api/voice-sandbox";
 import { API_BASE_URL } from "@/api/config";
 import { usePromptVersions, publishPromptVersion } from "@/api/prompt-studio";
+import { useAgentStudioCards, useAgentStudioSkills } from "@/api/agent-studio";
 import { useKbSnapshots } from "@/api/kb";
 import { mergeSandboxChunkMeta, type IntentKey, type SandboxTurn } from "@/data/sandbox-seed";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
   DEFAULT_AGENT_TUNING,
   tuningFromVoiceConfig,
@@ -41,8 +43,12 @@ function makeId() {
 }
 
 function SandboxPage() {
-  const { promptVersionId: searchPromptId } = Route.useSearch();
-  const versionsQuery = usePromptVersions();
+  const { promptVersionId: searchPromptId, skillSlug: searchSkillSlug, botId: searchBotId } = Route.useSearch();
+  const cardsQuery = useAgentStudioCards();
+  const skillsQuery = useAgentStudioSkills();
+  const [botId, setBotId] = useState(searchBotId || "kaia-v2-4");
+  const [skillSlug, setSkillSlug] = useState(searchSkillSlug || "");
+  const versionsQuery = usePromptVersions(botId);
   const scenariosQuery = useSandboxScenarios();
   const snapshotsQuery = useKbSnapshots();
 
@@ -82,16 +88,28 @@ function SandboxPage() {
   const bootstrapped = useRef(false);
   const tuningBaseline = useRef(DEFAULT_AGENT_TUNING);
 
+  // A requested version that belongs to a different card used to fall through
+  // to this bot's published one without a word, so "Try in sandbox" on any
+  // non-default card rehearsed the wrong agent and looked fine doing it.
+  const warnedMissingVersion = useRef(false);
   useEffect(() => {
     if (!versions.length) return;
-    if (searchPromptId && versions.some((v) => v.id === searchPromptId)) {
-      setPromptVersionId(searchPromptId);
-      return;
+    if (searchPromptId) {
+      if (versions.some((v) => v.id === searchPromptId)) {
+        setPromptVersionId(searchPromptId);
+        return;
+      }
+      if (!warnedMissingVersion.current) {
+        warnedMissingVersion.current = true;
+        toast.error(`Version ${searchPromptId} is not on ${botId}`, {
+          description: "Pick the right agent above — this run would test a different card.",
+        });
+      }
     }
     if (!promptVersionId) {
       setPromptVersionId(publishedPrompt?.id ?? versions[0]!.id);
     }
-  }, [versions, searchPromptId, publishedPrompt, promptVersionId]);
+  }, [versions, searchPromptId, publishedPrompt, promptVersionId, botId]);
 
   useEffect(() => {
     if (!scenarios.length) return;
@@ -255,6 +273,7 @@ function SandboxPage() {
           runId: activeRun.id,
           text,
           history,
+          skillSlug: skillSlug || undefined,
           scenario,
           turnIndex: fromScript
             ? scriptIndex
@@ -325,7 +344,7 @@ function SandboxPage() {
         setAwaiting(false);
       }
     },
-    [scenario, activePrompt, halted, ensureRun, turns, scriptIndex, mode],
+    [scenario, activePrompt, halted, ensureRun, turns, scriptIndex, mode, skillSlug],
   );
 
   const playNext = useCallback(() => {
@@ -463,8 +482,8 @@ function SandboxPage() {
   if (loading && !scenario) {
     return (
       <AppShell>
-        <div className="grid h-full place-items-center text-body text-text-subtlest">
-          Loading sandbox…
+        <div className="grid h-full place-items-center">
+          <LoadingState label="Loading sandbox" />
         </div>
       </AppShell>
     );
@@ -582,6 +601,16 @@ function SandboxPage() {
             setMode(m);
           }}
           liveEnabled={liveEnabled}
+          cardId={botId}
+          cards={(cardsQuery.data ?? []).map((c) => ({ id: c.botId, label: c.name }))}
+          onCard={(id) => {
+            setBotId(id);
+            setPromptVersionId("");
+            setRun(null);
+          }}
+          skillSlug={skillSlug}
+          skills={(skillsQuery.data ?? []).map((s) => ({ slug: s.slug, label: s.slug }))}
+          onSkill={setSkillSlug}
           promptVersionId={promptVersionId || activePrompt.id}
           promptVersions={versions}
           onPromptVersion={(id) => {

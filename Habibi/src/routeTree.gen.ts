@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AgentStudioRouteImport } from './routes/agent-studio'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as BotAnalyticsRouteImport } from './routes/bot-analytics'
@@ -29,16 +30,26 @@ import { Route as PromisesRouteImport } from './routes/promises'
 import { Route as PromptStudioRouteImport } from './routes/prompt-studio'
 import { Route as QaRouteImport } from './routes/qa'
 import { Route as RedactionRouteImport } from './routes/redaction'
+import { Route as RolesRouteImport } from './routes/roles'
 import { Route as RoutingRouteImport } from './routes/routing'
 import { Route as SandboxRouteImport } from './routes/sandbox'
 import { Route as UpsellRouteImport } from './routes/upsell'
 import { Route as WebhooksRouteImport } from './routes/webhooks'
+import { Route as AgentStudioIndexRouteImport } from './routes/agent-studio.index'
+import { Route as AgentStudioBotIdRouteImport } from './routes/agent-studio.$botId'
 import { Route as CustomersIndexRouteImport } from './routes/customers.index'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers.$customerId'
+import { Route as AgentStudioSkillsIndexRouteImport } from './routes/agent-studio.skills.index'
+import { Route as AgentStudioSkillsSkillIdRouteImport } from './routes/agent-studio.skills.$skillId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentStudioRoute = AgentStudioRouteImport.update({
+  id: '/agent-studio',
+  path: '/agent-studio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuditRoute = AuditRouteImport.update({
@@ -138,6 +149,11 @@ const RedactionRoute = RedactionRouteImport.update({
   path: '/redaction',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RolesRoute = RolesRouteImport.update({
+  id: '/roles',
+  path: '/roles',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RoutingRoute = RoutingRouteImport.update({
   id: '/routing',
   path: '/routing',
@@ -158,6 +174,18 @@ const WebhooksRoute = WebhooksRouteImport.update({
   path: '/webhooks',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AgentStudioIndexRoute = AgentStudioIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AgentStudioRoute,
+} as any)
+const AgentStudioBotIdRoute = AgentStudioBotIdRouteImport.update({
+  id: '/$botId',
+  path: '/$botId',
+  getParentRoute: () => AgentStudioRoute,
+} as any).lazy(() =>
+  import('./routes/agent-studio.$botId.lazy').then((d) => d.Route),
+)
 const CustomersIndexRoute = CustomersIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -170,9 +198,21 @@ const CustomersCustomerIdRoute = CustomersCustomerIdRouteImport.update({
 } as any).lazy(() =>
   import('./routes/customers.$customerId.lazy').then((d) => d.Route),
 )
+const AgentStudioSkillsIndexRoute = AgentStudioSkillsIndexRouteImport.update({
+  id: '/skills/',
+  path: '/skills/',
+  getParentRoute: () => AgentStudioRoute,
+} as any)
+const AgentStudioSkillsSkillIdRoute =
+  AgentStudioSkillsSkillIdRouteImport.update({
+    id: '/skills/$skillId',
+    path: '/skills/$skillId',
+    getParentRoute: () => AgentStudioRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/agent-studio': typeof AgentStudioRouteWithChildren
   '/audit': typeof AuditRoute
   '/billing': typeof BillingRoute
   '/bot-analytics': typeof BotAnalyticsRoute
@@ -192,12 +232,17 @@ export interface FileRoutesByFullPath {
   '/prompt-studio': typeof PromptStudioRoute
   '/qa': typeof QaRoute
   '/redaction': typeof RedactionRoute
+  '/roles': typeof RolesRoute
   '/routing': typeof RoutingRoute
   '/sandbox': typeof SandboxRoute
   '/upsell': typeof UpsellRoute
   '/webhooks': typeof WebhooksRoute
+  '/agent-studio/$botId': typeof AgentStudioBotIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/agent-studio/': typeof AgentStudioIndexRoute
   '/customers/': typeof CustomersIndexRoute
+  '/agent-studio/skills/$skillId': typeof AgentStudioSkillsSkillIdRoute
+  '/agent-studio/skills/': typeof AgentStudioSkillsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -219,16 +264,22 @@ export interface FileRoutesByTo {
   '/prompt-studio': typeof PromptStudioRoute
   '/qa': typeof QaRoute
   '/redaction': typeof RedactionRoute
+  '/roles': typeof RolesRoute
   '/routing': typeof RoutingRoute
   '/sandbox': typeof SandboxRoute
   '/upsell': typeof UpsellRoute
   '/webhooks': typeof WebhooksRoute
+  '/agent-studio/$botId': typeof AgentStudioBotIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/agent-studio': typeof AgentStudioIndexRoute
   '/customers': typeof CustomersIndexRoute
+  '/agent-studio/skills/$skillId': typeof AgentStudioSkillsSkillIdRoute
+  '/agent-studio/skills': typeof AgentStudioSkillsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/agent-studio': typeof AgentStudioRouteWithChildren
   '/audit': typeof AuditRoute
   '/billing': typeof BillingRoute
   '/bot-analytics': typeof BotAnalyticsRoute
@@ -248,17 +299,23 @@ export interface FileRoutesById {
   '/prompt-studio': typeof PromptStudioRoute
   '/qa': typeof QaRoute
   '/redaction': typeof RedactionRoute
+  '/roles': typeof RolesRoute
   '/routing': typeof RoutingRoute
   '/sandbox': typeof SandboxRoute
   '/upsell': typeof UpsellRoute
   '/webhooks': typeof WebhooksRoute
+  '/agent-studio/$botId': typeof AgentStudioBotIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/agent-studio/': typeof AgentStudioIndexRoute
   '/customers/': typeof CustomersIndexRoute
+  '/agent-studio/skills/$skillId': typeof AgentStudioSkillsSkillIdRoute
+  '/agent-studio/skills/': typeof AgentStudioSkillsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/agent-studio'
     | '/audit'
     | '/billing'
     | '/bot-analytics'
@@ -278,12 +335,17 @@ export interface FileRouteTypes {
     | '/prompt-studio'
     | '/qa'
     | '/redaction'
+    | '/roles'
     | '/routing'
     | '/sandbox'
     | '/upsell'
     | '/webhooks'
+    | '/agent-studio/$botId'
     | '/customers/$customerId'
+    | '/agent-studio/'
     | '/customers/'
+    | '/agent-studio/skills/$skillId'
+    | '/agent-studio/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -305,15 +367,21 @@ export interface FileRouteTypes {
     | '/prompt-studio'
     | '/qa'
     | '/redaction'
+    | '/roles'
     | '/routing'
     | '/sandbox'
     | '/upsell'
     | '/webhooks'
+    | '/agent-studio/$botId'
     | '/customers/$customerId'
+    | '/agent-studio'
     | '/customers'
+    | '/agent-studio/skills/$skillId'
+    | '/agent-studio/skills'
   id:
     | '__root__'
     | '/'
+    | '/agent-studio'
     | '/audit'
     | '/billing'
     | '/bot-analytics'
@@ -333,16 +401,22 @@ export interface FileRouteTypes {
     | '/prompt-studio'
     | '/qa'
     | '/redaction'
+    | '/roles'
     | '/routing'
     | '/sandbox'
     | '/upsell'
     | '/webhooks'
+    | '/agent-studio/$botId'
     | '/customers/$customerId'
+    | '/agent-studio/'
     | '/customers/'
+    | '/agent-studio/skills/$skillId'
+    | '/agent-studio/skills/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AgentStudioRoute: typeof AgentStudioRouteWithChildren
   AuditRoute: typeof AuditRoute
   BillingRoute: typeof BillingRoute
   BotAnalyticsRoute: typeof BotAnalyticsRoute
@@ -362,6 +436,7 @@ export interface RootRouteChildren {
   PromptStudioRoute: typeof PromptStudioRoute
   QaRoute: typeof QaRoute
   RedactionRoute: typeof RedactionRoute
+  RolesRoute: typeof RolesRoute
   RoutingRoute: typeof RoutingRoute
   SandboxRoute: typeof SandboxRoute
   UpsellRoute: typeof UpsellRoute
@@ -375,6 +450,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agent-studio': {
+      id: '/agent-studio'
+      path: '/agent-studio'
+      fullPath: '/agent-studio'
+      preLoaderRoute: typeof AgentStudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/audit': {
@@ -510,6 +592,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RedactionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/roles': {
+      id: '/roles'
+      path: '/roles'
+      fullPath: '/roles'
+      preLoaderRoute: typeof RolesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/routing': {
       id: '/routing'
       path: '/routing'
@@ -538,6 +627,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WebhooksRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/agent-studio/': {
+      id: '/agent-studio/'
+      path: '/'
+      fullPath: '/agent-studio/'
+      preLoaderRoute: typeof AgentStudioIndexRouteImport
+      parentRoute: typeof AgentStudioRoute
+    }
+    '/agent-studio/$botId': {
+      id: '/agent-studio/$botId'
+      path: '/$botId'
+      fullPath: '/agent-studio/$botId'
+      preLoaderRoute: typeof AgentStudioBotIdRouteImport
+      parentRoute: typeof AgentStudioRoute
+    }
     '/customers/': {
       id: '/customers/'
       path: '/'
@@ -552,8 +655,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersCustomerIdRouteImport
       parentRoute: typeof CustomersRoute
     }
+    '/agent-studio/skills/': {
+      id: '/agent-studio/skills/'
+      path: '/skills'
+      fullPath: '/agent-studio/skills/'
+      preLoaderRoute: typeof AgentStudioSkillsIndexRouteImport
+      parentRoute: typeof AgentStudioRoute
+    }
+    '/agent-studio/skills/$skillId': {
+      id: '/agent-studio/skills/$skillId'
+      path: '/skills/$skillId'
+      fullPath: '/agent-studio/skills/$skillId'
+      preLoaderRoute: typeof AgentStudioSkillsSkillIdRouteImport
+      parentRoute: typeof AgentStudioRoute
+    }
   }
 }
+
+interface AgentStudioRouteChildren {
+  AgentStudioBotIdRoute: typeof AgentStudioBotIdRoute
+  AgentStudioIndexRoute: typeof AgentStudioIndexRoute
+  AgentStudioSkillsSkillIdRoute: typeof AgentStudioSkillsSkillIdRoute
+  AgentStudioSkillsIndexRoute: typeof AgentStudioSkillsIndexRoute
+}
+
+const AgentStudioRouteChildren: AgentStudioRouteChildren = {
+  AgentStudioBotIdRoute: AgentStudioBotIdRoute,
+  AgentStudioIndexRoute: AgentStudioIndexRoute,
+  AgentStudioSkillsSkillIdRoute: AgentStudioSkillsSkillIdRoute,
+  AgentStudioSkillsIndexRoute: AgentStudioSkillsIndexRoute,
+}
+
+const AgentStudioRouteWithChildren = AgentStudioRoute._addFileChildren(
+  AgentStudioRouteChildren,
+)
 
 interface CustomersRouteChildren {
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
@@ -571,6 +706,7 @@ const CustomersRouteWithChildren = CustomersRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AgentStudioRoute: AgentStudioRouteWithChildren,
   AuditRoute: AuditRoute,
   BillingRoute: BillingRoute,
   BotAnalyticsRoute: BotAnalyticsRoute,
@@ -590,6 +726,7 @@ const rootRouteChildren: RootRouteChildren = {
   PromptStudioRoute: PromptStudioRoute,
   QaRoute: QaRoute,
   RedactionRoute: RedactionRoute,
+  RolesRoute: RolesRoute,
   RoutingRoute: RoutingRoute,
   SandboxRoute: SandboxRoute,
   UpsellRoute: UpsellRoute,

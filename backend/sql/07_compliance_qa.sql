@@ -1,12 +1,18 @@
 CREATE TABLE IF NOT EXISTS compliance_rules (
   id TEXT PRIMARY KEY,
-  code TEXT NOT NULL UNIQUE,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
   label TEXT NOT NULL,
   severity TEXT NOT NULL DEFAULT 'medium',
   enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  -- A regulator's rule code is unique *within* a bank, not across banks. As a
+  -- bare UNIQUE on code it was global: two tenants citing the same regulation
+  -- would collide, and only the first could hold the row (migration 0062).
+  CONSTRAINT ux_compliance_rules_tenant_code UNIQUE (tenant_id, code)
 );
+CREATE INDEX IF NOT EXISTS idx_compliance_rules_tenant_id ON compliance_rules(tenant_id);
 
 CREATE TABLE IF NOT EXISTS violations (
   id TEXT PRIMARY KEY,
@@ -33,12 +39,14 @@ CREATE INDEX IF NOT EXISTS idx_violations_customer_id ON violations(customer_id)
 
 CREATE TABLE IF NOT EXISTS qa_rubrics (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   version TEXT NOT NULL,
   enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_qa_rubrics_tenant_id ON qa_rubrics(tenant_id);
 
 CREATE TABLE IF NOT EXISTS qa_rubric_sections (
   id TEXT PRIMARY KEY,
@@ -124,6 +132,39 @@ CREATE TABLE IF NOT EXISTS calibration_sessions (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Append-only live FPC log (P7). Every failing turn is written, including
+-- shadow runs that never took the call. A log holding only the barges we
+-- executed has no negative class.
+CREATE TABLE IF NOT EXISTS live_qa_decisions (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+  account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+  interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
+  mode TEXT NOT NULL,
+  feature_schema_version TEXT NOT NULL,
+  features jsonb NOT NULL DEFAULT '{}'::jsonb,
+  verdict TEXT NOT NULL,
+  recommended_action TEXT NOT NULL,
+  reason TEXT,
+  reason_codes jsonb NOT NULL DEFAULT '[]'::jsonb,
+  findings jsonb NOT NULL DEFAULT '[]'::jsonb,
+  latency_ms INTEGER,
+  enacted boolean NOT NULL DEFAULT false,
+  enacted_at timestamptz,
+  enacted_ref TEXT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_live_qa_decisions_mode CHECK (mode IN ('off','shadow','live')),
+  CONSTRAINT ck_live_qa_decisions_verdict CHECK (verdict IN ('pass','fail_soft','fail_critical')),
+  CONSTRAINT ck_live_qa_decisions_action CHECK (
+    recommended_action IN ('none','listen','whisper','barge','inbox')
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_live_qa_decisions_tenant_id ON live_qa_decisions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_live_qa_decisions_interaction
+  ON live_qa_decisions (interaction_id, created_at DESC)
+  WHERE interaction_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS calibration_reviewer_scores (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES calibration_sessions(id) ON DELETE CASCADE,
@@ -135,3 +176,24 @@ CREATE TABLE IF NOT EXISTS calibration_reviewer_scores (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+
+-- ---------------------------------------------------------------------------
+-- compliance_scans — ledger of what the rule catalog has judged.
+--
+-- Detection used to run once, live, inside a bot voice call, and left no
+-- record of what had been evaluated. Without that, "no violation" and "never
+-- checked" are the same row, and a rule change can only ever apply going
+-- forward. Storing the rules version per interaction makes a rule change a
+-- backfill: bump it and every interaction re-enters the sweep queue.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS compliance_scans (
+  interaction_id TEXT PRIMARY KEY REFERENCES interactions(id) ON DELETE CASCADE,
+  tenant_id      TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  rules_version  INTEGER NOT NULL,
+  findings       INTEGER NOT NULL DEFAULT 0,
+  scanned_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_compliance_scans_version
+  ON compliance_scans (rules_version, scanned_at DESC);
+CREATE INDEX IF NOT EXISTS idx_compliance_scans_tenant
+  ON compliance_scans (tenant_id);

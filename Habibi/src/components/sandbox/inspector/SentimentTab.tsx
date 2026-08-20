@@ -1,7 +1,7 @@
-import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, ReferenceLine, Tooltip } from "recharts";
 import { TrendingDown, TrendingUp, Minus } from "lucide-react";
 import type { SandboxTurn } from "@/data/sandbox-seed";
 import type { TurnAnalysisEvent } from "../voice/liveEvents";
+import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 
 /**
  * Customer sentiment over the call.
@@ -39,31 +39,36 @@ export function SentimentTab({
   const prev = points[points.length - 2]?.sentiment ?? last;
   const delta = last - prev;
   const Icon = delta > 0.05 ? TrendingUp : delta < -0.05 ? TrendingDown : Minus;
-  const trendColor = delta > 0.05 ? "text-text-success" : delta < -0.05 ? "text-text-danger" : "text-text-subtlest";
+  const trendColor =
+    delta > 0.05 ? "text-text-success" : delta < -0.05 ? "text-text-danger" : "text-text-subtlest";
+  const color = last >= 0.2 ? "#5b7f24" : last <= -0.2 ? "#e2483d" : "#1868db";
 
   return (
     <div className="space-y-150">
-      <div className="flex items-center gap-150 rounded-medium border border-border bg-surface-sunken p-150">
+      <div className="flex items-center gap-150 rounded-medium border border-border bg-surface-sunken p-150 shadow-raised">
         <div>
           <div className="text-body-small text-text-subtlest">Current</div>
-          <div className="text-[1.25rem] font-semibold text-text">{last.toFixed(2)}</div>
+          <div className="text-[1.25rem] font-semibold tabular-nums text-text">{last.toFixed(2)}</div>
         </div>
         <div className={`ml-auto inline-flex items-center gap-050 text-body-small ${trendColor}`}>
           <Icon className="h-3.5 w-3.5" />
-          {delta >= 0 ? "+" : ""}{delta.toFixed(2)}
+          {delta >= 0 ? "+" : ""}
+          {delta.toFixed(2)}
         </div>
+        <SnapshotPill />
       </div>
-      <div className="h-40 w-full">
-        <ResponsiveContainer>
-          <LineChart data={points} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-            <XAxis dataKey="turn" tick={{ fontSize: 10 }} />
-            <YAxis domain={[-1, 1]} tick={{ fontSize: 10 }} />
-            <ReferenceLine y={0} stroke="var(--border)" />
-            <Tooltip contentStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="sentiment" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      <ChartStage>
+        <LivelineTrend
+          values={points.map((p) => p.sentiment)}
+          labels={points.map((p) => `T${p.turn}`)}
+          color={color}
+          height={160}
+          formatValue={(v) => v.toFixed(2)}
+          formatTime={(i) => `Turn ${points[i]?.turn ?? i + 1}`}
+          fill
+          grid
+        />
+      </ChartStage>
       <div className="text-body-small text-text-subtlest">−1 hostile · 0 neutral · +1 delighted</div>
     </div>
   );

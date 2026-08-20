@@ -108,10 +108,9 @@ export function TestRetrievalPanel() {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-150 lg:grid-cols-[380px_minmax(0,1fr)]">
-      <div className="space-y-150 rounded-large border border-border bg-surface p-200">
+    <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <div className="min-h-0 space-y-150 overflow-y-auto border-b border-border p-200 lg:border-b-0 lg:border-r">
         <div>
-          <div className="text-body font-semibold text-text">Test retrieval</div>
           <div className="text-body-small text-text-subtlest">
             Run a live vector query against indexed HDFC policies, benefits and FAQs.
           </div>
@@ -195,7 +194,7 @@ export function TestRetrievalPanel() {
         )}
       </div>
 
-      <div className="min-h-0 space-y-100">
+      <div className="min-h-0 overflow-y-auto p-200">
         {!ran ? (
           <div className="flex h-full min-h-[18.75rem] flex-col items-center justify-center gap-100 rounded-large border border-dashed border-border p-500 text-center">
             <Sparkles className="h-300 w-300 text-text-brand" />
@@ -207,7 +206,7 @@ export function TestRetrievalPanel() {
             </div>
           </div>
         ) : (
-          <>
+          <div className="space-y-100">
             {draftAnswer && (
               <div className="rounded-large border border-border-brand/30 bg-background-brand-subtlest/40 p-150">
                 <div className="mb-050 text-body-small font-semibold text-text-brand">
@@ -262,7 +261,7 @@ export function TestRetrievalPanel() {
                 </div>
               ))
             )}
-          </>
+          </div>
         )}
       </div>
     </div>

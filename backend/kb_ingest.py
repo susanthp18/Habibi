@@ -529,16 +529,18 @@ def upsert_document(
     # Seed scripts pass their own value explicitly.
     updated_by_user_id: str | None = None,
 ) -> None:
+    import db
+
     tags = tags or [product_key, doc_type]
     conn.execute(
         text(
             """
             INSERT INTO kb_documents (
-              id, updated_by_user_id, type, version, status, enabled,
+              id, tenant_id, updated_by_user_id, type, version, status, enabled,
               chunk_size, chunk_overlap, title, tags, embedding_model,
               product_key, source_path, created_at, updated_at
             ) VALUES (
-              :id, :updated_by_user_id, :type, :version, 'draft', true,
+              :id, :tenant_id, :updated_by_user_id, :type, :version, 'draft', true,
               :chunk_size, :chunk_overlap, :title, CAST(:tags AS jsonb), NULL,
               :product_key, :source_path, now(), now()
             )
@@ -559,6 +561,7 @@ def upsert_document(
         ),
         {
             "id": doc_id,
+            "tenant_id": db.current_tenant(),
             "updated_by_user_id": updated_by_user_id,
             "type": doc_type,
             "version": version,

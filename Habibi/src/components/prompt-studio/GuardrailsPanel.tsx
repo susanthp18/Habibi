@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { useRedactionRules } from "@/api/redaction";
 import type { Guardrails } from "@/data/prompt-studio-seed";
 import { Lozenge } from "@/components/ui/lozenge";
+import { LoadingState } from "@/components/ui/loading-state";
 
 type Props = {
   value: Guardrails;
@@ -55,10 +56,13 @@ export function GuardrailsPanel({ value, onChange }: Props) {
                 key={w} tone="danger">
                 {w}
                 <button
+                  type="button"
+                  aria-label={`Remove prohibited phrase ${w}`}
+                  title={`Remove ${w}`}
                   onClick={() => update({ prohibited: value.prohibited.filter((p) => p !== w) })}
                   className="hover:text-text-danger-bolder"
                 >
-                  <X className="h-3 w-3" />
+                  <X aria-hidden="true" className="h-3 w-3" />
                 </button>
               </Lozenge>
             ))}
@@ -93,6 +97,7 @@ export function GuardrailsPanel({ value, onChange }: Props) {
                   <div className="text-body-small text-text-subtlest">{t.hint}</div>
                 </div>
                 <Switch
+                  aria-label={t.label}
                   checked={Boolean(value[t.key])}
                   onCheckedChange={(v) => update({ [t.key]: v } as Partial<Guardrails>)}
                 />
@@ -131,8 +136,8 @@ export function GuardrailsPanel({ value, onChange }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-075">
             {rulesLoading && (
-              <div className="col-span-2 rounded-medium border border-dashed border-border px-150 py-150 text-body-small text-text-subtlest">
-                Loading redaction rules…
+              <div className="col-span-2 rounded-medium border border-dashed border-border px-150 py-150">
+                <LoadingState label="Loading redaction rules" />
               </div>
             )}
             {!rulesLoading && rulesFailed && (

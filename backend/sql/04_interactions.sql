@@ -247,6 +247,10 @@ CREATE TABLE IF NOT EXISTS supervisor_actions (
   target_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   target_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
   note TEXT,
+  -- Voice process drains a whisper once (P7).
+  consumed_at timestamptz,
+  -- Whether Twilio actually joined the media plane on barge.
+  audio_joined boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_supervisor_actions_interaction_id ON supervisor_actions(interaction_id);

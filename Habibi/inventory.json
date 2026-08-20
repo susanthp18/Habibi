@@ -1,0 +1,230 @@
+[
+ {
+  "file": "src/components/callbacks/CallbackSheet.tsx",
+  "line": 300,
+  "kind": "CHIP",
+  "text": "<span className={cn(\"rounded-full px-100 py-025 text-body-small font-semibold\", r.status === \"sent\" ? \"bg-background-success-subtler text-text-success"
+ },
+ {
+  "file": "src/components/callbacks/FiltersBar.tsx",
+  "line": 31,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-100 py-025 text-body-small\","
+ },
+ {
+  "file": "src/components/compliance/ComplianceFilters.tsx",
+  "line": 153,
+  "kind": "BUTTON",
+  "text": "className={`inline-flex items-center gap-050 rounded-full border px-150 py-025 text-body-small font-medium capitalize transition-colors ${"
+ },
+ {
+  "file": "src/components/compliance/ViolationCard.tsx",
+  "line": 52,
+  "kind": "BUTTON",
+  "text": "className=\"rounded-full px-075 py-025 text-body-small font-semibold\""
+ },
+ {
+  "file": "src/components/consent/ConsentDrawer.tsx",
+  "line": 85,
+  "kind": "BUTTON",
+  "text": "className={`ml-auto inline-flex items-center gap-050 rounded-full px-100 py-025 text-body-small font-semibold ${"
+ },
+ {
+  "file": "src/components/consent/ConsentFilters.tsx",
+  "line": 74,
+  "kind": "BUTTON",
+  "text": "className={`rounded-full border px-150 py-050 text-body-small transition-colors ${"
+ },
+ {
+  "file": "src/components/disputes/DisputeSheet.tsx",
+  "line": 253,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-100 py-050 text-body-small\","
+ },
+ {
+  "file": "src/components/disputes/FiltersBar.tsx",
+  "line": 60,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small transition-colors\","
+ },
+ {
+  "file": "src/components/disputes/FiltersBar.tsx",
+  "line": 77,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small transition-colors\","
+ },
+ {
+  "file": "src/components/disputes/FiltersBar.tsx",
+  "line": 119,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small transition-colors\","
+ },
+ {
+  "file": "src/components/documents/FiltersBar.tsx",
+  "line": 27,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-100 py-025 text-body-small\","
+ },
+ {
+  "file": "src/components/floor/CallTile.tsx",
+  "line": 85,
+  "kind": "CHIP",
+  "text": "<div className=\"absolute -top-2 left-3 flex items-center gap-050 rounded-full bg-background-brand-bold px-100 py-025 text-body-small font-semibold tex"
+ },
+ {
+  "file": "src/components/floor/CallTile.tsx",
+  "line": 252,
+  "kind": "CHIP",
+  "text": "<div className=\"absolute bottom-2 left-1/2 -translate-x-1/2 animate-fade-up rounded-full bg-background-brand-boldest px-150 py-050 text-body-small fon"
+ },
+ {
+  "file": "src/components/floor/FilterBar.tsx",
+  "line": 57,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-100 py-050 text-body-small font-medium capitalize transition-colors\","
+ },
+ {
+  "file": "src/components/handoff/LiveTranscript.tsx",
+  "line": 75,
+  "kind": "BUTTON",
+  "text": "className=\"absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-075 rounded-full bg-background-brand-bold px-150 py-075 text-body-small f"
+ },
+ {
+  "file": "src/components/inbox/ConversationList.tsx",
+  "line": 84,
+  "kind": "BUTTON",
+  "text": "\"focus-ring inline-flex items-center gap-075 rounded-full border px-150 py-050 text-body-small font-medium transition-colors\","
+ },
+ {
+  "file": "src/components/kb/KbTagEditor.tsx",
+  "line": 111,
+  "kind": "BUTTON",
+  "text": "className=\"rounded-full border border-dashed border-border px-100 py-025 text-body-small text-text-subtle hover:border-border-brand/40 hover:text-text"
+ },
+ {
+  "file": "src/components/kb/TestRetrievalPanel.tsx",
+  "line": 171,
+  "kind": "BUTTON",
+  "text": "className=\"rounded-full border border-border bg-surface px-100 py-050 text-body-small text-text-subtle hover:border-border-brand/40 hover:text-text-br"
+ },
+ {
+  "file": "src/components/promises/FiltersBar.tsx",
+  "line": 130,
+  "kind": "BUTTON",
+  "text": "\"rounded-full px-150 py-050 text-body-small font-medium transition-colors\","
+ },
+ {
+  "file": "src/components/prompt-studio/PersonaSliders.tsx",
+  "line": 133,
+  "kind": "BUTTON",
+  "text": "className=\"rounded-full border border-border px-150 py-050 text-body-small text-text-subtle hover:border-border-brand hover:text-text-brand\""
+ },
+ {
+  "file": "src/components/prompt-studio/PersonaSliders.tsx",
+  "line": 182,
+  "kind": "BUTTON",
+  "text": "className={`rounded-full px-100 py-025 text-body-small ${"
+ },
+ {
+  "file": "src/components/prompt-studio/VoiceCatalogBrowser.tsx",
+  "line": 402,
+  "kind": "CHIP",
+  "text": "\"inline-flex max-w-[10rem] items-center gap-050 truncate rounded-full border px-100 py-025 text-body-small\","
+ },
+ {
+  "file": "src/components/prompt-studio/VoiceCatalogBrowser.tsx",
+  "line": 432,
+  "kind": "CHIP",
+  "text": "\"inline-flex max-w-[8.75rem] truncate rounded-full border border-border bg-surface-sunken px-100 py-025 text-body-small text-text-subtle\","
+ },
+ {
+  "file": "src/components/qa/CoachingBoard.tsx",
+  "line": 53,
+  "kind": "COUNT",
+  "text": "<span className={cn(\"rounded-full px-100 py-025 text-body-small font-semibold\", col.tint)}>{col.label}</span>"
+ },
+ {
+  "file": "src/components/qa/RubricScorer.tsx",
+  "line": 76,
+  "kind": "BUTTON",
+  "text": "\"inline-flex items-center gap-050 rounded-full border px-075 py-025 text-body-small\","
+ },
+ {
+  "file": "src/components/qa/ScoringQueue.tsx",
+  "line": 55,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-100 py-025 text-body-small\","
+ },
+ {
+  "file": "src/components/qa/ScoringQueue.tsx",
+  "line": 68,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-100 py-025 text-body-small capitalize\","
+ },
+ {
+  "file": "src/components/redaction/ExportConfigPanel.tsx",
+  "line": 72,
+  "kind": "BUTTON",
+  "text": "\"inline-flex cursor-pointer items-center gap-050 rounded-full border px-100 py-025 text-body-small capitalize\","
+ },
+ {
+  "file": "src/components/redaction/PiiLegend.tsx",
+  "line": 21,
+  "kind": "BUTTON",
+  "text": "\"inline-flex items-center gap-075 rounded-full border px-100 py-025 text-body-small transition-colors\","
+ },
+ {
+  "file": "src/components/redaction/RecordPicker.tsx",
+  "line": 40,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-100 py-025 text-body-small capitalize transition-colors\","
+ },
+ {
+  "file": "src/components/routing/RuleList.tsx",
+  "line": 40,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small font-medium transition-colors\","
+ },
+ {
+  "file": "src/components/routing/Simulator.tsx",
+  "line": 45,
+  "kind": "BUTTON",
+  "text": "className=\"rounded-full border border-border bg-surface px-150 py-050 text-body-small font-medium text-text-subtle hover:border-border-brand/40 hover:"
+ },
+ {
+  "file": "src/components/upsell/FiltersBar.tsx",
+  "line": 126,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small capitalize transition-colors\","
+ },
+ {
+  "file": "src/components/upsell/FiltersBar.tsx",
+  "line": 144,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small capitalize transition-colors\","
+ },
+ {
+  "file": "src/components/upsell/FiltersBar.tsx",
+  "line": 157,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small transition-colors\","
+ },
+ {
+  "file": "src/components/workspace/AssignedQueue.tsx",
+  "line": 187,
+  "kind": "BUTTON",
+  "text": "\"inline-flex shrink-0 items-center gap-075 rounded-full border px-150 py-075 text-body-small font-medium transition-colors\","
+ },
+ {
+  "file": "src/routes/integrations.tsx",
+  "line": 162,
+  "kind": "BUTTON",
+  "text": "\"rounded-full border px-150 py-050 text-body-small font-medium transition-colors\","
+ },
+ {
+  "file": "src/routes/qa.tsx",
+  "line": 250,
+  "kind": "COUNT",
+  "text": "\"rounded-full px-075 py-025 text-body-small\","
+ }
+]

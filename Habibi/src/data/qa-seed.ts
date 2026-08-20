@@ -47,6 +47,7 @@ export interface Scorecard {
   entries: ScorecardEntry[];
   scoredAt?: string;
   createdAt: string;
+  rubricId?: string;
 }
 
 export interface CoachingAction {

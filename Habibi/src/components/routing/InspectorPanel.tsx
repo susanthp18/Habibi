@@ -8,6 +8,19 @@ import { AuditLog } from "./AuditLog";
 
 export type InspectorTab = "editor" | "sim" | "audit";
 
+function cardsForRule(rule: Rule): string {
+  const dnd = rule.when.some((node) => {
+    const conds = "or" in node ? node.or : [node];
+    return conds.some((c) => c.field === "consent_dnd" && c.value === true);
+  });
+  if (dnd || rule.then.key === "log_flag") {
+    return "none (DND / wait — no mouth)";
+  }
+  const botId = rule.then.params?.botId || rule.then.params?.bot_id;
+  if (botId) return botId;
+  return "any first-party mouth (no botId pin)";
+}
+
 type Props = {
   tab: InspectorTab;
   onTab: (t: InspectorTab) => void;
@@ -46,13 +59,19 @@ export function InspectorPanel({ tab, onTab, editingRule, rules, audit, onSaveRu
 
       {tab === "editor" && (
         editingRule ? (
-          <RuleEditor
-            key={editingRule.id}
-            rule={editingRule}
-            onSave={onSaveRule}
-            onSaveAndTest={onSaveAndTest}
-            onCancel={onCancelEdit}
-          />
+          <>
+            <div className="border-b border-border px-200 py-100 text-body-small">
+              <span className="font-semibold">Cards this rule allows: </span>
+              {cardsForRule(editingRule)}
+            </div>
+            <RuleEditor
+              key={editingRule.id}
+              rule={editingRule}
+              onSave={onSaveRule}
+              onSaveAndTest={onSaveAndTest}
+              onCancel={onCancelEdit}
+            />
+          </>
         ) : (
           <div className="flex flex-1 items-center justify-center p-400 text-center text-body-small text-text-subtlest">
             Select a rule to edit, or create a new one.

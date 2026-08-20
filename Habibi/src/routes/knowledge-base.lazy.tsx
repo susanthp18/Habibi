@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createLazyFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
@@ -17,9 +17,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { KbStatsStrip } from "@/components/kb/KbStatsStrip";
+import { KbStatsStrip, type KbTab } from "@/components/kb/KbStatsStrip";
 import { KbSnapshotsStrip } from "@/components/kb/KbSnapshotsStrip";
+import { KbToolbar } from "@/components/kb/KbToolbar";
 import { DocumentsTable } from "@/components/kb/DocumentsTable";
+import { Lozenge } from "@/components/ui/lozenge";
 import { DocumentInspector } from "@/components/kb/DocumentInspector";
 import { ChunkModal } from "@/components/kb/ChunkModal";
 import { FaqTable } from "@/components/kb/FaqTable";
@@ -55,7 +57,7 @@ import {
   type KbUploadInput,
 } from "@/api/kb";
 import type { KbDocumentMetaPatch } from "@/components/kb/DocumentInspector";
-import { Database, MoreHorizontal, Plus, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
+import { Database, MoreHorizontal, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,7 +67,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { KbDocType } from "@/data/kb-seed";
-import { DOC_TYPE_LABEL } from "@/data/kb-seed";
 
 export const Route = createLazyFileRoute("/knowledge-base")({
   component: KnowledgeBasePage,
@@ -73,7 +74,8 @@ export const Route = createLazyFileRoute("/knowledge-base")({
 
 function KnowledgeBasePage() {
   const qc = useQueryClient();
-  const { gapId: searchGapId, q: searchQ } = Route.useSearch();
+  const navigate = useNavigate({ from: "/knowledge-base" });
+  const { gapId: searchGapId, q: searchQ, tab: searchTab } = Route.useSearch();
   const { data: docs = [], isLoading: docsLoading } = useKbDocuments();
   const { data: faqs = [], isLoading: faqsLoading } = useKbFaqs();
   const { data: gaps = [], isLoading: gapsLoading } = useKbGaps();
@@ -87,7 +89,6 @@ function KnowledgeBasePage() {
   const [faqOpen, setFaqOpen] = useState(false);
   const [pendingGapId, setPendingGapId] = useState<string | null>(null);
   const [uploadGapId, setUploadGapId] = useState<string | null>(null);
-  const [tab, setTab] = useState("documents");
   const [search, setSearch] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
   const [reindexAllBusy, setReindexAllBusy] = useState(false);
@@ -99,34 +100,35 @@ function KnowledgeBasePage() {
   const [purgeScope, setPurgeScope] = useState<KbPurgeScope>("uploads");
   const [purgeTyped, setPurgeTyped] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDeleteFaqId, setPendingDeleteFaqId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<"all" | KbDocType>("all");
   const [enabledFilter, setEnabledFilter] = useState<"all" | "enabled" | "disabled">("all");
+  const [showResolved, setShowResolved] = useState(false);
   const versionInputRef = useRef<HTMLInputElement>(null);
   const deepLinkApplied = useRef(false);
-  const userDismissedInspector = useRef(false);
+
+  const tab: KbTab = searchTab ?? (searchGapId ? "gaps" : "documents");
+  const setTab = (next: KbTab) => {
+    void navigate({
+      search: (prev) => ({ ...prev, tab: next }),
+      replace: true,
+    });
+  };
 
   const { data: selectedChunks = [] } = useKbChunks(selectedDocId);
 
-  // Keep selection valid when docs reload / delete — unless the user closed the inspector.
   useEffect(() => {
-    if (docs.length === 0) {
-      if (selectedDocId) setSelectedDocId(null);
-      return;
+    if (!selectedDocId) return;
+    if (docs.length === 0 || !docs.some((d) => d.id === selectedDocId)) {
+      setSelectedDocId(null);
     }
-    if (selectedDocId && docs.some((d) => d.id === selectedDocId)) return;
-    if (userDismissedInspector.current && !selectedDocId) return;
-    userDismissedInspector.current = false;
-    setSelectedDocId(docs[0].id);
   }, [docs, selectedDocId]);
 
   useEffect(() => {
     if (deepLinkApplied.current) return;
     if (!searchGapId && !searchQ) return;
     deepLinkApplied.current = true;
-    if (searchGapId) {
-      setPendingGapId(searchGapId);
-      setTab("gaps");
-    }
+    if (searchGapId) setPendingGapId(searchGapId);
     if (searchQ) setSearch(searchQ);
   }, [searchGapId, searchQ]);
 
@@ -283,7 +285,6 @@ function KnowledgeBasePage() {
       toast.success(
         `Deleted document${result.faqsDeleted ? ` (+${result.faqsDeleted} FAQs)` : ""}`,
       );
-      userDismissedInspector.current = false;
       if (selectedDocId === id) setSelectedDocId(null);
       await invalidateKb();
     } catch (err) {
@@ -367,7 +368,6 @@ function KnowledgeBasePage() {
       );
       setSelectedDocId(null);
       setPurgeTyped("");
-      userDismissedInspector.current = false;
       await invalidateKb();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -379,8 +379,8 @@ function KnowledgeBasePage() {
   const addDoc = async (input: KbUploadInput) => {
     try {
       const result = await uploadKbDocument(input);
-      userDismissedInspector.current = false;
       setSelectedDocId(result.document.id);
+      setTab("documents");
       toast.success(
         input.indexNow
           ? `Upload queued for indexing: "${result.document.title}"`
@@ -460,6 +460,7 @@ function KnowledgeBasePage() {
       setFaqOpen(false);
       setEditingFaq(null);
       setPendingGapId(null);
+      setPendingDeleteFaqId(null);
       await invalidateKb();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -501,7 +502,14 @@ function KnowledgeBasePage() {
   };
 
   const pendingDeleteDoc = pendingDeleteId ? docs.find((d) => d.id === pendingDeleteId) : null;
-  const searchActive = Boolean(search.trim()) || typeFilter !== "all" || enabledFilter !== "all";
+  const pendingDeleteFaq = pendingDeleteFaqId ? faqs.find((f) => f.id === pendingDeleteFaqId) : null;
+  const visibleGaps = showResolved ? filteredGaps : filteredGaps.filter((g) => !g.resolved);
+  const searchActive =
+    Boolean(search.trim()) ||
+    (tab === "documents" && (typeFilter !== "all" || enabledFilter !== "all"));
+  const toolbarVisible =
+    tab === "documents" ? filteredDocs.length : tab === "faqs" ? filteredFaqs.length : visibleGaps.length;
+  const toolbarTotal = tab === "documents" ? docs.length : tab === "faqs" ? faqs.length : gaps.length;
   const docTypeOptions = useMemo(() => {
     const types = new Set(docs.map((d) => d.type));
     return Array.from(types).sort();
@@ -509,77 +517,47 @@ function KnowledgeBasePage() {
 
   return (
     <AppShell>
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
-          <div className="flex flex-wrap items-start justify-between gap-150">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
+        <div className="shrink-0 border-b border-border px-200 py-150">
+          <div className="flex flex-wrap items-center justify-between gap-150">
             <div className="min-w-0">
-              <h1 className="text-[1rem] font-semibold text-text">Knowledge base (RAG) manager</h1>
-              <p className="text-body-small text-text-subtlest">
-                HDFC insurance corpus for collections cross-sell / upsell — documents, FAQs and
-                retrieval controls.
+              <h1 className="text-[1rem] font-semibold leading-none text-text">Knowledge base</h1>
+              <p className="mt-050 text-body-small text-text-subtlest">
+                Sources the bot retrieves at runtime — documents, FAQs, and coverage gaps.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-100">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Filter this page…"
-                  aria-label="Filter knowledge base"
-                  className="h-9 w-56 pl-400 pr-400"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-025 text-text-subtlest hover:text-text"
-                    onClick={() => setSearch("")}
-                    aria-label="Clear search"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={globalBusy}
-                onClick={() => setSyncConfirmOpen(true)}
-              >
-                <Database className={`mr-050 h-3.5 w-3.5 ${syncBusy ? "animate-pulse" : ""}`} />
-                {syncBusy ? "Syncing…" : "Sync from source_db"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={globalBusy}
-                onClick={() => void reindexAll()}
-              >
-                <RefreshCw className={`mr-050 h-3.5 w-3.5 ${reindexAllBusy ? "animate-spin" : ""}`} />
-                {reindexAllBusy ? "Re-indexing…" : "Re-index all"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={globalBusy}
-                onClick={() => {
-                  setPendingGapId(null);
-                  setEditingFaq(null);
-                  setFaqOpen(true);
-                }}
-              >
-                <Plus className="mr-050 h-3.5 w-3.5" /> Add FAQ
-              </Button>
-              <Button
-                size="sm"
-                disabled={globalBusy}
-                onClick={() => {
-                  setUploadGapId(null);
-                  setShowUpload(true);
-                }}
-              >
-                <Upload className="mr-050 h-3.5 w-3.5" /> Upload document
-              </Button>
+              {(syncBusy || reindexAllBusy) && (
+                <Lozenge tone="selected">{syncBusy ? "Syncing corpus…" : "Re-indexing…"}</Lozenge>
+              )}
+              {tab === "faqs" && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={globalBusy}
+                  onClick={() => {
+                    setPendingGapId(null);
+                    setEditingFaq(null);
+                    setFaqOpen(true);
+                  }}
+                >
+                  <Plus className="mr-050 h-3.5 w-3.5" /> Add FAQ
+                </Button>
+              )}
+              {tab !== "faqs" && tab !== "test" && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={globalBusy}
+                  onClick={() => {
+                    setUploadGapId(null);
+                    setShowUpload(true);
+                    setTab("documents");
+                  }}
+                >
+                  <Upload className="mr-050 h-3.5 w-3.5" /> Upload document
+                </Button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" disabled={globalBusy} aria-label="More actions">
@@ -587,8 +565,17 @@ function KnowledgeBasePage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>Danger zone</DropdownMenuLabel>
+                  <DropdownMenuLabel>Corpus</DropdownMenuLabel>
+                  <DropdownMenuItem disabled={globalBusy} onClick={() => setSyncConfirmOpen(true)}>
+                    <Database className="mr-100 h-3.5 w-3.5" />
+                    Sync from source_db
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={globalBusy} onClick={() => void reindexAll()}>
+                    <RefreshCw className="mr-100 h-3.5 w-3.5" />
+                    Re-index all
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Danger zone</DropdownMenuLabel>
                   <DropdownMenuItem
                     className="text-text-danger-bolder focus:text-text-danger-bolder"
                     onClick={() => {
@@ -606,73 +593,65 @@ function KnowledgeBasePage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-200">
-          <KbStatsStrip {...stripStats} />
-          <KbSnapshotsStrip snapshots={snapshots} />
+        <KbStatsStrip {...stripStats} tab={tab} onTab={setTab} />
+        <KbSnapshotsStrip snapshots={snapshots} />
 
-          <Tabs value={tab} onValueChange={setTab} className="mt-200">
-            <TabsList>
-              <TabsTrigger value="documents">
-                Documents ({docsLoading ? "…" : docs.length})
-              </TabsTrigger>
-              <TabsTrigger value="faqs">FAQs ({faqsLoading ? "…" : faqs.length})</TabsTrigger>
-              <TabsTrigger value="gaps">
-                Analytics Gaps ({gapsLoading ? "…" : openGaps})
-              </TabsTrigger>
-              <TabsTrigger value="test">Test Retrieval</TabsTrigger>
-            </TabsList>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as KbTab)}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <TabsList className="h-10 w-full shrink-0 justify-start px-200">
+            <TabsTrigger value="documents">
+              Documents
+              <span className="ml-075 tabular text-text-subtlest">
+                {docsLoading ? "…" : docs.length}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="faqs">
+              FAQs
+              <span className="ml-075 tabular text-text-subtlest">
+                {faqsLoading ? "…" : faqs.length}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="gaps">
+              Gaps
+              <span className="ml-075 tabular text-text-subtlest">
+                {gapsLoading ? "…" : openGaps}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="test">Test retrieval</TabsTrigger>
+          </TabsList>
 
-            <TabsContent value="documents" className="mt-150">
-              <div className="mb-150 flex flex-wrap items-center gap-100">
-                <select
-                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text-subtle"
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value as "all" | KbDocType)}
-                  aria-label="Filter by type"
-                >
-                  <option value="all">All types</option>
-                  {docTypeOptions.map((t) => (
-                    <option key={t} value={t}>
-                      {DOC_TYPE_LABEL[t]}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text-subtle"
-                  value={enabledFilter}
-                  onChange={(e) => setEnabledFilter(e.target.value as "all" | "enabled" | "disabled")}
-                  aria-label="Filter by enabled"
-                >
-                  <option value="all">All statuses</option>
-                  <option value="enabled">Enabled only</option>
-                  <option value="disabled">Disabled only</option>
-                </select>
-                <span className="text-body-small text-text-subtlest">
-                  Showing {filteredDocs.length}
-                  {searchActive ? ` of ${docs.length}` : ""}
-                </span>
-                {searchActive && (
-                  <button
-                    type="button"
-                    className="text-body-small font-medium text-text-brand hover:underline"
-                    onClick={() => {
-                      setSearch("");
-                      setTypeFilter("all");
-                      setEnabledFilter("all");
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-1 gap-150 xl:grid-cols-[minmax(0,1fr)_400px]">
+          <KbToolbar
+            tab={tab}
+            search={search}
+            onSearch={setSearch}
+            visibleCount={toolbarVisible}
+            totalCount={toolbarTotal}
+            searchActive={searchActive}
+            onClear={() => {
+              setSearch("");
+              setTypeFilter("all");
+              setEnabledFilter("all");
+            }}
+            docTypeOptions={docTypeOptions}
+            filters={{ type: typeFilter, enabled: enabledFilter }}
+            onFilters={(next) => {
+              setTypeFilter(next.type);
+              setEnabledFilter(next.enabled);
+            }}
+            showResolved={showResolved}
+            onShowResolved={setShowResolved}
+          />
+
+          <TabsContent value="documents" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="relative flex min-h-0 flex-1 overflow-hidden">
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
                 <DocumentsTable
                   docs={filteredDocs}
                   selectedId={selectedDocId}
-                  onSelect={(id) => {
-                    userDismissedInspector.current = false;
-                    setSelectedDocId(id);
-                  }}
+                  onSelect={(id) => setSelectedDocId(id)}
                   onToggle={(id, enabled) => void toggleDoc(id, enabled)}
                   onReindex={(id) => void reindexDoc(id)}
                   onDelete={(id) => setPendingDeleteId(id)}
@@ -682,73 +661,66 @@ function KnowledgeBasePage() {
                   filteredOutSelected={selectedHiddenByFilter}
                   emptyFromFilter={searchActive && filteredDocs.length === 0 && docs.length > 0}
                 />
-                {selectedDoc ? (
-                  <div className="min-h-[31.25rem] xl:sticky xl:top-0 xl:self-start xl:max-h-[calc(100vh-8rem)]">
-                    <DocumentInspector
-                      doc={selectedDoc}
-                      chunks={selectedChunks}
-                      onClose={() => {
-                        userDismissedInspector.current = true;
-                        setSelectedDocId(null);
-                      }}
-                      onReindex={() => void reindexDoc(selectedDoc.id)}
-                      onToggle={() => void toggleDoc(selectedDoc.id, !selectedDoc.enabled)}
-                      onNewVersion={onNewVersion}
-                      onDelete={() => removeDoc(selectedDoc.id)}
-                      onOpenChunk={setOpenChunk}
-                      onSaveMeta={(patch) => saveDocMeta(selectedDoc.id, patch)}
-                      reindexing={reindexing.has(selectedDoc.id)}
-                      savingMeta={savingMeta}
-                      deleting={deletingId === selectedDoc.id}
-                    />
-                  </div>
-                ) : (
-                  <div className="hidden items-center justify-center rounded-large border border-dashed border-border p-300 text-center text-body-small text-text-subtlest xl:flex">
-                    Select a document to inspect its chunks.
-                  </div>
-                )}
               </div>
-            </TabsContent>
+              {selectedDoc && (
+                <div className="absolute inset-y-0 right-0 z-20 flex shadow-overlay xl:static xl:z-auto xl:shadow-none">
+                  <DocumentInspector
+                    doc={selectedDoc}
+                    chunks={selectedChunks}
+                    onClose={() => setSelectedDocId(null)}
+                    onReindex={() => void reindexDoc(selectedDoc.id)}
+                    onToggle={() => void toggleDoc(selectedDoc.id, !selectedDoc.enabled)}
+                    onNewVersion={onNewVersion}
+                    onDelete={() => removeDoc(selectedDoc.id)}
+                    onOpenChunk={setOpenChunk}
+                    onSaveMeta={(patch) => saveDocMeta(selectedDoc.id, patch)}
+                    reindexing={reindexing.has(selectedDoc.id)}
+                    savingMeta={savingMeta}
+                    deleting={deletingId === selectedDoc.id}
+                  />
+                </div>
+              )}
+            </div>
+          </TabsContent>
 
-            <TabsContent value="faqs" className="mt-150">
-              <FaqTable
-                faqs={filteredFaqs}
-                onSelect={(f) => {
-                  setPendingGapId(null);
-                  setEditingFaq(f);
-                  setFaqOpen(true);
-                }}
-                onToggle={(id, enabled) => void toggleFaq(id, enabled)}
-                onDelete={(id) => {
-                  if (window.confirm("Delete this FAQ permanently?")) {
-                    void removeFaq(id);
-                  }
-                }}
-                selectedId={editingFaq?.id || null}
-              />
-            </TabsContent>
+          <TabsContent value="faqs" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <FaqTable
+              faqs={filteredFaqs}
+              onSelect={(f) => {
+                setPendingGapId(null);
+                setEditingFaq(f);
+                setFaqOpen(true);
+              }}
+              onToggle={(id, enabled) => void toggleFaq(id, enabled)}
+              onDelete={(id) => setPendingDeleteFaqId(id)}
+              selectedId={editingFaq?.id || null}
+              loading={faqsLoading}
+              emptyFromFilter={Boolean(search.trim()) && filteredFaqs.length === 0 && faqs.length > 0}
+            />
+          </TabsContent>
 
-            <TabsContent value="gaps" className="mt-150">
-              <AnalyticsGapsTable
-                gaps={filteredGaps}
-                documents={docs}
-                faqs={faqs}
-                onCreateFaq={openCreateFaqFromGap}
-                onAttachDoc={attachDocToGap}
-                onUploadForGap={(gap) => {
-                  setUploadGapId(gap.id);
-                  setShowUpload(true);
-                  setTab("documents");
-                  toast.info("Upload a document — it will be linked to this gap.");
-                }}
-              />
-            </TabsContent>
+          <TabsContent value="gaps" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <AnalyticsGapsTable
+              gaps={filteredGaps}
+              documents={docs}
+              faqs={faqs}
+              showResolved={showResolved}
+              loading={gapsLoading}
+              onCreateFaq={openCreateFaqFromGap}
+              onAttachDoc={attachDocToGap}
+              onUploadForGap={(gap) => {
+                setUploadGapId(gap.id);
+                setShowUpload(true);
+                setTab("documents");
+                toast.info("Upload a document — it will be linked to this gap.");
+              }}
+            />
+          </TabsContent>
 
-            <TabsContent value="test" className="mt-150">
-              <TestRetrievalPanel />
-            </TabsContent>
-          </Tabs>
-        </div>
+          <TabsContent value="test" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <TestRetrievalPanel />
+          </TabsContent>
+        </Tabs>
       </div>
 
       <input
@@ -883,6 +855,38 @@ function KnowledgeBasePage() {
               onClick={(e) => {
                 e.preventDefault();
                 if (pendingDeleteId) void removeDoc(pendingDeleteId);
+              }}
+            >
+              Delete permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(pendingDeleteFaqId)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteFaqId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete “{pendingDeleteFaq?.question ?? "FAQ"}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently removes this FAQ pair. Linked analytics gaps keep their question but lose
+              the FAQ link.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
+              disabled={!pendingDeleteFaqId}
+              onClick={(e) => {
+                e.preventDefault();
+                if (pendingDeleteFaqId) void removeFaq(pendingDeleteFaqId);
               }}
             >
               Delete permanently

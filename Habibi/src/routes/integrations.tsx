@@ -7,7 +7,14 @@ import { IntegrationsHeader } from "@/components/integrations/IntegrationsHeader
 import { PipelineBanner } from "@/components/integrations/PipelineBanner";
 import { ProviderCard } from "@/components/integrations/ProviderCard";
 import { ProviderDrawer } from "@/components/integrations/ProviderDrawer";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ConnectorsPanel,
+  GatewayPanel,
+  OurMcpPanel,
+  VaultPanel,
+  A2aPartnersPanel,
+} from "@/components/integrations/McpConsole";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
   CATEGORY_LIST,
   type Env,
@@ -30,9 +37,12 @@ export const Route = createFileRoute("/integrations")({
   component: IntegrationsPage,
 });
 
+type ConsoleTab = "providers" | "connectors" | "mcp" | "a2a" | "vault" | "gateway";
+
 function IntegrationsPage() {
   const [env, setEnv] = useState<Env>("sandbox");
   const [category, setCategory] = useState<(typeof CATEGORY_LIST)[number]>("All");
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("providers");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logs, setLogs] = useState<TestLogEntry[]>([]);
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
@@ -142,10 +152,45 @@ function IntegrationsPage() {
     <AppShell>
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
-          <IntegrationsHeader env={env} onEnv={setEnv} onTestAll={testAll} testing={testingAll} />
+          <IntegrationsHeader
+            env={env}
+            onEnv={setEnv}
+            onTestAll={testAll}
+            testing={testingAll}
+            showTestAll={consoleTab === "providers"}
+          />
         </div>
 
-        {!USE_MOCK && (
+        <div className="shrink-0 border-b border-border bg-surface px-200">
+          <div className="flex gap-050">
+            {(
+              [
+                ["providers", "Providers"],
+                ["connectors", "Connectors"],
+                ["mcp", "Our MCP"],
+                ["a2a", "A2A partners"],
+                ["vault", "Vault"],
+                ["gateway", "Gateway"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setConsoleTab(key)}
+                className={cn(
+                  "border-b-2 px-150 py-100 text-body-small",
+                  consoleTab === key
+                    ? "border-border-brand font-semibold text-text-brand"
+                    : "border-transparent text-text-subtle hover:text-text",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {!USE_MOCK && consoleTab === "providers" && (
           <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
             Live stack providers only · secrets resolve from process env / vault (not editable here)
           </div>
@@ -153,8 +198,16 @@ function IntegrationsPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="space-y-200 p-200">
-            {isLoading && providers.length === 0 ? (
-              <Skeleton className="h-40 w-full" />
+            {consoleTab === "connectors" && <ConnectorsPanel />}
+            {consoleTab === "mcp" && <OurMcpPanel />}
+            {consoleTab === "a2a" && <A2aPartnersPanel />}
+            {consoleTab === "vault" && <VaultPanel />}
+            {consoleTab === "gateway" && <GatewayPanel />}
+            {consoleTab === "providers" &&
+              (isLoading && providers.length === 0 ? (
+              <div className="flex justify-center py-600">
+                <LoadingState label="Loading integrations" />
+              </div>
             ) : (
               <>
                 <PipelineBanner env={env} onOpen={setSelectedId} providers={providers} />
@@ -191,7 +244,7 @@ function IntegrationsPage() {
                   ))}
                 </div>
               </>
-            )}
+            ))}
           </div>
         </div>
 

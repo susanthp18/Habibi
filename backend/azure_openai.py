@@ -205,16 +205,37 @@ def get_analysis_deployment() -> str:
     return deployment
 
 
+def _analysis_timeout_s() -> float:
+    return float(max(2, _env_int("AZURE_OPENAI_ANALYSIS_TIMEOUT_S", 8)))
+
+
 def get_analysis_client() -> AzureOpenAI:
     """Client for the analysis profile.
 
-    Returns the main client unchanged when no analysis endpoint is configured,
-    so the common case costs nothing — no second connection pool, no second TLS
-    handshake to the same host.
+    Reuses the main client's connection pool when no analysis endpoint is
+    configured — no second pool, no second TLS handshake to the same host — but
+    **not** its timeout policy.
+
+    Returning ``get_client()`` unchanged was the bug. The analysis lane
+    advertises an 8s timeout and no retries precisely because its callers are
+    optional enrichment that must degrade rather than delay; with no analysis
+    endpoint set (the default) it silently inherited the main client's 20s and
+    ``max_retries=2`` instead. A WhatsApp turn spent 51 seconds inside
+    ``analyze_turn`` — one attempt timing out at 20s, then retries — while the
+    reply it was enriching took 1.8s to generate. The customer watched "Bot is
+    typing…" for the difference.
+
+    ``with_options`` is cheap: it clones the config, not the transport.
     """
     endpoint = (os.getenv("AZURE_OPENAI_ANALYSIS_ENDPOINT") or "").strip()
     if not endpoint:
-        return get_client()
+        return get_client().with_options(
+            timeout=_analysis_timeout_s(),
+            # An analysis call that failed once has already blown its latency
+            # budget; retrying spends a live caller's time on a result nobody
+            # is waiting for.
+            max_retries=0,
+        )
 
     global _analysis_client
     if _analysis_client is not None:
@@ -226,7 +247,7 @@ def get_analysis_client() -> AzureOpenAI:
                 api_key=_analysis_env("API_KEY"),
                 api_version=_analysis_env("API_VERSION"),
                 azure_endpoint=endpoint.rstrip("/") + "/",
-                timeout=float(max(2, _env_int("AZURE_OPENAI_ANALYSIS_TIMEOUT_S", 8))),
+                timeout=_analysis_timeout_s(),
                 # No retries: an analysis call that failed once has already blown
                 # its latency budget, and every caller degrades gracefully.
                 max_retries=0,
@@ -294,6 +315,63 @@ def get_client() -> AzureOpenAI:
             max_retries=2,
         )
         return _client
+
+
+#: Re-warm once the pool has been idle this long. httpx reaps keep-alive
+#: connections after a few minutes and Azure lets a deployment go cold, so a
+#: worker that only wakes when a customer messages is cold nearly every time.
+PREWARM_IDLE_SECONDS = 180.0
+
+_last_prewarm_at: float = 0.0
+
+
+def prewarm(*, force: bool = False) -> float:
+    """Open TLS and warm the deployment. Returns elapsed ms, 0.0 on failure.
+
+    ``bot_worker`` sits idle between customer messages, so its first Azure call
+    of a turn pays the full cold-start. Measured on a live WhatsApp turn that
+    was the difference between 1.9s and 11.2s for the same intent
+    classification, and 4.0s vs 13.1s for the same KB lookup — the customer
+    watched a typing indicator for the gap. The voice runner has warmed its
+    pool at start since it shipped (``voice/llm_pool.prewarm_shared_client``);
+    the text path never did.
+
+    Cheap and best-effort: one tiny completion, and any failure is logged and
+    swallowed. A worker that cannot warm up must still process the queue.
+    """
+    global _last_prewarm_at
+    now = time.monotonic()
+    if not force and _last_prewarm_at and (now - _last_prewarm_at) < PREWARM_IDLE_SECONDS:
+        return 0.0
+    t0 = time.perf_counter()
+    try:
+        client = get_client()
+        deployment = get_chat_deployment()
+        # Not max_completion_tokens=1: gpt-5.x returns 400 "could not finish the
+        # message" when a single token cannot complete one, which turns the
+        # prewarm into a scary traceback and leaves the first real turn cold.
+        # 16 is enough to say "ok". Same lesson as voice/llm_pool._completion_ping.
+        kwargs: dict[str, Any] = {
+            "model": deployment,
+            "messages": [{"role": "user", "content": "Reply with: ok"}],
+        }
+        if _is_reasoning_deployment(deployment):
+            kwargs["max_completion_tokens"] = 16
+        else:
+            kwargs["max_tokens"] = 16
+            kwargs["temperature"] = 0
+        client.chat.completions.create(**kwargs)
+        # Embeddings are a *different* deployment with its own cold start, and
+        # every KB lookup goes through one. Warming only chat left the first
+        # retrieval of the day at 8.5s against 4.7s warm.
+        client.embeddings.create(model=get_embedding_deployment(), input=["ok"])
+    except Exception:
+        logger.warning("azure prewarm failed — first turn will pay cold start", exc_info=True)
+        return 0.0
+    _last_prewarm_at = time.monotonic()
+    ms = (time.perf_counter() - t0) * 1000.0
+    logger.info("azure prewarm OK · deployment=%s · %.0f ms", get_chat_deployment(), ms)
+    return ms
 
 
 def _embed_cache_max() -> int:
@@ -536,6 +614,25 @@ def chat_with_tools(
     semaphore and circuit breaker — so per-turn understanding and QA scoring
     cannot delay or trip the circuit for the live conversation turn.
     """
+    gw_profile = "analysis" if profile == PROFILE_ANALYSIS else "text"
+    try:
+        from llm_gateway.client import maybe_chat
+
+        routed = maybe_chat(
+            messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            profile=gw_profile,
+            reasoning_effort=reasoning_effort,
+            timeout=timeout,
+        )
+        if routed is not None:
+            return routed
+    except Exception:
+        logger.exception("llm gateway routing failed; Azure kill-switch")
+
     if profile == PROFILE_ANALYSIS:
         client = get_analysis_client()
         deployment = get_analysis_deployment()
@@ -618,12 +715,14 @@ def chat_with_tools(
     try:
         import usage_meter
 
+        from agent_core.platform_flags import llm_gateway_enabled as _gw_on
+
         usage_meter.record_chat_usage(
             prompt_tokens=int(prompt_tokens) if prompt_tokens is not None else None,
             completion_tokens=int(completion_tokens) if completion_tokens is not None else None,
             total_tokens=int(total_tokens) if total_tokens is not None else None,
             model=deployment,
-            source_ref="azure_openai.chat_with_tools",
+            source_ref=f"llm_gateway.{gw_profile}" if _gw_on() else "azure_openai.chat_with_tools",
         )
     except Exception:
         logger.exception("chat usage metering failed")

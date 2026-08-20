@@ -1,8 +1,9 @@
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 
 import { useCallCost, type CallCostLine } from "@/api/call-cost";
 import { USE_MOCK } from "@/api/config";
 import { inrCompact } from "@/data/billing-seed";
+import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -24,7 +25,7 @@ export function CallCostPanel({ interactionId }: Props) {
   // otherwise leave this tab silently blank — mock is the dev default.
   if (USE_MOCK) {
     return (
-      <div className="rounded-medium border border-border bg-surface px-150 py-125 text-body-small text-text-subtlest">
+      <div className="rounded-medium border border-border bg-surface px-150 py-100 text-body-small text-text-subtlest">
         Per-call cost reads live usage events. Set{" "}
         <code className="font-mono text-text-subtle">VITE_USE_MOCK=false</code> to
         load it from the API.
@@ -34,16 +35,15 @@ export function CallCostPanel({ interactionId }: Props) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-100 px-150 py-200 text-body-small text-text-subtlest">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading cost breakdown…
+      <div className="px-150 py-200">
+        <LoadingState label="Loading cost breakdown" />
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="flex items-start gap-100 rounded-medium border border-border bg-surface px-150 py-125 text-body-small text-text-danger">
+      <div className="flex items-start gap-100 rounded-medium border border-border bg-surface px-150 py-100 text-body-small text-text-danger">
         <AlertCircle className="mt-025 h-4 w-4 shrink-0" />
         <span>Could not load cost for this call. {(error as Error)?.message ?? ""}</span>
       </div>
@@ -57,7 +57,7 @@ export function CallCostPanel({ interactionId }: Props) {
   // about a real number, so the two states are rendered differently.
   if (!data.attributed) {
     return (
-      <div className="rounded-medium border border-border bg-surface px-150 py-125">
+      <div className="rounded-medium border border-border bg-surface px-150 py-100">
         <div className="text-body font-medium text-text">Not metered</div>
         <p className="mt-050 text-body-small leading-relaxed text-text-subtlest">
           This call carries no usage events. Calls handled before per-call
@@ -72,7 +72,7 @@ export function CallCostPanel({ interactionId }: Props) {
 
   return (
     <div className="space-y-150">
-      <div className="flex flex-wrap items-end justify-between gap-150 rounded-medium border border-border bg-surface px-150 py-125">
+      <div className="flex flex-wrap items-end justify-between gap-150 rounded-medium border border-border bg-surface px-150 py-100">
         <div>
           <div className="text-body-small text-text-subtlest">Total call cost</div>
           <div className="font-mono text-heading-medium text-text">

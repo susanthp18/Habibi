@@ -1,3 +1,12 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   Home,
@@ -24,16 +33,16 @@ import {
   Webhook,
   Receipt,
   ShieldAlert,
-  ChevronsLeft,
   ChevronsRight,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { BigBoundMark } from "@/components/brand/BigBoundMark";
+import { EqualizerMark } from "@/components/brand/EqualizerMark";
 import { BRAND } from "@/lib/brand";
 import { useSidebarUi } from "./sidebar-ui";
 
 type NavItem = {
+  key: string;
   label: string;
   icon: LucideIcon;
   to?: string;
@@ -48,181 +57,353 @@ const groups: NavGroup[] = [
   {
     label: "Live operations",
     items: [
-      { label: "My workspace", icon: Home, to: "/" },
-      { label: "Conversation inbox", icon: LayoutGrid, to: "/inbox" },
-      { label: "Handoff hub", icon: Headphones, to: "/handoff" },
-      { label: "Floor command", icon: Activity, to: "/floor" },
+      { key: "workspace", label: "My workspace", icon: Home, to: "/" },
+      { key: "inbox", label: "Conversation inbox", icon: LayoutGrid, to: "/inbox" },
+      { key: "handoff", label: "Handoff hub", icon: Headphones, to: "/handoff" },
+      { key: "floor", label: "Floor command", icon: Activity, to: "/floor" },
     ],
   },
   {
     label: "CRM & resolution",
     items: [
-      { label: "Executive dashboard", icon: BarChart3, to: "/dashboard" },
-      { label: "Customer 360", icon: Users, to: "/customers" },
-      { label: "Promise to pay", icon: HandCoins, to: "/promises" },
-      { label: "Disputes queue", icon: AlertOctagon, to: "/disputes" },
-      { label: "Document desk", icon: FileText, to: "/documents" },
-      { label: "Callbacks", icon: CalendarClock, to: "/callbacks" },
-      { label: "Upsell & leads", icon: Sparkles, to: "/upsell" },
+      { key: "dashboard", label: "Executive dashboard", icon: BarChart3, to: "/dashboard" },
+      { key: "customers", label: "Customer 360", icon: Users, to: "/customers" },
+      { key: "promises", label: "Promise to pay", icon: HandCoins, to: "/promises" },
+      { key: "disputes", label: "Disputes queue", icon: AlertOctagon, to: "/disputes" },
+      { key: "documents", label: "Document desk", icon: FileText, to: "/documents" },
+      { key: "callbacks", label: "Callbacks", icon: CalendarClock, to: "/callbacks" },
+      { key: "upsell", label: "Upsell & leads", icon: Sparkles, to: "/upsell" },
     ],
   },
   {
     label: "Compliance & QA",
     items: [
-      { label: "Audit trail", icon: ClipboardList, to: "/audit" },
-      { label: "Compliance risk", icon: ShieldAlert, to: "/compliance" },
-      { label: "Consent / DND", icon: UserCheck, to: "/consent" },
-      { label: "Redaction & export", icon: FileLock2, to: "/redaction" },
-      { label: "QA scorecards", icon: ClipboardCheck, to: "/qa" },
-      { label: "Bot analytics", icon: Activity, to: "/bot-analytics" },
+      { key: "audit", label: "Audit trail", icon: ClipboardList, to: "/audit" },
+      { key: "compliance", label: "Compliance risk", icon: ShieldAlert, to: "/compliance" },
+      { key: "consent", label: "Consent / DND", icon: UserCheck, to: "/consent" },
+      { key: "redaction", label: "Redaction & export", icon: FileLock2, to: "/redaction" },
+      { key: "qa", label: "QA scorecards", icon: ClipboardCheck, to: "/qa" },
+      { key: "bot-analytics", label: "Bot analytics", icon: Activity, to: "/bot-analytics" },
     ],
   },
   {
     label: "Bot configuration",
     items: [
-      { label: "Knowledge base", icon: BookOpen, to: "/knowledge-base" },
-      { label: "Prompt studio", icon: Bot, to: "/prompt-studio" },
-      { label: "Call sandbox", icon: Beaker, to: "/sandbox" },
-      { label: "Routing / logic", icon: GitBranch, to: "/routing" },
-      { label: "Integrations", icon: Plug, to: "/integrations" },
-      { label: "Webhooks", icon: Webhook, to: "/webhooks" },
-      { label: "Billing & usage", icon: Receipt, to: "/billing" },
-      { label: "Roles & access", icon: ShieldCheck, soon: true },
+      { key: "knowledge-base", label: "Knowledge base", icon: BookOpen, to: "/knowledge-base" },
+      { key: "prompt-studio", label: "Agent studio", icon: Bot, to: "/agent-studio" },
+      { key: "sandbox", label: "Call sandbox", icon: Beaker, to: "/sandbox" },
+      { key: "routing", label: "Routing / logic", icon: GitBranch, to: "/routing" },
+      { key: "integrations", label: "Integrations", icon: Plug, to: "/integrations" },
+      { key: "webhooks", label: "Webhooks", icon: Webhook, to: "/webhooks" },
+      { key: "billing", label: "Billing & usage", icon: Receipt, to: "/billing" },
+      { key: "roles", label: "Roles & access", icon: ShieldCheck, to: "/roles" },
     ],
   },
 ];
+
+function itemKey(item: NavItem) {
+  return item.key;
+}
 
 /** Shared nav-group rendering — reused by the desktop Sidebar and the mobile drawer (MobileNav). */
 export function NavLinks({
   collapsed = false,
   pathname,
   onNavigate,
+  query = "",
 }: {
   collapsed?: boolean;
   pathname: string;
   onNavigate?: () => void;
+  query?: string;
 }) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [box, setBox] = useState<{ top: number; height: number } | null>(null);
+  const navRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  const activeKey = useMemo(() => {
+    for (const group of groups) {
+      for (const item of group.items) {
+        if (item.to && pathname === item.to) return item.key;
+      }
+    }
+    return null;
+  }, [pathname]);
+
+  const filteredGroups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return groups;
+    return groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => item.label.toLowerCase().includes(q)),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [query]);
+
+  const highlightKey = hovered ?? activeKey;
+
+  useLayoutEffect(() => {
+    const container = navRef.current;
+    const target = highlightKey ? itemRefs.current[highlightKey] : null;
+    if (!container || !target) {
+      setBox(null);
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    setBox({
+      top: targetRect.top - containerRect.top,
+      height: targetRect.height,
+    });
+  }, [highlightKey, filteredGroups, collapsed]);
+
+  const bindItemRef = useCallback((key: string, el: HTMLElement | null) => {
+    itemRefs.current[key] = el;
+  }, []);
+
   return (
-    <>
-      {groups.map((group) => (
-        <div key={group.label} className={cn("mb-150", collapsed && "mb-100")}>
+    <div
+      ref={navRef}
+      onMouseLeave={() => setHovered(null)}
+      className={cn("relative flex flex-col", collapsed ? "gap-050" : "gap-150")}
+    >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 rounded-[7px] bg-background-neutral-subtle-hovered"
+        style={{
+          top: box?.top ?? 0,
+          height: box?.height ?? 0,
+          opacity: box ? 1 : 0,
+          transition:
+            "top 220ms cubic-bezier(0.23,1,0.32,1), height 220ms cubic-bezier(0.23,1,0.32,1), opacity 150ms ease",
+        }}
+      />
+      {filteredGroups.map((group) => (
+        <div key={group.label}>
           {!collapsed && (
-            <div className="px-150 pb-050 text-body-small font-medium text-text-subtle">
+            <div className="px-150 pb-050 pt-025 text-[10.5px] font-medium uppercase tracking-[0.08em] text-text-subtlest">
               {group.label}
             </div>
           )}
-          <ul className="space-y-025">
+          <div className="flex flex-col gap-px">
             {group.items.map((item) => {
-              const active = Boolean(item.to && pathname === item.to);
+              const isActive = Boolean(item.to && pathname === item.to);
               const Icon = item.icon;
-              // Full selected triad (background + text + border rail) per Design.md — never
-              // just a tint or just a border on its own.
-              const base = cn(
-                "focus-ring flex items-center rounded-medium border-l-2 border-l-transparent text-body transition-colors duration-token-short",
+              const key = itemKey(item);
+              const className = cn(
+                "group relative z-10 flex w-full items-center rounded-[7px] text-left transition-[color,transform] duration-150 active:scale-[0.96]",
                 collapsed ? "justify-center px-0 py-150" : "gap-150 px-150 py-100",
-                active
-                  ? "bg-background-selected border-l-border-selected font-medium text-text-selected"
-                  : "text-text hover:bg-background-neutral-subtle-hovered",
-                item.soon && "cursor-not-allowed opacity-60 hover:bg-transparent",
+                item.soon && "cursor-not-allowed opacity-60",
               );
+
               const body = (
                 <>
-                  <Icon className={cn("h-4 w-4 shrink-0", active && "text-icon-selected")} />
-                  {!collapsed && <span className="truncate">{item.label}</span>}
+                  <span className={cn("shrink-0", isActive ? "text-text" : "text-text-subtlest")}>
+                    <Icon className="h-[13px] w-[13px]" strokeWidth={1.8} />
+                  </span>
+                  {!collapsed && (
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-[13px] transition-colors duration-150",
+                        isActive ? "font-medium text-text" : "text-text-subtle",
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                  )}
                   {!collapsed && item.soon && (
-                    <span className="ml-auto rounded-small bg-background-neutral-subtle px-075 py-025 text-body-small text-text-subtlest">
+                    <span className="rounded-small bg-background-neutral-subtle px-075 py-025 text-[10.5px] font-semibold text-text-subtlest shadow-raised">
                       Soon
                     </span>
                   )}
                 </>
               );
-              return (
-                <li key={item.label}>
-                  {item.to && !item.soon ? (
+
+              const interaction = {
+                onMouseEnter: () => setHovered(key),
+                onFocus: () => setHovered(key),
+                onBlur: () => setHovered(null),
+              };
+
+              if (item.to && !item.soon) {
+                return (
+                  <div
+                    key={key}
+                    ref={(el) => bindItemRef(key, el)}
+                    onMouseEnter={interaction.onMouseEnter}
+                  >
                     <Link
                       to={item.to}
-                      className={base}
                       title={item.label}
                       aria-label={item.label}
+                      aria-current={isActive ? "page" : undefined}
+                      className={className}
                       onClick={onNavigate}
+                      onFocus={interaction.onFocus}
+                      onBlur={interaction.onBlur}
                     >
                       {body}
                     </Link>
-                  ) : (
-                    <div className={base} aria-disabled title={item.label} aria-label={item.label}>
-                      {body}
-                    </div>
-                  )}
-                </li>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={key}
+                  ref={(el) => bindItemRef(key, el)}
+                  className={className}
+                  aria-disabled
+                  title={item.label}
+                  aria-label={item.label}
+                  {...interaction}
+                >
+                  {body}
+                </div>
               );
             })}
-          </ul>
+          </div>
         </div>
       ))}
-    </>
+      {filteredGroups.length === 0 && !collapsed && (
+        <div className="px-150 py-100 text-[12.5px] text-text-subtlest">No matching pages</div>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceRow({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="focus-ring mb-100 grid w-full place-items-center rounded-medium p-050 transition-[background-color,transform] duration-100 hover:bg-background-neutral-subtle-hovered active:scale-[0.96]"
+        aria-label="Expand sidebar"
+        title="Expand sidebar"
+      >
+        <EqualizerMark size={28} />
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="focus-ring mb-100 flex w-full items-center gap-150 rounded-medium p-050 text-left transition-[background-color,transform] duration-100 hover:bg-background-neutral-subtle-hovered active:scale-[0.96]"
+      aria-label="Collapse sidebar"
+      title="Collapse sidebar"
+    >
+      <EqualizerMark size={32} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium leading-tight text-text">{BRAND.name}</span>
+        <span className="block truncate text-[11px] leading-tight text-text-subtlest">{BRAND.tenantLine}</span>
+      </span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-text-subtlest">
+        <path d="M7 15l5 5 5-5M7 9l5-5 5 5" />
+      </svg>
+    </button>
+  );
+}
+
+function QuickSearch({
+  query,
+  onQueryChange,
+  inputRef,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  inputRef: RefObject<HTMLInputElement | null>;
+}) {
+  return (
+    <label className="mb-050 flex h-8 items-center gap-150 rounded-medium bg-surface-sunken px-150 shadow-raised">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-text-subtlest">
+        <circle cx="11" cy="11" r="7" />
+        <path d="M21 21l-4.3-4.3" />
+      </svg>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+        placeholder="Quick search"
+        className="min-w-0 flex-1 bg-transparent text-[12.5px] text-text outline-none placeholder:text-text-subtlest"
+      />
+      <kbd className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] bg-surface text-[10px] text-text-subtlest shadow-raised">
+        /
+      </kbd>
+    </label>
   );
 }
 
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { collapsed, toggle } = useSidebarUi();
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (collapsed) setQuery("");
+  }, [collapsed]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (collapsed) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [collapsed]);
 
   return (
     <aside
       className={cn(
         "hidden h-screen min-h-0 shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-token-medium ease-token-out-practical lg:flex",
-        collapsed ? "w-800" : "w-[15rem]",
+        collapsed ? "w-800" : "w-60",
       )}
     >
-      <div
-        className={cn(
-          "flex h-14 shrink-0 items-center border-b border-border",
-          collapsed ? "justify-center px-075" : "gap-100 px-150",
-        )}
-      >
-        <BigBoundMark size={collapsed ? 28 : 32} />
+      <div className={cn("flex min-h-0 flex-1 flex-col", collapsed ? "p-100" : "p-150")}>
+        <WorkspaceRow collapsed={collapsed} onToggle={toggle} />
+
         {!collapsed && (
-          <div className="min-w-0 flex-1 leading-tight">
-            <div className="truncate text-body-small font-medium text-text">
-              {BRAND.name}
-            </div>
-            <div className="truncate text-body-small text-text-subtle">{BRAND.tenantLine}</div>
+          <div className="mb-100">
+            <QuickSearch query={query} onQueryChange={setQuery} inputRef={searchRef} />
           </div>
         )}
-        {!collapsed && (
+
+        <nav className="min-h-0 flex-1 overflow-y-auto">
+          <NavLinks collapsed={collapsed} pathname={pathname} query={query} />
+        </nav>
+
+        {collapsed ? (
           <button
             type="button"
             onClick={toggle}
-            className="focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-background-neutral-subtle-hovered hover:text-text-brand"
-            aria-label="Collapse sidebar"
-            title="Collapse sidebar"
-          >
-            <ChevronsLeft className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-
-      <nav className="min-h-0 flex-1 overflow-y-auto px-100 py-150">
-        <NavLinks collapsed={collapsed} pathname={pathname} />
-      </nav>
-
-      {collapsed ? (
-        <div className="shrink-0 border-t border-border p-100">
-          <button
-            type="button"
-            onClick={toggle}
-            className="focus-ring grid h-9 w-full place-items-center rounded-medium text-text-subtle hover:bg-background-neutral-subtle-hovered hover:text-text-brand"
+            className="focus-ring mt-100 grid h-9 w-full place-items-center rounded-medium text-text-subtlest transition-[background-color,transform] duration-100 hover:bg-background-neutral-subtle-hovered hover:text-text active:scale-[0.96]"
             aria-label="Expand sidebar"
             title="Expand sidebar"
           >
             <ChevronsRight className="h-4 w-4" />
           </button>
-        </div>
-      ) : (
-        <div className="shrink-0 border-t border-border px-200 py-150 text-body-small text-text-subtlest">
-          {BRAND.shortName} · v0.1
-        </div>
-      )}
+        ) : (
+          <div className="mt-100 px-150 pt-100 text-[11px] text-text-subtlest">
+            {BRAND.shortName} · v0.1
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

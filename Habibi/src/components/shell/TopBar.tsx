@@ -1,26 +1,19 @@
 import { ChevronsLeft, ChevronsRight, Search } from "lucide-react";
 
-import { useMe } from "@/api/me";
-import { BigBoundMark } from "@/components/brand/BigBoundMark";
+import { EqualizerMark } from "@/components/brand/EqualizerMark";
 import { BRAND } from "@/lib/brand";
 import { CommandPalette, useCommandPalette } from "@/components/shell/CommandPalette";
 import { NotificationsPopover } from "@/components/shell/NotificationsPopover";
 import { HelpPopover } from "@/components/shell/HelpPopover";
 import { MobileNav } from "@/components/shell/MobileNav";
 import { useSidebarUi } from "@/components/shell/sidebar-ui";
+import { AnimatedThemeToggler } from "@/registry/magicui/animated-theme-toggler";
+import { setTheme, useTheme } from "@/lib/theme";
 
 export function TopBar() {
-  const { data: me } = useMe();
   const { open, setOpen } = useCommandPalette();
   const { collapsed, toggle } = useSidebarUi();
-  const initials = me
-    ? me.name
-        .split(" ")
-        .map((part) => part[0])
-        .slice(0, 2)
-        .join("")
-        .toUpperCase()
-    : "…";
+  const theme = useTheme();
 
   return (
     <header className="z-20 flex h-14 shrink-0 items-center gap-150 border-b border-border bg-surface px-200">
@@ -39,7 +32,7 @@ export function TopBar() {
       {/* The sidebar is lg-only, so below that breakpoint this is the only branding
           on screen. Hidden at lg+ to avoid two marks in the same viewport. */}
       <div className="flex shrink-0 items-center gap-100 lg:hidden">
-        <BigBoundMark size={26} />
+        <EqualizerMark size={26} />
         <span className="text-body-small font-medium text-text">{BRAND.shortName}</span>
       </div>
 
@@ -56,17 +49,14 @@ export function TopBar() {
       </button>
 
       <div className="ml-auto flex items-center gap-050">
+        <AnimatedThemeToggler
+          theme={theme}
+          onThemeChange={setTheme}
+          className="focus-ring grid h-9 w-9 shrink-0 place-items-center rounded-medium text-text-subtle transition-colors hover:bg-surface-sunken hover:text-text-brand [&_svg]:h-[1.125rem] [&_svg]:w-[1.125rem]"
+          title="Toggle night mode"
+        />
         <NotificationsPopover />
         <HelpPopover />
-        <div className="ml-100 flex items-center gap-100 rounded-full border border-border bg-surface-sunken py-050 pl-050 pr-150">
-          <div className="grid h-7 w-7 place-items-center rounded-full bg-background-brand-bold text-body-small font-medium text-text-inverse">
-            {initials}
-          </div>
-          <div className="leading-tight">
-            <div className="text-body-small font-medium text-text">{me?.name ?? "…"}</div>
-            <div className="text-body-small text-text-subtle">{me?.team ?? "Loading"}</div>
-          </div>
-        </div>
       </div>
 
       <CommandPalette open={open} onOpenChange={setOpen} />

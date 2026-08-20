@@ -1,6 +1,6 @@
-import { CheckCircle2, Circle, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Circle, Lock, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ComplianceItem } from "@/data/handoff-seed";
+import type { ComplianceItem } from "@/api/handoff";
 
 type Props = {
   items: ComplianceItem[];
@@ -10,7 +10,7 @@ type Props = {
 
 export function ComplianceChecklist({ items, checked, onToggle }: Props) {
   const total = items.filter((i) => i.required).length;
-  const done = items.filter((i) => i.required && checked[i.id]).length;
+  const done = items.filter((i) => i.required && (checked[i.id] || i.checked)).length;
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
 
   return (
@@ -34,16 +34,20 @@ export function ComplianceChecklist({ items, checked, onToggle }: Props) {
       </div>
       <ul className="px-050 py-050">
         {items.map((item) => {
-          const isDone = !!checked[item.id];
+          const isDone = !!(checked[item.id] || item.checked);
+          const locked = !!item.locked;
           return (
             <li key={item.id}>
               <button
                 type="button"
-                onClick={() => onToggle(item.id)}
-                className="flex w-full items-start gap-100 rounded-medium px-100 py-075 text-left hover:bg-surface-sunken"
+                onClick={() => !locked && onToggle(item.id)}
+                disabled={locked}
+                className="flex w-full items-start gap-100 rounded-medium px-100 py-075 text-left hover:bg-surface-sunken disabled:cursor-not-allowed disabled:hover:bg-transparent"
               >
                 {isDone ? (
                   <CheckCircle2 className="mt-025 h-4 w-4 shrink-0 text-text-success" />
+                ) : locked ? (
+                  <Lock className="mt-025 h-4 w-4 shrink-0 text-text-subtlest" />
                 ) : (
                   <Circle className="mt-025 h-4 w-4 shrink-0 text-text-subtlest" />
                 )}
@@ -56,6 +60,9 @@ export function ComplianceChecklist({ items, checked, onToggle }: Props) {
                   {item.label}
                   {!item.required && (
                     <span className="ml-050 text-body-small text-text-subtlest">(optional)</span>
+                  )}
+                  {locked && (
+                    <span className="ml-050 text-body-small text-text-subtlest">(system)</span>
                   )}
                 </span>
               </button>

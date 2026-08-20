@@ -12,13 +12,6 @@ import flow_graph as fg
 from voice.flow_vars import FlowVariables, evaluate_condition
 
 
-def _graph(**over) -> fg.FlowGraph:
-    base = fg.empty_graph()
-    for key, value in over.items():
-        setattr(base, key, value)
-    return base
-
-
 def _codes(validation: fg.FlowValidation, severity: str) -> set[str]:
     return {i.code for i in validation.issues if i.severity == severity}
 
@@ -238,3 +231,25 @@ def test_match_all_versus_any() -> None:
 
 def test_empty_expression_never_fires() -> None:
     assert evaluate_condition(_expr(), FlowVariables()) is False
+
+
+# --- publish compiler -------------------------------------------------------
+
+
+def test_empty_stored_graph_is_publishable() -> None:
+    """`{}` means 'use the built-in script' — that must still ship."""
+    assert fg.assert_publishable({}).nodes == []
+    assert fg.assert_publishable(None).nodes == []
+
+
+def test_invalid_authored_graph_is_not_publishable() -> None:
+    graph = fg.empty_graph()
+    graph.nodes[1].key = graph.nodes[0].key
+    with pytest.raises(fg.FlowInvalidError) as exc:
+        fg.assert_publishable(graph)
+    assert exc.value.http_detail()["code"] == "flow_invalid"
+    assert "duplicate_node_key" in _codes(exc.value.validation, "error")
+
+
+def test_starter_graph_is_publishable_against_the_live_catalog() -> None:
+    fg.assert_publishable(fg.empty_graph())

@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +29,31 @@ _NUMERIC_OPERATORS = frozenset(
 
 
 class FlowVariables:
-    """The variable bag for one call."""
+    """The variable bag for one call.
 
-    def __init__(self, initial: Mapping[str, Any] | None = None) -> None:
+    Three tiers, lowest precedence first:
+
+    ``date`` / ``time``
+        Recomputed on every read so a long call does not keep substituting the
+        timestamp it started at.
+    ``context``
+        A caller-supplied projection of live call state — read at render time
+        for the same reason. An authored graph needs this: the caller's stated
+        goal is captured *after* the flow is compiled, so a snapshot taken at
+        build time would always be empty.
+    author values
+        Whatever the graph's own extract tools captured. These win, so a node
+        that explicitly declares a variable is never shadowed by call state.
+    """
+
+    def __init__(
+        self,
+        initial: Mapping[str, Any] | None = None,
+        *,
+        context: Callable[[], Mapping[str, Any]] | None = None,
+    ) -> None:
         self._values: dict[str, str] = {}
+        self._context = context
         for key, value in (initial or {}).items():
             self.set(key, value)
 
@@ -42,7 +63,11 @@ class FlowVariables:
         self._values[str(key)] = "" if value is None else str(value)
 
     def get(self, key: str) -> str | None:
-        return self._values.get(key)
+        # Resolved, not raw: an edge condition must be able to test the same
+        # names an instruction can interpolate. Reading _values directly meant
+        # `{{call_goal_intent}}` rendered in the prompt while an expression edge
+        # on the same variable silently evaluated to "not there".
+        return self._resolved().get(key)
 
     def update(self, values: Mapping[str, Any]) -> None:
         for key, value in values.items():
@@ -54,13 +79,22 @@ class FlowVariables:
 
     def _resolved(self) -> dict[str, str]:
         now = datetime.now(timezone.utc)
-        # System variables are computed at read time, not stored, so a long call
-        # does not keep substituting the timestamp it started at.
-        return {
+        out: dict[str, str] = {
             "date": now.strftime("%d %B %Y"),
             "time": now.strftime("%H:%M UTC"),
-            **self._values,
         }
+        if self._context is not None:
+            try:
+                for key, value in (self._context() or {}).items():
+                    if key:
+                        out[str(key)] = "" if value is None else str(value)
+            except Exception:
+                # A variable lookup must never take down a live call; an
+                # unresolved placeholder is visible in the transcript, a raise
+                # here is not.
+                logger.warning("flow variable context failed", exc_info=True)
+        out.update(self._values)
+        return out
 
     def render(self, text: str) -> str:
         """Substitute ``{{ key }}``. Unknown keys are left as written.

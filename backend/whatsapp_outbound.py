@@ -7,6 +7,7 @@ returns immediately. bot_worker drains both bot_turn_jobs and this queue.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -53,6 +54,12 @@ def enqueue_agent_send(
     customer_id: str | None,
     to_phone: str,
     body: str,
+    preview_url: bool = False,
+    template_name: str | None = None,
+    template_lang: str | None = None,
+    template_params: list[str] | None = None,
+    purpose: str | None = None,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Enqueue (or return existing) outbound job for a pre-inserted 'sending' message."""
     existing = conn.execute(
@@ -69,6 +76,7 @@ def enqueue_agent_send(
         return dict(existing._mapping)
 
     jid = _job_id()
+    params_json = json.dumps(template_params) if template_params is not None else None
     try:
         with conn.begin_nested():
             conn.execute(
@@ -76,10 +84,12 @@ def enqueue_agent_send(
                     """
                     INSERT INTO whatsapp_outbound_jobs (
                       id, message_id, conversation_id, customer_id,
-                      to_phone, body, status
+                      to_phone, body, preview_url, template_name, template_lang,
+                      template_params, purpose, source, status
                     ) VALUES (
                       :id, :message_id, :conversation_id, :customer_id,
-                      :to_phone, :body, 'queued'
+                      :to_phone, :body, :preview_url, :template_name, :template_lang,
+                      CAST(:template_params AS jsonb), :purpose, :source, 'queued'
                     )
                     """
                 ),
@@ -90,6 +100,12 @@ def enqueue_agent_send(
                     "customer_id": customer_id,
                     "to_phone": to_phone,
                     "body": body,
+                    "preview_url": bool(preview_url),
+                    "template_name": template_name,
+                    "template_lang": template_lang,
+                    "template_params": params_json,
+                    "purpose": purpose,
+                    "source": source,
                 },
             )
     except IntegrityError as exc:
@@ -114,7 +130,52 @@ def enqueue_agent_send(
         message_id,
         conversation_id,
     )
+    _warn_if_queue_is_not_draining(conn)
     return {"id": jid, "status": "queued"}
+
+
+#: A queued job older than this, at the moment a new one is enqueued, means
+#: nothing is consuming the queue. Generous enough that a slow provider call or
+#: a retry backoff does not trip it.
+_STALE_QUEUE_SECONDS = 120
+
+
+def _warn_if_queue_is_not_draining(conn: Connection) -> None:
+    """Say so when a send is being queued into a queue nobody is reading.
+
+    ``send_conversation_message`` returns 200 as soon as the row is written, so
+    an agent whose reply is never posted gets no signal at all — not from the
+    API, not from the composer. An operator ran the API without ``bot_worker``,
+    took over a conversation, sent two replies, and watched a customer not
+    receive them; the only trace was two rows sitting at ``queued``.
+
+    Cheap enough to run here: agent sends are human-paced, and this is one
+    indexed aggregate. Never raises — a diagnostic that can fail a send is
+    worse than no diagnostic.
+    """
+    try:
+        row = conn.execute(
+            text(
+                """
+                SELECT count(*) AS n,
+                       COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0) AS oldest_s
+                  FROM whatsapp_outbound_jobs
+                 WHERE status = 'queued'
+                """
+            )
+        ).fetchone()
+        if row is None:
+            return
+        oldest = float(row._mapping["oldest_s"] or 0)
+        if oldest >= _STALE_QUEUE_SECONDS:
+            logger.warning(
+                "whatsapp_outbound queue is not draining — %s job(s) queued, oldest %.0fs. "
+                "Nothing will be delivered until `python -m bot_worker` is running.",
+                int(row._mapping["n"] or 0),
+                oldest,
+            )
+    except Exception:
+        logger.debug("outbound queue staleness check failed", exc_info=True)
 
 
 def reclaim_stuck_jobs(conn: Connection) -> int:
@@ -160,7 +221,9 @@ def claim_next_job(conn: Connection) -> dict[str, Any] | None:
         text(
             """
             SELECT id, message_id, conversation_id, customer_id,
-                   to_phone, body, attempt, post_attempted_at
+                   to_phone, body, attempt, post_attempted_at,
+                   preview_url, template_name, template_lang, template_params,
+                   purpose, source
             FROM whatsapp_outbound_jobs
             WHERE status = 'queued'
               AND (run_after IS NULL OR run_after <= now())
@@ -379,6 +442,49 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
             mark_succeeded(conn, job["id"], provider_ref=row._mapping.get("provider_ref"))
         return
 
+    import contact_policy
+
+    purpose = (job.get("purpose") or "").strip()
+    if purpose not in {"outreach", "statutory", "in_session"}:
+        purpose = "statutory" if (job.get("template_name") or job.get("preview_url")) else "in_session"
+    source = (job.get("source") or "").strip() or (
+        "ptp_confirm" if purpose == "statutory" else "inbox_reply"
+    )
+    with engine.begin() as conn:
+        decision = contact_policy.admit(
+            conn,
+            customer_id=job.get("customer_id"),
+            channel="whatsapp",
+            purpose=purpose,
+            session_key=job.get("conversation_id"),
+            source=source,
+            related_id=job.get("message_id") or job.get("id"),
+            actor_kind="system",
+        )
+        if not decision.allowed:
+            status = mark_failed_or_retry(conn, job, decision.reason or "contact_policy")
+            if status == "dead":
+                conn.execute(
+                    text(
+                        """
+                        UPDATE messages
+                        SET delivery_status = 'failed'
+                        WHERE id = :id AND COALESCE(delivery_status, '') = 'sending'
+                        """
+                    ),
+                    {"id": message_id},
+                )
+                conn.execute(
+                    text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
+                    {"id": job["conversation_id"]},
+                )
+            logger.info(
+                "whatsapp_outbound blocked job=%s reason=%s",
+                job["id"],
+                decision.reason,
+            )
+            return
+
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -393,7 +499,26 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
         )
 
     try:
-        send_resp = wa.send_text_message(to_phone=to_phone, body=body)
+        template_name = (job.get("template_name") or "").strip()
+        if template_name:
+            params = job.get("template_params") or []
+            if isinstance(params, str):
+                try:
+                    params = json.loads(params)
+                except json.JSONDecodeError:
+                    params = []
+            send_resp = wa.send_template_message(
+                to_phone=to_phone,
+                template_name=template_name,
+                template_lang=(job.get("template_lang") or "en_US"),
+                body_params=list(params) if params else None,
+            )
+        else:
+            send_resp = wa.send_text_message(
+                to_phone=to_phone,
+                body=body,
+                preview_url=bool(job.get("preview_url")),
+            )
         provider_ref = wa.extract_wamid(send_resp)
     except Exception as exc:
         err = _persistable_error(exc)

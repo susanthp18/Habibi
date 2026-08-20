@@ -1,5 +1,9 @@
 CREATE TABLE IF NOT EXISTS kb_documents (
   id TEXT PRIMARY KEY,
+  -- Ownership. updated_by_user_id below is attribution and ON DELETE SET NULL,
+  -- so it cannot carry tenancy: 20 of 21 rows had it NULL, and deleting a user
+  -- would have moved their documents out of the tenant (migration 0062).
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   updated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   type TEXT NOT NULL CHECK (type IN ('policy','sop','product','compliance','faq','benefits')),
   version TEXT NOT NULL,
@@ -18,6 +22,7 @@ CREATE TABLE IF NOT EXISTS kb_documents (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_kb_documents_product_key ON kb_documents(product_key);
+CREATE INDEX IF NOT EXISTS idx_kb_documents_tenant_id ON kb_documents(tenant_id);
 
 CREATE TABLE IF NOT EXISTS kb_source_files (
   id TEXT PRIMARY KEY,
@@ -72,11 +77,13 @@ CREATE TABLE IF NOT EXISTS kb_index_jobs (
 
 CREATE TABLE IF NOT EXISTS kb_snapshots (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   label TEXT NOT NULL,
   document_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   faq_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_kb_snapshots_tenant_id ON kb_snapshots(tenant_id);
 
 CREATE TABLE IF NOT EXISTS faq_pairs (
   id TEXT PRIMARY KEY,
@@ -95,6 +102,13 @@ CREATE INDEX IF NOT EXISTS idx_faq_pairs_embedding_hnsw
 
 CREATE TABLE IF NOT EXISTS prompt_versions (
   id TEXT PRIMARY KEY,
+  -- The bank the prompt was written for — not the current employer of its
+  -- author, which is what author_user_id would have implied (migration 0062).
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  -- Which mouth this version belongs to. A fleet is one published row per bot
+  -- (migration 20260815_0073); the previous unique was per tenant, which made
+  -- a second card impossible.
+  bot_id TEXT NOT NULL REFERENCES bots(id),
   author_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('draft','published','archived')),
   prompt TEXT NOT NULL,
@@ -106,17 +120,29 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
   -- Lives here so it versions and publishes atomically with the prompt whose
   -- node instructions it contains.
   flow jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Agent Card: skills, tools, handoffs, locked policy engines. Mouth columns
+  -- above stay canonical; the card references them rather than duplicating.
+  agent_card jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- AgentTuning saved with the version (migration 20260723_0029). This column
+  -- was added by that migration and never mirrored here, so until now a fresh
+  -- sql/-built database was missing a column the Prompt Studio writes to.
+  tuning jsonb NOT NULL DEFAULT '{}'::jsonb,
   label TEXT,
   summary TEXT NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS ux_prompt_versions_one_published
-  ON prompt_versions ((status))
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_tenant_id ON prompt_versions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_bot_id ON prompt_versions(bot_id);
+-- At most one published prompt version per bot. The previous unique was
+-- (tenant_id) WHERE published — a fleet cannot exist under that rule.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prompt_versions_one_published_per_bot
+  ON prompt_versions (bot_id)
   WHERE status = 'published';
 
 CREATE TABLE IF NOT EXISTS tts_voices (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   provider TEXT NOT NULL,
   name TEXT NOT NULL,
   config jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -124,6 +150,7 @@ CREATE TABLE IF NOT EXISTS tts_voices (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_tts_voices_tenant_id ON tts_voices(tenant_id);
 
 CREATE TABLE IF NOT EXISTS tts_price_tiers (
   tier text PRIMARY KEY,
@@ -133,10 +160,21 @@ CREATE TABLE IF NOT EXISTS tts_price_tiers (
   notes text NOT NULL DEFAULT '',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
--- tts_voice_catalog.price_tier defaults to 'standard' and FKs here, so the row
--- must exist before any catalog insert on a fresh install.
+-- tts_voice_catalog.price_tier FKs here, so EVERY tier derive_price_tier() can
+-- return must exist before the catalog sync runs. Seeding only 'standard' left
+-- hd / hd_flash / turbo to migrations 0043-0044, which a fresh install stamps
+-- rather than replays: the boot sync then inserted all 774 voices in one
+-- executemany, the first DragonHD voice raised
+-- tts_voice_catalog_price_tier_fkey, and the whole batch rolled back. The
+-- catalog sat empty, and every voice looked "missing from the catalog" to
+-- db.get_tts_voice_warning -- which rewrites the selection to the fallback, so
+-- picking any voice in the Studio silently played en-IN-AartiNeural.
 INSERT INTO tts_price_tiers (tier, label, approx_usd_per_1m_chars, is_premium, notes)
-VALUES ('standard', 'Standard neural', 15.0, false, 'Default tier for catalog voices')
+VALUES
+  ('standard', 'Standard neural', 15.0, false, 'Default tier for catalog voices'),
+  ('hd',       'Neural HD',       30.0, true,  'HD / Multilingual neural voices'),
+  ('hd_flash', 'Neural HD Flash', 22.0, true,  'HD Flash neural voices'),
+  ('turbo',    'Turbo / AOAI',    NULL, true,  'Rare turbo / AOAI voices')
 ON CONFLICT (tier) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS tts_voice_catalog (
@@ -185,11 +223,13 @@ CREATE INDEX IF NOT EXISTS idx_tts_voice_sync_runs_started ON tts_voice_sync_run
 
 CREATE TABLE IF NOT EXISTS persona_presets (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   config jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_persona_presets_tenant_id ON persona_presets(tenant_id);
 
 CREATE TABLE IF NOT EXISTS bot_deployments (
   id TEXT PRIMARY KEY,
@@ -205,6 +245,12 @@ CREATE TABLE IF NOT EXISTS bot_deployments (
   voice_config jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- AgentTuning (§4.7) — LLM/TTS/STT/VAD/turn/interaction knobs; default-filled by migration 0028.
   tuning jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Canary fields. Phase 1 writes traffic_pct=100, shadow=false only; split
+  -- traffic is Phase 5. eval_report_id is the compiler artifact that blocked
+  -- or allowed this publish (nullable for versions that predate evals).
+  traffic_pct INTEGER NOT NULL DEFAULT 100 CHECK (traffic_pct BETWEEN 0 AND 100),
+  shadow boolean NOT NULL DEFAULT false,
+  eval_report_id TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -231,12 +277,14 @@ CREATE TABLE IF NOT EXISTS routing_rules (
 
 CREATE TABLE IF NOT EXISTS sandbox_scenarios (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   sim_persona jsonb NOT NULL DEFAULT '{}'::jsonb,
   turns jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_sandbox_scenarios_tenant_id ON sandbox_scenarios(tenant_id);
 
 CREATE TABLE IF NOT EXISTS sandbox_runs (
   id TEXT PRIMARY KEY,
@@ -269,6 +317,10 @@ CREATE TABLE IF NOT EXISTS sandbox_run_turns (
 
 CREATE TABLE IF NOT EXISTS retrieval_logs (
   id TEXT PRIMARY KEY,
+  -- All three links below are optional and 127 of 214 rows had none of them
+  -- set, so this table needs its own tenant rather than one inherited from a
+  -- parent that may not exist (migration 0062).
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   sandbox_run_id TEXT REFERENCES sandbox_runs(id) ON DELETE SET NULL,
   -- Which turn asked. interaction_id alone is session-grained, so "which
@@ -282,6 +334,7 @@ CREATE TABLE IF NOT EXISTS retrieval_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_retrieval_logs_interaction_id ON retrieval_logs(interaction_id);
 CREATE INDEX IF NOT EXISTS ix_retrieval_logs_turn ON retrieval_logs(transcript_turn_id);
+CREATE INDEX IF NOT EXISTS idx_retrieval_logs_tenant_id ON retrieval_logs(tenant_id);
 
 CREATE TABLE IF NOT EXISTS routing_rule_executions (
   id TEXT PRIMARY KEY,
@@ -302,8 +355,36 @@ CREATE INDEX IF NOT EXISTS idx_routing_rule_executions_interaction_id ON routing
 -- JSON file was invisible to the reader. See backend/voice_session_store.py.
 CREATE TABLE IF NOT EXISTS voice_sandbox_sessions (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_voice_sandbox_sessions_tenant_id ON voice_sandbox_sessions(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_voice_sandbox_sessions_updated_at ON voice_sandbox_sessions(updated_at);
+
+-- Persona presets. These lived only in migration 0018, which a fresh install
+-- stamps rather than replays -- so a newly seeded database had an empty table
+-- and the Studio's Presets panel fell back to hardcoded frontend copies of
+-- rows that did not exist. Same drift class as the price tiers above.
+--
+-- The templates interpolate only SYSTEM_SAFE_VARIABLES. CRM fields reach the
+-- model on the untrusted context card; a {customer_name} here never resolves,
+-- and the line carrying it is dropped before the model sees it.
+
+INSERT INTO persona_presets (id, tenant_id, name, config) VALUES
+  ('compliance', 'hdfc', 'Compliance-First', '{"label": "Compliance-First", "traits": {"upsell": 5, "empathy": 55, "firmness": 55, "formality": 90, "verbosity": 55}, "description": "Every disclosure, every time", "promptTemplate": "You are {agent_name}, a compliance-first collections agent for {bank_name}.\nBegin every call with the recording disclosure and verify the caller''s identity before sharing any account information.\nAccount details are in the CRM context card and may only be discussed after verification succeeds.\nSpeak in {language}. Keep to the script; if a request falls outside policy, say so plainly and escalate.\nNever quote an interest rate, waiver or settlement figure that a tool has not returned."}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
+  config = EXCLUDED.config, updated_at = now();
+INSERT INTO persona_presets (id, tenant_id, name, config) VALUES
+  ('empathetic', 'hdfc', 'Empathetic Collector', '{"label": "Empathetic Collector", "traits": {"upsell": 20, "empathy": 82, "firmness": 40, "formality": 55, "verbosity": 60}, "description": "Warm, patient, hardship-aware", "promptTemplate": "You are {agent_name}, an inbound collections voice agent for {bank_name}.\nGreet the caller warmly and acknowledge their situation before discussing dues.\nTheir account number, outstanding balance and due date arrive in the CRM context card — quote those figures verbatim and never invent one.\nSpeak in {language}. Be patient, empathetic and non-judgemental.\nAlways disclose that the call is recorded for quality and compliance.\nNever threaten legal action. Offer Promise-to-Pay options when the caller signals hardship."}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
+  config = EXCLUDED.config, updated_at = now();
+INSERT INTO persona_presets (id, tenant_id, name, config) VALUES
+  ('firm', 'hdfc', 'Firm Collector', '{"label": "Firm Collector", "traits": {"upsell": 15, "empathy": 35, "firmness": 80, "formality": 65, "verbosity": 40}, "description": "Direct, outcome-focused", "promptTemplate": "You are {agent_name}, a collections agent for {bank_name}.\nAddress the caller directly and state the purpose of the call within the first two sentences.\nState the overdue amount and due date from the CRM context card, exactly as given. Never estimate or round them.\nSpeak in {language}. Be concise and outcome-focused; ask for a specific payment date.\nAlways disclose that the call is recorded for quality and compliance.\nNever threaten legal action and never imply consequences the bank has not authorised."}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
+  config = EXCLUDED.config, updated_at = now();
+INSERT INTO persona_presets (id, tenant_id, name, config) VALUES
+  ('upsell', 'hdfc', 'Upsell-Focused', '{"label": "Upsell-Focused", "traits": {"upsell": 75, "empathy": 65, "firmness": 45, "formality": 55, "verbosity": 55}, "description": "Resolve, then convert", "promptTemplate": "You are {agent_name}, a collections and relationship voice agent for {bank_name}.\nResolve the caller''s query about their overdue balance first — the figures are in the CRM context card.\nOnly once the collections matter is settled and sentiment is not negative, mention at most one offer returned by recommend_next_offer.\nSpeak in {language}. Never name a product the tool did not give you.\nAlways disclose that the call is recorded for quality and compliance."}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
+  config = EXCLUDED.config, updated_at = now();

@@ -79,7 +79,7 @@ def record(
                 ),
                 {
                     "id": decision_id,
-                    "tenant": db.TENANT_ID,
+                    "tenant": db.current_tenant(),
                     "customer_id": customer_id,
                     "interaction_id": interaction_id,
                     "channel": channel,

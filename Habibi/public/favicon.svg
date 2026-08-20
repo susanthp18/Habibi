@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="BigBound AI">
   <title>BigBound AI</title>
   <!--
-    Favicon variant of the monogram. Same 40-unit coordinate space as BigBoundMark.tsx,
-    but inverted onto a navy plate and set a little heavier: on white the gradient
-    monogram carries itself, on a 16px tab it needs a solid field behind it and thicker
-    strokes to stay legible.
+    Tab icon — equalizer lockup on the same navy plate as the previous monogram.
+    Bounding box is centered, then nudged 2 units up so ascending-bar ink
+    doesn't read as sitting on the floor. Previous: favicon-monogram.svg.
 
     Regenerate the PNGs after editing:  npm run icons
   -->
@@ -17,13 +16,12 @@
 
   <rect width="40" height="40" rx="8.75" fill="url(#plate)"/>
 
-  <g transform="translate(20 19.5) scale(0.84) translate(-18 -19.5)">
-    <rect x="7.6" y="5" width="4.8" height="24" rx="2.4" fill="#FFFFFF"/>
-    <path d="M9.9 7.4H19.6C23.6 7.4 26.6 9.6 26.6 12.5C26.6 15.4 23.6 17.7 19.6 17.7H9.9"
-          stroke="#FFFFFF" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    <path d="M9.9 17.7H20.6C24.9 17.7 28.2 19.7 28.2 22.2C28.2 24.7 24.9 26.6 20.6 26.6H9.9"
-          stroke="#FFFFFF" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    <path d="M6.8 35.2C15.4 34.4 26.2 32.6 34.2 27.2"
-          stroke="#4BA3FF" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <g fill="#FFFFFF">
+    <rect x="6.8" y="25.8" width="3.8" height="5.2" rx="0.9"/>
+    <rect x="12.45" y="20.6" width="3.8" height="10.4" rx="0.9"/>
+    <rect x="18.1" y="15.4" width="3.8" height="15.6" rx="0.9"/>
+    <rect x="23.75" y="10.2" width="3.8" height="20.8" rx="0.9"/>
+    <rect x="29.4" y="5" width="3.8" height="26" rx="0.9"/>
   </g>
+  <circle cx="14.35" cy="18.2" r="2.4" fill="#4BA3FF"/>
 </svg>

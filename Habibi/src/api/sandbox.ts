@@ -265,6 +265,7 @@ export async function appendSandboxTurn(input: {
   history: SandboxHistoryItem[];
   context?: SandboxContext;
   topK?: number;
+  skillSlug?: string;
   /** Mock-only fallbacks */
   scenario?: Scenario;
   turnIndex?: number;
@@ -317,6 +318,7 @@ export async function appendSandboxTurn(input: {
     history: input.history,
     context: input.context ?? null,
     topK: input.topK ?? 3,
+    skillSlug: input.skillSlug ?? null,
   });
 }
 
@@ -331,4 +333,35 @@ export function groundedLabel(chunk: SandboxChunkHit): string {
   const title = (chunk.docTitle || "").trim();
   if (title) return title;
   return chunk.chunkId;
+}
+
+export type TwinRunResult = {
+  id: string;
+  twinId: string;
+  scenario: string;
+  status: string;
+  outcome: {
+    queues?: { whatsapp?: unknown[]; sms?: unknown[]; voice?: unknown[] };
+    ledger?: Record<string, unknown>;
+    dialled?: boolean;
+  };
+  grader: { passed?: boolean };
+};
+
+export async function runBounceTwin(twinId = "twin-bounce-ladder-v0"): Promise<TwinRunResult> {
+  if (USE_MOCK) {
+    return mockDelay({
+      id: "mock-twin",
+      twinId,
+      scenario: "bounce_ladder",
+      status: "completed",
+      outcome: {
+        queues: { whatsapp: [{ kind: "bounce_chase" }], sms: [], voice: [] },
+        ledger: { lastEvent: "bounce_chase_whatsapp" },
+        dialled: false,
+      },
+      grader: { passed: true },
+    });
+  }
+  return apiPost<TwinRunResult>(`/twins/${twinId}/run`, {});
 }

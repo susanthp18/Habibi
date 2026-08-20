@@ -3,8 +3,7 @@ import { Copy, Bot, Info, MoreHorizontal, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadItem } from "@/data/inbox-seed";
-import { resolveChannelMeta, sentimentColor, getThreadHandoffState } from "./meta";
-import { Tag } from "@/components/ui/tag";
+import { getThreadHandoffState } from "./meta";
 import { MessageBubble } from "./MessageBubble";
 import { Lozenge } from "@/components/ui/lozenge";
 
@@ -31,12 +30,14 @@ function BotTypingBubble() {
 export function ChatThread({
   thread,
   onToggleRail,
+  railOpen = false,
   onTakeOver,
   onReturnToBot,
   busy = false,
 }: {
   thread: Thread;
   onToggleRail: () => void;
+  railOpen?: boolean;
   onTakeOver?: () => void;
   onReturnToBot?: () => void;
   busy?: boolean;
@@ -44,8 +45,6 @@ export function ChatThread({
   const scrollRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const chan = resolveChannelMeta(thread.channel);
-  const ChanIcon = chan.icon;
   const { needsClaim, canReturnToBot, botHandling } = getThreadHandoffState(thread, Boolean(onReturnToBot));
   const botTyping = Boolean(thread.botTyping) && thread.status === "bot" && !thread.isMine;
 
@@ -79,30 +78,12 @@ export function ChatThread({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface">
-      {/* Header */}
-      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-150 border-b border-border bg-surface px-250 py-150">
-        <div className="min-w-0">
-          <div className="flex items-center gap-100">
-            <h2 className="truncate heading-xsmall text-text">
-              {thread.customer}
-            </h2>
-            <span className="font-mono text-body-small text-text-subtlest">
-              {thread.accountId}
-            </span>
-          </div>
-          <div className="mt-025 flex items-center gap-100">
-            <Tag hue={chan.hue}>
-              <ChanIcon />
-              {chan.label}
-            </Tag>
-            <span className="inline-flex items-center gap-050 text-body-small text-text-subtle">
-              <span className={cn("h-1.5 w-1.5 rounded-full", sentimentColor[thread.sentiment])} />
-              {thread.sentiment} sentiment
-            </span>
-          </div>
-        </div>
+      <div className="flex shrink-0 items-center gap-150 border-b border-border bg-surface px-250 py-100">
+        <h2 className="min-w-0 truncate heading-xsmall text-text">
+          {thread.customer}
+        </h2>
 
-        <div className="flex shrink-0 items-center gap-100">
+        <div className="ml-auto flex shrink-0 items-center gap-100">
           {botTyping ? (
             <Lozenge tone="selected">
               <span className="pulse-dot h-100 w-100 rounded-full bg-background-brand-bold" />
@@ -118,12 +99,27 @@ export function ChatThread({
           ) : (
             <Lozenge tone="warning">Awaiting agent</Lozenge>
           )}
+          {needsClaim && onTakeOver && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onTakeOver}
+              className="focus-ring inline-flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered active:scale-[0.98] disabled:opacity-60"
+            >
+              <UserRound className="h-3.5 w-3.5" />
+              Take over
+            </button>
+          )}
           <button
             type="button"
             onClick={onToggleRail}
-            className="focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken"
+            className={cn(
+              "focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken",
+              railOpen && "bg-surface-sunken text-text-brand",
+            )}
             aria-label="Toggle customer context"
-            title="Toggle customer context"
+            aria-pressed={railOpen}
+            title="Customer context"
           >
             <Info className="h-4 w-4" />
           </button>
@@ -142,20 +138,6 @@ export function ChatThread({
             </button>
             {menuOpen && (
               <div className="absolute right-0 z-20 mt-050 w-52 overflow-hidden rounded-medium border border-border bg-surface py-050 shadow-overlay">
-                {needsClaim && onTakeOver && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onTakeOver();
-                    }}
-                    className="focus-ring flex w-full items-center gap-100 px-150 py-100 text-left text-body-small text-text hover:bg-background-brand-subtlest disabled:opacity-50"
-                  >
-                    <UserRound className="h-3.5 w-3.5 text-text-brand" />
-                    Take over
-                  </button>
-                )}
                 {canReturnToBot && (
                   <button
                     type="button"
@@ -184,7 +166,6 @@ export function ChatThread({
         </div>
       </div>
 
-      {/* Messages */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-300 py-250">
         <div className="mx-auto flex max-w-[50rem] flex-col gap-100">
           {thread.messages.map((item, idx) => {

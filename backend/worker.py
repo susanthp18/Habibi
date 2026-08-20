@@ -104,6 +104,73 @@ def _maybe_revalidate_open_leads() -> None:
         logger.exception("nightly lead eligibility sweep failed")
 
 
+# Follow-ups come due at a wall-clock minute somebody chose, so this runs on an
+# interval rather than the daily gate the eligibility sweep uses: a callback
+# booked for 11:00 that surfaces at 01:15 the following night has already been
+# missed by the person it was booked for.
+_FOLLOWUP_SWEEP_INTERVAL_S = 600.0
+_last_followup_sweep = 0.0
+
+
+def _maybe_sweep_due_followups() -> None:
+    """Raise lead follow-ups whose moment has passed (~10 min).
+
+    Escalates; never contacts. Reaching out on a customer's behalf is a
+    contact-policy decision, and a background sweep must not make one quietly.
+    """
+    global _last_followup_sweep
+
+    now = time.monotonic()
+    if now - _last_followup_sweep < _FOLLOWUP_SWEEP_INTERVAL_S:
+        return
+    _last_followup_sweep = now
+    try:
+        report = db.sweep_due_followups()
+        if report["escalated"]:
+            logger.info(
+                "overdue follow-up sweep escalated %s: %s",
+                report["escalated"],
+                ", ".join(report["leads"][:20]),
+            )
+    except Exception:
+        logger.exception("overdue follow-up sweep failed")
+
+
+# Compliance detection runs off the interaction, after it ends, rather than
+# inside the call. That is what lets it cover human agents and chat as well as
+# bot voice, and what makes a rule change a backfill instead of a fresh start.
+_COMPLIANCE_SWEEP_INTERVAL_S = 300.0
+_last_compliance_sweep = 0.0
+
+
+def _maybe_scan_for_violations() -> None:
+    """Judge completed interactions against the rule catalog (~5 min).
+
+    Batched and ledger-backed, so this is resumable: whatever it does not get
+    through stays queued rather than being lost. Raising
+    ``compliance.RULES_VERSION`` re-queues history automatically.
+    """
+    global _last_compliance_sweep
+
+    now = time.monotonic()
+    if now - _last_compliance_sweep < _COMPLIANCE_SWEEP_INTERVAL_S:
+        return
+    _last_compliance_sweep = now
+    try:
+        from agent_core import compliance
+
+        report = compliance.sweep(limit=200)
+        if report["scanned"]:
+            logger.info(
+                "compliance sweep scanned=%s filed=%s rulesVersion=%s",
+                report["scanned"],
+                report["filed"],
+                report["rulesVersion"],
+            )
+    except Exception:
+        logger.exception("compliance sweep failed")
+
+
 _RATE_LIMIT_PURGE_INTERVAL_S = 300.0
 _last_rate_limit_purge = 0.0
 
@@ -150,7 +217,11 @@ def _maybe_autoscore_interactions() -> None:
     _last_autoscore = now
     try:
         import qa_autoscore
+        from agent_core.live_qa.scorecard import score_pending as live_score_pending
 
+        live_written = live_score_pending(limit=_AUTOSCORE_BATCH)
+        if live_written:
+            logger.info("live_qa scorecards wrote %s", live_written)
         if not qa_autoscore.enabled():
             return
         written = qa_autoscore.score_pending(limit=_AUTOSCORE_BATCH)
@@ -212,6 +283,98 @@ def _maybe_purge_rate_limit_counters() -> None:
         logger.warning("kb gap purge failed", exc_info=True)
 
 
+_GARDENER_HOUR_UTC = 3
+_GARDENER_MINUTE_UTC = 10
+_last_gardener_day: str | None = None
+
+
+def _maybe_garden_kb_gaps() -> None:
+    """Daily unsigned skill drafts from repeated unanswered questions.
+
+    Humans still have to sign. This must never call ``sign_skill``.
+    """
+    global _last_gardener_day
+    now = datetime.now(timezone.utc)
+    day_key = now.strftime("%Y-%m-%d")
+    if _last_gardener_day == day_key:
+        return
+    if (now.hour, now.minute) < (_GARDENER_HOUR_UTC, _GARDENER_MINUTE_UTC):
+        return
+    try:
+        from agent_core.skills.gardener import assert_unsigned, garden_open_gaps
+        from agent_core.skills.persist import create_draft_skill, list_skills
+
+        existing = {str(s.get("slug") or "") for s in list_skills()}
+        drafts = garden_open_gaps(db.list_kb_gaps(), existing)
+        created = 0
+        for draft in drafts:
+            assert_unsigned(draft)
+            create_draft_skill(
+                {
+                    "slug": draft["slug"],
+                    "description": draft["frontmatter"].get("description"),
+                    "allowed_tools": draft["allowed_tools"],
+                    "body": draft["body"],
+                    "frontmatter": draft["frontmatter"],
+                    "origin": "gardener",
+                }
+            )
+            created += 1
+        _last_gardener_day = day_key
+        if created:
+            logger.info("kb gardener drafted %s unsigned skill(s)", created)
+    except Exception:
+        logger.exception("kb gardener failed")
+        _last_gardener_day = day_key
+
+
+_EVAL_HOUR_UTC = 4
+_EVAL_MINUTE_UTC = 15
+_last_eval_day: str | None = None
+
+
+def _maybe_run_eval_schedule() -> None:
+    """Daily regression + red-team + twin. Never skips red-team. Off the mouth."""
+    global _last_eval_day
+    now = datetime.now(timezone.utc)
+    day_key = now.strftime("%Y-%m-%d")
+    if _last_eval_day == day_key:
+        return
+    if (now.hour, now.minute) < (_EVAL_HOUR_UTC, _EVAL_MINUTE_UTC):
+        return
+    try:
+        from agent_core.eval.schedule import run_continuous
+
+        result = run_continuous()
+        _last_eval_day = day_key
+        logger.info(
+            "eval schedule origin=scheduled ran=%s failed=%s",
+            result.get("ran"),
+            result.get("failed"),
+        )
+    except Exception:
+        logger.exception("eval schedule failed")
+        _last_eval_day = day_key
+
+
+def _maybe_drain_mcp_tasks() -> None:
+    """Turn queued MCP statement/bureau tickets into CRM rows. Never on the mouth."""
+    try:
+        from agent_core.platform_flags import mcp_tasks_enabled
+
+        if not mcp_tasks_enabled():
+            return
+        from agent_core.mcp_http.tasks import process_one as drain_mcp
+
+        n = 0
+        while n < 10 and drain_mcp():
+            n += 1
+        if n:
+            logger.info("mcp task drain processed %s", n)
+    except Exception:
+        logger.exception("mcp task drain failed")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="KB index worker (SKIP LOCKED)")
     parser.add_argument("--once", action="store_true", help="Process one job and exit")
@@ -245,8 +408,13 @@ def main() -> None:
         try:
             _maybe_sync_tts_catalog()
             _maybe_revalidate_open_leads()
+            _maybe_sweep_due_followups()
+            _maybe_scan_for_violations()
             _maybe_purge_rate_limit_counters()
             _maybe_autoscore_interactions()
+            _maybe_garden_kb_gaps()
+            _maybe_run_eval_schedule()
+            _maybe_drain_mcp_tasks()
             did = process_one(db.engine)
         except Exception:
             logger.exception("kb worker iteration crashed — backing off")

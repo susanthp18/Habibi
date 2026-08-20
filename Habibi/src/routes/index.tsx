@@ -5,7 +5,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AvailabilityToggle } from "@/components/workspace/AvailabilityToggle";
 import { StatsStrip } from "@/components/workspace/StatsStrip";
 import { AssignedQueue } from "@/components/workspace/AssignedQueue";
-import { RightRail } from "@/components/workspace/RightRail";
+import { NeedsAttention } from "@/components/workspace/NeedsAttention";
 import { useMe } from "@/api/me";
 import { useWorkspaceSummary } from "@/api/workspace";
 import { BRAND } from "@/lib/brand";
@@ -138,15 +138,9 @@ function WorkspacePage() {
             <StatsStrip />
           </div>
 
-          {/* items-start: columns keep their own height. Queue uses a fixed
-              row-viewport so chip switches don't resize the card. */}
-          <div className="mt-300 grid items-start gap-200 lg:grid-cols-3">
-            <div className="min-w-0 lg:col-span-2">
-              <AssignedQueue />
-            </div>
-            <div className="min-w-0">
-              <RightRail />
-            </div>
+          <div className="mt-300 space-y-200">
+            <AssignedQueue />
+            <NeedsAttention />
           </div>
         </div>
       </div>

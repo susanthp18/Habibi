@@ -51,6 +51,149 @@ function IssueList({ issues }: { issues: FlowIssue[] }) {
   );
 }
 
+function ToolRow({
+  tool,
+  checked,
+  onToggle,
+  disabled = false,
+}: {
+  tool: FlowTool;
+  checked: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      className="flex cursor-pointer items-start gap-075 rounded-small px-050 py-050 hover:bg-surface-sunken"
+      title={tool.description}
+    >
+      <input
+        type="checkbox"
+        className="mt-050"
+        checked={checked}
+        disabled={disabled}
+        onChange={onToggle}
+      />
+      <span className="min-w-0">
+        <span className="block font-mono text-body-small text-text">
+          {tool.key}
+          {tool.transitions && (
+            <span
+              title="This tool moves the conversation on its own"
+              className="ml-050 rounded-small bg-surface-sunken px-050 text-[0.6rem] text-text-subtle"
+            >
+              moves
+            </span>
+          )}
+          {/* The catalog has always reported this and the editor has always
+              ignored it, so a policy-owned tool looked like any other choice.
+              It is still selectable — the compiler requires it on a voice card
+              — but what it is should not be a surprise. */}
+          {tool.locked && (
+            <span
+              title="Owned by the policy engine — its wording is not the model's to choose"
+              className="ml-050 rounded-small bg-surface-sunken px-050 text-[0.6rem] text-text-subtle"
+            >
+              policy
+            </span>
+          )}
+        </span>
+        <span className="block truncate text-[0.7rem] text-text-subtlest">
+          {tool.description}
+        </span>
+      </span>
+    </label>
+  );
+}
+
+// -------------------------------------------------------------------- graph
+
+/**
+ * Graph-level settings, shown when nothing is selected.
+ *
+ * `globalTools` is the one authored field with no editor at all: it is
+ * validated by `validate_graph`, exported with the built-in script, and read by
+ * `flows_dynamic.py` to build the tool set every node inherits — and yet a
+ * loaded graph carried global tools nobody could see, and a blank one got three
+ * hardcoded ones nobody could change. Editing it meant editing stored JSON.
+ */
+export function GraphInspector({
+  globalTools,
+  tools,
+  issues,
+  onChange,
+  readOnly,
+}: {
+  globalTools: string[];
+  tools: FlowTool[];
+  issues: FlowIssue[];
+  onChange: (next: string[]) => void;
+  readOnly: boolean;
+}) {
+  const selected = new Set(globalTools);
+  const toggle = (key: string) => {
+    if (readOnly) return;
+    onChange(
+      selected.has(key)
+        ? globalTools.filter((t) => t !== key)
+        : [...globalTools, key],
+    );
+  };
+
+  return (
+    <div className="space-y-150 text-body-small leading-relaxed">
+      <div className="space-y-050 text-text-subtlest">
+        <p className="font-semibold text-text">Nothing selected</p>
+        <p>
+          Click a step to edit its instructions, tools and captured values.
+          Click a transition to set when it fires.
+        </p>
+        <p>Drag from the bottom of a step to its next step to connect them.</p>
+      </div>
+
+      <Section label={`Tools available from every step (${globalTools.length})`}>
+        <p className="pb-050 text-body-small leading-relaxed text-text-subtlest">
+          Offered at every node on top of that node&apos;s own list. Use it for
+          things a caller can ask for at any moment — knowledge lookups,
+          escalation, hanging up.
+        </p>
+        {/* A global marked "moves" transitions from anywhere, so it has no one
+            arrow to draw and is not counted in the implicit chip. Saying so
+            here is the difference between a canvas that is incomplete and one
+            that is lying. */}
+        <p className="pb-050 text-body-small leading-relaxed text-text-subtlest">
+          A global marked <span className="font-medium">moves</span> can end or
+          redirect the call from <em>any</em> step, so it is not drawn as a
+          dashed arrow and is not part of the implicit count.
+        </p>
+        <div className="max-h-64 space-y-025 overflow-y-auto rounded-small border border-border p-075">
+          {tools.length === 0 ? (
+            <p className="px-050 py-050 text-body-small text-text-subtlest">
+              Tool catalog unavailable.
+            </p>
+          ) : (
+            tools.map((tool) => (
+              <ToolRow
+                key={tool.key}
+                tool={tool}
+                checked={selected.has(tool.key)}
+                disabled={readOnly}
+                onToggle={() => toggle(tool.key)}
+              />
+            ))
+          )}
+        </div>
+      </Section>
+
+      {issues.length > 0 && (
+        <Section label={`Graph issues (${issues.length})`}>
+          <IssueList issues={issues} />
+        </Section>
+      )}
+    </div>
+  );
+}
+
 // --------------------------------------------------------------------- node
 
 export function NodeInspector({
@@ -173,6 +316,25 @@ export function NodeInspector({
               />
               Listen before speaking
             </label>
+            {!node.data.respondImmediately && (
+              <label className="block space-y-050">
+                <span className="text-body-small text-text-muted">
+                  Line spoken on entry
+                </span>
+                <input
+                  type="text"
+                  value={node.data.entryLine}
+                  onChange={(e) => setData({ entryLine: e.target.value })}
+                  placeholder="Happy to set that up."
+                  className="w-full rounded-small border border-border bg-surface px-100 py-075 text-body-small text-text"
+                />
+                <span className="block text-caption text-text-muted">
+                  A step that listens without speaking is silent until someone
+                  talks. If the caller is moved here right after answering, give
+                  them this line — otherwise they hear nothing.
+                </span>
+              </label>
+            )}
             <label className="flex items-center gap-075 text-body-small text-text">
               <input
                 type="checkbox"
@@ -186,34 +348,12 @@ export function NodeInspector({
           <Section label={`Tools (${node.data.tools.length})`}>
             <div className="max-h-64 space-y-025 overflow-y-auto rounded-small border border-border p-075">
               {tools.map((tool) => (
-                <label
+                <ToolRow
                   key={tool.key}
-                  className="flex cursor-pointer items-start gap-075 rounded-small px-050 py-050 hover:bg-surface-sunken"
-                  title={tool.description}
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-050"
-                    checked={node.data.tools.includes(tool.key)}
-                    onChange={() => toggleTool(tool.key)}
-                  />
-                  <span className="min-w-0">
-                    <span className="block font-mono text-body-small text-text">
-                      {tool.key}
-                      {tool.transitions && (
-                        <span
-                          title="This tool moves the conversation on its own"
-                          className="ml-050 rounded-small bg-surface-sunken px-050 text-[0.6rem] text-text-subtle"
-                        >
-                          moves
-                        </span>
-                      )}
-                    </span>
-                    <span className="block truncate text-[0.7rem] text-text-subtlest">
-                      {tool.description}
-                    </span>
-                  </span>
-                </label>
+                  tool={tool}
+                  checked={node.data.tools.includes(tool.key)}
+                  onToggle={() => toggleTool(tool.key)}
+                />
               ))}
             </div>
           </Section>

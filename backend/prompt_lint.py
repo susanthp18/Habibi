@@ -34,6 +34,26 @@ _DISCLOSURE_RE = re.compile(
 )
 
 
+_NEGATION_RE = re.compile(
+    r"\b(never|no|not|n't|dont|avoid|refuse|refuses|refusing|must\s+not|cannot|"
+    r"can\s?not|without|instead\s+of|rather\s+than)\b",
+    re.IGNORECASE,
+)
+
+_CLAUSE_BREAKS = (".", "\n", ";")
+
+
+def _is_negated(text: str, start: int) -> bool:
+    """True when the phrase at ``start`` sits in a clause that forbids it.
+
+    Scoped to the clause, not the whole prompt: in "Never threaten legal
+    action. Offer Promise-to-Pay options." the negation must not reach past
+    the full stop, or one early "never" would excuse every later violation.
+    """
+    boundary = max(text.rfind(brk, 0, start) for brk in _CLAUSE_BREAKS)
+    return _NEGATION_RE.search(text[boundary + 1 : start]) is not None
+
+
 def lint_prompt(
     prompt: str,
     guardrails: dict[str, Any],
@@ -59,8 +79,10 @@ def lint_prompt(
                     "severity": "warn",
                     "code": "crm_variable_in_system_prompt",
                     "message": (
-                        f"{{{name}}} is a CRM field and is not substituted in a system "
-                        "prompt — move it into the untrusted CRM context card."
+                        f"{{{name}}} is a CRM field, which a system prompt never "
+                        "substitutes — the runtime drops the whole line it sits "
+                        "on. The value already reaches the model on the untrusted "
+                        "CRM context card; refer to it in words here."
                     ),
                     "span": {"start": match.start(), "end": match.end()},
                 }
@@ -103,7 +125,20 @@ def lint_prompt(
                 pattern = r"\b" + pattern
             if w[-1:].isalnum() or w[-1:] == "_":
                 pattern = pattern + r"\b"
-            found = re.search(pattern, text, re.IGNORECASE)
+            # A clause that forbids the phrase is not a use of it. The
+            # first-party collections prompt says "Never threaten legal
+            # action", so the rule reported an error on the prompt the product
+            # ships — and on every card cloned from it. Report the first
+            # match that is not governed by a negation; if every mention is
+            # negated, the author is writing a guardrail, not breaking one.
+            found = next(
+                (
+                    m
+                    for m in re.finditer(pattern, text, re.IGNORECASE)
+                    if not _is_negated(text, m.start())
+                ),
+                None,
+            )
             if found is not None:
                 idx = found.start()
                 findings.append(

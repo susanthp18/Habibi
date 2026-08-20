@@ -10,9 +10,26 @@ import { cn } from "@/lib/utils";
  * out-practical easing, not a jump). A tick/cross glyph sits in the uncovered track segment so
  * state reads without relying on color alone.
  */
+/**
+ * A switch renders as a bare `<button role="switch">` with no text of its own,
+ * so its accessible name has to be supplied. Every one of the ten call sites in
+ * this app put the label in a sibling `<div>` instead — which looks right and
+ * announces as "switch, not pressed", with no indication of *what* is being
+ * toggled. Guardrails alone has five of them.
+ *
+ * Requiring one of the two labelling attributes in the type makes that
+ * impossible to forget: the omission is a compile error at the call site rather
+ * than something an audit has to keep re-finding.
+ */
+type SwitchProps = React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root> &
+  (
+    | { "aria-label": string; "aria-labelledby"?: never }
+    | { "aria-labelledby": string; "aria-label"?: never }
+  );
+
 const Switch = React.forwardRef<
   React.ElementRef<typeof SwitchPrimitives.Root>,
-  React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
+  SwitchProps
 >(({ className, ...props }, ref) => (
   <SwitchPrimitives.Root
     className={cn(
@@ -40,3 +57,4 @@ const Switch = React.forwardRef<
 Switch.displayName = SwitchPrimitives.Root.displayName;
 
 export { Switch };
+export type { SwitchProps };

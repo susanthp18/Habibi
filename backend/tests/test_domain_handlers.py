@@ -9,7 +9,6 @@ import pytest
 
 
 def _customer(db_tx) -> tuple[str, str | None]:
-    import db
     from sqlalchemy import text
 
     row = db_tx.execute(
@@ -55,6 +54,8 @@ def test_create_promise_idempotent_via_domain(db_tx) -> None:
     assert first.ok and second.ok
     assert first.data["promiseId"] == second.data["promiseId"]
     assert first.data["promisedDate"] == promised
+    assert "http://" not in (first.spoken_summary or "").lower()
+    assert "https://" not in (first.spoken_summary or "").lower()
 
 
 def test_flag_dispute_invalid_type_structured(db_tx) -> None:

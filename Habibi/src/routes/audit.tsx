@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/audit")({
+  validateSearch: (search: Record<string, unknown>): { id?: string } => ({
+    id: typeof search.id === "string" ? search.id : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Audit Trail — BigBound AI" },

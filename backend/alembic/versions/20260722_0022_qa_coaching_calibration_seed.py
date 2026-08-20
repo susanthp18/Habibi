@@ -14,10 +14,10 @@ import json
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 from seed_guard import seed_demo_enabled
 
 TENANT_ID = "hdfc.retail"
-import sqlalchemy as sa
 
 
 revision: str = "20260722_0022"

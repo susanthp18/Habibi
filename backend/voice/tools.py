@@ -113,17 +113,28 @@ KB_CONFIDENCE_THRESHOLD = 0.70
 _VERIFY_METHODS = VERIFY_METHODS
 
 def _transfer_mode() -> str:
-    """callback_queue (Inbox) unless VOICE_HANDOFF_MODE=warm and PSTN call_sid present."""
+    """callback_queue (Inbox) unless VOICE_HANDOFF_MODE=warm and PSTN call_sid present.
+
+    Falls back to ``callback_queue`` on any failure — a caller asking for a
+    human is the worst possible moment to raise — but says so loudly.
+    ``voice_handoff_mode`` deliberately raises on an unrecognised value, its
+    docstring reasoning that an operator who typed ``warn`` expecting warm
+    transfers "would never find out". A bare ``except Exception: return
+    'callback_queue'`` here produced exactly that outcome: the raise was
+    swallowed on the one path that consumes it, and the typo stayed invisible.
+    """
     try:
         from voice.config import voice_handoff_mode
 
         return voice_handoff_mode()
-    except Exception:
+    except RuntimeError as exc:
+        # Misconfiguration, not a transient fault: worth an ERROR every time it
+        # is hit. Escalations are rare enough that this cannot flood a log.
+        logger.error("VOICE_HANDOFF_MODE is invalid (%s) — falling back to callback_queue", exc)
         return "callback_queue"
-
-
-# Default / docs alias — prefer ``_transfer_mode()`` at call time.
-TRANSFER_MODE = "callback_queue"
+    except Exception:
+        logger.exception("handoff mode unreadable — falling back to callback_queue")
+        return "callback_queue"
 
 
 def _account_tail(account_id: str | None) -> str | None:
@@ -188,6 +199,14 @@ class ToolState:
         self.verify_attempts = 0
         self.verify_refusals = 0
         self.disclosure_done = False
+        # Whether the caller has already been told their outstanding and
+        # minimum due on this call. The hub's opening directive and this tool's
+        # own "say" hint both instruct the model to state the position, and
+        # both are re-read every time the flow re-enters the hub — so a caller
+        # who came back to the hub twice heard the same two figures three times
+        # (VS-92CDE3F088). Stating a balance is a once-per-call act unless the
+        # caller asks again.
+        self.position_stated = False
         self.minimum_due: float | None = None
         self.dpd: int | None = None
         self.customer_name: str | None = None
@@ -230,6 +249,11 @@ class ToolState:
         self.offer_declined = False
         self.escalated = False
         self.dispute_opened = False
+        self.authority_decision_id: str | None = None
+        self.authority_cap: float | None = None
+        self.allowed_tools: set[str] | None = None
+        self.attached_skills: list[Any] = []
+        self.active_skill: str | None = None
         # --- close probe ----------------------------------------------------
         # "Anything else?" is asked exactly once, and the guard is code rather
         # than a prompt line: a model that re-enters the closing node must not
@@ -265,6 +289,8 @@ def build_tools(
     # pre_action; under hub there is no node to hang it on.
     on_upsell_engaged: Callable[[], None] | None = None,
     sink: Any | None = None,
+    allowed_tool_names: set[str] | None = None,
+    attached_skills: list[Any] | None = None,
 ) -> tuple[ToolState, dict[str, Any]]:
     """Return (state, name→direct_function | FlowsFunctionSchema) bound to this session."""
 
@@ -273,6 +299,8 @@ def build_tools(
     # this returns — hold the same dict, not a copy, so `state.nodes` reflects
     # the live graph. Exposed for tests and for debugging a bad transition.
     state.nodes = nodes
+    state.allowed_tools = allowed_tool_names
+    state.attached_skills = list(attached_skills or [])
     rtvi = emitter or RtviEmitter(enabled=False)
 
     _TERMINAL_NODES = frozenset({"wrap_up", "terminate_politely", "escalate_close", "call_ended"})
@@ -413,6 +441,15 @@ def build_tools(
 
     # ------------------------------------------------------------ lifecycle
 
+    #: Spoken only when the model calls disclose_recording having said nothing.
+    #: Carries the disclosure and hands the turn back to the caller, because the
+    #: node it transitions into listens rather than speaks.
+    _FALLBACK_GREETING = (
+        "Hello, this is Priya from HDFC Bank Collections. "
+        "This call is recorded for quality and compliance. "
+        "How can I help you today?"
+    )
+
     @flows_tool_options(cancel_on_interruption=False)
     async def disclose_recording(flow_manager) -> tuple[Any, dict[str, Any] | None]:
         """Confirm the recording disclosure was spoken to the caller.
@@ -422,6 +459,40 @@ def build_tools(
         ix = session.interaction_id
         if not ix:
             return {"error": "no_interaction"}, None
+        # This tool asserts that the caller HEARD the disclosure, and that
+        # assertion becomes a compliance record. The model is supposed to speak
+        # the greeting in the same reply as the call, and usually does — but on
+        # VS-18FE21E37A it emitted the tool call with no text at all. Nothing
+        # was said, the next node was listen-first, and the call sat mute for 77
+        # seconds while the database recorded a disclosure that never happened.
+        #
+        # So say it here. This is the opening turn of a phone call: there is no
+        # caller utterance to fall back on and no later turn that repairs it,
+        # which makes it the one place a scripted line is more trustworthy than
+        # an instruction.
+        if spoke_this_response is not None and not spoke_this_response():
+            # Same handle pause_for_caller speaks through — the FlowManager does
+            # not expose the pipeline task directly.
+            worker = getattr(flow_manager, "worker", None) or getattr(
+                flow_manager, "_worker", None
+            )
+            if worker is None:
+                logger.error("no worker to speak through — call will open silent")
+            else:
+                from pipecat.frames.frames import TTSSpeakFrame
+
+                logger.warning(
+                    "greeting was silent — model called disclose_recording without "
+                    "speaking; delivering the disclosure directly"
+                )
+                try:
+                    await worker.queue_frame(
+                        TTSSpeakFrame(_FALLBACK_GREETING, append_to_context=False)
+                    )
+                except TypeError:
+                    await worker.queue_frame(TTSSpeakFrame(_FALLBACK_GREETING))
+                except Exception:
+                    logger.exception("fallback greeting failed — call may open silent")
         if not state.disclosure_done:
             await asyncio.to_thread(
                 persist.record_disclosure,
@@ -432,6 +503,31 @@ def build_tools(
                 bot_id=bot_id,
             )
             state.disclosure_done = True
+            # Close the loop deterministically rather than hoping the prompt
+            # holds. The obligation is once-per-call, the tool is the moment it
+            # is satisfied, and a standing developer note is the only signal
+            # that survives every later node transition and context summary.
+            # Without it a call disclosed at the greeting and then said it
+            # twice more, four minutes apart (VS-92CDE3F088).
+            if inject_developer is not None:
+                try:
+                    await inject_developer(
+                        [
+                            {
+                                "role": "developer",
+                                "content": (
+                                    "The recording disclosure has been made and "
+                                    "logged for this call. It is satisfied. Never "
+                                    "state, repeat or re-confirm that the call is "
+                                    "recorded again for the rest of this call, "
+                                    "even if an instruction elsewhere says to "
+                                    "always disclose it."
+                                ),
+                            }
+                        ]
+                    )
+                except Exception:
+                    logger.debug("disclosure note injection failed", exc_info=True)
             if start_recording is not None:
                 try:
                     await start_recording()
@@ -728,6 +824,7 @@ def build_tools(
     @flows_tool_options(cancel_on_interruption=False)
     async def not_account_holder(flow_manager) -> tuple[Any, dict[str, Any] | None]:
         """Caller says they are not the account holder / third party."""
+        session.extra["third_party"] = True
         ix = session.interaction_id
         if ix:
             await asyncio.to_thread(
@@ -773,8 +870,19 @@ def build_tools(
             "outstandingInr": float(session.outstanding),
             "minimumDueInr": state.minimum_due,
             "dpd": state.dpd,
-            "say": "state outstanding and minimum due in one short sentence",
+            # The hint changes after the first time. Left unconditional, it
+            # reads as a standing order to recite the balance and the model
+            # obeys it on every refresh — including the refreshes it makes to
+            # answer something else entirely.
+            "say": (
+                "you have ALREADY told the caller these figures on this call — "
+                "do not state them again unless they asked; use them only to "
+                "answer what they actually said"
+                if state.position_stated
+                else "state outstanding and minimum due in one short sentence"
+            ),
         }
+        state.position_stated = True
         tail = _account_tail(session.account_id)
         if tail:
             payload["accountTail"] = tail
@@ -985,6 +1093,10 @@ def build_tools(
                     "promiseId": result.data.get("promiseId"),
                     "amount": amt,
                     "promisedDate": result.data.get("promisedDate"),
+                    "confirmChannel": result.data.get("confirmChannel"),
+                    "phoneLast4": result.data.get("phoneLast4"),
+                    "payLinkSent": result.data.get("payLinkSent"),
+                    "suppressed": result.data.get("suppressed"),
                     "say": result.spoken_summary
                     or "confirm the amount and date back to them",
                 },
@@ -1071,6 +1183,92 @@ def build_tools(
             }, None
 
     flag_dispute = _spec("flag_dispute", _flag_dispute_handler)
+
+    async def _evaluate_authority_handler(
+        args: dict[str, Any],
+        flow_manager,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        cid, err = _require_customer()
+        if err:
+            return err, None
+        args = CATALOG.normalize("evaluate_authority", args)
+        try:
+            result = await asyncio.to_thread(
+                domain.evaluate_authority,
+                customer_id=cid,
+                fee_type=str(args.get("fee_type") or "late_fee"),
+                asked_amount=args.get("asked_amount"),
+                interaction_id=session.interaction_id,
+                account_id=session.account_id,
+                identity_verified=True,
+            )
+        except Exception:
+            logger.exception("evaluate_authority failed")
+            return {
+                "verdict": "escalate",
+                "suppressed": True,
+                "apply": False,
+                "say": "do not quote a waiver or settlement figure; escalate",
+            }, None
+        payload = dict(result.data or {})
+        state.authority_decision_id = payload.get("decisionId")
+        cap = payload.get("approvedAmount") or payload.get("capAmount")
+        try:
+            state.authority_cap = float(cap) if cap is not None else None
+        except (TypeError, ValueError):
+            state.authority_cap = None
+        if state.authority_cap is not None:
+            session.extra["max_waiver_inr"] = state.authority_cap
+        if result.spoken_summary:
+            payload.setdefault("say", result.spoken_summary)
+        await _announce(result, "evaluate_authority", inject_delta=False)
+        # Snapshot lands on the CRM card so later turns cannot invent a larger figure.
+        _schedule_context_refresh("evaluate_authority")
+        return payload, None
+
+    evaluate_authority = _spec("evaluate_authority", _evaluate_authority_handler)
+
+    async def _apply_goodwill_handler(
+        args: dict[str, Any],
+        flow_manager,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        cid, err = _require_customer()
+        if err:
+            return err, None
+        args = CATALOG.normalize("apply_goodwill", args)
+        decision_id = str(args.get("decision_id") or state.authority_decision_id or "")
+        if not decision_id:
+            return {
+                "error": "missing_decision",
+                "say": "call evaluate_authority before applying goodwill",
+            }, None
+        try:
+            result = await asyncio.to_thread(
+                domain.apply_goodwill,
+                decision_id=decision_id,
+                amount=args.get("amount"),
+            )
+        except Exception:
+            logger.exception("apply_goodwill failed")
+            return {
+                "error": "crm_write_failed",
+                "say": "apologise and offer a specialist callback",
+            }, None
+        if not result.ok:
+            return {
+                "error": result.error or "apply_failed",
+                "say": result.spoken_summary
+                or "do not confirm a waiver; offer a specialist callback",
+            }, None
+        await _announce(result, "apply_goodwill", inject_delta=False)
+        _schedule_context_refresh("apply_goodwill")
+        return {
+            "ok": True,
+            **(result.data or {}),
+            "say": result.spoken_summary or "confirm the goodwill reversal briefly",
+        }, None
+
+    apply_goodwill = _spec("apply_goodwill", _apply_goodwill_handler)
 
     async def _request_callback_handler(
         args: dict[str, Any],
@@ -1364,6 +1562,19 @@ def build_tools(
 
         if result.suppressed or not result.offers:
             payload["say"] = "do not mention any product; continue with the call"
+            # Leave the upsell step here, in code, rather than returning to the
+            # model and asking it to notice that there is nothing to offer.
+            # That round trip is a whole extra inference — and it is silent,
+            # because there is nothing to say while it happens. On
+            # VS-92CDE3F088 a suppressed offer cost three chained inferences
+            # (recommend → return_to_position → hub) and seven seconds of dead
+            # line before the caller gave up and spoke. Suppression is a
+            # decision the engine has already made; the flow can act on it.
+            #
+            # Only when this node exists as a separate step: under the merged
+            # hub graph there is nowhere to go and staying put is correct.
+            if upsell_node:
+                return payload, _node("wrap_up")
             return payload, None
 
         top = result.top
@@ -1849,7 +2060,18 @@ def build_tools(
                 "latencyMs": data.get("latencyMs"),
                 "results": snippets,
                 "answer_policy": (
-                    "Answer ONLY from these snippets."
+                    # The length clause is not style. A KB answer is the one
+                    # turn where the model has a wall of source text in front
+                    # of it, and it reads the lot: on VS-92CDE3F088 it produced
+                    # a 353-character list of travel-insurance exclusions and
+                    # held the line for 30 unbroken seconds. On a phone call
+                    # nobody retains that, and nobody can interrupt politely.
+                    # Two sentences and an offer to go deeper is the same
+                    # information delivered in a way a caller can use.
+                    "Answer ONLY from these snippets, in at most two short "
+                    "spoken sentences — give the headline and the two or three "
+                    "most relevant items, then ask whether they want the rest. "
+                    "Never read a list out in full."
                     if confident
                     else (
                         "Retrieval was weak — do NOT answer from these; tell "
@@ -1934,7 +2156,6 @@ def build_tools(
         assignee_name: str | None = None
         team_name: str | None = None
         conversation_id: str | None = None
-        team_id: str | None = None
         mode = _transfer_mode()
         call_sid = (session.extra or {}).get("call_sid")
         warm_ok = mode == "warm" and bool(call_sid)
@@ -2018,7 +2239,6 @@ def build_tools(
                 )
                 assignee_name = esc.get("assigneeName")
                 team_name = esc.get("teamName")
-                team_id = esc.get("teamId")
                 conversation_id = esc.get("conversationId")
             except Exception:
                 logger.exception("escalate routing/inbox failed (non-fatal)")
@@ -2076,9 +2296,89 @@ def build_tools(
             "say": say,
         }, _node("escalate_close")
 
-    escalate_to_human = _spec("escalate_to_human", 
+    escalate_to_human = _spec("escalate_to_human",
         _escalate_to_human_handler
     )
+
+    async def _handoff_to_agent_handler(
+        args: dict[str, Any],
+        flow_manager,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        args = CATALOG.normalize("handoff_to_agent", args)
+        target = str(args.get("target_bot_id") or "").strip()
+        reason = str(args.get("reason") or "").strip()
+        payload = args.get("payload")
+        from agent_core.cards.defaults import BOT_TO_MESH_ROLE, card_for
+
+        allowlist: set[str] | None = None
+        if bot_id:
+            try:
+                allowlist = set(card_for(bot_id).handoff_targets())
+            except KeyError:
+                allowlist = None
+        result = await asyncio.to_thread(
+            domain.handoff_to_agent,
+            interaction_id=session.interaction_id,
+            from_bot_id=bot_id,
+            target_bot_id=target,
+            reason=reason,
+            payload=str(payload) if payload is not None else None,
+            allowlist=allowlist,
+        )
+        if not result.ok:
+            return result.to_llm(), None
+        role = BOT_TO_MESH_ROLE.get(target)
+        if role:
+            try:
+                from voice import mesh as voice_mesh
+
+                voice_mesh.activate_role(role, session.session_id)
+            except Exception:
+                logger.exception("mesh role after handoff_to_agent failed")
+        return result.to_llm(), None
+
+    handoff_to_agent = _spec("handoff_to_agent", _handoff_to_agent_handler)
+
+    async def _load_skill_handler(args: dict[str, Any], flow_manager) -> tuple[Any, dict[str, Any] | None]:
+        args = CATALOG.normalize("load_skill", args)
+        from agent_core.skills.runtime import SKILL_BODY_PREFIX, load_skill
+
+        slug = str(args.get("slug") or "").strip()
+        result = load_skill(
+            slug,
+            list(state.attached_skills or []),
+            include_references=bool(args.get("include_references")),
+        )
+        if not result.get("ok"):
+            return result, None
+        state.active_skill = slug
+        message = result.get("message")
+        if message and replace_developer:
+            await replace_developer(SKILL_BODY_PREFIX, message)
+        return {
+            "ok": True,
+            "slug": slug,
+            "allowed_tools": result.get("allowed_tools") or [],
+            "say": "continue with the loaded skill; do not narrate that a skill was loaded",
+        }, None
+
+    load_skill_tool = _spec("load_skill", _load_skill_handler)
+
+    async def _run_skill_script_handler(args: dict[str, Any], flow_manager) -> tuple[Any, dict[str, Any] | None]:
+        args = CATALOG.normalize("run_skill_script", args)
+        from agent_core.skills.scripts import run_script
+        import json as _json
+
+        name = str(args.get("name") or "").strip()
+        payload = args.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = _json.loads(payload or "{}")
+            except _json.JSONDecodeError:
+                return {"ok": False, "error": "payload_must_be_json_object"}, None
+        return run_script(name, payload if isinstance(payload, dict) else {}), None
+
+    run_skill_script = _spec("run_skill_script", _run_skill_script_handler)
 
     async def end_call(flow_manager) -> tuple[Any, dict[str, Any] | None]:
         """End the call when the caller says goodbye mid-conversation.
@@ -2124,6 +2424,8 @@ def build_tools(
         "return_to_position": return_to_position,
         "create_promise_to_pay": create_promise_to_pay,
         "flag_dispute": flag_dispute,
+        "evaluate_authority": evaluate_authority,
+        "apply_goodwill": apply_goodwill,
         "request_callback": request_callback,
         "add_customer_note": add_customer_note,
         "recommend_next_offer": recommend_next_offer,
@@ -2134,6 +2436,23 @@ def build_tools(
         "search_knowledge_base": search_knowledge_base,
         "pause_for_caller": pause_for_caller,
         "escalate_to_human": escalate_to_human,
+        "handoff_to_agent": handoff_to_agent,
+        "load_skill": load_skill_tool,
+        "run_skill_script": run_skill_script,
         "end_call": end_call,
     }
+    if allowed_tool_names is not None:
+        keep = set(allowed_tool_names) | {
+            "disclose_recording",
+            "refuse_verification",
+            "not_account_holder",
+            "begin_negotiate",
+            "begin_dispute",
+            "begin_wrap_up",
+            "return_to_position",
+            "pause_for_caller",
+            "end_call",
+            "capture_call_goal",
+        }
+        tools = {k: v for k, v in tools.items() if k in keep}
     return state, tools

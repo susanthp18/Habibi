@@ -62,14 +62,6 @@ VOICE_NATURALNESS_OVERLAY = (
 )
 
 
-def with_voice_naturalness(system_instruction: str) -> str:
-    base = (system_instruction or "").strip()
-    overlay = VOICE_NATURALNESS_OVERLAY
-    if not base:
-        return overlay
-    return f"{base}\n\n## Voice conversation rules\n{overlay}\n"
-
-
 def build_voice_system_prompt(
     rendered_prompt: str,
     guardrails: dict | None = None,
@@ -90,7 +82,9 @@ def build_voice_system_prompt(
     from agent_core import clock
 
     parts = [(rendered_prompt or "").strip()]
-    rules = guardrail_rules(guardrails or {})
+    # Explicit, not the default: this builder is the voice loop, and the
+    # recording disclosure is one of the rules that only applies here.
+    rules = guardrail_rules(guardrails or {}, channel="voice")
     if rules:
         parts.append("## Guardrails (always follow)\n" + "\n".join(f"- {r}" for r in rules))
     # The container runs UTC and the caller does not. Without this the model

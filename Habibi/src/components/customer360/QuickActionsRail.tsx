@@ -10,6 +10,7 @@ import {
   Ban,
   Check,
   PanelRight,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -178,6 +179,7 @@ function ActionIcon({ action }: { action: NbaActionKind }) {
   if (action === "dispute" || action === "review") return <Scale className={cls} />;
   if (action === "statement") return <FileText className={cls} />;
   if (action === "callback") return <CalendarClock className={cls} />;
+  if (action === "offer") return <Sparkles className={cls} />;
   return <PhoneCall className={cls} />;
 }
 

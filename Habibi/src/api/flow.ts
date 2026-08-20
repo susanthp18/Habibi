@@ -59,6 +59,13 @@ export type FlowNodeData = {
   isStart: boolean;
   /** False makes the bot listen first instead of speaking. */
   respondImmediately: boolean;
+  /**
+   * Fixed line spoken the moment this step is entered, before anything else.
+   * This is what makes "listen first" safe on a step the caller is moved into
+   * after answering: without it the line is simply silent until someone
+   * speaks.
+   */
+  entryLine: string;
   /** Tool keys from /flow/tools. */
   tools: string[];
   extractVariables: FlowVariable[];
@@ -120,6 +127,8 @@ export type FlowTool = {
   description: string;
   /** Moves the conversation itself — see the warning in ToolPicker. */
   transitions: boolean;
+  /** Locked policy engine — visible and disabled in the Tools tab. */
+  locked?: boolean;
 };
 
 export function isEmptyGraph(graph: FlowGraph | null | undefined): boolean {
@@ -144,6 +153,7 @@ export function emptyGraph(): FlowGraph {
             "Speak first — one short greeting that also says the call is recorded for quality and compliance.",
           isStart: true,
           respondImmediately: true,
+          entryLine: "",
           tools: ["disclose_recording"],
           extractVariables: [],
           endConversation: false,
@@ -160,6 +170,7 @@ export function emptyGraph(): FlowGraph {
           instructions: "",
           isStart: false,
           respondImmediately: true,
+          entryLine: "",
           tools: [],
           extractVariables: [],
           endConversation: true,
@@ -191,6 +202,7 @@ export function newNodeData(name: string): FlowNodeData {
     instructions: "",
     isStart: false,
     respondImmediately: true,
+    entryLine: "",
     tools: [],
     extractVariables: [],
     endConversation: false,
@@ -217,8 +229,37 @@ export function fetchReservedKeys(): Promise<Record<string, string>> {
   return apiGet<Record<string, string>>("/flow/reserved-keys");
 }
 
+/**
+ * The built-in collections script as an authored graph. Derived server-side
+ * from the Python the runtime actually executes, so starting from it is not a
+ * template — it is what the agent does today.
+ */
+export function fetchBuiltInFlow(): Promise<FlowGraph> {
+  return apiGet<FlowGraph>("/flow/built-in");
+}
+
 export function validateFlow(graph: FlowGraph): Promise<FlowValidation> {
   return apiPost<FlowValidation>("/flow/validate", graph);
+}
+
+/**
+ * tool key -> node keys that tool transitions to.
+ *
+ * The built-in tools move the conversation by node key, so a graph using
+ * reserved keys has real transitions and no authored edges. The canvas draws
+ * these as ghost edges rather than inventing edges the runtime would ignore.
+ */
+export function fetchFlowTransitions(): Promise<Record<string, string[]>> {
+  return apiGet<Record<string, string[]>>("/flow/transitions");
+}
+
+export function useFlowTransitions() {
+  return useQuery({
+    queryKey: ["flow-transitions"],
+    queryFn: fetchFlowTransitions,
+    // Derived from source at import time; only changes on deploy.
+    staleTime: 5 * 60_000,
+  });
 }
 
 export function useFlowTools() {

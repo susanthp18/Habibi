@@ -1,113 +1,127 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import type { BillingModelSpend } from "@/api/billing";
 import { inrCompact } from "@/data/billing-seed";
-import { cn } from "@/lib/utils";
+import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 
-type SortKey = "cost" | "calls";
-
-/**
- * Spend grouped by the model that produced it.
- *
- * The service table beside this one cannot answer "which model is the money
- * going to": `billing_services` carries a single blended `llm_chat` row, so a
- * gpt-5 turn and a gpt-4o-mini turn land in the same bucket despite pricing
- * roughly 8x apart. This reads the per-model dimension off usage_events.
- */
 export function ModelCostTable({ rows }: { rows: BillingModelSpend[] }) {
-  const [sort, setSort] = useState<SortKey>("cost");
-
   const total = useMemo(() => rows.reduce((acc, r) => acc + r.costInr, 0), [rows]);
-  const sorted = useMemo(() => {
-    const arr = [...rows];
-    arr.sort((a, b) => (sort === "cost" ? b.costInr - a.costInr : b.calls - a.calls));
-    return arr;
-  }, [rows, sort]);
+
+  const columns = useMemo<RecordsColumn<BillingModelSpend>[]>(
+    () => [
+      {
+        id: "model",
+        header: "Model",
+        sticky: true,
+        sortable: true,
+        sortValue: (r) => r.model,
+        className: "min-w-[12rem]",
+        cell: (r) => (
+          <div className="flex min-w-0 items-center gap-075">
+            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: r.color }} />
+            <span className="truncate text-body font-medium text-text">{r.model}</span>
+          </div>
+        ),
+        footer: (visible) => (
+          <span className="text-body-small">
+            <span className="font-semibold tabular text-text">{visible.length}</span>{" "}
+            <span className="text-text-subtlest">models</span>
+          </span>
+        ),
+      },
+      {
+        id: "service",
+        header: "Service",
+        sortable: true,
+        sortValue: (r) => r.serviceName,
+        className: "min-w-[8rem] whitespace-nowrap",
+        cell: (r) => <span className="text-text-subtle">{r.serviceName}</span>,
+      },
+      {
+        id: "source",
+        header: "Source",
+        sortable: true,
+        sortValue: (r) => r.sourceRef ?? "",
+        className: "min-w-[10rem] whitespace-nowrap",
+        cell: (r) => (
+          <span className="font-mono text-caption text-text-subtle">{r.sourceRef || "—"}</span>
+        ),
+      },
+      {
+        id: "usage",
+        header: "Usage",
+        sortable: true,
+        sortValue: (r) => r.units,
+        align: "right",
+        className: "min-w-[8rem] whitespace-nowrap",
+        cell: (r) => (
+          <span className="tabular-nums text-text-subtle">
+            {r.units >= 100 ? Math.round(r.units).toLocaleString("en-IN") : r.units.toFixed(2)} {r.unit}
+          </span>
+        ),
+      },
+      {
+        id: "calls",
+        header: "Calls",
+        sortable: true,
+        sortValue: (r) => r.calls,
+        align: "right",
+        className: "min-w-[5.5rem] whitespace-nowrap",
+        cell: (r) => <span className="tabular-nums text-text-subtle">{r.calls.toLocaleString("en-IN")}</span>,
+        footer: (visible) => (
+          <span className="tabular-nums">{visible.reduce((s, r) => s + r.calls, 0).toLocaleString("en-IN")}</span>
+        ),
+      },
+      {
+        id: "cost",
+        header: "Spend",
+        sortable: true,
+        sortValue: (r) => r.costInr,
+        align: "right",
+        className: "min-w-[6rem] whitespace-nowrap",
+        cell: (r) => <span className="tabular-nums text-text">{inrCompact(r.costInr)}</span>,
+        footer: (visible) => (
+          <span className="font-semibold tabular-nums text-text">
+            {inrCompact(visible.reduce((s, r) => s + r.costInr, 0))}
+          </span>
+        ),
+      },
+      {
+        id: "share",
+        header: "Share",
+        sortable: true,
+        sortValue: (r) => (total > 0 ? (r.costInr / total) * 100 : 0),
+        align: "right",
+        className: "min-w-[5rem] whitespace-nowrap",
+        cell: (r) => (
+          <span className="tabular-nums text-text-subtlest">
+            {(total > 0 ? (r.costInr / total) * 100 : 0).toFixed(1)}%
+          </span>
+        ),
+      },
+    ],
+    [total],
+  );
 
   return (
-    <div className="rounded-large border border-border bg-surface">
-      <div className="flex items-center justify-between gap-200 border-b border-border px-200 py-100">
-        <div>
-          <h3 className="text-body font-semibold text-text">Cost breakdown by model</h3>
-          <p className="text-body-small text-text-subtle">
-            Deployment for LLM, neural voice for TTS, locale for STT
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-050">
-          {(["cost", "calls"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setSort(key)}
-              className={cn(
-                "rounded-small px-100 py-050 text-body-small transition-colors",
-                sort === key
-                  ? "bg-background-brand-subtlest font-medium text-text-brand"
-                  : "text-text-subtle hover:bg-surface-sunken",
-              )}
-            >
-              {key === "cost" ? "By spend" : "By calls"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {sorted.length === 0 ? (
-        <p className="px-200 py-200 text-body-small text-text-subtlest">
-          No per-model usage in this window. Calls handled before per-call
-          metering was enabled carry no model dimension.
+    <div className="overflow-hidden rounded-large border border-border bg-surface">
+      <div className="border-b border-border px-200 py-100">
+        <h3 className="text-body font-semibold text-text">Cost breakdown by model</h3>
+        <p className="text-body-small text-text-subtle">
+          Mouth LLM rows show <span className="font-mono">llm_gateway.voice</span> when the gateway
+          flag is on; otherwise <span className="font-mono">azure_openai.chat_with_tools</span>.
         </p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-body-small">
-            <thead>
-              <tr className="border-b border-border text-left font-semibold text-text-subtlest">
-                <th className="px-200 py-100">Model</th>
-                <th className="px-200 py-100">Service</th>
-                <th className="px-200 py-100 text-right">Usage</th>
-                <th className="px-200 py-100 text-right">Calls</th>
-                <th className="px-200 py-100 text-right">Spend</th>
-                <th className="px-200 py-100 text-right">Share</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {sorted.map((r) => {
-                const share = total > 0 ? (r.costInr / total) * 100 : 0;
-                return (
-                  <tr key={`${r.serviceId}-${r.model}`} className="hover:bg-surface-sunken">
-                    <td className="px-200 py-100">
-                      <div className="flex items-center gap-075">
-                        <span
-                          aria-hidden
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ background: r.color }}
-                        />
-                        <span className="font-mono text-text">{r.model}</span>
-                      </div>
-                    </td>
-                    <td className="px-200 py-100 text-text-subtle">{r.serviceName}</td>
-                    <td className="px-200 py-100 text-right font-mono text-text-subtle">
-                      {r.units >= 100
-                        ? Math.round(r.units).toLocaleString("en-IN")
-                        : r.units.toFixed(2)}{" "}
-                      {r.unit}
-                    </td>
-                    <td className="px-200 py-100 text-right font-mono text-text-subtle">
-                      {r.calls.toLocaleString("en-IN")}
-                    </td>
-                    <td className="px-200 py-100 text-right font-mono text-text">
-                      {inrCompact(r.costInr)}
-                    </td>
-                    <td className="px-200 py-100 text-right font-mono text-text-subtlest">
-                      {share.toFixed(1)}%
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </div>
+      <RecordsTable
+        rows={rows}
+        getRowId={(r) => `${r.serviceId}-${r.model}-${r.sourceRef ?? ""}`}
+        columns={columns}
+        defaultSort={{ id: "cost", dir: -1 }}
+        ariaLabel="Cost breakdown by model"
+        tableClassName="min-w-[48rem]"
+        className="rounded-none border-0"
+        emptyMessage="No per-model usage in this window. Calls handled before per-call metering was enabled carry no model dimension."
+      />
     </div>
   );
 }

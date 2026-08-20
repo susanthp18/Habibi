@@ -3,7 +3,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { BigBoundMark } from "@/components/brand/BigBoundMark";
+import { EqualizerMark } from "@/components/brand/EqualizerMark";
 import { BRAND } from "@/lib/brand";
 import { NavLinks } from "@/components/shell/Sidebar";
 
@@ -28,11 +28,14 @@ export function MobileNav() {
         </button>
       </SheetTrigger>
       <SheetContent side="left" className="w-[17.5rem] bg-surface p-0">
-        <SheetHeader className="flex-row items-center gap-100 border-b border-border px-150 py-150">
-          <BigBoundMark size={26} />
-          <SheetTitle className="heading-xsmall text-text">{BRAND.name}</SheetTitle>
+        <SheetHeader className="flex-row items-center gap-150 px-150 pt-150">
+          <EqualizerMark size={28} />
+          <div className="min-w-0 flex-1 text-left">
+            <SheetTitle className="truncate text-[13px] font-medium leading-tight text-text">{BRAND.name}</SheetTitle>
+            <p className="truncate text-[11px] leading-tight text-text-subtlest">{BRAND.tenantLine}</p>
+          </div>
         </SheetHeader>
-        <nav className="min-h-0 flex-1 overflow-y-auto px-100 py-150">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-150 pb-150 pt-100">
           <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
         </nav>
       </SheetContent>

@@ -1,5 +1,6 @@
 import { Sparkles, Wallet, Trophy, TrendingUp, Timer } from "lucide-react";
-import { fmtMoney, type Metrics } from "@/data/upsell-seed";
+import { fmtMoney } from "@/data/upsell-seed";
+import type { LeadMetrics } from "@/api/upsell";
 
 function Tile({
   label,
@@ -40,14 +41,45 @@ function Tile({
   );
 }
 
-export function MetricsStrip({ m }: { m: Metrics }) {
+export function MetricsStrip({ m }: { m?: LeadMetrics }) {
   return (
-    <div className="grid grid-cols-2 gap-150 md:grid-cols-3 xl:grid-cols-5">
-      <Tile label="Open leads" value={String(m.openLeads)} sub="Interested + Contacted + Qualified" icon={Sparkles} tone="brand" />
-      <Tile label="Pipeline value" value={fmtMoney(m.pipelineValue)} sub="Open leads (indicative)" icon={Wallet} tone="violet" />
-      <Tile label="Won (7d)" value={String(m.wonWeek)} sub={fmtMoney(m.wonWeekAmount)} icon={Trophy} tone="green" />
-      <Tile label="Conversion (30d)" value={`${m.conversionRate}%`} sub="Won / captured" icon={TrendingUp} tone="amber" />
-      <Tile label="Avg time-to-close" value={`${m.avgDaysToClose}d`} sub="Won + Lost, all-time" icon={Timer} />
+    <div className="grid shrink-0 grid-cols-2 gap-150 md:grid-cols-3 xl:grid-cols-5">
+      <Tile label="Open leads" value={num(m?.openLeads)} sub="Interested + Contacted + Qualified" icon={Sparkles} tone="brand" />
+      <Tile
+        label="Pipeline value"
+        value={m ? fmtMoney(m.pipelineValue) : "—"}
+        sub="Open leads (indicative)"
+        icon={Wallet}
+        tone="violet"
+      />
+      <Tile
+        label="Won (7d)"
+        value={num(m?.wonWeek)}
+        sub={m ? fmtMoney(m.wonWeekAmount) : undefined}
+        icon={Trophy}
+        tone="green"
+      />
+      {/* A null rate is a zero denominator, not a zero rate. "Nothing was
+          captured this month" and "none of what we captured converted" call
+          for opposite responses, and rendering both as 0% is how a quiet
+          month looks identical to a broken pipeline. */}
+      <Tile
+        label="Conversion (30d)"
+        value={m?.conversionRate == null ? "—" : `${m.conversionRate}%`}
+        sub={m ? `${m.won30d} won / ${m.captured30d} captured` : "Won / captured"}
+        icon={TrendingUp}
+        tone="amber"
+      />
+      <Tile
+        label="Avg time-to-close"
+        value={m?.avgDaysToClose == null ? "—" : `${m.avgDaysToClose}d`}
+        sub="Won + Lost, all-time"
+        icon={Timer}
+      />
     </div>
   );
+}
+
+function num(value: number | undefined): string {
+  return value === undefined ? "—" : String(value);
 }

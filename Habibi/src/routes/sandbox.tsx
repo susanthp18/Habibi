@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/sandbox")({
-  validateSearch: (search: Record<string, unknown>): { promptVersionId?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { promptVersionId?: string; skillSlug?: string; botId?: string } => ({
     promptVersionId:
       typeof search.promptVersionId === "string" ? search.promptVersionId : undefined,
+    skillSlug: typeof search.skillSlug === "string" ? search.skillSlug : undefined,
+    botId: typeof search.botId === "string" ? search.botId : undefined,
   }),
   head: () => ({
     meta: [

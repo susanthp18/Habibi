@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
 import type { FaqPair } from "@/data/kb-seed";
-import { cn, formatKbDate } from "@/lib/utils";
+import { formatKbDate } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
-import { Lozenge } from "@/components/ui/lozenge";
+import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
+import { RecordsTag } from "@/components/records/RecordsTag";
 
 export function FaqTable({
   faqs,
@@ -10,82 +12,132 @@ export function FaqTable({
   onToggle,
   onDelete,
   selectedId,
+  loading = false,
+  emptyFromFilter = false,
 }: {
   faqs: FaqPair[];
   onSelect: (f: FaqPair) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onDelete?: (id: string) => void;
   selectedId?: string | null;
+  loading?: boolean;
+  emptyFromFilter?: boolean;
 }) {
-  if (faqs.length === 0) {
+  const columns = useMemo<RecordsColumn<FaqPair>[]>(
+    () => [
+      {
+        id: "question",
+        header: "Question",
+        sticky: true,
+        sortable: true,
+        sortValue: (f) => f.question,
+        className: "min-w-[16rem]",
+        cell: (f) => (
+          <span className="line-clamp-2 text-body font-medium text-text" title={f.question}>
+            {f.question}
+          </span>
+        ),
+        footer: (visible) => (
+          <span className="text-body-small">
+            <span className="font-semibold tabular text-text">{visible.length}</span>{" "}
+            <span className="text-text-subtlest">FAQs</span>
+          </span>
+        ),
+      },
+      {
+        id: "answer",
+        header: "Answer preview",
+        className: "min-w-[18rem]",
+        cell: (f) => (
+          <span className="line-clamp-2 text-body-small text-text-subtle" title={f.answer}>
+            {f.answer}
+          </span>
+        ),
+      },
+      {
+        id: "intent",
+        header: "Intent",
+        sortable: true,
+        sortValue: (f) => f.intent,
+        className: "min-w-[8rem] whitespace-nowrap",
+        cell: (f) => <RecordsTag name={f.intent} />,
+      },
+      {
+        id: "updated",
+        header: "Updated",
+        sortable: true,
+        sortValue: (f) => f.updatedAt,
+        className: "min-w-[7rem] whitespace-nowrap",
+        cell: (f) => (
+          <span className="text-body-small text-text-subtle">
+            {formatKbDate(f.updatedAt, { day: "2-digit", month: "short" })}
+          </span>
+        ),
+      },
+      {
+        id: "enabled",
+        header: "Enabled",
+        align: "center",
+        className: "min-w-[5.5rem]",
+        cell: (f) => (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Switch
+              aria-label={`Enable FAQ: ${f.question}`}
+              checked={f.enabled}
+              onCheckedChange={(v) => onToggle(f.id, v)}
+            />
+          </div>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        align: "right",
+        className: "min-w-[3.5rem]",
+        cell: (f) =>
+          onDelete ? (
+            <div onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => onDelete(f.id)}
+                className="rounded-medium p-075 text-text-subtlest hover:bg-background-danger-subtler hover:text-text-danger-bolder"
+                aria-label="Delete FAQ"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null,
+      },
+    ],
+    [onDelete, onToggle],
+  );
+
+  if (!loading && faqs.length === 0) {
     return (
-      <div className="flex min-h-[11.25rem] flex-col items-center justify-center rounded-large border border-dashed border-border bg-surface px-300 py-500 text-center">
-        <p className="text-body font-medium text-text">No FAQ pairs</p>
+      <div className="flex h-full min-h-[11.25rem] flex-col items-center justify-center bg-surface px-300 py-500 text-center">
+        <p className="text-body font-medium text-text">
+          {emptyFromFilter ? "No matches in this view" : "No FAQ pairs"}
+        </p>
         <p className="mt-050 text-body-small text-text-subtlest">
-          Add an FAQ or sync from source_db to load product Q&amp;A.
+          {emptyFromFilter
+            ? "Clear search to see all FAQ pairs."
+            : "Add an FAQ or sync from source_db to load product Q&A."}
         </p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-large border border-border bg-surface">
-      <table className="w-full text-body">
-        <thead className="bg-surface-sunken text-body-small font-medium text-text-subtlest">
-          <tr>
-            <th className="px-150 py-100 text-left">Question</th>
-            <th className="px-150 py-100 text-left">Answer preview</th>
-            <th className="px-150 py-100 text-left">Intent</th>
-            <th className="px-150 py-100 text-left">Updated</th>
-            <th className="px-150 py-100 text-center">Enabled</th>
-            <th className="px-100 py-100" />
-          </tr>
-        </thead>
-        <tbody>
-          {faqs.map((f) => (
-            <tr
-              key={f.id}
-              onClick={() => onSelect(f)}
-              className={cn(
-                "cursor-pointer border-t border-border hover:bg-surface-sunken/60",
-                selectedId === f.id && "bg-background-brand-subtlest/40",
-              )}
-            >
-              <td className="px-150 py-150 align-top">
-                <div className="max-w-md font-medium text-text">{f.question}</div>
-              </td>
-              <td className="px-150 py-150 align-top">
-                <div className="line-clamp-2 max-w-lg text-body-small text-text-subtle">
-                  {f.answer}
-                </div>
-              </td>
-              <td className="px-150 py-150 align-top">
-                <Lozenge tone="selected">
-                  {f.intent}
-                </Lozenge>
-              </td>
-              <td className="px-150 py-150 align-top text-body-small text-text-subtle">
-                {formatKbDate(f.updatedAt, { day: "2-digit", month: "short" })}
-              </td>
-              <td className="px-150 py-150 text-center align-top" onClick={(e) => e.stopPropagation()}>
-                <Switch checked={f.enabled} onCheckedChange={(v) => onToggle(f.id, v)} />
-              </td>
-              <td className="px-100 py-150 text-right align-top" onClick={(e) => e.stopPropagation()}>
-                {onDelete && (
-                  <button
-                    type="button"
-                    onClick={() => onDelete(f.id)}
-                    className="rounded-medium p-075 text-text-subtlest hover:bg-background-danger-subtler hover:text-text-danger-bolder"
-                    aria-label="Delete FAQ"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <RecordsTable
+      rows={faqs}
+      getRowId={(f) => f.id}
+      columns={columns}
+      isLoading={loading}
+      activeRowId={selectedId}
+      onRowClick={onSelect}
+      ariaLabel="FAQ pairs"
+      tableClassName="min-w-[52rem]"
+      className="h-full rounded-none border-0"
+    />
   );
 }

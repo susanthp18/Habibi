@@ -1,4 +1,4 @@
-import { Sparkles, Check } from "lucide-react";
+import { Sparkles, Check, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sectionTotal, type Rubric, type Scorecard, type ScorecardEntry } from "@/data/qa-seed";
 
@@ -42,6 +42,7 @@ export function RubricScorer({
               {section.criteria.map((c) => {
                 const entry = entries.find((e) => e.criterionId === c.id) ?? { criterionId: c.id, aiSuggested: 0, score: 0 };
                 const diff = entry.score !== entry.aiSuggested;
+                const liveLocked = Boolean(entry.note?.startsWith("[live]"));
                 return (
                   <div key={c.id} className="px-150 py-150">
                     <div className="flex items-start justify-between gap-100">
@@ -50,6 +51,14 @@ export function RubricScorer({
                           {c.label}
                           {c.critical && (
                             <span className="rounded bg-background-danger-subtler px-050 py-025 text-body-small font-semibold text-text-danger-bolder">Critical</span>
+                          )}
+                          {liveLocked && (
+                            <span
+                              className="inline-flex items-center gap-025 rounded bg-background-brand-subtlest px-050 py-025 text-body-small font-semibold text-text-brand"
+                              title="Scored from live evidence — the model cannot overwrite this"
+                            >
+                              <Lock className="h-3 w-3" /> Live
+                            </span>
                           )}
                         </div>
                         <div className="text-body-small text-text-subtle">{c.description}</div>

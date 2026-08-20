@@ -1,18 +1,12 @@
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { topicOptions, type Channel, type HandlerKind } from "@/data/floor-seed";
+import { type Channel, type HandlerKind } from "@/data/floor-seed";
 import { Lozenge } from "@/components/ui/lozenge";
-
-export type SentimentFilter = "all" | "positive" | "neutral" | "negative";
-export type SortKey = "duration" | "sentiment" | "risk";
 
 export type Filters = {
   q: string;
   channels: Channel[];
   handler: HandlerKind | "all";
-  sentiment: SentimentFilter;
-  topic: string | "all";
-  sort: SortKey;
 };
 
 type Props = {
@@ -66,82 +60,33 @@ export function FilterBar({ value, onChange, visibleCount, totalCount }: Props) 
         })}
       </div>
 
-      <Select
-        label="Handler"
-        value={value.handler}
-        onChange={(v) => patch({ handler: v as Filters["handler"] })}
-        options={[
-          { v: "all", l: "Bot + Human" },
-          { v: "bot", l: "Bot only" },
-          { v: "human", l: "Human only" },
-        ]}
-      />
-
-      <Select
-        label="Sentiment"
-        value={value.sentiment}
-        onChange={(v) => patch({ sentiment: v as SentimentFilter })}
-        options={[
-          { v: "all", l: "All" },
-          { v: "positive", l: "Positive" },
-          { v: "neutral", l: "Neutral" },
-          { v: "negative", l: "Negative" },
-        ]}
-      />
-
-      <Select
-        label="Topic"
-        value={value.topic}
-        onChange={(v) => patch({ topic: v })}
-        options={[
-          { v: "all", l: "All topics" },
-          ...topicOptions.map((t) => ({ v: t, l: t })),
-        ]}
-      />
-
-      <Select
-        label="Sort"
-        value={value.sort}
-        onChange={(v) => patch({ sort: v as SortKey })}
-        options={[
-          { v: "risk", l: "Risk (high→low)" },
-          { v: "sentiment", l: "Sentiment (worst first)" },
-          { v: "duration", l: "Duration (longest)" },
-        ]}
-      />
+      <div className="flex items-center gap-050">
+        {(
+          [
+            ["all", "All handlers"],
+            ["bot", "Bot"],
+            ["human", "Human"],
+          ] as const
+        ).map(([v, l]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => patch({ handler: v })}
+            className={cn(
+              "rounded-full border px-100 py-050 text-body-small font-medium transition-colors",
+              value.handler === v
+                ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
+            )}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
 
       <Lozenge tone="neutral" className="ml-auto tabular">
         {visibleCount} / {totalCount} live
       </Lozenge>
     </div>
-  );
-}
-
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { v: string; l: string }[];
-}) {
-  return (
-    <label className="flex items-center gap-050 text-body-small text-text-subtlest">
-      <span className="hidden sm:inline">{label}:</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text focus:border-border-brand focus:outline-none"
-      >
-        {options.map((o) => (
-          <option key={o.v} value={o.v}>
-            {o.l}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }

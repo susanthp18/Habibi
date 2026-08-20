@@ -34,6 +34,17 @@ export interface BotAnalytics {
   unansweredQuestions: UnansweredQuestion[];
   turnsHistogram: TurnsBucket[];
   funnelStages: Array<{ id: string; label: string; count: number }>;
+  byCard?: Array<{
+    botId: string;
+    sessions: number;
+    contained: number;
+    escalated: number;
+    containment: number;
+    handoffRate: number;
+    latencyP99: number;
+    sloMs: number;
+  }>;
+  skillHistogram?: Array<{ skillId: string; activations: number }>;
 }
 
 export async function fetchBotAnalytics(

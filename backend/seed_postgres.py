@@ -17,6 +17,8 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Json
 
+import authz
+
 
 BASE = Path(__file__).parent
 SEED_DIR = BASE / "seed"
@@ -61,6 +63,12 @@ def main() -> None:
             seed_customers_accounts(conn, ctx)
             seed_consent(conn, ctx)
             seed_bot_config(conn, ctx)
+            seed_skills(conn)
+            seed_mcp_phase3(conn)
+            seed_phase4(conn)
+            seed_phase5(conn)
+            seed_phase6(conn)
+            seed_eval_catalog(conn)
             seed_interactions(conn, ctx)
             seed_collections_and_sales(conn, ctx)
             # After collections/sales: it re-dates rows those functions wrote.
@@ -227,6 +235,10 @@ def jsonable(value: Any) -> Any:
 ARRAY_COLUMNS: dict[str, frozenset[str]] = {
     "products": frozenset({"channels"}),
     "product_campaigns": frozenset({"segment_in", "risk_not_in"}),
+    "skill_versions": frozenset({"allowed_tools"}),
+    "mcp_keys": frozenset({"scopes"}),
+    "mcp_connectors": frozenset({"allow_prefixes", "data_class"}),
+    "a2a_partners": frozenset({"allowed_skills"}),
 }
 
 
@@ -385,7 +397,48 @@ PRODUCT_CAMPAIGNS: list[dict[str, Any]] = [
 ]
 
 
+#: Configuration tables rooted in a tenant by migration 20260812_0060. The
+#: column is injected here rather than at each call site: `upsert` derives its
+#: column list from the row dict, so a seed row that forgets `tenant_id` fails
+#: with a NOT NULL violation at run time, and there are a dozen call sites to
+#: forget it in. Injecting centrally makes the failure impossible instead of
+#: merely unlikely.
+TENANT_SCOPED_SEED_TABLES = frozenset(
+    {
+        "compliance_rules",
+        "qa_rubrics",
+        "products",
+        "document_templates",
+        "persona_presets",
+        "sandbox_scenarios",
+        "kb_snapshots",
+        "tts_voices",
+        "voice_sandbox_sessions",
+        "eval_suites",
+        "skills",
+        "vault_refs",
+        "mcp_connectors",
+        "mcp_keys",
+        "mcp_tasks",
+        "simulation_twins",
+        "a2a_partners",
+        "deployment_experiments",
+        "twin_corpus",
+        "gateway_canaries",
+        "skill_critiques",
+        # Rooted by 20260812_0062 — seed rows that omit tenant_id otherwise
+        # fail NOT NULL and roll back the whole demo graph.
+        "kb_documents",
+        "prompt_versions",
+        "export_jobs",
+        "retrieval_logs",
+    }
+)
+
+
 def upsert(conn: psycopg.Connection, table: str, row: dict[str, Any], pk: str = "id") -> None:
+    if table in TENANT_SCOPED_SEED_TABLES and "tenant_id" not in row:
+        row = {**row, "tenant_id": TENANT_ID}
     keys = list(row)
     cols = ", ".join(keys)
     vals = ", ".join(f"%({k})s" for k in keys)
@@ -411,7 +464,10 @@ def build_context(customers_export: list[dict[str, Any]], calls: list[dict[str, 
     users: dict[str, str] = {}
     bots: dict[str, str] = {
         "collectionsbot-v2-4": "CollectionsBot v2.4",
-        "kaia-v2-4": "Kaia v2.4",
+        "kaia-v2-4": "Collections",
+        "intake-v1": "Intake",
+        "insurance-v1": "Insurance",
+        "supervisor-brief": "Supervisor brief",
         "webchatbot": "WebChatBot",
     }
     teams: dict[str, str] = {
@@ -523,27 +579,24 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         version = "2.4" if "2.4" in name else "1.0"
         upsert(conn, "bots", {"id": bot_id, "tenant_id": TENANT_ID, "name": name, "version": version})
 
-    permissions = [
-        ("perm-interactions-read", "interactions", "read"),
-        ("perm-customers-read", "customers", "read"),
-        ("perm-workqueue-write", "workqueue", "write"),
-        ("perm-admin-write", "admin", "write"),
-        ("perm-qa-review", "qa", "review"),
-    ]
-    for permission_id, module, action in permissions:
-        upsert(conn, "permissions", {"id": permission_id, "module": module, "action": action, "description": f"{action} {module}"})
+    # Permissions and grants come from authz rather than a second list kept
+    # here. The hand-written version had 5 of the 28 permissions and granted 6
+    # rows across 4 roles, which was harmless while nothing read the table and
+    # became a lockout the moment something did: authz treats a role's explicit
+    # grants as authoritative — so that revoking works — and those six tokens
+    # therefore *replaced* the built-in defaults rather than seeding them. With
+    # enforcement on, a Supervisor could do exactly two things.
+    for permission_id, module, action, description in authz.PERMISSION_CATALOG:
+        upsert(conn, "permissions", {"id": permission_id, "module": module, "action": action, "description": description})
 
     roles = [("role-agent", "Agent"), ("role-supervisor", "Supervisor"), ("role-admin", "Admin"), ("role-qa", "QA Reviewer")]
     for role_id, name in roles:
         upsert(conn, "roles", {"id": role_id, "tenant_id": TENANT_ID, "name": name})
 
     for role_id, permission_id in [
-        ("role-agent", "perm-interactions-read"),
-        ("role-agent", "perm-customers-read"),
-        ("role-supervisor", "perm-workqueue-write"),
-        ("role-supervisor", "perm-qa-review"),
-        ("role-admin", "perm-admin-write"),
-        ("role-qa", "perm-qa-review"),
+        (role_id, permission_id)
+        for role_id, name in roles
+        for permission_id in sorted(authz.ROLE_DEFAULTS.get(authz._normalize_role(name), ()))
     ]:
         insert_ignore(
             conn,
@@ -873,7 +926,10 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     def _persona(traits: dict[str, int], fallback: list[str] | None = None) -> dict[str, Any]:
         return {"traits": traits, "language": "English", "fallbackLanguages": fallback or ["Hindi"]}
 
-    # Archived first, then sole published — keeps ux_prompt_versions_one_published happy.
+    # One published version per first-party bot. Collections keeps the history
+    # row ids (v1_0 … v1_4); the other three cards seed a single published row.
+    from agent_core.cards.defaults import card_dump as _card_dump
+
     for row in (
         {
             "id": "v1_0",
@@ -941,7 +997,57 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             "updated_at": "2026-07-20T10:00:00Z",
         },
     ):
+        row = {
+            **row,
+            "bot_id": "kaia-v2-4",
+            "agent_card": _card_dump("kaia-v2-4"),
+        }
         upsert(conn, "prompt_versions", row)
+
+    for bot_id, version_id, prompt in (
+        ("intake-v1", "pv-intake-1", "You are the intake agent. Identify the caller, disclose recording, and hand off to the right specialist."),
+        ("insurance-v1", "pv-insurance-1", "You are the insurance specialist. Eligibility and leads only — never quote a product the reco engine did not return."),
+        ("supervisor-brief", "pv-supervisor-1", "You write a compact supervisor brief. You do not speak to the customer."),
+    ):
+        upsert(
+            conn,
+            "prompt_versions",
+            {
+                "id": version_id,
+                "author_user_id": "anita-rao",
+                "status": "published",
+                "label": "v1.0",
+                "summary": "first-party card",
+                "prompt": prompt,
+                "persona": _persona(_emp_traits),
+                "voice": {**_voice},
+                "guardrails": {**_guardrails},
+                "bot_id": bot_id,
+                "agent_card": _card_dump(bot_id),
+                "created_at": "2026-08-15T10:00:00Z",
+                "updated_at": "2026-08-15T10:00:00Z",
+            },
+        )
+        upsert(
+            conn,
+            "bot_deployments",
+            {
+                "id": f"DEP-{bot_id}-PROD",
+                "bot_id": bot_id,
+                "prompt_version_id": version_id,
+                "kb_snapshot_id": None,
+                "tts_voice_id": "en-IN-AartiNeural",
+                "environment": "production",
+                "status": "active",
+                "published_by_user_id": "priya-nair",
+                "published_at": "2026-08-15T10:00:00Z",
+                "rollback_deployment_id": None,
+                "voice_config": {**_voice, "azureVoiceName": "en-IN-AartiNeural", "voiceId": "en-IN-AartiNeural"},
+                "tuning": {"tts": {"voice": "en-IN-AartiNeural"}},
+                "traffic_pct": 100,
+                "shadow": False,
+            },
+        )
 
     upsert(conn, "kb_documents", {"id": "kb-rbi-disclosures", "updated_by_user_id": "priya-nair", "type": "policy", "version": "2026.07", "status": "indexed", "enabled": True, "chunk_size": 800, "chunk_overlap": 120, "title": "RBI Collections Disclosure Guide"})
     upsert(conn, "kb_source_files", {"id": "file-kb-rbi-disclosures", "document_id": "kb-rbi-disclosures", "storage_ref": "minio://kb-sources/hdfc.retail/rbi-disclosures.pdf", "filename": "rbi-disclosures.pdf", "mime_type": "application/pdf", "size_bytes": 284000, "hash": stable_hash("rbi-disclosures")})
@@ -1182,6 +1288,184 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     upsert(conn, "sandbox_run_turns", {"id": "SBX-1001-turn-1", "run_id": "SBX-1001", "turn_index": 1, "speaker": "bot", "text": "I understand. Let us find a suitable payment date.", "detected_intent": "hardship", "sentiment_label": "neutral", "retrieved_chunk_ids": ["chunk-rbi-disclosures-1"], "guardrail_flags": [], "latency_ms": 980, "token_count": 64})
 
 
+def seed_skills(conn: psycopg.Connection) -> None:
+    """First-party packs, signed with the platform key, attached to published cards."""
+    from agent_core.skills.defaults import CARD_SKILLS, all_first_party_packs
+    from agent_core.skills.sign import sign_hash
+
+    published = {
+        "kaia-v2-4": "v1_4",
+        "intake-v1": "pv-intake-1",
+        "insurance-v1": "pv-insurance-1",
+        "supervisor-brief": "pv-supervisor-1",
+    }
+    version_ids: dict[str, str] = {}
+    for pack in all_first_party_packs():
+        sid = f"skill-{pack.slug}"
+        vid = f"{sid}-v1"
+        version_ids[pack.slug] = vid
+        signature = sign_hash(pack.content_hash)
+        upsert(
+            conn,
+            "skills",
+            {
+                "id": sid,
+                "slug": pack.slug,
+                "signature_status": "signed",
+                "origin": "first_party",
+                "latest_version_id": None,
+            },
+        )
+        upsert(
+            conn,
+            "skill_versions",
+            {
+                "id": vid,
+                "skill_id": sid,
+                "version": "1",
+                "status": "signed",
+                "frontmatter": pack.frontmatter,
+                "body": pack.body,
+                "allowed_tools": pack.allowed_tools,
+                "content_hash": pack.content_hash,
+                "signature": signature,
+                "signed_by": None,
+                "pack": {"references": pack.references, "examples": pack.examples},
+            },
+        )
+        conn.execute(
+            "UPDATE skills SET latest_version_id = %(vid)s WHERE id = %(id)s",
+            {"vid": vid, "id": sid},
+        )
+    for bot_id, slugs in CARD_SKILLS.items():
+        pv = published.get(bot_id)
+        if not pv:
+            continue
+        for slug in slugs:
+            vid = version_ids.get(slug)
+            if not vid:
+                continue
+            insert_ignore(
+                conn,
+                "INSERT INTO skill_attachments (prompt_version_id, skill_version_id) "
+                "VALUES (%(pv)s, %(sv)s) ON CONFLICT DO NOTHING",
+                {"pv": pv, "sv": vid},
+            )
+
+
+def seed_mcp_phase3(conn: psycopg.Connection) -> None:
+    """First-party pay-link + LMS connectors. No tokens, no vault:// strings."""
+    for slug, title, prefixes, data_class in (
+        ("paylink", "Pay-link status", ["ext.paylink."], ["money", "pii"]),
+        ("lms", "LMS balance", ["ext.lms."], ["money", "pii"]),
+    ):
+        upsert(
+            conn,
+            "mcp_connectors",
+            {
+                "id": f"conn-{slug}",
+                "slug": slug,
+                "display_name": title,
+                "kind": "first_party",
+                "allow_prefixes": prefixes,
+                "data_class": data_class,
+                "status": "approved",
+                "allowed_env": "both",
+                "health": "healthy",
+                "tools_cache": [],
+            },
+        )
+
+
+def seed_phase4(conn: psycopg.Connection) -> None:
+    """Clerk SMS rubric + bounce twin. No Temporal cluster, no dialer."""
+    upsert(
+        conn,
+        "qa_rubrics",
+        {
+            "id": "rubric-clerk-sms",
+            "name": "Clerk SMS / WhatsApp",
+            "version": "v1.0",
+            "enabled": True,
+            "channel": "clerk",
+        },
+    )
+    upsert(
+        conn,
+        "qa_rubric_sections",
+        {"id": "clerk-contact", "rubric_id": "rubric-clerk-sms", "name": "Contact policy", "weight": 60},
+    )
+    upsert(
+        conn,
+        "qa_rubric_sections",
+        {"id": "clerk-copy", "rubric_id": "rubric-clerk-sms", "name": "Message accuracy", "weight": 40},
+    )
+    for cid, section, label, desc, weight, critical in (
+        ("clk-dnd", "clerk-contact", "DND / frequency honoured", "No send outside policy.", 50, True),
+        ("clk-once", "clerk-contact", "No duplicate chase", "Idempotent: one SMS/WA per trigger.", 50, True),
+        ("clk-ask", "clerk-copy", "Ask matches the plan", "Amount/link/next step match the treatment log.", 60, False),
+        ("clk-brand", "clerk-copy", "Regulated entity identifiable", "Brand, account tail, grievance route present.", 40, False),
+    ):
+        upsert(
+            conn,
+            "qa_rubric_criteria",
+            {
+                "id": cid,
+                "section_id": section,
+                "label": label,
+                "description": desc,
+                "weight": weight,
+                "critical_fail": critical,
+            },
+        )
+    from agent_core.twin import DEFAULT_STATE, DEFAULT_TWIN_ID
+
+    upsert(
+        conn,
+        "simulation_twins",
+        {
+            "id": DEFAULT_TWIN_ID,
+            "name": "Bounce chase ladder",
+            "state": DEFAULT_STATE,
+        },
+    )
+
+
+def seed_phase5(conn: psycopg.Connection) -> None:
+    """Lapse eval suite + a sample A2A partner cert. No OPA import."""
+    from agent_core.eval.fixtures import seed_lapse_catalog
+
+    seed_lapse_catalog(conn, TENANT_ID, upsert)
+    upsert(
+        conn,
+        "a2a_partners",
+        {
+            "id": "a2a-p-bank-fraud",
+            "name": "Bank fraud desk",
+            "card_url": "https://partner.example/agent-card.json",
+            "cert_fingerprint": "seed-cert-fingerprint",
+            "cert_dn": "CN=bank-fraud.example",
+            "allowed_skills": ["premium-lapse-chase"],
+            "status": "active",
+        },
+    )
+
+
+def seed_eval_catalog(conn: psycopg.Connection) -> None:
+    from agent_core.eval.fixtures import seed_eval_catalog as _seed
+    from agent_core.eval.fixtures import seed_phase6_catalog
+
+    _seed(conn, TENANT_ID, upsert)
+    seed_phase6_catalog(conn, TENANT_ID, upsert)
+
+
+def seed_phase6(conn: psycopg.Connection) -> None:
+    """Capability + twin suites. No DSPy, no auto-applied tuner."""
+    from agent_core.eval.fixtures import seed_phase6_catalog
+
+    seed_phase6_catalog(conn, TENANT_ID, upsert)
+
+
 def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     disclosure_rules = {
         "recording": ("rule-recording", "Recording disclosure"),
@@ -1205,6 +1489,7 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         ("r-dnd-win", "CONSENT-01", "Contact outside DND window", "high"),
         ("r-verify", "VERIFY-01", "Skipped identity verification", "high"),
         ("r-distress", "SENT-01", "Customer distress not addressed", "medium"),
+        ("r-third", "PROH-LANG-05", "Unauthorized third-party disclosure", "critical"),
     ]
     for rule_id, code, label, severity in screen_rules:
         upsert(conn, "compliance_rules", {"id": rule_id, "code": code, "label": label, "severity": severity, "enabled": True})
@@ -1361,7 +1646,7 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         {
             "id": "canned-late-fee",
             "label": "Late-fee waiver policy",
-            "body": "As a first-time waiver, we can apply a one-time reversal of ₹500 on the late fee. Would you like me to raise the request?",
+            "body": "I can't approve a fee reversal on this channel. I'll log a specialist review against the live authority ceiling — they'll confirm what, if anything, can be reversed.",
             "channel": "whatsapp",
         },
         {
@@ -1523,7 +1808,7 @@ def seed_recent_activity(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
 
 def seed_compliance_qa_redaction(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     # Full screen rubric — IDs must match Habibi/src/data/qa-seed.ts defaultRubric.
-    upsert(conn, "qa_rubrics", {"id": "rubric-v1", "name": "Collections Interaction Rubric", "version": "v1.0", "enabled": True})
+    upsert(conn, "qa_rubrics", {"id": "rubric-v1", "name": "Collections Interaction Rubric", "version": "v1.0", "enabled": True, "channel": "voice"})
     rubric_sections = [
         ("empathy", "Empathy & Tone", 20, [
             ("emp-acknowledge", "Acknowledged customer situation", "Reflected feeling before pushing agenda.", 50, False),

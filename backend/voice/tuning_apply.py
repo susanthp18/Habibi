@@ -11,7 +11,7 @@ from typing import Any
 
 from loguru import logger
 
-from agent_core.tuning import live_delta_only, merge_tuning_delta, normalize_tuning
+from agent_core.tuning import live_delta_only, normalize_tuning
 
 
 def _is_reasoning_model(model: str) -> bool:
@@ -89,6 +89,18 @@ def build_smart_turn_analyzer(tuning: dict[str, Any]):
 
 
 def build_user_turn_strategies(tuning: dict[str, Any]):
+    """Turn start/stop strategies for one ``barge_in`` mode.
+
+    **Start and stop must be driven by the same signal.** Pipecat's stop
+    strategies are not interchangeable: ``TurnAnalyzerUserTurnStopStrategy``
+    (Smart Turn v3) ends a turn on ``VADUserStoppedSpeakingFrame``, while
+    ``SpeechTimeoutUserTurnStopStrategy`` ends it on transcript inactivity.
+    Pairing a transcript-driven *start* with the VAD-driven *stop* leaves the
+    turn waiting for a VAD stop that already fired before the turn began — the
+    turn never ends. That is why ``min_words`` below keeps its own stop
+    strategy rather than sharing the Smart Turn one; it is a matched pair, not
+    an oversight.
+    """
     from pipecat.turns.user_start import (
         MinWordsUserTurnStartStrategy,
         VADUserTurnStartStrategy,
@@ -107,12 +119,28 @@ def build_user_turn_strategies(tuning: dict[str, Any]):
             start=[VADUserTurnStartStrategy(enable_interruptions=False)],
         )
     if barge == "min_words":
+        # Transcript-driven start, transcript-driven stop. See the docstring.
         return UserTurnStrategies(
             start=[MinWordsUserTurnStartStrategy(min_words=int(t["interaction"]["min_words"]))],
             stop=[SpeechTimeoutUserTurnStopStrategy()],
         )
-    # Default: Smart Turn v3
+    # Default ("on"): VAD start, Smart Turn v3 stop.
+    #
+    # ``start`` is stated rather than left to Pipecat's default. That default is
+    # ``[VADUserTurnStartStrategy, TranscriptionUserTurnStartStrategy]`` — two
+    # independent triggers, either of which interrupts the bot. The
+    # transcription half is the harmful one on a phone call: a transcript
+    # describes audio from hundreds of milliseconds ago, so a final hypothesis
+    # that lands mid-sentence interrupts the bot on speech the caller finished
+    # before the bot even started talking. On VS-39B35AC484 the bot was cut off
+    # three times this way and the caller heard a reply that never completed.
+    #
+    # VAD alone measures the present, and it pairs correctly with the Smart Turn
+    # stop strategy below (both keyed on VAD start/stop). Backchannels ("yeah",
+    # "mm-hmm") still interrupt in this mode — that is what ``min_words`` is
+    # for, and the Tuning Studio exposes it.
     return UserTurnStrategies(
+        start=[VADUserTurnStartStrategy()],
         stop=[
             TurnAnalyzerUserTurnStopStrategy(
                 turn_analyzer=build_smart_turn_analyzer(t),
@@ -307,7 +335,3 @@ def resolve_session_tuning(
         # Catalog table may be missing mid-migration — keep selected voice.
         logger.debug("tts catalog warning check skipped", exc_info=True)
     return tuning
-
-
-def merge_and_normalize(base: dict[str, Any] | None, delta: dict[str, Any] | None) -> dict[str, Any]:
-    return merge_tuning_delta(base, delta)

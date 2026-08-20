@@ -15,6 +15,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
   Select,
   SelectContent,
@@ -324,6 +325,7 @@ export function VoiceCatalogBrowser({
           ) : null}
           <label className="inline-flex items-center gap-100 rounded-medium border border-border bg-surface-sunken px-150 py-075 text-body-small text-text-subtle">
             <Switch
+              aria-label="Show premium voices"
               checked={showPremium}
               onCheckedChange={setShowPremium}
               disabled={disabled}
@@ -353,7 +355,7 @@ export function VoiceCatalogBrowser({
         <div className="mt-100 flex flex-wrap items-center gap-100 text-body-small text-text-subtlest">
           <span>
             {catalogQuery.isLoading && !items.length
-              ? "Loading…"
+              ? "Loading catalog…"
               : `${items.length}${total ? ` / ${total}` : ""} voices`}
             {!showPremium ? " · premium hidden" : ""}
           </span>
@@ -463,8 +465,8 @@ export function VoiceCatalogBrowser({
         ) : null}
         <div ref={parentRef} className="overflow-auto" style={{ height }}>
           {catalogQuery.isLoading && !items.length ? (
-            <div className="flex items-center justify-center gap-100 py-600 text-body-small text-text-subtlest">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading catalog…
+            <div className="flex items-center justify-center py-600">
+              <LoadingState label="Loading catalog" />
             </div>
           ) : null}
           {!catalogQuery.isLoading && !items.length ? (

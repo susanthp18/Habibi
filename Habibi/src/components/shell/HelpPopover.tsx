@@ -35,11 +35,13 @@ const SECTIONS: {
   },
   {
     title: "Bot config",
-    blurb: "Tune prompts, knowledge, and routing that drive the voice agent.",
+    blurb: "Tune agent cards, skills, knowledge, and routing that drive the voice agent.",
     links: [
-      { label: "Prompt Studio", to: "/prompt-studio" },
+      { label: "Agent studio", to: "/agent-studio" },
+      { label: "Skills library", to: "/agent-studio/skills" },
       { label: "Knowledge Base", to: "/knowledge-base" },
       { label: "Call Sandbox", to: "/sandbox" },
+      { label: "Integrations", to: "/integrations" },
     ],
   },
 ];

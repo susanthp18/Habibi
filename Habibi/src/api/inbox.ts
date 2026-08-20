@@ -20,7 +20,7 @@ import {
   threads as seedThreads,
   type Thread,
 } from "@/data/inbox-seed";
-import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPost, apiUpload, mockDelay, USE_MOCK } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };
 
@@ -259,4 +259,20 @@ export async function refreshConversationSuggestions(
       includeDraftAnswer: opts.includeDraftAnswer ?? false,
     },
   );
+}
+
+export async function ingestInboxDocument(
+  customerId: string,
+  file: File,
+  conversationId?: string,
+): Promise<{ documentRequestId?: string; source?: string }> {
+  if (USE_MOCK) {
+    await mockDelay(undefined);
+    return { documentRequestId: `mock-doc-${Date.now()}`, source: "vision" };
+  }
+  const form = new FormData();
+  form.append("customer_id", customerId);
+  form.append("file", file);
+  if (conversationId) form.append("conversation_id", conversationId);
+  return apiUpload("/document-requests/ingest", form);
 }

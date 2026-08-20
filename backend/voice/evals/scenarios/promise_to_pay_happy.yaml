@@ -36,5 +36,8 @@ turns:
               promise_date: "{{promise_date}}"
       - event: response
         eval: >-
-          the bot confirms the promise to pay and does NOT claim it is
-          connecting or transferring the caller to a person
+          the bot confirms the promise to pay, mentions the amount and date,
+          and if a written confirm was sent it refers to WhatsApp or SMS by
+          last-4 digits. It does NOT read out a payment URL or invent a link,
+          and it does NOT claim it is connecting or transferring the caller
+          to a person

@@ -1,0 +1,35 @@
+language: en-US
+early_access: true
+reviews:
+  profile: assertive
+  high_level_summary: true
+  sequence_diagrams: true
+  changed_files_summary: true
+  path_filters:
+    - "backend/sql/**"
+    - "backend/alembic/**"
+    - "backend/DATA_MODEL.md"
+  path_instructions:
+    - path: "backend/sql/**"
+      instructions: |
+        This is the canonical PostgreSQL 16 collections CRM schema. Review it as a
+        production banking data model, not a prototype. Inspect every CREATE TABLE,
+        constraint, index, trigger, and view in the current file, not only the diff
+        hunks. Flag missing tenant_id on tenant-owned rows, missing or wrong FKs,
+        ON DELETE that orphans money/audit, FLOAT/REAL money, TEXT status without
+        CHECK, unique indexes that collapse on NULL, append-only logs that are
+        updatable, PII columns without purpose, and drift from DATA_MODEL.md.
+        Do not review application Python. Do not suggest style-only SQL formatting.
+    - path: "backend/alembic/versions/**"
+      instructions: |
+        Review each migration as a schema change that must be reversible or
+        explicitly irreversible, tenant-safe, and consistent with backend/sql/.
+        Flag destructive DDL, missing downgrade, CHECK/FK/index drift versus the
+        baseline SQL, data backfills that can fail mid-flight, and revisions that
+        rewrite history of append-only tables. Ignore seed-only content unless it
+        mutates constraints or types.
+    - path: "backend/DATA_MODEL.md"
+      instructions: |
+        Treat this as the map, not the source of truth. Flag contradictions with
+        backend/sql/*.sql and alembic/versions: missing tables, wrong cardinalities,
+        view-vs-table claims, and undocumented tenant or PII decisions.

@@ -31,6 +31,12 @@ export interface Promise {
   notes?: string;
   planId?: string;
   events: PtpEvent[];
+  confirmChannel?: "whatsapp" | "sms" | null;
+  confirmStatus?: string | null;
+  paymentIntentStatus?: string | null;
+  paymentIntentId?: string | null;
+  payLinkSent?: boolean;
+  phoneLast4?: string | null;
 }
 
 export type PlanCadence = "weekly" | "biweekly" | "monthly";

@@ -102,6 +102,10 @@ export function ConsentDrawer({
           <section>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Frequency caps</div>
             <FrequencyCapsEditor channels={channels} onChange={setChannels} />
+            <div className="mt-075 text-body-small text-text-subtle">
+              Today: {record.outreachToday ?? 0}/{record.dailyCap ?? 3} outreach
+              {record.lastDecisionReason ? ` · last block: ${record.lastDecisionReason}` : ""}
+            </div>
           </section>
 
           <section className="rounded-medium border border-border bg-surface p-150">

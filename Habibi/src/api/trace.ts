@@ -19,6 +19,10 @@ export type TraceToolCall = {
   args: Record<string, unknown> | null;
   resultPreview: string | null;
   at: string | null;
+  /** Null until Agent Cards / skills / connectors write these (Phase 1+). */
+  agentId?: string | null;
+  skillId?: string | null;
+  connectorId?: string | null;
 };
 
 export type TraceRetrieval = {

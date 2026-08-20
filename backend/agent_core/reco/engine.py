@@ -175,6 +175,11 @@ def _recommend(
         vetted, vetoed = _apply_eligibility(
             conn, customer_id=customer_id, channel=channel, pool=pool
         )
+        # Collection / upsell separation. Read here rather than folded into
+        # CustomerFeatures so the feature schema version — and therefore every
+        # trained artifact scored against it — is unaffected by a gate that is
+        # not a feature.
+        hold_reason = _collections_hold(conn, customer_id)
     excluded.update(vetoed)
 
     scorer = build_scorer(
@@ -190,6 +195,7 @@ def _recommend(
         offers=scored,
         policy=policy,
         channel=channel,
+        external_suppression=hold_reason,
     )
 
     # Phrased only for what survived arbitration. Generating a talk track for a
@@ -293,6 +299,23 @@ def _candidate_log(
             # A vector we cannot build costs one training row, not the call.
             logger.exception("feature vector logging failed for %s", row.get("productId"))
     return rows
+
+
+def _collections_hold(conn: Any, customer_id: str) -> str | None:
+    """A hardship / complaint / bereavement / legal hold, or None.
+
+    Delegated to the treatment engine so there is one definition of the
+    separation rather than two that drift. Never raises — but an unreadable
+    hold table returns a suppression reason rather than None, because failing
+    open here means pitching a product to someone in hardship.
+    """
+    try:
+        from agent_core.treatment import policy as treatment_policy
+
+        return treatment_policy.suppresses_upsell(conn, customer_id)
+    except Exception:
+        logger.exception("collections hold lookup failed for %s", customer_id)
+        return "treatment_hold_unreadable"
 
 
 def _apply_eligibility(

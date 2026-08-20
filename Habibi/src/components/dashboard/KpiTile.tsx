@@ -21,7 +21,9 @@ export function KpiTile({ kpi }: { kpi: Kpi }) {
       <div className="mt-100 flex items-end justify-between gap-100">
         <span className={cn("text-2xl font-semibold tabular", tone.accent)}>{kpi.value}</span>
         {kpi.spark.length > 0 && (
-          <Sparkline data={kpi.spark} width={80} height={28} stroke={tone.stroke} fill={tone.fill} />
+          <div className="w-20 overflow-hidden rounded-medium bg-surface-sunken">
+            <Sparkline data={kpi.spark} width={80} height={28} stroke={tone.stroke} fill={tone.fill} />
+          </div>
         )}
       </div>
       {/* How the number was computed — a rate whose formula only exists in a
