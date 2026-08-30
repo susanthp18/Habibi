@@ -116,7 +116,12 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
         <div className="flex items-center gap-050">
           <span className="text-body-small text-text-subtlest">Range</span>
           {(["today", "7d", "30d", "all"] as const).map((r) => (
-            <Chip key={r} label={r === "all" ? "All" : r} on={filters.range === r} onClick={() => onPatch({ range: r })} />
+            <Chip
+              key={r}
+              label={r === "all" ? "All" : r}
+              on={filters.range === r}
+              onClick={() => onPatch({ range: r })}
+            />
           ))}
         </div>
 

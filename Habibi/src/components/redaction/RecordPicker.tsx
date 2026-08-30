@@ -59,9 +59,13 @@ export function RecordPicker(p: Props) {
         <div className="flex items-center justify-between text-body-small">
           <span className="text-text-subtlest">{p.records.length} records</span>
           <div className="flex gap-100">
-            <button onClick={p.onSelectAllWithPii} className="text-text-brand hover:underline">Select all w/ PII</button>
+            <button onClick={p.onSelectAllWithPii} className="text-text-brand hover:underline">
+              Select all w/ PII
+            </button>
             {p.selected.size > 0 && (
-              <button onClick={p.onClearSelection} className="text-text-subtle hover:underline">Clear ({p.selected.size})</button>
+              <button onClick={p.onClearSelection} className="text-text-subtle hover:underline">
+                Clear ({p.selected.size})
+              </button>
             )}
           </div>
         </div>
@@ -93,7 +97,9 @@ export function RecordPicker(p: Props) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-075">
                     <Icon className="h-3 w-3 text-text-subtlest" />
-                    <span className="truncate text-body-small font-semibold text-text">{r.customer}</span>
+                    <span className="truncate text-body-small font-semibold text-text">
+                      {r.customer}
+                    </span>
                     <span className="ml-auto text-body-small text-text-subtlest">{r.id}</span>
                   </div>
                   <div className="mt-025 flex items-center gap-100 text-body-small text-text-subtlest">
@@ -102,14 +108,8 @@ export function RecordPicker(p: Props) {
                     <span className="truncate">{r.handler}</span>
                   </div>
                   <div className="mt-050 flex items-center gap-050">
-                    <Lozenge tone={piiCount > 0 ? "danger" : "success"}>
-                      {piiCount} PII
-                    </Lozenge>
-                    {r.reviewed && (
-                      <Lozenge tone="success">
-                        Reviewed
-                      </Lozenge>
-                    )}
+                    <Lozenge tone={piiCount > 0 ? "danger" : "success"}>{piiCount} PII</Lozenge>
+                    {r.reviewed && <Lozenge tone="success">Reviewed</Lozenge>}
                   </div>
                 </div>
               </button>
@@ -117,7 +117,9 @@ export function RecordPicker(p: Props) {
           );
         })}
         {p.records.length === 0 && (
-          <li className="px-200 py-300 text-center text-body-small text-text-subtlest">No records match filters</li>
+          <li className="px-200 py-300 text-center text-body-small text-text-subtlest">
+            No records match filters
+          </li>
         )}
       </ul>
     </div>

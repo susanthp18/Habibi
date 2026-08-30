@@ -4,13 +4,7 @@ import type { HandoffAlert } from "@/api/handoff";
 import { ackFloorAlert } from "@/api/floor";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-export function HandoffAlerts({
-  items,
-  mock,
-}: {
-  items: HandoffAlert[];
-  mock?: boolean;
-}) {
+export function HandoffAlerts({ items, mock }: { items: HandoffAlert[]; mock?: boolean }) {
   const qc = useQueryClient();
   const ack = useMutation({
     mutationFn: (id: string) => ackFloorAlert(id),
@@ -34,9 +28,7 @@ export function HandoffAlerts({
               <div className="text-body-small font-semibold text-text">
                 {a.kind.replace(/_/g, " ")}
               </div>
-              {a.reason ? (
-                <div className="text-body-small text-text-subtle">{a.reason}</div>
-              ) : null}
+              {a.reason ? <div className="text-body-small text-text-subtle">{a.reason}</div> : null}
             </div>
             <button
               type="button"

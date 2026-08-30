@@ -1,4 +1,18 @@
-import { Bot, User, PhoneCall, MessageSquare, Mail, Smartphone, MessageCircle, BellRing, BellOff, CheckCircle2, XCircle, HandCoins, MoreHorizontal } from "lucide-react";
+import {
+  Bot,
+  User,
+  PhoneCall,
+  MessageSquare,
+  Mail,
+  Smartphone,
+  MessageCircle,
+  BellRing,
+  BellOff,
+  CheckCircle2,
+  XCircle,
+  HandCoins,
+  MoreHorizontal,
+} from "lucide-react";
 import { fmtDate, fmtMoney, type Promise, type PromiseStatus } from "@/data/promises-seed";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -63,7 +77,9 @@ export function PromiseCard({ promise: p, onOpen, onMark, onResend }: Props) {
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="text-body font-semibold text-text tabular-nums">{fmtMoney(p.amount)}</div>
+            <div className="text-body font-semibold text-text tabular-nums">
+              {fmtMoney(p.amount)}
+            </div>
             {p.status === "partial" && p.paidAmount !== undefined && (
               <div className="text-body-small text-text-warning tabular-nums">
                 {fmtMoney(p.paidAmount)} paid
@@ -100,8 +116,16 @@ export function PromiseCard({ promise: p, onOpen, onMark, onResend }: Props) {
               p.reminderStatus === "off" ? "text-text-subtlest" : "text-text-subtle",
             )}
           >
-            {p.reminderStatus === "off" ? <BellOff className="h-3 w-3" /> : <BellRing className="h-3 w-3" />}
-            {p.reminderStatus === "off" ? "Off" : p.reminderStatus === "sent" ? "Sent" : "Scheduled"}
+            {p.reminderStatus === "off" ? (
+              <BellOff className="h-3 w-3" />
+            ) : (
+              <BellRing className="h-3 w-3" />
+            )}
+            {p.reminderStatus === "off"
+              ? "Off"
+              : p.reminderStatus === "sent"
+                ? "Sent"
+                : "Scheduled"}
           </span>
         </div>
         {(p.confirmChannel || p.paymentIntentStatus || p.payLinkSent) && (
@@ -124,7 +148,9 @@ export function PromiseCard({ promise: p, onOpen, onMark, onResend }: Props) {
             variant="ghost"
             className="h-300 flex-1 px-100 text-body-small text-text-success-bolder hover:bg-background-success-subtler disabled:opacity-40"
             disabled={!(p.paidAmount && p.paidAmount > 0)}
-            title={!(p.paidAmount && p.paidAmount > 0) ? "Kept requires a recorded payment" : undefined}
+            title={
+              !(p.paidAmount && p.paidAmount > 0) ? "Kept requires a recorded payment" : undefined
+            }
             onClick={(e) => {
               e.stopPropagation();
               onMark(p, "kept");

@@ -20,7 +20,7 @@ import {
   threads as seedThreads,
   type Thread,
 } from "@/data/inbox-seed";
-import { apiGet, apiPost, apiUpload, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPost, apiUpload, mockDelay, retryUnlessClientError, USE_MOCK } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };
 
@@ -56,19 +56,36 @@ function mergeThread(existing: Thread, delta: Thread): Thread {
   return merged;
 }
 
-function mergeThreads(prev: Thread[], deltas: Thread[]): Thread[] {
+/**
+ * The server's list order, reproduced exactly:
+ *   ORDER BY COALESCE(updated_at, created_at) DESC, cv.id
+ *
+ * Both halves used to differ. The tiebreak compared `lastTime`, which is a
+ * 12-hour clock string with no date — so `"9:40 AM"` sorts after `"10:29 AM"`
+ * lexicographically, and every thread whose hour has one digit fewer landed in
+ * the wrong place. That is not hypothetical: the seeded threads all carry the
+ * same `updatedAt` to the microsecond (one bulk transaction), so the tiebreak
+ * decided the entire list.
+ *
+ * Sorting ties by id instead also settles a second disagreement. A full poll
+ * renders the server's order verbatim while a delta poll re-sorts here, so any
+ * mismatch made rows swap places every ~60s for no reason a user could see.
+ */
+export function compareThreads(a: Thread, b: Thread): number {
+  const au = a.updatedAt || "";
+  const bu = b.updatedAt || "";
+  if (au !== bu) return bu.localeCompare(au);
+  return (a.id || "").localeCompare(b.id || "");
+}
+
+export function mergeThreads(prev: Thread[], deltas: Thread[]): Thread[] {
   if (!deltas.length) return prev;
   const byId = new Map(prev.map((t) => [t.id, t]));
   for (const d of deltas) {
     const existing = byId.get(d.id);
     byId.set(d.id, existing ? mergeThread(existing, d) : d);
   }
-  return Array.from(byId.values()).sort((a, b) => {
-    const au = a.updatedAt || "";
-    const bu = b.updatedAt || "";
-    if (au !== bu) return bu.localeCompare(au);
-    return (b.lastTime || "").localeCompare(a.lastTime || "");
-  });
+  return Array.from(byId.values()).sort(compareThreads);
 }
 
 export async function fetchConversations(opts?: {
@@ -101,16 +118,17 @@ export function useConversations() {
       return mergeThreads(prev, deltas);
     },
     staleTime: 2_000,
+    // The global default retries every failure once, including the 4xx that
+    // will fail identically on the retry. A malformed `updatedAfter` is a
+    // client bug, not a blip.
+    retry: retryUnlessClientError,
     refetchInterval: (q) => {
       if (USE_MOCK) return false;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         return false;
       }
       const rows = q.state.data;
-      if (
-        Array.isArray(rows) &&
-        rows.some((t) => t?.botTyping || t?.pendingOutbound)
-      ) {
+      if (Array.isArray(rows) && rows.some((t) => t?.botTyping || t?.pendingOutbound)) {
         return 1_500;
       }
       return 4_000;
@@ -143,6 +161,7 @@ export function useCannedResponses() {
     queryKey: ["canned-responses"],
     queryFn: fetchCannedResponses,
     staleTime: 5 * 60_000,
+    retry: retryUnlessClientError,
   });
 }
 
@@ -184,10 +203,7 @@ export async function returnConversationToBot(threadId: string): Promise<Thread>
   return apiPost<Thread>(`/conversations/${threadId}/return-to-bot`, {});
 }
 
-export async function sendConversationMessage(
-  threadId: string,
-  text: string,
-): Promise<Thread> {
+export async function sendConversationMessage(threadId: string, text: string): Promise<Thread> {
   if (USE_MOCK) {
     const thread = seedThreads.find((t) => t.id === threadId);
     if (!thread) throw new Error("conversation_not_found");

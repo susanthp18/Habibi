@@ -16,7 +16,25 @@ def bank_name() -> str:
     return (os.getenv("BANK_NAME") or "HDFC Bank").strip() or "HDFC Bank"
 
 
+#: Language the agent speaks when a card does not say. Not a constant: the
+#: Persona tab is the authority and this is only what a context with no persona
+#: falls back to.
+DEFAULT_LANGUAGE = "English"
+
+
 def default_context(extra: dict[str, Any] | None = None) -> dict[str, str]:
+    """Baseline substitution values for every channel's prompt render.
+
+    ``time_of_day`` is computed, not constant. It was the literal string
+    ``"day"`` here and nothing anywhere overrode it, so the ``{time_of_day}``
+    variable the Studio offers in its palette rendered "day" on every call at
+    every hour — a token that passed lint and produced a word no operator would
+    ever have typed. It now comes from :mod:`agent_core.clock`, which already
+    owns tenant-local time for the ``## Time`` block of the same prompt; having
+    two notions of "now" in one system message is the bug this avoids.
+    """
+    from agent_core import clock
+
     base = {
         "agent_name": agent_name(),
         "bank_name": bank_name(),
@@ -25,8 +43,8 @@ def default_context(extra: dict[str, Any] | None = None) -> dict[str, str]:
         "overdue_amount": "0",
         "due_date": "",
         "last_payment": "",
-        "language": "English",
-        "time_of_day": "day",
+        "language": DEFAULT_LANGUAGE,
+        "time_of_day": clock.part_of_day(),
     }
     if extra:
         for k, v in extra.items():

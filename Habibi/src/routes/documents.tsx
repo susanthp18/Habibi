@@ -47,7 +47,8 @@ export const Route = createFileRoute("/documents")({
       { property: "og:title", content: "Document Fulfillment Desk" },
       {
         property: "og:description",
-        content: "Process bot-captured document requests: generate, deliver via WhatsApp/Email/SMS, and audit fulfillment.",
+        content:
+          "Process bot-captured document requests: generate, deliver via WhatsApp/Email/SMS, and audit fulfillment.",
       },
     ],
   }),
@@ -137,7 +138,8 @@ function DocumentsPage() {
       invalidate();
       // Simulated failure is demo theater — only in mock mode. In live mode this
       // would persist a real "failed" status to the DB via markFailed, so gate it off.
-      const shouldFail = USE_MOCK && d.id.endsWith("7") && d.status !== "failed" && Math.random() < 0.15;
+      const shouldFail =
+        USE_MOCK && d.id.endsWith("7") && d.status !== "failed" && Math.random() < 0.15;
       await new Promise((r) => setTimeout(r, 1600));
       if (shouldFail) {
         await markFailed(d, "Delivery gateway rejected · retrying available");
@@ -212,7 +214,9 @@ function DocumentsPage() {
           <div className="flex items-center gap-100">
             <FileText className="h-250 w-250 text-text-brand" />
             <div>
-              <h1 className="text-[1rem] font-semibold text-text leading-none">Document fulfilment desk</h1>
+              <h1 className="heading-small font-semibold text-text leading-none">
+                Document fulfilment desk
+              </h1>
               <p className="text-body-small text-text-subtle">
                 Bot captures requests, humans fulfil. Generate, deliver, and audit every document.
               </p>
@@ -230,7 +234,12 @@ function DocumentsPage() {
 
         <MetricsStrip m={metrics} />
         <PipelineStrip counts={metrics.counts} active={filters.statuses} onToggle={toggleStatus} />
-        <FiltersBar filters={filters} onPatch={patchFilters} onReset={() => setFilters(defaultFilters)} assignees={assignees} />
+        <FiltersBar
+          filters={filters}
+          onPatch={patchFilters}
+          onReset={() => setFilters(defaultFilters)}
+          assignees={assignees}
+        />
 
         {selected.size > 0 && (
           <BulkActionBar

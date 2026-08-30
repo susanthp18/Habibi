@@ -76,9 +76,7 @@ export function StatsStrip() {
               style={{ animationDelay: `${i * 30}ms` }}
             >
               <div className="flex items-center justify-between gap-100">
-                <span className="text-body-small font-medium text-text-subtlest">
-                  {t.label}
-                </span>
+                <span className="text-body-small font-medium text-text-subtlest">{t.label}</span>
                 <span className="grid h-7 w-7 place-items-center rounded-medium bg-surface-sunken text-text-subtlest">
                   <Icon className="h-3.5 w-3.5" />
                 </span>

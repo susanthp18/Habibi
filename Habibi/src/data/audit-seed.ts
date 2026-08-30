@@ -19,12 +19,7 @@ export type Disposition =
   | "DND — Not Contacted";
 
 export type CallFlag =
-  | "compliance-miss"
-  | "sentiment-drop"
-  | "escalation"
-  | "silence"
-  | "abuse-detected"
-  | "high-value";
+  "compliance-miss" | "sentiment-drop" | "escalation" | "silence" | "abuse-detected" | "high-value";
 
 export interface DisclosureCheck {
   id: string;
@@ -163,25 +158,49 @@ function buildTranscript(
   const body: Array<{ speaker: Speaker; text: string }> = [];
   if (disposition === "PTP Captured") {
     body.push(
-      { speaker: agentSpeaker, text: "Your account shows an overdue amount of ₹12,180 due since 5 Aug. Can we agree on a date for the payment?" },
+      {
+        speaker: agentSpeaker,
+        text: "Your account shows an overdue amount of ₹12,180 due since 5 Aug. Can we agree on a date for the payment?",
+      },
       { speaker: "customer", text: "Yes, I'll pay by the 20th — salary is credited on the 18th." },
-      { speaker: agentSpeaker, text: "Noted. I'll set up a promise-to-pay for 20 Aug for ₹12,180. You'll receive a WhatsApp reminder two days before." },
+      {
+        speaker: agentSpeaker,
+        text: "Noted. I'll set up a promise-to-pay for 20 Aug for ₹12,180. You'll receive a WhatsApp reminder two days before.",
+      },
       { speaker: "customer", text: "That works. Please don't call before 10 AM." },
       { speaker: agentSpeaker, text: "Understood — I've updated your preferred contact window." },
     );
   } else if (disposition === "Dispute Raised") {
     body.push(
-      { speaker: "customer", text: "I already paid on the 3rd but you're showing overdue. This is the second time." },
-      { speaker: agentSpeaker, text: "I'm sorry for the trouble. Could you share the UTR or reference number for the payment?" },
+      {
+        speaker: "customer",
+        text: "I already paid on the 3rd but you're showing overdue. This is the second time.",
+      },
+      {
+        speaker: agentSpeaker,
+        text: "I'm sorry for the trouble. Could you share the UTR or reference number for the payment?",
+      },
       { speaker: "customer", text: "UTR is HDFC0043221198. It was ₹12,180 exactly." },
-      { speaker: agentSpeaker, text: "Thank you. I'm raising a dispute now — you'll get an SMS with the ticket ID within five minutes. Late fees are paused while we investigate." },
+      {
+        speaker: agentSpeaker,
+        text: "Thank you. I'm raising a dispute now — you'll get an SMS with the ticket ID within five minutes. Late fees are paused while we investigate.",
+      },
     );
   } else if (disposition === "Info Query Resolved") {
     body.push(
-      { speaker: "customer", text: "I just wanted to know my outstanding balance and next EMI date." },
-      { speaker: agentSpeaker, text: "Your current outstanding is ₹48,720. The next EMI of ₹12,180 is due on 5 Aug." },
+      {
+        speaker: "customer",
+        text: "I just wanted to know my outstanding balance and next EMI date.",
+      },
+      {
+        speaker: agentSpeaker,
+        text: "Your current outstanding is ₹48,720. The next EMI of ₹12,180 is due on 5 Aug.",
+      },
       { speaker: "customer", text: "Can I get a statement on WhatsApp?" },
-      { speaker: agentSpeaker, text: "Sure — I've sent the six-month statement to your registered WhatsApp number." },
+      {
+        speaker: agentSpeaker,
+        text: "Sure — I've sent the six-month statement to your registered WhatsApp number.",
+      },
     );
   } else if (disposition === "Escalated") {
     body.push(
@@ -189,30 +208,41 @@ function buildTranscript(
       { speaker: "bot", text: "Absolutely, transferring you to a human agent now — please hold." },
       { speaker: "system", text: "— Call transferred to Aarav K. —" },
       { speaker: "agent", text: "Hi, this is Aarav. I've reviewed the notes — how can I help?" },
-      { speaker: "customer", text: "Your reminders are too frequent. Stop them or I'm closing the card." },
-      { speaker: "agent", text: "I've registered a DND for voice reminders and reduced SMS to weekly only." },
+      {
+        speaker: "customer",
+        text: "Your reminders are too frequent. Stop them or I'm closing the card.",
+      },
+      {
+        speaker: "agent",
+        text: "I've registered a DND for voice reminders and reduced SMS to weekly only.",
+      },
     );
   } else if (disposition === "Callback Scheduled") {
     body.push(
       { speaker: "customer", text: "I'm in a meeting — call me back at 4 PM tomorrow." },
-      { speaker: agentSpeaker, text: "No problem — I've scheduled a callback for tomorrow at 4 PM on this number." },
+      {
+        speaker: agentSpeaker,
+        text: "No problem — I've scheduled a callback for tomorrow at 4 PM on this number.",
+      },
     );
   } else if (disposition === "Payment Made") {
     body.push(
-      { speaker: agentSpeaker, text: "You have an outstanding of ₹4,220. Would you like to pay now via UPI link?" },
+      {
+        speaker: agentSpeaker,
+        text: "You have an outstanding of ₹4,220. Would you like to pay now via UPI link?",
+      },
       { speaker: "customer", text: "Yes, send it." },
       { speaker: "system", text: "— Payment link sent via SMS —" },
       { speaker: "customer", text: "Done." },
-      { speaker: agentSpeaker, text: "Payment of ₹4,220 confirmed. Thank you — your account is now current." },
+      {
+        speaker: agentSpeaker,
+        text: "Payment of ₹4,220 confirmed. Thank you — your account is now current.",
+      },
     );
   } else if (disposition === "DND — Not Contacted") {
-    body.push(
-      { speaker: "system", text: "— DND window active. Call ended before outreach. —" },
-    );
+    body.push({ speaker: "system", text: "— DND window active. Call ended before outreach. —" });
   } else if (disposition === "Voicemail" || disposition === "No Answer") {
-    body.push(
-      { speaker: "system", text: "— No answer after 4 rings. Call ended. —" },
-    );
+    body.push({ speaker: "system", text: "— No answer after 4 rings. Call ended. —" });
   }
 
   for (let i = 0; i < body.length; i++) {
@@ -233,7 +263,11 @@ function buildTranscript(
   return turns;
 }
 
-function buildSentiment(rand: () => number, duration: number, disposition: Disposition): SentimentPoint[] {
+function buildSentiment(
+  rand: () => number,
+  duration: number,
+  disposition: Disposition,
+): SentimentPoint[] {
   const pts: SentimentPoint[] = [];
   const step = 4;
   let v = 0.1 + (rand() - 0.5) * 0.2;
@@ -277,13 +311,16 @@ function makeCall(i: number): CallRecord {
   if (avgSentiment < -0.3) flags.push("sentiment-drop");
   if (disposition === "Escalated") flags.push("escalation");
   if (rand() < 0.15) flags.push("compliance-miss");
-  if (duration < 60 && (disposition === "No Answer" || disposition === "Voicemail")) flags.push("silence");
+  if (duration < 60 && (disposition === "No Answer" || disposition === "Voicemail"))
+    flags.push("silence");
   if (rand() < 0.08) flags.push("abuse-detected");
   if (rand() < 0.12) flags.push("high-value");
 
   const disclosures: DisclosureCheck[] = DISCLOSURE_TEMPLATE.map((d, di) => {
     const shouldRead =
-      disposition !== "No Answer" && disposition !== "Voicemail" && disposition !== "DND — Not Contacted";
+      disposition !== "No Answer" &&
+      disposition !== "Voicemail" &&
+      disposition !== "DND — Not Contacted";
     const read = shouldRead && rand() > (flags.includes("compliance-miss") && di < 2 ? 0.5 : 0.08);
     return {
       ...d,

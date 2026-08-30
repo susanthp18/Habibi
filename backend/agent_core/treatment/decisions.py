@@ -304,6 +304,9 @@ def mark_enacted(
         logger.exception("mark_enacted failed for %s", decision_id)
 
 
+#: Mirrors the CHECK on ``treatment_decisions.outcome``. A value this set does
+#: not know is dropped with a warning rather than sent to Postgres, so a typo
+#: costs one label instead of aborting whatever transaction the engine was lent.
 OUTCOMES = frozenset(
     {
         "reached",
@@ -314,6 +317,10 @@ OUTCOMES = frozenset(
         "undeliverable",
         "cancelled",
         "superseded",
+        # We deliberately withheld treatment and the borrower did not pay
+        # inside the observation window. The counterfactual's negative class,
+        # and the only kind of row that can measure self-cure.
+        "unresolved",
     }
 )
 

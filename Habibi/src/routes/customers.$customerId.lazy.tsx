@@ -30,7 +30,16 @@ import {
 import { deriveCustomerInsights, type NbaActionKind } from "@/lib/customerInsights";
 import { cn } from "@/lib/utils";
 
-const TABS = ["overview", "ledger", "emi", "interactions", "promises", "disputes", "documents", "notes"] as const;
+const TABS = [
+  "overview",
+  "ledger",
+  "emi",
+  "interactions",
+  "promises",
+  "disputes",
+  "documents",
+  "notes",
+] as const;
 type Tab = (typeof TABS)[number];
 
 export const Route = createLazyFileRoute("/customers/$customerId")({
@@ -66,7 +75,9 @@ function tabCount(customer: Customer, tab: Tab): number | undefined {
 }
 
 function useIsLg() {
-  const [lg, setLg] = useState(() => (typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true));
+  const [lg, setLg] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
+  );
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
     const onChange = () => setLg(mq.matches);
@@ -110,37 +121,44 @@ function CustomerDetail() {
   };
 
   const ptpMutation = useMutation({
-    mutationFn: (payload: { amount: number; date: string; channel: string; notes: string }) => createPromise(customer, payload),
+    mutationFn: (payload: { amount: number; date: string; channel: string; notes: string }) =>
+      createPromise(customer, payload),
     onSuccess: async () => {
       await refreshCustomer();
       toast.success("PTP captured");
       setTab("promises");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to capture PTP"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Failed to capture PTP"),
   });
 
   const disputeMutation = useMutation({
-    mutationFn: (payload: { type: DisputeType; amount: number; notes: string }) => createDispute(customer, payload),
+    mutationFn: (payload: { type: DisputeType; amount: number; notes: string }) =>
+      createDispute(customer, payload),
     onSuccess: async () => {
       await refreshCustomer();
       toast.success("Dispute filed");
       setTab("disputes");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to file dispute"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Failed to file dispute"),
   });
 
   const documentMutation = useMutation({
-    mutationFn: (payload: { docType: string; delivery: "email" | "whatsapp" }) => createDocumentRequest(customer, payload),
+    mutationFn: (payload: { docType: string; delivery: "email" | "whatsapp" }) =>
+      createDocumentRequest(customer, payload),
     onSuccess: async (_, payload) => {
       await refreshCustomer();
       toast.success(`${payload.docType} queued for ${payload.delivery}`);
       setTab("documents");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to request document"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Failed to request document"),
   });
 
   const callMutation = useMutation({
-    mutationFn: (payload: { disposition: string; notes: string }) => logInteraction(customer, payload),
+    mutationFn: (payload: { disposition: string; notes: string }) =>
+      logInteraction(customer, payload),
     onSuccess: async () => {
       await refreshCustomer();
       toast.success("Call logged");
@@ -172,8 +190,15 @@ function CustomerDetail() {
     } else if (action === "statement") setSheet("statement");
     else if (action === "call") setSheet("call");
     else if (action === "offer") {
-      const leadId = insights.offerPolicy?.leadId ?? insights.nba.find((i) => i.action === "offer")?.leadId;
-      void navigate({ to: "/upsell", search: leadId ? { id: leadId } : {} });
+      const leadId =
+        insights.offerPolicy?.leadId ?? insights.nba.find((i) => i.action === "offer")?.leadId;
+      // `leadId ? {id} : {}` produced `{id: string} | {}`, and the route's
+      // search type is `{id: string | undefined}` — an absent key and an
+      // undefined one are different types even though they serialise the same.
+      // `/upsell` already clears the param this way after it consumes it.
+      // `?? undefined` because the lead id is nullable at source and the search
+      // schema takes `string | undefined`: a null would serialise into the URL.
+      void navigate({ to: "/upsell", search: { id: leadId ?? undefined } });
     } else toast.info("Opens Callback Manager — coming soon.");
   };
 
@@ -196,7 +221,9 @@ function CustomerDetail() {
   const submitSheet = (kind: "ptp" | "dispute" | "statement" | "call", payload: unknown) => {
     setSheet(null);
     if (kind === "ptp") {
-      ptpMutation.mutate(payload as { amount: number; date: string; channel: string; notes: string });
+      ptpMutation.mutate(
+        payload as { amount: number; date: string; channel: string; notes: string },
+      );
       return;
     }
     if (kind === "dispute") {
@@ -246,16 +273,29 @@ function CustomerDetail() {
           {tab === "ledger" && <LedgerTab customer={customer} />}
           {tab === "emi" && <EmiTab customer={customer} />}
           {tab === "interactions" && <InteractionsTab customer={customer} />}
-          {tab === "promises" && <PromisesTab customer={customer} onCreate={handlers.onCreatePtp} />}
-          {tab === "disputes" && <DisputesTab customer={customer} onCreate={handlers.onRaiseDispute} />}
-          {tab === "documents" && <DocumentsTab customer={customer} onCreate={handlers.onSendStatement} />}
+          {tab === "promises" && (
+            <PromisesTab customer={customer} onCreate={handlers.onCreatePtp} />
+          )}
+          {tab === "disputes" && (
+            <DisputesTab customer={customer} onCreate={handlers.onRaiseDispute} />
+          )}
+          {tab === "documents" && (
+            <DocumentsTab customer={customer} onCreate={handlers.onSendStatement} />
+          )}
           {tab === "notes" && <NotesTab notes={customer.notes} onAdd={addNote} />}
         </div>
       </div>
     </div>
   );
 
-  const rail = <QuickActionsRail customer={customer} handlers={handlers} nba={insights.nba} className="h-full w-full border-l-0" />;
+  const rail = (
+    <QuickActionsRail
+      customer={customer}
+      handlers={handlers}
+      nba={insights.nba}
+      className="h-full w-full border-l-0"
+    />
+  );
 
   return (
     <AppShell>
@@ -279,7 +319,11 @@ function CustomerDetail() {
         </SheetContent>
       </Sheet>
 
-      <ActionSheets kind={sheet} onOpenChange={(open) => !open && setSheet(null)} onSubmit={submitSheet} />
+      <ActionSheets
+        kind={sheet}
+        onOpenChange={(open) => !open && setSheet(null)}
+        onSubmit={submitSheet}
+      />
     </AppShell>
   );
 }

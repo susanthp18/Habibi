@@ -12,7 +12,10 @@ export function BehaviorMetricsStrip({ metrics }: { metrics: BehaviorMetrics }) 
     {
       label: "Days since contact",
       value: metrics.daysSinceContact !== null ? String(metrics.daysSinceContact) : "—",
-      tone: metrics.daysSinceContact !== null && metrics.daysSinceContact >= 7 ? ("warning" as const) : ("default" as const),
+      tone:
+        metrics.daysSinceContact !== null && metrics.daysSinceContact >= 7
+          ? ("warning" as const)
+          : ("default" as const),
     },
     {
       label: "Open dispute $",

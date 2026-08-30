@@ -5,8 +5,9 @@ import type { BudgetRule } from "@/data/billing-seed";
 import { inrCompact } from "@/data/billing-seed";
 import type { BillingBudget } from "@/api/billing";
 import type { AlertEvent } from "@/data/billing-seed";
-import { cn } from "@/lib/utils";
+import { cn, formatKbDate } from "@/lib/utils";
 import { BudgetRuleDialog } from "./BudgetRuleDialog";
+import { useConfirm } from "@/components/ui/use-confirm";
 
 export function BudgetPanel({
   budgets,
@@ -23,6 +24,7 @@ export function BudgetPanel({
   onDeleteRule: (budgetId: string, ruleId: string) => Promise<void>;
   saving?: boolean;
 }) {
+  const { confirm, confirmDialog } = useConfirm();
   const [dialogFor, setDialogFor] = useState<{
     budgetId: string;
     env: BillingBudget["env"];
@@ -34,7 +36,9 @@ export function BudgetPanel({
       <div className="mb-100 flex shrink-0 items-center justify-between">
         <div>
           <h3 className="text-body font-semibold text-text">Budgets & alerts</h3>
-          <p className="text-body-small text-text-subtle">Monthly caps and threshold rules per environment</p>
+          <p className="text-body-small text-text-subtle">
+            Monthly caps and threshold rules per environment
+          </p>
         </div>
         <Bell className="h-4 w-4 text-text-brand" />
       </div>
@@ -87,8 +91,10 @@ export function BudgetPanel({
                       className={cn(
                         "rounded px-075 py-025 font-mono font-semibold text-body-small",
                         r.severity === "info" && "bg-background-brand-subtlest text-text-brand",
-                        r.severity === "warn" && "bg-background-warning-subtler text-text-warning-bolder",
-                        r.severity === "critical" && "bg-background-danger-subtler text-text-danger-bolder",
+                        r.severity === "warn" &&
+                          "bg-background-warning-subtler text-text-warning-bolder",
+                        r.severity === "critical" &&
+                          "bg-background-danger-subtler text-text-danger-bolder",
                       )}
                     >
                       ≥ {r.threshold}%
@@ -112,16 +118,27 @@ export function BudgetPanel({
                       variant="ghost"
                       className="h-300 w-300 text-text-danger hover:text-text-danger-bolder"
                       disabled={saving}
+                      // Asked in the product's own surface. `window.confirm`
+                      // paints as browser chrome titled "localhost:8080 says"
+                      // and blocks the renderer; `useConfirm` keeps the
+                      // one-liner ergonomics that made the browser dialog
+                      // tempting in the first place.
                       onClick={() => {
-                        if (window.confirm(`Delete rule "${r.action}"?`)) {
-                          void (async () => {
-                            try {
-                              await onDeleteRule(b.id, r.id);
-                            } catch {
-                              // Parent toasts the error; keep the row clickable.
-                            }
-                          })();
-                        }
+                        void (async () => {
+                          const ok = await confirm({
+                            title: `Delete rule "${r.action}"?`,
+                            description:
+                              "The budget stops enforcing this action. Spend already recorded is unaffected.",
+                            confirmLabel: "Delete rule",
+                            cancelLabel: "Keep it",
+                          });
+                          if (!ok) return;
+                          try {
+                            await onDeleteRule(b.id, r.id);
+                          } catch {
+                            // Parent toasts the error; keep the row clickable.
+                          }
+                        })();
                       }}
                       aria-label="Delete rule"
                     >
@@ -153,7 +170,9 @@ export function BudgetPanel({
             <ul className="space-y-050 text-body-small">
               {alerts.map((a) => (
                 <li key={a.id} className="flex items-baseline gap-100 text-text-subtle">
-                  <span className="w-[6.875rem] shrink-0 font-mono text-body-small text-text-subtlest">{a.when}</span>
+                  <span className="w-[6.875rem] shrink-0 font-mono text-body-small text-text-subtlest">
+                    {formatKbDate(a.when)}
+                  </span>
                   <span>{a.message}</span>
                 </li>
               ))}
@@ -170,7 +189,12 @@ export function BudgetPanel({
           if (!dialogFor) return;
           const payload = dialogFor.rule
             ? r
-            : { threshold: r.threshold, channels: r.channels, action: r.action, severity: r.severity };
+            : {
+                threshold: r.threshold,
+                channels: r.channels,
+                action: r.action,
+                severity: r.severity,
+              };
           await onSaveRule(dialogFor.budgetId, payload);
           setDialogFor(null);
         }}
@@ -184,6 +208,7 @@ export function BudgetPanel({
             : undefined
         }
       />
+      {confirmDialog}
     </div>
   );
 }

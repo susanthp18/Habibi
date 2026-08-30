@@ -56,7 +56,32 @@ def should_enable_ivr(session_extra: dict[str, Any] | None, *, is_twilio: bool) 
     extra = session_extra or {}
     params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
     call_type = str(params.get("call_type") or extra.get("call_type") or "").lower()
-    return call_type == "outbound"
+    if call_type != "outbound":
+        return False
+    # The card has the final say. Traversing somebody's employer switchboard is
+    # a decision about how far we are willing to chase a borrower through a
+    # third party's phone system, and that belongs to whoever publishes the
+    # agent rather than to a deployment-wide environment variable. The env flag
+    # stays as the kill switch above; this is the per-agent opt-in.
+    mission = extra.get("mission") if isinstance(extra.get("mission"), dict) else None
+    if mission is not None and "ivrTraversal" in mission:
+        return bool(mission.get("ivrTraversal"))
+    return True
+
+
+def ivr_budget_sec(session_extra: dict[str, Any] | None) -> int:
+    """How long the navigator may spend in a menu tree.
+
+    Unbudgeted, a traversal can consume the mission's whole time budget before
+    a human ever answers — and the borrower then gets a rushed conversation
+    because a phone menu was slow.
+    """
+    extra = session_extra or {}
+    mission = extra.get("mission") if isinstance(extra.get("mission"), dict) else {}
+    try:
+        return max(15, min(300, int(mission.get("ivrMaxSec") or 90)))
+    except (TypeError, ValueError):
+        return 90
 
 
 def should_enable_dtmf_input(*, is_twilio: bool) -> bool:

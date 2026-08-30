@@ -52,7 +52,10 @@ export function ViolationSheet({
 
   return (
     <Sheet open={!!v} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full max-w-[37.5rem] overflow-y-auto p-0 sm:max-w-[37.5rem]">
+      <SheetContent
+        side="right"
+        className="w-full max-w-[37.5rem] overflow-y-auto p-0 sm:max-w-[37.5rem]"
+      >
         <SheetHeader className="sticky top-0 z-10 border-b border-border bg-surface p-200">
           <div className="flex items-center gap-100">
             <Lozenge
@@ -69,7 +72,7 @@ export function ViolationSheet({
               {statusLabel(v.status)}
             </Lozenge>
           </div>
-          <SheetTitle className="text-left text-[1rem] font-semibold text-text">
+          <SheetTitle className="text-left heading-small font-semibold text-text">
             {rule.label}
           </SheetTitle>
           <div className="text-body-small text-text-subtle">{rule.description}</div>
@@ -85,7 +88,11 @@ export function ViolationSheet({
                 label="Actor"
                 value={
                   <span className="inline-flex items-center gap-050">
-                    {v.actor.kind === "bot" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                    {v.actor.kind === "bot" ? (
+                      <Bot className="h-3 w-3" />
+                    ) : (
+                      <User className="h-3 w-3" />
+                    )}
                     {v.actor.name}
                   </span>
                 }
@@ -104,23 +111,31 @@ export function ViolationSheet({
 
           {/* Evidence */}
           <section>
-            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Transcript evidence</div>
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+              Transcript evidence
+            </div>
             <div className="space-y-050 rounded-medium border border-border bg-surface-sunken p-150 text-body-small">
               {v.evidence.preceding && <Line turn={v.evidence.preceding} muted />}
               <Line turn={v.evidence.offending} highlight />
               {v.evidence.following && <Line turn={v.evidence.following} muted />}
             </div>
-            <div className="mt-050 text-body-small italic text-text-subtlest">{v.evidence.snippet}</div>
+            <div className="mt-050 text-body-small italic text-text-subtlest">
+              {v.evidence.snippet}
+            </div>
           </section>
 
           {/* Notes */}
           {v.notes.length > 0 && (
             <section>
-              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Audit trail</div>
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                Audit trail
+              </div>
               <ul className="space-y-050 text-body-small">
                 {v.notes.map((n, i) => (
                   <li key={i} className="rounded-medium border border-border bg-surface p-100">
-                    <div className="text-body-small text-text-subtlest">{formatWhen(n.at)} · {n.author}</div>
+                    <div className="text-body-small text-text-subtlest">
+                      {formatWhen(n.at)} · {n.author}
+                    </div>
                     <div>{n.text}</div>
                   </li>
                 ))}
@@ -141,7 +156,9 @@ export function ViolationSheet({
                 >
                   {!assignees.length && <option value="">Loading reviewers…</option>}
                   {assignees.map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
                   ))}
                 </select>
                 <Button
@@ -149,7 +166,9 @@ export function ViolationSheet({
                   variant="outline"
                   className="h-400"
                   disabled={!assignee}
-                  onClick={() => handle(() => onAssign(v.id, assignee, note || `Assigned to ${assignee}.`))}
+                  onClick={() =>
+                    handle(() => onAssign(v.id, assignee, note || `Assigned to ${assignee}.`))
+                  }
                 >
                   Assign for review
                 </Button>
@@ -212,14 +231,30 @@ function Field({ label, value, mono }: { label: string; value: React.ReactNode; 
   );
 }
 
-function Line({ turn, muted, highlight }: { turn: { t: number; speaker: string; text: string }; muted?: boolean; highlight?: boolean }) {
+function Line({
+  turn,
+  muted,
+  highlight,
+}: {
+  turn: { t: number; speaker: string; text: string };
+  muted?: boolean;
+  highlight?: boolean;
+}) {
   return (
     <div className={`flex gap-100 ${muted ? "text-text-subtlest" : "text-text"}`}>
-      <span className="w-600 shrink-0 font-mono text-body-small text-text-subtlest">{formatAt(turn.t)}</span>
-      <span className={`w-14 shrink-0 text-body-small font-medium ${muted ? "text-text-subtlest" : "text-text"}`}>
+      <span className="w-600 shrink-0 font-mono text-body-small text-text-subtlest">
+        {formatAt(turn.t)}
+      </span>
+      <span
+        className={`w-14 shrink-0 text-body-small font-medium ${muted ? "text-text-subtlest" : "text-text"}`}
+      >
         {turn.speaker}
       </span>
-      <span className={highlight ? "rounded bg-[color:var(--danger-bg)] px-050 font-medium text-text-danger" : ""}>
+      <span
+        className={
+          highlight ? "rounded bg-[color:var(--danger-bg)] px-050 font-medium text-text-danger" : ""
+        }
+      >
         {turn.text}
       </span>
     </div>

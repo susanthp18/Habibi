@@ -56,10 +56,7 @@ export async function stopVoiceSandbox(sessionId: string): Promise<void> {
   await apiPost(`/voice/sandbox/${sessionId}/stop`, {});
 }
 
-export async function pushVoiceTune(
-  sessionId: string,
-  delta: Partial<AgentTuning>,
-): Promise<void> {
+export async function pushVoiceTune(sessionId: string, delta: Partial<AgentTuning>): Promise<void> {
   if (USE_MOCK) {
     await mockDelay(null);
     return;

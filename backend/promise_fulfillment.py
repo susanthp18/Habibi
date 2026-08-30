@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+import webhooks_dispatch
 from env_loader import load_env
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,44 @@ OPEN_INTENT = ("created", "sent", "opened")
 def _env(name: str, default: str = "") -> str:
     load_env()
     return (os.getenv(name) or default).strip()
+
+
+# Meta templates: purpose-specific first, then the documented fallback.
+#
+# .env.example has documented WHATSAPP_FALLBACK_TEMPLATE_NAME / _LANG since the
+# WhatsApp block was written and nothing read either of them. An operator
+# working down that file configured a fallback, believed outside-the-24h-window
+# sends were covered, and got no template at all — those sends simply failed.
+#
+# The three purposes (PTP confirm, bounce notice, treatment nudge) each have
+# their own var and each keeps priority. The fallback only fills the gap, and a
+# template's language travels with the template that was actually chosen: using
+# the fallback's language for a purpose-specific template would be a second,
+# quieter bug.
+FALLBACK_TEMPLATE_NAME_ENV = "WHATSAPP_FALLBACK_TEMPLATE_NAME"
+FALLBACK_TEMPLATE_LANG_ENV = "WHATSAPP_FALLBACK_TEMPLATE_LANG"
+
+
+def resolve_template(name_env: str, lang_env: str) -> tuple[str, str]:
+    """(template_name, language) for a purpose, or ("", "") if neither is set.
+
+    Resolution order is purpose var, then fallback var, then nothing. Callers
+    that only need to know *whether* a template exists read the name; callers
+    that are about to send read both, because the pair has to come from the
+    same template.
+
+    The fallback must be registered in WhatsApp Manager with the same body
+    parameters as the purpose template it stands in for — the three purposes
+    take different params — or Meta rejects the send. That constraint is stated
+    in .env.example next to the vars.
+    """
+    name = _env(name_env)
+    if name:
+        return name, (_env(lang_env) or "en_US")
+    fallback = _env(FALLBACK_TEMPLATE_NAME_ENV)
+    if fallback:
+        return fallback, (_env(FALLBACK_TEMPLATE_LANG_ENV) or "en_US")
+    return "", ""
 
 
 @dataclass
@@ -390,8 +429,9 @@ def enqueue_whatsapp_paylink(
         ),
         {"id": message_id, "conversation_id": conversation_id, "body": body},
     )
-    template_name = _env(template_env_name) if use_template else ""
-    template_lang = _env(template_env_lang, "en_US") if use_template else ""
+    template_name, template_lang = (
+        resolve_template(template_env_name, template_env_lang) if use_template else ("", "")
+    )
     params = template_params
     if use_template and template_name and params is None:
         params = [_fmt_inr(intent["amount"]), intent["pay_url"]]
@@ -615,7 +655,12 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
         if channel == "whatsapp":
             conversation_id = dbmod._open_whatsapp_conversation(conn, promise["customer_id"])
             inside = _inside_service_window(conn, conversation_id)
-            template_name = _env("WHATSAPP_PTP_TEMPLATE_NAME")
+            # Only the name matters here: this decides whether a template
+            # send is possible at all, and it must agree with what
+            # enqueue_whatsapp_paylink will resolve a moment later.
+            template_name = resolve_template(
+                "WHATSAPP_PTP_TEMPLATE_NAME", "WHATSAPP_PTP_TEMPLATE_LANG"
+            )[0]
             if inside:
                 _enqueue_whatsapp(
                     conn,
@@ -901,6 +946,18 @@ def settle_promises(engine: Engine | Any) -> dict[str, int]:
                 "broken",
                 row["customer_id"],
             )
+            # Same transaction as the status change, so a subscriber is never
+            # told about a break that got rolled back.
+            webhooks_dispatch.dispatch(
+                conn,
+                "promise.broken",
+                {
+                    "promiseId": row["id"],
+                    "customerId": row["customer_id"],
+                    "accountId": row["account_id"],
+                    "reason": "not_paid_by_promised_date",
+                },
+            )
             broken += 1
     if due or broken or expired:
         logger.info("settle_promises due_today=%s broken=%s intents_expired=%s", due, broken, expired)
@@ -954,7 +1011,12 @@ def _send_reminder_copy(conn: Any, reminder: dict[str, Any]) -> tuple[bool, str 
         )
         if not decision.allowed:
             return False, decision.reason or "contact_policy"
-        twilio_sms.send(to_phone=phone or "", body=body)
+        twilio_sms.send(
+            to_phone=phone or "",
+            body=body,
+            customer_id=promise["customer_id"],
+            related_id=reminder.get("id"),
+        )
         return True, None
     if channel == "whatsapp":
         inside = False

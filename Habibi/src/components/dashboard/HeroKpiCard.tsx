@@ -11,9 +11,7 @@ export function HeroKpiCard({ kpi }: { kpi: HeroKpi }) {
         <div>
           <div className="mb-050 flex items-center gap-075">
             <Star className="h-3.5 w-3.5 fill-icon-brand text-text-brand" />
-            <span className="text-body-small font-medium text-text-brand">
-              North-star metric
-            </span>
+            <span className="text-body-small font-medium text-text-brand">North-star metric</span>
           </div>
           <div className="text-sm font-medium text-text-subtle">{kpi.label}</div>
         </div>

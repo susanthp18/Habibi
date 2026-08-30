@@ -26,14 +26,25 @@ function DerivedTrace({ turns }: { turns: SandboxTurn[] }) {
   const events: Array<{ ts: number; text: string }> = [];
   turns.forEach((t, i) => {
     if (t.role === "customer") {
-      events.push({ ts: t.ts, text: `t${i} · customer said "${t.text.slice(0, 40)}${t.text.length > 40 ? "…" : ""}"` });
+      events.push({
+        ts: t.ts,
+        text: `t${i} · customer said "${t.text.slice(0, 40)}${t.text.length > 40 ? "…" : ""}"`,
+      });
       if (t.intent) events.push({ ts: t.ts + 1, text: `  ↳ intent: ${INTENT_LABEL[t.intent]}` });
-      if (typeof t.sentiment === "number") events.push({ ts: t.ts + 2, text: `  ↳ sentiment: ${t.sentiment.toFixed(2)}` });
+      if (typeof t.sentiment === "number")
+        events.push({ ts: t.ts + 2, text: `  ↳ sentiment: ${t.sentiment.toFixed(2)}` });
     }
     if (t.role === "bot") {
-      events.push({ ts: t.ts, text: `t${i} · retrieved ${t.chunkIds?.length ?? 0} chunks · ${t.latencyMs}ms · ${t.tokens}t` });
-      if (t.guardrailFlags?.length) events.push({ ts: t.ts + 1, text: `  ⚑ guardrail: ${t.guardrailFlags.join(", ")}` });
-      events.push({ ts: t.ts + 2, text: `  ↳ bot: "${t.text.slice(0, 60)}${t.text.length > 60 ? "…" : ""}"` });
+      events.push({
+        ts: t.ts,
+        text: `t${i} · retrieved ${t.chunkIds?.length ?? 0} chunks · ${t.latencyMs}ms · ${t.tokens}t`,
+      });
+      if (t.guardrailFlags?.length)
+        events.push({ ts: t.ts + 1, text: `  ⚑ guardrail: ${t.guardrailFlags.join(", ")}` });
+      events.push({
+        ts: t.ts + 2,
+        text: `  ↳ bot: "${t.text.slice(0, 60)}${t.text.length > 60 ? "…" : ""}"`,
+      });
     }
     if (t.role === "system") events.push({ ts: t.ts, text: `· ${t.text}` });
   });

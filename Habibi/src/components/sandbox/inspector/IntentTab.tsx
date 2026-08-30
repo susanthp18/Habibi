@@ -90,7 +90,9 @@ function Scores({
       {entries.map(([k, v]) => (
         <div key={k}>
           <div className="mb-025 flex items-center justify-between text-body-small">
-            <span className={cn(k === winner ? "font-semibold text-text-brand" : "text-text-subtle")}>
+            <span
+              className={cn(k === winner ? "font-semibold text-text-brand" : "text-text-subtle")}
+            >
               {label(k)}
             </span>
             <span className="font-mono text-body-small text-text-subtlest">

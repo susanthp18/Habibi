@@ -14,7 +14,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { Lozenge } from "@/components/ui/lozenge";
-import { groundedLabel, type SandboxChunkHit } from "@/api/sandbox";
+import { groundedLabel, groundedSources, type SandboxChunkHit } from "@/api/sandbox";
 import { previewTts } from "@/api/prompt-studio";
 import { transcribeAudio } from "@/api/speech";
 import type { VoiceConfig } from "@/data/prompt-studio-seed";
@@ -270,13 +270,17 @@ export function ConversationPanel({
                   <span
                     className={cn(
                       "h-100 w-100 rounded-full transition-colors",
-                      live.botSpeaking ? "bg-background-brand-bold" : "bg-surface-sunken ring-1 ring-border",
+                      live.botSpeaking
+                        ? "bg-background-brand-bold"
+                        : "bg-surface-sunken ring-1 ring-border",
                     )}
                   />
                   <span
                     className={cn(
                       "h-100 w-100 rounded-full transition-colors",
-                      live.userSpeaking ? "bg-background-success-bold" : "bg-surface-sunken ring-1 ring-border",
+                      live.userSpeaking
+                        ? "bg-background-success-bold"
+                        : "bg-surface-sunken ring-1 ring-border",
                     )}
                   />
                   <Waveform
@@ -350,9 +354,7 @@ export function ConversationPanel({
       {mode === "text" && lastCustomer?.intent && lastExpectedIntent && (
         <div className="flex shrink-0 items-center gap-100 border-b border-border bg-surface-sunken/60 px-200 py-075 text-body-small">
           <span className="text-text-subtlest">Scorecard</span>
-          <Lozenge tone="neutral">
-            expected {INTENT_LABEL[lastExpectedIntent]}
-          </Lozenge>
+          <Lozenge tone="neutral">expected {INTENT_LABEL[lastExpectedIntent]}</Lozenge>
           <Lozenge tone={lastCustomer.intent === lastExpectedIntent ? "success" : "warning"}>
             got {INTENT_LABEL[lastCustomer.intent as IntentKey] ?? lastCustomer.intent}
             {lastCustomer.intent === lastExpectedIntent ? " · match" : " · mismatch"}
@@ -455,7 +457,7 @@ export function ConversationPanel({
               type="button"
               onClick={send}
               disabled={!draft.trim() || micBusy}
-              className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-100 text-[0.75rem] font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-100 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send className="h-3.5 w-3.5" /> Send
             </button>
@@ -530,8 +532,9 @@ function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | 
   }
 
   const isBot = turn.role === "bot";
-  const chunks: SandboxChunkHit[] = turn.chunks ?? [];
-  const grounded = chunks.filter((c) => c.docTitle);
+  // ONE list backs the chips, the "N chunks" counter and the expanded id list —
+  // they used to read two different fields and could contradict each other.
+  const grounded: SandboxChunkHit[] = groundedSources(turn);
 
   const onPlay = async () => {
     if (!voice || playing) return;
@@ -562,10 +565,8 @@ function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | 
         <div>{turn.text}</div>
         {isBot && grounded.length > 0 && (
           <div className="mt-075 flex flex-wrap gap-050">
-            {grounded.slice(0, 4).map((c) => (
-              <Lozenge
-                key={c.chunkId}
-                title={c.snippet ?? c.heading ?? undefined} tone="neutral">
+            {grounded.map((c) => (
+              <Lozenge key={c.chunkId} title={c.snippet ?? c.heading ?? undefined} tone="neutral">
                 grounded in {groundedLabel(c)}
               </Lozenge>
             ))}
@@ -585,14 +586,14 @@ function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | 
                 {playing ? "Playing…" : "Play"}
               </button>
             )}
-            {(turn.chunkIds?.length || turn.latencyMs) ? (
+            {grounded.length || turn.latencyMs ? (
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
                 className="inline-flex items-center gap-050 text-body-small text-text-subtlest hover:text-text-subtle"
               >
                 {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                {turn.latencyMs}ms · {turn.tokens}t · {turn.chunkIds?.length ?? 0} chunks
+                {turn.latencyMs}ms · {turn.tokens}t · {grounded.length} chunks
                 {turn.guardrailFlags?.length ? (
                   <span className="inline-flex items-center gap-025">
                     · <Flag aria-hidden="true" className="size-3" /> {turn.guardrailFlags.join(",")}
@@ -602,10 +603,10 @@ function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | 
             ) : null}
           </div>
         )}
-        {open && isBot && turn.chunkIds && turn.chunkIds.length > 0 && (
+        {open && isBot && grounded.length > 0 && (
           <div className="mt-075 space-y-025 border-t border-border pt-075 font-mono text-body-small text-text-subtlest">
-            {turn.chunkIds.map((id) => (
-              <div key={id}>· {id}</div>
+            {grounded.map((c) => (
+              <div key={c.chunkId}>· {c.chunkId}</div>
             ))}
           </div>
         )}

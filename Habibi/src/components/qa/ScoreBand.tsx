@@ -10,7 +10,15 @@ export function ScoreBand({ total, size = "md" }: { total: number; size?: "sm" |
     lg: "text-body px-150 py-050 font-semibold",
   } as const;
   return (
-    <span className={cn("inline-flex items-center gap-050 rounded-full border font-medium", c.bg, c.text, c.border, sizes[size])}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-050 rounded-full border font-medium",
+        c.bg,
+        c.text,
+        c.border,
+        sizes[size],
+      )}
+    >
       {total.toFixed(0)}
       <span className="opacity-60">/ 100</span>
     </span>

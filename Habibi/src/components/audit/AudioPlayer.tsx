@@ -71,13 +71,23 @@ export function AudioPlayer({
   return (
     <div className="rounded-medium border border-border bg-surface p-150">
       <div className="flex items-center gap-100">
-        <Button variant="outline" size="icon" className="h-400 w-400" onClick={() => onSeek(Math.max(0, currentTime - 10))}>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-400 w-400"
+          onClick={() => onSeek(Math.max(0, currentTime - 10))}
+        >
           <SkipBack className="h-4 w-4" />
         </Button>
         <Button size="icon" className="h-9 w-9" onClick={onPlayPause}>
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </Button>
-        <Button variant="outline" size="icon" className="h-400 w-400" onClick={() => onSeek(Math.min(duration, currentTime + 10))}>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-400 w-400"
+          onClick={() => onSeek(Math.min(duration, currentTime + 10))}
+        >
           <SkipForward className="h-4 w-4" />
         </Button>
 

@@ -1,6 +1,12 @@
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   STATUS_LABELS,
@@ -38,7 +44,10 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
 
       <div className="mx-050 h-300 w-px bg-border" />
 
-      <Select value={filters.source} onValueChange={(v) => onChange({ source: v as Filters["source"] })}>
+      <Select
+        value={filters.source}
+        onValueChange={(v) => onChange({ source: v as Filters["source"] })}
+      >
         <SelectTrigger className="h-400 w-[8.125rem] text-body-small">
           <SelectValue placeholder="Source" />
         </SelectTrigger>
@@ -50,7 +59,10 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         </SelectContent>
       </Select>
 
-      <Select value={filters.aging} onValueChange={(v) => onChange({ aging: v as Filters["aging"] })}>
+      <Select
+        value={filters.aging}
+        onValueChange={(v) => onChange({ aging: v as Filters["aging"] })}
+      >
         <SelectTrigger className="h-400 w-[8.125rem] text-body-small">
           <SelectValue placeholder="Aging" />
         </SelectTrigger>
@@ -63,7 +75,10 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         </SelectContent>
       </Select>
 
-      <Select value={filters.amount} onValueChange={(v) => onChange({ amount: v as Filters["amount"] })}>
+      <Select
+        value={filters.amount}
+        onValueChange={(v) => onChange({ amount: v as Filters["amount"] })}
+      >
         <SelectTrigger className="h-400 w-[8.75rem] text-body-small">
           <SelectValue placeholder="Amount" />
         </SelectTrigger>

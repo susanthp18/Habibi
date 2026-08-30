@@ -3,8 +3,7 @@ import { toast } from "sonner";
 import { previewTts, type TtsCatalogVoice, type TtsPreviewInput } from "@/api/prompt-studio";
 
 /** The line every voice speaks when you audition it from a list. */
-export const VOICE_DEMO_LINE =
-  "Hello, this is a sample of how I sound on a collections call.";
+export const VOICE_DEMO_LINE = "Hello, this is a sample of how I sound on a collections call.";
 
 /** Neutral delivery for an audition — the point is to compare voices, not tuning. */
 const DEMO_DELIVERY = { speed: 1, pitch: 0, warmth: 55, pauseMs: 280 } as const;

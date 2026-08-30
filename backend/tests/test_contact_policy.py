@@ -53,7 +53,7 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
         text(
             """
             UPDATE customers
-            SET dnd = false, timezone = 'Asia/Kolkata'
+            SET dnd = false, timezone = 'Asia/Kolkata', preferred_window = NULL
             WHERE id = :id
             """
         ),
@@ -92,7 +92,7 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
                   (id, consent_id, channel, status, weekly_frequency_cap, used_this_week, captured_at)
                 VALUES
                   (:id, :cr, :ch, 'opted_in', 8, 0, now())
-                ON CONFLICT (consent_id, channel)
+                ON CONFLICT (consent_id, channel, purpose)
                 DO UPDATE SET status = 'opted_in', weekly_frequency_cap = 8, captured_at = now()
                 """
             ),
@@ -323,3 +323,27 @@ def test_due_reminder_blocked_when_capped(db_tx, monkeypatch: pytest.MonkeyPatch
     )
     assert ok is False
     assert err == "daily_cap"
+
+
+def test_a_day_range_parses_whatever_dash_it_was_typed_with():
+    """`Mon–Sat` and `Mon-Sat` are the same consent, and must parse the same.
+
+    The hours parser skips its separator with `.*?`, so this database already
+    holds both `10:00-19:00 IST` and `10:00–19:00 IST` in allowed_hours and
+    nobody noticed. The day parser split on an ASCII hyphen, so an en-dashed
+    range missed the range branch entirely, fell through to the token split,
+    matched the leading `mon` and returned Monday alone.
+
+    That fails closed — a customer who consented to six days is contacted on
+    one — so it raises nothing and shows up only as a queue that never drains.
+    """
+    import contact_policy
+
+    ascii_range = contact_policy.parse_allowed_days("Mon-Sat")
+    assert ascii_range == [1, 2, 3, 4, 5, 6]
+    for dash in ("–", "—"):  # en dash, em dash
+        assert contact_policy.parse_allowed_days(f"Mon{dash}Sat") == ascii_range
+
+    # A wrapping range and a comma list must not regress with the substitution.
+    assert contact_policy.parse_allowed_days("Fri–Mon") == [5, 6, 0, 1]
+    assert contact_policy.parse_allowed_days("Mon, Wed, Fri") == [1, 3, 5]

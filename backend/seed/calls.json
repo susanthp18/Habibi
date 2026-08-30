@@ -1736,7 +1736,7 @@
     "customerId": "vikram-rao",
     "customerName": "Vikram Rao",
     "phoneMasked": "+91 98••••2210",
-    "accountId": "HDFC-CC-4487",
+    "accountId": "AC-77410",
     "disposition": "No Answer",
     "summary": "No answer after 4 rings. Retry scheduled per policy.",
     "tags": [],
@@ -2166,7 +2166,7 @@
     "customerId": "vikram-rao",
     "customerName": "Vikram Rao",
     "phoneMasked": "+91 98••••2210",
-    "accountId": "HDFC-CC-4487",
+    "accountId": "AC-77410",
     "disposition": "Voicemail",
     "summary": "Voicemail reached; no message left per compliance policy.",
     "tags": [],
@@ -3408,12 +3408,12 @@
     "customerId": "vikram-rao",
     "customerName": "Vikram Rao",
     "phoneMasked": "+91 98••••2210",
-    "accountId": "HDFC-CC-4487",
+    "accountId": "AC-77410",
     "disposition": "Payment Made",
-    "summary": "Customer paid outstanding in full via UPI link during the call. Account is now current.",
+    "summary": "Customer made a part payment via UPI link during the call. Arrears remain on the account; the next instalment date was confirmed.",
     "tags": [
       "upi",
-      "paid-in-full"
+      "part-payment"
     ],
     "flags": [],
     "avgSentiment": 0.39,
@@ -3526,7 +3526,7 @@
         "id": "t2",
         "t": 17,
         "speaker": "bot",
-        "text": "You have an outstanding of ₹4,220. Would you like to pay now via UPI link?"
+        "text": "You have an outstanding balance on this account. Would you like to make a part payment now via UPI link?"
       },
       {
         "id": "t3",
@@ -3550,7 +3550,7 @@
         "id": "t6",
         "t": 46,
         "speaker": "bot",
-        "text": "Payment of ₹4,220 confirmed. Thank you — your account is now current."
+        "text": "Part payment confirmed. Thank you — the remaining arrears are still due, and I've noted the next instalment date."
       },
       {
         "id": "tend",
@@ -4594,7 +4594,7 @@
     "customerId": "anita-desai",
     "customerName": "Anita Desai",
     "phoneMasked": "+91 90••••7745",
-    "accountId": "HDFC-PL-9902",
+    "accountId": "AC-88214",
     "disposition": "No Answer",
     "summary": "No answer after 4 rings. Retry scheduled per policy.",
     "tags": [
@@ -5218,12 +5218,12 @@
     "customerId": "anita-desai",
     "customerName": "Anita Desai",
     "phoneMasked": "+91 90••••7745",
-    "accountId": "HDFC-PL-9902",
+    "accountId": "AC-88214",
     "disposition": "Payment Made",
-    "summary": "Customer paid outstanding in full via UPI link during the call. Account is now current.",
+    "summary": "Customer made a part payment via UPI link during the call. Arrears remain on the account; the next instalment date was confirmed.",
     "tags": [
       "upi",
-      "paid-in-full"
+      "part-payment"
     ],
     "flags": [],
     "avgSentiment": 0.46,
@@ -5496,7 +5496,7 @@
         "id": "t2",
         "t": 18,
         "speaker": "agent",
-        "text": "You have an outstanding of ₹4,220. Would you like to pay now via UPI link?"
+        "text": "You have an outstanding balance on this account. Would you like to make a part payment now via UPI link?"
       },
       {
         "id": "t3",
@@ -5520,7 +5520,7 @@
         "id": "t6",
         "t": 56,
         "speaker": "agent",
-        "text": "Payment of ₹4,220 confirmed. Thank you — your account is now current."
+        "text": "Part payment confirmed. Thank you — the remaining arrears are still due, and I've noted the next instalment date."
       },
       {
         "id": "tend",
@@ -5943,12 +5943,12 @@
     "customerId": "vikram-rao",
     "customerName": "Vikram Rao",
     "phoneMasked": "+91 98••••2210",
-    "accountId": "HDFC-CC-4487",
+    "accountId": "AC-77410",
     "disposition": "Payment Made",
-    "summary": "Customer paid outstanding in full via UPI link during the call. Account is now current.",
+    "summary": "Customer made a part payment via UPI link during the call. Arrears remain on the account; the next instalment date was confirmed.",
     "tags": [
       "upi",
-      "paid-in-full"
+      "part-payment"
     ],
     "flags": [],
     "avgSentiment": 0.43,
@@ -6289,7 +6289,7 @@
         "id": "t2",
         "t": 21,
         "speaker": "bot",
-        "text": "You have an outstanding of ₹4,220. Would you like to pay now via UPI link?"
+        "text": "You have an outstanding balance on this account. Would you like to make a part payment now via UPI link?"
       },
       {
         "id": "t3",
@@ -6313,7 +6313,7 @@
         "id": "t6",
         "t": 59,
         "speaker": "bot",
-        "text": "Payment of ₹4,220 confirmed. Thank you — your account is now current."
+        "text": "Part payment confirmed. Thank you — the remaining arrears are still due, and I've noted the next instalment date."
       },
       {
         "id": "tend",
@@ -6825,10 +6825,10 @@
     "phoneMasked": "+91 98••••3421",
     "accountId": "HDFC-RL-8842",
     "disposition": "Payment Made",
-    "summary": "Customer paid outstanding in full via UPI link during the call. Account is now current.",
+    "summary": "Customer made a part payment via UPI link during the call. Arrears remain on the account; the next instalment date was confirmed.",
     "tags": [
       "upi",
-      "paid-in-full"
+      "part-payment"
     ],
     "flags": [
       "abuse-detected"
@@ -6963,7 +6963,7 @@
         "id": "t2",
         "t": 20,
         "speaker": "agent",
-        "text": "You have an outstanding of ₹4,220. Would you like to pay now via UPI link?"
+        "text": "You have an outstanding balance on this account. Would you like to make a part payment now via UPI link?"
       },
       {
         "id": "t3",
@@ -6987,7 +6987,7 @@
         "id": "t6",
         "t": 62,
         "speaker": "agent",
-        "text": "Payment of ₹4,220 confirmed. Thank you — your account is now current."
+        "text": "Part payment confirmed. Thank you — the remaining arrears are still due, and I've noted the next instalment date."
       },
       {
         "id": "tend",
@@ -9491,7 +9491,7 @@
     "customerId": "vikram-rao",
     "customerName": "Vikram Rao",
     "phoneMasked": "+91 98••••2210",
-    "accountId": "HDFC-CC-4487",
+    "accountId": "AC-77410",
     "disposition": "Info Query Resolved",
     "summary": "Customer requested balance and next EMI date. Six-month statement sent on WhatsApp.",
     "tags": [
@@ -9634,12 +9634,11 @@
     "customerId": "anita-desai",
     "customerName": "Anita Desai",
     "phoneMasked": "+91 90••••7745",
-    "accountId": "HDFC-PL-9902",
-    "disposition": "Dispute Raised",
-    "summary": "Customer disputes a payment showing as unposted. Dispute raised, late fees paused pending review.",
+    "accountId": "AC-88214",
+    "disposition": "Info Query Resolved",
+    "summary": "Customer queried a payment showing as unposted. Posting timeline explained on the call; no dispute was filed.",
     "tags": [
-      "dispute",
-      "late-fee-hold",
+      "payment-query",
       "empathy-coach"
     ],
     "flags": [
@@ -9992,7 +9991,7 @@
         "id": "t5",
         "t": 54,
         "speaker": "bot",
-        "text": "Thank you. I'm raising a dispute now — you'll get an SMS with the ticket ID within five minutes. Late fees are paused while we investigate."
+        "text": "Thank you. I can see that payment is still in transit with the bank — it should post within two working days. No late fee will be charged in the meantime."
       },
       {
         "id": "tend",
@@ -10503,7 +10502,7 @@
     "customerId": "vikram-rao",
     "customerName": "Vikram Rao",
     "phoneMasked": "+91 98••••2210",
-    "accountId": "HDFC-CC-4487",
+    "accountId": "AC-77410",
     "disposition": "Info Query Resolved",
     "summary": "Customer requested balance and next EMI date. Six-month statement sent on WhatsApp.",
     "tags": [],
@@ -11158,7 +11157,7 @@
     "customerId": "anita-desai",
     "customerName": "Anita Desai",
     "phoneMasked": "+91 90••••7745",
-    "accountId": "HDFC-PL-9902",
+    "accountId": "AC-88214",
     "disposition": "Voicemail",
     "summary": "Voicemail reached; no message left per compliance policy.",
     "tags": [],
@@ -12388,7 +12387,7 @@
     "customerId": "anita-desai",
     "customerName": "Anita Desai",
     "phoneMasked": "+91 90••••7745",
-    "accountId": "HDFC-PL-9902",
+    "accountId": "AC-88214",
     "disposition": "Voicemail",
     "summary": "Voicemail reached; no message left per compliance policy.",
     "tags": [],
@@ -13012,7 +13011,7 @@
     "customerId": "anita-desai",
     "customerName": "Anita Desai",
     "phoneMasked": "+91 90••••7745",
-    "accountId": "HDFC-PL-9902",
+    "accountId": "AC-88214",
     "disposition": "Voicemail",
     "summary": "Voicemail reached; no message left per compliance policy.",
     "tags": [],

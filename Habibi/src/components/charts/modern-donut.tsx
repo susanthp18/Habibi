@@ -88,10 +88,10 @@ export function ModernDonut({
         })()}
       </svg>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-3 text-center">
-        <div className="text-[1.25rem] font-semibold tracking-tight text-text tabular-nums">
+        <div className="heading-medium font-semibold tracking-tight text-text tabular-nums">
           {selected ? formatValue(selected.value) : centerValue}
         </div>
-        <div className="text-[10.5px] text-text-subtlest">
+        <div className="text-body-micro text-text-subtlest">
           {selected ? selected.name : centerLabel}
         </div>
       </div>

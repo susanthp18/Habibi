@@ -12,6 +12,23 @@ _ORIGINS = frozenset({"manual", "scheduled", "canary", "upgrade"})
 
 
 def bot_id_for_suite(suite_id: str) -> str | None:
+    """Which card a report for this suite belongs to, when one clearly does.
+
+    Deliberately still a name match, and deliberately still returns None for
+    everything else. Resolving it from `agent_card.eval.suite_id` was tried and
+    is wrong: that relation is one-to-MANY here — nine cards in this tenant name
+    `eval-regression-collections`, including two clones and an audit fixture —
+    so any "pick one" rule silently attributes kaia's scheduled runs to whichever
+    clone was published most recently.
+
+    A suite genuinely is not owned by one card, so NULL is the truthful answer
+    for the scheduled runs, not a gap to be filled in by guessing. What was
+    actually broken is the reading of NULL downstream: the Evals tab treated
+    "filed against no card" as "never run on this card", so insurance-v1
+    reported itself untested while its lapse suites passed nightly. That is
+    fixed where it is wrong — in the tab — rather than by inventing an owner
+    here.
+    """
     if suite_id.endswith("-collections") or "collections" in suite_id:
         return "kaia-v2-4"
     return None

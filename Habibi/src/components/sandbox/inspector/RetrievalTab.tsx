@@ -25,13 +25,14 @@ function ChunkCard({
     <div className="rounded-medium border border-border bg-surface-sunken p-150">
       <div className="flex items-center gap-100 text-body-small text-text-subtlest">
         <span className="font-mono">{chunkId}</span>
-        {typeof score === "number" && (
-          <span className="ml-auto font-mono">{score.toFixed(2)}</span>
-        )}
+        {typeof score === "number" && <span className="ml-auto font-mono">{score.toFixed(2)}</span>}
       </div>
       {typeof score === "number" && (
         <div className="mt-050 h-050 w-full overflow-hidden rounded bg-surface">
-          <div className="h-full bg-background-brand-bold" style={{ width: scoreBarWidth(score) }} />
+          <div
+            className="h-full bg-background-brand-bold"
+            style={{ width: scoreBarWidth(score) }}
+          />
         </div>
       )}
       <div className="mt-075 text-body-small font-medium text-text">{heading}</div>
@@ -102,7 +103,11 @@ export function RetrievalTab({
         <span>
           Top {chunks.length} chunks · {lastBot.latencyMs}ms · {lastBot.tokens}t
         </span>
-        <Link to="/knowledge-base" search={{ tab: "test" }} className="inline-flex items-center gap-050 hover:text-text-subtle">
+        <Link
+          to="/knowledge-base"
+          search={{ tab: "test" }}
+          className="inline-flex items-center gap-050 hover:text-text-subtle"
+        >
           Open KB <ExternalLink className="h-3 w-3" />
         </Link>
       </div>
@@ -135,15 +140,16 @@ function LiveRetrieval({ hits }: { hits: LiveRagHit[] }) {
         <span>
           {hits.length} retrieval {hits.length === 1 ? "call" : "calls"} this session
         </span>
-        <Link to="/knowledge-base" search={{ tab: "test" }} className="inline-flex items-center gap-050 hover:text-text-subtle">
+        <Link
+          to="/knowledge-base"
+          search={{ tab: "test" }}
+          className="inline-flex items-center gap-050 hover:text-text-subtle"
+        >
           Open KB <ExternalLink className="h-3 w-3" />
         </Link>
       </div>
       {ordered.map((h) => (
-        <div
-          key={h.id}
-          className="rounded-medium border border-border bg-surface-sunken p-150"
-        >
+        <div key={h.id} className="rounded-medium border border-border bg-surface-sunken p-150">
           <div className="flex items-center gap-100 text-body-small text-text-subtlest">
             <span className="rounded bg-surface px-075 py-025 text-body-small font-medium">
               {h.source}

@@ -4,7 +4,15 @@ import { RuleCard } from "./RuleCard";
 import { cn } from "@/lib/utils";
 
 type Filter = "All" | RuleCategory | "Disabled";
-const FILTERS: Filter[] = ["All", "Escalation", "Handoff", "Throttle", "Compliance", "Routing", "Disabled"];
+const FILTERS: Filter[] = [
+  "All",
+  "Escalation",
+  "Handoff",
+  "Throttle",
+  "Compliance",
+  "Routing",
+  "Disabled",
+];
 
 type Props = {
   rules: Rule[];
@@ -32,7 +40,7 @@ export function RuleList(props: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-075 border-b border-border bg-surface px-150 py-100">
-        {FILTERS.map(f => (
+        {FILTERS.map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -61,7 +69,7 @@ export function RuleList(props: Props) {
             priority={i + 1}
             selected={props.selectedId === r.id}
             onSelect={() => props.onSelect(r.id)}
-            onToggle={v => props.onToggle(r.id, v)}
+            onToggle={(v) => props.onToggle(r.id, v)}
             onEdit={() => props.onEdit(r.id)}
             onDuplicate={() => props.onDuplicate(r.id)}
             onDelete={() => props.onDelete(r.id)}

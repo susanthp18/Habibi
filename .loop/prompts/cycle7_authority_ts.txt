@@ -1,0 +1,21 @@
+OBJECTIVE (one job): The Customer-360 Authority panel must stop being a second implementation of the goodwill-waiver policy. One authority matrix exists in Python (env-tunable, 11 escalate reasons); TypeScript re-implements a frozen, already-diverging copy. Wire the panel to the real endpoint.
+
+Evidence:
+- Habibi/src/lib/customerInsights.ts:200-240 - hardcoded: dpd>=61 => escalate, caps 500 (<=30 DPD) / 250 otherwise, only 2 escalate reasons. Rendered on Customer-360 as the "Authority" section ("Goodwill ceiling...", "Escalate", insight rows labelled "from authority matrix").
+- Python authority: backend/agent_core/authority/config.py:37-62 (AUTHORITY_LATE_FEE_CAP etc., deliberately runtime-tunable via env), matrix.py:117-155 (11 escalate reasons incl. UNKNOWN_FEE, IDENTITY, SETTLEMENT_FORBIDDEN, OUTSTANDING_TOO_HIGH, TENURE_TOO_SHORT...). Already diverges: a Rs150k-outstanding account at 20 DPD escalates in Python but gets "ceiling Rs500" in TS.
+- Authoritative endpoint EXISTS with zero callers: GET /authority/next (backend/main.py:4712) - documented safe outside AUTHORITY_MODE=live (main.py:4722). Read that docstring and the response schema before designing.
+
+Deliverables:
+1. Typed client + TanStack Query hook for GET /authority/next following house apiGet pattern (new file src/api/authority.ts or an existing fitting module).
+2. The Customer-360 Authority panel consumes the server verdict: decision (approve/escalate + reason code + human wording), cap, and whatever fields the response actually carries. Map reason codes to operator-facing copy - keep sentence case, keep existing visual language.
+3. Mock branch behind USE_MOCK mirroring the SAME response shape from the customer360 seed data, using the BACKEND rules (env-tunable defaults, the fuller escalate-reason set) so dev/demo teaches true policy. Mark it clearly as emulation.
+4. DELETE the duplicated policy logic from customerInsights.ts (the matrix part - keep unrelated insights like PTP keep-rate if they live there). Grep all importers first; migrate each consumer; leave no dead exports behind.
+5. Loading/error states: panel must not flash a fabricated verdict - pending state while fetching, explicit unavailable state on error (same honesty bar as the contactability pill).
+
+Scope: src/lib/customerInsights.ts, its importer(s) (grep them all), ONE new/existing api module. No backend changes. Nothing else.
+
+Verify before reporting done, paste the real terminal output:
+  cd D:/Hackathon/Habibi && npm run typecheck && npm run lint
+Frontend-only cycle. Then open @url:`http://localhost:8080` -> any Customer 360 page (e.g. /customers/anita-desai who should still show an escalate-style verdict), look at the Authority section in both themes, and describe exactly what you saw including loading/error behaviour. In your reply list every consumer you migrated and paste a grep proving the old hardcoded matrix strings are gone.
+
+Rules: Never git stash, git reset --hard, git clean, or force-push - this tree has ~270 pre-existing uncommitted files that are not yours. Never commit to main, never push, never open a PR; commit to the current branch only. Never print the contents of .env - it holds live Twilio credentials. Never kill or restart whatever is listening on ports 8000, 7860, or 8080 - and equally never kill/restart the native worker processes (python -m worker, voice.bot, voice.workers.insurance); they serve the live product. Never delete a test, skip a test, add an eslint-disable, or widen an ignore list to make something pass. If it's a bug, reproduce it and write the failing test before you fix it.

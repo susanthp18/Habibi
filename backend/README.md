@@ -84,7 +84,43 @@ Interactive API docs: http://127.0.0.1:8000/docs
 | `voice.bot` (:7860) | voice calls, Call sandbox | Start call fails to connect |
 | `worker` | KB indexing | ingested documents never become searchable |
 
-`docker compose up` starts all four. Running natively, they are four terminals.
+`docker compose up` starts all four. Running natively, they are four terminals —
+or one command:
+
+```
+powershell -ExecutionPolicy Bypass -File backend\run_stack.ps1
+```
+
+`run_stack.ps1` stops and restarts all of them plus the Vite dev server, and
+prints a health line per service. Use it rather than restarting by hand: three
+of the five listen on no port, so stopping "whatever holds :8000" leaves them
+running, and a second start then gives you two of each. Duplicate workers double
+every nightly sweep and contend on the treatment queue without anything
+crashing — the first symptom is usually a test failure that looks like a real
+regression. The script stops by command line and refuses to start a second copy.
+`-Stop` tears down without restarting; `-NoFrontend` leaves Vite alone.
+
+### Outbound calling is off until someone turns it on
+
+Running every process still dials nothing. The master switch
+`platform_switches.outbound.enabled` gates every outbound call, is enforced
+inside `voice.twilio_ops.start_outbound_call` — the only function that reaches
+the carrier — and **defaults to off**: a missing row, an empty table and a
+database the reader cannot reach all mean "do not dial".
+
+Turn it on from **Roles & access** in the app, or directly:
+
+```
+curl -X PATCH localhost:8000/platform/switches/outbound.enabled \
+  -H 'Content-Type: application/json' -d '{"enabled":true}'
+```
+
+The same screen has a **Demo outbound** button: one click places a real call to
+the demo contact (`DEMO_OUTBOUND_PHONE`, default `919655282324`) and runs the
+full mission — verification, balance, promise-to-pay, upsell, callback — through
+the ordinary pipeline, not a demo harness. It is gated by the same switch, and
+by `contact_policy`, so outside the borrower's calling window it returns **409**
+with the refusal reason rather than dialling. That refusal is correct behaviour.
 
 To check whether anything is stuck:
 ```

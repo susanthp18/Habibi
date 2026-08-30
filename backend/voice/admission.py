@@ -77,6 +77,50 @@ def enabled() -> bool:
     return max_concurrent() > 0
 
 
+def max_slot_age() -> float:
+    """How long a slot may be held before it is treated as abandoned.
+
+    Well above any real call — the duration cap is 10 minutes — because this is
+    a leak detector, not a call timer. Cutting a live call short would be a far
+    worse bug than the one it guards against.
+    """
+    return float(env_int("VOICE_MAX_SLOT_AGE_SECONDS", 3600))
+
+
+def reap_stale() -> int:
+    """Reclaim slots whose session never returned them. Returns how many.
+
+    ``bot()`` releases in a ``finally``, so this should never fire — and it did.
+    A session whose teardown hung held its slot for the life of the process, and
+    because the gate only ever counts down, the effective capacity ratcheted
+    toward zero with no error anywhere: calls simply got slower and then stopped
+    being answered.
+
+    A counter that can only leak is a counter that will. This is the floor under
+    it, and it is deliberately loud: every reclaim is a bug worth chasing, not
+    routine housekeeping.
+    """
+    ceiling = max_slot_age()
+    if ceiling <= 0:
+        return 0
+    now = time.monotonic()
+    reaped: list[tuple[str, str, float]] = []
+    with _lock:
+        for tok, (label, started) in list(_active.items()):
+            age = now - started
+            if age > ceiling:
+                del _active[tok]
+                reaped.append((tok, label, age))
+    for tok, label, age in reaped:
+        logger.error(
+            "voice admission reclaimed an abandoned %s slot after %.0fs (token=%s) — "
+            "its session never released it; teardown is leaking",
+            label, age, tok,
+        )
+        _count("voice_calls_slot_reaped")
+    return len(reaped)
+
+
 def acquire(*, label: str = "call") -> str:
     """Take a slot, or raise :class:`AtCapacity`.
 
@@ -86,6 +130,9 @@ def acquire(*, label: str = "call") -> str:
 
     limit = max_concurrent()
     token = uuid.uuid4().hex
+    # Before refusing anyone, make sure the occupancy is real. Refusing a live
+    # caller because of a slot nobody is using is the worst outcome available.
+    reap_stale()
     with _lock:
         if limit > 0 and len(_active) >= limit:
             _rejected_total += 1

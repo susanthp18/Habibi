@@ -1,5 +1,15 @@
 import { useMemo } from "react";
-import { MoreHorizontal, Zap, Pause, Play, KeyRound, Trash2, Pencil, Link2, Radio } from "lucide-react";
+import {
+  MoreHorizontal,
+  Zap,
+  Pause,
+  Play,
+  KeyRound,
+  Trash2,
+  Pencil,
+  Link2,
+  Radio,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,11 +93,16 @@ export function EndpointTable({
           <button
             type="button"
             onClick={() => onRowClick(ep.id)}
-            className={cn("flex min-w-0 items-center gap-100 text-left", activeId === ep.id && "text-text-brand")}
+            className={cn(
+              "flex min-w-0 items-center gap-100 text-left",
+              activeId === ep.id && "text-text-brand",
+            )}
           >
             <RecordsAvatarMark label={ep.name || "?"} />
             <span className="min-w-0">
-              <span className="block truncate font-semibold text-text hover:underline">{ep.name}</span>
+              <span className="block truncate font-semibold text-text hover:underline">
+                {ep.name}
+              </span>
               <Badge variant="outline" className="mt-025 text-body-small font-normal">
                 {ep.target}
               </Badge>

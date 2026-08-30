@@ -30,7 +30,7 @@ export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, o
   return (
     <div className="flex flex-wrap items-center gap-100 border-b border-border bg-surface px-300 py-150">
       <div className="mr-auto">
-        <h1 className="text-[1.25rem] font-semibold text-text">Executive dashboard</h1>
+        <h1 className="heading-medium font-semibold text-text">Executive dashboard</h1>
         <p className="text-xs text-text-subtle">Portfolio health at a glance</p>
       </div>
 

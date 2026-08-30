@@ -178,6 +178,17 @@ def _latest_customer_text(engine: Engine, conversation_id: str) -> tuple[str, st
     return (row.get("body") or "").strip(), row.get("id")
 
 
+def _message_sent_at(conn: Any, message_id: str | None) -> datetime | None:
+    """When a message actually landed — for stamping its transcript offset."""
+    if not message_id:
+        return None
+    row = conn.execute(
+        text("SELECT COALESCE(sent_at, created_at) AS at FROM messages WHERE id = :id"),
+        {"id": message_id},
+    ).first()
+    return row[0] if row else None
+
+
 def _message_history(
     engine: Engine,
     conversation_id: str,
@@ -928,6 +939,9 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         tool_ctx.allowed_tools = skill_state["allowed"]
         tool_ctx.attached_skills = skill_state["packs"]
         tool_ctx.active_skill = skill_state["active_slug"]
+        # The handoff allowlist belongs to the card this turn is running, not
+        # to whatever BOT_ID the process was started with.
+        tool_ctx.agent_card = bundle.get("agentCard") or None
         turn_tools = (
             CATALOG.openai_tools(skill_state["offered"])
             if skill_state["offered"] is not None
@@ -1181,12 +1195,20 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
 
             top_score = float(intent_scores.get(intent) or 0.0) if intent_scores else None
             with engine.begin() as conn:
+                # `at_sec` is the offset every timing view is keyed on, and both
+                # turns were written at a literal 0 — so the entire WhatsApp
+                # channel read as one instantaneous exchange while looking
+                # perfectly well-formed. Stamp the customer turn from the
+                # message being replied to, and the bot turn from now.
+                started_at = capture.interaction_started_at(conn, ix)
                 customer_turn_index = capture.insert_transcript_turn(
                     conn,
                     interaction_id=ix,
                     speaker="customer",
                     text_content=customer_text,
-                    at_sec=0,
+                    at_sec=capture.elapsed_seconds(
+                        started_at, _message_sent_at(conn, latest_msg_id)
+                    ),
                     sentiment_delta=float(sentiment) if sentiment is not None else None,
                     intent=intent,
                     intent_score=top_score,
@@ -1201,7 +1223,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                     interaction_id=ix,
                     speaker="bot",
                     text_content=final_text,
-                    at_sec=0,
+                    at_sec=capture.elapsed_seconds(started_at, datetime.now(timezone.utc)),
                 )
                 # Backfill this turn's tool calls and retrievals with the turn
                 # they belong to. Deliberately a backfill rather than a reorder:

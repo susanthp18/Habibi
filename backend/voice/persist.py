@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import socket
 import uuid
 from datetime import datetime, timezone
@@ -52,6 +53,52 @@ def ensure_unknown_caller() -> None:
         )
 
 
+def resolve_known_customer(customer_id: str | None) -> str | None:
+    """Return ``customer_id`` if a row exists, else None. Never raises.
+
+    The outbound dialler puts the borrower's id into the Twilio stream
+    parameters so the call knows who it rang. Those parameters come back to us
+    over a WebSocket, and ``start_voice_call`` would fail its foreign key on a
+    stale or wrong id — taking down call setup for a value that is only ever an
+    optimisation. Checking first degrades to the unknown-caller path instead.
+    """
+    cid = (customer_id or "").strip()
+    if not cid or cid == UNKNOWN_CALLER_ID:
+        return None
+    try:
+        with db.engine.connect() as conn:
+            found = conn.execute(
+                text("SELECT id FROM customers WHERE id = :id"), {"id": cid}
+            ).scalar()
+        return str(found) if found else None
+    except Exception:
+        logger.exception("customer lookup failed for %s", cid)
+        return None
+
+
+def customer_id_for_bind(
+    *,
+    direction: str,
+    twilio_params: dict[str, Any] | None = None,
+    pstn_customer: dict[str, Any] | None = None,
+) -> str | None:
+    """The customer this call already knows, before verify_identity runs.
+
+    Outbound: we dialled them, so the stream parameter is the source of truth.
+    Inbound: ANI lookup (`pstn_customer`) is the same fact — a matched caller
+    must bind to that row rather than sit as UNKNOWN-CALLER. Verification still
+    gates account facts; this only joins the interaction to the right person.
+    """
+    if str(direction or "").strip().lower() == "outbound" and isinstance(twilio_params, dict):
+        return str(twilio_params.get("customer_id") or "").strip() or None
+    if str(direction or "").strip().lower() == "inbound" and isinstance(pstn_customer, dict):
+        return (
+            str(pstn_customer.get("customerId") or pstn_customer.get("customer_id") or "").strip()
+            or None
+        )
+    return None
+
+
 def start_voice_call(
     *,
     session_id: str,
@@ -62,8 +109,14 @@ def start_voice_call(
     account_id: str | None = None,
     bot_id: str | None = None,
     direction: str = "inbound",
+    started_at: datetime | None = None,
 ) -> dict[str, Any]:
     """INSERT active interaction + voice_sessions row. Returns ids.
+
+    ``started_at`` defaults to now, which is right on the connect path. The
+    degraded-call recovery in ``CrmSink`` passes the moment the borrower
+    actually answered instead, so a row filed at teardown does not report a
+    zero-second call.
 
     Interaction is committed first so CRM tools still work if the
     ``voice_sessions`` registry row fails (missing table / constraint). A prior
@@ -76,7 +129,7 @@ def start_voice_call(
     bid = (bot_id or db.DEFAULT_BOT_ID).strip() or db.DEFAULT_BOT_ID
     interaction_id = _sid("CL")
     host = socket.gethostname()
-    started = _now()
+    started = started_at or _now()
     transport_n = transport if transport in ("smallwebrtc", "twilio", "daily") else "smallwebrtc"
     direction_n = direction if direction in ("inbound", "outbound") else "inbound"
 
@@ -169,6 +222,34 @@ def start_voice_call(
     }
 
 
+#: A run of seven or more consecutive digits in caller speech is an identifier,
+#: not an amount — a mobile number, an account number, a card read out loud.
+#: ``pii_redact.redact_text`` only matches *formatted* PII (a ``+91`` prefix, a
+#: spaced 16-digit card), and digits reach the transcript bare: ``voice/ivr.py``
+#: folds keypad presses in as ``"Caller keypad input: 9876543210"``, and STT
+#: renders spoken digits the same way. Nothing in the shared detector set
+#: matches that shape, so the transcript is exactly where those digits survive.
+#: Two are kept for the same reason ``_mask_phone`` keeps two — enough to tell
+#: two turns apart, not enough to re-identify, and short of the last four that
+#: verification itself asks for.
+_BARE_DIGIT_RUN = re.compile(r"\d{7,}")
+
+
+def _redact_transcript_text(content: str) -> str:
+    """Mask PII in a transcript turn before it is stored.
+
+    Same redactor the tool-call audit rows use (``_audit_args``), so a card
+    number spoken into a dispute summary and the same number spoken into the
+    turn that preceded it are masked identically. The RTVI layer already keeps
+    ``verify_identity`` arguments out of the browser (``voice/bot.py``); without
+    this the transcript undid that at rest.
+    """
+    import pii_redact
+
+    out = pii_redact.redact_text(content)
+    return _BARE_DIGIT_RUN.sub(lambda m: "•" * 6 + m.group(0)[-2:], out)
+
+
 def append_transcript_turn(
     *,
     interaction_id: str,
@@ -199,6 +280,7 @@ def append_transcript_turn(
     content = (text_content or "").strip()
     if not content:
         return
+    content = _redact_transcript_text(content)
 
     def _int(value: Any) -> int | None:
         return int(value) if value is not None else None
@@ -275,6 +357,55 @@ def append_sentiment_point(
         )
 
 
+#: Tools whose arguments are never stored. Both exist to receive digits the
+#: caller spoke — a mobile tail, an account tail — and an audit row is not a
+#: place to keep them. The *fact* that verification ran is the auditable thing;
+#: the digits are what the verification was protecting.
+_ARGS_WITHHELD: frozenset[str] = frozenset({"verify_identity", "identify_customer"})
+
+#: Argument names that carry free-form caller speech. Kept, but through the same
+#: redactor the transcript uses, so a spoken card number in a dispute summary
+#: does not survive in a column nobody thinks of as a transcript.
+_ARGS_REDACTED: frozenset[str] = frozenset(
+    {"summary", "text", "note", "reason", "verbatim", "context", "question", "detail"}
+)
+
+#: Arguments never exceed this once serialised. A model that emits a wall of
+#: text into a tool argument should not be able to grow this table without
+#: bound, and nothing downstream reads past the useful fields.
+_MAX_ARGS_CHARS = 4000
+
+
+def _audit_args(tool_name: str, args: dict[str, Any] | None) -> dict[str, Any]:
+    """What of a tool's arguments is safe to keep on the audit row.
+
+    The voice path recorded no arguments at all, which is why the Closer could
+    see *that* ``capture_nonpayment_reason`` ran and not *what* it captured —
+    the structured field and the row that proves it were on opposite sides of a
+    gap. Keeping them is the fix; keeping them unfiltered would have traded one
+    defect for a worse one.
+    """
+    if not isinstance(args, dict) or not args:
+        return {}
+    if tool_name in _ARGS_WITHHELD:
+        return {"_withheld": True}
+    import pii_redact
+
+    out: dict[str, Any] = {}
+    for key, value in args.items():
+        if isinstance(value, str):
+            cleaned = pii_redact.redact_text(value) if key in _ARGS_REDACTED else value
+            out[key] = cleaned[:1000]
+        elif isinstance(value, (int, float, bool)) or value is None:
+            out[key] = value
+        else:
+            out[key] = str(value)[:500]
+    serialised = json.dumps(out, default=str)
+    if len(serialised) > _MAX_ARGS_CHARS:
+        return {"_truncated": True}
+    return out
+
+
 def record_voice_tool_call(
     *,
     interaction_id: str,
@@ -283,6 +414,7 @@ def record_voice_tool_call(
     result_ok: bool,
     error: str | None = None,
     latency_ms: int | None = None,
+    args: dict[str, Any] | None = None,
 ) -> None:
     """Audit one voice tool call into ``bot_tool_calls``.
 
@@ -313,7 +445,13 @@ def record_voice_tool_call(
             transcript_turn_id=turn_id,
             channel="voice",
             tool_name=tool_name,
-            args={},  # Voice args are bound server-side from VoiceSession.
+            # Was `{}` with the note "voice args are bound server-side from
+            # VoiceSession". True of the *identity* arguments and false of
+            # everything else: the reason code, the promise terms and the
+            # callback slot all come from the model and were being dropped, so
+            # post-call processing could see that a tool ran and never what it
+            # recorded. `_audit_args` is what makes keeping them safe.
+            args=_audit_args(tool_name, args),
             result_ok=result_ok,
             error=error,
             latency_ms=latency_ms,

@@ -1,0 +1,76 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 592 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Core-agentic focus cycle. Live sandbox evidence (run SBX-E8A282E083,
+scenario angry-waiver, card kaia-v2-4 v1_4) caught the guardrail firing on a
+COMPLIANT REFUSAL and hard-halting the whole conversation.
+
+--- FIX: waiver-blocked fires on refusal phrasing, killing good conversations ---
+EVIDENCE (live, 2026-08-25):
+Customer: "Yes speaking. I paid on the 5th - waive this late fee now."
+Bot reply (CORRECT behaviour): "Thank you. I understand you've paid on the 5th
+and you're requesting a late fee waiver. Late fee waivers can't be approved on
+this chat without a supervisor review, but I can log your request for escalation
+and a specialist to check whether any waiver is possible..."
+Result: flags=["waiver-blocked"] -> should_halt() True -> run status=completed,
+system turn "Run halted · guardrail waiver-blocked". Customer left mid-flow with
+no resolution path. Turn 2 was never accepted.
+
+ROOT CAUSE: agent_core/guardrails.py ~line 84:
+    if guardrails.get("neverPromiseWaiver") and intent == "waiver_request":
+        if re.search(r"\b(waive|waiver|waived)\b", bot_l) and "goodwill" not in bot_l:
+            flags.append("waiver-blocked")
+Any MENTION of waive/waiver/waived flags, so refusing with the word "waiver"
+flags identically to promising one. The existing "goodwill" escape hatch proves
+the INTENT is to catch commitments, not mentions — but the escape hatch is too
+narrow (a correct refusal that says "escalate for goodwill review" survives,
+one that phrases it differently does not).
+
+REQUIRED FIX (root cause):
+Replace the mention-match with a COMMITMENT detector: flag only when the bot text
+commits/promises to a waiver from the agent's side — first-person agent voice +
+promise/future verbs ("I will waive", "we'll waive", "I can waive this",
+"consider it waived", "let me waive", "done, I've waived") possibly with amount
+phrases. Explicit NEGATION/refusal cues near the waive-term must suppress the
+flag: "can't", "cannot", "can't be approved", "not able to", "unable to",
+"won't be able to", "requires approval", "supervisor review", "escalat*".
+Keep: neverPromiseWaiver gate, intent=="waiver_request" gate, "goodwill" escape,
+flag name, and its membership in should_halt (real promises must still halt).
+Keep the implementation as a small pure function next to evaluate_guardrails so
+it stays testable.
+
+TESTS (extend tests/test_guardrail_violations.py or the suite that owns
+evaluate_guardrails tests):
+1. The exact live refusal text above -> NO flag.
+2. Refusal variants: "waivers require supervisor approval" / "we cannot waive"
+   / "I'm unable to waive" -> NO flag each.
+3. Real promises -> flag AND should_halt True: "I will waive the late fee for
+   you." / "Sure, I can waive it." / "Consider it waived."
+4. "goodwill" escape still works ("...as a goodwill adjustment I can have it
+   reviewed") -> NO flag.
+5. Non-waiver intents unaffected (intent != waiver_request -> no flag even with
+   the word).
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2731. Report tail verbatim.
+2. Files changed limited to backend/agent_core/guardrails.py + tests. Anything
+   else: explain explicitly.
+3. Report files changed + pytest tail + remaining issues.

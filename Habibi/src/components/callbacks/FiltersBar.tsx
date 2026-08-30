@@ -43,8 +43,22 @@ function toggle<T>(arr: T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }
 
-const REASONS: CbReason[] = ["payment_discussion", "dispute_followup", "document_query", "hardship_review", "upsell_interest", "general"];
-const STATUSES: CbStatus[] = ["scheduled", "reminded", "in_progress", "completed", "missed", "cancelled"];
+const REASONS: CbReason[] = [
+  "payment_discussion",
+  "dispute_followup",
+  "document_query",
+  "hardship_review",
+  "upsell_interest",
+  "general",
+];
+const STATUSES: CbStatus[] = [
+  "scheduled",
+  "reminded",
+  "in_progress",
+  "completed",
+  "missed",
+  "cancelled",
+];
 const CHANNELS: CbChannel[] = ["whatsapp", "sms", "email"];
 
 export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQueue }: Props) {
@@ -76,7 +90,11 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
           className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
         >
           <option value="all">All queues</option>
-          {queues.map((q) => <option key={q} value={q}>{q}</option>)}
+          {queues.map((q) => (
+            <option key={q} value={q}>
+              {q}
+            </option>
+          ))}
         </select>
         <select
           value={filters.assignee}
@@ -84,7 +102,11 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
           className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
         >
           <option value="all">All assignees</option>
-          {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
+          {assignees.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
         </select>
         <Chip
           on={filters.myQueueOnly}
@@ -105,15 +127,30 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
       <div className="mt-100 flex flex-wrap items-center gap-075">
         <span className="text-body-small text-text-subtlest mr-050">Reason</span>
         {REASONS.map((r) => (
-          <Chip key={r} on={filters.reasons.includes(r)} label={REASON_LABELS[r]} onClick={() => onPatch({ reasons: toggle(filters.reasons, r) })} />
+          <Chip
+            key={r}
+            on={filters.reasons.includes(r)}
+            label={REASON_LABELS[r]}
+            onClick={() => onPatch({ reasons: toggle(filters.reasons, r) })}
+          />
         ))}
         <span className="text-body-small text-text-subtlest mx-100">Status</span>
         {STATUSES.map((s) => (
-          <Chip key={s} on={filters.statuses.includes(s)} label={STATUS_LABELS[s]} onClick={() => onPatch({ statuses: toggle(filters.statuses, s) })} />
+          <Chip
+            key={s}
+            on={filters.statuses.includes(s)}
+            label={STATUS_LABELS[s]}
+            onClick={() => onPatch({ statuses: toggle(filters.statuses, s) })}
+          />
         ))}
         <span className="text-body-small text-text-subtlest mx-100">Reminder</span>
         {CHANNELS.map((c) => (
-          <Chip key={c} on={filters.channels.includes(c)} label={CHANNEL_LABELS[c]} onClick={() => onPatch({ channels: toggle(filters.channels, c) })} />
+          <Chip
+            key={c}
+            on={filters.channels.includes(c)}
+            label={CHANNEL_LABELS[c]}
+            onClick={() => onPatch({ channels: toggle(filters.channels, c) })}
+          />
         ))}
       </div>
     </div>

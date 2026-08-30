@@ -1,0 +1,81 @@
+Done. The pill now renders the backend's verdict and nothing else.
+
+## Verification (real output)
+
+```
+$ cd D:/Hackathon/Habibi && npm run typecheck && npm run lint
+npm notice run typecheck
+npm notice run tsc --noEmit
+EXIT CODE: 0
+
+✖ 62 problems (0 errors, 62 warnings)
+
+check-spacing-scale: clean (14 defined steps)
+check-type-scale: clean (16 defined tokens)
+```
+
+Typecheck silent, lint **0 errors**. The one warning in my file (`ContactabilityPill.tsx:104 react-refresh/only-export-components`) is not new — the old file already exported `contactabilityState` alongside the component (`git show HEAD:…` line 18), and `StatusChip.tsx` carries four of the same. No eslint-disable added.
+
+## `withinWindow` is gone
+
+```
+$ grep -rn "withinWindow" Habibi/src/
+Habibi/src/lib/customerInsights.ts:107:// withinWindow lived here and is gone with the ladder that used it. It parsed
+```
+
+The single hit is a pre-existing tombstone *comment* — someone already killed this same function in `customerInsights.ts` for exactly these reasons. No executable `withinWindow` remains.
+
+## I reproduced the bug first
+
+All four defects produced **green "OK to contact"** against a blocking backend:
+
+```
+defect                   borrower-local   pill says   backend says                   agree?
+(a) wrong timezone       Mon 21:30        OK green    BLOCKED outside_calling_hours  NO  <-- pill lies
+(b) no preferredWindow   Tue 03:00        OK green    BLOCKED outside_calling_hours  NO  <-- pill lies
+(c) allowed_days ignored Sun 12:00        OK green    BLOCKED outside_allowed_window NO  <-- pill lies
+(d) inclusive end hour   Mon 19:00        OK green    BLOCKED outside_calling_hours  NO  <-- pill lies
+```
+
+After the fix, driving the real modules through Vite's SSR loader — all four now veto correctly, plus boundary controls (18:59 allowed, 19:00 blocked) and the consent ladder. Every render state was also checked against the invariant *never green without an explicit allow*:
+
+```
+query                      status    tone      green?  label / sub
+loading                    pending   neutral   no      Checking contact policy · Awaiting policy verdict
+network / API failure      unknown   warning   no      Contact policy unavailable · Cannot confirm — treat as do-not-contact
+allowed                    ok        success   GREEN   OK to contact · Voice window · 10:00–19:00 IST
+outside_calling_hours      blocked   warning   no      Outside calling hours · Statutory 08:00–19:00 · Asia/Kolkata (IST)
+customer_dnd               blocked   danger    no      DND active · Use WhatsApp / Email only
+reason we've never seen    blocked   warning   no      Contact blocked · Policy reason · some_future_rule
+ALL PASS — no state claims contactable without an explicit backend allow
+```
+
+That last row matters: an unrecognised future reason code falls to a non-green default rather than through to "OK to contact".
+
+## Files changed
+
+| File | Why |
+|---|---|
+| `Habibi/src/api/contact-policy.ts` **(new)** | Typed `ContactPolicy` mirroring `schemas.py:1151`, `fetchContactPolicy` via house `apiGet`, `useContactPolicy` hook. Sends `channel=voice` explicitly (the endpoint defaults to `whatsapp`). `refetchInterval: 60_000` + refetch-on-focus so a pill fetched at 18:58 can't sit green at 19:01. Also holds the mock emulation of `contact_policy._veto`, commented as such. |
+| `Habibi/src/components/customer360/ContactabilityPill.tsx` | Deleted `withinWindow`. `contactabilityState` survives as a pure formatter over the server verdict; added pending/unknown states. |
+| `Habibi/src/components/customer360/CustomerHeader.tsx` | Sole consumer — passes `customerId` instead of `consent` (the verdict already accounts for consent; in live mode the list endpoint returns `consent: []` anyway, so the old prop was decision-grade data that wasn't even populated). |
+| `Habibi/src/data/customer360-seed.ts` | Added optional `allowedDays?: string` to `Contact` + `"Mon–Sat"` on Anita Desai, so the mock can actually exercise the day rule. Mock-only, absent from `CustomerResponse`. |
+
+Backend untouched; `QuickActionsRail` still just *displays* the window as text, so I left it.
+
+## Two things I did not do
+
+**I could not look at the pill in a browser.** This session has no browser-automation tool and neither Playwright nor Puppeteer is installed, so I have not seen it in light or dark theme and won't claim otherwise. What I did verify against the running stack: the dev server (PID 37704, untouched) serves my modules Vite-compiled with the new strings in them, and the live backend path renders correctly for every seeded borrower right now — **01:17 IST Sunday, so every window is closed**:
+
+```
+Anita Desai     11:00–18:00 IST   DENIED outside_calling_hours  [warning] Outside calling hours
+Farah Ahmed     10:00–17:00 IST   DENIED channel_opted_out      [danger]  Voice opt-out
+James Patel     09:00–13:00 IST   DENIED outside_calling_hours  [warning] Outside calling hours
+```
+
+Tone→colour comes from the existing `Lozenge` primitive, which already handles both themes; I added no new colour values. Worth someone eyeballing the amber `unknown` chip, since that's the one genuinely new visual state.
+
+**No failing test is committed.** `Habibi` has no test runner at all — no vitest/jest, no `test` script, zero `*.test.ts*` files. Adding one means a dependency install and config changes well outside the stated scope, so I reproduced the bug with a throwaway script (deleted; output above) instead. To make that gap cheap to close later, `mockVeto` and `contactabilityState` are both exported and pure, with the clock injected as a parameter — the table above is a `describe` block waiting to happen. Say the word and I'll wire up vitest.
+
+Changes are uncommitted on `greptile-review/local-wip`; I didn't commit since you didn't ask.
+CYCLE3_EXIT=0

@@ -34,13 +34,14 @@ export function BillingHeader({
   return (
     <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex flex-wrap items-center gap-100">
-        <h1 className="text-[1.25rem] font-semibold text-text">Billing & usage</h1>
-        <Lozenge tone="neutral">
-          Live Azure meters only
-        </Lozenge>
+        <h1 className="heading-medium font-semibold text-text">Billing & usage</h1>
+        <Lozenge tone="neutral">Live Azure meters only</Lozenge>
         <div className="ml-auto flex flex-wrap items-center gap-100">
           {refreshing && (
-            <RefreshCw className="h-3.5 w-3.5 animate-spin text-text-subtlest" aria-label="Refreshing" />
+            <RefreshCw
+              className="h-3.5 w-3.5 animate-spin text-text-subtlest"
+              aria-label="Refreshing"
+            />
           )}
           <div className="inline-flex overflow-hidden rounded-medium border border-border">
             {(["production", "sandbox"] as Env[]).map((e) => (
@@ -99,7 +100,8 @@ export function BillingHeader({
         </div>
       </div>
       <p className="mt-050 text-body-small text-text-subtle">
-        Spend is rolled up from live Azure OpenAI + Speech usage events (tokens / minutes / characters × list price × FX).
+        Spend is rolled up from live Azure OpenAI + Speech usage events (tokens / minutes /
+        characters × list price × FX).
       </p>
     </header>
   );

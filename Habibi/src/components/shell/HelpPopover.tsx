@@ -61,7 +61,9 @@ export function HelpPopover() {
       <PopoverContent align="end" className="w-[21.25rem] space-y-150 p-150">
         <div>
           <div className="text-body font-semibold text-text">Help center</div>
-          <div className="text-body-small text-text-subtlest">Shortcuts and where to go for common tasks.</div>
+          <div className="text-body-small text-text-subtlest">
+            Shortcuts and where to go for common tasks.
+          </div>
         </div>
 
         <div className="rounded-medium border border-border bg-surface-sunken px-150 py-100">

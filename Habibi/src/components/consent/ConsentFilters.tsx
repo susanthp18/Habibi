@@ -1,5 +1,10 @@
 import { Search, X } from "lucide-react";
-import { CHANNEL_LABEL, defaultConsentFilters, type ConsentFilterState, type ConsentChannel } from "@/data/consent-seed";
+import {
+  CHANNEL_LABEL,
+  defaultConsentFilters,
+  type ConsentFilterState,
+  type ConsentChannel,
+} from "@/data/consent-seed";
 
 const STATUSES: { id: ConsentFilterState["status"]; label: string }[] = [
   { id: "all", label: "All" },
@@ -50,18 +55,30 @@ export function ConsentFilters({
 
       <select
         value={filters.channel}
-        onChange={(e) => onChange({ ...filters, channel: e.target.value as ConsentFilterState["channel"] })}
+        onChange={(e) =>
+          onChange({ ...filters, channel: e.target.value as ConsentFilterState["channel"] })
+        }
         className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
-        {CHANNELS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        {CHANNELS.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.label}
+          </option>
+        ))}
       </select>
 
       <select
         value={filters.segment}
-        onChange={(e) => onChange({ ...filters, segment: e.target.value as ConsentFilterState["segment"] })}
+        onChange={(e) =>
+          onChange({ ...filters, segment: e.target.value as ConsentFilterState["segment"] })
+        }
         className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
       >
-        {SEGMENTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        {SEGMENTS.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.label}
+          </option>
+        ))}
       </select>
 
       <div className="flex flex-wrap gap-050">
@@ -84,7 +101,9 @@ export function ConsentFilters({
       </div>
 
       <div className="ml-auto flex items-center gap-100 text-body-small text-text-subtlest">
-        <span>{resultCount} / {totalCount}</span>
+        <span>
+          {resultCount} / {totalCount}
+        </span>
         {isDirty && (
           <button
             onClick={() => onChange(defaultConsentFilters)}

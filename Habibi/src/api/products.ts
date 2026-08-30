@@ -40,8 +40,7 @@ function toProduct(w: ProductWire): Product {
     name: w.name,
     // The UI groups by these three; anything else the DB carries falls into
     // Loan rather than rendering an empty group header.
-    category:
-      w.category === "Card" || w.category === "Insurance" ? w.category : "Loan",
+    category: w.category === "Card" || w.category === "Insurance" ? w.category : "Loan",
     minTicket: w.minTicket ?? 0,
     maxTicket: w.maxTicket ?? 0,
     indicativeROI: w.indicativeROI ?? "",

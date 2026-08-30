@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import type { Channel, Customer, DocStatus, DocumentRequest } from "@/data/customer360-seed";
 import { fmtDate } from "@/data/customer360-seed";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
-import { FilterTable, type FilterChip, type FilterTableColumn } from "@/components/records/FilterTable";
+import {
+  FilterTable,
+  type FilterChip,
+  type FilterTableColumn,
+} from "@/components/records/FilterTable";
 
 const STATUS_TONE: Record<DocStatus, LozengeTone> = {
   requested: "neutral",
@@ -71,7 +75,9 @@ export function DocumentsTab({ customer, onCreate }: { customer: Customer; onCre
         header: "Requested on",
         width: "0.9fr",
         cell: (d) => (
-          <span className="text-body-small tabular-nums text-text-subtle">{fmtDate(d.requestedAt)}</span>
+          <span className="text-body-small tabular-nums text-text-subtle">
+            {fmtDate(d.requestedAt)}
+          </span>
         ),
       },
       {
@@ -102,7 +108,9 @@ export function DocumentsTab({ customer, onCreate }: { customer: Customer; onCre
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-semibold text-text">Document fulfillment</div>
-          <div className="text-xs text-text-subtle">Bot captures the request, back-office (or bot) sends the file.</div>
+          <div className="text-xs text-text-subtle">
+            Bot captures the request, back-office (or bot) sends the file.
+          </div>
         </div>
         <Button onClick={onCreate}>
           <FileText className="h-3.5 w-3.5" />

@@ -1,4 +1,5 @@
-import { ChevronDown, Download, RotateCcw, Rocket } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ChevronDown, Download, Pencil, RotateCcw, Rocket } from "lucide-react";
 import type { PromptVersion } from "@/data/prompt-studio-seed";
 import type { Scenario } from "@/data/sandbox-seed";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,10 @@ type Props = {
   turnsUsed: number;
   turnsMax: number;
   statusLabel?: string;
+  /** Card the run is against. Present, it offers the way back to the editor —
+   *  the fleet index and the editor both link *into* the sandbox, and there was
+   *  no link out. */
+  editBotId?: string | null;
   onReset: () => void;
   onExport: () => void;
   /** CRM interaction backing the current call; gates the server-side exports. */
@@ -50,20 +55,22 @@ export function SandboxHeader(p: Props) {
   return (
     <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex flex-wrap items-center gap-100">
-        <h1 className="text-[1.25rem] font-semibold text-text">Call simulation sandbox</h1>
-        <Lozenge tone="selected">
-          Safe pre-prod harness
-        </Lozenge>
+        <h1 className="heading-medium font-semibold text-text">Call simulation sandbox</h1>
+        <Lozenge tone="selected">Safe pre-prod harness</Lozenge>
         {activePrompt && activePrompt.status !== "published" && (
-          <Lozenge tone="warning">
-            Testing draft
-          </Lozenge>
+          <Lozenge tone="warning">Testing draft</Lozenge>
         )}
-        {p.statusLabel && (
-          <Lozenge tone="neutral">
-            {p.statusLabel}
-          </Lozenge>
-        )}
+        {p.statusLabel && <Lozenge tone="neutral">{p.statusLabel}</Lozenge>}
+        {p.editBotId ? (
+          <Link
+            to="/agent-studio/$botId"
+            params={{ botId: p.editBotId }}
+            className="inline-flex items-center gap-050 text-body-small text-text-brand hover:underline"
+            title="Open this card in Agent Studio"
+          >
+            <Pencil className="h-3 w-3" /> Edit card
+          </Link>
+        ) : null}
 
         <div className="inline-flex rounded-medium border border-border p-025 text-body-small">
           <button
@@ -129,7 +136,10 @@ export function SandboxHeader(p: Props) {
               label="Skill"
               value={p.skillSlug ?? ""}
               onChange={p.onSkill}
-              options={[{ value: "", label: "Auto (intent)" }, ...p.skills.map((s) => ({ value: s.slug, label: s.label }))]}
+              options={[
+                { value: "", label: "Auto (intent)" },
+                ...p.skills.map((s) => ({ value: s.slug, label: s.label })),
+              ]}
             />
           )}
           <Select
@@ -224,10 +234,9 @@ export function SandboxHeader(p: Props) {
         <span className="font-medium text-text-subtle">Prompt rehearsal</span> replays the prompt
         and knowledge base over text, one turn at a time — it does not run the call flow, voice
         pipeline, or identity verification, so greeting and turn-taking behaviour cannot be tested
-        here.{" "}
-        <span className="font-medium text-text-subtle">Live CRM call</span> is a real duplex session
-        via Pipecat that exercises the full flow graph. Both write real CRM rows (interactions,
-        promises, leads) when a customer is pinned.
+        here. <span className="font-medium text-text-subtle">Live CRM call</span> is a real duplex
+        session via Pipecat that exercises the full flow graph. Both write real CRM rows
+        (interactions, promises, leads) when a customer is pinned.
       </p>
     </header>
   );

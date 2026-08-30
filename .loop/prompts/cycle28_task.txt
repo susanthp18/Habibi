@@ -1,0 +1,61 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 595 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Cycle 27's audit (.loop/out/cycle27_voice_audit.txt) identified the
+only two SAFE-AUTO-FIX gaps in the live voice path. Apply exactly these two,
+nothing else:
+
+--- FIX 1 (audit G4, counter half): verified caller must not be hung up on ---
+backend/voice/tools.py `_verify_identity_handler` (~613-800): the handler
+increments `state.verify_attempts += 1` (~:653) WITHOUT consulting
+`session.identity_verified`. A caller who is ALREADY verified can therefore
+reach verify_attempts >= 3 through subsequent missed attempts and be routed to
+terminate_politely + record_handoff("verification_failed") — a hang-up on a
+verified borrower.
+REQUIRED: at handler entry, if `session.identity_verified` is already True and
+the interaction/customer are bound, return the already-verified shape ({"ok":
+True, "alreadyVerified": True, ...} consistent with the handler's return style)
+with a say-directive confirming they're verified and continuing — no attempt
+increment, no handoff path. Unverified path byte-identical to today.
+TEST: verified session -> second verify call does not increment attempts and
+does not reach the cap; unverified path unchanged (existing tests pin this).
+
+--- FIX 2 (audit G8): transcript turns persist raw digits ---
+backend/voice/persist.py `append_transcript_turn` (~:203+) writes text_content
+raw, while tool-call args in the same module ARE redacted via pii_redact at
+:339-344. DTMF keypad input ("Caller keypad input: ...") and spoken digits land
+in interaction_transcript verbatim; RTVI reporting deliberately keeps
+verify_identity args out of browsers but the transcript undoes it at rest.
+REQUIRED: apply the existing pii_redact.redact_text to text_content inside
+append_transcript_turn (same function used for args). Do not change any other
+column. Check the consumers that read these rows — QA autoscore tests and
+transcript-export tests read transcript text; if any assert on raw digit strings
+(they shouldn't), update those assertions to the redacted form and note it.
+TESTS: append_transcript_turn with "Caller keypad input: 9876543210" stores
+redacted text; a normal sentence with no PII passes through unchanged (assert
+no mangling); extend an existing export/autoscore test if its fixture contains
+digits.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2771. Report tail verbatim.
+2. Files changed limited to backend/voice/tools.py, backend/voice/persist.py,
+   backend/tests/**. Anything else: explain explicitly.
+3. Report files changed + pytest tail + remaining issues.

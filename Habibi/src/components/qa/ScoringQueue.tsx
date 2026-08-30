@@ -28,7 +28,12 @@ export function ScoringQueue({
       if (handler !== "all" && s.handledBy.kind !== handler) return false;
       if (q) {
         const t = q.toLowerCase();
-        if (!s.customerName.toLowerCase().includes(t) && !s.agentId.toLowerCase().includes(t) && !s.disposition.toLowerCase().includes(t)) return false;
+        if (
+          !s.customerName.toLowerCase().includes(t) &&
+          !s.agentId.toLowerCase().includes(t) &&
+          !s.disposition.toLowerCase().includes(t)
+        )
+          return false;
       }
       return true;
     });
@@ -53,10 +58,18 @@ export function ScoringQueue({
               onClick={() => setStatus(s)}
               className={cn(
                 "rounded-full border px-100 py-025 text-body-small",
-                status === s ? "border-border-brand bg-background-brand-subtlest text-text-brand" : "border-border text-text-subtle hover:bg-surface-sunken",
+                status === s
+                  ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                  : "border-border text-text-subtle hover:bg-surface-sunken",
               )}
             >
-              {s === "all" ? "All" : s === "ai_draft" ? "AI draft" : s === "final" ? "Final" : "Unscored"}
+              {s === "all"
+                ? "All"
+                : s === "ai_draft"
+                  ? "AI draft"
+                  : s === "final"
+                    ? "Final"
+                    : "Unscored"}
             </button>
           ))}
           <span className="mx-050 h-4 w-px bg-border" />
@@ -66,7 +79,9 @@ export function ScoringQueue({
               onClick={() => setHandler(h)}
               className={cn(
                 "rounded-full border px-100 py-025 text-body-small capitalize",
-                handler === h ? "border-border-brand bg-background-brand-subtlest text-text-brand" : "border-border text-text-subtle hover:bg-surface-sunken",
+                handler === h
+                  ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                  : "border-border text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {h}
@@ -79,19 +94,23 @@ export function ScoringQueue({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {filtered.map((s) => {
           const total = computeTotal(s, rubric);
-          const HandlerIcon = s.handledBy.kind === "bot" ? Bot : s.handledBy.kind === "handoff" ? Users2 : User;
+          const HandlerIcon =
+            s.handledBy.kind === "bot" ? Bot : s.handledBy.kind === "handoff" ? Users2 : User;
           return (
             <button
               key={s.id}
               onClick={() => onSelect(s.id)}
               className={cn(
                 "flex w-full flex-col gap-050 border-b border-border px-150 py-150 text-left hover:bg-surface-sunken",
-                activeId === s.id && "bg-background-brand-subtlest hover:bg-background-brand-subtlest",
+                activeId === s.id &&
+                  "bg-background-brand-subtlest hover:bg-background-brand-subtlest",
               )}
             >
               <div className="flex items-center justify-between gap-100">
                 <div className="truncate text-body font-medium text-text">{s.customerName}</div>
-                {s.status === "final" ? <ScoreBand total={total} size="sm" /> : (
+                {s.status === "final" ? (
+                  <ScoreBand total={total} size="sm" />
+                ) : (
                   <Lozenge tone={s.status === "unscored" ? "neutral" : "warning"}>
                     {s.status === "unscored" ? "Unscored" : "AI draft"}
                   </Lozenge>
@@ -107,7 +126,9 @@ export function ScoringQueue({
           );
         })}
         {filtered.length === 0 && (
-          <div className="px-200 py-400 text-center text-body-small text-text-subtlest">No calls match these filters.</div>
+          <div className="px-200 py-400 text-center text-body-small text-text-subtlest">
+            No calls match these filters.
+          </div>
         )}
       </div>
     </div>

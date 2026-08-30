@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from agent_core.cards.compile import compile_card
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID, FIRST_PARTY_BOT_IDS, card_dump
+from voice.flow_export import built_in_collections_graph
 from agent_core.cards.templates import templates
 from agent_core.tools.catalog import CATALOG
 
@@ -26,7 +27,7 @@ def _compile(card_raw, **kw):
     return compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=card_raw,
-        flow={},
+        flow=built_in_collections_graph(),
         catalog_names=set(CATALOG.specs),
         known_bot_ids={COLLECTIONS_BOT_ID, "intake-v1", "insurance-v1", "supervisor-brief"},
         **kw,

@@ -69,9 +69,7 @@ export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
           <p className="text-body-small text-text-danger">Veto: {stream.vetoes.join(" · ")}</p>
         ) : null}
 
-        {stream.error ? (
-          <p className="text-body-small text-text-danger">{stream.error}</p>
-        ) : null}
+        {stream.error ? <p className="text-body-small text-text-danger">{stream.error}</p> : null}
 
         {whisper && !monitor ? (
           <button
@@ -99,10 +97,15 @@ export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
           <p className="mb-075 text-body-small font-semibold text-text">Pending approval</p>
           <ul className="space-y-050">
             {stream.approvals.map((job) => (
-              <li key={job.id} className="flex items-center justify-between gap-100 text-body-small">
+              <li
+                key={job.id}
+                className="flex items-center justify-between gap-100 text-body-small"
+              >
                 <span className="min-w-0 truncate text-text">
                   {job.workflowType.replace(/_/g, " ")}
-                  {job.inputRequiredReason ? ` · ${job.inputRequiredReason.replace(/_/g, " ")}` : ""}
+                  {job.inputRequiredReason
+                    ? ` · ${job.inputRequiredReason.replace(/_/g, " ")}`
+                    : ""}
                 </span>
                 {monitor ? null : (
                   <span className="flex shrink-0 gap-050">

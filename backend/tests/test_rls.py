@@ -37,6 +37,12 @@ GLOBAL_BY_DESIGN = {
     "event_types",
     "permissions",
     "provider_fields",
+    # The capability matrix, not a tenant's config: "Nova-3 supports
+    # streaming" is a fact about the vendor's model. The tenant-scoped
+    # halves are provider_configs (credentials) and
+    # agent_provider_bindings (which model serves which slot), and both
+    # carry tenant_id.
+    "provider_models",
     "providers",
     "tenants",
     "tts_price_tiers",

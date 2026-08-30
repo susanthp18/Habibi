@@ -54,7 +54,7 @@ function mapRule(row: RoutingRuleApi): Rule {
 }
 
 let _mockRules: Rule[] = [...RULES_SEED];
-let _mockAudit: AuditEntry[] = [...AUDIT_SEED];
+const _mockAudit: AuditEntry[] = [...AUDIT_SEED];
 
 export async function fetchRoutingRules(): Promise<Rule[]> {
   if (USE_MOCK) return mockDelay(_mockRules);

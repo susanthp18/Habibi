@@ -18,7 +18,10 @@ export function IntentDistribution({
       subtitle="Bar length = volume · color = containment"
       action={
         activeId ? (
-          <button onClick={() => onSelect(null)} className="text-body-small text-text-brand hover:underline">
+          <button
+            onClick={() => onSelect(null)}
+            className="text-body-small text-text-brand hover:underline"
+          >
             Clear filter
           </button>
         ) : (
@@ -47,7 +50,7 @@ export function IntentDistribution({
                 dim && "opacity-50",
               )}
             >
-              <div className="truncate text-[0.75rem] font-medium text-text">{it.label}</div>
+              <div className="truncate text-body-small font-medium text-text">{it.label}</div>
               <div className="relative h-2.5 overflow-hidden rounded-full bg-surface-sunken p-0.5">
                 <div
                   className={cn("h-full rounded-full transition-[width] duration-300", barColor)}
@@ -55,7 +58,9 @@ export function IntentDistribution({
                 />
               </div>
               <div className="text-right text-body-small text-text-subtle">
-                <span className="mr-050 tabular-nums text-text-subtlest">{it.sessions.toLocaleString()}</span>
+                <span className="mr-050 tabular-nums text-text-subtlest">
+                  {it.sessions.toLocaleString()}
+                </span>
                 <span
                   className={cn(
                     "font-semibold tabular-nums",
@@ -72,7 +77,11 @@ export function IntentDistribution({
             </button>
           );
         })}
-        {!intents.length && <div className="px-100 py-200 text-body-small text-text-subtlest">No intents in range.</div>}
+        {!intents.length && (
+          <div className="px-100 py-200 text-body-small text-text-subtlest">
+            No intents in range.
+          </div>
+        )}
       </div>
     </ChartCard>
   );

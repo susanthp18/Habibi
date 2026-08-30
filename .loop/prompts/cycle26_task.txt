@@ -1,0 +1,59 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 595 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Core-agentic campaign, outbound chain hardening, cycle 3 of this
+thread. Cycle 25 fixed cadence pause/strand and flagged two follow-ups that
+are exactly this cycle's task:
+
+--- FIX 1: outbound.place "never raises" contract unenforced (backend/outbound.py) ---
+The docstring claims place() never raises, but to_e164() and the two
+engine.begin() blocks inside it can throw — and campaigns.process_one calls
+place undefended. Read the function first. Required: make the contract TRUE —
+wrap the risky regions so place returns a structured failure result (whatever
+result shape it already uses for provider failures) instead of raising; log at
+ERROR with campaign/case context. Do NOT swallow programming errors: keep
+re-raising anything that indicates a bug (e.g. TypeError from bad arguments)
+versus operational failures (E.164 conversion of a malformed number, DB
+connection errors). If campaigns.process_one already defends itself, note that;
+the fix belongs in place() so every caller benefits.
+
+--- FIX 2: max_attempts not checked on the happy path (backend/cadence.py) ---
+process_one places attempt N+1 without checking max_attempts; it relies on
+on_outcome to exhaust the ladder. Add the pre-dial check: before placing, if
+the case's attempts would exceed the ladder's ceiling, exhaust/skip per the
+same mechanism cycle 25 added, log INFO with case id, and don't dial. Keep the
+failure-path check from cycle 25 intact.
+
+TESTS: extend backend/tests/test_cadence_pause_and_strand.py or add
+backend/tests/test_place_contract.py:
+1. place() with a malformed number -> structured failure result, no raise,
+   ERROR logged.
+2. place() with DB unavailable (engine mocked to raise OperationalError-like)
+   -> structured failure result, no raise.
+3. place() happy path unchanged.
+4. cadence: case at max_attempts -> pre-dial check skips placing, logs INFO,
+   marks exhausted via cycle-25 mechanism.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2771. Report tail verbatim.
+2. Files changed limited to backend/outbound.py, backend/cadence.py,
+   backend/tests/**. Anything else: explain explicitly.
+3. Report files changed + pytest tail + remaining issues.

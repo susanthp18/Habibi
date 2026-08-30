@@ -2,11 +2,7 @@ import { useMemo } from "react";
 import { CalendarClock, Clock, Shield, User } from "lucide-react";
 import { ChannelChip } from "./ChannelChip";
 import { ContactablePill } from "./ContactablePill";
-import {
-  contactableSummary,
-  daysUntil,
-  type ConsentRecord,
-} from "@/data/consent-seed";
+import { contactableSummary, daysUntil, type ConsentRecord } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
   RecordsAvatarMark,
@@ -24,7 +20,11 @@ function formatWindow(rec: ConsentRecord) {
   const start = rec.allowedWindow?.startHour ?? 0;
   const end = rec.allowedWindow?.endHour ?? 0;
   const range = `${String(start).padStart(2, "0")}:00–${String(end).padStart(2, "0")}:00`;
-  const daySpan = isDaily ? "Daily" : isWeekdays ? "Weekdays" : days.map((d) => DAY_LABELS[d]).join(", ");
+  const daySpan = isDaily
+    ? "Daily"
+    : isWeekdays
+      ? "Weekdays"
+      : days.map((d) => DAY_LABELS[d]).join(", ");
   return `${daySpan} · ${range}`;
 }
 
@@ -50,7 +50,11 @@ export function ConsentTable({
         sortValue: (r) => r.customerName,
         className: "min-w-[14rem]",
         cell: (r) => (
-          <button type="button" onClick={() => onOpen(r.id)} className="flex min-w-0 items-center gap-100 text-left">
+          <button
+            type="button"
+            onClick={() => onOpen(r.id)}
+            className="flex min-w-0 items-center gap-100 text-left"
+          >
             <RecordsAvatarMark label={r.customerName || "?"} />
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium text-text-brand hover:underline">
@@ -116,7 +120,11 @@ export function ConsentTable({
         cell: (r) => {
           const daysLeft = daysUntil(r.consentExpiresAt);
           const expiryTone =
-            daysLeft < 0 ? "text-text-danger" : daysLeft <= 30 ? "text-text-warning" : "text-text-subtle";
+            daysLeft < 0
+              ? "text-text-danger"
+              : daysLeft <= 30
+                ? "text-text-warning"
+                : "text-text-subtle";
           return (
             <div className={expiryTone}>
               <div className="inline-flex items-center gap-050 text-body-small font-medium">
@@ -146,7 +154,8 @@ export function ConsentTable({
           return (
             <div className="text-body-small text-text-subtle">
               <div className="font-medium text-text">
-                {lastOptOut.channel === "all" ? "All channels" : lastOptOut.channel} · {lastOptOut.source}
+                {lastOptOut.channel === "all" ? "All channels" : lastOptOut.channel} ·{" "}
+                {lastOptOut.source}
               </div>
               <div className="text-body-small text-text-subtlest">
                 {new Date(lastOptOut.at).toLocaleDateString()} · {lastOptOut.actor}

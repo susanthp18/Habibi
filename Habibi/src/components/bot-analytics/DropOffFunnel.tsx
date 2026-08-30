@@ -5,7 +5,11 @@ type FunnelStage = { id: string; label: string; count: number };
 export function DropOffFunnel({ stages }: { stages: FunnelStage[] }) {
   const max = Math.max(1, stages[0]?.count ?? 0);
   return (
-    <ChartCard title="Drop-off funnel" subtitle="Where sessions leak between stages" action={<SnapshotPill />}>
+    <ChartCard
+      title="Drop-off funnel"
+      subtitle="Where sessions leak between stages"
+      action={<SnapshotPill />}
+    >
       <div className="space-y-100">
         {stages.map((s, i) => {
           const prev = stages[i - 1];

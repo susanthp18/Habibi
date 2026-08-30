@@ -31,8 +31,12 @@ export function MobileNav() {
         <SheetHeader className="flex-row items-center gap-150 px-150 pt-150">
           <EqualizerMark size={28} />
           <div className="min-w-0 flex-1 text-left">
-            <SheetTitle className="truncate text-[13px] font-medium leading-tight text-text">{BRAND.name}</SheetTitle>
-            <p className="truncate text-[11px] leading-tight text-text-subtlest">{BRAND.tenantLine}</p>
+            <SheetTitle className="truncate text-body-small font-medium leading-tight text-text">
+              {BRAND.name}
+            </SheetTitle>
+            <p className="truncate text-body-tiny leading-tight text-text-subtlest">
+              {BRAND.tenantLine}
+            </p>
           </div>
         </SheetHeader>
         <nav className="min-h-0 flex-1 overflow-y-auto px-150 pb-150 pt-100">

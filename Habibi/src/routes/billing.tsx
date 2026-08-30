@@ -32,7 +32,8 @@ export const Route = createFileRoute("/billing")({
       { property: "og:title", content: "Billing & Usage Analytics" },
       {
         property: "og:description",
-        content: "Cost per resolved call, budget alerts and per-tenant spend for the collections voice AI stack.",
+        content:
+          "Cost per resolved call, budget alerts and per-tenant spend for the collections voice AI stack.",
       },
     ],
   }),
@@ -45,7 +46,11 @@ function BillingPage() {
   const [env, setEnv] = useState<Env>("production");
   const [drawerService, setDrawerService] = useState<Service | null>(null);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useBilling(period, tenantId, env);
+  const { data, isLoading, isError, error, refetch, isFetching } = useBilling(
+    period,
+    tenantId,
+    env,
+  );
   const { save, remove } = useBudgetRuleMutations();
 
   const services = data?.services ?? [];
@@ -54,7 +59,13 @@ function BillingPage() {
 
   const handleSaveRule = async (
     budgetId: string,
-    rule: { id?: string; threshold: number; channels: string[]; action: string; severity: BudgetRule["severity"] },
+    rule: {
+      id?: string;
+      threshold: number;
+      channels: string[];
+      action: string;
+      severity: BudgetRule["severity"];
+    },
   ) => {
     try {
       await save.mutateAsync({ budgetId, rule });

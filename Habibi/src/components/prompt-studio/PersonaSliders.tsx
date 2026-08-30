@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { previewTts } from "@/api/prompt-studio";
 import {
   LANGUAGES,
+  languageTag,
   renderPersonaPreview,
   type PersonaPreset,
   type PersonaState,
@@ -34,11 +35,22 @@ type Props = {
    * than `??` does, because nothing at the call site looks wrong.
    */
   presets: PersonaPreset[];
+  /**
+   * The studio's preset pipeline — confirmation when authored text would be
+   * lost, then a toast whose Undo restores prompt *and* traits.
+   *
+   * Optional so the component still stands alone, but the studio route must
+   * pass it. Without it these chips wrote `traits` straight to local state,
+   * which is the same click doing a different thing on two tabs: the Prompt
+   * tab asked before overwriting and offered a way back, the Persona tab
+   * moved five sliders silently and offered none.
+   */
+  onApplyPreset?: (preset: PersonaPreset) => void;
   /** Current TTS voice settings — used to speak the persona preview. */
   voice?: VoiceConfig;
 };
 
-export function PersonaSliders({ value, onChange, presets, voice }: Props) {
+export function PersonaSliders({ value, onChange, presets, onApplyPreset, voice }: Props) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -113,7 +125,21 @@ export function PersonaSliders({ value, onChange, presets, voice }: Props) {
       urlRef.current = url;
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onended = () => setPlaying(false);
+      // Release the blob when playback finishes on its own.
+      //
+      // `stopPlayback` revokes it, and the two paths that call it are Stop and
+      // unmount — so a preview the operator simply listens to the end of left
+      // its object URL alive for the lifetime of the page. Tuning persona
+      // sliders means pressing this repeatedly, and every press allocated
+      // another few hundred kilobytes of audio that nothing would ever free.
+      audio.onended = () => stopPlayback();
+      // Matches VoicePanel. Without it, audio that fails *after* play() resolves
+      // leaves the button reading "Stop" with nothing playing and no way back
+      // except pressing it — `play()` rejecting is the only case the catch sees.
+      audio.onerror = () => {
+        toast.error("Couldn’t play the persona preview");
+        stopPlayback();
+      };
       await audio.play();
       if (gen !== requestGen.current) {
         stopPlayback();
@@ -137,7 +163,14 @@ export function PersonaSliders({ value, onChange, presets, voice }: Props) {
             {presets.map((p) => (
               <button
                 key={p.id}
-                onClick={() => update({ traits: p.traits })}
+                // Not "submit". These sit in no form today, so the default did
+                // nothing visible — but it is the kind of default that starts
+                // reloading the page the day someone wraps the tab in one.
+                type="button"
+                // A preset is a prompt template *and* a set of traits. Applying
+                // half of it here made the same chip mean two different things
+                // depending on which tab you clicked it from.
+                onClick={() => (onApplyPreset ? onApplyPreset(p) : update({ traits: p.traits }))}
                 className="rounded-full border border-border px-150 py-050 text-body-small text-text-subtle hover:border-border-brand hover:text-text-brand"
               >
                 {p.label}
@@ -151,7 +184,9 @@ export function PersonaSliders({ value, onChange, presets, voice }: Props) {
             <div key={t.key}>
               <div className="mb-050 flex items-center justify-between text-body-small">
                 <span className="font-medium text-text">{t.label}</span>
-                <span className="font-mono text-body-small text-text-subtle">{value.traits[t.key]}</span>
+                <span className="font-mono text-body-small text-text-subtle">
+                  {value.traits[t.key]}
+                </span>
               </div>
               <Slider
                 value={[value.traits[t.key]]}
@@ -169,7 +204,9 @@ export function PersonaSliders({ value, onChange, presets, voice }: Props) {
         </div>
 
         <div>
-          <div className="mb-075 text-body-small font-semibold text-text-subtlest">Primary language</div>
+          <div className="mb-075 text-body-small font-semibold text-text-subtlest">
+            Primary language
+          </div>
           <select
             value={value.language}
             onChange={(e) => update({ language: e.target.value })}
@@ -179,6 +216,17 @@ export function PersonaSliders({ value, onChange, presets, voice }: Props) {
               <option key={l}>{l}</option>
             ))}
           </select>
+          {/* The tag, because this control now binds the recogniser and there is
+              no other place in the Studio that says so. It was inert on voice
+              until recently: the tab wrote a display name, the recogniser read
+              AgentTuning.stt.language, and nothing connected them — so Hindi
+              could be selected, saved and dialled while the call listened in
+              en-IN. Naming the tag is what makes the link checkable. */}
+          <p className="mt-050 text-body-small text-text-subtlest">
+            Sets what the agent speaks and what speech recognition listens for (
+            <code className="font-mono">{languageTag(value.language) ?? "unmapped"}</code>). A
+            per-session override in the Sandbox&apos;s Tuning Studio still wins.
+          </p>
           <div className="mt-100 text-body-small text-text-subtlest">Vernacular fallbacks</div>
           <div className="mt-050 flex flex-wrap gap-050">
             {LANGUAGES.filter((l) => l !== value.language).map((l) => {
@@ -222,7 +270,8 @@ export function PersonaSliders({ value, onChange, presets, voice }: Props) {
         </div>
         <p className="mt-100 flex items-start gap-075 text-body-small text-text-subtlest">
           <Volume2 className="mt-025 h-3.5 w-3.5 shrink-0" />
-          Spoken with the Voice tab’s TTS settings (warmth/pitch/speed). Adjust sliders, then Hear tone.
+          Spoken with the Voice tab’s TTS settings (warmth/pitch/speed). Adjust sliders, then Hear
+          tone.
         </p>
       </div>
     </div>

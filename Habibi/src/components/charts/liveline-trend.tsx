@@ -67,9 +67,7 @@ export function LivelineTrend({
       const w = Math.round(node.clientWidth);
       const h = Math.round(node.clientHeight || height);
       if (w <= 0 || h <= 0) return;
-      setSize((prev) =>
-        Math.abs(prev.w - w) > 1 || Math.abs(prev.h - h) > 1 ? { w, h } : prev,
-      );
+      setSize((prev) => (Math.abs(prev.w - w) > 1 || Math.abs(prev.h - h) > 1 ? { w, h } : prev));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -78,9 +76,7 @@ export function LivelineTrend({
   }, [height]);
 
   const domain = useMemo(() => {
-    const all = multi
-      ? (seriesInput ?? []).flatMap((s) => s.values)
-      : (values ?? []);
+    const all = multi ? (seriesInput ?? []).flatMap((s) => s.values) : (values ?? []);
     if (!all.length) return { min: 0, max: 1 };
     const dataMin = Math.min(...all);
     const dataMax = Math.max(...all);
@@ -119,7 +115,9 @@ export function LivelineTrend({
       : [];
 
   const timeLabel =
-    hoverIndex !== null ? formatTime?.(hoverIndex) ?? labels?.[hoverIndex] ?? undefined : undefined;
+    hoverIndex !== null
+      ? (formatTime?.(hoverIndex) ?? labels?.[hoverIndex] ?? undefined)
+      : undefined;
 
   const cursorX =
     hoverIndex !== null && pointCount > 1 ? (hoverIndex / (pointCount - 1)) * 100 : 50;

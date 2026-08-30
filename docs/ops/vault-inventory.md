@@ -4,8 +4,11 @@ Phase 3: connector OAuth and MCP keys live in `vault_refs`. LLM / Twilio /
 WhatsApp keys can move here next; until then they stay in the platform secret
 store. The UI never returns ciphertext or a token field.
 
-Local backend: HMAC-SHA256 CTR + HMAC tag sealed with `VAULT_MASTER_KEY`
-(falls back to `SKILL_PLATFORM_KEY`). Azure Key Vault when
+Local backend: HMAC-SHA256 CTR + HMAC tag sealed with `VAULT_MASTER_KEY`.
+That is the only variable that names it — the old fallback to
+`SKILL_PLATFORM_KEY` (the skill *signing* key) is gone, so rotating one no
+longer touches the other. Unset outside a declared non-production `APP_ENV` it
+raises rather than sealing with the built-in dev key. Azure Key Vault when
 `AZURE_KEY_VAULT_URL` + `AZURE_KEY_VAULT_TOKEN` are set — the row stores the
 secret **name**, not `vault://…` placeholder strings.
 

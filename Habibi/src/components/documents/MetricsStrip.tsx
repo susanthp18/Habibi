@@ -37,7 +37,7 @@ function Tile({
       </div>
       <div className="min-w-0">
         <div className="text-body-small text-text-subtlest">{label}</div>
-        <div className="text-[0.875rem] font-semibold text-text leading-tight tabular-nums">{value}</div>
+        <div className="text-body font-semibold text-text leading-tight tabular-nums">{value}</div>
         {sub && <div className="text-body-small text-text-subtlest">{sub}</div>}
       </div>
     </div>
@@ -47,13 +47,33 @@ function Tile({
 export function MetricsStrip({ m }: { m: Metrics }) {
   return (
     <div className="grid shrink-0 grid-cols-2 gap-100 md:grid-cols-3 xl:grid-cols-5">
-      <Tile label="Open" value={m.openCount} icon={FileClock} tone="brand" sub="Requested + generating" />
-      <Tile label="Generating" value={m.generatingCount} icon={Loader2} tone="amber" sub="In flight" />
+      <Tile
+        label="Open"
+        value={m.openCount}
+        icon={FileClock}
+        tone="brand"
+        sub="Requested + generating"
+      />
+      <Tile
+        label="Generating"
+        value={m.generatingCount}
+        icon={Loader2}
+        tone="amber"
+        sub="In flight"
+      />
       <Tile label="Sent today" value={m.sentTodayCount} icon={Send} tone="emerald" sub="Last 24h" />
-      <Tile label="Failed" value={m.failedCount} icon={AlertTriangle} tone="red" sub="Needs retry" />
+      <Tile
+        label="Failed"
+        value={m.failedCount}
+        icon={AlertTriangle}
+        tone="red"
+        sub="Needs retry"
+      />
       <Tile
         label="Avg fulfilment"
-        value={m.avgFulfilMins < 60 ? `${m.avgFulfilMins}m` : `${(m.avgFulfilMins / 60).toFixed(1)}h`}
+        value={
+          m.avgFulfilMins < 60 ? `${m.avgFulfilMins}m` : `${(m.avgFulfilMins / 60).toFixed(1)}h`
+        }
         icon={Timer}
         tone="slate"
         sub="Request → delivered"

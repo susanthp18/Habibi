@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "lint": "eslint . && node scripts/check-spacing-scale.mjs",
+    "test": "vitest run",
+    "lint": "eslint . && node scripts/check-spacing-scale.mjs && node scripts/check-type-scale.mjs",
     "icons": "node scripts/gen-icons.mjs",
     "format": "prettier --write .",
     "check:spacing": "node scripts/check-spacing-scale.mjs"
@@ -92,6 +93,7 @@
     "sharp": "^0.35.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.11"
   }
 }

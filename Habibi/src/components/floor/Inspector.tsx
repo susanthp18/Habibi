@@ -19,8 +19,12 @@ import { SentimentBubble } from "./SentimentBubble";
 import { useFloorCopilot } from "@/api/floor";
 
 const fmtDur = (s: number) => {
-  const m = Math.floor(s / 60).toString().padStart(2, "0");
-  const r = Math.floor(s % 60).toString().padStart(2, "0");
+  const m = Math.floor(s / 60)
+    .toString()
+    .padStart(2, "0");
+  const r = Math.floor(s % 60)
+    .toString()
+    .padStart(2, "0");
   return `${m}:${r}`;
 };
 
@@ -72,8 +76,12 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
         <div className="flex flex-wrap items-center gap-075 px-200 py-150">
           <Lozenge tone={riskTone[call.risk]}>{call.risk} risk</Lozenge>
           <Lozenge tone="neutral">{call.topic}</Lozenge>
-          <Lozenge tone={isHuman ? "selected" : "warning"}>{isHuman ? call.handler.name : "Bot"}</Lozenge>
-          <span className="ml-auto tabular text-body-small font-semibold text-text">{fmtDur(call.durationSec)}</span>
+          <Lozenge tone={isHuman ? "selected" : "warning"}>
+            {isHuman ? call.handler.name : "Bot"}
+          </Lozenge>
+          <span className="ml-auto tabular text-body-small font-semibold text-text">
+            {fmtDur(call.durationSec)}
+          </span>
         </div>
 
         <div className="px-200 pb-150">
@@ -95,7 +103,9 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
           </div>
           <div>
             <dt className="text-body-small text-text-subtlest">Queue</dt>
-            <dd className="text-body font-semibold text-text">{call.pendingHandoff ? "Waiting" : "—"}</dd>
+            <dd className="text-body font-semibold text-text">
+              {call.pendingHandoff ? "Waiting" : "—"}
+            </dd>
           </div>
         </dl>
 
@@ -116,10 +126,14 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
         <AuthorityPolicyBlock policy={call.authorityPolicy} />
         {copilot.data?.whisperDraft ? (
           <div className="border-t border-border px-200 py-150">
-            <p className="mb-075 text-body-small font-semibold text-text-subtlest">Copilot (engines)</p>
+            <p className="mb-075 text-body-small font-semibold text-text-subtlest">
+              Copilot (engines)
+            </p>
             {copilot.data.card?.displayName || copilot.data.card?.botId ? (
               <div className="mb-075 flex flex-wrap gap-050">
-                <Lozenge tone="neutral">{copilot.data.card.displayName || copilot.data.card.botId}</Lozenge>
+                <Lozenge tone="neutral">
+                  {copilot.data.card.displayName || copilot.data.card.botId}
+                </Lozenge>
                 {(copilot.data.card.skills ?? []).map((skill) => (
                   <Lozenge key={skill} tone="information">
                     {skill}
@@ -238,10 +252,16 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
             <p className="font-semibold text-text-danger">Take over this session?</p>
             <p className="mt-025 text-text-subtle">
               {isHuman ? call.handler.name : "Bot"} will be dropped. You land in Handoff
-              {call.liveQa?.audioCapable ? " and join the live Twilio call." : ". Sandbox/WhatsApp has no audio plane."}
+              {call.liveQa?.audioCapable
+                ? " and join the live Twilio call."
+                : ". Sandbox/WhatsApp has no audio plane."}
             </p>
             <div className="mt-075 flex justify-end gap-050">
-              <button type="button" onClick={() => setConfirmBarge(false)} className="rounded px-100 py-050 text-text-subtle">
+              <button
+                type="button"
+                onClick={() => setConfirmBarge(false)}
+                className="rounded px-100 py-050 text-text-subtle"
+              >
                 Cancel
               </button>
               <button
@@ -310,7 +330,11 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
               ) : (
                 <button
                   type="button"
-                  onClick={() => (primary === "whisper" && isHuman ? onAction("whisper", call) : setConfirmBarge(true))}
+                  onClick={() =>
+                    primary === "whisper" && isHuman
+                      ? onAction("whisper", call)
+                      : setConfirmBarge(true)
+                  }
                   className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-danger-bold px-100 py-075 text-body-small font-semibold text-white hover:bg-background-danger-bold-hovered"
                 >
                   {primary === "whisper" && isHuman ? (

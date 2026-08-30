@@ -304,8 +304,8 @@ export function DocumentInspector({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete “{doc.title}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              Permanently removes this document, its chunks, and source files. This cannot be undone.
-              Corpus FAQs tied to the same product may also be removed.
+              Permanently removes this document, its chunks, and source files. This cannot be
+              undone. Corpus FAQs tied to the same product may also be removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

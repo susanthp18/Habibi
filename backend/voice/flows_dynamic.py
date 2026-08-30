@@ -144,12 +144,43 @@ def build_authored_flow(
     initial_variables: dict[str, Any] | None = None,
     allowed_tool_names: set[str] | None = None,
     attached_skills: list[Any] | None = None,
+    objective: str | None = None,
+    entry_node: str | None = None,
 ) -> tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
-    """Compile an authored graph. Mirrors ``build_collections_flow``'s contract."""
+    """Compile an authored graph. Mirrors ``build_collections_flow``'s contract.
+
+    ``objective`` selects which door the call comes in through. A graph declares
+    its entries with ``FlowNodeData.entryFor``, so one graph serves the inbound
+    caller and every outbound mission without the spine — negotiation, dispute,
+    escalation, wrap-up — being duplicated per direction and then drifting.
+
+    An unknown or unclaimed objective falls back to the inbound start node
+    rather than raising: an authored graph that predates missions must keep
+    behaving exactly as it did, and a mission with no door is a configuration
+    error the *compiler* reports (G-OB2) rather than something to discover
+    halfway through a dial.
+    """
     graph: FlowGraph = parse_graph(graph_data)
     start = graph.start_node
     if start is None:
         raise ValueError("authored flow has no start node")
+    # The card's chosen node wins when it names one: it is what the compiler
+    # validated (G-OB2) and what the author saw on the canvas. The objective
+    # lookup is the fallback for a mission placed without a card.
+    entry = None
+    if entry_node:
+        entry = next((n for n in graph.nodes if n.key == entry_node), None)
+        if entry is None:
+            logger.warning("mission names entry node %r which is not in the graph", entry_node)
+    if entry is None and objective:
+        entry = graph.entry_for(objective)
+    if objective and entry is None and objective != "inbound":
+        logger.warning(
+            "authored flow has no entry for mission %r — starting at %s",
+            objective,
+            start.key,
+        )
+    entry = entry or start
 
     variables = FlowVariables(initial_variables, context=lambda: session_variables(session))
     # Populated below; handed to build_tools by reference so the built-in tools'
@@ -329,9 +360,12 @@ def build_authored_flow(
         def _factory() -> dict[str, Any]:
             config: dict[str, Any] = {"name": node.key}
 
-            # role_message persists across nodes until re-set; restate it on the
-            # start node so the persona survives a context reset.
-            if node.data.isStart:
+            # role_message persists across nodes until re-set; restate it on
+            # whichever node the call *begins* at so the persona survives a
+            # context reset. That is the inbound start node on an inbound call
+            # and the mission's entry node on an outbound one — keying it to
+            # isStart alone would open every outbound mission with no persona.
+            if node.key == entry.key:
                 config["role_message"] = role_message
 
             if node.type == "end":
@@ -442,15 +476,23 @@ def build_authored_flow(
     for node in graph.nodes:
         nodes[node.key] = _make_factory(node)
 
+    # Same CRM-read strip as voice/flows.py: those tools belong on the node
+    # that is allowed to use them, not on confirm_identity's first turn.
+    _crm_reads = {
+        "get_customer_context",
+        "get_payment_history",
+        "get_emi_schedule",
+        "request_documents",
+    }
     global_functions = [
-        tools[key] for key in graph.globalTools if key in tools
+        tools[key] for key in graph.globalTools if key in tools and key not in _crm_reads
     ]
 
     logger.info(
-        "authored flow compiled · nodes=%s · edges=%s · start=%s · globals=%s",
+        "authored flow compiled · nodes=%s · edges=%s · entry=%s · globals=%s",
         len(graph.nodes),
         len(graph.edges),
-        start.key,
+        entry.key,
         len(global_functions),
     )
-    return state, tools, nodes[start.key], global_functions
+    return state, tools, nodes[entry.key], global_functions

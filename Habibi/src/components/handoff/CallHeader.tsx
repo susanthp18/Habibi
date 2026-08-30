@@ -5,8 +5,12 @@ import { Lozenge } from "@/components/ui/lozenge";
 import { RiskLozenge } from "./HandoffQueue";
 
 function fmt(sec: number) {
-  const m = Math.floor(sec / 60).toString().padStart(2, "0");
-  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  const m = Math.floor(sec / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = Math.floor(sec % 60)
+    .toString()
+    .padStart(2, "0");
   return `${m}:${s}`;
 }
 
@@ -48,11 +52,15 @@ export function CallHeader({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-100">
-            <div className="truncate text-[0.875rem] font-semibold text-text">
+            <div className="truncate text-body font-semibold text-text">
               {activeCall.customerName}
             </div>
             <RiskLozenge risk={activeCall.risk} />
-            {monitor ? <Lozenge tone="information">Monitoring</Lozenge> : <Lozenge tone="warning">Escalated</Lozenge>}
+            {monitor ? (
+              <Lozenge tone="information">Monitoring</Lozenge>
+            ) : (
+              <Lozenge tone="warning">Escalated</Lozenge>
+            )}
           </div>
           <div className="mt-025 flex items-center gap-150 text-body-small text-text-subtle">
             <span className="tabular">{activeCall.accountId}</span>
@@ -79,35 +87,39 @@ export function CallHeader({
           </div>
 
           {!monitor && (
-          <div className="ml-100 flex items-center gap-050">
-            <IconBtn
-              label={mediaEnabled ? (muted ? "Unmute" : "Mute") : MEDIA_HINT}
-              onClick={onToggleMute}
-              active={muted}
-              disabled={ended || !mediaEnabled}
-            >
-              {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            </IconBtn>
-            <IconBtn label={mediaEnabled ? "Hold" : MEDIA_HINT} onClick={onHold} disabled={ended || !mediaEnabled}>
-              <PauseCircle className="h-4 w-4" />
-            </IconBtn>
-            <IconBtn
-              label={mediaEnabled ? "Transfer" : MEDIA_HINT}
-              onClick={onTransfer}
-              disabled={ended || !mediaEnabled}
-            >
-              <PhoneForwarded className="h-4 w-4" />
-            </IconBtn>
-            <button
-              type="button"
-              onClick={onEnd}
-              disabled={ended}
-              className="ml-050 flex items-center gap-075 rounded-medium bg-background-danger-bold px-150 py-075 text-body-small font-semibold text-white transition-colors hover:bg-background-danger-bold-hovered disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <PhoneOff className="h-3.5 w-3.5" />
-              End call
-            </button>
-          </div>
+            <div className="ml-100 flex items-center gap-050">
+              <IconBtn
+                label={mediaEnabled ? (muted ? "Unmute" : "Mute") : MEDIA_HINT}
+                onClick={onToggleMute}
+                active={muted}
+                disabled={ended || !mediaEnabled}
+              >
+                {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </IconBtn>
+              <IconBtn
+                label={mediaEnabled ? "Hold" : MEDIA_HINT}
+                onClick={onHold}
+                disabled={ended || !mediaEnabled}
+              >
+                <PauseCircle className="h-4 w-4" />
+              </IconBtn>
+              <IconBtn
+                label={mediaEnabled ? "Transfer" : MEDIA_HINT}
+                onClick={onTransfer}
+                disabled={ended || !mediaEnabled}
+              >
+                <PhoneForwarded className="h-4 w-4" />
+              </IconBtn>
+              <button
+                type="button"
+                onClick={onEnd}
+                disabled={ended}
+                className="ml-050 flex items-center gap-075 rounded-medium bg-background-danger-bold px-150 py-075 text-body-small font-semibold text-white transition-colors hover:bg-background-danger-bold-hovered disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <PhoneOff className="h-3.5 w-3.5" />
+                End call
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -137,7 +149,9 @@ function IconBtn({
       disabled={disabled}
       className={cn(
         "grid h-400 w-400 place-items-center rounded-medium border border-border transition-colors",
-        active ? "bg-background-brand-subtlest text-text-brand" : "bg-surface text-text-subtle hover:bg-surface-sunken",
+        active
+          ? "bg-background-brand-subtlest text-text-brand"
+          : "bg-surface text-text-subtle hover:bg-surface-sunken",
         disabled && "cursor-not-allowed opacity-50",
       )}
     >

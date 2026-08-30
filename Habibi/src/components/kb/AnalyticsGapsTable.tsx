@@ -8,7 +8,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Lozenge } from "@/components/ui/lozenge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { KbGap } from "@/api/kb";
 import type { KbDocument } from "@/data/kb-seed";
@@ -128,7 +134,10 @@ export function AnalyticsGapsTable({
                   title={linkedFaqQ || q.linkedFaqId || "FAQ linked"}
                 >
                   <Link2 />
-                  FAQ{linkedFaqQ ? `: ${linkedFaqQ.slice(0, 36)}${linkedFaqQ.length > 36 ? "…" : ""}` : ""}
+                  FAQ
+                  {linkedFaqQ
+                    ? `: ${linkedFaqQ.slice(0, 36)}${linkedFaqQ.length > 36 ? "…" : ""}`
+                    : ""}
                 </Lozenge>
               )}
               {(q.hasKbDoc || q.linkedDocumentId) && (
@@ -173,10 +182,18 @@ export function AnalyticsGapsTable({
         cell: (q) => (
           <Lozenge
             tone={
-              q.suggestedFix === "kb" ? "selected" : q.suggestedFix === "prompt" ? "warning" : "discovery"
+              q.suggestedFix === "kb"
+                ? "selected"
+                : q.suggestedFix === "prompt"
+                  ? "warning"
+                  : "discovery"
             }
           >
-            {q.suggestedFix === "kb" ? "Add to KB" : q.suggestedFix === "prompt" ? "Fix prompt" : "KB + Prompt"}
+            {q.suggestedFix === "kb"
+              ? "Add to KB"
+              : q.suggestedFix === "prompt"
+                ? "Fix prompt"
+                : "KB + Prompt"}
           </Lozenge>
         ),
       },

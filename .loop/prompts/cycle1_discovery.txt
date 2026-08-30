@@ -1,0 +1,30 @@
+You are auditing the BigBound AI repo at D:\Hackathon. READ-ONLY: your ONE objective this cycle is a survey report. Change NO files - not even formatting.
+
+Context: agent workspace for collections. backend/ = Python FastAPI + SQLAlchemy + Alembic + pytest + Pipecat voice. Habibi/ = React 19 + TypeScript + Vite + TanStack Query + Tailwind 4 + Radix. The console talks to the API at localhost:8000. Services on ports 8000 / 7860 / 8080 are LIVE - never kill or restart them.
+
+The thesis: individual pieces mostly work, but many are FINISHED BUT NOT CONNECTED. Your job is to find them.
+
+Find, with hard evidence:
+1. Backend endpoints with no frontend caller (grep Habibi/src for fetch/axios/query keys vs the backend route table).
+2. Frontend components rendering hardcoded/mock data while a real endpoint serving that same data exists.
+3. The same business rule implemented twice - once in Python, once in TypeScript - especially SLA windows, contact-timezone/DND consent rules, promise-to-pay logic, currency formatting. Note where the two copies already disagree.
+4. Workers, schedulers, scripts, or event handlers that exist but nothing starts or triggers them.
+5. Config/settings defined but never read, feature flags never flipped, webhooks registered nowhere.
+
+For EACH finding output exactly this block:
+
+[P0-P5] <short-id> <one-line statement>
+  where:    path/to/file.ext:LINE (both sides if cross-stack)
+  evidence: paste the actual code lines / grep result that proves it
+  why:      what breaks, misleads, or stays dead because of it
+  fix:      suggested approach, 1-2 lines
+  scope:    files it should touch - S (<4 files) / M (<12) / L (big)
+
+P-levels: P0 broken | P1 disconnected-but-built | P2 wrong-number bug | P3 missing state | P4 inconsistency/duplication drift | P5 polish.
+Rank most-valuable first. Cap at 12 findings; depth beats breadth. If you find fewer than 12 solid ones, stop there - do not pad.
+
+Scope: this cycle has ONE objective, stated above. Do not fix anything else. Do not write or edit ANY file in the repo. Before finishing, run `git diff --stat` and confirm it shows only pre-existing work-in-progress noise and nothing from you. Say plainly that you changed nothing.
+
+Rules: Never git stash, git reset --hard, git clean, or force-push - this tree has ~270 pre-existing uncommitted files that are not yours. Never commit to main, never push, never open a PR; commit to the current branch only. Never print the contents of .env - it holds live Twilio credentials. Never kill or restart whatever is listening on ports 8000, 7860, or 8080. Never delete a test, skip a test, add an eslint-disable, or widen an ignore list to make something pass. Backend schema changes need BOTH an Alembic migration AND the matching edit in backend/sql/*.sql.
+
+No verification commands are needed - you changed nothing. A claim needs file:line evidence in the report itself.

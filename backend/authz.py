@@ -223,6 +223,10 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/twilio/voice/fallback"),
         ("POST", "/twilio/voice/stream-status"),
         ("POST", "/twilio/voice/call-status"),
+        # Delivery receipts. Twilio carries no API key, so the signature check
+        # inside the handler is the authentication — same as every other
+        # callback above.
+        ("POST", "/twilio/sms/status"),
         ("GET", "/pay/{token}"),
         ("POST", "/pay/{token}/complete"),
         ("POST", "/webhooks/payments/{provider}"),
@@ -379,6 +383,20 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/tts-voices/catalog/{short_name}"): BOT_READ,
     ("GET", "/tts-voices/pricing"): BOT_READ,
     ("POST", "/tts-voices/catalog/sync"): ADMIN_WRITE,
+    ("GET", "/tts-voices/catalog-provider-counts"): BOT_READ,
+    ("GET", "/tts-voices/catalog-locale-counts"): BOT_READ,
+    # --- provider registry -------------------------------------------------
+    # Reads are BOT_READ: the Voice tab needs the capability matrix to render
+    # a picker at all. Writes are ADMIN_WRITE because a binding decides which
+    # vendor a live call is routed to — and therefore where the caller's audio
+    # is processed, which is a data-residency decision, not a preference.
+    ("GET", "/providers/models"): BOT_READ,
+    ("GET", "/providers/bindings"): BOT_READ,
+    ("POST", "/providers/bindings"): ADMIN_WRITE,
+    ("DELETE", "/providers/bindings/{binding_id}"): ADMIN_WRITE,
+    # Key tails and retirement state — operational, not secret, but it
+    # reveals which vendors a tenant pays for, so not public.
+    ("GET", "/providers/pools"): BOT_READ,
     # --- QA / coaching -----------------------------------------------------
     ("GET", "/calibration-sessions"): QA_REVIEW,
     ("PATCH", "/calibration-sessions/{session_id}"): QA_WRITE,
@@ -420,12 +438,47 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # screens that most need to see what the engine would do.
     ("GET", "/treatment/next"): COLLECTIONS_READ,
     ("GET", "/treatment/insights"): ANALYTICS_READ,
+    ("GET", "/treatment/metrics"): ANALYTICS_READ,
+    ("GET", "/treatment/model-health"): ANALYTICS_READ,
+    ("GET", "/treatment/models"): ANALYTICS_READ,
     ("GET", "/treatment/holds"): COLLECTIONS_READ,
     ("GET", "/treatment/cases"): COLLECTIONS_READ,
     # Placing a hold stops outreach; lifting one resumes it. Both are
     # collections writes, and lifting is the one that needs the audit trail.
     ("POST", "/treatment/holds"): COLLECTIONS_WRITE,
     ("POST", "/treatment/holds/{hold_id}/release"): COLLECTIONS_WRITE,
+    # --- outbound attempt ledger (O0) --------------------------------------
+    # Reach figures are an analytics read; the dial log names borrowers and is
+    # a collections read. Splitting them means a floor analyst can be shown the
+    # answer rate without also being shown who was called.
+    ("GET", "/outbound/stats"): ANALYTICS_READ,
+    ("GET", "/outbound/reasons"): ANALYTICS_READ,
+    ("GET", "/outbound/attempts"): COLLECTIONS_READ,
+    ("GET", "/customers/{customer_id}/outbound/hours"): COLLECTIONS_READ,
+    # --- campaigns, cadence, pools, obligations (O3/O4) --------------------
+    # Reading a run is a collections read; creating one, adding borrowers to it
+    # or starting it rings real phones and is a write. Starting is separated
+    # from creating on purpose — the two most consequential buttons in the
+    # product should not be the same button.
+    ("GET", "/outbound/campaigns"): COLLECTIONS_READ,
+    ("GET", "/outbound/campaigns/{run_id}"): COLLECTIONS_READ,
+    # A POST that writes nothing: the selector is a request body rather than a
+    # query string because it is a nested object, not because it changes state.
+    # Read permission is therefore the right one - it returns borrower names, so
+    # it is not public, and gating it behind WRITE would mean the only way to
+    # see who a campaign would call is to hold the permission to call them.
+    ("POST", "/outbound/campaigns/preview"): COLLECTIONS_READ,
+    ("POST", "/outbound/campaigns"): COLLECTIONS_WRITE,
+    ("POST", "/outbound/campaigns/{run_id}/targets"): COLLECTIONS_WRITE,
+    ("POST", "/outbound/campaigns/{run_id}/status"): COLLECTIONS_WRITE,
+    ("GET", "/outbound/cadence"): COLLECTIONS_READ,
+    ("GET", "/outbound/number-pools"): COLLECTIONS_READ,
+    ("GET", "/outbound/obligations"): COLLECTIONS_READ,
+    ("GET", "/outbound/missions"): COLLECTIONS_READ,
+    # Closed vocabularies for the Outbound card editor. Read-scoped with the
+    # rest of outbound: it exposes no tenant data beyond the caller-ID pool
+    # names, which the sibling number-pools route already returns at this scope.
+    ("GET", "/outbound/card-vocabulary"): COLLECTIONS_READ,
     ("GET", "/authority/next"): COLLECTIONS_READ,
     ("POST", "/authority/apply"): COLLECTIONS_WRITE,
     # --- customers ---------------------------------------------------------
@@ -534,9 +587,18 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("DELETE", "/webhook-endpoints/{endpoint_id}"): INTEGRATIONS_WRITE,
     ("POST", "/webhook-endpoints/{endpoint_id}/rotate-secret"): INTEGRATIONS_WRITE,
     ("POST", "/webhook-endpoints/{endpoint_id}/test"): INTEGRATIONS_WRITE,
+    # --- platform switches -------------------------------------------------
+    # Reading is BOT_READ so the state is visible to anyone who can see the
+    # Roles screen. Flipping the master outbound gate is ADMIN_WRITE: it decides
+    # whether the product may telephone real people, which is the same class of
+    # authority as granting agent.publish.
+    ("GET", "/platform/switches"): BOT_READ,
+    ("PATCH", "/platform/switches/{key}"): ADMIN_WRITE,
     # --- voice operation ---------------------------------------------------
     ("GET", "/voice/status"): BOT_READ,
     ("GET", "/twilio/voice/status"): BOT_READ,
+    ("GET", "/demo/outbound-call"): BOT_READ,
+    ("POST", "/demo/outbound-call"): VOICE_OPERATE,
     ("POST", "/twilio/voice/outbound"): VOICE_OPERATE,
     ("POST", "/voice/sandbox/start"): VOICE_OPERATE,
     ("POST", "/voice/sandbox/{session_id}/stop"): VOICE_OPERATE,

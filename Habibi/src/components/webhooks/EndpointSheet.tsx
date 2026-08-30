@@ -81,9 +81,12 @@ export function EndpointSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full max-w-[37.5rem] flex-col overflow-hidden p-0 sm:max-w-[37.5rem]">
+      <SheetContent
+        side="right"
+        className="flex w-full max-w-[37.5rem] flex-col overflow-hidden p-0 sm:max-w-[37.5rem]"
+      >
         <SheetHeader className="shrink-0 border-b border-border px-300 py-200">
-          <SheetTitle className="text-[0.875rem] font-semibold text-text">
+          <SheetTitle className="text-body font-semibold text-text">
             {initial ? "Edit endpoint" : "New endpoint"}
           </SheetTitle>
         </SheetHeader>
@@ -107,7 +110,9 @@ export function EndpointSheet({
               onChange={(e) => setDraft({ ...draft, url: e.target.value })}
             />
             {!draft.url.startsWith("https://") && (
-              <p className="text-body-small text-text-danger">Must be https:// (http blocked in production).</p>
+              <p className="text-body-small text-text-danger">
+                Must be https:// (http blocked in production).
+              </p>
             )}
           </div>
 
@@ -118,10 +123,14 @@ export function EndpointSheet({
                 value={draft.target}
                 onValueChange={(v) => setDraft({ ...draft, target: v as TargetSystem })}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {(["Core Banking", "CRM", "Data Lake", "Custom"] as TargetSystem[]).map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -130,9 +139,17 @@ export function EndpointSheet({
               <Label className="text-body-small">Signing algorithm</Label>
               <Select
                 value={draft.algo}
-                onValueChange={(v) => setDraft({ ...draft, algo: v as SigningAlgo, secret: rotateSecret(v as SigningAlgo) })}
+                onValueChange={(v) =>
+                  setDraft({
+                    ...draft,
+                    algo: v as SigningAlgo,
+                    secret: rotateSecret(v as SigningAlgo),
+                  })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="HMAC-SHA256">HMAC-SHA256</SelectItem>
                   <SelectItem value="Ed25519">Ed25519</SelectItem>
@@ -146,7 +163,9 @@ export function EndpointSheet({
           <div>
             <div className="mb-100 flex items-center justify-between">
               <Label className="text-body-small font-semibold">Event subscriptions</Label>
-              <span className="text-body-small text-text-subtlest">{draft.events.length} selected</span>
+              <span className="text-body-small text-text-subtlest">
+                {draft.events.length} selected
+              </span>
             </div>
             <div className="space-y-150">
               {EVENT_CATEGORIES.map((cat) => {
@@ -176,8 +195,12 @@ export function EndpointSheet({
                             className="mt-025"
                           />
                           <span>
-                            <span className="block font-mono text-body-small text-text-brand">{e.key}</span>
-                            <span className="block text-body-small text-text-subtle">{e.description}</span>
+                            <span className="block font-mono text-body-small text-text-brand">
+                              {e.key}
+                            </span>
+                            <span className="block text-body-small text-text-subtle">
+                              {e.description}
+                            </span>
                           </span>
                         </label>
                       ))}
@@ -201,7 +224,13 @@ export function EndpointSheet({
                   max={8}
                   value={draft.retry.attempts}
                   onChange={(e) =>
-                    setDraft({ ...draft, retry: { ...draft.retry, attempts: Math.max(2, Math.min(8, +e.target.value)) } })
+                    setDraft({
+                      ...draft,
+                      retry: {
+                        ...draft.retry,
+                        attempts: Math.max(2, Math.min(8, +e.target.value)),
+                      },
+                    })
                   }
                 />
               </div>
@@ -209,9 +238,16 @@ export function EndpointSheet({
                 <Label className="text-body-small">Backoff</Label>
                 <Select
                   value={draft.retry.backoff}
-                  onValueChange={(v) => setDraft({ ...draft, retry: { ...draft.retry, backoff: v as "linear" | "exponential" } })}
+                  onValueChange={(v) =>
+                    setDraft({
+                      ...draft,
+                      retry: { ...draft.retry, backoff: v as "linear" | "exponential" },
+                    })
+                  }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="linear">Linear</SelectItem>
                     <SelectItem value="exponential">Exponential</SelectItem>
@@ -276,7 +312,9 @@ export function EndpointSheet({
                     size="icon"
                     variant="ghost"
                     className="h-400 w-400"
-                    onClick={() => setDraft({ ...draft, headers: draft.headers.filter((_, j) => j !== i) })}
+                    onClick={() =>
+                      setDraft({ ...draft, headers: draft.headers.filter((_, j) => j !== i) })
+                    }
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -287,7 +325,9 @@ export function EndpointSheet({
         </div>
 
         <div className="shrink-0 border-t border-border px-300 py-150 flex justify-end gap-100">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button variant="outline" disabled={!isValid} onClick={() => onSaveAndTest(draft)}>
             Save & test
           </Button>

@@ -15,26 +15,38 @@ export function IntegrationsHeader({ env, onEnv, onTestAll, testing, showTestAll
   return (
     <div className="flex flex-wrap items-center justify-between gap-150">
       <div>
-        <h1 className="text-[1.25rem] font-semibold text-text">Integrations & API connections</h1>
-        <p className="text-body-small text-text-subtle">Keys and health for the voice AI stack Pipecat orchestrates on the backend.</p>
+        <h1 className="heading-medium font-semibold text-text">Integrations & API connections</h1>
+        <p className="text-body-small text-text-subtle">
+          Keys and health for the voice AI stack Pipecat orchestrates on the backend.
+        </p>
       </div>
       <div className="flex items-center gap-100">
         <div className="flex rounded-medium border border-border bg-surface p-025 text-body-small">
-          {(["sandbox", "production"] as Env[]).map(e => (
+          {(["sandbox", "production"] as Env[]).map((e) => (
             <button
               key={e}
               onClick={() => onEnv(e)}
               className={cn(
                 "rounded px-150 py-050 font-medium capitalize transition-colors",
-                env === e ? "bg-background-brand-bold text-white" : "text-text-subtle hover:text-text-brand",
+                env === e
+                  ? "bg-background-brand-bold text-white"
+                  : "text-text-subtle hover:text-text-brand",
               )}
-            >{e}</button>
+            >
+              {e}
+            </button>
           ))}
         </div>
         {showTestAll ? (
-        <Button size="sm" className="gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed" onClick={onTestAll} disabled={testing}>
-          <PlayCircle className="h-4 w-4" />{testing ? "Testing…" : "Test all"}
-        </Button>
+          <Button
+            size="sm"
+            className="gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed"
+            onClick={onTestAll}
+            disabled={testing}
+          >
+            <PlayCircle className="h-4 w-4" />
+            {testing ? "Testing…" : "Test all"}
+          </Button>
         ) : null}
       </div>
     </div>

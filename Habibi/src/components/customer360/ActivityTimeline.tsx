@@ -28,7 +28,9 @@ export function ActivityTimeline({ items }: { items: ActivityPreviewItem[] }) {
         <div className="text-body-small text-text-subtlest">Cross-channel timeline</div>
       </div>
       {list.length === 0 ? (
-        <div className="px-200 py-400 text-center text-body-small text-text-subtlest">No activity yet.</div>
+        <div className="px-200 py-400 text-center text-body-small text-text-subtlest">
+          No activity yet.
+        </div>
       ) : (
         <ul className="divide-y divide-border">
           {list.map((item) => (
@@ -38,10 +40,14 @@ export function ActivityTimeline({ items }: { items: ActivityPreviewItem[] }) {
                 <div className="flex flex-wrap items-center gap-075">
                   <StatusChip label={item.kind} tone={kindTone(item.kind)} />
                   <span className="text-body-small font-medium text-text">{item.label}</span>
-                  <span className="ml-auto text-body-small text-text-subtlest tabular">{fmtRelative(item.at)}</span>
+                  <span className="ml-auto text-body-small text-text-subtlest tabular">
+                    {fmtRelative(item.at)}
+                  </span>
                 </div>
                 {item.note ? (
-                  <p className="mt-050 line-clamp-2 text-body-small text-text-subtle">{item.note}</p>
+                  <p className="mt-050 line-clamp-2 text-body-small text-text-subtle">
+                    {item.note}
+                  </p>
                 ) : null}
               </div>
             </li>

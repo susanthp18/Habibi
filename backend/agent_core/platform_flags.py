@@ -61,3 +61,19 @@ def temporal_enabled() -> bool:
 
 def policy_export_enabled() -> bool:
     return _flag("POLICY_EXPORT_ENABLED")
+
+
+def outbound_eval_gate_enabled() -> bool:
+    """G-OB9: block an outbound publish without a passing outbound eval suite.
+
+    Off by default like every other gate flag, and for the same reason — a
+    module landing in a repository must not change what an existing deployment
+    can publish. Turning it on is the step that makes "nobody asked to be
+    called" an enforced property rather than an intention.
+    """
+    return _flag("OUTBOUND_EVAL_GATE_ENABLED")
+
+
+def campaign_runtime_enabled() -> bool:
+    """The cadence executor and campaign dialer. Off means nothing dials."""
+    return _flag("CAMPAIGN_RUNTIME_ENABLED")

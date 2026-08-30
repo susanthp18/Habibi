@@ -27,15 +27,18 @@ export function KbSnapshotsStrip({ snapshots }: { snapshots: KbSnapshot[] }) {
           <span className="font-medium">{latest.label}</span>
           <span className="text-text-subtlest">
             {" "}
-            · {plural(latest.documentCount, "doc", "docs")} · {plural(latest.faqCount, "FAQ", "FAQs")} ·{" "}
-            {formatKbDateTime(latest.createdAt)}
+            · {plural(latest.documentCount, "doc", "docs")} ·{" "}
+            {plural(latest.faqCount, "FAQ", "FAQs")} · {formatKbDateTime(latest.createdAt)}
           </span>
         </span>
         {extra > 0 && (
           <span className="shrink-0 text-body-small text-text-subtlest">{extra} older</span>
         )}
         <ChevronDown
-          className={cn("ml-auto h-3.5 w-3.5 shrink-0 text-text-subtlest transition-transform", open && "rotate-180")}
+          className={cn(
+            "ml-auto h-3.5 w-3.5 shrink-0 text-text-subtlest transition-transform",
+            open && "rotate-180",
+          )}
         />
       </button>
       {open && (

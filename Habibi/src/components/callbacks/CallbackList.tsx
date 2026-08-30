@@ -8,7 +8,11 @@ import {
   type Callback,
   type CbStatus,
 } from "@/data/callbacks-seed";
-import { FilterTable, type FilterChip, type FilterTableColumn } from "@/components/records/FilterTable";
+import {
+  FilterTable,
+  type FilterChip,
+  type FilterTableColumn,
+} from "@/components/records/FilterTable";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -51,7 +55,14 @@ const STATUS_PILL: Record<CbStatus, string> = {
   cancelled: "bg-background-accent-gray-subtlest text-text-accent-gray",
 };
 
-export function CallbackList({ rows, onOpen, onStart, onSendReminder, onReschedulePlus1h, onCancel }: Props) {
+export function CallbackList({
+  rows,
+  onOpen,
+  onStart,
+  onSendReminder,
+  onReschedulePlus1h,
+  onCancel,
+}: Props) {
   const chips = useMemo<FilterChip<CbStatus>[]>(() => {
     const counts = new Map<CbStatus, number>();
     for (const row of rows) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
@@ -114,7 +125,7 @@ export function CallbackList({ rows, onOpen, onStart, onSendReminder, onReschedu
         cell: (cb) => (
           <span
             className={cn(
-              "inline-flex h-400 items-center rounded-small px-075 text-[0.6875rem] font-medium",
+              "inline-flex h-400 items-center rounded-small px-075 text-body-tiny font-medium",
               STATUS_PILL[cb.status],
             )}
           >

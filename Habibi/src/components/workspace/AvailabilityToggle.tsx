@@ -80,9 +80,7 @@ export function AvailabilityToggle() {
         )}
       >
         <span className={cn("h-100 w-100 rounded-full", active.dot, active.ring)} />
-        <span className={cn("text-body-small font-medium", active.text)}>
-          {active.label}
-        </span>
+        <span className={cn("text-body-small font-medium", active.text)}>{active.label}</span>
       </div>
       <div
         className="inline-flex rounded-medium border border-border bg-surface p-025"

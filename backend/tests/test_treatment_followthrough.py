@@ -49,6 +49,26 @@ def account(db_tx):
     ).mappings().first()
     if row is None:
         pytest.skip("seed has no early-bucket account with a phone number")
+
+    # Clear the demo seed's own recent payments off this account.
+    #
+    # seed_recent_activity sprays "EMI collection" rows across a sixth of all
+    # active accounts at `now() - n days`, and re-stamps them on every re-seed,
+    # so whether one lands inside an attribution window is a function of when
+    # the seed last ran and how many accounts precede this one in the
+    # row_number() that picks the offsets. Attribution then correctly reports
+    # "paid" for a decision this file meant to be labelled "no_answer", and the
+    # test fails on the calendar rather than on the code.
+    #
+    # Only the seed's own rows, and only inside db_tx's rolled-back
+    # transaction. Every test here that wants a payment inserts its own.
+    db_tx.execute(
+        text(
+            "DELETE FROM ledger_entries"
+            " WHERE account_id = :a AND type = 'payment' AND id LIKE 'SEED-RECENT-%'"
+        ),
+        {"a": row["id"]},
+    )
     return dict(row)
 
 
@@ -77,6 +97,49 @@ def bounce(db_tx, account):
         },
     )
     return event_id
+
+
+def _attribute(conn, *, now=None) -> None:
+    """Run the attribution loop to completion, the way ``bot_worker`` does.
+
+    One call examines at most ``followthrough.BATCH`` rows. A database of any
+    age accumulates decisions that can never be labelled -- an unenacted shadow
+    decision outside a withholding arm was never sent, so there is nothing to
+    call unanswered, and it is not the counterfactual either -- and one batch of
+    those is enough to fill a single pass.
+
+    So "one call attributes my decision" was never the contract; it only held
+    while the queue was shorter than a batch, which is a property of the dev
+    database rather than of the code. The real contract is that repeated calls
+    make progress and never starve a fresh row, which is what the watermark on
+    ``outcome_checked_at`` buys and what this helper exercises.
+    """
+    pending = conn.execute(
+        text(
+            "SELECT count(*) FROM treatment_decisions"
+            " WHERE outcome IS NULL AND mode <> 'simulated'"
+            "   AND chosen_action IS NOT NULL"
+            "   AND created_at >= now() - interval '30 days'"
+        )
+    ).scalar() or 0
+    # Bounded. Each pass examines BATCH rows and costs a few queries per row,
+    # so an unbounded drain over a large ambient backlog is thousands of round
+    # trips per test -- which is what a dev database carrying 1,833 sweep
+    # decisions against simulated accounts turned this into.
+    #
+    # That backlog is hygiene rather than a property of the code
+    # (``simulate_treatment_corpus.py --purge`` clears it), so the bound is low
+    # and the assertion that follows names the problem instead of timing out.
+    passes = min(int(pending) // followthrough.BATCH + 2, 8)
+    for _ in range(passes):
+        followthrough.attribute_outcomes(conn, now=now)
+    if pending > passes * followthrough.BATCH:
+        pytest.fail(
+            f"{pending} decisions are awaiting attribution, more than {passes} "
+            f"passes of {followthrough.BATCH} can reach. The dev database is "
+            "carrying a backlog -- run scripts/simulate_treatment_corpus.py "
+            "--purge, which also clears sweep decisions against SIM accounts."
+        )
 
 
 def _decision(
@@ -143,7 +206,7 @@ def test_an_unanswered_attempt_is_labelled_after_its_grace_period(
     db_tx, account, bounce
 ) -> None:
     decision_id = _decision(db_tx, account, trigger_ref=bounce, enacted_ago_hours=24)
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) == "no_answer"
 
 
@@ -153,7 +216,7 @@ def test_an_attempt_inside_its_grace_period_is_left_alone(db_tx, account, bounce
     decision_id = _decision(
         db_tx, account, action=A.HUMAN_CALL, trigger_ref=bounce, enacted_ago_hours=2
     )
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) is None
 
 
@@ -175,7 +238,7 @@ def test_a_payment_beats_an_unanswered_dial(db_tx, account, bounce) -> None:
         ),
         {"id": f"LED-{secrets.token_hex(4)}", "a": account["id"]},
     )
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) == "paid"
 
 
@@ -197,7 +260,7 @@ def test_a_promise_captured_after_the_attempt_is_the_outcome(db_tx, account, bou
             "bot": db.DEFAULT_BOT_ID,
         },
     )
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) == "ptp"
 
 
@@ -213,7 +276,7 @@ def test_an_inbound_reply_counts_as_reached(db_tx, account, bounce) -> None:
         ),
         {"id": f"MSG-{secrets.token_hex(4)}", "cv": conversation},
     )
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) == "reached"
 
 
@@ -223,7 +286,7 @@ def test_a_shadow_decision_is_never_called_unanswered(db_tx, account, bounce) ->
     decision_id = _decision(
         db_tx, account, trigger_ref=bounce, enacted=False, enacted_ago_hours=200
     )
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) is None
 
 
@@ -243,14 +306,14 @@ def test_a_shadow_decision_still_records_the_counterfactual(db_tx, account, boun
         ),
         {"id": f"LED-{secrets.token_hex(4)}", "a": account["id"]},
     )
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) == "paid"
 
 
 def test_an_overtaken_plan_is_superseded_not_unanswered(db_tx, account, bounce) -> None:
     old = _decision(db_tx, account, trigger_ref=bounce, enacted=False, enacted_ago_hours=48)
     _decision(db_tx, account, trigger_ref=bounce, enacted=False, enacted_ago_hours=1)
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     # Both rows carry the same created_at — this fixture holds one transaction
     # and Postgres now() is transaction start — so the id tiebreak is what
     # decides which one is the newer plan.
@@ -262,7 +325,7 @@ def test_an_enacted_attempt_is_never_superseded(db_tx, account, bounce) -> None:
     rung the borrower has already experienced."""
     old = _decision(db_tx, account, trigger_ref=bounce, enacted=True, enacted_ago_hours=48)
     _decision(db_tx, account, trigger_ref=bounce, enacted=False, enacted_ago_hours=1)
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, old) == "no_answer"
 
 
@@ -301,7 +364,7 @@ def test_a_provider_failure_is_not_a_borrower_ignoring_us(db_tx, account, bounce
             "c": account["customer_id"],
         },
     )
-    followthrough.attribute_outcomes(db_tx)
+    _attribute(db_tx)
     assert _outcome(db_tx, decision_id) == "undeliverable"
 
 
@@ -399,7 +462,7 @@ def _attempt(conn, account, result) -> None:
             "ak": A.spec(result.action).actor_kind,
         },
     )
-    followthrough.attribute_outcomes(conn)
+    _attribute(conn)
 
 
 def _walk(db_tx, account, bounce, *, steps: int = 8) -> list:
@@ -541,7 +604,12 @@ def test_the_loop_attributes_in_shadow(db_tx, account, bounce, monkeypatch) -> N
     are most of what the shadow fortnight is for."""
     monkeypatch.setenv("TREATMENT_MODE", "shadow")
     decision_id = _decision(db_tx, account, trigger_ref=bounce, enacted_ago_hours=24)
-    assert followthrough.process_one(db.engine) is True
+
+    # Called until it reports work, as the worker does. One pass examines at
+    # most BATCH rows and a queue of never-labelable decisions can fill it, so
+    # "the first call returns True" is a property of a short queue rather than
+    # of the loop. What must hold is that it gets there.
+    assert any(followthrough.process_one(db.engine) for _ in range(4))
     assert _outcome(db_tx, decision_id) == "no_answer"
 
 
@@ -567,3 +635,89 @@ def test_the_case_view_hides_what_has_been_paid(db_tx, account, bounce) -> None:
         customer_id=account["customer_id"], open_only=False
     )
     assert bounce in {c["triggerRef"] for c in everything}
+
+
+def test_unlabelable_decisions_do_not_jam_the_attribution_queue(
+    db_tx, account, bounce
+) -> None:
+    """A full batch of rows that can never be labelled must not stop the loop.
+
+    ``attribute_outcomes`` used to select the oldest ``BATCH`` un-attributed
+    decisions and examine each. Rows it could not label stayed exactly where
+    they were -- at the front of the queue -- and were re-examined on every
+    pass.
+
+    For most rows that self-corrects. But an **unenacted shadow decision outside
+    a withholding arm can never be labelled at all**: nothing was sent, so there
+    is nothing to call unanswered, and it is not the counterfactual, so silence
+    is not evidence either. One batch of those accumulates and the loop stops
+    labelling anything, forever, while the worker keeps reporting that it ran.
+
+    It bites during precisely the phase the rollout prescribes -- a shadow
+    fortnight, where by definition nothing is enacted -- and the only symptom is
+    a corpus that quietly stops acquiring outcomes. Found when a dev database
+    reached exactly ``BATCH`` such rows and every test in this file began
+    failing at once.
+
+    The fix is a watermark: a row examined and found inconclusive is stamped and
+    sorts to the back, so never-examined rows always make progress.
+    """
+    older = datetime.now(timezone.utc) - timedelta(days=3)
+
+    # A full batch of shadow decisions that were never enacted. Backdated so
+    # they sort ahead of the real one under any ordering.
+    for _ in range(followthrough.BATCH):
+        blocker = _decision(
+            db_tx, account, enacted=False, trigger_ref=f"BLOCK-{uuid.uuid4().hex[:8]}"
+        )
+        db_tx.execute(
+            text(
+                "UPDATE treatment_decisions SET created_at = :t, outcome_checked_at = NULL"
+                " WHERE id = :id"
+            ),
+            {"t": older, "id": blocker},
+        )
+
+    # ...and one behind them whose answer is knowable.
+    target = _decision(db_tx, account, trigger_ref=bounce, enacted_ago_hours=24)
+
+    # The worker calls this in a loop; two passes is what it takes to walk past
+    # one batch of blockers. The property under test is that it *terminates*,
+    # not that it does so in one pass.
+    for _ in range(3):
+        _attribute(db_tx)
+        if _outcome(db_tx, target) is not None:
+            break
+
+    assert _outcome(db_tx, target) == "no_answer", (
+        "a full batch of unlabelable rows starved the attribution queue"
+    )
+
+
+def test_an_inconclusive_row_is_stamped_and_a_labelled_one_is_not(
+    db_tx, account, bounce
+) -> None:
+    """The watermark records "we looked and could not say", nothing more.
+
+    A labelled row leaves the queue on its outcome and has no reason to carry
+    one -- stamping it too would make the column mean "last touched" rather than
+    "last found inconclusive", and the ordering it exists to drive would stop
+    meaning anything.
+    """
+    inconclusive = _decision(db_tx, account, enacted=False, trigger_ref="INCONCLUSIVE-1")
+    labelled = _decision(db_tx, account, trigger_ref=bounce, enacted_ago_hours=24)
+
+    _attribute(db_tx)
+
+    stamps = dict(
+        db_tx.execute(
+            text(
+                "SELECT id, outcome_checked_at FROM treatment_decisions"
+                " WHERE id = ANY(:ids)"
+            ),
+            {"ids": [inconclusive, labelled]},
+        ).all()
+    )
+    assert stamps[inconclusive] is not None
+    assert stamps[labelled] is None
+    assert _outcome(db_tx, labelled) == "no_answer"

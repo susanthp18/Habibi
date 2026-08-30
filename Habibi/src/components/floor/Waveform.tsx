@@ -1,7 +1,15 @@
 import { cn } from "@/lib/utils";
 
 /** Cheap CSS-animated voice-activity waveform. */
-export function Waveform({ active, bars = 20, className }: { active: boolean; bars?: number; className?: string }) {
+export function Waveform({
+  active,
+  bars = 20,
+  className,
+}: {
+  active: boolean;
+  bars?: number;
+  className?: string;
+}) {
   return (
     <div className={cn("flex h-4 items-end gap-025", className)} aria-hidden>
       {Array.from({ length: bars }).map((_, i) => {

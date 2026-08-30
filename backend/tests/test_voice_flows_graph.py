@@ -26,6 +26,10 @@ from voice.session import VoiceSession
 
 LEGACY_NODES = {
     "greet_disclose",
+    # The outbound door and the road out of it. Registered in both
+    # graphs; unreachable unless the call was placed by us.
+    "confirm_identity",
+    "third_party",
     "discover_intent",
     "verify_identity",
     "state_position",
@@ -40,6 +44,10 @@ LEGACY_NODES = {
 }
 HUB_NODES = {
     "greet_disclose",
+    # The outbound door and the road out of it. Registered in both
+    # graphs; unreachable unless the call was placed by us.
+    "confirm_identity",
+    "third_party",
     "discover_intent",
     "verify_identity",
     "collections_hub",
@@ -105,6 +113,9 @@ def test_hub_advertises_the_union_of_the_merged_nodes() -> None:
     assert _names(state.nodes["collections_hub"]()["functions"]) == {
         "get_account_position",
         "create_promise_to_pay",
+        # Why they have not paid, as a code. The hub is where the position is
+        # stated and therefore where the reason is given.
+        "capture_nonpayment_reason",
         "request_callback",
         # The engine chooses the product; check_product_eligibility is no longer
         # advertised here because a model that can call it directly is a model
@@ -275,6 +286,10 @@ def test_pre_close_never_ends_the_conversation_itself() -> None:
     assert _names(node["functions"]) == {
         "capture_lead",
         "decline_offer",
+        # "Anything else?" is the one node that asks an open question and then
+        # waits, which makes it where a borrower says "and don't ring me before
+        # ten" - so it is the only node granted `set_contact_preference`.
+        "set_contact_preference",
         "return_to_position",
         "end_call",
     }

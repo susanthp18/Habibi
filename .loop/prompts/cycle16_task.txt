@@ -1,0 +1,60 @@
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 573 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart services on ports 8000/7860/8080.
+Run real pytest suites and report actual output.
+
+
+TASK: final three fixes from the discovery audit (findings 12, 14, 7), all small:
+
+--- FIX 1: duplicate query on compile hot path — agent_core/connectors/persist.py ~:161 ---
+CURRENT: bound_tool_names() runs `SELECT * FROM mcp_connectors` twice back-to-back:
+    by_id = {c["id"]: c for c in list_connectors()}
+    by_slug = {c["slug"]: c for c in list_connectors()}
+REQUIRED: call list_connectors() once into a local and build both maps from it.
+No behaviour change. If a test pins call counts, keep it honest — assert one
+query via whatever patching style that test uses, or skip the count assertion.
+
+--- FIX 2: missing tenant predicate — agent_core/connectors/first_party.py paylink_status ---
+CURRENT (~:22-30): reads payment_intents with WHERE pi.customer_id = :cid only,
+while every other query in the subtree also filters tenant_id (RLS is opt-in and
+the app connects as BYPASSRLS). A cross-tenant customer_id would leak payment
+status across tenants.
+REQUIRED: join customers (or use the established pattern in this file/subtree for
+resolving the customer's tenant) and add AND <tenant predicate> so the row must
+belong to the caller's tenant. Follow how db._tenant()/tenant_context is obtained
+elsewhere in connectors code. Add a test: a customer id from another tenant yields
+the same result as an unknown id (no data returned), while same-tenant keeps working.
+
+--- FIX 3: dead linter — agent_core/skills/lint.py lint_pack is never called ---
+CURRENT: nothing calls lint_pack; skills created via POST /agent-studio/skills and
+upsert_skill_from_pack accept unknown/malformed allowed-tools and over-cap
+descriptions. Only CATALOG_PREFIX_TOKEN_CAP is imported elsewhere.
+REQUIRED: wire lint_pack into skills/persist.create_draft_skill AND
+upsert_skill_from_pack: run it on the incoming pack and reject (400-style
+ValueError or the module's existing rejection mechanism — check how other
+validation errors surface to the API) when there are blocking findings of kinds
+unknown_tools / malformed_tool_name. Other finding kinds: attach as warnings, do
+not reject. Add tests: pack with unknown tool name rejected; over-cap description
+warns but persists; valid pack unaffected.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2646. Report tail verbatim.
+2. Files changed limited to backend/agent_core/connectors/{persist.py,first_party.py},
+   backend/agent_core/skills/{lint.py,persist.py}, plus new/existing tests.
+   Anything else: explain why explicitly.
+3. Report files changed + pytest tail + remaining issues.

@@ -75,7 +75,9 @@ export function DocumentsTable({
             />
             <span className="min-w-0">
               <span className="block truncate text-body font-medium text-text">{d.title}</span>
-              <span className="block truncate text-body-small text-text-subtlest">{d.filename}</span>
+              <span className="block truncate text-body-small text-text-subtlest">
+                {d.filename}
+              </span>
             </span>
           </div>
         ),
@@ -100,7 +102,9 @@ export function DocumentsTable({
         sortable: true,
         sortValue: (d) => d.version,
         className: "min-w-[4rem] whitespace-nowrap",
-        cell: (d) => <span className="text-body-small tabular-nums text-text-subtle">{d.version}</span>,
+        cell: (d) => (
+          <span className="text-body-small tabular-nums text-text-subtle">{d.version}</span>
+        ),
       },
       {
         id: "chunks",
@@ -127,9 +131,15 @@ export function DocumentsTable({
           const isDeleting = deletingId === d.id;
           const busy = isReindexing || isDeleting;
           return (
-            <Lozenge tone={statusStyles[isDeleting ? "failed" : isReindexing ? "indexing" : d.status]}>
+            <Lozenge
+              tone={statusStyles[isDeleting ? "failed" : isReindexing ? "indexing" : d.status]}
+            >
               {busy && <RefreshCw className="animate-spin" />}
-              {isDeleting ? "Deleting…" : isReindexing ? STATUS_LABEL.indexing : STATUS_LABEL[d.status]}
+              {isDeleting
+                ? "Deleting…"
+                : isReindexing
+                  ? STATUS_LABEL.indexing
+                  : STATUS_LABEL[d.status]}
             </Lozenge>
           );
         },

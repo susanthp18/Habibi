@@ -1,0 +1,47 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 596 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Cycle 29 keyed the PTP write to provider_call_id. Three sibling voice
+write tools mint keys from interaction_id and carry the same reconnect
+duplication exposure at lower stakes: flag_dispute, request_callback,
+request_documents (see tests/test_idempotency.py for their key shapes). This
+cycle applies the identical fix to all three.
+
+TASK: backend/voice/tools.py — switch the idempotency keys of flag_dispute,
+request_callback, and request_documents handlers from
+"voice-<thing>:{interaction_id}:..." to
+"voice-<thing>:{provider_call_id or interaction_id}:..." exactly as cycle 29
+did for create_promise_to_pay. Preserve each tool's existing key suffixes
+(customer/amount/etc.) unchanged. No behaviour change on the no-provider-id
+path. Update stale docstrings if any claim otherwise.
+
+TESTS: extend backend/tests/test_voice_ptp_idempotency.py into covering all
+four tools (rename to test_voice_write_idempotency.py if cleaner — your call,
+update references), with per-tool cases:
+1. same provider_call_id across two interaction ids -> deduped (one row).
+2. different provider_call_ids -> both insert.
+3. no provider_call_id -> interaction-id fallback unchanged.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2795. Report tail verbatim.
+2. Files changed limited to backend/voice/tools.py +
+   backend/tests/**. Anything else: explain explicitly.
+3. Report files changed + pytest tail + remaining issues.

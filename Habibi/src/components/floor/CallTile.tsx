@@ -1,16 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Headphones, MessageCircle, MessageSquare, Phone, PhoneForwarded, ShieldAlert, User, X } from "lucide-react";
+import {
+  Bot,
+  Headphones,
+  MessageCircle,
+  MessageSquare,
+  Phone,
+  PhoneForwarded,
+  ShieldAlert,
+  User,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SentimentBubble } from "./SentimentBubble";
 import { Waveform } from "./Waveform";
-import { channelLabel, LIVE_QA_STATUS_LABEL, LIVE_QA_STATUS_TONE, type ActiveCall } from "@/data/floor-seed";
+import {
+  channelLabel,
+  LIVE_QA_STATUS_LABEL,
+  LIVE_QA_STATUS_TONE,
+  type ActiveCall,
+} from "@/data/floor-seed";
 import { OFFER_STATUS_LABEL, OFFER_STATUS_TONE } from "@/lib/offer-policy";
 import { AUTHORITY_STATUS_LABEL, AUTHORITY_STATUS_TONE } from "@/lib/authority-policy";
 import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";
 
 const fmtDur = (s: number) => {
-  const m = Math.floor(s / 60).toString().padStart(2, "0");
-  const r = Math.floor(s % 60).toString().padStart(2, "0");
+  const m = Math.floor(s / 60)
+    .toString()
+    .padStart(2, "0");
+  const r = Math.floor(s % 60)
+    .toString()
+    .padStart(2, "0");
   return `${m}:${r}`;
 };
 
@@ -95,7 +114,9 @@ export function CallTile({
         <div
           className={cn(
             "grid h-7 w-7 shrink-0 place-items-center rounded-full text-body-small font-semibold",
-            isHuman ? "bg-background-brand-subtlest text-text-brand" : "bg-background-warning text-text-warning",
+            isHuman
+              ? "bg-background-brand-subtlest text-text-brand"
+              : "bg-background-warning text-text-warning",
           )}
           title={call.handler.name}
         >
@@ -103,9 +124,7 @@ export function CallTile({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-075">
-            <span className="truncate text-body font-semibold text-text">
-              {call.customer}
-            </span>
+            <span className="truncate text-body font-semibold text-text">{call.customer}</span>
             <Lozenge tone={riskTone[call.risk]}>{call.risk}</Lozenge>
           </div>
           <div className="flex items-center gap-050 text-body-small text-text-subtlest">
@@ -127,7 +146,9 @@ export function CallTile({
       <div className="flex flex-wrap items-center gap-075">
         <Lozenge tone="neutral">{call.topic}</Lozenge>
         {call.offerPolicy && call.offerPolicy.status !== "none" ? (
-          <Lozenge tone={OFFER_STATUS_TONE[call.offerPolicy.status]}>{OFFER_STATUS_LABEL[call.offerPolicy.status]}</Lozenge>
+          <Lozenge tone={OFFER_STATUS_TONE[call.offerPolicy.status]}>
+            {OFFER_STATUS_LABEL[call.offerPolicy.status]}
+          </Lozenge>
         ) : null}
         {call.authorityPolicy && call.authorityPolicy.status !== "none" ? (
           <Lozenge tone={AUTHORITY_STATUS_TONE[call.authorityPolicy.status]}>
@@ -136,7 +157,9 @@ export function CallTile({
         ) : null}
         {call.liveQa && call.liveQa.status && call.liveQa.status !== "none" ? (
           <Lozenge tone={LIVE_QA_STATUS_TONE[call.liveQa.status] ?? "warning"}>
-            {LIVE_QA_STATUS_LABEL[call.liveQa.status] ?? call.liveQa.reason?.replace(/-/g, " ") ?? "Live QA"}
+            {LIVE_QA_STATUS_LABEL[call.liveQa.status] ??
+              call.liveQa.reason?.replace(/-/g, " ") ??
+              "Live QA"}
           </Lozenge>
         ) : null}
         <SentimentBubble value={call.sentiment} trend={call.sentimentTrend} />

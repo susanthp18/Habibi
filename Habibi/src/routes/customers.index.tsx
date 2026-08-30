@@ -29,9 +29,15 @@ export const Route = createFileRoute("/customers/")({
   head: () => ({
     meta: [
       { title: "Customers — Customer 360" },
-      { name: "description", content: "Search and open the unified master record for every debtor." },
+      {
+        name: "description",
+        content: "Search and open the unified master record for every debtor.",
+      },
       { property: "og:title", content: "Customer 360 — BigBound AI" },
-      { property: "og:description", content: "Unified ledger, EMI schedule, interactions, promises, disputes, and documents." },
+      {
+        property: "og:description",
+        content: "Unified ledger, EMI schedule, interactions, promises, disputes, and documents.",
+      },
     ],
   }),
   component: CustomersIndex,
@@ -110,7 +116,9 @@ function CustomersIndex() {
         headerIcon: <Hash className="h-3.5 w-3.5" />,
         sortable: true,
         sortValue: (c) => c.accountId,
-        cell: (c) => <span className="font-mono text-xs text-text-subtle tabular">{c.accountId}</span>,
+        cell: (c) => (
+          <span className="font-mono text-xs text-text-subtle tabular">{c.accountId}</span>
+        ),
       },
       {
         id: "product",
@@ -119,7 +127,11 @@ function CustomersIndex() {
         sortable: true,
         sortValue: (c) => c.account?.product ?? "",
         cell: (c) =>
-          c.account?.product ? <RecordsTag name={c.account.product} /> : <span className="text-text-subtlest">—</span>,
+          c.account?.product ? (
+            <RecordsTag name={c.account.product} />
+          ) : (
+            <span className="text-text-subtlest">—</span>
+          ),
       },
       {
         id: "outstanding",
@@ -149,7 +161,11 @@ function CustomersIndex() {
             <span
               className={cn(
                 "text-xs tabular",
-                dpd > 60 ? "font-semibold text-text-danger" : dpd > 30 ? "text-text-warning" : "text-text-subtle",
+                dpd > 60
+                  ? "font-semibold text-text-danger"
+                  : dpd > 30
+                    ? "text-text-warning"
+                    : "text-text-subtle",
               )}
             >
               {dpd}d
@@ -189,7 +205,12 @@ function CustomersIndex() {
         sortable: true,
         sortValue: (c) => (c.lastContact ? new Date(c.lastContact).getTime() : 0),
         cell: (c) => (
-          <span className={cn("text-xs tabular text-text-subtle", !c.lastContact && "text-text-subtlest")}>
+          <span
+            className={cn(
+              "text-xs tabular text-text-subtle",
+              !c.lastContact && "text-text-subtlest",
+            )}
+          >
             {c.lastContact ? fmtRelative(c.lastContact) : "No contact"}
           </span>
         ),
@@ -222,7 +243,7 @@ function CustomersIndex() {
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex flex-wrap items-center gap-150 border-b border-border bg-surface px-300 py-200">
           <div>
-            <h1 className="text-[1.25rem] font-semibold text-text">Customer 360</h1>
+            <h1 className="heading-medium font-semibold text-text">Customer 360</h1>
             <p className="text-xs text-text-subtle">Unified master record for every debtor.</p>
           </div>
           <div className="ml-auto flex flex-1 items-center gap-100 md:max-w-md">
@@ -240,7 +261,8 @@ function CustomersIndex() {
 
         <div className="flex items-center gap-050 border-b border-border bg-surface px-300">
           {(["all", "mine", "risk"] as const).map((k) => {
-            const label = k === "all" ? "All customers" : k === "mine" ? "Assigned to me" : "At-risk";
+            const label =
+              k === "all" ? "All customers" : k === "mine" ? "Assigned to me" : "At-risk";
             const count =
               k === "all"
                 ? customers.length
@@ -254,7 +276,9 @@ function CustomersIndex() {
                 onClick={() => setTab(k)}
                 className={cn(
                   "border-b-2 px-150 py-150 text-sm font-medium",
-                  tab === k ? "border-border-brand text-text-brand" : "border-transparent text-text-subtle hover:text-text",
+                  tab === k
+                    ? "border-border-brand text-text-brand"
+                    : "border-transparent text-text-subtle hover:text-text",
                 )}
               >
                 {label}

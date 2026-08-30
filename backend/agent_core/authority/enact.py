@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+import money_inr
 from agent_core.authority import config, decisions
 from agent_core.authority.matrix import VERDICT_ESCALATE
 
@@ -221,7 +222,7 @@ def _post(
         "dispute" if resolved_dispute else "customer",
         resolved_dispute or customer_id,
         "dispute_updated",
-        f"Goodwill waiver ₹{int(round(amount)):,}",
+        f"Goodwill waiver {money_inr.inr(amount)}",
         desc,
         customer_id,
     )

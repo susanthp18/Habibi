@@ -503,7 +503,7 @@ def build_context(customers_export: list[dict[str, Any]], calls: list[dict[str, 
     for call in calls:
         handler = call.get("handledBy") or {}
         if handler.get("kind") == "human":
-            name = handler.get("name") or handler.get("human")
+            name = handler.get("name") or handler.get("agent") or handler.get("human")
             if name:
                 users[slug(name)] = name
         elif handler.get("kind") == "bot":
@@ -551,7 +551,32 @@ def build_context(customers_export: list[dict[str, Any]], calls: list[dict[str, 
 
 
 def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
-    upsert(conn, "tenants", {"id": TENANT_ID, "name": "HDFC Retail", "budget_inr": 2500000, "spend_share": 0.62})
+    # The grievance officer is seeded, not optional. RBI para 100AA requires the
+    # officer's name, email and telephone number in every recovery
+    # communication, and `compliance_copy.written_footer()` returns None without
+    # them — which means a fresh install with this row empty would refuse to
+    # send dunning SMS and refuse to leave voicemail, correctly and silently.
+    # Seeding it here makes the compliant path the default one.
+    upsert(
+        conn,
+        "tenants",
+        {
+            "id": TENANT_ID,
+            "name": "HDFC Retail",
+            "budget_inr": 2500000,
+            "spend_share": 0.62,
+            "contact_number": "18002026161",
+            # A plain dict — `upsert` runs values through `jsonable()`, which
+            # wraps dicts in psycopg's Json adapter. A json.dumps string here
+            # would arrive as text and Postgres has no implicit text->jsonb cast.
+            "grievance_officer": {
+                "name": "R Menon",
+                "email": "grievance@hdfcretail.example",
+                "phone": "18002026161",
+                "address": "HDFC Retail, Nodal Office, Mumbai 400013",
+            },
+        },
+    )
 
     for team_id, name in ctx["teams"].items():
         upsert(conn, "teams", {"id": team_id, "tenant_id": TENANT_ID, "name": name, "supervisor_user_id": None})
@@ -830,32 +855,47 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             },
         )
 
+    # CRM-token-free, and it has to stay that way. A system prompt only
+    # interpolates SYSTEM_SAFE_VARIABLES ({agent_name}, {bank_name},
+    # {language}, {time_of_day}); render_system_prompt leaves every other token
+    # alone and strip_unrendered_crm_tokens then deletes the whole LINE it sits
+    # on. A preset that says "Greet {customer_name} warmly" therefore does not
+    # greet anyone -- it silently deletes its own instruction, and the author
+    # who clicked the preset has no way to see that happened.
+    #
+    # These four are the exact strings in sql/09_bot_config.sql and in migration
+    # 20260819_0084. That migration repairs databases that already hold the old
+    # rows, but a migration only runs when it is replayed -- a stamped database
+    # never executes its UPDATE -- while this seeder upserts on every run, so it
+    # is the copy that actually decides what is in the table. It still held the
+    # pre-0084 text, which is how a database at head served presets that delete
+    # half their own lines the moment an author applies one.
     _emp_prompt = (
         "You are {agent_name}, an inbound collections voice agent for {bank_name}.\n"
-        "Greet {customer_name} warmly and acknowledge their situation before discussing dues.\n"
-        "Reference their account {account_no} and the overdue amount of {overdue_amount} due on {due_date}.\n"
+        "Greet the caller warmly and acknowledge their situation before discussing dues.\n"
+        "Their account number, outstanding balance and due date arrive in the CRM context card — quote those figures verbatim and never invent one.\n"
         "Speak in {language}. Be patient, empathetic and non-judgemental.\n"
-        "Always disclose that the call is recorded for quality and compliance.\n"
-        "Never threaten legal action. Offer Promise-to-Pay options when the customer signals hardship."
+        "Never threaten legal action. Offer Promise-to-Pay options when the caller signals hardship."
     )
     _firm_prompt = (
         "You are {agent_name}, a collections agent for {bank_name}.\n"
-        "Address {customer_name} directly and state the purpose of the call within the first two sentences.\n"
-        "Clearly state the overdue amount {overdue_amount} on account {account_no}, past due since {due_date}.\n"
-        "Speak in {language}. Be professional, direct and outcome-oriented.\n"
-        "Disclose call recording. Do not promise waivers. Escalate to a human on any dispute."
+        "Address the caller directly and state the purpose of the call within the first two sentences.\n"
+        "State the overdue amount and due date from the CRM context card, exactly as given. Never estimate or round them.\n"
+        "Speak in {language}. Be concise and outcome-focused; ask for a specific payment date.\n"
+        "Never threaten legal action and never imply consequences the bank has not authorised."
     )
     _comp_prompt = (
         "You are {agent_name}, a compliance-first collections agent for {bank_name}.\n"
-        "Begin every call with the recording disclosure and verify caller identity before sharing any account information.\n"
-        "Reference {customer_name}, account {account_no}, dues {overdue_amount}, due on {due_date} only after verification.\n"
-        "Speak in {language}. Never quote interest rates. Never promise fee waivers. Escalate on any dispute or hardship signal."
+        "Verify the caller's identity before sharing any account information.\n"
+        "Account details are in the CRM context card and may only be discussed after verification succeeds.\n"
+        "Speak in {language}. Keep to the script; if a request falls outside policy, say so plainly and escalate.\n"
+        "Never quote an interest rate, waiver or settlement figure that a tool has not returned."
     )
     _upsell_prompt = (
-        "You are {agent_name}, a collections + relationship voice agent for {bank_name}.\n"
-        "Resolve {customer_name}'s query about their overdue {overdue_amount} on account {account_no} first.\n"
-        "Once the primary query is addressed, and eligibility permits, gently introduce one relevant product offer.\n"
-        "Speak in {language}. Do not push if the customer is stressed or has raised a dispute."
+        "You are {agent_name}, a collections and relationship voice agent for {bank_name}.\n"
+        "Resolve the caller's query about their overdue balance first — the figures are in the CRM context card.\n"
+        "Only once the collections matter is settled and sentiment is not negative, mention at most one offer returned by recommend_next_offer.\n"
+        "Speak in {language}. Never name a product the tool did not give you."
     )
     _guardrails = {
         "prohibited": ["guarantee", "police", "arrest", "threaten", "family will pay", "harassment"],
@@ -1500,7 +1540,7 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         handler = call.get("handledBy") or {}
         if handler.get("kind") == "human":
             handler_kind = "human"
-            handler_user_id = slug(handler.get("name") or handler.get("human") or "Priya Nair")
+            handler_user_id = slug(handler.get("name") or handler.get("agent") or handler.get("human") or "Priya Nair")
             if handler_user_id not in ctx["users"]:
                 handler_user_id = "priya-nair"
             handler_bot_id = None
@@ -1670,6 +1710,92 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     first_call = ctx["calls"][0]["id"]
     upsert(conn, "ai_response_suggestions", {"id": "suggestion-payment-link", "conversation_id": None, "interaction_id": first_call, "transcript_turn_id": None, "suggestion_text": "Offer a partial payment and schedule a reminder.", "source": "kb", "accepted": False, "accepted_by_user_id": None, "accepted_at": None})
     upsert(conn, "supervisor_actions", {"id": "sup-action-1", "interaction_id": first_call, "supervisor_user_id": "priya-nair", "action": "listen_in", "target_user_id": None, "target_bot_id": "kaia-v2-4", "note": "Sample supervision event"})
+
+    seed_authored_interactions(conn, ctx)
+
+
+def seed_authored_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
+    """The timeline customers.json actually authors.
+
+    Every other child of a detailed customer record is seeded -- ledger_entries,
+    emi_installments, customer_notes, promises, disputes -- but `interactions`
+    never was, so Customer 360 rendered a history assembled entirely from
+    calls.json. For the two customers that calls.json happens to name that meant
+    a synthetic timeline contradicting the authored ledger beside it; for the
+    four it does not name it meant no timeline at all.
+
+    The authored rows carry their outcome directly (`sentiment` as a label,
+    `intents` as booleans) rather than the derived-from-a-score shape the call
+    rows use, so those are read as authored rather than re-inferred from
+    disposition text.
+    """
+    for customer_id, source in ctx["detailed_customers"].items():
+        account_id = ctx["account_by_customer"].get(customer_id)
+        for row in source.get("interactions") or []:
+            # `ai1`/`i1`/`ni1` are unique within a customer, not across the seed.
+            # Namespaced the same way customer_notes are.
+            interaction_id = f"{customer_id}-{row['id']}"
+            handler = row.get("handler") or {}
+            if handler.get("kind") == "human":
+                handler_kind = "human"
+                handler_user_id = slug(handler.get("name") or "")
+                if handler_user_id not in ctx["users"]:
+                    handler_user_id = "priya-nair"
+                handler_bot_id = None
+            else:
+                handler_kind = "bot"
+                handler_user_id = None
+                handler_bot_id = slug(handler.get("name") or "CollectionsBot v2.4")
+                if handler_bot_id not in ctx["bots"]:
+                    # "CollectionsBot" and "CollectionsBot v2.4" are one agent;
+                    # the authored rows use the short name. Resolve to the
+                    # versioned bot rather than minting a second one that would
+                    # then show up on the Agent Studio fleet index.
+                    handler_bot_id = next(
+                        (b for b in ctx["bots"] if b.startswith(handler_bot_id)),
+                        "collectionsbot-v2-4",
+                    )
+            intents = row.get("intents") or {}
+            duration_sec = parse_duration(row.get("duration"))
+            upsert(
+                conn,
+                "interactions",
+                {
+                    "id": interaction_id,
+                    "tenant_id": TENANT_ID,
+                    "customer_id": customer_id,
+                    "account_id": account_id,
+                    "handler_kind": handler_kind,
+                    "handler_user_id": handler_user_id,
+                    "handler_bot_id": handler_bot_id,
+                    "transferred_from_bot_id": "kaia-v2-4" if handler_kind == "human" else None,
+                    "channel": channel(row.get("channel")),
+                    "direction": "outbound",
+                    "status": "completed",
+                    "disposition": row.get("disposition"),
+                    "primary_intent": seed_primary_intent(row, interaction_id),
+                    "query_resolved": bool(intents.get("queryResolved", False)),
+                    "upsell_presented": bool(intents.get("upsellPresented", False)),
+                    "ptp_captured": bool(intents.get("ptpCaptured", False)),
+                    # The authored rows state a sentiment label and no score.
+                    # Passing the label through rather than inventing a number
+                    # for it keeps "negative" meaning what the author wrote.
+                    "avg_sentiment": None,
+                    "sentiment_label": sentiment_label(label=row.get("sentiment")),
+                    "summary": row.get("summary"),
+                    "hash": stable_hash(interaction_id),
+                    "latency_ms": None,
+                    "rag_hits": 0,
+                    "redaction_applied": False,
+                    "deployment_id": "DEP-2026-07-PROD",
+                    "started_at": row.get("startedAt"),
+                    "ended_at": None,
+                    "duration_sec": duration_sec,
+                    "source_payload": row,
+                },
+            )
+            upsert(conn, "interaction_participants", {"id": f"{interaction_id}-customer", "interaction_id": interaction_id, "participant_kind": "customer", "user_id": None, "bot_id": None, "role": "customer", "joined_at": row.get("startedAt"), "left_at": None})
+            upsert(conn, "interaction_participants", {"id": f"{interaction_id}-handler", "interaction_id": interaction_id, "participant_kind": handler_kind, "user_id": handler_user_id, "bot_id": handler_bot_id, "role": "primary", "joined_at": row.get("startedAt"), "left_at": None})
 
 
 def seed_collections_and_sales(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:

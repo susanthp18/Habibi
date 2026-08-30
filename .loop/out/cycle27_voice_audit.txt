@@ -1,0 +1,221 @@
+I've completed the audit. No files created, no code changed. Full report follows.
+
+---
+
+# INBOUND LIVE-CALL RESILIENCE AUDIT — `backend/voice/`
+
+**Scope:** live voice path only (Pipecat pipeline, Twilio + SmallWebRTC transports). Report-only.
+**Test run (real):** `pytest tests/test_turn_probe.py tests/test_deadair_ignores_a_talking_caller.py tests/test_silent_greeting.py tests/test_call_vs9bc3dd9725_regressions.py tests/test_call_vs92cde3f088_regressions.py tests/test_voice_background_tasks.py tests/test_voice_ivr_host.py tests/test_voice_tool_registry.py tests/test_voice_turn_flexibility.py -q`
+→ **99 passed, 4 warnings in 43.35s** (local `.venv`; voice container not running, Postgres up). One warning is notable and appears below (§1).
+
+---
+
+## 1. BARGE-IN
+
+**What handles it today**
+
+| Concern | Location |
+|---|---|
+| Interruption trigger config | `voice/tuning_apply.py:108-166` — `build_user_turn_strategies`. Default `barge_in="on"` → `VADUserTurnStartStrategy()` start + `TurnAnalyzerUserTurnStopStrategy` (Smart Turn v3) stop. `min_words` → `MinWordsUserTurnStartStrategy` + `SpeechTimeoutUserTurnStopStrategy`. `locked` → `VADUserTurnStartStrategy(enable_interruptions=False)` |
+| Default tuning | `agent_core/tuning.py:54` (`barge_in: "on"`), `:83` (`min_words`), `:106` (`locked`, for mandatory disclosures) |
+| Mute windows | `voice/tuning_apply.py:168-189` — default `["until_first_bot_complete", "during_function_calls"]` (`agent_core/tuning.py:56`). `FunctionCallUserMuteStrategy` means the caller **cannot** barge in while a tool is executing |
+| Interruption observation | `voice/turn_probe.py:110-113` — `InterruptionFrame` sets `_interrupted=True`; `:104-107` — a new `LLMFullResponseStartFrame` force-closes the prior turn as `interrupted=True` |
+| Persistence of the cut turn | `voice/crm_sink.py:951-1035` — `record_bot_turn(text, interrupted)` → `bot_turn` job with `interrupted=` |
+| Downstream consequence | `voice/crm_sink.py:1482-1486` → `barge_in` flag; `voice/persist.py:775-784` `_BARGE_ALERT_FLAGS`; `voice/crm_sink.py:1090-1118` `_auto_barge` (live-QA supervisor barge, a different thing sharing the name) |
+
+**How far does the unwind go**
+- **TTS:** unwound by Pipecat (`TTSService` interruption handler clears the pending `LLMFullResponseEndFrame` map — this is documented in `voice/turn_probe.py:26-38` as the reason the bot-turn tap was moved upstream of TTS).
+- **LLM:** cancelled by Pipecat's own interruption handling. Nothing in `voice/` participates.
+- **Tool call in flight:** **not cancelled.** `ToolSpec.cancel_on_interruption` defaults to `False` (`agent_core/tools/schema.py:95`). Only two tools opt in: `get_account_position` (`agent_core/tools/catalog.py:146`) and `search_knowledge_base` (`:858`, with `timeout_secs=20`). Every CRM **write** — `create_promise_to_pay`, `flag_dispute`, `apply_goodwill`, `capture_lead`, `request_documents`, `request_callback` — runs to completion through a barge-in. Several tools pin this explicitly (`voice/tools.py:460, 818, 855, 2342`).
+
+**Committed-side-effect / interrupted-announce case (the question asked)**
+
+This is the concrete sequence for a barged-in PTP:
+
+1. `_create_ptp_handler` (`voice/tools.py:1088-1170`) calls `domain.create_promise_to_pay` in a thread with idempotency key `voice-ptp:{interaction_id}:{cid}:{amt}:{date}` (`:1116-1120`). **Row committed.**
+2. `_announce(result, ...)` (`:1146`) fires an RTVI `crm.entity` chip → Inspector shows it.
+3. `_schedule_context_refresh("create_promise_to_pay")` (`:1147`) spawns a background CRM re-read that replaces the developer CRM card. **This lands regardless of interruption**, so the *model's* context does eventually learn the promise exists.
+4. The handler returns `say: "confirm the amount and date back to them"`. The model generates that confirmation → caller barges in → TTS is cleared, the turn is recorded with `interrupted=True`.
+
+**Net state:** a promise exists in `promises`, the CRM card knows about it, the transcript records a truncated confirmation, and **the borrower may never have heard the amount or the date they are now committed to.** Nothing anywhere reconciles "side effect committed" against "confirmation actually delivered." `record_bot_turn`'s `interrupted` flag is written but is only consumed for the `barge_in` analytics flag — there is no rule of the form "an interrupted turn that was announcing a `crm.entity` must be re-confirmed."
+
+**Test coverage:** `tests/test_turn_probe.py::test_barge_in_still_reports_the_turn_and_flags_it`, `::test_a_response_cut_off_by_the_next_one_is_not_lost`, `tests/test_voice_turn_flexibility.py::test_probe_resets_on_interruption`, `tests/test_deadair_ignores_a_talking_caller.py::test_a_barge_in_does_not_latch_silence`. All at the frame level; **zero coverage of the tool/side-effect interaction.**
+
+**Warning surfaced by the real run:** `pipecat/processors/frame_processor.py:880: RuntimeWarning: coroutine 'FrameProcessor.__process_frame_task_handler' was never awaited` from `await self.push_error(` — triggered specifically by the three interruption-path tests. This is Pipecat pushing an `ErrorFrame` out of the probe's frame task. It is benign in the test (stubbed `push_frame`), but it confirms the interruption path is the one that reaches `push_error`, and see §3 — nothing in `voice/` consumes `ErrorFrame`.
+
+---
+
+## 2. DEAD AIR
+
+**What handles it today** — three independent timers converging on one ladder.
+
+| Mechanism | Location |
+|---|---|
+| Pipecat's own timer | `voice/bot.py:694, 716-717` — `user_idle_timeout(tuning)` → `LLMUserAggregatorParams(user_idle_timeout=...)`. Arms on `BotStoppedSpeakingFrame`, re-arms nowhere else |
+| Frame-derived silence measurement | `voice/bot_turn_state.py:110-158` — `BotTurnStateObserver.silent_for()`. Origin is `max(_last_audio, _call_started_at)`; returns `0.0` while the caller is mid-utterance unless the flag is stale (`>120s`, `:160-170`) |
+| "Does the bot owe a turn?" | `voice/bot_turn_state.py:172-186` — `busy(grace_seconds=1.5)`: true while generating, `_tool_calls > 0`, or within grace of last activity |
+| Watchdog | `voice/bot.py:1630-1668` — `_deadair_watchdog`, polls at `_DEADAIR_POLL_SECS=1.0` (`:176`), threshold `max(_DEADAIR_MIN_SECS=6.0, idle_timeout + _DEADAIR_GRACE_SECS=2.0)` (`:1647`). Routes into the same ladder rather than speaking itself |
+| The ladder | `voice/bot.py:859-961` — `on_user_turn_idle`. Re-fire guard `_IDLE_REFIRE_GUARD_SECS=4.0` (`:187, :869`); suppressed while `bot_turn_state.busy()` (`:878-885`) |
+| Re-prompt limit | `idle_ladder` default `["nudge","direct","close"]` (`agent_core/tuning.py:63`, validated `:344-349`). Rung 1 goal-aware re-engagement (`:903-935`), rung 2 direct question (`:937-945`), rung 3 spoken goodbye + `EndWorkerFrame` (`:946-961`) |
+| Strike reset | `voice/bot.py:1547-1550` — `on_user_turn_started` sets `idle_strikes = 0` |
+| Backstops | `_WORKER_IDLE_TIMEOUT_SECS = 180` (`:162`) → `on_idle_timeout` (`:1420-1440`) speaks a farewell then `EndFrame`; `_max_duration_watchdog` (`:1599-1628`) |
+| Single-flight end | `_claim_end` (`voice/bot.py:839-857`) — idle close / worker idle / max duration / Flows `end_conversation` cannot stack |
+| Hold handling | `_live_hold` (`:1453-1466`) relaxes idle to 45s; restored on next user turn (`:1551-1559`) |
+
+**What stops an infinite silence loop:** the ladder is length-3 and `step_idx = min(idle_strikes - 1, len(idle_ladder) - 1)` (`:887`), so rung 3 (`close`) is terminal and `_claim_end` makes it idempotent. That works.
+
+**What stops a premature hangup:** three guards, all real — `busy()` suppression (the VS-9BC3DD9725 double-generation fix), the 4s re-fire guard against two timers burning two rungs on one silence, and `silent_for()` returning `0.0` for a talking caller (the VS-EE7F739E11 fix, cutting into a nine-second sentence).
+
+**Gaps:** see G2 and G5 below. The strike counter resets on *any* VAD turn start, which on a noisy line is unbounded; and the greeting/disclosure profile ships `barge_in: "locked"` with a 15s idle (`agent_core/tuning.py:106-107`), which combined with `_DEADAIR_GRACE_SECS` gives a 17s threshold before the *first* nudge on the profile most likely to be used for inbound greeting.
+
+**Test coverage:** good, and the best-covered area in the module. `tests/test_deadair_ignores_a_talking_caller.py` (7 tests), `tests/test_silent_greeting.py` (7), `tests/test_call_vs92cde3f088_regressions.py::test_observer_measures_silence_the_idle_controller_cannot_see`, `::test_thinking_is_not_silence_the_caller_should_be_nudged_out_of`, `tests/test_call_vs9bc3dd9725_regressions.py::test_the_idle_ladder_does_not_fire_while_the_bot_is_generating`, `::test_a_tool_call_in_flight_counts_as_the_bot_owing_a_turn`, `::test_a_stray_tool_result_cannot_drive_the_counter_negative`. All unit-level against the observer; the watchdog task and the ladder handler themselves are not directly tested.
+
+---
+
+## 3. MID-CALL PROVIDER FAILURE
+
+**What handles it today: essentially nothing.**
+
+- `grep -rn 'ErrorFrame' backend/voice/` returns **zero hits.** The only `ErrorFrame` producer in the codebase is `agent_core/providers/fish_service.py:171,188`. Nothing consumes it.
+- The 16 event handlers registered in `voice/bot.py` (`:671, 859, 1015, 1019, 1237, 1251, 1258, 1278, 1282, 1420, 1547, 1588, 1596, 1671, 2000, 2005`) contain **no** `on_error` / `on_connection_error` / transport-error handler.
+- Provider fallback exists but is **construction-time only**: `voice/provider_bind.py:44-113` catches `NoBindingError` and generic build failure and falls back to Azure *before the pipeline starts*, recording provenance on `session.extra["providers"]`. Once the call is live, a dead socket has no path back through this.
+- The one mid-call retry that exists is a settings-level one: `_live_language` (`voice/bot.py:1468-1512`) catches an STT settings-update failure and injects a developer message offering escalation.
+- Azure TTS specifically: `voice/tts_pool.py` pre-opens the synthesis websocket once at `start()` with `_PREOPEN_TIMEOUT_S` (default 5s) and explicitly documents that mid-call `Connection.open()` **deadlocks** (41s TTS stall observed after a barge-in). So there is a deliberate decision *not* to attempt TTS socket recovery. It is bounded and correct for what it covers; it also means there is no reconnect story at all.
+- LLM: `voice/llm_pool.py:43-58` — shared `AsyncAzureOpenAI` with `max_retries=2`, `timeout=httpx.Timeout(30.0, connect=10.0)`, `keepalive_expiry=None`. This gives two transport-level retries per turn. Beyond that, the exception surfaces to Pipecat.
+- CRM failure *is* handled well, and is the model to copy: `mark_crm_degraded` (`voice/crm_sink.py:60-75`) + `_file_degraded_interaction` (`:258-302`) + `crm_degraded` disposition (`:42-57`), with the reasoning stated at `voice/session.py:44-53` — degrade, never hang up on a borrower mid-disclosure.
+
+**What the borrower actually hears** (traced, per provider):
+
+- **TTS dies:** the model generates, no audio is produced. `BotStartedSpeakingFrame` never fires, so `_last_audio` does not advance and `busy()` goes false ~1.5s after generation ends. The dead-air watchdog fires at the threshold and the ladder runs nudge → direct → close. The borrower hears **silence, then a hang-up** — no apology, no explanation, disposition `idle_ladder_close`, which misattributes a provider outage as an unresponsive caller.
+- **STT dies — the worst case.** The borrower keeps talking. VAD is a *separate* Silero analyzer (`voice/bot.py:695`), so `UserStartedSpeakingFrame` still fires → `BotTurnStateObserver` sets `_user_speaking=True` and advances `_last_audio` (`bot_turn_state.py:88-96`). `silent_for()` therefore returns `0.0` (`:152-153`). **Every dead-air mechanism is blinded**, by design, by the fix that stops the watchdog cutting into a talking caller. The only remaining backstop is the 180s `_WORKER_IDLE_TIMEOUT_SECS`. The borrower spends **three minutes** saying "hello? are you there?" into a live, billed, recorded line, and is then told *"I haven't heard from you for a while, so I'll end the call now."* — which is precisely backwards.
+- **OpenAI dies:** two httpx retries, then the exception propagates. No degradation, no spoken apology.
+
+**Degrade to text / disposition:** neither exists. There is no `provider_failure` disposition; `sink.stop(final_status="completed")` is hardcoded at `voice/bot.py:1955`. A provider outage is recorded as a completed call.
+
+**Test coverage:** **none.** `tests/test_voice_crm_degraded.py` covers the CRM path only. `tests/test_voice_provider_bind.py` covers construction-time fallback only.
+
+---
+
+## 4. TWILIO MEDIA STREAM DROP / RECONNECT
+
+**What handles it today**
+
+| Concern | Location |
+|---|---|
+| Proxy bridge | `voice/ws_proxy.py:38-97` — `proxy_voice_websocket`. `websockets.connect(..., open_timeout=10, ping_interval=20, ping_timeout=20)`; two pump tasks under `asyncio.wait(FIRST_COMPLETED)`, losers cancelled (`:88-96`) |
+| Embedded alternative | `voice/host.py:212-221` `run_websocket_session`; routed at `main.py:3717-3742` behind `_voice_ws_upgrade_authorized` |
+| Call identity | `voice/bot.py:440-453` — `call_sid` from `call_data.call_id` or Twilio custom params; `:1696` → `provider_call_id` |
+| Teardown | `voice/bot.py:2000-2003` `on_client_disconnected` → `_finalize_call` (`:1894-1998`), idempotent via `finalized` |
+
+**State recovery: none.** There is no reconnect handling anywhere. `ws_proxy.py` has no retry on upstream connect failure (`:83-97` logs, closes the client with 1011, returns) and no reconnect on mid-call `ConnectionClosed` — `server_to_client` swallows it (`:78-79`) and the whole bridge unwinds.
+
+**Duplicate-event handling on reconnect: none, and it is actively harmful.** `persist.start_voice_call` (`voice/persist.py:78-197`) does a plain `INSERT` into `interactions` with a freshly minted `_sid("CL")` — **no `ON CONFLICT`, no lookup by `provider_call_id`**. If Twilio re-establishes the stream for the same `CallSid`:
+
+1. A **second** `interactions` row is created for one carrier call.
+2. The `voice_sessions` insert hits the unique partial index on `provider_call_id` (memory: `sql/12_crosscutting.sql`) and fails — but it is wrapped in a bare `try/except` that logs and continues (`voice/persist.py:183-193`). Silent divergence.
+3. The LLM context, `ToolState`, `session.identity_verified` and `call_goal` are all per-`bot()`-invocation. The borrower is **re-greeted, re-disclosed and re-verified from zero**.
+4. Because the PTP idempotency key embeds `session.interaction_id` (`voice/tools.py:1116-1120`), a promise re-created after reconnect gets a **different key and inserts a duplicate row.** The one idempotency guard in the write path does not survive the one event it most needs to.
+
+**Test coverage:** **none.** `grep -rln 'ws_proxy\|proxy_voice_websocket' backend/tests/` → no matches.
+
+---
+
+## 5. TOOL CALL EDGE CASES
+
+**Concurrent invocations from one utterance.** No serialization. Every handler that transitions calls `_node(name)` (`voice/tools.py:365-377`), which mutates `state.current_node` and returns `factory()`. Two write tools in one LLM response (e.g. `flag_dispute` + `create_promise_to_pay`) each execute fully — `cancel_on_interruption=False`, and mutations like `state.verify_attempts += 1`, `state.commitment_secured = True`, `state.dispute_opened = True` are unguarded across `await asyncio.to_thread(...)` boundaries. Both return a next-node; which one Pipecat Flows lands on is not determined by anything in this codebase. `state.current_node` (which selects the **KB corpus** via `_current_product_keys`, `voice/bot.py:1796-1806`) can end up disagreeing with the node Flows actually activated. Mitigated in practice, not in principle, by `FunctionCallUserMuteStrategy` and by the model rarely emitting parallel calls.
+
+**Tool raising.** Handled uniformly and well. `_traced` (`voice/tools.py:322-357`) wraps every catalog tool: records `result_ok=False`, `error=type(exc).__name__`, `latency_ms`, and **re-raises** — the audit row is written in `finally` and its own enqueue is guarded (`:353-356`). The comment at `:315-320` correctly explains why `turn_index` is the *customer* turn. Individual handlers additionally catch and return `{"error": ..., "say": "apologise and offer a callback or human agent"}` (e.g. `:1167-1173`).
+
+**Malformed `ToolResult`.** Defended at the source: `ToolResult.__post_init__` (`agent_core/tools/domain.py:46-55`) normalizes `data=None → {}` and `analytics=None → []`, with a comment naming the exact voice-path `AttributeError` this prevents. **Residual hole:** `_announce` (`voice/tools.py:378-402`) early-returns on `not result.ok or not result.entity`, so a successful write whose `entity` is unset silently produces no Inspector chip and no developer delta — the model never learns the entity id. And a handler returning a non-`ToolResult` object (a bare dict) bypasses `__post_init__` entirely and raises inside the `try`, converting a **committed** write into an `crm_write_failed` reported to the model (`:1167-1173`). The model then apologises for a promise that exists.
+
+**`spawn_session_task` registry.** `voice/tools.py:53-102`. Per-session buckets in a `dict[str|None, set[Task]]` under a `threading.Lock`, `add_done_callback` discards on completion (`:63-69`), `drain_background_tasks(session_id, timeout=2.0)` awaits then cancels (`:72-96`), `release_session_tasks` pops the bucket (`:99-102`). The per-session scoping fixed a real cross-call cancellation bug (documented `:43-52`) and `drain` deliberately **requires** an explicit `session_id`. **No cap on bucket size** — one `_schedule_context_refresh` per CRM write plus one `rtvi.flow_node` per transition, unbounded in call length. Not an overflow risk at realistic call lengths; the `asyncio.wait` over N tasks at teardown is the only place it would show. Low severity.
+
+**Test coverage:** `tests/test_voice_background_tasks.py` (6 tests, all passing — cross-session isolation, drain semantics, bucket release, explicit-session-id requirement), `tests/test_voice_tool_registry.py`, `tests/test_voice_context_refresh.py`. **No test for concurrent tool invocation, for a raising handler's effect on the *call*, or for a non-`ToolResult` return.**
+
+---
+
+## 6. IDENTITY / VERIFICATION EDGE
+
+**What handles it today:** `voice/tools.py:613-800` (`_verify_identity_handler`), `:802-846` (`refuse_verification`), `:848-912` (`not_account_holder`), `_require_customer()` gate on every write (`:404-412`).
+
+Solid parts: hallucinated/placeholder values are rejected **before** burning an attempt (`:630-651`); 3-attempt cap → `record_handoff(reason="verification_failed")` + `terminate_politely` (`:666-687`); 2-refusal cap (`:806-826`); RPC / wrong-party marking is fire-and-forget so bookkeeping can never fail a passed verification (`:718-736`, `:854-870`); `not_account_holder` distinguishes inbound from outbound and on outbound routes to a `third_party` node that says materially less, with the reasoning stated at `:882-890`; `verify_identity` is pinned to `RTVIFunctionCallReportLevel.NONE` in production and `NAME` in sandbox (`voice/bot.py:1300-1313`) so mobile digits never reach a browser.
+
+**Gap A — verification succeeded, then another attempt fails.** There is **no guard on re-entry**. The handler's first action after the `ix` check is `state.verify_attempts += 1` (`:653`) — `session.identity_verified` is never consulted. Two consequences, both borrower-visible:
+
+- A **verified** caller whose subsequent two `verify_identity` calls miss (model re-calls the tool, caller reads a digit wrong on a second account, STT mangles it) reaches `verify_attempts >= 3` and is routed to `terminate_politely` with *"apologise — you cannot share details without verification."* **The bot hangs up on a caller it already verified**, and files `record_handoff(reason="verification_failed")` against them.
+- A **successful** second match to a *different* customer rebinds everything mid-call: `persist.bind_customer_to_interaction` repoints the **same interaction row** at customer B (`:699-704`), then `session.customer_id/account_id/outstanding`, `state.minimum_due/dpd/customer_name/call_context` are all overwritten (`:711-716, 738-742`) and a new CRM card is injected. The transcript turns already written — including any balance stated to customer A — now hang off an interaction row attributed to customer B. No flag, no alert, no record that a rebind occurred.
+
+**Gap B — `not_account_holder` after disclosure.** `session.extra["third_party"] = True` (`:851`) feeds `TurnFacts.third_party` (`voice/crm_sink.py:1498`) → `evaluate_live_qa` → the `third-party-leak` flag, which *is* in both `_LIVE_ALERT_FLAGS` and `_BARGE_ALERT_FLAGS` (`voice/persist.py:770-784`) and raises a high-severity escalation alert. But the flag is only evaluated on **subsequent** bot turns. The turns where the balance was actually disclosed — before the caller volunteered they are not the holder — are **never retro-flagged**, because `evaluate_and_flag_bot_turn` is per-turn and forward-only. The compliance record shows a third-party call that behaved correctly from the moment it was told, and is silent on the leak that already happened. `not_account_holder` also files `record_handoff(reason="verification_failed")` (`:872-878`), which is the wrong reason: nothing failed verification.
+
+**Test coverage:** `tests/test_voice_tool_registry.py`, `tests/test_flow_transitions.py`, `tests/test_call_context.py`, `tests/test_voice_context_refresh.py` cover the registry/contract and the happy path. **No test asserts re-verification behaviour, attempt-counter carry-over after success, mid-call customer rebind, or post-disclosure third-party.**
+
+---
+
+## TOP 8 GAPS — ranked by severity × confidence
+
+### G1 — Dead STT is invisible to every watchdog; borrower gets 180s of dead line, then blamed for it
+**Severity: critical · Confidence: high · NEEDS-HUMAN**
+`voice/bot_turn_state.py:88-96, 152-153` + `voice/bot.py:1644-1665`, `:162`, `:1420-1440`.
+VAD is independent of STT, so a talking caller keeps `silent_for()` pinned at `0.0` while the recognizer is dead. Only `_WORKER_IDLE_TIMEOUT_SECS=180` fires, and its farewell — *"I haven't heard from you for a while"* — blames the borrower for a provider outage, on a recorded collections call.
+**Fix:** add a *transcription* liveness signal distinct from audio liveness. Track `_last_transcript` in `BotTurnStateObserver` on `TranscriptionFrame`/`InterimTranscriptionFrame`; when `_user_speaking` has been true for > ~8s with zero transcript frames, treat it as `stt_stalled` rather than as either silence or a valid turn, speak *"I'm sorry, I'm having trouble hearing you — let me get you to a colleague"*, and end with a `provider_failure` disposition. Needs a human because the threshold interacts with the `_MAX_USER_TURN_SECONDS=120` staleness rule and with `min_words` turn strategies, and because it introduces a new disposition value.
+
+### G2 — No `ErrorFrame` consumer anywhere in the voice pipeline
+**Severity: critical · Confidence: high · NEEDS-HUMAN**
+Zero hits for `ErrorFrame` in `backend/voice/`; no `on_error` among the 16 handlers in `voice/bot.py`. Every provider failure degrades into either silence-then-hangup (TTS) or G1 (STT). The CRM path already models the right answer (`voice/crm_sink.py:60-75`, `voice/session.py:44-53`: degrade, say so loudly, never hang up mid-disclosure) — the media path has no equivalent.
+**Fix:** a small `ProviderHealthProcessor` tapping `ErrorFrame` (push-first, like `SpokeThisResponseProbe`), classifying by originating service, and driving a policy: first error → log + `emitter.lifecycle(phase="provider_error")`; second within N seconds on the same slot → spoken apology + `escalate_to_human` or `_claim_end("provider_failure")` with a real disposition. Human-owned: it is new call-ending policy on a regulated path.
+
+### G3 — Twilio reconnect creates a second interaction and defeats PTP idempotency
+**Severity: high · Confidence: high · NEEDS-HUMAN**
+`voice/persist.py:78-197` (plain `INSERT`, no `ON CONFLICT`, `voice_sessions` unique-index failure swallowed at `:183-193`) + `voice/tools.py:1116-1120` (idempotency key embeds `interaction_id`) + `voice/ws_proxy.py:78-96` (no reconnect at all).
+One carrier call becomes two interaction rows; the borrower is re-greeted, re-disclosed and re-verified; a promise re-made after reconnect **inserts a duplicate row** because the key changed.
+**Fix (two parts, separable):** (a) make the PTP idempotency key `provider_call_id`-based when a `call_sid` exists, falling back to `interaction_id` — this alone kills the duplicate-write risk and is the cheapest high-value change; (b) have `start_voice_call` look up an `active` interaction by `provider_call_id` before inserting and reattach. (b) is a schema-adjacent decision about what a "call" is and needs a human; (a) is nearly mechanical but touches money, so keep it human too.
+
+### G4 — Verified caller can be hung up on by the attempt counter, or silently rebound to a different customer
+**Severity: high · Confidence: high · SAFE-AUTO-FIX (the counter half) / NEEDS-HUMAN (the rebind half)**
+`voice/tools.py:613-800`.
+**Safe half:** guard re-entry. When `session.identity_verified` is already `True`, do not increment `state.verify_attempts` and do not route to `terminate_politely` — return `{"ok": True, "alreadyVerified": True, "say": "confirm they are already verified and continue"}`. Two lines, no behaviour change on the unverified path, removes a hang-up on a legitimately verified borrower.
+**Human half:** what a mid-call rebind to a *different* customer should mean. Options are refuse it outright (safest — a second identity on one interaction is almost certainly STT noise or a shared handset), or allow it but raise a compliance flag and force a fresh disclosure. That is a policy call.
+
+### G5 — Idle strikes reset on any VAD turn start, so a noisy abandoned line runs to the duration cap
+**Severity: high · Confidence: medium-high · NEEDS-HUMAN**
+`voice/bot.py:1547-1550` (`on_user_turn_started` → `idle_strikes = 0`) + `voice/bot_turn_state.py:88-92` (`UserStartedSpeakingFrame` advances `_last_audio`).
+A caller who sets the phone down next to a television produces continuous VAD starts. Every one resets the strike counter *and* the silence origin, so the ladder can never reach `close`. The call burns a concurrency slot (`voice/admission.py`, default cap 25), Azure spend and a recording until `_MAX_CALL_DURATION_SECS`.
+**Fix:** reset strikes on a turn that produced *transcript*, not on VAD start; or keep a separate `productive_turns` counter and only zero the ladder when the caller's turn actually reached the aggregator. Human-owned — it is the same VAD-vs-transcript tension `tuning_apply.py:146-160` already documents for barge-in, and getting it wrong hangs up on real callers.
+
+### G6 — A committed CRM write whose spoken confirmation was interrupted is never reconciled
+**Severity: high · Confidence: medium · NEEDS-HUMAN**
+`voice/tools.py:1088-1170` (write commits, `cancel_on_interruption=False`) + `voice/turn_probe.py:110-113` + `voice/crm_sink.py:951-1035` (`interrupted` recorded, consumed only for the `barge_in` analytics flag at `crm_sink.py:1482-1486`).
+A promise-to-pay exists, is on the CRM card, and the borrower may never have heard the amount or the date. This is a disputable commitment.
+**Fix:** have `_announce` register the entity on `ToolState` as `pending_confirmation`; in the `on_bot_turn` handler, if `interrupted=True` and a pending confirmation is outstanding, inject a `run_llm=False` developer directive — *"you were cut off before confirming <entity>; re-confirm the amount and date once the caller finishes"* — using the exact `_live_correction` mechanism already built at `voice/bot.py:1514-1530`, which is deliberately `run_llm=False` for this reason. The plumbing exists; what needs a human is deciding which entities require re-confirmation and whether an unconfirmed promise should be flagged on the interaction.
+
+### G7 — Concurrent tool calls from one utterance race on `ToolState` and on the landing node
+**Severity: medium · Confidence: medium · NEEDS-HUMAN**
+`voice/tools.py:365-377` (`_node` mutates `state.current_node`) plus unguarded `state.*` mutation across `to_thread` boundaries in every write handler.
+Two writes in one response both commit; the landing node is whichever Flows picks, and `state.current_node` — which selects the KB corpus — can disagree with it. Partly masked by `FunctionCallUserMuteStrategy` and by parallel calls being rare.
+**Fix:** an `asyncio.Lock` around the transition-returning section of each handler, plus a rule that only the first transition in a response is honoured (subsequent `_node` calls log and return `None`). Human-owned: "only the first transition wins" is a Flows-semantics decision, and I have not verified how this Pipecat Flows version resolves multiple returned nodes.
+
+### G8 — Transcript turns are not PII-redacted, so DTMF and spoken digits persist in the clear
+**Severity: medium · Confidence: high · SAFE-AUTO-FIX**
+`voice/persist.py:339-344` redacts **tool-call args only** (`_ARGS_REDACTED`); `append_transcript_turn` (`:203+`) writes `text_content` raw. `voice/ivr.py:96-109` prefixes keypad digits with `"Caller keypad input: "` and folds them into the same text stream (`voice/bot.py:1182-1186`), so a caller who *types* their mobile digits has them stored verbatim in `interaction_transcript`. The same applies to spoken digits. Note the RTVI report level already goes to lengths to keep `verify_identity` args out of a browser (`voice/bot.py:1300-1313`) — the transcript undoes that at rest.
+Mitigating: `voice_dtmf_input_enabled()` uses `_flag` (`voice/config.py:106-108`), so DTMF is **opt-in and off by default**; this is currently a spoken-digit exposure with a keypad exposure waiting behind a flag.
+**Fix:** apply the existing `pii_redact.redact_text` to `text_content` in `append_transcript_turn`, exactly as `:344` already does for tool args. Same function, same module, same established pattern — safe to auto-apply. Verify against the QA autoscore and transcript-export tests, which read these rows.
+
+---
+
+## Summary of coverage
+
+| Area | Handled | Tested |
+|---|---|---|
+| 1. Barge-in — frames/turns | strong | strong (`test_turn_probe.py`) |
+| 1. Barge-in — tool side effects | **absent** | **none** |
+| 2. Dead air | strong, three-timer design | **strong** — best-covered area |
+| 3. Provider failure (mid-call) | **absent** | **none** |
+| 4. Twilio reconnect | **absent** | **none** |
+| 5. Tool raise / malformed result | strong (`_traced`, `__post_init__`) | partial |
+| 5. Concurrent tools / task registry | registry strong; concurrency **absent** | registry tested; concurrency **none** |
+| 6. Identity re-verify / rebind | **absent** | **none** |
+| 6. Third-party after disclosure | forward-only | **none** |
+
+The pattern: **anything reachable from the sandbox is well-built and well-tested; everything that only happens on a real carrier leg is unhandled and untested.** Dead air is the exception, and it is the one area where production incidents (VS-92CDE3F088, VS-9BC3DD9725, VS-18FE21E37A, VS-EE7F739E11) drove the design — which is exactly why it looks different from the rest.
+
+Two of the eight (G4-counter, G8) are safe to apply mechanically. The other six are policy decisions about what a collections call does when the infrastructure under it fails, and belong to a human.

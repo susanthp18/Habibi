@@ -42,25 +42,35 @@ export function DeliveryLogPane({
         <span className="text-body-small text-text-subtlest">{filtered.length} events</span>
         <div className="ml-auto flex items-center gap-100">
           <Select value={epId} onValueChange={setEpId}>
-            <SelectTrigger className="h-400 w-[11.25rem] text-body-small"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[11.25rem] text-body-small">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All endpoints</SelectItem>
               {endpoints.map((e) => (
-                <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                <SelectItem key={e.id} value={e.id}>
+                  {e.name}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={event} onValueChange={setEvent}>
-            <SelectTrigger className="h-400 w-[11.25rem] text-body-small"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[11.25rem] text-body-small">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All events</SelectItem>
               {EVENT_CATALOG.map((e) => (
-                <SelectItem key={e.key} value={e.key as EventKey}>{e.key}</SelectItem>
+                <SelectItem key={e.key} value={e.key as EventKey}>
+                  {e.key}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-400 w-[8.75rem] text-body-small"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[8.75rem] text-body-small">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="success">Success</SelectItem>
@@ -70,7 +80,9 @@ export function DeliveryLogPane({
             </SelectContent>
           </Select>
           <Select value={window} onValueChange={setWindow}>
-            <SelectTrigger className="h-400 w-[7.5rem] text-body-small"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-400 w-[7.5rem] text-body-small">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="1">Last hour</SelectItem>
               <SelectItem value="24">Last 24h</SelectItem>

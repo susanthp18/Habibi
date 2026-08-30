@@ -24,12 +24,7 @@ export const KB_TAG_SUGGESTIONS = [
 ];
 
 function normalizeTag(raw: string): string {
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/^#+/, "")
-    .replace(/\s+/g, "-")
-    .slice(0, 40);
+  return raw.trim().toLowerCase().replace(/^#+/, "").replace(/\s+/g, "-").slice(0, 40);
 }
 
 export function KbTagEditor({
@@ -67,8 +62,7 @@ export function KbTagEditor({
     <div className={cn("space-y-100", className)}>
       <div className="flex min-h-9 flex-wrap items-center gap-075 rounded-medium border border-border bg-surface-sunken/40 px-100 py-075 focus-within:border-border-brand/50 focus-within:ring-1 focus-within:ring-border-brand/30">
         {tags.map((t) => (
-          <Lozenge
-            key={t} tone="selected">
+          <Lozenge key={t} tone="selected">
             #{t}
             <button
               type="button"

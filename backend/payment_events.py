@@ -612,7 +612,11 @@ def _first_touch(
     if channel == "whatsapp":
         conversation_id = dbmod._open_whatsapp_conversation(conn, customer_id)
         inside = pf._inside_service_window(conn, conversation_id, now=now)
-        template_name = _env("WHATSAPP_BOUNCE_TEMPLATE_NAME")
+        # Same resolution the send will use, or the gate and the send
+        # disagree about whether a template exists.
+        template_name = pf.resolve_template(
+            "WHATSAPP_BOUNCE_TEMPLATE_NAME", "WHATSAPP_BOUNCE_TEMPLATE_LANG"
+        )[0]
         due_s = ""
         if emi and emi.get("due_date"):
             due = emi["due_date"]
@@ -662,7 +666,12 @@ def _first_touch(
 
         try:
             if twilio_sms.configured():
-                twilio_sms.send(to_phone=phone or "", body=body)
+                twilio_sms.send(
+                    to_phone=phone or "",
+                    body=body,
+                    customer_id=event.get("customer_id"),
+                    related_id=event["id"],
+                )
             sent = True
         except Exception:
             logger.exception("bounce sms send failed event=%s", event["id"])
@@ -835,13 +844,49 @@ def _try_voice_now(
                 {"id": event["id"], "nxt": nxt, "reason": decision.reason},
             )
         return False
-    try:
-        from voice import twilio_ops
+    # Through the attempt ledger, not straight at the carrier. Reserved on its
+    # own transaction because `conn` is still open here and `outbound.place`
+    # dials on connections of its own — a row written on `conn` would be
+    # invisible to the fleet gate and to the post-dial update.
+    import db as dbmod
+    import mission as mission_mod
+    import outbound
 
-        twilio_ops.start_outbound_call(
-            to=phone,
-            custom={"customer_id": event["customer_id"], "account_id": event["account_id"]},
-        )
+    try:
+        with dbmod.engine.begin() as own:
+            bot_id = dbmod.DEFAULT_BOT_ID
+            built = mission_mod.build(
+                own,
+                customer_id=event["customer_id"],
+                objective="bounce_cure",
+                account_id=event["account_id"],
+                card=mission_mod.card_for_bot(bot_id),
+                bot_id=bot_id,
+            )
+            attempt = outbound.reserve(
+                own,
+                customer_id=event["customer_id"],
+                to_phone=phone,
+                objective="bounce_cure",
+                account_id=event["account_id"],
+                phone_slot="primary" if account.get("phone_primary") else "alt",
+                bot_id=bot_id,
+                context={
+                    "paymentEventId": event["id"],
+                    "source": "bounce_voice",
+                    "mission": built,
+                },
+            )
+        if attempt is None:
+            return False
+        placed = outbound.place(dbmod.engine, attempt, to_phone=phone)
+        if not placed.get("placed"):
+            logger.info(
+                "bounce voice dial not placed event=%s reason=%s",
+                event["id"],
+                placed.get("reason"),
+            )
+            return False
     except Exception:
         logger.exception("bounce voice dial failed event=%s", event["id"])
         return False
@@ -862,8 +907,20 @@ def _try_voice_now(
     return True
 
 
-def process_one_voice(engine: Engine) -> bool:
-    """Drain one due last-resort bounce autodial. SKIP LOCKED."""
+def process_one_voice(engine: Engine, *, now: datetime | None = None) -> bool:
+    """Drain one due last-resort bounce autodial. SKIP LOCKED.
+
+    ``now`` defaults to the real clock, which is what ``bot_worker`` wants and
+    what this did unconditionally. It is injectable because the one behaviour
+    this function exists to implement — a bounce that arrived at night is
+    scheduled for 08:00 and dialled when the window opens — is gated by
+    ``contact_policy.admit``, and with a hardcoded clock the test for it could
+    only pass while the suite happened to be running inside RBI's 08:00–19:00
+    window. It failed every evening and every morning, on a real rule working
+    exactly as written.
+
+    Same shape as ``_try_voice_now`` below, which has always taken ``now``.
+    """
     if not bounce_voice_enabled():
         return False
     with engine.begin() as conn:
@@ -892,8 +949,8 @@ def process_one_voice(engine: Engine) -> bool:
             "phone_alt": row["phone_alt"],
             "timezone": row["timezone"],
         }
-        now = datetime.now(timezone.utc)
-        if not _try_voice_now(conn, event, account=account, now=now):
+        when = now or datetime.now(timezone.utc)
+        if not _try_voice_now(conn, event, account=account, now=when):
             conn.execute(
                 text("UPDATE payment_events SET next_voice_at = NULL WHERE id = :id"),
                 {"id": event["id"]},

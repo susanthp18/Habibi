@@ -3,11 +3,12 @@ name: hardship-intake
 description: Capture hardship (job loss, medical, tenure). Write a note, hold treatment, do not pitch a product. Escalate if the caller asks for a waiver you cannot grant.
 allowed-tools:
   - add_customer_note
+  - capture_nonpayment_reason
   - escalate_to_human
   - request_callback
   - get_customer_context
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   data_class:
     - pii
     - money
@@ -24,9 +25,12 @@ Treatment holds collections. Reco stays quiet. The mouth does not freelance a pr
 ## Steps
 
 1. Acknowledge the situation in one sentence. Do not interrogate.
-2. Call `add_customer_note` with the hardship kind (job_loss, medical, income_drop, other).
-3. Offer a callback inside the calling window, or escalate when the caller asks for a concession beyond policy.
-4. Do not call `recommend_next_offer` and do not name a product.
+2. Call `capture_nonpayment_reason` with the code that matches what they said —
+   `income_loss`, `medical`, or `salary_timing`. This is what stops any product
+   offer for the rest of the call; a note does not.
+3. Call `add_customer_note` with the hardship kind (job_loss, medical, income_drop, other).
+4. Offer a callback inside the calling window, or escalate when the caller asks for a concession beyond policy.
+5. Do not call `recommend_next_offer` and do not name a product.
 
 ## Never
 

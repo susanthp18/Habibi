@@ -54,7 +54,8 @@ const FLAG_ICON: Record<CallFlag, { icon: typeof Flag; label: string; tone: stri
 };
 
 function Sparkline({ points }: { points: { t: number; v: number }[] }) {
-  if (!points || points.length < 2) return <span className="text-body-small text-text-subtlest">—</span>;
+  if (!points || points.length < 2)
+    return <span className="text-body-small text-text-subtlest">—</span>;
   const w = 72;
   const h = 20;
   const xs = points.map((p) => p.t);
@@ -70,7 +71,13 @@ function Sparkline({ points }: { points: { t: number; v: number }[] }) {
   return (
     <svg width={w} height={h} className="overflow-visible" aria-hidden>
       <line x1={0} y1={h / 2} x2={w} y2={h / 2} stroke="var(--border)" strokeDasharray="2 2" />
-      <path d={path} fill="none" stroke={sentimentColor(avg)} strokeWidth={1.4} strokeLinecap="round" />
+      <path
+        d={path}
+        fill="none"
+        stroke={sentimentColor(avg)}
+        strokeWidth={1.4}
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -197,11 +204,15 @@ export function CallsTable({ rows, selected, onSelectedChange, openId, onOpen }:
         sortValue: (c) => c.duration ?? 0,
         align: "right",
         cell: (c) => (
-          <span className="font-mono text-body-small text-text-subtle">{formatDuration(c.duration)}</span>
+          <span className="font-mono text-body-small text-text-subtle">
+            {formatDuration(c.duration)}
+          </span>
         ),
         footer: (visible) => {
           if (!visible.length) return <span className="text-text-subtlest">—</span>;
-          const avg = Math.round(visible.reduce((s, c) => s + (c.duration || 0), 0) / visible.length);
+          const avg = Math.round(
+            visible.reduce((s, c) => s + (c.duration || 0), 0) / visible.length,
+          );
           return <span className="tabular">{formatDuration(avg)} avg</span>;
         },
       },
@@ -226,7 +237,12 @@ export function CallsTable({ rows, selected, onSelectedChange, openId, onOpen }:
           const withS = visible.filter((c) => typeof c.avgSentiment === "number");
           if (!withS.length) return <span className="text-text-subtlest">—</span>;
           const avg = withS.reduce((s, c) => s + c.avgSentiment, 0) / withS.length;
-          return <span className="tabular">{avg >= 0 ? "+" : ""}{avg.toFixed(2)} avg</span>;
+          return (
+            <span className="tabular">
+              {avg >= 0 ? "+" : ""}
+              {avg.toFixed(2)} avg
+            </span>
+          );
         },
       },
       {
@@ -234,16 +250,22 @@ export function CallsTable({ rows, selected, onSelectedChange, openId, onOpen }:
         header: "Flags",
         cell: (c) => {
           const flags = c.flags ?? [];
-          if (flags.length === 0) return <span className="text-body-small text-text-subtlest">—</span>;
+          if (flags.length === 0)
+            return <span className="text-body-small text-text-subtlest">—</span>;
           return (
             <div className="flex items-center gap-050">
               {flags.map((f, idx) => {
-                const key = (typeof f === "string" ? f : (f as { flag?: string })?.flag) as CallFlag | undefined;
+                const key = (typeof f === "string" ? f : (f as { flag?: string })?.flag) as
+                  CallFlag | undefined;
                 const meta = key ? FLAG_ICON[key] : undefined;
                 if (!meta) return null;
                 const Icon = meta.icon;
                 return (
-                  <span key={`${key}-${idx}`} title={meta.label} className={cn("inline-flex", meta.tone)}>
+                  <span
+                    key={`${key}-${idx}`}
+                    title={meta.label}
+                    className={cn("inline-flex", meta.tone)}
+                  >
                     <Icon className="h-3.5 w-3.5" />
                   </span>
                 );

@@ -35,7 +35,8 @@ const iconColorByVariant: Record<NonNullable<SectionMessageProps["variant"]>, st
 };
 
 export interface SectionMessageProps
-  extends Omit<React.HTMLAttributes<HTMLDivElement>, "title">,
+  extends
+    Omit<React.HTMLAttributes<HTMLDivElement>, "title">,
     VariantProps<typeof sectionMessageVariants> {
   /** Icon is mandatory — a SectionMessage without one loses its semantic affordance. */
   icon: LucideIcon;
@@ -45,7 +46,12 @@ export interface SectionMessageProps
 
 export const SectionMessage = React.forwardRef<HTMLDivElement, SectionMessageProps>(
   ({ className, variant = "information", icon: Icon, title, children, ...props }, ref) => (
-    <div ref={ref} role="alert" className={cn(sectionMessageVariants({ variant }), className)} {...props}>
+    <div
+      ref={ref}
+      role="alert"
+      className={cn(sectionMessageVariants({ variant }), className)}
+      {...props}
+    >
       <Icon
         aria-hidden="true"
         className={cn("size-4 shrink-0 mt-025", iconColorByVariant[variant ?? "information"])}

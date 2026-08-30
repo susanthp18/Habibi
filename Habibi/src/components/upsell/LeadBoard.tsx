@@ -34,7 +34,10 @@ export function LeadBoard({ leads, onOpen, onDropStage }: Props) {
           .filter((l) => l.stage === stage)
           .sort((a, b) => {
             if (stage === "won" || stage === "lost") {
-              return new Date(b.closedAt ?? b.capturedAt).getTime() - new Date(a.closedAt ?? a.capturedAt).getTime();
+              return (
+                new Date(b.closedAt ?? b.capturedAt).getTime() -
+                new Date(a.closedAt ?? a.capturedAt).getTime()
+              );
             }
             const pri = { high: 0, normal: 1, low: 2 } as const;
             if (pri[a.priority] !== pri[b.priority]) return pri[a.priority] - pri[b.priority];
@@ -61,7 +64,9 @@ export function LeadBoard({ leads, onOpen, onDropStage }: Props) {
             className={cn(
               "flex w-[18.75rem] shrink-0 flex-col rounded-large border border-t-2 bg-surface-sunken/60 transition-colors",
               columnAccent[stage],
-              dragOver === stage ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40" : "border-border",
+              dragOver === stage
+                ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40"
+                : "border-border",
             )}
           >
             <div className="flex items-center justify-between border-b border-border px-150 py-100">

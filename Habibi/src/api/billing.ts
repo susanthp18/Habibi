@@ -103,10 +103,7 @@ export function useBilling(period: Period, tenantId: string, env: Env) {
 
 export type BudgetRuleInput = Omit<BudgetRule, "id"> & { id?: string };
 
-export async function saveBudgetRule(
-  budgetId: string,
-  rule: BudgetRuleInput,
-): Promise<BudgetRule> {
+export async function saveBudgetRule(budgetId: string, rule: BudgetRuleInput): Promise<BudgetRule> {
   const body = {
     threshold: rule.threshold,
     channels: rule.channels,

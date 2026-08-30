@@ -1,10 +1,25 @@
 import { PROVIDERS, healthTone, type Env, type Provider } from "@/data/integrations-seed";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Phone, MessageSquare, Cpu, Mic, Volume2, Database, Workflow } from "lucide-react";
+import {
+  ArrowRight,
+  Phone,
+  MessageSquare,
+  Cpu,
+  Mic,
+  Volume2,
+  Database,
+  Workflow,
+} from "lucide-react";
 
 const ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  twilio: Phone, azure_speech_stt: Mic, azure_openai: Cpu, openai: Cpu, azure_speech_tts: Volume2,
-  whatsapp: MessageSquare, cbs: Database, pipecat: Workflow,
+  twilio: Phone,
+  azure_speech_stt: Mic,
+  azure_openai: Cpu,
+  openai: Cpu,
+  azure_speech_tts: Volume2,
+  whatsapp: MessageSquare,
+  cbs: Database,
+  pipecat: Workflow,
 };
 
 const MAIN = ["twilio", "azure_speech_stt", "azure_openai", "azure_speech_tts"];
@@ -47,7 +62,10 @@ export function PipelineBanner({ env, onOpen, providers }: Props & { providers?:
       <div className="mb-150 flex items-center justify-between">
         <div>
           <div className="text-body-small font-semibold text-text-brand">Pipecat pipeline</div>
-          <p className="text-body-small text-text-subtle">Each stage below is where the Pipecat backend plugs into this workspace. Click a node to configure it.</p>
+          <p className="text-body-small text-text-subtle">
+            Each stage below is where the Pipecat backend plugs into this workspace. Click a node to
+            configure it.
+          </p>
         </div>
         {orchestrator ? <Node p={orchestrator} env={env} onOpen={onOpen} /> : null}
       </div>

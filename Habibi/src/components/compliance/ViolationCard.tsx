@@ -35,18 +35,13 @@ export function ViolationCard({
   if (!rule) return null;
 
   return (
-    <div
-      className="group flex overflow-hidden rounded-medium border border-border bg-surface transition-shadow"
-    >
+    <div className="group flex overflow-hidden rounded-medium border border-border bg-surface transition-shadow">
       {/* Severity ribbon */}
       <div className="w-1.5 shrink-0" style={{ background: severityColor(v.severity) }} />
 
       <div className="min-w-0 flex-1 p-150">
         <div className="flex flex-wrap items-start gap-100">
-          <button
-            onClick={onOpen}
-            className="min-w-0 flex-1 text-left"
-          >
+          <button onClick={onOpen} className="min-w-0 flex-1 text-left">
             <div className="flex flex-wrap items-center gap-075">
               <span
                 className="rounded-full px-075 py-025 text-body-small font-semibold"
@@ -59,7 +54,11 @@ export function ViolationCard({
             </div>
             <div className="mt-050 flex flex-wrap items-center gap-100 text-body-small text-text-subtle">
               <span className="inline-flex items-center gap-050">
-                {v.actor.kind === "bot" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                {v.actor.kind === "bot" ? (
+                  <Bot className="h-3 w-3" />
+                ) : (
+                  <User className="h-3 w-3" />
+                )}
                 {v.actor.name}
               </span>
               <span>·</span>
@@ -73,15 +72,18 @@ export function ViolationCard({
             </div>
           </button>
 
-          <Lozenge tone={STATUS_STYLES[v.status]}>
-            {statusLabel(v.status)}
-          </Lozenge>
+          <Lozenge tone={STATUS_STYLES[v.status]}>{statusLabel(v.status)}</Lozenge>
         </div>
 
         {/* Evidence */}
         <div className="mt-100 space-y-050 rounded-medium bg-surface-sunken p-100 text-body-small">
           {v.evidence.preceding && (
-            <EvidenceLine speaker={v.evidence.preceding.speaker} t={v.evidence.preceding.t} text={v.evidence.preceding.text} muted />
+            <EvidenceLine
+              speaker={v.evidence.preceding.speaker}
+              t={v.evidence.preceding.t}
+              text={v.evidence.preceding.text}
+              muted
+            />
           )}
           <EvidenceLine
             speaker={v.evidence.offending.speaker}
@@ -90,7 +92,12 @@ export function ViolationCard({
             highlight
           />
           {v.evidence.following && (
-            <EvidenceLine speaker={v.evidence.following.speaker} t={v.evidence.following.t} text={v.evidence.following.text} muted />
+            <EvidenceLine
+              speaker={v.evidence.following.speaker}
+              t={v.evidence.following.t}
+              text={v.evidence.following.text}
+              muted
+            />
           )}
           {!v.evidence.preceding && !v.evidence.following && (
             <div className="text-body-small italic text-text-subtlest">{v.evidence.snippet}</div>
@@ -99,15 +106,27 @@ export function ViolationCard({
 
         {/* Actions */}
         <div className="mt-100 flex flex-wrap items-center gap-075">
-          {v.assignee && (
-            <Lozenge tone="selected">
-              Assigned: {v.assignee}
-            </Lozenge>
-          )}
+          {v.assignee && <Lozenge tone="selected">Assigned: {v.assignee}</Lozenge>}
           <div className="ml-auto flex flex-wrap items-center gap-050">
-            <ActionBtn icon={UserPlus} label="Assign" onClick={onAssign} disabled={v.status === "resolved"} />
-            <ActionBtn icon={Eye} label="Acknowledge" onClick={onAcknowledge} disabled={v.status === "resolved" || v.status === "acknowledged"} />
-            <ActionBtn icon={CheckCircle2} label="Resolve" onClick={onResolve} disabled={v.status === "resolved"} primary />
+            <ActionBtn
+              icon={UserPlus}
+              label="Assign"
+              onClick={onAssign}
+              disabled={v.status === "resolved"}
+            />
+            <ActionBtn
+              icon={Eye}
+              label="Acknowledge"
+              onClick={onAcknowledge}
+              disabled={v.status === "resolved" || v.status === "acknowledged"}
+            />
+            <ActionBtn
+              icon={CheckCircle2}
+              label="Resolve"
+              onClick={onResolve}
+              disabled={v.status === "resolved"}
+              primary
+            />
             <Link
               to="/audit"
               className="inline-flex items-center gap-050 rounded-medium border border-border px-100 py-050 text-body-small text-text-subtle hover:bg-surface-sunken"
@@ -121,16 +140,34 @@ export function ViolationCard({
   );
 }
 
-function EvidenceLine({ speaker, t, text, muted, highlight }: { speaker: string; t: number; text: string; muted?: boolean; highlight?: boolean }) {
+function EvidenceLine({
+  speaker,
+  t,
+  text,
+  muted,
+  highlight,
+}: {
+  speaker: string;
+  t: number;
+  text: string;
+  muted?: boolean;
+  highlight?: boolean;
+}) {
   return (
     <div className={`flex gap-100 ${muted ? "text-text-subtlest" : "text-text"}`}>
       <span className="w-14 shrink-0 font-mono text-body-small text-text-subtlest">
         {formatAt(t)}
       </span>
-      <span className={`w-800 shrink-0 text-body-small font-medium ${muted ? "text-text-subtlest" : "text-text"}`}>
+      <span
+        className={`w-800 shrink-0 text-body-small font-medium ${muted ? "text-text-subtlest" : "text-text"}`}
+      >
         {speaker}
       </span>
-      <span className={highlight ? "rounded bg-[color:var(--danger-bg)] px-050 font-medium text-text-danger" : ""}>
+      <span
+        className={
+          highlight ? "rounded bg-[color:var(--danger-bg)] px-050 font-medium text-text-danger" : ""
+        }
+      >
         {text}
       </span>
     </div>

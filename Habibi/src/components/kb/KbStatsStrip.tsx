@@ -14,7 +14,15 @@ type TileProps = {
   className?: string;
 };
 
-function Tile({ label, value, icon: Icon, active, tone = "default", onClick, className: extra }: TileProps) {
+function Tile({
+  label,
+  value,
+  icon: Icon,
+  active,
+  tone = "default",
+  onClick,
+  className: extra,
+}: TileProps) {
   const iconTone =
     tone === "danger"
       ? "bg-background-danger text-text-danger"
@@ -34,7 +42,9 @@ function Tile({ label, value, icon: Icon, active, tone = "default", onClick, cla
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-body-small font-semibold text-text-subtlest">{label}</div>
-        <div className="tabular truncate text-[1.25rem] font-semibold leading-tight text-text">{value}</div>
+        <div className="tabular truncate heading-medium font-semibold leading-tight text-text">
+          {value}
+        </div>
       </div>
     </>
   );

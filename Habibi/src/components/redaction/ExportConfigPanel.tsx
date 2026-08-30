@@ -17,9 +17,9 @@ interface Props {
 }
 
 const FORMATS: Array<{ id: ExportFormat; label: string; icon: typeof FileText; hint: string }> = [
-  { id: "pdf",       label: "PDF",       icon: FileText,       hint: "Watermarked transcript" },
-  { id: "csv",       label: "CSV",       icon: FileSpreadsheet, hint: "Metadata rows only" },
-  { id: "audio-zip", label: "Audio ZIP", icon: FileArchive,    hint: "WAV + beeped segments" },
+  { id: "pdf", label: "PDF", icon: FileText, hint: "Watermarked transcript" },
+  { id: "csv", label: "CSV", icon: FileSpreadsheet, hint: "Metadata rows only" },
+  { id: "audio-zip", label: "Audio ZIP", icon: FileArchive, hint: "WAV + beeped segments" },
 ];
 const SCOPES: ExportScope[] = ["transcript", "audio", "metadata"];
 const ROLES = ["Compliance officer", "DPO", "Head of collections", "External auditor (read-only)"];
@@ -104,7 +104,9 @@ export function ExportConfigPanel(p: Props) {
           onChange={(e) => p.onAccessRole(e.target.value)}
           className="w-full rounded-medium border border-border bg-surface-sunken px-100 py-075 text-body-small focus:border-border-brand focus:outline-none"
         >
-          {ROLES.map((r) => <option key={r}>{r}</option>)}
+          {ROLES.map((r) => (
+            <option key={r}>{r}</option>
+          ))}
         </select>
       </div>
 
@@ -122,7 +124,9 @@ export function ExportConfigPanel(p: Props) {
         disabled={!canExport}
         className={cn(
           "flex w-full items-center justify-center gap-100 rounded-medium py-100 text-body font-semibold text-white transition-colors",
-          canExport ? "bg-background-brand-bold hover:bg-background-brand-bold-hovered" : "cursor-not-allowed bg-text-muted",
+          canExport
+            ? "bg-background-brand-bold hover:bg-background-brand-bold-hovered"
+            : "cursor-not-allowed bg-text-muted",
         )}
       >
         <Play className="h-4 w-4" />

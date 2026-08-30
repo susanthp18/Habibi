@@ -3,11 +3,30 @@ import { DeltaChip } from "./DeltaChip";
 import type { Kpi } from "@/data/dashboard-seed";
 import { cn } from "@/lib/utils";
 
-const toneMap: Record<NonNullable<Kpi["tone"]>, { stroke: string; fill: string; accent: string }> = {
-  default: { stroke: "var(--background-brand-bold)", fill: "rgba(24,104,219,0.10)", accent: "text-text" },
-  brand: { stroke: "var(--background-brand-bold)", fill: "rgba(24,104,219,0.14)", accent: "text-text-brand" },
-  success: { stroke: "var(--text-text-success)", fill: "rgba(76,107,31,0.12)", accent: "text-text-success" },
-  warning: { stroke: "var(--text-text-warning)", fill: "rgba(158,76,0,0.14)", accent: "text-text-warning" },
+const toneMap: Record<
+  NonNullable<Kpi["tone"]>,
+  { stroke: string; fill: string; accent: string }
+> = {
+  default: {
+    stroke: "var(--background-brand-bold)",
+    fill: "rgba(24,104,219,0.10)",
+    accent: "text-text",
+  },
+  brand: {
+    stroke: "var(--background-brand-bold)",
+    fill: "rgba(24,104,219,0.14)",
+    accent: "text-text-brand",
+  },
+  success: {
+    stroke: "var(--text-text-success)",
+    fill: "rgba(76,107,31,0.12)",
+    accent: "text-text-success",
+  },
+  warning: {
+    stroke: "var(--text-text-warning)",
+    fill: "rgba(158,76,0,0.14)",
+    accent: "text-text-warning",
+  },
 };
 
 export function KpiTile({ kpi }: { kpi: Kpi }) {
@@ -22,7 +41,13 @@ export function KpiTile({ kpi }: { kpi: Kpi }) {
         <span className={cn("text-2xl font-semibold tabular", tone.accent)}>{kpi.value}</span>
         {kpi.spark.length > 0 && (
           <div className="w-20 overflow-hidden rounded-medium bg-surface-sunken">
-            <Sparkline data={kpi.spark} width={80} height={28} stroke={tone.stroke} fill={tone.fill} />
+            <Sparkline
+              data={kpi.spark}
+              width={80}
+              height={28}
+              stroke={tone.stroke}
+              fill={tone.fill}
+            />
           </div>
         )}
       </div>

@@ -13,8 +13,7 @@ interface Props {
 /** Units read very differently per service — tokens are whole, minutes are not. */
 function formatUnits(line: CallCostLine): string {
   const n = line.units;
-  const value =
-    n >= 100 ? Math.round(n).toLocaleString("en-IN") : n.toFixed(n >= 1 ? 2 : 3);
+  const value = n >= 100 ? Math.round(n).toLocaleString("en-IN") : n.toFixed(n >= 1 ? 2 : 3);
   return `${value} ${line.unit}`;
 }
 
@@ -27,8 +26,8 @@ export function CallCostPanel({ interactionId }: Props) {
     return (
       <div className="rounded-medium border border-border bg-surface px-150 py-100 text-body-small text-text-subtlest">
         Per-call cost reads live usage events. Set{" "}
-        <code className="font-mono text-text-subtle">VITE_USE_MOCK=false</code> to
-        load it from the API.
+        <code className="font-mono text-text-subtle">VITE_USE_MOCK=false</code> to load it from the
+        API.
       </div>
     );
   }
@@ -60,31 +59,26 @@ export function CallCostPanel({ interactionId }: Props) {
       <div className="rounded-medium border border-border bg-surface px-150 py-100">
         <div className="text-body font-medium text-text">Not metered</div>
         <p className="mt-050 text-body-small leading-relaxed text-text-subtlest">
-          This call carries no usage events. Calls handled before per-call
-          metering was enabled have no recorded cost — this is not a ₹0 call.
+          This call carries no usage events. Calls handled before per-call metering was enabled have
+          no recorded cost — this is not a ₹0 call.
         </p>
       </div>
     );
   }
 
-  const costPerMinute =
-    data.durationSec > 0 ? data.totalInr / (data.durationSec / 60) : null;
+  const costPerMinute = data.durationSec > 0 ? data.totalInr / (data.durationSec / 60) : null;
 
   return (
     <div className="space-y-150">
       <div className="flex flex-wrap items-end justify-between gap-150 rounded-medium border border-border bg-surface px-150 py-100">
         <div>
           <div className="text-body-small text-text-subtlest">Total call cost</div>
-          <div className="font-mono text-heading-medium text-text">
-            {inrCompact(data.totalInr)}
-          </div>
+          <div className="font-mono heading-medium text-text">{inrCompact(data.totalInr)}</div>
         </div>
         {costPerMinute !== null && (
           <div className="text-right">
             <div className="text-body-small text-text-subtlest">Per minute</div>
-            <div className="font-mono text-body text-text-subtle">
-              {inrCompact(costPerMinute)}
-            </div>
+            <div className="font-mono text-body text-text-subtle">{inrCompact(costPerMinute)}</div>
           </div>
         )}
         {data.totalTokens > 0 && (
@@ -123,9 +117,7 @@ export function CallCostPanel({ interactionId }: Props) {
                       <span className="text-text">{line.serviceName}</span>
                     </div>
                   </td>
-                  <td className="px-150 py-100 font-mono text-text-subtle">
-                    {line.model ?? "—"}
-                  </td>
+                  <td className="px-150 py-100 font-mono text-text-subtle">{line.model ?? "—"}</td>
                   <td className="px-150 py-100 text-right font-mono text-text-subtle">
                     {formatUnits(line)}
                   </td>
@@ -154,9 +146,9 @@ export function CallCostPanel({ interactionId }: Props) {
       </div>
 
       <p className="text-body-small leading-relaxed text-text-subtlest">
-        LLM and TTS are measured from the pipeline (tokens and characters). STT is
-        derived from call duration — Azure bills continuous recognition for the
-        audio streamed while the recognizer is open.
+        LLM and TTS are measured from the pipeline (tokens and characters). STT is derived from call
+        duration — Azure bills continuous recognition for the audio streamed while the recognizer is
+        open.
       </p>
     </div>
   );

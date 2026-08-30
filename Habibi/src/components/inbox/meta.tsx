@@ -13,16 +13,14 @@ type Hue = NonNullable<TagProps["hue"]>;
  * and "Filled tag pills with semantic-looking backgrounds" are both listed as DON'Ts, and
  * the old filled-green WhatsApp pill was reading as a success state it never meant.
  */
-export const channelMeta: Record<
-  Channel,
-  { label: string; icon: typeof MessageCircle; hue: Hue }
-> = {
-  whatsapp: { label: "WhatsApp", icon: MessageCircle, hue: "green" },
-  sms: { label: "SMS", icon: MessageSquare, hue: "blue" },
-  email: { label: "Email", icon: Mail, hue: "purple" },
-  chat: { label: "Web chat", icon: MessageCircle, hue: "teal" },
-  voice: { label: "Voice", icon: Phone, hue: "magenta" },
-};
+export const channelMeta: Record<Channel, { label: string; icon: typeof MessageCircle; hue: Hue }> =
+  {
+    whatsapp: { label: "WhatsApp", icon: MessageCircle, hue: "green" },
+    sms: { label: "SMS", icon: MessageSquare, hue: "blue" },
+    email: { label: "Email", icon: Mail, hue: "purple" },
+    chat: { label: "Web chat", icon: MessageCircle, hue: "teal" },
+    voice: { label: "Voice", icon: Phone, hue: "magenta" },
+  };
 
 /** Safe lookup — unknown / future channels degrade instead of crashing. */
 export function resolveChannelMeta(channel: string | null | undefined) {
@@ -34,7 +32,6 @@ export function resolveChannelMeta(channel: string | null | undefined) {
   }
   return channelMeta.whatsapp;
 }
-
 
 export const slaColor: Record<SlaLevel, string> = {
   ok: "bg-background-success",
@@ -57,21 +54,38 @@ export const statusMeta: Record<ThreadStatus | "mine", { label: string; tone: To
 };
 
 /** Chip key for a row — Mine is derived, never stored. */
-export function chipStatus(thread: { status: ThreadStatus; isMine: boolean }): ThreadStatus | "mine" {
+export function chipStatus(thread: {
+  status: ThreadStatus;
+  isMine: boolean;
+}): ThreadStatus | "mine" {
   return thread.isMine ? "mine" : thread.status;
 }
 
-/** Shared handoff / claim state for inbox thread chrome. */
+/**
+ * Shared handoff / claim state for inbox thread chrome.
+ *
+ * `needsClaim` gates two things at once: it disables the composer and it is
+ * the render condition for the Take-over button. They have to agree, and they
+ * did not for a thread another agent already holds (`assigned` + `!isMine`).
+ * That combination was excluded here, so the composer invited a reply while
+ * the only button that could make the reply legal was not rendered — and the
+ * send came back `take_over_required`, telling the operator to press it. The
+ * thread was unusable until the other agent released it.
+ *
+ * Claiming is what unblocks every one of these states, so every one of them
+ * needs the claim affordance.
+ */
 export function getThreadHandoffState(thread: Thread, hasReturnToBot = false) {
-  const needsClaim =
-    !thread.isMine &&
-    (thread.status === "bot" || thread.status === "needs_human" || thread.status === "escalated");
+  const needsClaim = !thread.isMine;
+  const heldByTeammate = !thread.isMine && thread.status === "assigned";
   const canReturnToBot =
     hasReturnToBot &&
     thread.isMine &&
-    (thread.status === "assigned" || thread.status === "needs_human" || thread.status === "escalated");
+    (thread.status === "assigned" ||
+      thread.status === "needs_human" ||
+      thread.status === "escalated");
   const botHandling = thread.status === "bot" && !thread.isMine;
-  return { needsClaim, canReturnToBot, botHandling };
+  return { needsClaim, canReturnToBot, botHandling, heldByTeammate };
 }
 
 export function initials(name: string) {
@@ -93,8 +107,7 @@ const avatarColors = [
 ];
 
 export function avatarColor(seed: string) {
-  const idx =
-    seed.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % avatarColors.length;
+  const idx = seed.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % avatarColors.length;
   return avatarColors[idx];
 }
 

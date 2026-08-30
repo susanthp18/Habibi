@@ -22,7 +22,14 @@ export function MaskedInput({ value, onChange, onRotate, placeholder }: Props) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1200); toast.success("Copied to clipboard"); } catch { /* ignore */ }
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+      toast.success("Copied to clipboard");
+    } catch {
+      /* ignore */
+    }
   };
 
   return (
@@ -34,14 +41,30 @@ export function MaskedInput({ value, onChange, onRotate, placeholder }: Props) {
         onChange={(e) => onChange(e.target.value)}
         readOnly={!revealed}
       />
-      <Button variant="ghost" size="icon" className="h-400 w-400" onClick={() => setRevealed(v => !v)} title={revealed ? "Hide" : "Reveal"}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-400 w-400"
+        onClick={() => setRevealed((v) => !v)}
+        title={revealed ? "Hide" : "Reveal"}
+      >
         {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
       </Button>
       <Button variant="ghost" size="icon" className="h-400 w-400" onClick={copy} title="Copy">
-        {copied ? <Check className="h-3.5 w-3.5 text-text-success" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-text-success" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
       </Button>
       {onRotate && (
-        <Button variant="ghost" size="icon" className="h-400 w-400" onClick={onRotate} title="Rotate">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-400 w-400"
+          onClick={onRotate}
+          title="Rotate"
+        >
           <RotateCw className="h-3.5 w-3.5" />
         </Button>
       )}

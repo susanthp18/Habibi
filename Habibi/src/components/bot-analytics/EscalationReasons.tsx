@@ -35,10 +35,15 @@ export function EscalationReasons({ reasons }: { reasons: EscalationReason[] }) 
             const bad = r.trendDelta > 1;
             return (
               <li key={r.id} className="flex items-center gap-100">
-                <span className="inline-block size-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
+                <span
+                  className="inline-block size-2 rounded-full"
+                  style={{ background: COLORS[i % COLORS.length] }}
+                />
                 <span className="flex-1 truncate text-text">{r.label}</span>
                 <span className="tabular-nums text-text-subtle">{r.count}</span>
-                <span className="w-500 text-right tabular-nums text-text-subtlest">{pct.toFixed(0)}%</span>
+                <span className="w-500 text-right tabular-nums text-text-subtlest">
+                  {pct.toFixed(0)}%
+                </span>
                 <span
                   className={`inline-flex w-14 items-center justify-end gap-025 text-body-small ${
                     bad

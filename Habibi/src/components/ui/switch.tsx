@@ -27,33 +27,32 @@ type SwitchProps = React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root> 
     | { "aria-labelledby": string; "aria-label"?: never }
   );
 
-const Switch = React.forwardRef<
-  React.ElementRef<typeof SwitchPrimitives.Root>,
-  SwitchProps
->(({ className, ...props }, ref) => (
-  <SwitchPrimitives.Root
-    className={cn(
-      "group focus-ring peer relative inline-flex h-200 w-400 shrink-0 cursor-pointer items-center rounded-full p-025 transition-colors duration-token-short disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-background-success-bold data-[state=unchecked]:bg-background-neutral-bold",
-      className,
-    )}
-    {...props}
-    ref={ref}
-  >
-    <Check
-      aria-hidden="true"
-      className="absolute left-025 size-[0.5625rem] text-icon-inverse opacity-0 group-data-[state=checked]:opacity-100"
-    />
-    <X
-      aria-hidden="true"
-      className="absolute right-025 size-[0.5625rem] text-icon-inverse opacity-100 group-data-[state=checked]:opacity-0"
-    />
-    <SwitchPrimitives.Thumb
+const Switch = React.forwardRef<React.ElementRef<typeof SwitchPrimitives.Root>, SwitchProps>(
+  ({ className, ...props }, ref) => (
+    <SwitchPrimitives.Root
       className={cn(
-        "pointer-events-none relative block size-3 rounded-full bg-icon-inverse shadow-raised transition-transform duration-token-short ease-token-out-practical data-[state=checked]:translate-x-200 data-[state=unchecked]:translate-x-0",
+        "group focus-ring peer relative inline-flex h-200 w-400 shrink-0 cursor-pointer items-center rounded-full p-025 transition-colors duration-token-short disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-background-success-bold data-[state=unchecked]:bg-background-neutral-bold",
+        className,
       )}
-    />
-  </SwitchPrimitives.Root>
-));
+      {...props}
+      ref={ref}
+    >
+      <Check
+        aria-hidden="true"
+        className="absolute left-025 size-[0.5625rem] text-icon-inverse opacity-0 group-data-[state=checked]:opacity-100"
+      />
+      <X
+        aria-hidden="true"
+        className="absolute right-025 size-[0.5625rem] text-icon-inverse opacity-100 group-data-[state=checked]:opacity-0"
+      />
+      <SwitchPrimitives.Thumb
+        className={cn(
+          "pointer-events-none relative block size-3 rounded-full bg-icon-inverse shadow-raised transition-transform duration-token-short ease-token-out-practical data-[state=checked]:translate-x-200 data-[state=unchecked]:translate-x-0",
+        )}
+      />
+    </SwitchPrimitives.Root>
+  ),
+);
 Switch.displayName = SwitchPrimitives.Root.displayName;
 
 export { Switch };

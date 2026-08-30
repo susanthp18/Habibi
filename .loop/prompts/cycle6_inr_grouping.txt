@@ -1,0 +1,21 @@
+OBJECTIVE (one job): ONE Indian money format everywhere. Today the same work-item row can print "Promised ₹1,234,567" (detail column, server string) next to "₹12,34,567" (amount column, client en-IN) - Western vs Indian digit grouping of the SAME number.
+
+Evidence:
+- backend/db.py:12245-12248: def _inr(amount): ... return f"₹{amount:,.0f}" - Python's "," gives Western grouping (1,234,567). Python format specs CANNOT produce Indian lakh/crore grouping; this needs a real function.
+- Server consumers: db.py:12370 ("Paid {_inr(paid)} of {_inr(amount)} promised"), db.py:12374 ("Promised {_inr(amount)}"), db.py:12286 ("Disputed {_inr(amount)}"). These strings land in the AssignedQueue detail column.
+- Client: Habibi/src/components/workspace/AssignedQueue.tsx:169 formats the amount column with toLocaleString("en-IN") - correct lakh/crore grouping already.
+- Grep backend/ for ALL other _inr( call sites and any sibling formatters before you finish - migrate or explicitly leave-and-report each.
+
+Deliverables:
+1. Rewrite _inr() to emit true Indian grouping: >= 1 crore -> X,XX,XX,XXX style (last three digits grouped, then pairs), e.g. 1234567 -> "₹12,34,567", 100000 -> "₹1,00,000", 999 -> "₹999", 0 -> "₹0", negatives and None behave sensibly (None keeps returning "-"; decide and document negative handling - collections balances can be negative after overpay).
+2. Tests: extend/add backend tests asserting the exact grouped strings at the boundaries (999, 1000, 9999, 100000, 999999, 1000000, 1234567, 10000000, negative, None). If an existing test asserts the old Western-grouped strings, UPDATE it to the new contract - do not delete it.
+3. Confirm the server strings and the client's en-IN rendering now agree for the same values (AssignedQueue needs no change if so - verify by reading its code path, do not touch it unless something genuinely mismatches).
+
+Scope: backend/db.py (_inr + any caller you migrate), backend/tests/<dispute-or-work-item serializer tests>. No frontend edits expected; if you conclude one is required, STOP and report instead of expanding scope yourself.
+
+Verify before reporting done, paste the real terminal output:
+  cd D:/Hackathon/backend && .venv/Scripts/python -m pytest tests/<your touched test files> -q
+This touches db.py (shared module) - state that fact; I will run the FULL GATE myself afterwards.
+No UI screenshot needed from you (server-string change); I will eyeball the workspace myself.
+
+Rules: Never git stash, git reset --hard, git clean, or force-push - this tree has ~270 pre-existing uncommitted files that are not yours. Never commit to main, never push, never open a PR; commit to the current branch only. Never print the contents of .env - it holds live Twilio credentials. Never kill or restart whatever is listening on ports 8000, 7860, or 8080 - and equally never kill/restart the native worker processes (python -m worker, voice.bot, voice.workers.insurance); they serve the live product. Never delete a test, skip a test, add an eslint-disable, or widen an ignore list to make something pass. Backend schema changes need BOTH an Alembic migration AND the matching edit in backend/sql/*.sql (this job should need none). If it's a bug, reproduce it and write the failing test before you fix it.

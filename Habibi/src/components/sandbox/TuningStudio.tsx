@@ -184,11 +184,12 @@ export function TuningStudio({
     >
       <div className="shrink-0 border-b border-border p-150">
         <div className="flex items-center justify-between gap-100">
-          <div className="text-body-small font-semibold text-text-subtlest">
-            Agent Tuning
-          </div>
+          <div className="text-body-small font-semibold text-text-subtlest">Agent Tuning</div>
           {dirtyVsPreset && (
-            <span className="h-1.5 w-1.5 rounded-full bg-background-brand-bold" title="Modified from preset" />
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-background-brand-bold"
+              title="Modified from preset"
+            />
           )}
         </div>
         <label className="mt-075 flex items-center gap-050 text-body-small text-text-subtle">
@@ -265,6 +266,11 @@ export function TuningStudio({
           <TuningVoicePicker
             value={value.tts.voice}
             disabled={disabled}
+            // The recogniser's language is the call's language, so it is also
+            // the locale worth opening the voice list on. Unfiltered, the
+            // catalog is 2,000-odd rows sorted alphabetically and the first
+            // thing an operator sees is af-ZA. "All locales" is still one click.
+            defaultLocale={value.stt.language}
             onChange={(shortName) =>
               patch({ tts: { ...value.tts, voice: shortName, style: value.tts.style } }, true)
             }
@@ -283,9 +289,7 @@ export function TuningStudio({
             step={0.05}
             value={Number(value.tts.style_degree)}
             disabled={disabled}
-            onChange={(n) =>
-              patch({ tts: { ...value.tts, style_degree: String(n) } }, true)
-            }
+            onChange={(n) => patch({ tts: { ...value.tts, style_degree: String(n) } }, true)}
           />
           <SliderRow
             label="Rate"
@@ -500,10 +504,12 @@ function TuningVoicePicker({
   value,
   onChange,
   disabled,
+  defaultLocale,
 }: {
   value: string;
   onChange: (shortName: string) => void;
   disabled?: boolean;
+  defaultLocale?: string;
 }) {
   // The picker used to be name-only: 546 voices, no way to hear one and no way
   // to see anything about it. Both capabilities already existed on the full
@@ -529,6 +535,7 @@ function TuningVoicePicker({
         mode="compact"
         value={value}
         disabled={disabled}
+        defaultLocale={defaultLocale}
         showSyncControls={false}
         listHeight={200}
         onSelect={(voice) => onChange(voice.shortName)}
@@ -577,7 +584,9 @@ function SliderRow({
     <label className="block text-body-small text-text-subtle">
       <div className="mb-025 flex justify-between">
         <span>{label}</span>
-        <span className="font-mono text-text-subtlest">{Number(value).toFixed(step < 1 ? 2 : 0)}</span>
+        <span className="font-mono text-text-subtlest">
+          {Number(value).toFixed(step < 1 ? 2 : 0)}
+        </span>
       </div>
       <input
         type="range"

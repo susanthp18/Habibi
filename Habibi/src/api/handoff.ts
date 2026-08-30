@@ -191,10 +191,7 @@ export function useHandoffActive() {
   });
 }
 
-export function useHandoffSession(
-  interactionId: string | undefined,
-  opts?: { poll?: boolean },
-) {
+export function useHandoffSession(interactionId: string | undefined, opts?: { poll?: boolean }) {
   const poll = Boolean(opts?.poll) && !USE_MOCK;
   return useQuery({
     queryKey: ["handoff", "session", interactionId ?? ""],

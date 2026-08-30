@@ -63,7 +63,9 @@ export function TenantTable({ rows }: { rows: BillingTenantBreakdown[] }) {
         sortValue: (r) => r.spend,
         align: "right",
         className: "min-w-[6rem] whitespace-nowrap",
-        cell: (r) => <span className="font-semibold tabular-nums text-text">{inrCompact(r.spend)}</span>,
+        cell: (r) => (
+          <span className="font-semibold tabular-nums text-text">{inrCompact(r.spend)}</span>
+        ),
         footer: (visible) => (
           <span className="font-semibold tabular-nums text-text">
             {inrCompact(visible.reduce((s, r) => s + r.spend, 0))}
@@ -137,7 +139,9 @@ export function TenantTable({ rows }: { rows: BillingTenantBreakdown[] }) {
     <div className="flex min-h-0 flex-col overflow-hidden rounded-large border border-border bg-surface">
       <div className="border-b border-border px-200 py-100">
         <h3 className="text-body font-semibold text-text">Per-tenant breakdown</h3>
-        <p className="text-body-small text-text-subtle">Spend and unit economics per client account</p>
+        <p className="text-body-small text-text-subtle">
+          Spend and unit economics per client account
+        </p>
       </div>
       <RecordsTable
         rows={rows}
@@ -148,7 +152,9 @@ export function TenantTable({ rows }: { rows: BillingTenantBreakdown[] }) {
         tableClassName="min-w-[48rem]"
         className="rounded-none border-0"
         emptyMessage="No tenant spend in this window."
-        rowClassName={(r) => (r.budgetPct > 100 ? "bg-background-danger hover:bg-background-danger" : undefined)}
+        rowClassName={(r) =>
+          r.budgetPct > 100 ? "bg-background-danger hover:bg-background-danger" : undefined
+        }
       />
     </div>
   );

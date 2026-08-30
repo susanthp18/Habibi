@@ -212,14 +212,17 @@ export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): 
   interaction.min_words = Math.min(10, Math.max(1, Number(interaction.min_words) || 3));
   interaction.idle_timeout_secs = Math.min(
     30,
-    Math.max(0, Number(interaction.idle_timeout_secs) || DEFAULT_AGENT_TUNING.interaction.idle_timeout_secs),
+    Math.max(
+      0,
+      Number(interaction.idle_timeout_secs) || DEFAULT_AGENT_TUNING.interaction.idle_timeout_secs,
+    ),
   );
   interaction.mute = (Array.isArray(interaction.mute) ? interaction.mute : []).filter((m) =>
     ["until_first_bot_complete", "during_function_calls"].includes(m),
   );
-  interaction.idle_ladder = (Array.isArray(interaction.idle_ladder) ? interaction.idle_ladder : []).filter(
-    (s) => ["nudge", "direct", "close"].includes(s),
-  );
+  interaction.idle_ladder = (
+    Array.isArray(interaction.idle_ladder) ? interaction.idle_ladder : []
+  ).filter((s) => ["nudge", "direct", "close"].includes(s));
 
   return { llm, tts, stt, vad, turn, interaction };
 }

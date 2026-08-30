@@ -31,14 +31,19 @@ type Props = {
   onTestLive?: (p: Provider) => void | Promise<void>;
 };
 
-export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppendLog, onTestLive }: Props) {
+export function ProviderDrawer({
+  provider,
+  env,
+  logs,
+  onClose,
+  onUpdate,
+  onAppendLog,
+  onTestLive,
+}: Props) {
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [testing, setTesting] = useState(false);
 
-  const snippet = useMemo(
-    () => (provider ? pipecatSnippet(provider, env) : ""),
-    [provider, env],
-  );
+  const snippet = useMemo(() => (provider ? pipecatSnippet(provider, env) : ""), [provider, env]);
 
   if (!provider) return null;
   const cfg = provider.perEnv[env];
@@ -47,7 +52,10 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
 
   const usageValues = usageSeries(provider.id, env);
   const usageLabels = usageValues.map((_, i) => `D${i + 1}`);
-  const providerLogs = logs.filter(l => l.providerId === provider.id).slice().reverse();
+  const providerLogs = logs
+    .filter((l) => l.providerId === provider.id)
+    .slice()
+    .reverse();
 
   const setField = (key: string, val: string) => {
     // Enforced here, not only at the call sites: credentials for a locked
@@ -78,9 +86,8 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
       } else {
         const entry = await runMockHealthCheck(provider, env);
         onAppendLog(entry);
-        entry.ok
-          ? toast.success(`${provider.name} · ${entry.latencyMs} ms`)
-          : toast.error(`${provider.name} · ${entry.message}`);
+        if (entry.ok) toast.success(`${provider.name} · ${entry.latencyMs} ms`);
+        else toast.error(`${provider.name} · ${entry.message}`);
       }
     } finally {
       setTesting(false);
@@ -88,7 +95,13 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
   };
 
   const copySnippet = async () => {
-    try { await navigator.clipboard.writeText(snippet); setCopiedSnippet(true); setTimeout(() => setCopiedSnippet(false), 1400); } catch { /* ignore */ }
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopiedSnippet(true);
+      setTimeout(() => setCopiedSnippet(false), 1400);
+    } catch {
+      /* ignore */
+    }
   };
 
   return (
@@ -96,27 +109,46 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
       <SheetContent side="right" className="w-full overflow-hidden p-0 sm:max-w-[37.5rem]">
         <div className="flex h-full flex-col">
           <div className="flex shrink-0 items-start gap-150 border-b border-border bg-surface p-200">
-            <div className={cn("grid h-500 w-500 place-items-center rounded-medium font-semibold", provider.brandColor)}>{provider.brandInitial}</div>
+            <div
+              className={cn(
+                "grid h-500 w-500 place-items-center rounded-medium font-semibold",
+                provider.brandColor,
+              )}
+            >
+              {provider.brandInitial}
+            </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-100">
                 <div className="text-body font-semibold text-text">{provider.name}</div>
-                <Lozenge tone="neutral" className="border-border capitalize">{env}</Lozenge>
+                <Lozenge tone="neutral" className="border-border capitalize">
+                  {env}
+                </Lozenge>
               </div>
-              <div className="text-body-small text-text-subtle">{provider.capability} · {provider.vendor}</div>
+              <div className="text-body-small text-text-subtle">
+                {provider.capability} · {provider.vendor}
+              </div>
               <div className="mt-050 flex items-center gap-050 text-body-small">
                 <span className={cn("h-1.5 w-1.5 rounded-full", t.dot)} />
                 <span className={cn("font-medium", t.text)}>{t.label}</span>
-                {cfg.latencyMs > 0 && <span className="text-text-subtlest">· {cfg.latencyMs} ms</span>}
+                {cfg.latencyMs > 0 && (
+                  <span className="text-text-subtlest">· {cfg.latencyMs} ms</span>
+                )}
                 <span className="ml-100 text-text-subtlest">{cfg.region}</span>
               </div>
             </div>
-            <Button variant="ghost" size="icon" className="h-400 w-400" onClick={onClose}><X className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" className="h-400 w-400" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
 
           <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
             <TabsList className="h-500 w-full shrink-0 justify-start rounded-none border-b border-border bg-surface p-0">
-              {["overview", "credentials", "usage", "test", "pipecat"].map(v => (
-                <TabsTrigger key={v} value={v} className="rounded-none border-b-2 border-transparent px-150 text-body-small capitalize data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+              {["overview", "credentials", "usage", "test", "pipecat"].map((v) => (
+                <TabsTrigger
+                  key={v}
+                  value={v}
+                  className="rounded-none border-b-2 border-transparent px-150 text-body-small capitalize data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
                   {v === "pipecat" ? "Pipecat wiring" : v}
                 </TabsTrigger>
               ))}
@@ -125,11 +157,18 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
             <TabsContent value="overview" className="mt-0 min-h-0 flex-1 overflow-y-auto p-200">
               <p className="text-body leading-relaxed text-text">{provider.description}</p>
               <div className="mt-150 flex flex-wrap gap-075">
-                {provider.capabilities.map(c => (
-                  <Lozenge key={c} tone="selected">{c}</Lozenge>
+                {provider.capabilities.map((c) => (
+                  <Lozenge key={c} tone="selected">
+                    {c}
+                  </Lozenge>
                 ))}
               </div>
-              <a href={provider.docsUrl} target="_blank" rel="noreferrer" className="mt-200 inline-flex items-center gap-075 text-body-small font-medium text-text-brand hover:underline">
+              <a
+                href={provider.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-200 inline-flex items-center gap-075 text-body-small font-medium text-text-brand hover:underline"
+              >
                 Provider documentation <ExternalLink className="h-3 w-3" />
               </a>
             </TabsContent>
@@ -138,7 +177,8 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
               {locked ? (
                 <div className="mb-150 rounded-medium border border-border-information-subtle bg-background-information-subtler p-100 text-body-small text-text-information-bolder">
                   Credentials are managed via process environment / ops vault. This screen shows
-                  configuration status only — plaintext keys are never stored in the CRM DB or JS bundle.
+                  configuration status only — plaintext keys are never stored in the CRM DB or JS
+                  bundle.
                 </div>
               ) : env === "production" ? (
                 <div className="mb-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler p-100 text-body-small text-text-warning-bolder">
@@ -146,9 +186,11 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
                 </div>
               ) : null}
               <div className="space-y-150">
-                {provider.fields.map(f => (
+                {provider.fields.map((f) => (
                   <div key={f.key}>
-                    <Label className="text-body-small font-medium text-text-subtlest">{f.label}</Label>
+                    <Label className="text-body-small font-medium text-text-subtlest">
+                      {f.label}
+                    </Label>
                     {f.secret ? (
                       <MaskedInput
                         value={cfg.values[f.key] ?? ""}
@@ -177,8 +219,11 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
 
             <TabsContent value="usage" className="mt-0 min-h-0 flex-1 overflow-y-auto p-200">
               <div className="grid grid-cols-3 gap-100">
-                {cfg.usageStats.map(s => (
-                  <div key={s.label} className="rounded-medium border border-border bg-surface p-100">
+                {cfg.usageStats.map((s) => (
+                  <div
+                    key={s.label}
+                    className="rounded-medium border border-border bg-surface p-100"
+                  >
                     <div className="text-body-small text-text-subtlest">{s.label}</div>
                     <div className="text-body font-semibold text-text">{s.value}</div>
                   </div>
@@ -186,13 +231,15 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
               </div>
               <div className="mt-150">
                 <div className="mb-050 flex items-center justify-between">
-                  <div className="text-body-small font-semibold text-text">14-day {cfg.unitLabel} volume</div>
+                  <div className="text-body-small font-semibold text-text">
+                    14-day {cfg.unitLabel} volume
+                  </div>
                   <div className="text-body-small text-text-subtlest">Cost: {cfg.costMonth}</div>
                 </div>
                 <ChartStage
                   toolbar={
                     <>
-                      <span className="text-[11px] text-text-subtlest">Usage snapshot</span>
+                      <span className="text-body-tiny text-text-subtlest">Usage snapshot</span>
                       <SnapshotPill />
                     </>
                   }
@@ -212,24 +259,50 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
 
             <TabsContent value="test" className="mt-0 flex min-h-0 flex-1 flex-col">
               <div className="border-b border-border bg-surface px-200 py-100">
-                <Button size="sm" className="w-full gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed" onClick={runTest} disabled={testing}>
-                  <PlayCircle className="h-3.5 w-3.5" /> {testing ? "Testing…" : "Run test connection"}
+                <Button
+                  size="sm"
+                  className="w-full gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed"
+                  onClick={runTest}
+                  disabled={testing}
+                >
+                  <PlayCircle className="h-3.5 w-3.5" />{" "}
+                  {testing ? "Testing…" : "Run test connection"}
                 </Button>
               </div>
               <div className="min-h-0 flex-1 space-y-100 overflow-y-auto p-200">
                 {providerLogs.length === 0 && (
-                  <div className="rounded-medium border border-dashed border-border p-300 text-center text-body-small text-text-subtlest">No tests yet. Run one to see request/response.</div>
+                  <div className="rounded-medium border border-dashed border-border p-300 text-center text-body-small text-text-subtlest">
+                    No tests yet. Run one to see request/response.
+                  </div>
                 )}
-                {providerLogs.map(l => (
-                  <div key={l.id} className={cn("rounded-medium border p-100", l.ok ? "border-border-success-subtle bg-background-success-subtler/60" : "border-border-danger-subtle bg-background-danger-subtler/60")}>
+                {providerLogs.map((l) => (
+                  <div
+                    key={l.id}
+                    className={cn(
+                      "rounded-medium border p-100",
+                      l.ok
+                        ? "border-border-success-subtle bg-background-success-subtler/60"
+                        : "border-border-danger-subtle bg-background-danger-subtler/60",
+                    )}
+                  >
                     <div className="flex items-center gap-100 text-body-small">
-                      {l.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-text-success" /> : <XCircle className="h-3.5 w-3.5 text-text-danger" />}
+                      {l.ok ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-text-success" />
+                      ) : (
+                        <XCircle className="h-3.5 w-3.5 text-text-danger" />
+                      )}
                       <span className="flex-1 font-medium text-text">{l.message}</span>
-                      <span className="font-mono text-body-small text-text-subtlest">{l.latencyMs} ms</span>
+                      <span className="font-mono text-body-small text-text-subtlest">
+                        {l.latencyMs} ms
+                      </span>
                     </div>
-                    <div className="mt-050 text-body-small text-text-subtlest">{new Date(l.at).toLocaleTimeString()} · {l.env}</div>
+                    <div className="mt-050 text-body-small text-text-subtlest">
+                      {new Date(l.at).toLocaleTimeString()} · {l.env}
+                    </div>
                     {l.payload && (
-                      <pre className="mt-050 max-h-32 overflow-auto rounded bg-surface p-100 font-mono text-body-small text-text">{l.payload}</pre>
+                      <pre className="mt-050 max-h-32 overflow-auto rounded bg-surface p-100 font-mono text-body-small text-text">
+                        {l.payload}
+                      </pre>
                     )}
                   </div>
                 ))}
@@ -239,12 +312,28 @@ export function ProviderDrawer({ provider, env, logs, onClose, onUpdate, onAppen
             <TabsContent value="pipecat" className="mt-0 min-h-0 flex-1 overflow-y-auto p-200">
               <div className="mb-100 flex items-center justify-between">
                 <div className="text-body-small font-semibold text-text">Pipecat wiring</div>
-                <Button variant="outline" size="sm" className="h-7 gap-050 text-body-small" onClick={copySnippet}>
-                  {copiedSnippet ? <Check className="h-3 w-3 text-text-success" /> : <Copy className="h-3 w-3" />} Copy
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-050 text-body-small"
+                  onClick={copySnippet}
+                >
+                  {copiedSnippet ? (
+                    <Check className="h-3 w-3 text-text-success" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}{" "}
+                  Copy
                 </Button>
               </div>
-              <pre className="rounded-medium border border-border bg-background-brand-boldest/95 p-150 font-mono text-body-small leading-relaxed text-white/90">{snippet}</pre>
-              <p className="mt-100 text-body-small text-text-subtlest">This is the exact stage the Pipecat worker instantiates for {provider.name}. Values reference environment variables the deploy pipeline injects from this connector's stored credentials.</p>
+              <pre className="rounded-medium border border-border bg-background-brand-boldest/95 p-150 font-mono text-body-small leading-relaxed text-white/90">
+                {snippet}
+              </pre>
+              <p className="mt-100 text-body-small text-text-subtlest">
+                This is the exact stage the Pipecat worker instantiates for {provider.name}. Values
+                reference environment variables the deploy pipeline injects from this connector's
+                stored credentials.
+              </p>
             </TabsContent>
           </Tabs>
         </div>

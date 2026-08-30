@@ -39,7 +39,10 @@ export function ChannelMatrix({
         if (!c) return null;
         const { label, Icon } = CHANNEL_META[key];
         return (
-          <div key={key} className="grid grid-cols-[110px_1fr_90px] items-center gap-100 border-b border-border px-150 py-100 last:border-b-0">
+          <div
+            key={key}
+            className="grid grid-cols-[110px_1fr_90px] items-center gap-100 border-b border-border px-150 py-100 last:border-b-0"
+          >
             <div className="inline-flex items-center gap-075 text-body-small font-medium text-text">
               <Icon className="h-3.5 w-3.5 text-text-subtle" /> {label}
             </div>
@@ -48,7 +51,11 @@ export function ChannelMatrix({
               onChange={(e) => update(key, { status: e.target.value as ConsentStatus })}
               className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
             >
-              {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
             <div className="text-right text-body-small text-text-subtle">
               {c.usedThisWeek}/{c.frequencyCapPerWeek}

@@ -27,6 +27,7 @@ import {
   Activity,
   BookOpen,
   Bot,
+  BrainCircuit,
   Beaker,
   GitBranch,
   Plug,
@@ -73,6 +74,7 @@ const groups: NavGroup[] = [
       { key: "documents", label: "Document desk", icon: FileText, to: "/documents" },
       { key: "callbacks", label: "Callbacks", icon: CalendarClock, to: "/callbacks" },
       { key: "upsell", label: "Upsell & leads", icon: Sparkles, to: "/upsell" },
+      { key: "treatment", label: "Decision intelligence", icon: BrainCircuit, to: "/treatment" },
     ],
   },
   {
@@ -183,7 +185,7 @@ export function NavLinks({
       {filteredGroups.map((group) => (
         <div key={group.label}>
           {!collapsed && (
-            <div className="px-150 pb-050 pt-025 text-[10.5px] font-medium uppercase tracking-[0.08em] text-text-subtlest">
+            <div className="px-150 pb-050 pt-025 text-body-micro font-medium uppercase tracking-[0.08em] text-text-subtlest">
               {group.label}
             </div>
           )}
@@ -206,7 +208,7 @@ export function NavLinks({
                   {!collapsed && (
                     <span
                       className={cn(
-                        "min-w-0 flex-1 truncate text-[13px] transition-colors duration-150",
+                        "min-w-0 flex-1 truncate text-body-small transition-colors duration-150",
                         isActive ? "font-medium text-text" : "text-text-subtle",
                       )}
                     >
@@ -214,7 +216,7 @@ export function NavLinks({
                     </span>
                   )}
                   {!collapsed && item.soon && (
-                    <span className="rounded-small bg-background-neutral-subtle px-075 py-025 text-[10.5px] font-semibold text-text-subtlest shadow-raised">
+                    <span className="rounded-small bg-background-neutral-subtle px-075 py-025 text-body-micro font-semibold text-text-subtlest shadow-raised">
                       Soon
                     </span>
                   )}
@@ -268,19 +270,13 @@ export function NavLinks({
         </div>
       ))}
       {filteredGroups.length === 0 && !collapsed && (
-        <div className="px-150 py-100 text-[12.5px] text-text-subtlest">No matching pages</div>
+        <div className="px-150 py-100 text-body-small text-text-subtlest">No matching pages</div>
       )}
     </div>
   );
 }
 
-function WorkspaceRow({
-  collapsed,
-  onToggle,
-}: {
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
+function WorkspaceRow({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   if (collapsed) {
     return (
       <button
@@ -305,10 +301,24 @@ function WorkspaceRow({
     >
       <EqualizerMark size={32} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium leading-tight text-text">{BRAND.name}</span>
-        <span className="block truncate text-[11px] leading-tight text-text-subtlest">{BRAND.tenantLine}</span>
+        <span className="block truncate text-body-small font-medium leading-tight text-text">
+          {BRAND.name}
+        </span>
+        <span className="block truncate text-body-tiny leading-tight text-text-subtlest">
+          {BRAND.tenantLine}
+        </span>
       </span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-text-subtlest">
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="shrink-0 text-text-subtlest"
+      >
         <path d="M7 15l5 5 5-5M7 9l5-5 5 5" />
       </svg>
     </button>
@@ -326,7 +336,16 @@ function QuickSearch({
 }) {
   return (
     <label className="mb-050 flex h-8 items-center gap-150 rounded-medium bg-surface-sunken px-150 shadow-raised">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-text-subtlest">
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        className="shrink-0 text-text-subtlest"
+      >
         <circle cx="11" cy="11" r="7" />
         <path d="M21 21l-4.3-4.3" />
       </svg>
@@ -335,9 +354,9 @@ function QuickSearch({
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
         placeholder="Quick search"
-        className="min-w-0 flex-1 bg-transparent text-[12.5px] text-text outline-none placeholder:text-text-subtlest"
+        className="min-w-0 flex-1 bg-transparent text-body-small text-text outline-none placeholder:text-text-subtlest"
       />
-      <kbd className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] bg-surface text-[10px] text-text-subtlest shadow-raised">
+      <kbd className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] bg-surface text-body-micro text-text-subtlest shadow-raised">
         /
       </kbd>
     </label>
@@ -399,7 +418,7 @@ export function Sidebar() {
             <ChevronsRight className="h-4 w-4" />
           </button>
         ) : (
-          <div className="mt-100 px-150 pt-100 text-[11px] text-text-subtlest">
+          <div className="mt-100 px-150 pt-100 text-body-tiny text-text-subtlest">
             {BRAND.shortName} · v0.1
           </div>
         )}

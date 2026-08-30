@@ -22,7 +22,9 @@ export function InsightsPanel({ bullets }: { bullets: InsightBullet[] }) {
         </span>
       </div>
       {list.length === 0 ? (
-        <div className="px-200 py-400 text-center text-body-small text-text-subtlest">No insights available yet.</div>
+        <div className="px-200 py-400 text-center text-body-small text-text-subtlest">
+          No insights available yet.
+        </div>
       ) : (
         <ul className="divide-y divide-border">
           {list.map((b) => (

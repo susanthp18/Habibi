@@ -55,6 +55,12 @@ GLOBAL_BY_DESIGN = [
     "event_types",
     "providers",
     "provider_fields",
+    # The capability matrix: "Nova-3 supports streaming" is a fact about
+    # the vendor's model, identical for every tenant. The tenant-scoped
+    # halves are provider_configs (credentials) and
+    # agent_provider_bindings (which model serves which slot), and both
+    # carry tenant_id — the same split as tts_voice_catalog vs tts_voices.
+    "provider_models",
     "billing_services",
     # The Azure voice catalog and its sync bookkeeping: a provider-side
     # inventory, identical for every tenant. `tts_voices` — the shortlist a

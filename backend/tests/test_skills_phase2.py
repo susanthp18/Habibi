@@ -15,9 +15,14 @@ from agent_core.skills.scripts import run_script
 from agent_core.skills.sign import sign_hash, verify_signature
 from agent_core.tools.catalog import CATALOG
 from agent_core.turn import assemble_turn_messages
+from voice.flow_export import built_in_collections_graph
 
 
 CATALOG_NAMES = set(CATALOG.specs)
+
+
+def _flow_for(bot_id: str) -> dict:
+    return built_in_collections_graph() if bot_id == COLLECTIONS_BOT_ID else {}
 
 
 def test_eleven_first_party_packs_parse() -> None:
@@ -40,7 +45,7 @@ def test_four_cards_still_compile_with_skills() -> None:
         report = compile_card(
             bot_id=bot_id,
             card_raw=card_dump(bot_id),
-            flow={},
+            flow=_flow_for(bot_id),
             catalog_names=CATALOG_NAMES,
             known_bot_ids=set(FIRST_PARTY_BOT_IDS),
         )
@@ -77,7 +82,7 @@ def test_g9_rejects_unsigned_skill() -> None:
     report = compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=dumped,
-        flow={},
+        flow=built_in_collections_graph(),
         catalog_names=CATALOG_NAMES,
         known_bot_ids={COLLECTIONS_BOT_ID, "insurance-v1", "supervisor-brief", "intake-v1"},
         attached_skills=[pack],
@@ -94,7 +99,7 @@ def test_g9_reports_unresolved_when_attached_list_is_partial() -> None:
     report = compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=dumped,
-        flow={},
+        flow=built_in_collections_graph(),
         catalog_names=CATALOG_NAMES,
         known_bot_ids={COLLECTIONS_BOT_ID, "insurance-v1", "supervisor-brief", "intake-v1"},
         attached_skills=only,
@@ -240,3 +245,39 @@ def test_mouth_turn_state_legacy_empty_card() -> None:
     state = mouth_turn_state({})
     assert state["allowed"] is None
     assert state["prefix"] == ""
+
+
+# ---------------------------------------------------------------------------
+# A null in frontmatter must survive a round trip as a null.
+#
+# `dumps_skill_md` emitted every scalar through `f"{key}: {value}"`, so Python's
+# `None` was written as the four characters `None` and read straight back as the
+# STRING "None". Gardener drafts set `metadata.eval_suite = None` — meaning "this
+# draft has no eval suite" — and every one of them stored, hashed and exported a
+# skill claiming to have an eval suite literally named None.
+#
+# It is baked into `content_hash` and therefore into the signature, so nothing
+# downstream can distinguish it from a deliberate value. Booleans had the same
+# shape of bug in the other direction: Python's `True` happens to round-trip only
+# because `_parse_scalar` lowercases before comparing.
+# ---------------------------------------------------------------------------
+
+
+def test_a_none_in_frontmatter_round_trips_as_none_not_the_string() -> None:
+    from agent_core.skills.pack import dumps_skill_md, split_skill_md
+
+    md = dumps_skill_md(
+        {"name": "x", "description": "d", "metadata": {"eval_suite": None, "flag": True}},
+        "body",
+    )
+    meta, _ = split_skill_md(md)
+    assert meta["metadata"]["eval_suite"] is None
+    assert meta["metadata"]["flag"] is True
+
+
+def test_a_gardener_draft_does_not_claim_an_eval_suite_called_none() -> None:
+    from agent_core.skills.gardener import draft_from_gap
+
+    draft = draft_from_gap(question="What is the moratorium policy?", intent="moratorium")
+    assert draft["frontmatter"]["metadata"]["eval_suite"] is None
+    assert "eval_suite: None" not in draft["markdown"]

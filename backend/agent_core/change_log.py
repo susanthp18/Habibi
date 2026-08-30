@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 PUBLISH = "agent.publish"
 ROLLBACK = "agent.rollback"
 ARCHIVE = "agent.archive"
+RESTORE = "agent.restore"
 
 #: Components of a prompt version that are hashed and diffed independently.
 COMPONENTS: tuple[str, ...] = (
@@ -265,6 +266,38 @@ def record_archive(
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
         action=ARCHIVE,
+        bot_id=bot_id,
+        payload=payload,
+        entry_id=entry_id,
+    )
+
+
+def record_restore(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    entry_id: str,
+    bot_id: str,
+    archived_at: Any,
+) -> dict[str, Any]:
+    """Bringing a retired agent back onto the roster is a configuration change.
+
+    Only the archive half used to be recorded, which left the chain saying a
+    card was retired and never saying it came back — the one shape of hole an
+    append-only log is supposed to make impossible. ``archivedAt`` carries how
+    long it sat retired, since that window is what an auditor reconstructs.
+
+    Restore does not redeploy (see :func:`db.restore_agent_studio_card`), so
+    there is no deployment id to record: the card is on the roster and takes no
+    traffic until someone publishes it again.
+    """
+    payload = {"archivedAt": str(archived_at) if archived_at else None}
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=RESTORE,
         bot_id=bot_id,
         payload=payload,
         entry_id=entry_id,

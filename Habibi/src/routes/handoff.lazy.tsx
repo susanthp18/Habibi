@@ -134,7 +134,13 @@ function HandoffSessionGate({
   claiming: boolean;
   claimError: Error | null;
 }) {
-  const { data: session, isError, error, refetch, isFetching } = useHandoffSession(interactionId, {
+  const {
+    data: session,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useHandoffSession(interactionId, {
     poll: true,
   });
 
@@ -185,12 +191,17 @@ function HandoffSessionGate({
     );
   }
 
-  return <HandoffLive session={session} customerId={customerId} monitor={monitor} onClaim={onClaim} />;
+  return (
+    <HandoffLive session={session} customerId={customerId} monitor={monitor} onClaim={onClaim} />
+  );
 }
 
 function HandoffSkeleton() {
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface" aria-busy="true">
+    <div
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface"
+      aria-busy="true"
+    >
       <Skeleton className="h-800 w-full rounded-none" />
       <div className="flex min-h-0 flex-1 gap-150 p-150">
         <div className="flex min-w-0 flex-1 flex-col gap-150">
@@ -242,9 +253,7 @@ function HandoffLive({
   const [wrapOpen, setWrapOpen] = useState(false);
   const [wrapSaved, setWrapSaved] = useState(false);
   const [wrapError, setWrapError] = useState<string | null>(null);
-  const [visibleTurns, setVisibleTurns] = useState<TranscriptTurn[]>(
-    mock ? [] : transcriptScript,
-  );
+  const [visibleTurns, setVisibleTurns] = useState<TranscriptTurn[]>(mock ? [] : transcriptScript);
   const [insertedTurns, setInsertedTurns] = useState<TranscriptTurn[]>([]);
   const [insertedIds, setInsertedIds] = useState<Set<string>>(new Set());
   const [sentiment, setSentiment] = useState<number[]>(() =>
@@ -300,7 +309,10 @@ function HandoffLive({
           .find((t) => t.at <= secs && t.sentimentDelta !== undefined);
         const anchor = scriptBeat?.sentimentDelta ?? 0;
         const last = prev[prev.length - 1] ?? 0;
-        const target = Math.max(-1, Math.min(1, last + anchor * 0.08 + (Math.random() - 0.5) * 0.04));
+        const target = Math.max(
+          -1,
+          Math.min(1, last + anchor * 0.08 + (Math.random() - 0.5) * 0.04),
+        );
         return [...prev.slice(-59), target];
       });
     }, TICK_MS);
@@ -451,7 +463,11 @@ function HandoffLive({
                 .then(() => {
                   toast.success("Handoff taken");
                   void navigate({
-                    search: { interactionId: session.interactionId, customerId: session.customerId, mode: undefined },
+                    search: {
+                      interactionId: session.interactionId,
+                      customerId: session.customerId,
+                      mode: undefined,
+                    },
                     replace: true,
                   });
                 })
@@ -538,20 +554,20 @@ function HandoffLive({
       </div>
 
       {!monitor && (
-      <WrapUpBar
-        open={wrapOpen}
-        saved={wrapSaved}
-        saving={wrapMut.isPending}
-        error={wrapError}
-        dispositions={dispositions}
-        defaultNotes={mock ? "Payment gateway failure confirmed. PTP captured." : ""}
-        defaultPtpAmount={customerContext.nextEmi?.amount}
-        onClose={() => {
-          setWrapOpen(false);
-          if (wrapSaved) setWrapSaved(false);
-        }}
-        onSave={handleSaveWrap}
-      />
+        <WrapUpBar
+          open={wrapOpen}
+          saved={wrapSaved}
+          saving={wrapMut.isPending}
+          error={wrapError}
+          dispositions={dispositions}
+          defaultNotes={mock ? "Payment gateway failure confirmed. PTP captured." : ""}
+          defaultPtpAmount={customerContext.nextEmi?.amount}
+          onClose={() => {
+            setWrapOpen(false);
+            if (wrapSaved) setWrapSaved(false);
+          }}
+          onSave={handleSaveWrap}
+        />
       )}
     </div>
   );

@@ -26,7 +26,6 @@ import {
   TYPE_LABELS,
   fmtDate,
   fmtMoney,
-  slaInfo,
   type Dispute,
   type DisputeStatus,
   type Evidence,
@@ -74,7 +73,6 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
   const [showReject, setShowReject] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const sla = slaInfo(d);
   const closed = d.status === "resolved" || d.status === "rejected";
 
   const run = async (fn: () => Promise<void>, okMsg: string, opts?: { warn?: string }) => {
@@ -100,23 +98,17 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
   };
   const handleAddNote = () => {
     if (!note.trim()) return;
-    void run(
-      async () => {
-        await addNote(d, note);
-        setNote("");
-      },
-      "Note added",
-    );
+    void run(async () => {
+      await addNote(d, note);
+      setNote("");
+    }, "Note added");
   };
   const handleAttach = () => {
     const name = evName.trim() || `evidence-${Date.now()}.pdf`;
-    void run(
-      async () => {
-        await attachEvidence(d, name);
-        setEvName("");
-      },
-      "Evidence attached",
-    );
+    void run(async () => {
+      await attachEvidence(d, name);
+      setEvName("");
+    }, "Evidence attached");
   };
   const handleResolve = () => {
     if (!resolutionNotes.trim()) {
@@ -133,13 +125,10 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
       toast.error("Reason is required to reject");
       return;
     }
-    void run(
-      async () => {
-        await rejectDispute(d, rejectNotes.trim());
-        setShowReject(false);
-      },
-      "Dispute rejected",
-    );
+    void run(async () => {
+      await rejectDispute(d, rejectNotes.trim());
+      setShowReject(false);
+    }, "Dispute rejected");
   };
 
   const SIcon = d.source === "bot_voice" ? Mic : d.source === "bot_chat" ? MessageSquare : User;
@@ -157,11 +146,13 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                 <Link
                   to="/customers/$customerId"
                   params={{ customerId: d.customerId }}
-                  className="truncate text-[0.875rem] font-semibold text-text hover:underline"
+                  className="truncate text-body font-semibold text-text hover:underline"
                 >
                   {d.customerName}
                 </Link>
-                <span className="text-body-small text-text-subtlest">#{d.accountTail} · {d.id}</span>
+                <span className="text-body-small text-text-subtlest">
+                  #{d.accountTail} · {d.id}
+                </span>
               </div>
               <div className="mt-050 flex flex-wrap items-center gap-075">
                 <span className="rounded bg-surface-sunken px-075 py-025 text-body-small font-medium text-text-subtle">
@@ -173,10 +164,16 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                 <span className="rounded bg-surface-sunken px-075 py-025 text-body-small text-text-subtle">
                   {STATUS_LABELS[d.status]}
                 </span>
-                <SlaChip tone={sla.tone} label={sla.label} />
+                <SlaChip tone={d.sla} label={d.slaLabel} />
               </div>
             </div>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={onClose}
+              aria-label="Close"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -185,13 +182,20 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
         {/* Captured context */}
         <div className="shrink-0 border-b border-border bg-surface-sunken/60 px-200 py-150">
           <div className="flex items-center gap-100 text-body-small text-text-subtle">
-            {d.source.startsWith("bot") ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
+            {d.source.startsWith("bot") ? (
+              <Bot className="h-3.5 w-3.5" />
+            ) : (
+              <User className="h-3.5 w-3.5" />
+            )}
             <SIcon className="h-3.5 w-3.5" />
             <span>{SOURCE_LABELS[d.source]}</span>
             <span>·</span>
             <span>{fmtDate(d.capturedAt, { dateStyle: "medium", timeStyle: "short" })}</span>
             {d.originConversationId && (
-              <Link to="/inbox" className="ml-auto inline-flex items-center gap-050 text-text-brand hover:underline">
+              <Link
+                to="/inbox"
+                className="ml-auto inline-flex items-center gap-050 text-text-brand hover:underline"
+              >
                 Open conversation <ExternalLink className="h-3 w-3" />
               </Link>
             )}
@@ -217,7 +221,9 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
               >
                 {t}
                 {t === "evidence" && d.evidence.length > 0 && (
-                  <span className="ml-050 rounded bg-surface-sunken px-050 text-body-small text-text-subtlest">{d.evidence.length}</span>
+                  <span className="ml-050 rounded bg-surface-sunken px-050 text-body-small text-text-subtlest">
+                    {d.evidence.length}
+                  </span>
                 )}
               </button>
             ))}
@@ -289,7 +295,12 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                   className="mt-050 min-h-[4.375rem] text-body-small"
                 />
                 <div className="mt-100 flex justify-end">
-                  <Button size="sm" className="h-7 text-body-small" onClick={handleAddNote} disabled={busy}>
+                  <Button
+                    size="sm"
+                    className="h-7 text-body-small"
+                    onClick={handleAddNote}
+                    disabled={busy}
+                  >
                     <Send className="mr-050 h-3 w-3" /> Log note
                   </Button>
                 </div>
@@ -300,7 +311,9 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
           {tab === "evidence" && (
             <div className="space-y-150">
               <div className="rounded-medium border border-dashed border-border p-150">
-                <div className="text-body-small font-semibold text-text-subtlest">Attach evidence</div>
+                <div className="text-body-small font-semibold text-text-subtlest">
+                  Attach evidence
+                </div>
                 <div className="mt-100 flex gap-100">
                   <Input
                     value={evName}
@@ -308,11 +321,18 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                     placeholder="e.g. payment-receipt.pdf"
                     className="h-400 text-body-small"
                   />
-                  <Button size="sm" className="h-400 text-body-small" onClick={handleAttach} disabled={busy}>
+                  <Button
+                    size="sm"
+                    className="h-400 text-body-small"
+                    onClick={handleAttach}
+                    disabled={busy}
+                  >
                     <Paperclip className="mr-050 h-3.5 w-3.5" /> Attach
                   </Button>
                 </div>
-                <div className="mt-050 text-body-small text-text-subtlest">Simulated upload · files logged with actor and timestamp.</div>
+                <div className="mt-050 text-body-small text-text-subtlest">
+                  Simulated upload · files logged with actor and timestamp.
+                </div>
               </div>
 
               {d.evidence.length === 0 ? (
@@ -324,12 +344,16 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                   {d.evidence.map((e) => {
                     const Icon = evIcon(e.kind);
                     return (
-                      <li key={e.id} className="flex items-center gap-100 rounded-medium border border-border bg-surface px-150 py-100">
+                      <li
+                        key={e.id}
+                        className="flex items-center gap-100 rounded-medium border border-border bg-surface px-150 py-100"
+                      >
                         <Icon className="h-4 w-4 text-text-subtle" />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-body-small text-text">{e.name}</div>
                           <div className="text-body-small text-text-subtlest">
-                            {e.uploadedBy} · {fmtDate(e.uploadedAt, { dateStyle: "medium", timeStyle: "short" })}
+                            {e.uploadedBy} ·{" "}
+                            {fmtDate(e.uploadedAt, { dateStyle: "medium", timeStyle: "short" })}
                           </div>
                         </div>
                       </li>
@@ -413,14 +437,21 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                     >
                       <XCircle className="mr-050 h-3.5 w-3.5" /> Reject instead
                     </Button>
-                    <Button size="sm" className="h-400 text-body-small" onClick={handleResolve} disabled={busy}>
+                    <Button
+                      size="sm"
+                      className="h-400 text-body-small"
+                      onClick={handleResolve}
+                      disabled={busy}
+                    >
                       <CheckCircle2 className="mr-050 h-3.5 w-3.5" /> Resolve & writeback
                     </Button>
                   </div>
 
                   {showReject && (
                     <div className="rounded-medium border border-border-danger-subtle bg-background-danger-subtler/60 p-150">
-                      <div className="text-body-small font-semibold text-text-danger-bolder">Reject reason</div>
+                      <div className="text-body-small font-semibold text-text-danger-bolder">
+                        Reject reason
+                      </div>
                       <Textarea
                         value={rejectNotes}
                         onChange={(e) => setRejectNotes(e.target.value)}
@@ -428,7 +459,13 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                         className="mt-050 min-h-[4.375rem] text-body-small"
                       />
                       <div className="mt-100 flex justify-end">
-                        <Button size="sm" variant="destructive" className="h-7 text-body-small" onClick={handleReject} disabled={busy}>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 text-body-small"
+                          onClick={handleReject}
+                          disabled={busy}
+                        >
                           Confirm reject
                         </Button>
                       </div>
@@ -446,7 +483,9 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
             <div className="flex items-center gap-100">
               <span className="text-body-small text-text-subtlest">Move to</span>
               <div className="flex flex-wrap gap-050">
-                {STATUS_ORDER.filter((s) => s !== d.status && s !== "resolved" && s !== "rejected").map((s) => (
+                {STATUS_ORDER.filter(
+                  (s) => s !== d.status && s !== "resolved" && s !== "rejected",
+                ).map((s) => (
                   <Button
                     key={s}
                     size="sm"

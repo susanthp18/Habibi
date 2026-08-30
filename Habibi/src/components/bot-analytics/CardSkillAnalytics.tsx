@@ -24,10 +24,16 @@ export function CardSkillAnalytics({
 
   return (
     <div className="grid gap-200 xl:grid-cols-2">
-      <ChartCard title="Per card" subtitle="Containment, handoff rate, p99 vs 800 ms SLO" action={<SnapshotPill />}>
+      <ChartCard
+        title="Per card"
+        subtitle="Containment, handoff rate, p99 vs 800 ms SLO"
+        action={<SnapshotPill />}
+      >
         <div className="overflow-x-auto p-150">
           {byCard.length === 0 ? (
-            <p className="text-body-small text-text-subtlest">No card-attributed sessions in this window.</p>
+            <p className="text-body-small text-text-subtlest">
+              No card-attributed sessions in this window.
+            </p>
           ) : (
             <table className="w-full text-body-small">
               <thead className="text-text-subtle">
@@ -42,7 +48,7 @@ export function CardSkillAnalytics({
               <tbody>
                 {byCard.map((row) => (
                   <tr key={row.botId} className="border-t border-border">
-                    <td className="py-075 font-mono text-caption">{row.botId}</td>
+                    <td className="py-075 font-mono text-body-tiny">{row.botId}</td>
                     <td className="py-075 text-right tabular">{row.sessions}</td>
                     <td className="py-075 text-right tabular">{row.containment.toFixed(1)}%</td>
                     <td className="py-075 text-right tabular">{row.handoffRate.toFixed(1)}%</td>
@@ -58,7 +64,11 @@ export function CardSkillAnalytics({
           )}
         </div>
       </ChartCard>
-      <ChartCard title="Skill activation" subtitle="bot_tool_calls.skill_id this window" action={<SnapshotPill />}>
+      <ChartCard
+        title="Skill activation"
+        subtitle="bot_tool_calls.skill_id this window"
+        action={<SnapshotPill />}
+      >
         <ChartStage>
           <div className="min-h-[14rem] p-150">
             {skillData.length === 0 ? (

@@ -38,7 +38,8 @@ const buttonVariants = cva(
           "bg-background-neutral-subtle text-text-subtle border border-border hover:bg-background-neutral-subtle-hovered",
         secondary:
           "bg-background-neutral-subtle text-text-subtle border-transparent hover:bg-background-neutral-subtle-hovered",
-        ghost: "bg-transparent text-text-subtle border-transparent hover:bg-background-neutral-subtle-hovered",
+        ghost:
+          "bg-transparent text-text-subtle border-transparent hover:bg-background-neutral-subtle-hovered",
         link: "text-link underline-offset-4 hover:underline border-transparent bg-transparent",
       },
       size: {
@@ -86,7 +87,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {loading && (
           <Spinner
             size={size === "compact" || size === "sm" ? "xsmall" : "small"}
-            tone={variant === "primary" || variant === "danger" || variant === "discovery" ? "inverse" : "subtle"}
+            tone={
+              variant === "primary" || variant === "danger" || variant === "discovery"
+                ? "inverse"
+                : "subtle"
+            }
           />
         )}
         <span className={cn(loading && "invisible", "contents")}>{children}</span>

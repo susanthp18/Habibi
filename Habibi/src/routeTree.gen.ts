@@ -33,6 +33,7 @@ import { Route as RedactionRouteImport } from './routes/redaction'
 import { Route as RolesRouteImport } from './routes/roles'
 import { Route as RoutingRouteImport } from './routes/routing'
 import { Route as SandboxRouteImport } from './routes/sandbox'
+import { Route as TreatmentRouteImport } from './routes/treatment'
 import { Route as UpsellRouteImport } from './routes/upsell'
 import { Route as WebhooksRouteImport } from './routes/webhooks'
 import { Route as AgentStudioIndexRouteImport } from './routes/agent-studio.index'
@@ -164,6 +165,11 @@ const SandboxRoute = SandboxRouteImport.update({
   path: '/sandbox',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/sandbox.lazy').then((d) => d.Route))
+const TreatmentRoute = TreatmentRouteImport.update({
+  id: '/treatment',
+  path: '/treatment',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/treatment.lazy').then((d) => d.Route))
 const UpsellRoute = UpsellRouteImport.update({
   id: '/upsell',
   path: '/upsell',
@@ -235,6 +241,7 @@ export interface FileRoutesByFullPath {
   '/roles': typeof RolesRoute
   '/routing': typeof RoutingRoute
   '/sandbox': typeof SandboxRoute
+  '/treatment': typeof TreatmentRoute
   '/upsell': typeof UpsellRoute
   '/webhooks': typeof WebhooksRoute
   '/agent-studio/$botId': typeof AgentStudioBotIdRoute
@@ -267,6 +274,7 @@ export interface FileRoutesByTo {
   '/roles': typeof RolesRoute
   '/routing': typeof RoutingRoute
   '/sandbox': typeof SandboxRoute
+  '/treatment': typeof TreatmentRoute
   '/upsell': typeof UpsellRoute
   '/webhooks': typeof WebhooksRoute
   '/agent-studio/$botId': typeof AgentStudioBotIdRoute
@@ -302,6 +310,7 @@ export interface FileRoutesById {
   '/roles': typeof RolesRoute
   '/routing': typeof RoutingRoute
   '/sandbox': typeof SandboxRoute
+  '/treatment': typeof TreatmentRoute
   '/upsell': typeof UpsellRoute
   '/webhooks': typeof WebhooksRoute
   '/agent-studio/$botId': typeof AgentStudioBotIdRoute
@@ -338,6 +347,7 @@ export interface FileRouteTypes {
     | '/roles'
     | '/routing'
     | '/sandbox'
+    | '/treatment'
     | '/upsell'
     | '/webhooks'
     | '/agent-studio/$botId'
@@ -370,6 +380,7 @@ export interface FileRouteTypes {
     | '/roles'
     | '/routing'
     | '/sandbox'
+    | '/treatment'
     | '/upsell'
     | '/webhooks'
     | '/agent-studio/$botId'
@@ -404,6 +415,7 @@ export interface FileRouteTypes {
     | '/roles'
     | '/routing'
     | '/sandbox'
+    | '/treatment'
     | '/upsell'
     | '/webhooks'
     | '/agent-studio/$botId'
@@ -439,6 +451,7 @@ export interface RootRouteChildren {
   RolesRoute: typeof RolesRoute
   RoutingRoute: typeof RoutingRoute
   SandboxRoute: typeof SandboxRoute
+  TreatmentRoute: typeof TreatmentRoute
   UpsellRoute: typeof UpsellRoute
   WebhooksRoute: typeof WebhooksRoute
 }
@@ -613,6 +626,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SandboxRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/treatment': {
+      id: '/treatment'
+      path: '/treatment'
+      fullPath: '/treatment'
+      preLoaderRoute: typeof TreatmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/upsell': {
       id: '/upsell'
       path: '/upsell'
@@ -729,6 +749,7 @@ const rootRouteChildren: RootRouteChildren = {
   RolesRoute: RolesRoute,
   RoutingRoute: RoutingRoute,
   SandboxRoute: SandboxRoute,
+  TreatmentRoute: TreatmentRoute,
   UpsellRoute: UpsellRoute,
   WebhooksRoute: WebhooksRoute,
 }

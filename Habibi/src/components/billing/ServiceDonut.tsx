@@ -43,7 +43,10 @@ export function ServiceDonut({ data, services }: { data: DayPoint[]; services: S
             const pct = grand > 0 ? Math.round((r.value / grand) * 100) : 0;
             return (
               <div key={r.name} className="flex items-center gap-100">
-                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: r.color }}
+                />
                 <span className="flex-1 font-medium text-text">{r.name}</span>
                 <span className="font-mono text-text-subtle">{inrCompact(r.value)}</span>
                 <span className="w-400 text-right text-body-small text-text-subtlest">{pct}%</span>

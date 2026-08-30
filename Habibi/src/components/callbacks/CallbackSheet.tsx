@@ -35,7 +35,13 @@ import {
 type Tab = "details" | "reminders" | "timeline" | "outcome";
 
 const CHANNELS: CbChannel[] = ["whatsapp", "sms", "email"];
-const DISPOS: CbDisposition[] = ["reached", "no_answer", "ptp_captured", "not_interested", "callback_again"];
+const DISPOS: CbDisposition[] = [
+  "reached",
+  "no_answer",
+  "ptp_captured",
+  "not_interested",
+  "callback_again",
+];
 const PRIORITIES: CbPriority[] = ["low", "normal", "high", "urgent"];
 
 function localDateTimeInput(iso: string) {
@@ -55,7 +61,9 @@ interface Props {
 }
 
 export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Props) {
-  const [tab, setTab] = useState<Tab>(cb.status === "in_progress" || cb.status === "completed" ? "outcome" : "details");
+  const [tab, setTab] = useState<Tab>(
+    cb.status === "in_progress" || cb.status === "completed" ? "outcome" : "details",
+  );
   const [rescheduleAt, setRescheduleAt] = useState(localDateTimeInput(cb.scheduledAt));
   const [disposition, setDisposition] = useState<CbDisposition>(cb.disposition ?? "reached");
   const [notes, setNotes] = useState(cb.outcomeNotes ?? "");
@@ -86,7 +94,10 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
   const useNextAllowed = () => {
     const iso = nextAllowedSlot(cb, new Date(cb.scheduledAt));
     setRescheduleAt(localDateTimeInput(iso));
-    void run(() => rescheduleCallback(cb, iso), `Moved to next DND-safe slot · ${fmtLongDate(iso)}`);
+    void run(
+      () => rescheduleCallback(cb, iso),
+      `Moved to next DND-safe slot · ${fmtLongDate(iso)}`,
+    );
   };
 
   const doAssign = (a: string) => {
@@ -121,7 +132,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
   };
 
   const rescheduleIsDnd = isWithinDndWindow(cb, new Date(rescheduleAt).toISOString());
-  const assigneeOptions = [...new Set(assignees.includes(cb.assignee) ? assignees : [cb.assignee, ...assignees])];
+  const assigneeOptions = [
+    ...new Set(assignees.includes(cb.assignee) ? assignees : [cb.assignee, ...assignees]),
+  ];
   const queueOptions = [...new Set(queues.includes(cb.queue) ? queues : [cb.queue, ...queues])];
 
   return (
@@ -132,27 +145,42 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
           <div className="flex items-start justify-between gap-100">
             <div className="min-w-0">
               <div className="flex items-center gap-100">
-                <Link to="/customers/$customerId" params={{ customerId: cb.customerId }} className="truncate text-[0.875rem] font-semibold text-text hover:underline">
+                <Link
+                  to="/customers/$customerId"
+                  params={{ customerId: cb.customerId }}
+                  className="truncate text-body font-semibold text-text hover:underline"
+                >
                   {cb.customerName}
                 </Link>
-                <span className="text-body-small text-text-subtlest">····{cb.accountTail} · {cb.id}</span>
+                <span className="text-body-small text-text-subtlest">
+                  ····{cb.accountTail} · {cb.id}
+                </span>
               </div>
               <div className="mt-025 flex flex-wrap items-center gap-075 text-body-small text-text-subtle">
-                <span className="inline-flex items-center gap-050"><SIcon className="h-3 w-3" /> {SOURCE_LABELS[cb.source]}</span>
+                <span className="inline-flex items-center gap-050">
+                  <SIcon className="h-3 w-3" /> {SOURCE_LABELS[cb.source]}
+                </span>
                 <span>·</span>
                 <span>{REASON_LABELS[cb.reason]}</span>
                 <span>·</span>
                 <span>{cb.customerTimezone}</span>
               </div>
             </div>
-            <Button variant="ghost" size="sm" className="h-400 w-400 shrink-0 p-0" onClick={onClose}><X className="h-4 w-4" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-400 w-400 shrink-0 p-0"
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
 
           <div className="mt-100 flex flex-wrap items-center gap-100">
-            <Lozenge tone={STATUS_TONE[cb.status]}>
-              {STATUS_LABELS[cb.status]}
-            </Lozenge>
-            <span className="text-body-small text-text-subtlest tabular-nums">{fmtLongDate(cb.scheduledAt)} · {cb.windowMins}m window</span>
+            <Lozenge tone={STATUS_TONE[cb.status]}>{STATUS_LABELS[cb.status]}</Lozenge>
+            <span className="text-body-small text-text-subtlest tabular-nums">
+              {fmtLongDate(cb.scheduledAt)} · {cb.windowMins}m window
+            </span>
             {dndAtCurrent && (
               <Lozenge tone="warning">
                 <AlertTriangle className="h-3 w-3" /> Inside DND window
@@ -174,7 +202,15 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
               </Link>
             )}
             {cb.status !== "completed" && cb.status !== "cancelled" && (
-              <Button size="sm" variant="ghost" className="h-400 text-body-small text-text-danger" onClick={doCancel} disabled={busy}>Cancel</Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-400 text-body-small text-text-danger"
+                onClick={doCancel}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
             )}
           </div>
         </div>
@@ -186,7 +222,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
               onClick={() => setTab(t)}
               className={cn(
                 "rounded-t-md px-150 py-075 text-body-small capitalize",
-                tab === t ? "bg-background-brand-subtlest text-text-brand font-semibold" : "text-text-subtle hover:bg-surface-sunken",
+                tab === t
+                  ? "bg-background-brand-subtlest text-text-brand font-semibold"
+                  : "text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {t}
@@ -198,7 +236,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
           {tab === "details" && (
             <div className="space-y-200 text-body-small">
               <section>
-                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Why they asked</div>
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  Why they asked
+                </div>
                 <div className="rounded-medium border border-border bg-surface-sunken/40 px-150 py-100 italic text-text-subtle">
                   {cb.transcriptSnippet || "(no snippet)"}
                 </div>
@@ -206,29 +246,43 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
 
               <section className="grid grid-cols-2 gap-150">
                 <div>
-                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">Queue</div>
+                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                    Queue
+                  </div>
                   <select
                     value={cb.queue}
                     onChange={(e) => doQueue(e.target.value)}
                     disabled={busy}
                     className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
                   >
-                    {queueOptions.map((q) => <option key={q} value={q}>{q}</option>)}
+                    {queueOptions.map((q) => (
+                      <option key={q} value={q}>
+                        {q}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">Assignee</div>
+                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                    Assignee
+                  </div>
                   <select
                     value={cb.assignee}
                     onChange={(e) => doAssign(e.target.value)}
                     disabled={busy}
                     className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
                   >
-                    {assigneeOptions.map((a) => <option key={a} value={a}>{a}</option>)}
+                    {assigneeOptions.map((a) => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">Priority</div>
+                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                    Priority
+                  </div>
                   <div className="flex gap-050">
                     {PRIORITIES.map((p) => (
                       <button
@@ -237,7 +291,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                         onClick={() => doPriority(p)}
                         className={cn(
                           "flex-1 rounded-medium border px-050 py-050 text-body-small",
-                          cb.priority === p ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold" : "border-border text-text-subtle hover:bg-surface-sunken",
+                          cb.priority === p
+                            ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold"
+                            : "border-border text-text-subtle hover:bg-surface-sunken",
                         )}
                       >
                         {PRIORITY_LABELS[p]}
@@ -246,7 +302,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                   </div>
                 </div>
                 <div>
-                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">Preferred window</div>
+                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                    Preferred window
+                  </div>
                   <div className="h-400 rounded-medium border border-border bg-surface-sunken/30 px-100 flex items-center text-body-small text-text-subtle">
                     {cb.preferredWindow}
                   </div>
@@ -254,7 +312,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
               </section>
 
               <section>
-                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Reschedule</div>
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  Reschedule
+                </div>
                 <div className="flex flex-wrap items-center gap-100">
                   <input
                     type="datetime-local"
@@ -263,15 +323,30 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                     disabled={busy}
                     className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
                   />
-                  <Button size="sm" className="h-400 text-body-small" onClick={doReschedule} disabled={busy}>Save</Button>
+                  <Button
+                    size="sm"
+                    className="h-400 text-body-small"
+                    onClick={doReschedule}
+                    disabled={busy}
+                  >
+                    Save
+                  </Button>
                   {rescheduleIsDnd && (
-                    <Button size="sm" variant="outline" className="h-400 text-body-small border-border-warning text-text-warning-bolder" onClick={useNextAllowed} disabled={busy}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-400 text-body-small border-border-warning text-text-warning-bolder"
+                      onClick={useNextAllowed}
+                      disabled={busy}
+                    >
                       <AlertTriangle className="mr-050 h-3 w-3" /> Use next DND-safe slot
                     </Button>
                   )}
                 </div>
                 {rescheduleIsDnd && (
-                  <div className="mt-050 text-body-small text-text-warning-bolder">This slot is outside the customer's preferred window ({cb.preferredWindow}).</div>
+                  <div className="mt-050 text-body-small text-text-warning-bolder">
+                    This slot is outside the customer's preferred window ({cb.preferredWindow}).
+                  </div>
                 )}
               </section>
             </div>
@@ -281,7 +356,14 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
             <div className="space-y-150 text-body-small">
               <div className="flex flex-wrap gap-075">
                 {CHANNELS.map((c) => (
-                  <Button key={c} size="sm" variant="outline" className="h-400 text-body-small" onClick={() => doReminder(c)} disabled={busy}>
+                  <Button
+                    key={c}
+                    size="sm"
+                    variant="outline"
+                    className="h-400 text-body-small"
+                    onClick={() => doReminder(c)}
+                    disabled={busy}
+                  >
                     <Send className="mr-050 h-3 w-3" /> Send {CHANNEL_LABELS[c]}
                   </Button>
                 ))}
@@ -292,20 +374,33 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                 </div>
                 <ul className="divide-y divide-border">
                   {cb.reminders.map((r, i) => (
-                    <li key={i} className="flex items-center justify-between px-150 py-100 text-body-small">
+                    <li
+                      key={i}
+                      className="flex items-center justify-between px-150 py-100 text-body-small"
+                    >
                       <div>
                         <div className="font-medium text-text">{CHANNEL_LABELS[r.channel]}</div>
-                        <div className="text-body-small text-text-subtlest">{fmtLongDate(r.at)}</div>
+                        <div className="text-body-small text-text-subtlest">
+                          {fmtLongDate(r.at)}
+                        </div>
                       </div>
                       <Lozenge
-                        tone={r.status === "sent" ? "success" : r.status === "queued" ? "neutral" : "selected"}
+                        tone={
+                          r.status === "sent"
+                            ? "success"
+                            : r.status === "queued"
+                              ? "neutral"
+                              : "selected"
+                        }
                       >
                         {r.status}
                       </Lozenge>
                     </li>
                   ))}
                   {cb.reminders.length === 0 && (
-                    <li className="px-150 py-200 text-center text-text-subtlest text-body-small">No reminders sent yet.</li>
+                    <li className="px-150 py-200 text-center text-text-subtlest text-body-small">
+                      No reminders sent yet.
+                    </li>
                   )}
                 </ul>
               </div>
@@ -316,13 +411,24 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
             <ol className="space-y-100 text-body-small">
               {[...cb.events].reverse().map((e, i) => (
                 <li key={i} className="flex gap-100">
-                  <div className={cn(
-                    "mt-050 h-100 w-100 shrink-0 rounded-full",
-                    e.tone === "success" ? "bg-background-success-bold" : e.tone === "danger" ? "bg-background-danger-bold" : e.tone === "warn" ? "bg-background-warning-bold" : "bg-background-brand-bold",
-                  )} />
+                  <div
+                    className={cn(
+                      "mt-050 h-100 w-100 shrink-0 rounded-full",
+                      e.tone === "success"
+                        ? "bg-background-success-bold"
+                        : e.tone === "danger"
+                          ? "bg-background-danger-bold"
+                          : e.tone === "warn"
+                            ? "bg-background-warning-bold"
+                            : "bg-background-brand-bold",
+                    )}
+                  />
                   <div className="min-w-0">
                     <div className="text-text">{e.label}</div>
-                    <div className="text-body-small text-text-subtlest">{fmtLongDate(e.at)}{e.actor ? ` · ${e.actor}` : ""}</div>
+                    <div className="text-body-small text-text-subtlest">
+                      {fmtLongDate(e.at)}
+                      {e.actor ? ` · ${e.actor}` : ""}
+                    </div>
                   </div>
                 </li>
               ))}
@@ -333,11 +439,14 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
             <div className="space-y-150 text-body-small">
               {cb.status !== "in_progress" && cb.status !== "completed" && (
                 <div className="rounded-medium border border-border bg-surface-sunken/40 px-150 py-100 text-text-subtle">
-                  Outcome is captured once the call is in progress or completed. Use <em>Start call</em> above.
+                  Outcome is captured once the call is in progress or completed. Use{" "}
+                  <em>Start call</em> above.
                 </div>
               )}
               <div>
-                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Disposition</div>
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  Disposition
+                </div>
                 <div className="flex flex-wrap gap-075">
                   {DISPOS.map((d) => (
                     <button
@@ -346,7 +455,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                       disabled={busy}
                       className={cn(
                         "rounded-medium border px-100 py-050 text-body-small",
-                        disposition === d ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold" : "border-border text-text-subtle hover:bg-surface-sunken",
+                        disposition === d
+                          ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold"
+                          : "border-border text-text-subtle hover:bg-surface-sunken",
                       )}
                     >
                       {DISPOSITION_LABELS[d]}
@@ -355,7 +466,9 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                 </div>
               </div>
               <div>
-                <div className="mb-050 text-body-small font-semibold text-text-subtlest">CRM note</div>
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  CRM note
+                </div>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}

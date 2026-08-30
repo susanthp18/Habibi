@@ -97,6 +97,12 @@ def test_build_tools_constructs(tools: dict) -> None:
         "flag_dispute",
         "evaluate_authority",
         "apply_goodwill",
+        # Why the borrower has not paid, as a code rather than a paragraph.
+        # Skill-gated (see intersect.SKILL_GATED_TOOLS) so it costs nothing in
+        # the idle prompt, and node-local on the position/hub nodes where the
+        # reason is actually given.
+        "capture_nonpayment_reason",
+        "set_contact_preference",
         # offers — the engine chooses, the model only speaks
         "recommend_next_offer",
         "check_product_eligibility",

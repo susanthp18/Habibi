@@ -58,7 +58,15 @@ export function SentimentTimeline({ points, duration, currentTime, markers = [],
         >
           <line x1={0} y1={h / 2} x2={w} y2={h / 2} stroke="var(--border)" strokeWidth={0.25} />
           <path d={area} fill={stroke} opacity={0.12} />
-          <path d={path} fill="none" stroke={stroke} strokeWidth={1.1} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d={path}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={1.1}
+            vectorEffect="non-scaling-stroke"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
           {markers.map((m, i) => (
             <line
               key={i}

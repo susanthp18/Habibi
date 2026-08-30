@@ -7,6 +7,7 @@ import { IntegrationsHeader } from "@/components/integrations/IntegrationsHeader
 import { PipelineBanner } from "@/components/integrations/PipelineBanner";
 import { ProviderCard } from "@/components/integrations/ProviderCard";
 import { ProviderDrawer } from "@/components/integrations/ProviderDrawer";
+import { PoolHealthStrip } from "@/components/integrations/PoolHealthStrip";
 import {
   ConnectorsPanel,
   GatewayPanel,
@@ -29,9 +30,17 @@ export const Route = createFileRoute("/integrations")({
   head: () => ({
     meta: [
       { title: "Integrations & API Connections — BigBound AI" },
-      { name: "description", content: "Manage LLM, STT, TTS, telephony, WhatsApp and core-banking keys that back the Pipecat voice AI stack." },
+      {
+        name: "description",
+        content:
+          "Manage LLM, STT, TTS, telephony, WhatsApp and core-banking keys that back the Pipecat voice AI stack.",
+      },
       { property: "og:title", content: "Integrations & API Connections — BigBound AI" },
-      { property: "og:description", content: "Provider health, credentials, usage and Pipecat wiring for the inbound collections bot." },
+      {
+        property: "og:description",
+        content:
+          "Provider health, credentials, usage and Pipecat wiring for the inbound collections bot.",
+      },
     ],
   }),
   component: IntegrationsPage,
@@ -118,7 +127,16 @@ function IntegrationsPage() {
       return entry;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Connection test failed");
-      return { ok: false, latencyMs: 0, message: "Test failed", providerId: p.id, env, at: new Date().toISOString(), id: `err-${Date.now()}`, payload: undefined } satisfies TestLogEntry;
+      return {
+        ok: false,
+        latencyMs: 0,
+        message: "Test failed",
+        providerId: p.id,
+        env,
+        at: new Date().toISOString(),
+        id: `err-${Date.now()}`,
+        payload: undefined,
+      } satisfies TestLogEntry;
     } finally {
       setTestingIds((prev) => {
         const n = new Set(prev);
@@ -205,46 +223,48 @@ function IntegrationsPage() {
             {consoleTab === "gateway" && <GatewayPanel />}
             {consoleTab === "providers" &&
               (isLoading && providers.length === 0 ? (
-              <div className="flex justify-center py-600">
-                <LoadingState label="Loading integrations" />
-              </div>
-            ) : (
-              <>
-                <PipelineBanner env={env} onOpen={setSelectedId} providers={providers} />
-
-                <div className="flex flex-wrap items-center gap-075">
-                  {categories.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setCategory(c)}
-                      className={cn(
-                        "rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
-                        category === c
-                          ? "border-border-brand bg-background-brand-subtlest text-text-brand"
-                          : "border-border bg-surface text-text-subtle hover:border-border-brand/40",
-                      )}
-                    >
-                      {c}
-                    </button>
-                  ))}
+                <div className="flex justify-center py-600">
+                  <LoadingState label="Loading integrations" />
                 </div>
+              ) : (
+                <>
+                  <PoolHealthStrip />
 
-                <div className="grid grid-cols-1 gap-150 md:grid-cols-2 xl:grid-cols-3">
-                  {filtered.map((p) => (
-                    <ProviderCard
-                      key={p.id}
-                      provider={p}
-                      env={env}
-                      selected={selectedId === p.id}
-                      testing={testingIds.has(p.id)}
-                      onOpen={() => setSelectedId(p.id)}
-                      onTest={() => void runOne(p)}
-                      onToggle={(v) => toggleProvider(p.id, v)}
-                    />
-                  ))}
-                </div>
-              </>
-            ))}
+                  <PipelineBanner env={env} onOpen={setSelectedId} providers={providers} />
+
+                  <div className="flex flex-wrap items-center gap-075">
+                    {categories.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setCategory(c)}
+                        className={cn(
+                          "rounded-full border px-150 py-050 text-body-small font-medium transition-colors",
+                          category === c
+                            ? "border-border-brand bg-background-brand-subtlest text-text-brand"
+                            : "border-border bg-surface text-text-subtle hover:border-border-brand/40",
+                        )}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-150 md:grid-cols-2 xl:grid-cols-3">
+                    {filtered.map((p) => (
+                      <ProviderCard
+                        key={p.id}
+                        provider={p}
+                        env={env}
+                        selected={selectedId === p.id}
+                        testing={testingIds.has(p.id)}
+                        onOpen={() => setSelectedId(p.id)}
+                        onTest={() => void runOne(p)}
+                        onToggle={(v) => toggleProvider(p.id, v)}
+                      />
+                    ))}
+                  </div>
+                </>
+              ))}
           </div>
         </div>
 

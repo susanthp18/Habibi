@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Activity, Beaker, FileText, FlaskConical, Gauge, Layers, LineChart, Radio, Wrench } from "lucide-react";
+import {
+  Activity,
+  Beaker,
+  FileText,
+  FlaskConical,
+  Gauge,
+  Layers,
+  LineChart,
+  Radio,
+  Wrench,
+} from "lucide-react";
 import type { SandboxTurn } from "@/data/sandbox-seed";
 import { RetrievalTab } from "./inspector/RetrievalTab";
 import { IntentTab } from "./inspector/IntentTab";
@@ -13,7 +23,16 @@ import { EMPTY_INSIGHTS, type LiveCallInsights } from "./voice/liveEvents";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 
-type Tab = "retrieval" | "tools" | "intent" | "sentiment" | "trace" | "metrics" | "twin" | "evals" | "context";
+type Tab =
+  | "retrieval"
+  | "tools"
+  | "intent"
+  | "sentiment"
+  | "trace"
+  | "metrics"
+  | "twin"
+  | "evals"
+  | "context";
 
 type Props = {
   turns: SandboxTurn[];
@@ -52,9 +71,7 @@ export function InspectorPanel({
     { key: "metrics", label: "Metrics", icon: Gauge },
     { key: "twin", label: "Twin", icon: Beaker },
     { key: "evals", label: "Evals", icon: FlaskConical },
-    ...(contextAllowed
-      ? [{ key: "context" as const, label: "Context", icon: FileText }]
-      : []),
+    ...(contextAllowed ? [{ key: "context" as const, label: "Context", icon: FileText }] : []),
   ];
 
   return (

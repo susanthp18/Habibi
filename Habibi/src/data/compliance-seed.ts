@@ -4,7 +4,8 @@ import { calls, type CallRecord, type TranscriptTurn } from "./audit-seed";
 export type Severity = "critical" | "high" | "medium" | "low";
 export type ViolationStatus = "open" | "in_review" | "acknowledged" | "resolved";
 export type ActorKind = "bot" | "human";
-export type RuleCategory = "disclosure" | "prohibited-language" | "consent" | "verification" | "sentiment";
+export type RuleCategory =
+  "disclosure" | "prohibited-language" | "consent" | "verification" | "sentiment";
 
 export interface ComplianceRule {
   id: string;
@@ -42,20 +43,100 @@ export interface Violation {
 }
 
 export const RULES: ComplianceRule[] = [
-  { id: "r-rec", code: "RBI-DISC-01", label: "Missed call recording notice", category: "disclosure", severity: "high", description: "Agent/bot must announce the call is recorded within the first 15 seconds." },
-  { id: "r-mm", code: "RBI-DISC-02", label: "Missed Mini-Miranda disclosure", category: "disclosure", severity: "critical", description: "Debt collection identification is mandatory on every outbound collections call." },
-  { id: "r-dnd-disc", code: "RBI-DISC-03", label: "Missed DND / opt-out reminder", category: "disclosure", severity: "medium", description: "Customer must be reminded of the DND / opt-out channel on every substantive interaction." },
-  { id: "r-disp", code: "RBI-DISC-04", label: "Missed right-to-dispute notice", category: "disclosure", severity: "medium", description: "Customer must be informed of their right to dispute the debt." },
-  { id: "r-threat", code: "PROH-LANG-01", label: "Threatening language", category: "prohibited-language", severity: "critical", description: "Any language implying arrest, harm, or unlawful consequence is prohibited." },
-  { id: "r-abuse", code: "PROH-LANG-02", label: "Abusive / disrespectful tone", category: "prohibited-language", severity: "high", description: "Profanity, insults, or demeaning language toward the customer." },
-  { id: "r-false", code: "PROH-LANG-03", label: "False legal claim", category: "prohibited-language", severity: "critical", description: "Misrepresenting legal status, court action, or credit-bureau consequences." },
-  { id: "r-guarantee", code: "PROH-LANG-04", label: "Guarantee-of-outcome claim", category: "prohibited-language", severity: "medium", description: "Promising waivers, settlements, or approvals without authority." },
-  { id: "r-dnd-win", code: "CONSENT-01", label: "Contact outside DND window", category: "consent", severity: "high", description: "Outbound attempt made during customer's declared quiet hours." },
-  { id: "r-verify", code: "VERIFY-01", label: "Skipped identity verification", category: "verification", severity: "high", description: "Account details disclosed before verifying the caller's identity." },
-  { id: "r-distress", code: "SENT-01", label: "Customer distress not addressed", category: "sentiment", severity: "medium", description: "Sentiment dropped sharply without agent empathy or de-escalation." },
+  {
+    id: "r-rec",
+    code: "RBI-DISC-01",
+    label: "Missed call recording notice",
+    category: "disclosure",
+    severity: "high",
+    description: "Agent/bot must announce the call is recorded within the first 15 seconds.",
+  },
+  {
+    id: "r-mm",
+    code: "RBI-DISC-02",
+    label: "Missed Mini-Miranda disclosure",
+    category: "disclosure",
+    severity: "critical",
+    description: "Debt collection identification is mandatory on every outbound collections call.",
+  },
+  {
+    id: "r-dnd-disc",
+    code: "RBI-DISC-03",
+    label: "Missed DND / opt-out reminder",
+    category: "disclosure",
+    severity: "medium",
+    description:
+      "Customer must be reminded of the DND / opt-out channel on every substantive interaction.",
+  },
+  {
+    id: "r-disp",
+    code: "RBI-DISC-04",
+    label: "Missed right-to-dispute notice",
+    category: "disclosure",
+    severity: "medium",
+    description: "Customer must be informed of their right to dispute the debt.",
+  },
+  {
+    id: "r-threat",
+    code: "PROH-LANG-01",
+    label: "Threatening language",
+    category: "prohibited-language",
+    severity: "critical",
+    description: "Any language implying arrest, harm, or unlawful consequence is prohibited.",
+  },
+  {
+    id: "r-abuse",
+    code: "PROH-LANG-02",
+    label: "Abusive / disrespectful tone",
+    category: "prohibited-language",
+    severity: "high",
+    description: "Profanity, insults, or demeaning language toward the customer.",
+  },
+  {
+    id: "r-false",
+    code: "PROH-LANG-03",
+    label: "False legal claim",
+    category: "prohibited-language",
+    severity: "critical",
+    description: "Misrepresenting legal status, court action, or credit-bureau consequences.",
+  },
+  {
+    id: "r-guarantee",
+    code: "PROH-LANG-04",
+    label: "Guarantee-of-outcome claim",
+    category: "prohibited-language",
+    severity: "medium",
+    description: "Promising waivers, settlements, or approvals without authority.",
+  },
+  {
+    id: "r-dnd-win",
+    code: "CONSENT-01",
+    label: "Contact outside DND window",
+    category: "consent",
+    severity: "high",
+    description: "Outbound attempt made during customer's declared quiet hours.",
+  },
+  {
+    id: "r-verify",
+    code: "VERIFY-01",
+    label: "Skipped identity verification",
+    category: "verification",
+    severity: "high",
+    description: "Account details disclosed before verifying the caller's identity.",
+  },
+  {
+    id: "r-distress",
+    code: "SENT-01",
+    label: "Customer distress not addressed",
+    category: "sentiment",
+    severity: "medium",
+    description: "Sentiment dropped sharply without agent empathy or de-escalation.",
+  },
 ];
 
-export const RULES_BY_ID: Record<string, ComplianceRule> = Object.fromEntries(RULES.map((r) => [r.id, r]));
+export const RULES_BY_ID: Record<string, ComplianceRule> = Object.fromEntries(
+  RULES.map((r) => [r.id, r]),
+);
 
 // Deterministic PRNG for reproducibility.
 function rng(seed: string) {
@@ -76,24 +157,37 @@ function rng(seed: string) {
 // Synthetic prohibited-language snippets attached to select calls.
 const PROHIBITED_SNIPPETS: Record<string, { rule: string; text: string }[]> = {
   threat: [
-    { rule: "r-threat", text: "If you don't pay by tomorrow, we'll send police to your home address." },
+    {
+      rule: "r-threat",
+      text: "If you don't pay by tomorrow, we'll send police to your home address.",
+    },
     { rule: "r-threat", text: "You'll be arrested if this stays unpaid — I'm warning you." },
   ],
   abuse: [
-    { rule: "r-abuse", text: "This is the third call — are you even listening to me? Stop being difficult." },
+    {
+      rule: "r-abuse",
+      text: "This is the third call — are you even listening to me? Stop being difficult.",
+    },
     { rule: "r-abuse", text: "You people never pay on time, honestly." },
   ],
   false: [
-    { rule: "r-false", text: "A court notice has already been issued in your name — I'm just informing you." },
+    {
+      rule: "r-false",
+      text: "A court notice has already been issued in your name — I'm just informing you.",
+    },
     { rule: "r-false", text: "Your CIBIL score is now zero. It cannot be recovered." },
   ],
   guarantee: [
-    { rule: "r-guarantee", text: "I can guarantee a 100% waiver if you pay ₹5,000 in the next hour." },
+    {
+      rule: "r-guarantee",
+      text: "I can guarantee a 100% waiver if you pay ₹5,000 in the next hour.",
+    },
   ],
 };
 
 function actorFrom(call: CallRecord): { kind: ActorKind; name: string } {
-  if (call.handledBy.kind === "bot") return { kind: "bot", name: call.handledBy.bot ?? "BigBound v2.4" };
+  if (call.handledBy.kind === "bot")
+    return { kind: "bot", name: call.handledBy.bot ?? "BigBound v2.4" };
   if (call.handledBy.agent) return { kind: "human", name: call.handledBy.agent };
   return { kind: "bot", name: call.handledBy.bot ?? "BigBound v2.4" };
 }
@@ -135,15 +229,23 @@ function build(): Violation[] {
     for (const d of call.disclosures) {
       if (d.read) continue;
       const ruleId =
-        d.id === "recording" ? "r-rec" :
-        d.id === "mini-miranda" ? "r-mm" :
-        d.id === "dnd" ? "r-dnd-disc" :
-        "r-disp";
+        d.id === "recording"
+          ? "r-rec"
+          : d.id === "mini-miranda"
+            ? "r-mm"
+            : d.id === "dnd"
+              ? "r-dnd-disc"
+              : "r-disp";
       const rule = RULES_BY_ID[ruleId]!;
       const offending = pickTurn(call, rand);
       if (!offending) continue;
       // Only emit for substantive calls, not DND/NoAnswer/Voicemail.
-      if (call.disposition === "No Answer" || call.disposition === "Voicemail" || call.disposition === "DND — Not Contacted") continue;
+      if (
+        call.disposition === "No Answer" ||
+        call.disposition === "Voicemail" ||
+        call.disposition === "DND — Not Contacted"
+      )
+        continue;
       const status = makeStatus(rand);
       out.push({
         id: `V-${(20000 + n++).toString()}`,
@@ -162,22 +264,40 @@ function build(): Violation[] {
         },
         status,
         assignee: status !== "open" ? REVIEWERS[Math.floor(rand() * REVIEWERS.length)] : undefined,
-        notes: status === "resolved"
-          ? [{ at: call.startedAt, author: REVIEWERS[0]!, text: "Coached agent; disclosure script re-issued." }]
-          : [],
+        notes:
+          status === "resolved"
+            ? [
+                {
+                  at: call.startedAt,
+                  author: REVIEWERS[0]!,
+                  text: "Coached agent; disclosure script re-issued.",
+                },
+              ]
+            : [],
       });
     }
 
     // 2) Prohibited language — for abuse/escalation-flagged calls.
     if (call.flags.includes("abuse-detected") || call.flags.includes("escalation")) {
-      const bucket = call.flags.includes("abuse-detected") ? "abuse" : rand() < 0.4 ? "threat" : "false";
+      const bucket = call.flags.includes("abuse-detected")
+        ? "abuse"
+        : rand() < 0.4
+          ? "threat"
+          : "false";
       const options = PROHIBITED_SNIPPETS[bucket]!;
       const snip = options[Math.floor(rand() * options.length)]!;
       const rule = RULES_BY_ID[snip.rule]!;
-      const speakerTurns = call.transcript.filter((t) => t.speaker === "agent" || t.speaker === "bot");
+      const speakerTurns = call.transcript.filter(
+        (t) => t.speaker === "agent" || t.speaker === "bot",
+      );
       const anchor = speakerTurns[Math.min(2, speakerTurns.length - 1)] ?? call.transcript[0];
       if (!anchor) continue;
-      const synthetic: TranscriptTurn = { id: `${anchor.id}-syn`, t: anchor.t + 4, speaker: anchor.speaker, text: snip.text };
+      const synthetic: TranscriptTurn = {
+        id: `${anchor.id}-syn`,
+        t: anchor.t + 4,
+        speaker: anchor.speaker,
+        text: snip.text,
+      };
       const status = makeStatus(rand);
       out.push({
         id: `V-${(20000 + n++).toString()}`,
@@ -212,7 +332,8 @@ function build(): Violation[] {
           actor: actorFrom(call),
           evidence: evidenceFrom(call, offending),
           status,
-          assignee: status !== "open" ? REVIEWERS[Math.floor(rand() * REVIEWERS.length)] : undefined,
+          assignee:
+            status !== "open" ? REVIEWERS[Math.floor(rand() * REVIEWERS.length)] : undefined,
           notes: [],
         });
       }
@@ -234,24 +355,38 @@ export function severityWeight(s: Severity): number {
 
 export function severityColor(s: Severity): string {
   switch (s) {
-    case "critical": return "var(--danger)";
-    case "high": return "var(--warning)";
-    case "medium": return "var(--sentiment-neutral)";
-    case "low": return "var(--text-muted)";
+    case "critical":
+      return "var(--danger)";
+    case "high":
+      return "var(--warning)";
+    case "medium":
+      return "var(--sentiment-neutral)";
+    case "low":
+      return "var(--text-muted)";
   }
 }
 
 export function severityBg(s: Severity): string {
   switch (s) {
-    case "critical": return "var(--danger-bg)";
-    case "high": return "var(--warning-bg)";
-    case "medium": return "var(--warning-bg)";
-    case "low": return "var(--surface-sunken)";
+    case "critical":
+      return "var(--danger-bg)";
+    case "high":
+      return "var(--warning-bg)";
+    case "medium":
+      return "var(--warning-bg)";
+    case "low":
+      return "var(--surface-sunken)";
   }
 }
 
 export function statusLabel(s: ViolationStatus): string {
-  return s === "open" ? "Open" : s === "in_review" ? "In review" : s === "acknowledged" ? "Acknowledged" : "Resolved";
+  return s === "open"
+    ? "Open"
+    : s === "in_review"
+      ? "In review"
+      : s === "acknowledged"
+        ? "Acknowledged"
+        : "Resolved";
 }
 
 // ---------- filters ----------
@@ -280,9 +415,13 @@ export const defaultCompFilters: ComplianceFilterState = {
 export function filterViolations(all: Violation[], f: ComplianceFilterState): Violation[] {
   const now = Date.now();
   const cutoff =
-    f.dateRange === "today" ? now - 86400_000 :
-    f.dateRange === "7d" ? now - 7 * 86400_000 :
-    f.dateRange === "30d" ? now - 30 * 86400_000 : 0;
+    f.dateRange === "today"
+      ? now - 86400_000
+      : f.dateRange === "7d"
+        ? now - 7 * 86400_000
+        : f.dateRange === "30d"
+          ? now - 30 * 86400_000
+          : 0;
   const q = f.q.trim().toLowerCase();
   return all.filter((v) => {
     if (cutoff && new Date(v.occurredAt).getTime() < cutoff) return false;
@@ -292,15 +431,27 @@ export function filterViolations(all: Violation[], f: ComplianceFilterState): Vi
     if (f.agent !== "all" && v.actor.name !== f.agent) return false;
     if (f.status !== "all" && v.status !== f.status) return false;
     if (q) {
-      const hay = `${v.id} ${v.callId} ${v.customerName} ${v.actor.name} ${v.evidence.snippet} ${v.evidence.offending.text}`.toLowerCase();
+      const hay =
+        `${v.id} ${v.callId} ${v.customerName} ${v.actor.name} ${v.evidence.snippet} ${v.evidence.offending.text}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
   });
 }
 
-export function trendByDay(all: Violation[], days = 30): Array<{ day: string; critical: number; high: number; medium: number; low: number; total: number }> {
-  const buckets: Record<string, { critical: number; high: number; medium: number; low: number }> = {};
+export function trendByDay(
+  all: Violation[],
+  days = 30,
+): Array<{
+  day: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+}> {
+  const buckets: Record<string, { critical: number; high: number; medium: number; low: number }> =
+    {};
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   for (let i = days - 1; i >= 0; i--) {
@@ -319,7 +470,9 @@ export function trendByDay(all: Violation[], days = 30): Array<{ day: string; cr
   }));
 }
 
-export function groupByRule(all: Violation[]): Array<{ rule: ComplianceRule; count: number; open: number }> {
+export function groupByRule(
+  all: Violation[],
+): Array<{ rule: ComplianceRule; count: number; open: number }> {
   const map = new Map<string, { count: number; open: number }>();
   for (const v of all) {
     const cur = map.get(v.ruleId) ?? { count: 0, open: 0 };

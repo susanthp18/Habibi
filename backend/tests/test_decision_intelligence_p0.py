@@ -91,15 +91,21 @@ def _scored(*actions: str, evs: list[float] | None = None) -> list[scoring.Score
 # ---------------------------------------------------------------------------
 
 
-def test_the_default_configuration_is_a_deterministic_argmax() -> None:
+def test_the_default_configuration_is_a_deterministic_argmax(monkeypatch) -> None:
     """The whole of P0 is inert until an operator turns the dial.
 
     Exploration that arrives switched on is exploration nobody chose to run.
-    With ``TREATMENT_GREEDINESS`` at its default the engine picks the
-    top-ranked approved action, every time, and the only observable difference
-    from the engine that existed before this module is that the log now says
-    the odds were 1.0.
+    With ``TREATMENT_GREEDINESS`` unset the engine picks the top-ranked
+    approved action, every time, and the only observable difference from the
+    engine that existed before this module is that the log now says the odds
+    were 1.0.
+
+    The variable is deleted rather than left to the suite's own pinning
+    fixture, which would make this a test of the fixture. This deployment does
+    set it — that is a deployment decision, and this asserts what the code does
+    without one.
     """
+    monkeypatch.delenv("TREATMENT_GREEDINESS", raising=False)
     assert config.greediness() == 1.0
     approved = _scored(A.WHATSAPP, A.SMS, A.VOICE_BOT)
     for _ in range(25):
@@ -751,12 +757,69 @@ def test_the_sweep_decides_the_book_and_then_stops(db_tx, monkeypatch) -> None:
     assert after > before, "the sweep decided nobody"
 
     # Running it again on the same day must not decide anybody twice.
-    repeat = sweep.process_one(dbmod.engine)
-    twice = db_tx.execute(
-        text("SELECT count(*) FROM treatment_decisions WHERE trigger_kind = 'dpd_tick'")
+    #
+    # Asserted as the invariant rather than as "the second call returns False".
+    # That shortcut held only while the dev book fitted inside one BATCH: on a
+    # book of any real size the second call returns True because there is more
+    # book, which is the sweep working, not failing. It broke the moment a
+    # simulated corpus of 18,000 accounts was loaded — and it would have broken
+    # the same way on the first client with more than fifty delinquent
+    # borrowers, which is every client.
+    sweep.process_one(dbmod.engine)
+    duplicates = db_tx.execute(
+        text(
+            """
+            SELECT count(*) FROM (
+              SELECT customer_id, COALESCE(account_id, ''), trigger_ref
+              FROM treatment_decisions
+              WHERE trigger_kind = 'dpd_tick'
+                AND created_at >= now() - interval '2 days'
+              GROUP BY 1, 2, 3 HAVING count(*) > 1
+            ) AS d
+            """
+        )
     ).scalar()
-    assert repeat is False
-    assert twice == after
+    assert duplicates == 0, "the sweep decided an account twice for the same day"
+
+
+def test_the_sweep_reports_no_work_once_the_book_is_done(db_tx, monkeypatch) -> None:
+    """An exhausted sweep must return False, or it spins.
+
+    Split out from the idempotence test because the two properties need
+    different setups and conflating them made the first one book-size
+    dependent. This one drives the cursor to the end of the book directly
+    rather than sweeping the whole thing, so it is fast and true at any scale.
+
+    The property matters operationally: ``bot_worker`` treats True as "there was
+    work" and loops. A sweep that reported True on an empty tail would starve
+    the enact and followthrough loops beside it.
+    """
+    import db as dbmod
+    from agent_core.treatment import sweep
+
+    monkeypatch.setenv("TREATMENT_SWEEP", "1")
+    monkeypatch.setenv("TREATMENT_MODE", config.MODE_SHADOW)
+
+    with dbmod.engine.begin() as conn:
+        tenant = sweep._tenant(conn)
+        assert tenant is not None
+        # The largest account id there is, so the next claim (`a.id > cursor`)
+        # comes back empty. Read from the table rather than invented: the
+        # comparison runs under the database's collation, and a hand-written
+        # sentinel that looks obviously largest in Python may not be under ICU.
+        last = conn.execute(
+            text("SELECT max(a.id) FROM accounts a WHERE a.status = 'active' AND a.dpd > 0")
+        ).scalar()
+        assert last, "no delinquent accounts to sweep past"
+        sweep._write_cursor(conn, tenant, str(last))
+
+    assert sweep.process_one(dbmod.engine) is False
+
+    # ...and the tail resets the cursor, so tomorrow starts at the top of the
+    # book rather than at the bottom. ``_read_cursor`` normalises the empty
+    # string it was written to None, both meaning "start from the beginning".
+    with dbmod.engine.connect() as conn:
+        assert not sweep._read_cursor(conn, tenant)
 
 
 def test_every_sweep_decision_carries_the_columns_it_exists_for(db_tx, monkeypatch) -> None:

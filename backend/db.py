@@ -15,6 +15,8 @@ from typing import Any
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
+import contact_window
+import money_inr
 import tenant_context
 import visibility
 from env_utils import env_int as _env_int
@@ -642,9 +644,10 @@ def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str
         text(
             """
             INSERT INTO activity_events
-              (id, tenant_id, entity_type, entity_id, actor_kind, actor_user_id, kind, label, note)
+              (id, tenant_id, entity_type, entity_id, actor_kind, actor_user_id, kind, label, note, payload)
             VALUES
-              (:id, :tenant_id, :entity_type, :entity_id, 'human', :actor_user_id, :kind, :label, :note)
+              (:id, :tenant_id, :entity_type, :entity_id, 'human', :actor_user_id, :kind, :label, :note,
+               CAST(:payload AS jsonb))
             """
         ),
         {
@@ -655,7 +658,13 @@ def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str
             "actor_user_id": _actor_user_id(),
             "kind": kind,
             "label": label,
-            "note": note or customer_id,
+            # `note or customer_id` wrote `CUST-…` into the notes column of
+            # every event that had nothing to say — takeover, return-to-bot,
+            # inbound — and `note` is rendered as a human note on the customer,
+            # dispute and violation timelines. The id is still worth keeping;
+            # it belongs in the structured column.
+            "note": note,
+            "payload": json.dumps({"customerId": customer_id} if customer_id else {}),
         },
     )
 
@@ -903,22 +912,51 @@ def _sentiment_delta(score: float | None) -> str:
     return "flat"
 
 
-def _sla_label(value: str | None) -> str:
-    if not value:
-        return "Open"
-    try:
-        due = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return "Open"
-    now = datetime.now(timezone.utc)
-    if due.tzinfo is None:
-        due = due.replace(tzinfo=timezone.utc)
-    hours = round((due - now).total_seconds() / 3600)
-    if hours < 0:
-        return f"{abs(hours)}h overdue"
-    if hours < 24:
-        return f"{hours}h left"
-    return f"{round(hours / 24)}d left"
+# A dispute is at risk once less than a quarter of its filing→due window is
+# left, and breached the moment it passes due.
+DISPUTE_SLA_WARN_FRACTION = 0.25
+
+
+def _dispute_sla_countdown(seconds: float) -> str:
+    """Minutes-precise countdown: '0h 29m left', '0h 40m over'."""
+    total = abs(int(seconds))
+    hours, rem = divmod(total, 3600)
+    return f"{hours}h {rem // 60}m {'over' if seconds < 0 else 'left'}"
+
+
+def _dispute_sla(
+    sla_due_at: Any,
+    captured_at: Any,
+    status: str | None,
+) -> tuple[str, str, int]:
+    """Compute (sla, slaLabel, slaMinutes) for one dispute.
+
+    This is the only place a dispute SLA is turned into something a screen can
+    render. It used to be computed twice — here in hours ("23h left", no tone)
+    for the Customer 360 tab, and again in the client (disputes-seed.slaInfo)
+    in hours-and-minutes with a tone for the board — so the same dispute read
+    "0h 29m left / at risk" on one screen and "0h left / no colour" on the
+    other. The client copy is gone; both screens render these fields.
+
+    Shape mirrors :func:`_work_item_sla` — tone first, then the display string
+    — so "the SLA of a thing" means the same fields across the API.
+    ``slaMinutes`` is signed: positive is time remaining, negative is overdue.
+    """
+    if status in {"resolved", "rejected"}:
+        return "done", "Closed", 0
+    due = _as_utc(sla_due_at)
+    if due is None:
+        return "ok", "Open", 0
+    remaining = (due - datetime.now(timezone.utc)).total_seconds()
+    label = _dispute_sla_countdown(remaining)
+    minutes = int(remaining / 60)
+    if remaining < 0:
+        return "breach", label, minutes
+    captured = _as_utc(captured_at)
+    window = (due - captured).total_seconds() if captured else 0.0
+    if window > 0 and remaining < window * DISPUTE_SLA_WARN_FRACTION:
+        return "warn", label, minutes
+    return "ok", label, minutes
 
 
 def _base_customer_row(
@@ -1195,12 +1233,46 @@ def get_customer_insights(customer_id: str) -> dict[str, Any] | None:
         authority = authority_policy.snapshot(
             conn, customer_id=customer_id, tenant_id=_tenant()
         )
+        treatment = _treatment_snapshot(conn, customer_id)
     return derive_insights(
         customer,
         activity=activity or None,
         offer_policy=offer,
         authority_policy=authority,
+        treatment=treatment,
     )
+
+
+def _treatment_snapshot(conn: Any, customer_id: str) -> dict[str, Any] | None:
+    """What the decision engine would do for this borrower, right now.
+
+    The third policy on this card, and the one that was missing. It already
+    carried two real snapshots — the offer policy and the authority matrix —
+    while the "next best action" list beside them was a hand-written ladder
+    that consulted neither the contact policy nor the decision log.
+
+    Never raises, and returns None rather than a placeholder on failure: an
+    absent engine row leaves the card showing its case-handling items, which is
+    a degraded view. A fabricated one would be a wrong recommendation with a
+    rupee figure attached to it.
+
+    ``recommend_treatment`` writes a decision row, and that is deliberate — the
+    shadow corpus should be built from the questions people actually ask, and
+    somebody opening a customer is asking one. It enacts nothing outside live
+    mode, and the trigger kind says where the question came from.
+    """
+    try:
+        from agent_core.treatment import Trigger, recommend_treatment
+
+        result = recommend_treatment(
+            customer_id=customer_id,
+            trigger=Trigger(kind="manual"),
+            conn=conn,
+        )
+        return result.to_payload()
+    except Exception:
+        logger.exception("treatment snapshot failed for customer=%s", customer_id)
+        return None
 
 
 def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
@@ -1338,19 +1410,26 @@ def _dispute_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
             {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
         )
     )
-    return [
-        {
-            "id": r["id"],
-            "type": r["type"],
-            "amount": r["disputed_amount"],
-            "transcriptSnippet": r["transcript_snippet"] or "",
-            "status": r["status"],
-            "slaLabel": _sla_label(r["sla_due_at"]),
-            "filedAt": r["created_at"],
-            "assignee": r["assignee"],
-        }
-        for r in rows
-    ]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        sla, sla_label, sla_minutes = _dispute_sla(
+            r["sla_due_at"], r["created_at"], r["status"]
+        )
+        out.append(
+            {
+                "id": r["id"],
+                "type": r["type"],
+                "amount": r["disputed_amount"],
+                "transcriptSnippet": r["transcript_snippet"] or "",
+                "status": r["status"],
+                "sla": sla,
+                "slaLabel": sla_label,
+                "slaMinutes": sla_minutes,
+                "filedAt": r["created_at"],
+                "assignee": r["assignee"],
+            }
+        )
+    return out
 
 
 def _document_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
@@ -1737,24 +1816,11 @@ def _callback_reminder_status(status: str | None) -> str:
 def _outside_preferred_window(scheduled_at: str, preferred_window: str | None) -> bool:
     """True when the scheduled IST hour falls outside HH:MM–HH:MM preferred window.
 
-    Preferred windows in this product are expressed in IST; comparing against the
-    UTC hour of a timestamptz would falsely flag every morning slot as DND.
+    The rule itself lives in :mod:`contact_window` because ``agent_core``'s
+    code-mode script runs the same check and cannot import this module. It used
+    to hold its own copy, and the copy's default bounds had drifted.
     """
-    try:
-        at = datetime.fromisoformat(scheduled_at)
-    except ValueError:
-        return False
-    if at.tzinfo is None:
-        at = at.replace(tzinfo=timezone.utc)
-    local = at.astimezone(timezone(timedelta(hours=5, minutes=30)))
-    hour = local.hour
-    if not preferred_window:
-        return hour < 9 or hour >= 20
-    m = re.search(r"(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})", preferred_window)
-    if not m:
-        return hour < 9 or hour >= 20
-    start_h, end_h = int(m.group(1)), int(m.group(3))
-    return hour < start_h or hour >= end_h
+    return contact_window.outside_preferred_window(scheduled_at, preferred_window)
 
 
 def _callback_dnd_active(customer_dnd: bool, preferred_window: str | None, scheduled_at: str) -> bool:
@@ -2306,7 +2372,13 @@ def list_disputes(*, limit: int | None = None, offset: int | None = None) -> lis
         result = []
         for r in rows:
             captured = r["created_at"]
-            sla = r["sla_due_at"] or captured
+            due = r["sla_due_at"] or captured
+            # Tone is computed from the real due date, not the capturedAt
+            # fallback above: a dispute with no due date is "Open", the same
+            # answer the Customer 360 tab gives, not instantly breached.
+            sla, sla_label, sla_minutes = _dispute_sla(
+                r["sla_due_at"], captured, r["status"]
+            )
             evts = events.get(r["id"]) or [
                 {"at": captured, "label": "Dispute captured", "actor": None, "tone": "info"}
             ]
@@ -2323,7 +2395,10 @@ def list_disputes(*, limit: int | None = None, offset: int | None = None) -> lis
                     "transcriptSnippet": r["transcript_snippet"] or "",
                     "originConversationId": r["interaction_id"],
                     "capturedAt": captured,
-                    "slaDueAt": sla,
+                    "slaDueAt": due,
+                    "sla": sla,
+                    "slaLabel": sla_label,
+                    "slaMinutes": sla_minutes,
                     "status": r["status"],
                     "assignee": r["assignee"] or "Unassigned",
                     "priority": r["priority"] or "normal",
@@ -3106,15 +3181,15 @@ def _spark_from_series(values: list[float], *, points: int = 14) -> list[float]:
 
 
 def _inr_compact(amount: float | None) -> str:
-    """Indian money formatting. The dashboard rendered rupee balances as $X.XXM."""
-    value = float(amount or 0)
-    if abs(value) >= 10_000_000:
-        return f"₹{value / 10_000_000:.2f} Cr"
-    if abs(value) >= 100_000:
-        return f"₹{value / 100_000:.2f} L"
-    if abs(value) >= 1_000:
-        return f"₹{value / 1_000:.1f} K"
-    return f"₹{value:,.0f}"
+    """Compact Indian money. See money_inr.inr_compact for the canonical ladder.
+
+    Mirrors Habibi/src/data/billing-seed.ts::inrCompact exactly. The two used to
+    disagree twice over: this side printed "₹1.5 K" where the client printed
+    "₹1.5k", and — the one that mattered — this side floored every sub-rupee
+    amount to "₹0", which is precisely what main.py warns must not happen to a
+    metering figure.
+    """
+    return money_inr.inr_compact(amount)
 
 
 def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -> dict[str, Any]:
@@ -6624,10 +6699,18 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             status = _channel_status_from_patch(item)
             source = item.get("source") or "Agent"
             cap = item.get("frequencyCapPerWeek")
+            # Servicing unless the screen says otherwise. This is the only way a
+            # promotional consent can be captured, and it has to exist: a gate
+            # nobody can satisfy is not a compliance control, it is an outage
+            # with a paragraph number attached.
+            purpose = str(item.get("purpose") or "servicing").strip().lower()
+            if purpose not in ("servicing", "promotional"):
+                purpose = "servicing"
             params: dict[str, Any] = {
-                "id": f"{consent_id}-{channel_value}",
+                "id": f"{consent_id}-{channel_value}-{purpose}",
                 "consent_id": consent_id,
                 "channel": channel_value,
+                "purpose": purpose,
                 "status": status,
                 "source": source,
                 "cap": cap,
@@ -6636,11 +6719,12 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 text(
                     """
                     INSERT INTO channel_consents
-                      (id, consent_id, channel, status, source, weekly_frequency_cap, used_this_week, captured_at)
+                      (id, consent_id, channel, purpose, status, source,
+                       weekly_frequency_cap, used_this_week, captured_at)
                     VALUES
-                      (:id, :consent_id, :channel, :status, :source,
+                      (:id, :consent_id, :channel, :purpose, :status, :source,
                        COALESCE(:cap, 3), 0, now())
-                    ON CONFLICT (consent_id, channel)
+                    ON CONFLICT (consent_id, channel, purpose)
                     DO UPDATE SET
                       status = EXCLUDED.status,
                       source = EXCLUDED.source,
@@ -6677,24 +6761,36 @@ def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         consent_id = _ensure_consent_record(conn, customer_id)
         for ch in affected:
             channel_value = _consent_channel_db(ch)
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO channel_consents
-                      (id, consent_id, channel, status, source, captured_at)
-                    VALUES
-                      (:id, :consent_id, :channel, 'opted_out', :source, now())
-                    ON CONFLICT (consent_id, channel)
-                    DO UPDATE SET status = 'opted_out', source = EXCLUDED.source, captured_at = EXCLUDED.captured_at
-                    """
-                ),
-                {
-                    "id": f"{consent_id}-{channel_value}",
-                    "consent_id": consent_id,
-                    "channel": channel_value,
-                    "source": source,
-                },
-            )
+            # An opt-out closes **both** purposes, and closes the promotional
+            # one even where no promotional consent was ever captured.
+            #
+            # Somebody who says "stop contacting me" has not opted out of
+            # servicing while leaving marketing open, and reading it that way
+            # would be the most self-serving construction available. The
+            # promotional row is inserted rather than merely updated so that a
+            # later promotional capture has an explicit opt-out to overwrite,
+            # deliberately, rather than an absence to fill in.
+            for consent_purpose in ("servicing", "promotional"):
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO channel_consents
+                          (id, consent_id, channel, purpose, status, source, captured_at)
+                        VALUES
+                          (:id, :consent_id, :channel, :purpose, 'opted_out', :source, now())
+                        ON CONFLICT (consent_id, channel, purpose)
+                        DO UPDATE SET status = 'opted_out', source = EXCLUDED.source,
+                                      captured_at = EXCLUDED.captured_at
+                        """
+                    ),
+                    {
+                        "id": f"{consent_id}-{channel_value}-{consent_purpose}",
+                        "consent_id": consent_id,
+                        "channel": channel_value,
+                        "purpose": consent_purpose,
+                        "source": source,
+                    },
+                )
         # Screen shape stores one opt-out event (channel may be "all").
         event_channel = "all" if channel_raw == "all" else _consent_channel_db(channel_raw)
         conn.execute(
@@ -8478,7 +8574,11 @@ def _inbox_delivery(status: str | None, sender: str) -> str | None:
         return "pending"
     if status == "cancelled":
         return None
-    return "delivered"
+    # Anything else — NULL, empty, or a status a future writer invents — is
+    # unknown, and unknown is not "delivered". There is no CHECK on the column,
+    # so this fallback was asserting delivery for rows that had never been sent:
+    # a seeded bot bubble wore the same tick as a message Meta confirmed.
+    return None
 
 
 def _inbox_contactable(
@@ -9316,6 +9416,7 @@ def refresh_conversation_suggestions(
     (`include_draft_answer` → kb_retrieve); no second rewrite pipeline.
     Weak matches below INBOX_RAG_MIN_SCORE are dropped (empty chips > junk).
     """
+    import kb_rate_limit
     import kb_retrieve
 
     with engine.connect() as conn:
@@ -9364,6 +9465,13 @@ def refresh_conversation_suggestions(
             source="inbox",
             prefer_policy=prefer_policy,
         )
+    except kb_rate_limit.RateLimitExceeded:
+        # Not an outage — backpressure, and the caller has a 429 for it. The
+        # broad handler below exists so a retrieval outage degrades to the last
+        # persisted chips rather than blanking the panel; catching the throttle
+        # with it meant a rate-limited poll returned 200 with stale chips and
+        # no way for the operator to tell they were stale.
+        raise
     except Exception:
         logger.exception("inbox_rag_retrieve_failed conversation=%s", conversation_id)
         retrieval = None
@@ -10683,12 +10791,44 @@ def _apply_whatsapp_status(
         return {"status": "ignored", "reason": "unknown_status"}
     row = _one(
         conn.execute(
-            text("SELECT id, delivery_status FROM messages WHERE provider_ref = :ref"),
+            text(
+                """
+                SELECT m.id, m.delivery_status, cv.customer_id, c.tenant_id
+                FROM messages m
+                JOIN conversations cv ON cv.id = m.conversation_id
+                LEFT JOIN customers c ON c.id = cv.customer_id
+                WHERE m.provider_ref = :ref
+                """
+            ),
             {"ref": wa_message_id},
         )
     )
     if row is None:
         return {"status": "missing", "providerRef": wa_message_id}
+
+    # The receipt is appended before the monotonic guard below, and deliberately.
+    # That guard exists to stop a late "sent" dragging an already-read message
+    # backwards *in the Inbox*, which is a display concern. The reach estimator
+    # wants the opposite: every transition, in the order the provider reports
+    # it, because "delivered at 09:02, read at 21:40" is the signal that says
+    # when this borrower is actually reachable — and discarding the out-of-order
+    # ones would systematically drop exactly the slow reads that carry it.
+    if row.get("customer_id") and row.get("tenant_id"):
+        import delivery_receipts
+
+        delivery_receipts.record(
+            conn,
+            tenant_id=str(row["tenant_id"]),
+            customer_id=str(row["customer_id"]),
+            channel="whatsapp",
+            provider="meta",
+            provider_ref=wa_message_id,
+            message_id=str(row["id"]),
+            related_id=str(row["id"]),
+            state=delivery,
+            reason=(errors[0].get("title") if errors and isinstance(errors[0], dict) else None),
+        )
+
     # Meta delivers sent / delivered / read callbacks asynchronously and they
     # arrive out of order often enough to matter: a late "sent" used to drag an
     # already-read message backwards in the Inbox. Only accept a status that
@@ -12156,9 +12296,13 @@ def _work_item_sla(
 
 
 def _inr(amount: float | None) -> str:
-    if amount is None:
-        return "—"
-    return f"₹{amount:,.0f}"
+    """Indian digit grouping — ₹12,34,567. See money_inr.inr for the reasoning.
+
+    Kept as a module-local name because db.py writes it several dozen times and
+    six other modules used to carry their own divergent copy. There is now one
+    implementation and three import sites.
+    """
+    return money_inr.inr(amount)
 
 
 def _snippet(text: str | None, limit: int = 72) -> str:
@@ -12592,6 +12736,10 @@ def _prompt_persona(raw: Any) -> dict[str, Any]:
 
 
 def _prompt_voice(raw: Any) -> dict[str, Any]:
+    # Local, like every other agent_core.tuning use in this module. The module
+    # itself imports nothing from db, so this is convention rather than a cycle.
+    from agent_core.tuning import normalize_tts_params
+
     data = _as_dict(raw)
     return {
         "voiceId": str(data.get("voiceId") or _DEFAULT_VOICE["voiceId"]),
@@ -12608,6 +12756,12 @@ def _prompt_voice(raw: Any) -> dict[str, Any]:
         "pauseMs": int(data.get("pauseMs", _DEFAULT_VOICE["pauseMs"])),
         "sampleText": str(data.get("sampleText") or _DEFAULT_VOICE["sampleText"]),
         "style": (str(data["style"]).strip() if data.get("style") else None),
+        # Provider-specific TTS controls (Fish temperature, Cartesia speed, ...).
+        # This function is a whitelist, so a key it does not name is dropped —
+        # which is how the Voice tab's model controls used to reach the preview
+        # and nothing else. Sanitised by the same helper `normalize_tuning`
+        # uses, so what is stored and what is folded into AgentTuning agree.
+        "params": normalize_tts_params(data.get("params")),
     }
 
 
@@ -12638,6 +12792,28 @@ def _prompt_version_status(raw: Any) -> str:
     return s if s in {"draft", "published", "archived"} else "archived"
 
 
+def _prompt_flow(raw: Any) -> dict[str, Any]:
+    """The stored graph if it can be read, the sentinel plus a flag if it cannot.
+
+    Degrading to `{}` alone would be the same failure this codebase keeps
+    finding: an unreadable graph and a card that never authored one would render
+    identically, as an empty canvas over "No authored flow". `flowUnreadable`
+    is what lets the studio say which of the two it is looking at.
+    """
+    if not isinstance(raw, dict):
+        return {"flow": {}, "flowUnreadable": False}
+    if not raw:
+        return {"flow": {}, "flowUnreadable": False}
+    import flow_graph
+
+    try:
+        flow_graph.parse_graph(raw)
+    except Exception:
+        logger.warning("prompt version holds an unreadable flow graph; serving it as empty")
+        return {"flow": {}, "flowUnreadable": True}
+    return {"flow": raw, "flowUnreadable": False}
+
+
 def _map_prompt_version(r: dict[str, Any]) -> dict[str, Any]:
     from agent_core.tuning import default_tuning, normalize_tuning
 
@@ -12659,7 +12835,16 @@ def _map_prompt_version(r: dict[str, Any]) -> dict[str, Any]:
         "tuning": tuning,
         # Authored conversation graph; '{}' on every version that predates flow
         # authoring, which flow_graph.parse_graph reads as "no graph".
-        "flow": r.get("flow") if isinstance(r.get("flow"), dict) else {},
+        #
+        # Checked here rather than handed straight to the response model. That
+        # model's `flow` is a FlowGraph with extra="forbid", so ONE row holding
+        # an unknown key or an out-of-vocabulary enum — a hand-edited row, or a
+        # write from a newer build — raised ResponseValidationError, and that is
+        # a 500 on GET /prompt-versions for the whole bot. Every version becomes
+        # unreadable because one of them is, and the studio has no way in at
+        # all: no history, no editor, no diff, and no way to discard the row
+        # that caused it.
+        **_prompt_flow(r.get("flow")),
         "botId": r.get("bot_id") or DEFAULT_BOT_ID,
         "agentCard": r.get("agent_card") if isinstance(r.get("agent_card"), dict) else {},
     }
@@ -12792,6 +12977,9 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
     routes = reachability(
         [(c["botId"], c["agentCard"]) for c in out if not c.get("archivedAt")],
         entry=entry,
+        # A card holding its own active deployment is addressable by bot_id, so
+        # it seeds the walk too. deploymentStatus is already computed per card.
+        deployed=[c["botId"] for c in out if c.get("deploymentStatus") == "live"],
     )
     for card in out:
         card["entryBotId"] = entry
@@ -12951,12 +13139,41 @@ def _handoff_edges() -> list[tuple[str, Any]]:
                       JOIN bots b ON b.id = p.bot_id
                      WHERE p.status IN ('published', 'draft')
                        AND b.archived_at IS NULL
+                       AND b.tenant_id = :tenant
                      ORDER BY p.bot_id, (p.status = 'draft') DESC, p.created_at DESC
                     """
-                )
+                ),
+                {"tenant": _tenant()},
             )
         )
     return [(r["bot_id"], _as_dict(r.get("agent_card"))) for r in rows]
+
+
+def _live_deployment_bot_ids() -> list[str]:
+    """Cards carrying an active production deployment.
+
+    These are addressable by bot_id whether or not anything hands off to them —
+    agent_core/deployment.py resolves ``bot_id or DEFAULT_BOT_ID`` — so they
+    seed the reachability walk alongside the configured entry card.
+    """
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT d.bot_id
+                      FROM bot_deployments d
+                      JOIN bots b ON b.id = d.bot_id
+                     WHERE d.status = 'active'
+                       AND d.environment = 'production'
+                       AND b.archived_at IS NULL
+                       AND b.tenant_id = :tenant
+                    """
+                ),
+                {"tenant": _tenant()},
+            )
+        )
+    return [r["bot_id"] for r in rows]
 
 
 def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
@@ -12999,7 +13216,11 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
     edges[bid] = summary["agentCard"]  # unsaved-but-loaded card wins for this one
     summary["entryBotId"] = entry
     summary["reachability"] = (
-        "archived" if archived_at else reachability(list(edges.items()), entry=entry).get(bid, "unreachable")
+        "archived"
+        if archived_at
+        else reachability(
+            list(edges.items()), entry=entry, deployed=_live_deployment_bot_ids()
+        ).get(bid, "unreachable")
     )
     return summary
 
@@ -13082,11 +13303,29 @@ def archive_agent_studio_card(bot_id: str) -> dict[str, Any]:
 
 
 def restore_agent_studio_card(bot_id: str) -> dict[str, Any]:
-    """Undo an archive. The card returns exactly as it was left."""
+    """Undo an archive. The card returns exactly as it was left.
+
+    Recorded in the change log for the same reason the archive is: an agent
+    reappearing on the roster is a configuration change, and a chain that logs
+    only the retirement reads as though the card is still retired.
+    """
     bid = (bot_id or "").strip()
     if not bid:
         raise ValueError("bot_id_required")
     with engine.begin() as conn:
+        # Read before the UPDATE nulls it — the archived window is the fact the
+        # entry exists to carry, and afterwards it is gone.
+        archived_at = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT archived_at FROM bots
+                     WHERE id = :id AND tenant_id = :t AND archived_at IS NOT NULL
+                    """
+                ),
+                {"id": bid, "t": _tenant()},
+            )
+        )
         updated = conn.execute(
             text(
                 """
@@ -13096,6 +13335,17 @@ def restore_agent_studio_card(bot_id: str) -> dict[str, Any]:
             ),
             {"id": bid, "t": _tenant()},
         ).rowcount
+        if updated:
+            from agent_core import change_log
+
+            change_log.record_restore(
+                conn,
+                tenant_id=_tenant(),
+                actor_user_id=_actor_user_id() or "system",
+                entry_id=_id("AUD"),
+                bot_id=bid,
+                archived_at=(archived_at or {}).get("archived_at"),
+            )
     if not updated:
         raise KeyError(f"archived_card_not_found:{bid}")
     return {"ok": True, "botId": bid, "archived": False}
@@ -13126,6 +13376,8 @@ def compile_agent_studio_card(
     flow: Any = None,
     traffic_pct: int | None = None,
     auto_rollback: list[str] | None = None,
+    voice: dict[str, Any] | None = None,
+    persona: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from agent_core.cards.compile import compile_card
     from agent_core.cards.defaults import card_dump
@@ -13148,6 +13400,15 @@ def compile_agent_studio_card(
         except KeyError:
             card = {}
     graph = flow if flow is not None else ((draft or published or {}).get("flow") or {})
+    # Same precedence the card itself follows: preview what publish will ship,
+    # which is the draft. The caller may pass the editor's unsaved voice and
+    # persona instead — without that the preview gates the last autosave, and
+    # G15 is exactly the gate an operator would trip between two of them.
+    mouth = draft or published or {}
+    voice_short, voice_locale, card_locales = voice_locale_facts(
+        voice if voice is not None else mouth.get("voice"),
+        persona if persona is not None else mouth.get("persona"),
+    )
     attached = None
     try:
         from agent_core.cards.schema import is_authored, parse_card
@@ -13168,12 +13429,16 @@ def compile_agent_studio_card(
         eval_report=get_latest_eval_report(bot_id=bot_id, kind="regression"),
         redteam_report=get_latest_eval_report(bot_id=bot_id, kind="redteam"),
         twin_report=_latest_twin_gate_report(),
+        outbound_report=get_latest_eval_report(bot_id=bot_id, kind="outbound"),
         attached_skills=attached,
         # Without these the preview read the card's stored experiment while
         # publish used the Ship tab's, so G12 reported "full ship" green and the
         # very next call 422'd on "canary split requires auto_rollback".
         traffic_pct=traffic_pct,
         auto_rollback=auto_rollback,
+        voice_short_name=voice_short,
+        voice_locale=voice_locale,
+        card_locales=card_locales,
     )
     return report.model_dump()
 
@@ -13289,6 +13554,36 @@ def resolve_prompt_azure_voice(voice: dict[str, Any] | None) -> str:
     return resolve_azure_voice_name(voice_id or None, db_azure_name=db_name)
 
 
+def voice_locale_facts(voice: Any, persona: Any) -> tuple[str, str | None, list[str]]:
+    """(the short name that will speak, its catalog locale, the card's tags).
+
+    The three inputs G15 needs, resolved in one place so the compile preview and
+    publish cannot disagree about them. The short name comes from
+    ``resolve_prompt_azure_voice`` rather than ``voice.voiceId`` because that is
+    what seeds ``AgentTuning.tts.voice`` — the gate has to judge the voice that
+    will actually speak, not the one the row happens to carry.
+
+    Locale is ``None`` when the catalog cannot resolve the id; the gate skips on
+    that rather than guessing, since the runtime falls back to a different voice
+    entirely in that case.
+    """
+    from agent_core import languages
+
+    cfg = _as_dict(voice)
+    short = resolve_prompt_azure_voice(cfg) if cfg else ""
+    entry = get_tts_voice_catalog_entry(short) if short else None
+    locale = str((entry or {}).get("locale") or "").strip() or None
+    p = _as_dict(persona)
+    fallbacks = p.get("fallbackLanguages")
+    names = [p.get("language"), *(fallbacks if isinstance(fallbacks, list) else [])]
+    tags: list[str] = []
+    for name in names:
+        tag = languages.tag_for(str(name)) if name else None
+        if tag and tag not in tags:
+            tags.append(tag)
+    return short, locale, tags
+
+
 def _map_catalog_row(r: dict[str, Any], *, include_raw: bool = False) -> dict[str, Any]:
     styles = r.get("styles")
     if not isinstance(styles, list):
@@ -13312,6 +13607,7 @@ def _map_catalog_row(r: dict[str, Any], *, include_raw: bool = False) -> dict[st
         "voiceType": r.get("voice_type") or "Neural",
         "status": r.get("status") or "GA",
         "priceTier": r.get("price_tier") or "standard",
+        "providerId": r.get("provider_id") or "azure",
         "isPremium": bool(r.get("is_premium")),
         "approxUsdPer1MChars": (
             float(r["approx_usd"]) if r.get("approx_usd") is not None else None
@@ -13337,12 +13633,18 @@ def list_tts_voice_catalog(
     gender: str | None = None,
     status: str | None = "GA",
     price_tier: str | None = None,
+    provider_id: str | None = None,
     include_premium: bool = False,
     include_removed: bool = False,
     limit: int = 60,
     cursor: str | None = None,
 ) -> dict[str, Any]:
-    """Filtered Azure TTS catalog for the Voice picker."""
+    """Filtered TTS catalog for the Voice picker.
+
+    ``provider_id`` filters server-side rather than in the browser: the list is
+    keyset-paginated, so a client-side provider filter would only ever filter
+    the page already fetched and would report counts for a subset.
+    """
     from tts_catalog_sync import DEFAULT_VOICE, last_synced_at
 
     limit = max(1, min(int(limit or 60), 200))
@@ -13361,6 +13663,15 @@ def list_tts_voice_catalog(
     if price_tier:
         clauses.append("c.price_tier = :price_tier")
         params["price_tier"] = price_tier
+    if provider_id:
+        # Rows synced before the registry have NULL provider_id and are Azure
+        # by construction, so azure must match them too or the default provider
+        # filter would hide 774 voices.
+        if provider_id == "azure":
+            clauses.append("(c.provider_id = :provider_id OR c.provider_id IS NULL)")
+        else:
+            clauses.append("c.provider_id = :provider_id")
+        params["provider_id"] = provider_id
     if locale:
         loc = locale.strip()
         if loc.endswith("-") or loc.endswith("*"):
@@ -13841,6 +14152,7 @@ def create_prompt_version(payload: dict[str, Any]) -> dict[str, Any]:
         speed=float(voice.get("speed", 1.0)),
         pitch=int(voice.get("pitch", 0)),
         warmth=int(voice.get("warmth", 60)),
+        params=voice.get("params"),
     )
     with engine.begin() as conn:
         # Avoid colliding with an existing id (e.g. republish of same label slug).
@@ -13955,6 +14267,7 @@ def patch_prompt_version(version_id: str, payload: dict[str, Any]) -> dict[str, 
                 speed=float(voice.get("speed", 1.0)),
                 pitch=int(voice.get("pitch", 0)),
                 warmth=int(voice.get("warmth", 60)),
+                params=voice.get("params"),
             )
             sets.append("tuning = CAST(:tuning AS jsonb)")
             params["tuning"] = _jsonb(folded)
@@ -14049,7 +14362,7 @@ def publish_prompt_version(
             conn.execute(
                 text(
                     """
-                    SELECT id, status, voice, label, tuning, flow, bot_id, agent_card
+                    SELECT id, status, voice, persona, label, tuning, flow, bot_id, agent_card
                     FROM prompt_versions WHERE id = :id
                     """
                 ),
@@ -14100,6 +14413,9 @@ def publish_prompt_version(
 
         uid = _actor_user_id()
         has_publish = bool(uid and _authz.has_permission(uid, _authz.AGENT_PUBLISH))
+        voice_short, voice_locale, card_locales = voice_locale_facts(
+            target.get("voice"), target.get("persona")
+        )
         report = compile_card(
             bot_id=bot_id,
             card_raw=card_raw,
@@ -14109,11 +14425,15 @@ def publish_prompt_version(
             eval_report=get_latest_eval_report(bot_id=bot_id, kind="regression"),
             redteam_report=get_latest_eval_report(bot_id=bot_id, kind="redteam"),
             twin_report=_latest_twin_gate_report(),
+            outbound_report=get_latest_eval_report(bot_id=bot_id, kind="outbound"),
             attached_skills=attached,
             traffic_pct=pct,
             auto_rollback=triggers,
             has_publish=has_publish,
             a2a_cert_ok=cert_ok,
+            voice_short_name=voice_short,
+            voice_locale=voice_locale,
+            card_locales=card_locales,
         )
         _assert_card(report)
         # Fold the shipped experiment back into the card. The deployment row
@@ -14182,7 +14502,11 @@ def publish_prompt_version(
         # Keep voice_config.azureVoiceName aligned with the authoritative ShortName.
         voice_config = {
             **voice_config,
-            **{k: voice.get(k) for k in ("speed", "pitch", "warmth", "pauseMs", "sampleText", "style") if k in voice},
+            **{
+                k: voice.get(k)
+                for k in ("speed", "pitch", "warmth", "pauseMs", "sampleText", "style", "params")
+                if k in voice
+            },
             "azureVoiceName": tts_voice_id,
             "voiceId": tts_voice_id,
         }
@@ -14202,6 +14526,7 @@ def publish_prompt_version(
                 speed=float(voice.get("speed", 1.0)),
                 pitch=int(voice.get("pitch", 0)),
                 warmth=int(voice.get("warmth", 60)),
+                params=voice.get("params"),
             )
 
         conn.execute(
@@ -14352,6 +14677,31 @@ def publish_prompt_version(
     return row
 
 
+def _restorable_voice(raw: Any) -> dict[str, Any]:
+    """The stored voice, normalised to something that can actually speak.
+
+    Restore copied the jsonb verbatim, which is the one write path that never
+    ran the voice through ``_prompt_voice``. A version carrying a hand-edited or
+    legacy id therefore produced a draft whose Voice tab named one voice and
+    whose runtime spoke the fallback — and the draft could then be published in
+    that state. The catalog check on top of the whitelist is what turns an id
+    nothing can resolve into the same fallback the picker already displays.
+
+    Provider controls go with it. ``style`` and ``params`` are the vocabulary of
+    the provider that owns the missing voice; carried onto an Azure fallback
+    they are noise the SSML preview would try to honour.
+    """
+    voice = _prompt_voice(raw)
+    warning = get_tts_voice_warning(resolve_prompt_azure_voice(voice))
+    if warning and warning.get("code") in {"missing", "removed"} and warning.get("fallbackVoice"):
+        fallback = str(warning["fallbackVoice"])
+        voice["voiceId"] = fallback
+        voice["azureVoiceName"] = fallback
+        voice["style"] = None
+        voice["params"] = {}
+    return voice
+
+
 def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
     """Copy any version into a new draft — never mutates live published/deployment."""
     from agent_core.tuning import normalize_tuning
@@ -14396,7 +14746,7 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
                 "author": _actor_user_id(),
                 "prompt": source["prompt"],
                 "persona": _jsonb(_as_dict(source.get("persona"))),
-                "voice": _jsonb(_as_dict(source.get("voice"))),
+                "voice": _jsonb(_restorable_voice(source.get("voice"))),
                 "guardrails": _jsonb(_as_dict(source.get("guardrails"))),
                 "tuning": tuning_json,
                 # Carried across: a restore that dropped the graph would produce
@@ -17439,7 +17789,27 @@ def next_treatment(
         account_id=account_id,
         trigger=Trigger(kind=trigger),
     )
-    return result.to_payload()
+    payload = result.to_payload()
+
+    # The Action Contract, for whoever is going to execute this. Until now it
+    # existed and nothing served it, which made it an interface with no other
+    # side -- a voice runner, a WhatsApp job or a field dispatcher had no way to
+    # receive the authorisation the design note says it must be handed.
+    #
+    # Built with a connection so the authority matrix can price a fee waiver
+    # once, here, rather than leaving a bot to query it mid-call under latency.
+    # Absent for a suppressed or `wait` decision rather than present-and-empty:
+    # a contract is an authorisation to act, and an empty one invites a channel
+    # to decide for itself what that means.
+    try:
+        with engine.connect() as conn:
+            contract = result.action_contract(conn=conn)
+    except Exception:
+        logger.exception("action contract build failed for %s", result.decision_id)
+        contract = result.action_contract()
+    if contract is not None:
+        payload["contract"] = contract
+    return payload
 
 
 def list_treatment_cases(
@@ -17540,6 +17910,50 @@ def treatment_insights(days: int = 14) -> dict[str, Any]:
         return treatment_decisions.insights(conn, days=days)
 
 
+def treatment_metrics(days: int = 28, *, include_simulated: bool = False) -> dict[str, Any]:
+    """The design note's S17 scoreboard: causal, efficiency, model health,
+    compliance, borrower experience, capacity.
+
+    Distinct from ``treatment_insights``, which answers "is this safe to switch
+    on?". This answers "is it working, and what is it costing?" -- and its
+    headline is incremental recovery per rupee against the control arm, never a
+    collections rate. A response model looks excellent on collections rate
+    precisely because it targets borrowers who would have paid anyway.
+    """
+    from agent_core.treatment import metrics as treatment_metrics_mod
+
+    with engine.connect() as conn:
+        return treatment_metrics_mod.report(
+            conn, days=days, include_simulated=include_simulated
+        )
+
+
+def treatment_model_health(days: int = 14, *, include_simulated: bool = False) -> dict[str, Any]:
+    """Drift and calibration only -- the S15 half, without the rest of S17."""
+    from agent_core.treatment import monitor
+
+    with engine.connect() as conn:
+        return monitor.report(conn, days=days, include_simulated=include_simulated)
+
+
+def treatment_models(target: str | None = None, limit: int = 50) -> dict[str, Any]:
+    """The champion/challenger ledger, plus whether it matches what is serving.
+
+    ``verify`` is the part worth reading first. A registry that only records
+    promotions cannot tell you that the file underneath one was replaced
+    afterwards, and every log line downstream would keep naming the promoted
+    version while different coefficients decided whether borrowers got called.
+    """
+    from agent_core.treatment import registry
+
+    tenant = current_tenant()
+    with engine.connect() as conn:
+        return {
+            "history": registry.history(conn, tenant_id=tenant, target=target, limit=limit),
+            "serving": registry.verify(conn, tenant_id=tenant),
+        }
+
+
 def next_authority(
     *,
     customer_id: str,
@@ -17608,3 +18022,66 @@ from followups_db import (  # noqa: E402
     reorder_routing_rules as reorder_routing_rules,
     workspace_summary as workspace_summary,
 )
+
+
+def list_tts_voice_provider_counts() -> list[dict[str, Any]]:
+    """Voice count per provider, for the catalog's provider filter chips.
+
+    Counts respect the same visibility rules as the default catalog query
+    (picker-enabled, not removed, GA) so a chip reading "24" and the list that
+    opens when you click it cannot disagree. Premium is *included* here on
+    purpose: the chip tells you the provider exists, the premium toggle governs
+    what the list then shows.
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT COALESCE(provider_id, 'azure') AS provider_id, count(*) AS n
+                FROM tts_voice_catalog
+                WHERE enabled_for_picker = true
+                  AND removed_at IS NULL
+                  AND status = 'GA'
+                GROUP BY 1
+                ORDER BY 2 DESC
+                """
+            )
+        ).mappings().all()
+    return [{"providerId": r["provider_id"], "count": int(r["n"])} for r in rows]
+
+
+def list_tts_voice_locale_counts(*, limit: int = 60) -> list[dict[str, Any]]:
+    """Voice count per locale, for the catalog's locale picker.
+
+    The picker used to carry a hardcoded India-only preset list (en-IN, hi-IN,
+    ta, te, kn, mr, bn). Once the catalog holds ~140 locales that list is not a
+    shortcut, it is a filter that hides most of the catalog from the operator.
+    Deriving from the data means a locale appears the moment a voice for it does.
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT c.locale,
+                       max(c.locale_name) AS locale_name,
+                       count(*) AS n
+                FROM tts_voice_catalog c
+                WHERE c.enabled_for_picker = true
+                  AND c.removed_at IS NULL
+                  AND c.status = 'GA'
+                  AND c.locale <> ''
+                GROUP BY c.locale
+                ORDER BY count(*) DESC, c.locale
+                LIMIT :limit
+                """
+            ),
+            {"limit": max(1, min(int(limit or 60), 400))},
+        ).mappings().all()
+    return [
+        {
+            "locale": r["locale"],
+            "localeName": r["locale_name"] or r["locale"],
+            "count": int(r["n"]),
+        }
+        for r in rows
+    ]

@@ -71,7 +71,8 @@ export function RecordsTable<T>({
   const setSelected = onSelectedChange ?? setInternalSelected;
 
   const [sort, setSort] = useState<{ id: string; dir: RecordsSortDir }>(
-    () => defaultSort ?? { id: columns.find((c) => c.sortable)?.id ?? columns[0]?.id ?? "", dir: 1 },
+    () =>
+      defaultSort ?? { id: columns.find((c) => c.sortable)?.id ?? columns[0]?.id ?? "", dir: 1 },
   );
 
   const visibleRows = useMemo(() => {
@@ -85,11 +86,15 @@ export function RecordsTable<T>({
       if (av == null) return 1;
       if (bv == null) return -1;
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
-      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" }) * dir;
+      return (
+        String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" }) *
+        dir
+      );
     });
   }, [rows, columns, sort]);
 
-  const allSelected = visibleRows.length > 0 && visibleRows.every((row) => selected.has(getRowId(row)));
+  const allSelected =
+    visibleRows.length > 0 && visibleRows.every((row) => selected.has(getRowId(row)));
   const partiallySelected = !allSelected && visibleRows.some((row) => selected.has(getRowId(row)));
 
   const toggleSort = (id: string) => {
@@ -311,7 +316,11 @@ export function RecordsTable<T>({
                         ),
                     )}
                   >
-                    {col.footer ? col.footer(visibleRows) : <span className="text-text-subtlest">—</span>}
+                    {col.footer ? (
+                      col.footer(visibleRows)
+                    ) : (
+                      <span className="text-text-subtlest">—</span>
+                    )}
                   </td>
                 ))}
               </tr>
@@ -324,13 +333,7 @@ export function RecordsTable<T>({
 }
 
 /** Compact avatar mark used in sticky identity cells. */
-export function RecordsAvatarMark({
-  label,
-  className,
-}: {
-  label: string;
-  className?: string;
-}) {
+export function RecordsAvatarMark({ label, className }: { label: string; className?: string }) {
   const initials = label
     .split(/\s+/)
     .filter(Boolean)

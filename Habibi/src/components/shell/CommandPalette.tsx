@@ -69,11 +69,27 @@ const PAGES: {
   { label: "Knowledge Base", to: "/knowledge-base", icon: BookOpen },
   { label: "Agent studio", to: "/agent-studio", icon: Bot, keywords: "prompt card fleet" },
   { label: "Skills library", to: "/agent-studio/skills", icon: Bot, keywords: "skill pack ptp" },
-  { label: "Open Collections card", to: "/agent-studio/$botId", params: { botId: "kaia-v2-4" }, icon: Bot, keywords: "prompt studio active card" },
+  {
+    label: "Open Collections card",
+    to: "/agent-studio/$botId",
+    params: { botId: "kaia-v2-4" },
+    icon: Bot,
+    keywords: "prompt studio active card",
+  },
   { label: "Call Sandbox", to: "/sandbox", icon: Beaker },
-  { label: "Pending approvals", to: "/floor", icon: ClipboardCheck, keywords: "approve hitl clerk" },
+  {
+    label: "Pending approvals",
+    to: "/floor",
+    icon: ClipboardCheck,
+    keywords: "approve hitl clerk",
+  },
   { label: "Routing / Logic", to: "/routing", icon: GitBranch },
-  { label: "Integrations", to: "/integrations", icon: Plug, keywords: "mcp connector vault gateway paylink" },
+  {
+    label: "Integrations",
+    to: "/integrations",
+    icon: Plug,
+    keywords: "mcp connector vault gateway paylink",
+  },
   { label: "Webhooks", to: "/webhooks", icon: Webhook },
   { label: "Billing & Usage", to: "/billing", icon: Receipt },
   { label: "Roles & access", to: "/roles", icon: ShieldCheck },
@@ -98,11 +114,13 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     params?: Record<string, string>,
   ) => {
     onOpenChange(false);
-    void (navigate as (opts: {
-      to: string;
-      search?: Record<string, unknown>;
-      params?: Record<string, string>;
-    }) => unknown)({
+    void (
+      navigate as (opts: {
+        to: string;
+        search?: Record<string, unknown>;
+        params?: Record<string, string>;
+      }) => unknown
+    )({
       to,
       ...(search ? { search } : {}),
       ...(params ? { params } : {}),

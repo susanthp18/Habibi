@@ -28,7 +28,8 @@ const SOURCES = Object.keys(SOURCE_LABELS) as LeadSource[];
 
 const sentimentTone: Record<Sentiment, string> = {
   positive: "border-border-success bg-background-success-subtler text-text-success-bolder",
-  neutral: "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
+  neutral:
+    "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
   negative: "border-border-danger bg-background-danger-subtler text-text-danger-bolder",
 };
 
@@ -51,11 +52,15 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
     filters.myQueue;
 
   const toggleSentiment = (s: Sentiment) => {
-    const next = filters.sentiments.includes(s) ? filters.sentiments.filter((x) => x !== s) : [...filters.sentiments, s];
+    const next = filters.sentiments.includes(s)
+      ? filters.sentiments.filter((x) => x !== s)
+      : [...filters.sentiments, s];
     onPatch({ sentiments: next });
   };
   const togglePriority = (p: Priority) => {
-    const next = filters.priorities.includes(p) ? filters.priorities.filter((x) => x !== p) : [...filters.priorities, p];
+    const next = filters.priorities.includes(p)
+      ? filters.priorities.filter((x) => x !== p)
+      : [...filters.priorities, p];
     onPatch({ priorities: next });
   };
 
@@ -78,7 +83,9 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
       >
         <option value="all">All teams</option>
         {TEAM_OPTIONS.map((t) => (
-          <option key={t} value={t}>{t}</option>
+          <option key={t} value={t}>
+            {t}
+          </option>
         ))}
       </select>
 
@@ -89,7 +96,9 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
       >
         <option value="all">All owners</option>
         {owners.map((o) => (
-          <option key={o} value={o}>{o}</option>
+          <option key={o} value={o}>
+            {o}
+          </option>
         ))}
       </select>
 
@@ -100,7 +109,9 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
       >
         <option value="all">All products</option>
         {productOptions.map((p) => (
-          <option key={p.id} value={p.id}>{p.name}</option>
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
         ))}
       </select>
 
@@ -111,7 +122,9 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
       >
         <option value="all">All sources</option>
         {SOURCES.map((s) => (
-          <option key={s} value={s}>{SOURCE_LABELS[s]}</option>
+          <option key={s} value={s}>
+            {SOURCE_LABELS[s]}
+          </option>
         ))}
       </select>
 
@@ -124,7 +137,9 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
               onClick={() => toggleSentiment(s)}
               className={cn(
                 "rounded-full border px-150 py-050 text-body-small capitalize transition-colors",
-                on ? sentimentTone[s] : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
+                on
+                  ? sentimentTone[s]
+                  : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {s}
@@ -142,7 +157,9 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
               onClick={() => togglePriority(p)}
               className={cn(
                 "rounded-full border px-150 py-050 text-body-small capitalize transition-colors",
-                on ? priorityTone[p] : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
+                on
+                  ? priorityTone[p]
+                  : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {p}

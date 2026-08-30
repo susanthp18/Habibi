@@ -1,7 +1,17 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { X, Send, RotateCw, ExternalLink, Bot, User, Mic, MessageSquare, FileText } from "lucide-react";
+import {
+  X,
+  Send,
+  RotateCw,
+  ExternalLink,
+  Bot,
+  User,
+  Mic,
+  MessageSquare,
+  FileText,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -44,7 +54,8 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
   const templates = templatesFor(d.docType);
   const assigneeOptions = [...new Set([UNASSIGNED, ...assignees])];
 
-  const SIcon = d.requestedVia === "bot_voice" ? Mic : d.requestedVia === "bot_chat" ? MessageSquare : User;
+  const SIcon =
+    d.requestedVia === "bot_voice" ? Mic : d.requestedVia === "bot_chat" ? MessageSquare : User;
 
   const run = async (fn: () => Promise<void>, okMsg: string) => {
     if (busy) return;
@@ -72,11 +83,13 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                 <Link
                   to="/customers/$customerId"
                   params={{ customerId: d.customerId }}
-                  className="truncate text-[0.875rem] font-semibold text-text hover:underline"
+                  className="truncate text-body font-semibold text-text hover:underline"
                 >
                   {d.customerName}
                 </Link>
-                <span className="text-body-small text-text-subtlest">#{d.accountTail} · {d.id}</span>
+                <span className="text-body-small text-text-subtlest">
+                  #{d.accountTail} · {d.id}
+                </span>
               </div>
               <div className="mt-050 flex flex-wrap items-center gap-075">
                 <span className="rounded bg-surface-sunken px-075 py-025 text-body-small font-medium text-text-subtle">
@@ -87,17 +100,29 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                     {d.period}
                   </span>
                 )}
-                <span className={cn("rounded px-075 py-025 text-body-small font-medium",
-                  d.status === "sent" ? "bg-background-success-subtler text-text-success-bolder" :
-                  d.status === "failed" ? "bg-background-danger-subtler text-text-danger-bolder" :
-                  d.status === "generating" ? "bg-background-warning-subtler text-text-warning-bolder" :
-                  "bg-background-brand-subtlest text-text-brand",
-                )}>
+                <span
+                  className={cn(
+                    "rounded px-075 py-025 text-body-small font-medium",
+                    d.status === "sent"
+                      ? "bg-background-success-subtler text-text-success-bolder"
+                      : d.status === "failed"
+                        ? "bg-background-danger-subtler text-text-danger-bolder"
+                        : d.status === "generating"
+                          ? "bg-background-warning-subtler text-text-warning-bolder"
+                          : "bg-background-brand-subtlest text-text-brand",
+                  )}
+                >
                   {d.status} · {aging.label}
                 </span>
               </div>
             </div>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={onClose}
+              aria-label="Close"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -106,12 +131,19 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
         {/* Captured context */}
         <div className="shrink-0 border-b border-border bg-surface-sunken/60 px-200 py-100">
           <div className="flex flex-wrap items-center gap-100 text-body-small text-text-subtle">
-            {d.requestedVia.startsWith("bot") ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
+            {d.requestedVia.startsWith("bot") ? (
+              <Bot className="h-3.5 w-3.5" />
+            ) : (
+              <User className="h-3.5 w-3.5" />
+            )}
             <SIcon className="h-3.5 w-3.5" />
             <span>{VIA_LABELS[d.requestedVia]}</span>
             <span>·</span>
             <span>{fmtDate(d.requestedAt, { dateStyle: "medium", timeStyle: "short" })}</span>
-            <Link to="/inbox" className="ml-auto inline-flex items-center gap-050 text-text-brand hover:underline">
+            <Link
+              to="/inbox"
+              className="ml-auto inline-flex items-center gap-050 text-text-brand hover:underline"
+            >
               Open conversation <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
@@ -133,7 +165,9 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
               >
                 {t === "audit" ? "Audit" : t === "preview" ? "Template preview" : "Details"}
                 {t === "audit" && (
-                  <span className="ml-050 rounded bg-surface-sunken px-050 text-body-small text-text-subtlest">{d.events.length}</span>
+                  <span className="ml-050 rounded bg-surface-sunken px-050 text-body-small text-text-subtlest">
+                    {d.events.length}
+                  </span>
                 )}
               </button>
             ))}
@@ -149,12 +183,17 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                   value={d.assignee}
                   disabled={busy}
                   onChange={(e) => {
-                    void run(() => assignDocument(d, e.target.value), `Assigned to ${e.target.value}`);
+                    void run(
+                      () => assignDocument(d, e.target.value),
+                      `Assigned to ${e.target.value}`,
+                    );
                   }}
                   className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
                 >
                   {assigneeOptions.map((a) => (
-                    <option key={a} value={a}>{a}</option>
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
                   ))}
                 </select>
               </Field>
@@ -179,7 +218,9 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                     </button>
                   ))}
                 </div>
-                <div className="mt-050 text-body-small text-text-subtlest">Delivering to: {d.deliveryTarget}</div>
+                <div className="mt-050 text-body-small text-text-subtlest">
+                  Delivering to: {d.deliveryTarget}
+                </div>
               </Field>
 
               <Field label="Template">
@@ -192,17 +233,33 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                   className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
                 >
                   {templates.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
                   ))}
                 </select>
                 <div className="mt-050 text-body-small text-text-subtlest">{tpl.description}</div>
               </Field>
 
               <div className="grid grid-cols-2 gap-150">
-                <Field label="Attempts"><div className="text-body text-text">{d.attempts}</div></Field>
-                <Field label="File size"><div className="text-body text-text">{d.sizeKb ? `${d.sizeKb} KB` : "—"}</div></Field>
-                <Field label="Requested"><div className="text-body text-text">{fmtDate(d.requestedAt, { dateStyle: "medium", timeStyle: "short" })}</div></Field>
-                <Field label="Delivered"><div className="text-body text-text">{d.sentAt ? fmtDate(d.sentAt, { dateStyle: "medium", timeStyle: "short" }) : "—"}</div></Field>
+                <Field label="Attempts">
+                  <div className="text-body text-text">{d.attempts}</div>
+                </Field>
+                <Field label="File size">
+                  <div className="text-body text-text">{d.sizeKb ? `${d.sizeKb} KB` : "—"}</div>
+                </Field>
+                <Field label="Requested">
+                  <div className="text-body text-text">
+                    {fmtDate(d.requestedAt, { dateStyle: "medium", timeStyle: "short" })}
+                  </div>
+                </Field>
+                <Field label="Delivered">
+                  <div className="text-body text-text">
+                    {d.sentAt
+                      ? fmtDate(d.sentAt, { dateStyle: "medium", timeStyle: "short" })
+                      : "—"}
+                  </div>
+                </Field>
               </div>
 
               {d.status === "failed" && d.failedReason && (
@@ -222,7 +279,13 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
               </div>
               <div className="rounded-medium border border-border bg-surface p-200">
                 {renderPreview(tpl, d).map((line, i) => (
-                  <p key={i} className={cn("text-[0.75rem] leading-relaxed text-text", i === 0 && "font-semibold text-[0.875rem]")}>
+                  <p
+                    key={i}
+                    className={cn(
+                      "text-body-small leading-relaxed text-text",
+                      i === 0 && "font-semibold text-body",
+                    )}
+                  >
                     {line}
                   </p>
                 ))}
@@ -240,10 +303,13 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                   <span
                     className={cn(
                       "absolute -left-250 top-1 h-2.5 w-2.5 rounded-full ring-2 ring-surface",
-                      e.tone === "success" ? "bg-background-success-bold" :
-                      e.tone === "warn" ? "bg-background-warning-bold" :
-                      e.tone === "danger" ? "bg-background-danger-bold" :
-                      "bg-background-brand-bold",
+                      e.tone === "success"
+                        ? "bg-background-success-bold"
+                        : e.tone === "warn"
+                          ? "bg-background-warning-bold"
+                          : e.tone === "danger"
+                            ? "bg-background-danger-bold"
+                            : "bg-background-brand-bold",
                     )}
                   />
                   <div className="text-body-small text-text">{e.label}</div>
@@ -275,12 +341,19 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                 </Button>
               )}
               {(d.status === "requested" || d.status === "failed") && (
-                <Button size="sm" className="h-400 text-body-small" disabled={busy} onClick={() => onGenerate(d)}>
+                <Button
+                  size="sm"
+                  className="h-400 text-body-small"
+                  disabled={busy}
+                  onClick={() => onGenerate(d)}
+                >
                   <Send className="mr-050 h-3.5 w-3.5" /> Generate & send
                 </Button>
               )}
               {d.status === "generating" && (
-                <div className="text-body-small text-text-warning-bolder">Generation in flight…</div>
+                <div className="text-body-small text-text-warning-bolder">
+                  Generation in flight…
+                </div>
               )}
             </div>
           </div>

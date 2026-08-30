@@ -4,6 +4,7 @@ import type { Delivery, Endpoint } from "@/data/webhooks-seed";
 import { fmtRel, signaturePreview } from "@/data/webhooks-seed";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Lozenge } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
 
 export function DeliveryRow({
@@ -37,16 +38,26 @@ export function DeliveryRow({
             {endpoint.name}
           </Badge>
         )}
-        <span className="shrink-0 font-mono text-body-small text-text-brand">
-          {delivery.event}
-        </span>
+        <span className="shrink-0 font-mono text-body-small text-text-brand">{delivery.event}</span>
+        {delivery.mode === "simulated" && (
+          // A test fire does no egress. Left unlabelled it is indistinguishable
+          // from a delivery that actually reached the endpoint, which is how
+          // this log spent its whole life reporting sends that never happened.
+          <Lozenge tone="warning" className="shrink-0">
+            Simulated
+          </Lozenge>
+        )}
         <span
           className={cn(
             "ml-auto shrink-0 rounded px-075 py-025 font-mono text-body-small font-semibold",
-            delivery.status === "success" && "bg-background-success-subtler text-text-success-bolder",
-            delivery.status === "client_err" && "bg-background-warning-subtler text-text-warning-bolder",
-            delivery.status === "server_err" && "bg-background-danger-subtler text-text-danger-bolder",
-            delivery.status === "pending" && "bg-background-accent-gray-subtler text-text-accent-gray-bolder",
+            delivery.status === "success" &&
+              "bg-background-success-subtler text-text-success-bolder",
+            delivery.status === "client_err" &&
+              "bg-background-warning-subtler text-text-warning-bolder",
+            delivery.status === "server_err" &&
+              "bg-background-danger-subtler text-text-danger-bolder",
+            delivery.status === "pending" &&
+              "bg-background-accent-gray-subtler text-text-accent-gray-bolder",
           )}
         >
           {delivery.httpStatus || "…"}
@@ -76,11 +87,11 @@ export function DeliveryRow({
           </div>
           <div className="mb-050 text-text-subtlest">Request body</div>
           <pre className="mb-150 overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
-{bodyStr}
+            {bodyStr}
           </pre>
           <div className="mb-050 text-text-subtlest">Response</div>
           <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
-{delivery.responseBody ?? "(no body)"}
+            {delivery.responseBody ?? "(no body)"}
           </pre>
           {failed && onRetry && (
             <div className="mt-100 flex justify-end">

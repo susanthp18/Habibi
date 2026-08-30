@@ -1,0 +1,64 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 592 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Core-agentic campaign, latency workstream. Live sandbox rehearsals
+(cycles 18-21) measured per-turn latencies of 3.0s / 6.6s / 7.98s / 8.0s /
+10.8s / 12.3s on the same card+scenario — high variance, unexplained. The
+sandbox already persists per-turn latency_ms and token_count in
+sandbox_run_turns.
+
+TASK: build the LATENCY TELEMETRY + REGRESSION BASELINE for the agentic turn
+path. Two deliverables:
+
+--- DELIVERABLE 1: where do the seconds go? ---
+Instrument/measure (report-only, no behaviour change): given one sandbox turn,
+break down the pipeline stages inside append_sandbox_turn
+(backend/sandbox_runtime.py): KB retrieval time vs LLM completion time vs DB
+persist time. If timing hooks already exist use them; otherwise wrap the stage
+calls with perf_counter and store stage timings in the existing bot-turn row IF
+a jsonb/details column already fits — if no column exists, DO NOT add a
+migration; instead log the breakdown at INFO with a stable prefix
+("turn-stage-timings:") so it is greppable. Report which approach you took and
+why.
+
+--- DELIVERABLE 2: latency regression test ---
+New backend/tests/test_turn_latency_budget.py:
+- A unit-level budget test that runs N=5 sandbox turns against the mocked LLM
+  path (same pattern existing sandbox tests use — no network) and asserts the
+  NON-LLM overhead (total turn time minus recorded llm_ms, i.e. retrieval +
+  persist + serialisation) stays under a sane budget, e.g. 1500ms per turn.
+  Calibrate the budget by measuring first; pick a threshold ~3x observed median
+  so CI noise cannot flake, and print the measured numbers in the failure
+  message.
+- Assert aggregate_latency_ms on the run equals the sum of turn latencies
+  (integrity invariant).
+Skip cleanly (pytest.skip with reason) if the sandbox tables/fixtures are not
+available in a given environment, matching however existing DB-backed tests
+handle it.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2751 (skips from the new test are acceptable if environment-gated; report
+   how many). Report tail verbatim.
+2. Files changed limited to backend/sandbox_runtime.py,
+   backend/tests/test_turn_latency_budget.py, plus tests. Anything else:
+   explain explicitly.
+3. Report: the measured stage breakdown from a real run (the actual ms numbers),
+   files changed, pytest tail.

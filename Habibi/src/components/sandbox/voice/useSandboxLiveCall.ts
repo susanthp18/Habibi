@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-  pushVoiceTune,
-  startVoiceSandbox,
-  stopVoiceSandbox,
-} from "@/api/voice-sandbox";
+import { pushVoiceTune, startVoiceSandbox, stopVoiceSandbox } from "@/api/voice-sandbox";
 import type { AgentTuning } from "@/data/agent-tuning";
 import type { Persona } from "@/data/sandbox-seed";
 import type { SandboxTurn } from "@/data/sandbox-seed";
@@ -94,8 +90,7 @@ function mapRtviMetrics(data: unknown): TurnMetric[] {
       0,
     );
     const llmRow =
-      [...byProc.values()].find((r) => /llm|openai|azure/i.test(r.label)) ??
-      ensure("LLM");
+      [...byProc.values()].find((r) => /llm|openai|azure/i.test(r.label)) ?? ensure("LLM");
     llmRow.tokens = total;
   }
 
@@ -336,15 +331,9 @@ export function useSandboxLiveCall(args: Args) {
       });
 
       // --- Turn-taking state (server truth, not a local guess) ----------------
-      c.on(RTVIEvent.BotStartedSpeaking, () =>
-        setInsights((p) => ({ ...p, botSpeaking: true })),
-      );
-      c.on(RTVIEvent.BotStoppedSpeaking, () =>
-        setInsights((p) => ({ ...p, botSpeaking: false })),
-      );
-      c.on(RTVIEvent.UserStartedSpeaking, () =>
-        setInsights((p) => ({ ...p, userSpeaking: true })),
-      );
+      c.on(RTVIEvent.BotStartedSpeaking, () => setInsights((p) => ({ ...p, botSpeaking: true })));
+      c.on(RTVIEvent.BotStoppedSpeaking, () => setInsights((p) => ({ ...p, botSpeaking: false })));
+      c.on(RTVIEvent.UserStartedSpeaking, () => setInsights((p) => ({ ...p, userSpeaking: true })));
       c.on(RTVIEvent.UserStoppedSpeaking, () =>
         setInsights((p) => ({ ...p, userSpeaking: false })),
       );
@@ -591,36 +580,31 @@ export function useSandboxLiveCall(args: Args) {
     }
   }, [muted]);
 
-  const applyTune = useCallback(
-    async (delta: Partial<AgentTuning>) => {
-      const sid = sessionIdRef.current;
-      if (!sid) return;
-      // The two halves are independent: HTTP persists the delta for
-      // restart/next-call, the data channel applies it to the call already in
-      // progress. Chaining them meant a failed persist also skipped the live
-      // apply — and the shared catch swallowed both, so the agent moved a
-      // slider mid-call, nothing changed, and nothing said so.
-      let persistError: unknown = null;
-      try {
-        await pushVoiceTune(sid, delta);
-      } catch (err) {
-        persistError = err;
-      }
-      try {
-        clientRef.current?.sendClientMessage?.("tuning_delta", delta);
-      } catch {
-        /* data channel closed — the HTTP write above is the durable path */
-      }
-      if (persistError) {
-        toast.error(
-          persistError instanceof Error
-            ? persistError.message
-            : "Could not save the tuning change",
-        );
-      }
-    },
-    [],
-  );
+  const applyTune = useCallback(async (delta: Partial<AgentTuning>) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    // The two halves are independent: HTTP persists the delta for
+    // restart/next-call, the data channel applies it to the call already in
+    // progress. Chaining them meant a failed persist also skipped the live
+    // apply — and the shared catch swallowed both, so the agent moved a
+    // slider mid-call, nothing changed, and nothing said so.
+    let persistError: unknown = null;
+    try {
+      await pushVoiceTune(sid, delta);
+    } catch (err) {
+      persistError = err;
+    }
+    try {
+      clientRef.current?.sendClientMessage?.("tuning_delta", delta);
+    } catch {
+      /* data channel closed — the HTTP write above is the durable path */
+    }
+    if (persistError) {
+      toast.error(
+        persistError instanceof Error ? persistError.message : "Could not save the tuning change",
+      );
+    }
+  }, []);
 
   const restart = useCallback(async () => {
     await end();

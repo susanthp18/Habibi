@@ -17,12 +17,5 @@ function AgentCardEditor() {
   // canary settings. Resetting them by hand means a growing list that has to be
   // updated every time someone adds a field — and the failure is silent, a chip
   // from the previous card sitting in the header of this one. A key cannot rot.
-  return (
-    <PromptStudioPage
-      key={botId}
-      botId={botId}
-      unansweredId={unansweredId}
-      note={note}
-    />
-  );
+  return <PromptStudioPage key={botId} botId={botId} unansweredId={unansweredId} note={note} />;
 }

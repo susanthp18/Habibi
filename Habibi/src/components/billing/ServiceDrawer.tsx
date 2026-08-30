@@ -1,7 +1,6 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   changePct,
-  inr,
   inrCompact,
   sumRange,
   usageUnits,
@@ -33,6 +32,7 @@ export function ServiceDrawer({
   const cost = sumRange(current, service.id);
   const prev = sumRange(previous, service.id);
   const delta = changePct(cost, prev);
+  const noBase = prev === 0 && cost > 0;
   const units = usageUnits(cost, service.unitCostInr);
 
   const values = current.map((d) => d.values[service.id] ?? 0);
@@ -51,14 +51,18 @@ export function ServiceDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full max-w-[37.5rem] flex-col overflow-hidden p-0 sm:max-w-[37.5rem]">
+      <SheetContent
+        side="right"
+        className="flex w-full max-w-[37.5rem] flex-col overflow-hidden p-0 sm:max-w-[37.5rem]"
+      >
         <SheetHeader className="shrink-0 border-b border-border px-300 py-200">
-          <SheetTitle className="flex items-center gap-100 text-[0.875rem] font-semibold text-text">
+          <SheetTitle className="flex items-center gap-100 text-body font-semibold text-text">
             <span className="h-3 w-3 rounded-small" style={{ backgroundColor: service.color }} />
             {service.name}
           </SheetTitle>
           <p className="text-body-small text-text-subtle">
-            {service.provider} · {service.category} · {inr(service.unitCostInr)} per {service.unit}
+            {service.provider} · {service.category} · {inrCompact(service.unitCostInr)} per{" "}
+            {service.unit}
           </p>
         </SheetHeader>
 
@@ -71,8 +75,9 @@ export function ServiceDrawer({
             />
             <Tile
               label="Δ vs prev"
-              value={`${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`}
-              tone={delta >= 0 ? "bad" : "good"}
+              // Same sentinel as the table: no prior spend means no percentage.
+              value={noBase ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`}
+              tone={noBase ? undefined : delta >= 0 ? "bad" : "good"}
             />
           </div>
 
@@ -81,7 +86,7 @@ export function ServiceDrawer({
             <ChartStage
               toolbar={
                 <>
-                  <span className="text-[11px] text-text-subtlest">Trend snapshot</span>
+                  <span className="text-body-tiny text-text-subtlest">Trend snapshot</span>
                   <SnapshotPill />
                 </>
               }
@@ -99,7 +104,9 @@ export function ServiceDrawer({
           </div>
 
           <div>
-            <div className="mb-050 text-body-small font-semibold text-text">Top tenants driving this cost</div>
+            <div className="mb-050 text-body-small font-semibold text-text">
+              Top tenants driving this cost
+            </div>
             <div className="space-y-075">
               {tenantRows.map((t) => (
                 <div
@@ -127,7 +134,7 @@ function Tile({ label, value, tone }: { label: string; value: string; tone?: "go
       <div className="text-body-small font-medium text-text-subtlest">{label}</div>
       <div
         className={cn(
-          "mt-050 text-[1rem] font-semibold",
+          "mt-050 heading-small font-semibold",
           tone === "good" && "text-text-success",
           tone === "bad" && "text-text-danger",
           !tone && "text-text",

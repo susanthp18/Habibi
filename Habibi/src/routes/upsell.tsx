@@ -38,12 +38,14 @@ export const Route = createFileRoute("/upsell")({
       { title: "Upsell & Leads Manager — BigBound AI" },
       {
         name: "description",
-        content: "Pipeline for eligibility-gated upsells captured by the bot — Interested → Contacted → Qualified → Won/Lost with follow-ups and conversion tracking.",
+        content:
+          "Pipeline for eligibility-gated upsells captured by the bot — Interested → Contacted → Qualified → Won/Lost with follow-ups and conversion tracking.",
       },
       { property: "og:title", content: "Upsell & Leads Manager" },
       {
         property: "og:description",
-        content: "Manage top-up loan, consolidation, and card-upgrade leads captured mid-call — assign, schedule follow-ups, and close.",
+        content:
+          "Manage top-up loan, consolidation, and card-upgrade leads captured mid-call — assign, schedule follow-ups, and close.",
       },
     ],
   }),
@@ -82,7 +84,7 @@ function UpsellPage() {
 
   const { data: filtered = [] } = useLeads(query);
   const { data: metrics } = useLeadMetrics(query);
-  const openLead = openId ? filtered.find((l) => l.id === openId) ?? null : null;
+  const openLead = openId ? (filtered.find((l) => l.id === openId) ?? null) : null;
   // Filter rosters come from the DB in live mode. The hardcoded six names only
   // ever matched the seed, so filtering by owner silently matched nothing
   // against real data.
@@ -168,8 +170,12 @@ function UpsellPage() {
           <div className="flex items-center gap-100">
             <Sparkles className="h-250 w-250 text-text-brand" />
             <div>
-              <h1 className="text-[1rem] font-semibold text-text leading-none">Upsell & leads manager</h1>
-              <p className="text-body-small text-text-subtle">Eligibility-gated leads from voice & chat — pipeline, follow-ups, and conversion.</p>
+              <h1 className="heading-small font-semibold text-text leading-none">
+                Upsell & leads manager
+              </h1>
+              <p className="text-body-small text-text-subtle">
+                Eligibility-gated leads from voice & chat — pipeline, follow-ups, and conversion.
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-100">
@@ -201,13 +207,19 @@ function UpsellPage() {
 
         <div className="flex min-h-[24rem] flex-1 flex-col">
           {view === "board" ? (
-            <LeadBoard leads={filtered} onOpen={(l) => setOpenId(l.id)} onDropStage={handleDropStage} />
+            <LeadBoard
+              leads={filtered}
+              onOpen={(l) => setOpenId(l.id)}
+              onDropStage={handleDropStage}
+            />
           ) : (
             <LeadTable leads={tableRows} onOpen={(l) => setOpenId(l.id)} />
           )}
         </div>
 
-        {openLead && <LeadSheet lead={openLead} onClose={() => setOpenId(null)} onMutate={refreshLeads} />}
+        {openLead && (
+          <LeadSheet lead={openLead} onClose={() => setOpenId(null)} onMutate={refreshLeads} />
+        )}
         {showNew && <NewLeadSheet onClose={() => setShowNew(false)} onCreated={refreshLeads} />}
       </div>
     </AppShell>

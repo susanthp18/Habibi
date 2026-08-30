@@ -111,6 +111,13 @@ def enact_one(
             account_id=decision.get("account_id"),
         )
         if not admitted.allowed:
+            # A voice plan the gate refused is still evidence. Recording it as a
+            # suppressed attempt is what makes the denial rate a query over one
+            # table rather than a join between a log file and an intention —
+            # and it is the row that answers "why did nobody call this borrower
+            # on Tuesday" with a reason instead of a shrug.
+            if action == A.VOICE_BOT:
+                _record_suppressed_dial(decision, customer, admitted.reason)
             decisions.record_outcome(decision_id, "cancelled", conn=conn)
             return False, f"contact:{admitted.reason}"
 
@@ -193,15 +200,37 @@ def _open_pay_url(conn: Any, decision: dict[str, Any]) -> tuple[str | None, Any]
     return row["pay_url"], row["amount"]
 
 
-def _copy(conn: Any, decision: dict[str, Any]) -> str:
+def _copy(conn: Any, decision: dict[str, Any], *, tenant_id: str | None = None) -> str:
     """The message body. Statutory disclosure first, then the ask.
 
     RBI's Digital Lending Guidelines require the regulated entity, the loan
     reference and a grievance route to be identifiable on any collections
     communication. Composing that here rather than in a template means a channel
     added later cannot ship without it.
+
+    That was the intent and, until now, not the behaviour: the body ended
+    ``"Queries: reply to this message."``, which is a reply-to and not a
+    grievance route. ¶100AA wants the officer's name, telephone number and
+    email in every recovery communication, and this is one. The footer now comes
+    from :mod:`compliance_copy`, the same renderer the voicemail path uses, and
+    a tenant with no officer on file raises rather than sends — the identical
+    call made for voicemail, made once.
+
+    On SMS the footer usually costs a second segment. That is the price of the
+    disclosure and not an argument against carrying it; a cheaper message that
+    omits it is not cheaper, it is non-compliant.
     """
+    import compliance_copy
     import db as dbmod
+
+    # The borrower's own tenant where the caller knows it. This worker drains a
+    # queue that spans tenants and never binds one, so `current_tenant()` here
+    # is the process default rather than the bank whose borrower is about to be
+    # messaged - which would eventually put one bank's grievance officer, and
+    # one bank's brand, into another bank's dunning message.
+    footer = compliance_copy.written_footer(compliance_copy.tenant_contacts(tenant_id))
+    if footer is None:
+        raise NoExecutor(compliance_copy.NO_GRIEVANCE_CONTACT)
 
     pay_url, amount = _open_pay_url(conn, decision)
     account_ref = decision.get("account_id") or "your account"
@@ -211,7 +240,7 @@ def _copy(conn: Any, decision: dict[str, Any]) -> str:
         import promise_fulfillment as pf
 
         money = f" of ₹{pf._fmt_inr(amount)}"
-    brand = dbmod.current_tenant().split(".")[0].upper()
+    brand = (tenant_id or dbmod.current_tenant()).split(".")[0].upper()
     ask = (
         f"Pay securely here: {pay_url}. Do not share this link."
         if pay_url
@@ -219,7 +248,7 @@ def _copy(conn: Any, decision: dict[str, Any]) -> str:
     )
     return (
         f"{brand}: your instalment{money} on the account ending {tail} is overdue. "
-        f"{ask} Queries: reply to this message."
+        f"{ask} {footer}"
     )
 
 
@@ -230,11 +259,13 @@ def _send_whatsapp(conn: Any, *, decision: dict[str, Any], customer: dict[str, A
     if not phone:
         raise NoExecutor("no_phone_on_file")
     pay_url, amount = _open_pay_url(conn, decision)
-    body = _copy(conn, decision)
+    body = _copy(conn, decision, tenant_id=customer.get("tenant_id"))
     intent = {"amount": amount or 0, "pay_url": pay_url or ""}
     conversation_id = _conversation(conn, customer["id"])
     inside = pf._inside_service_window(conn, conversation_id)
-    template_name = (os.getenv("WHATSAPP_TREATMENT_TEMPLATE_NAME") or "").strip()
+    template_name = pf.resolve_template(
+        "WHATSAPP_TREATMENT_TEMPLATE_NAME", "WHATSAPP_TREATMENT_TEMPLATE_LANG"
+    )[0]
     if not inside and not template_name:
         # Outside Meta's 24-hour service window a freeform message is not
         # deliverable, and pretending otherwise burns the plan for nothing.
@@ -267,28 +298,142 @@ def _send_sms(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) 
     phone = customer.get("phone_primary") or customer.get("phone_alt")
     if not phone:
         raise NoExecutor("no_phone_on_file")
-    body = _copy(conn, decision)
+    body = _copy(conn, decision, tenant_id=customer.get("tenant_id"))
     if not twilio_sms.configured():
         raise NoExecutor("sms_not_configured")
-    result = twilio_sms.send(to_phone=phone, body=body)
+    # The decision id is the ``related_id`` on the contact event too, so the
+    # receipt, the attempt and the decision that caused it all key together
+    # without a join table.
+    result = twilio_sms.send(
+        to_phone=phone,
+        body=body,
+        customer_id=customer["id"],
+        tenant_id=customer.get("tenant_id"),
+        related_id=decision["id"],
+    )
     return f"sms:{result.get('sid') or 'sent'}"
 
 
 def _dial_bot(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) -> str:
-    from voice import twilio_ops
+    """Place the engine's call, through the attempt ledger.
+
+    The attempt is reserved on its **own** short transaction rather than on
+    ``conn``. The executor's transaction is still open at this point, so a row
+    written on it would be invisible to :func:`outbound.place`, which opens its
+    own connections — the fleet-gate count would miss it and the post-dial
+    UPDATE would match nothing. Committing first also means a crash mid-dial
+    leaves evidence rather than a spent contact budget with no cause; the
+    orphan is reaped by ``outbound.sweep_stale``.
+    """
+    import db as dbmod
+    import mission as mission_mod
+    import outbound
 
     phone = customer.get("phone_primary") or customer.get("phone_alt")
     if not phone:
         raise NoExecutor("no_phone_on_file")
-    result = twilio_ops.start_outbound_call(
-        to=phone,
-        custom={
-            "customer_id": customer["id"],
-            "account_id": str(decision.get("account_id") or ""),
-            "treatment_decision_id": decision["id"],
-        },
-    )
-    return f"voice:{result.get('callSid') or 'dialled'}"
+    slot = "primary" if customer.get("phone_primary") else "alt"
+    objective = _objective_for(decision)
+
+    with dbmod.engine.begin() as own:
+        # The agent that will run this mission, and the envelope it may work
+        # inside. Resolved here rather than in the voice worker because the card
+        # is what decides whether this agent is even allowed on this mission —
+        # and a dial placed against a card that forbids it should not happen at
+        # all, rather than be discovered once the borrower has answered.
+        bot_id = mission_mod.resolve_outbound_bot_id(
+            decision=decision, objective=objective
+        )
+        card = mission_mod.card_for_bot(bot_id)
+        if card is not None and card.outbound.dials and card.outbound.objectives:
+            if card.outbound.objective(objective) is None:
+                raise NoExecutor(f"card_forbids_mission:{objective}")
+        built = mission_mod.build(
+            own,
+            customer_id=customer["id"],
+            objective=objective,
+            account_id=decision.get("account_id"),
+            card=card,
+            bot_id=bot_id,
+            decision=decision,
+        )
+        attempt = outbound.reserve(
+            own,
+            customer_id=customer["id"],
+            to_phone=phone,
+            objective=objective,
+            account_id=decision.get("account_id"),
+            decision_id=decision["id"],
+            phone_slot=slot,
+            policy_version=decision.get("policy_version"),
+            tenant_id=customer.get("tenant_id"),
+            bot_id=bot_id,
+            context={
+                "trigger": decision.get("trigger_kind"),
+                "expectedValueInr": float(decision["expected_value"])
+                if decision.get("expected_value") is not None
+                else None,
+                "propensity": decision.get("propensity"),
+                "variant": decision.get("variant"),
+                "mission": built,
+            },
+        )
+    if attempt is None:
+        raise NoExecutor("customer_gone")
+
+    result = outbound.place(dbmod.engine, attempt, to_phone=phone)
+    if not result.get("placed"):
+        # Not an error the executor should retry into: the plan stays claimed
+        # and the reason is on the attempt row. `fleet_busy` in particular is a
+        # capacity fact, not a fact about this borrower.
+        raise NoExecutor(str(result.get("reason") or "dial_refused"))
+    return f"voice:{result.get('callSid') or attempt['id']}"
+
+
+def _objective_for(decision: dict[str, Any]) -> str:
+    """Trigger kind → the mission this call is on.
+
+    Delegates to ``mission.objective_for_trigger`` rather than keeping a second
+    copy: two maps of the same relationship is two answers to one question, and
+    the one that drifts is always the one nobody is looking at.
+    """
+    import mission as mission_mod
+
+    return mission_mod.objective_for_trigger(decision.get("trigger_kind"))
+
+
+def _record_suppressed_dial(
+    decision: dict[str, Any], customer: dict[str, Any], reason: str | None
+) -> None:
+    """Log a refused voice plan as a suppressed attempt. Never raises.
+
+    On its own transaction, and swallowing failures, because this is
+    bookkeeping: an attempt ledger that can abort an enactment would be a
+    measurement that changes what it measures.
+    """
+    import db as dbmod
+    import outbound
+
+    phone = customer.get("phone_primary") or customer.get("phone_alt")
+    if not phone:
+        return
+    try:
+        with dbmod.engine.begin() as own:
+            attempt = outbound.reserve(
+                own,
+                customer_id=customer["id"],
+                to_phone=phone,
+                objective=_objective_for(decision),
+                account_id=decision.get("account_id"),
+                decision_id=decision["id"],
+                policy_version=decision.get("policy_version"),
+                tenant_id=customer.get("tenant_id"),
+                context={"trigger": decision.get("trigger_kind")},
+            )
+            if attempt:
+                outbound.suppress(own, attempt["id"], reason or "contact_policy")
+    except Exception:
+        logger.exception("could not log suppressed dial for %s", decision.get("id"))
 
 
 def _queue_human(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) -> str:
@@ -658,6 +803,82 @@ def _change_emi_date(
     return f"work:{job_id}"
 
 
+def _open_self_service_plan(
+    conn: Any, *, decision: Any, customer: Any, **_: Any
+) -> str:
+    """Enable a borrower-initiated repayment path. Nothing is sent.
+
+    Same shape as the date change and for the same reason: the platform holds
+    the decision, the LMS holds the schedule. What lands here is a work item
+    the servicing system picks up, and the borrower meets the result where they
+    already are -- the app, the portal, the next statement.
+
+    The idempotency key is the decision id, so a retried enactment opens one
+    plan rather than two. That matters more here than on a message: two plans
+    on one account is a borrower with two schedules and a dispute about which
+    one they agreed to.
+    """
+    import db as dbmod
+
+    row = conn.execute(
+        text(
+            """
+            SELECT a.outstanding,
+                   (SELECT e.amount FROM emi_installments e
+                     WHERE e.account_id = a.id ORDER BY e.due_date DESC LIMIT 1)
+                     AS instalment
+            FROM accounts a WHERE a.id = :aid
+            """
+        ),
+        {"aid": decision.get("account_id")},
+    ).mappings().first()
+    if row is None:
+        raise NoExecutor("no_account_to_plan_against")
+
+    outstanding = float(row["outstanding"] or 0.0)
+    instalment = float(row["instalment"] or 0.0)
+    if outstanding <= 0 or instalment <= 0:
+        raise NoExecutor("no_arrears_to_plan")
+
+    # Instalments, rounded up, capped. The cap is not arithmetic: beyond six
+    # this stops being a catch-up plan and becomes a restructure, which needs
+    # the authority matrix rather than a self-service toggle.
+    tenor = min(6, max(2, int(-(-outstanding // instalment))))
+
+    job_id = dbmod._id("WRJ")
+    conn.execute(
+        text(
+            """
+            INSERT INTO work_runtime_jobs (
+              id, tenant_id, workflow_type, status, customer_id,
+              payload, idempotency_key
+            ) VALUES (
+              :id, :tenant_id, 'self_service_plan', 'submitted', :customer_id,
+              CAST(:payload AS jsonb), :idem
+            )
+            ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+            """
+        ),
+        {
+            "id": job_id,
+            "tenant_id": customer["tenant_id"],
+            "customer_id": customer["id"],
+            "payload": json.dumps(
+                {
+                    "decisionId": decision["id"],
+                    "accountId": decision.get("account_id"),
+                    "arrearsInr": round(outstanding, 2),
+                    "instalmentInr": round(instalment, 2),
+                    "proposedTenor": tenor,
+                    "rationale": (decision.get("rationale") or "")[:500],
+                }
+            ),
+            "idem": f"self-service-plan:{decision['id']}",
+        },
+    )
+    return f"work:{job_id}"
+
+
 #: Days after the salary credit to put the new due date. Two, not zero: a
 #: credit posted on payday is not always cleared on payday, and an instalment
 #: that debits the same morning is the mismatch again with a smaller gap.
@@ -677,6 +898,7 @@ _HANDLERS = {
     A.HUMAN_CALL: _queue_human,
     A.REPRESENT_MANDATE: _represent_mandate,
     A.EMI_DATE_CHANGE: _change_emi_date,
+    A.SELF_SERVICE_PLAN: _open_self_service_plan,
 }
 
 

@@ -1,0 +1,380 @@
+Survey complete. **I changed nothing** — read-only tools only (Read/Grep/Glob and read-only shell). `git diff --stat` reports `416 files changed, 23218 insertions(+), 5341 deletions(-)` plus 95 untracked, all of it the pre-existing WIP snapshot on `greptile-review/local-wip`; none of it is mine.
+
+Method: extracted 328 backend routes from `@app.*` decorators, 191 distinct frontend call paths from `apiGet/apiPost/apiPatch/apiDelete`, normalized path params on both sides, and set-diffed. Then hand-verified every candidate (many were query-string artifacts — `/offers/health${query}`, `/handoff/queue${q}` etc. — and are dropped).
+
+---
+
+**[P1] treatment-console-absent — the entire Decision Intelligence operator surface is served by the API and rendered by nothing**
+
+```
+where:    backend/main.py:4101-4212 (9 endpoints)
+          Habibi/src — zero callers
+evidence: main.py:4101  @app.get("/treatment/next")
+          main.py:4119  @app.get("/treatment/insights")
+          main.py:4129  @app.get("/treatment/metrics")
+          main.py:4146  @app.get("/treatment/model-health")
+          main.py:4155  @app.get("/treatment/models")
+          main.py:4164  @app.get("/treatment/holds")
+          main.py:4176  @app.post("/treatment/holds")
+          main.py:4188  @app.post("/treatment/holds/{hold_id}/release")
+          main.py:4197  @app.get("/treatment/cases")
+
+          $ grep -rn "treatment/" Habibi/src   → 0 results
+          The only two `treatment` strings in the whole frontend are cosmetic:
+            NextBestActionCard.tsx:76  primary.source === "treatment_engine" ? <StatusChip …>
+            workspace.ts:248           if (value === "treatment_executor") return "Treatment";
+why:      main.py:4121 calls /treatment/insights "the report the roadmap's exit
+          criterion is written against: two weeks of shadow logs with a
+          suppression breakdown before any live auto-act." That exit criterion
+          is unreadable — nobody can see coverage, suppression mix, model
+          health, or the champion/challenger ledger, so TREATMENT_MODE can
+          never be justifiably moved off `shadow`. Worse, POST /treatment/holds
+          has no UI: an agent who hears "I lost my job" cannot place a
+          collections hold from the console at all.
+fix:      Add Habibi/src/api/treatment.ts + a /treatment route with three tabs
+          (insights, metrics/model-health, cases+holds); wire holds into the
+          Customer-360 quick-actions rail.
+scope:    M
+```
+
+---
+
+**[P2] inr-grouping-split — the same table row prints one rupee figure Western-grouped and the next Indian-grouped**
+
+```
+where:    backend/db.py:12245-12248  (server-rendered `detail` strings)
+          Habibi/src/components/workspace/AssignedQueue.tsx:169  (client `amount`)
+evidence: db.py:12245  def _inr(amount: float | None) -> str:
+          db.py:12246      if amount is None:
+          db.py:12247          return "—"
+          db.py:12248      return f"₹{amount:,.0f}"          ← Python "," = 1,234,567
+
+          db.py:12370   detail = f"Paid {_inr(paid)} of {_inr(amount)} promised"
+          db.py:12374   detail = f"Promised {_inr(amount)}" + …
+          db.py:12286   detail = snippet or (f"Disputed {_inr(amount)}" …)
+
+          AssignedQueue.tsx:151  <span … title={row.detail}>
+          AssignedQueue.tsx:152    {row.detail}                ← "Promised ₹1,234,567"
+          AssignedQueue.tsx:169    {hasAmount ? `₹${amount.toLocaleString("en-IN")}` : "—"}
+                                                              ← "₹12,34,567"
+why:      Detail column and Amount column of the SAME work-item row disagree on
+          how to group the SAME number. An Indian collections user reads
+          ₹1,234,567 as a formatting bug or, worse, misreads the magnitude.
+          Python's `:,` has no Indian lakh/crore grouping — this cannot be fixed
+          by changing the format spec alone.
+fix:      Have _inr() emit lakh/crore grouping (or return raw numbers + a money
+          field and let the client format everything through one helper).
+scope:    S
+```
+
+---
+
+**[P2] contactability-browser-tz — the "OK to contact" pill recomputes the calling-window veto in the agent's browser timezone, and a correct endpoint for it already exists unused**
+
+```
+where:    Habibi/src/components/customer360/ContactabilityPill.tsx:8-16
+          backend/contact_policy.py:462-486 + :514-516  (authoritative)
+          backend/main.py:875  GET /customers/{id}/contact-policy — 0 callers
+evidence: ContactabilityPill.tsx:8   function withinWindow(pref: string | null | undefined): boolean {
+          ContactabilityPill.tsx:9     const m = (pref || "").match(/(\d{1,2}):(\d{2})[–-](\d{1,2}):(\d{2})/);
+          ContactabilityPill.tsx:10    if (!m) return true;                       ← no window ⇒ always contactable
+          ContactabilityPill.tsx:13    const now = new Date();
+          ContactabilityPill.tsx:14    const cur = now.getHours() * 60 + now.getMinutes();   ← BROWSER tz
+          ContactabilityPill.tsx:15    return cur >= start && cur <= end;          ← inclusive end
+
+          contact_policy.py:515  tz = _zone((customer or {}).get("timezone"))
+          contact_policy.py:516  local = instant.astimezone(tz)                    ← CUSTOMER tz
+          contact_policy.py:469  window = rules.calling_window(channel) if rules is not None else None
+          contact_policy.py:470  if window is None and channel == "voice":
+          contact_policy.py:471      window = (RBI_VOICE_START, RBI_VOICE_END)     ← 8..19, py:69-70
+          contact_policy.py:474      if now_local.hour < start_h or now_local.hour >= end_h:  ← exclusive end
+          contact_policy.py:485          if (now_local.isoweekday() % 7) not in days:         ← allowed_days
+
+          $ grep -rn "contact-policy" Habibi/src   → 0 results
+why:      Four concrete disagreements: (a) an agent in a different tz than the
+          borrower sees a green pill inside the borrower's quiet hours; (b) a
+          customer with no preferredWindow renders "OK to contact" while the
+          backend applies the RBI 08:00–19:00 voice bound; (c) allowed_days is
+          ignored entirely, so a Sunday-blocked account shows green; (d) at
+          exactly 19:00 the pill says OK and the veto says REASON_WINDOW.
+          Rendered at CustomerHeader.tsx:82 — the pill an agent looks at before
+          dialling. This is a compliance-facing wrong answer.
+fix:      Delete withinWindow(); call GET /customers/{id}/contact-policy and
+          render its verdict/reason. contactabilityState becomes a formatter.
+scope:    S
+```
+
+---
+
+**[P1] webhooks-never-fire — the outbound webhook subsystem has endpoints, secrets, retry policy, event catalog and a delivery log, and no business event ever emits into it**
+
+```
+where:    backend/ops_screens.py:1346-1409 (only producer), :1412-1430 (retry)
+evidence: ops_screens.py:1346  def test_fire_webhook(endpoint_id: str, event_key: str | None = None)
+          ops_screens.py:1356      # Simulated delivery — no real egress from this process (safe for demo/prod UI).
+          ops_screens.py:1357      ok = bool(host) and ep["status"] == "active"
+          ops_screens.py:1374      conn.execute(text(""" INSERT INTO webhook_deliveries ( …
+          ops_screens.py:1391      '{"ok":true,"mode":"simulated"}' if ok else '{"ok":false}'
+          ops_screens.py:1430  return test_fire_webhook(row["endpoint_id"], row.get("event_name"))   ← "retry" re-simulates
+
+          $ grep -rn "httpx|requests\.|urlopen" backend/ops_screens.py  → 0 results
+          $ grep -rl "webhook_deliveries" backend/*.py
+              main.py  seed_postgres.py  ops_screens.py   (+2 alembic migrations)
+            — main.py only exposes list/retry; nothing in payments.py, promise_
+              fulfillment.py, payment_events.py, treatment/enact.py writes a delivery.
+why:      A tenant registers an endpoint for `promise.kept` / `payment.received`,
+          clicks Test, sees 200 OK in the delivery log, and then never receives a
+          single real event. The failure is silent and looks like success — the
+          worst shape this bug can take. The Integrations delivery-log screen
+          actively asserts a lie.
+fix:      Add a `dispatch(event_key, payload)` that resolves subscribed endpoints
+          and enqueues a real signed POST (reuse the whatsapp_outbound job-queue
+          pattern); call it from the existing business-event sites.
+scope:    M
+```
+
+---
+
+**[P1] provider-pools-and-bindings-dead — full-stack provider key-pool health and per-bot binding CRUD, both sides typed and complete, zero components mount them**
+
+```
+where:    Habibi/src/api/providers.ts:139, :151, :160, :171
+          backend/main.py:4802, :4827, :4864, :4873
+evidence: providers.ts:149  /** Key-pool health. Polled, because free-tier exhaustion is the failure the
+          providers.ts:150   *  operator needs to see *before* a demo call hits it, not after. */
+          providers.ts:151  export function useProviderPools(enabled = true) {
+          providers.ts:154      queryFn: () => apiGet<ProviderPool[]>("/providers/pools"),
+          providers.ts:155      refetchInterval: enabled ? 30_000 : false,
+          providers.ts:139  export function useProviderBindings(botId?: string | null)
+          providers.ts:160  export function useUpsertBinding(botId?: string | null)
+          providers.ts:171  export function useDeleteBinding(botId?: string | null)
+
+          main.py:4873  @app.get("/providers/pools", response_model=list[ProviderPoolStatus])
+          main.py:4875      """Key-pool health, so free-tier exhaustion is visible before a demo hits it."""
+          main.py:4802/4827/4864  GET / POST / DELETE /providers/bindings
+
+          $ grep -rn "useProviderPools|useProviderBindings|useUpsertBinding|useDeleteBinding" \
+              Habibi/src/{components,routes,hooks,lib}   → 0 results each
+why:      The hook's own comment names the exact failure it prevents, and that
+          prevention is not installed. Given fish-free-model-expires (free tier,
+          2026-08-31), pool exhaustion mid-demo is a live risk with a built,
+          unmounted indicator. Separately, per-bot provider binding cannot be
+          configured from the console at all despite complete CRUD on both sides.
+fix:      Mount a pool-health strip in the Integrations "providers" tab
+          (routes/integrations.tsx:185) and a binding table in the agent-studio
+          bot detail route.
+scope:    S
+```
+
+---
+
+**[P1] number-pool-health-invisible — the worker rotates caller IDs on health it computes every settle cycle; the endpoint that exposes it has no caller**
+
+```
+where:    backend/bot_worker.py:87 → backend/outbound.py:1152
+          backend/main.py:4524-4548  GET /outbound/number-pools — 0 callers
+evidence: bot_worker.py:82   # Caller-ID health. Cheap (three UPDATEs over one tenant's numbers) and
+          bot_worker.py:83   # on the same settle cadence, because a number's answer rate does not
+          bot_worker.py:84   # move between iterations and rotating on a stale reading is the same
+          bot_worker.py:85   # mistake as not rotating at all.
+          bot_worker.py:87       outbound.sweep_pool_health(db.engine)
+
+          outbound.py:1152  def sweep_pool_health(engine, *, tenant_id=None) -> dict[str, int]:
+          outbound.py:1161      totals = {"scored": 0, "cooled": 0, "restored": 0}
+
+          main.py:4524  @app.get("/outbound/number-pools")
+          main.py:4526      """Caller-ID pools and the numbers in them, with how each is performing."""
+
+          $ grep -rn "number-pools" Habibi/src   → 0 results
+why:      Numbers get cooled and restored automatically and no human can see it.
+          When answer rate collapses because half the pool is cooled, the
+          operator has no screen that says so — they will debug the dialler.
+fix:      Add fetchNumberPools() to api/outbound.ts and a pool table on the
+          outbound/campaigns screen showing scored/cooled/restored per number.
+scope:    S
+```
+
+---
+
+**[P4] dispute-sla-computed-twice — Python and TypeScript each derive a dispute's SLA, with different formats and different thresholds, and both render**
+
+```
+where:    Habibi/src/data/disputes-seed.ts:489-503  (TS copy, live path)
+          backend/db.py:906-921  _sla_label  (Python copy) → db.py:1382
+evidence: disputes-seed.ts:489  export function slaInfo(d: Dispute): SlaInfo {
+          disputes-seed.ts:495    const totalWindow = due - new Date(d.capturedAt).getTime();
+          disputes-seed.ts:499    const label = `${hrs}h ${mins}m ${ms < 0 ? "over" : "left"}`;
+          disputes-seed.ts:500    if (ms < 0) return { tone: "breach", label, msRemaining: ms };
+          disputes-seed.ts:501    if (ms < totalWindow * 0.25) return { tone: "warn", … };
+
+          db.py:906   def _sla_label(value: str | None) -> str:
+          db.py:916       hours = round((due - now).total_seconds() / 3600)
+          db.py:918       if hours < 0: return f"{abs(hours)}h overdue"
+          db.py:919       if hours < 24: return f"{hours}h left"
+          db.py:920       return f"{round(hours / 24)}d left"
+          db.py:1382      "slaLabel": _sla_label(r["sla_due_at"]),
+
+          consumers — same dispute, two screens:
+            DisputeCard.tsx:38   const sla = slaInfo(d);          ← /disputes board
+            DisputeSheet.tsx:77  const sla = slaInfo(d);
+            DisputesTab.tsx:86   {d.slaLabel}                     ← Customer-360 tab
+why:      A dispute 29 minutes from breach reads "0h 29m left · warn" on the
+          Disputes board and "0h left" on the same customer's 360 tab. 40 minutes
+          past due reads "0h 40m over · breach" vs "1h overdue". Python's
+          hour-rounding also destroys the breach signal entirely — it has no
+          tone, so the 360 tab cannot show red at all.
+fix:      Return {sla, slaLabel} from the server the way work-items already do
+          (db.py:12199 _work_item_sla is the correct pattern) and delete slaInfo().
+scope:    S
+```
+
+---
+
+**[P4] authority-matrix-reimplemented-in-ts — the goodwill-waiver matrix exists in Python (env-tunable, 11 escalate reasons) and in TypeScript (hardcoded, 2 reasons)**
+
+```
+where:    Habibi/src/lib/customerInsights.ts:200-240
+          backend/agent_core/authority/config.py:37-62 + matrix.py:117-155
+          backend/main.py:4712  GET /authority/next — 0 callers
+evidence: customerInsights.ts:208  if (priorWaiver || customer.account.dpd >= 61) {
+          customerInsights.ts:226  const cap = customer.account.dpd <= 30 ? 500 : 250;
+
+          config.py:37  def late_fee_cap() -> float:
+          config.py:39      return max(0.0, env_float("AUTHORITY_LATE_FEE_CAP", 500.0))
+          config.py:42  def late_fee_mid_cap() -> float:
+          config.py:44      return max(0.0, env_float("AUTHORITY_LATE_FEE_MID_CAP", 250.0))
+          config.py:46  def late_fee_max_outstanding() -> float:
+          config.py:48      return max(0.0, env_float("AUTHORITY_LATE_FEE_MAX_OUTSTANDING", 100_000.0))
+          config.py:52  def late_fee_max_dpd() -> int:
+          config.py:54      return max(0, env_int("AUTHORITY_LATE_FEE_MAX_DPD", 61))
+          config.py:58  def min_tenure_months() -> int:
+
+          matrix.py escalate reasons Python has and TS does not:
+            :117 UNKNOWN_FEE  :120 IDENTITY  :124 HOLD_PREFIX  :127 SETTLEMENT_FORBIDDEN
+            :129 RESTRUCTURE_FORBIDDEN  :131 BOUNCE_FORBIDDEN  :138 DPD_UNKNOWN
+            :145 OUTSTANDING_TOO_HIGH  :149 TENURE_TOO_SHORT  :155 NOTHING_TO_WAIVE
+
+          $ grep -rn "authority/next" Habibi/src   → 0 results
+why:      config.py:4 states the caps are deliberately runtime-tunable ("Deciding
+          that a first-time late-fee goodwill cap is ₹500 rather than ₹300 is an
+          operational act, not a release") — the TS copy freezes them at the
+          current defaults, so raising AUTHORITY_LATE_FEE_CAP silently desyncs
+          the two. Already disagreeing today: a ₹150,000-outstanding account at
+          20 DPD is OUTSTANDING_TOO_HIGH → escalate in Python, and "Goodwill
+          ceiling is ₹500, you may reverse up to that" in TS. Scoped to the mock
+          path (USE_MOCK), so it misleads demos and dev rather than production —
+          but it is the copy people learn the policy from.
+fix:      Drop mockAuthorityPolicy; have the mock branch call /authority/next
+          (it is explicitly documented safe outside AUTHORITY_MODE=live,
+          main.py:4722).
+scope:    S
+```
+
+---
+
+**[P1] agent-change-log-has-no-viewer — a hash-chained tamper-evident audit trail of who changed what an agent says, with no screen**
+
+```
+where:    backend/main.py:1989-1999 — 0 frontend callers
+evidence: main.py:1989  @app.get("/agent-studio/change-log")
+          main.py:1994      """Who changed what an agent says, when, and what the compiler said then.
+          main.py:1996      Hash-chained: the response carries a `chain` verdict, so a rewritten or
+          main.py:1997      deleted historical entry is visible rather than merely absent.
+          main.py:1999      return db.agent_change_log(botId, limit=limit)
+
+          $ grep -rn "change-log" Habibi/src   → 0 results
+why:      The `chain` verdict is the whole point — it distinguishes "no changes"
+          from "someone deleted the changes". Nobody can see it. In a bank
+          deployment this is the artifact an auditor asks for first, and the
+          answer is currently a curl command.
+fix:      Add a "History" tab to the agent-studio bot detail route rendering the
+          entries plus a chain-intact/chain-broken banner.
+scope:    S
+```
+
+---
+
+**[P1] eval-critique-and-disagreement-queues-orphaned — the LLM-judge self-critique loop and the human-vs-AI QA disagreement queue are served and unrendered**
+
+```
+where:    backend/main.py:2574-2578, :2581-2588, :2591-2595 — 0 frontend callers
+evidence: main.py:2574  @app.get("/eval/critiques")
+          main.py:2576      from agent_core.eval.critique import list_critiques
+          main.py:2581  @app.post("/eval/reports/{report_id}/critique")
+          main.py:2583      from agent_core.eval.critique import critique_from_report
+          main.py:2591  @app.get("/eval/disagreements")
+          main.py:2593      from agent_core.eval.disagreement import disagreements
+
+          $ grep -rn "eval/critiques" Habibi/src      → 0 results
+          $ grep -rn "eval/disagreements" Habibi/src  → 0 results
+          (neighbouring /eval/suites, /eval/reports, /eval/twin-corpus ARE wired,
+           so this is a gap inside a screen that exists, not a missing screen)
+why:      Disagreements are where the auto-scorer is wrong and a human caught it —
+          the single highest-value input for rubric tuning, and the calibration
+          screen never surfaces them. The critique POST means an operator cannot
+          even trigger a critique from the report they are looking at.
+fix:      Two panels on the existing eval/calibration route + a "Critique" button
+          on the report row.
+scope:    S
+```
+
+---
+
+**[P4] inr-compact-drift — `_inr_compact` (Python) and `inrCompact` (TS) implement the same lakh/crore ladder and disagree below ₹1,000**
+
+```
+where:    backend/db.py:3142-3151  (→ db.py:3544, dashboard KPI "value")
+          Habibi/src/data/billing-seed.ts:82-90
+evidence: db.py:3142  def _inr_compact(amount: float | None) -> str:
+          db.py:3143      """Indian money formatting. The dashboard rendered rupee balances as $X.XXM."""
+          db.py:3149      if abs(value) >= 1_000:
+          db.py:3150          return f"₹{value / 1_000:.1f} K"      ← "K", space
+          db.py:3151      return f"₹{value:,.0f}"                    ← 0 decimals below 1000
+
+          billing-seed.ts:86    if (n >= 1_000) return `₹${(n / 1_000).toFixed(1)}k`;   ← "k", no space
+          billing-seed.ts:87    if (n >= 1) return `₹${n.toFixed(2)}`;
+          billing-seed.ts:88    if (n > 0) return `₹${n.toFixed(4)}`;
+          billing-seed.ts:89    return "₹0";
+why:      ₹1,500 renders "₹1.5 K" from the dashboard endpoint and "₹1.5k" in the
+          billing tables on the adjacent screen. Worse below ₹1: a ₹0.004 per-token
+          cost is "₹0" from Python and "₹0.0040" from TS — and main.py:1038 already
+          warns that a metering gap "must not be shown as a genuine ₹0.00", which
+          is precisely what the Python branch produces.
+fix:      Give _inr_compact the same sub-₹1000 precision ladder and lowercase "k",
+          or stop compacting server-side and send raw numbers.
+scope:    S
+```
+
+---
+
+**[P5] whatsapp-fallback-template-env-dead — `.env.example` documents a fallback template pair that no code reads**
+
+```
+where:    backend/.env.example:18-19
+evidence: .env.example:18  WHATSAPP_FALLBACK_TEMPLATE_NAME=
+          .env.example:19  WHATSAPP_FALLBACK_TEMPLATE_LANG=en_US
+
+          $ grep -rn "WHATSAPP_FALLBACK_TEMPLATE" backend --include=*.py  → 0 results
+
+          the three names actually read are all *different*:
+            promise_fulfillment.py:374  template_env_name: str = "WHATSAPP_PTP_TEMPLATE_NAME"
+            payment_events.py:632       template_env_name="WHATSAPP_BOUNCE_TEMPLATE_NAME"
+            agent_core/treatment/enact.py:280  template_env_name="WHATSAPP_TREATMENT_TEMPLATE_NAME"
+why:      An operator setting up WhatsApp reads .env.example top-to-bottom, fills
+          in FALLBACK, and gets no fallback — outside Meta's 24h session window
+          the send just fails. The three real vars are documented lower down
+          (:33, :36, :460) so the fix is deletion, not addition.
+fix:      Remove lines 18-19, or wire them as the default when a purpose-specific
+          template env is unset.
+scope:    S
+```
+
+---
+
+### Two things I checked and cleared, so you don't re-spend the time
+
+- **Workers are wired.** `cadence`, `call_closer`, `promise_fulfillment`, `treatment.{sweep,enact,followthrough}` are all driven from `bot_worker.py:34-43` / `:70-102`; `tts_catalog_sync`, `qa_autoscore`, eval schedule and MCP task drain from `worker.py:407-415`. Both have compose services (`docker-compose.yml:153`, `:179`). No orphaned scheduler found.
+- **`*_API_KEYS` / `*_POOL_STRATEGY` are not dead** despite appearing in a naive env diff — `agent_core/providers/pool.py:333` builds the name dynamically from `key_env` (`f"{env}_API_KEYS"`, `f"{env}_POOL_STRATEGY"`). Same for ~120 exported `fetch*`/`use*` frontend functions that look unreferenced but are consumed by hooks in their own module.
+
+**Not covered this cycle:** I did not audit the `voice/` Pipecat subtree or `agent_core/{skills,connectors,vault,live_qa}` against the console, and I did not verify the sandbox/`/floor` SSE paths beyond confirming they have callers. Objective 2 (hardcoded data where a real endpoint exists) turned up less than expected — the `USE_MOCK` seam at `api/config.ts:11-23` is disciplined and every screen routes through it, so the mock-data problem is concentrated in the two *business-rule* copies reported above rather than in stray literal arrays.
+CYCLE1_EXIT=0

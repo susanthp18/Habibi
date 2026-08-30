@@ -49,7 +49,10 @@ export function BotVsHumanDonut({ data }: { data: Slice[] }) {
           {slices.map((s) => {
             const pct = total ? ((s.value / total) * 100).toFixed(1) : "0";
             return (
-              <li key={s.name} className="flex items-center justify-between gap-100 text-body-small">
+              <li
+                key={s.name}
+                className="flex items-center justify-between gap-100 text-body-small"
+              >
                 <span className="flex items-center gap-075">
                   <span className="size-2 rounded-full" style={{ background: s.color }} />
                   <span className="text-text">{s.name}</span>

@@ -29,7 +29,7 @@ export function CallVolumeChart({ data }: { data: StackedPoint[] }) {
       subtitle="Voice · WhatsApp · Chat & SMS"
       action={<SnapshotPill />}
     >
-      <div className="mb-100 flex flex-wrap gap-150 text-[11px] text-text-subtle">
+      <div className="mb-100 flex flex-wrap gap-150 text-body-tiny text-text-subtle">
         {(
           [
             ["Voice", COLORS.voice],

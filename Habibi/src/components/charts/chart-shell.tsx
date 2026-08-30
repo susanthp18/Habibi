@@ -15,11 +15,18 @@ export function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("flex h-full flex-col rounded-large border border-border bg-surface p-200 shadow-raised", className)}>
+    <div
+      className={cn(
+        "flex h-full flex-col rounded-large border border-border bg-surface p-200 shadow-raised",
+        className,
+      )}
+    >
       <div className="mb-100 flex items-start justify-between gap-150">
         <div className="min-w-0">
           <h3 className="text-body font-semibold tracking-tight text-text">{title}</h3>
-          {subtitle ? <p className="mt-025 text-body-small text-text-subtlest">{subtitle}</p> : null}
+          {subtitle ? (
+            <p className="mt-025 text-body-small text-text-subtlest">{subtitle}</p>
+          ) : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
@@ -90,7 +97,7 @@ export function ChartEmpty({ children }: { children: ReactNode }) {
 
 export function SnapshotPill({ children = "Snapshot" }: { children?: ReactNode }) {
   return (
-    <span className="rounded-full bg-surface px-100 py-025 text-[10.5px] font-medium text-text-subtle shadow-raised">
+    <span className="rounded-full bg-surface px-100 py-025 text-body-micro font-medium text-text-subtle shadow-raised">
       {children}
     </span>
   );

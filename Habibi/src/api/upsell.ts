@@ -56,7 +56,10 @@ export function leadContactChannel(source: LeadSource | string | undefined): Fol
   return "voice";
 }
 
-export function followUpChannelFromPolicy(channel: string | null | undefined, source?: LeadSource | string): FollowUpChannel {
+export function followUpChannelFromPolicy(
+  channel: string | null | undefined,
+  source?: LeadSource | string,
+): FollowUpChannel {
   if (channel === "whatsapp" || channel === "sms" || channel === "email") return channel;
   if (channel === "chat") return "whatsapp";
   if (channel === "voice") return "voice";
@@ -186,7 +189,8 @@ export async function patchLead(
   },
 ): Promise<Lead> {
   if (USE_MOCK) {
-    if (patch.stage && patch.stage !== lead.stage) moveStage(lead.id, patch.stage, undefined, patch.lossReason);
+    if (patch.stage && patch.stage !== lead.stage)
+      moveStage(lead.id, patch.stage, undefined, patch.lossReason);
     if (patch.owner !== undefined) assign(lead.id, patch.owner);
     if (patch.team !== undefined) reassignTeam(lead.id, patch.team);
     if (patch.offer !== undefined) updateOffer(lead.id, patch.offer);
@@ -246,7 +250,11 @@ export async function addLeadFollowUp(
   });
 }
 
-export async function markLeadFollowUpDone(lead: Lead, followUp: FollowUp, index: number): Promise<{ id: string; status: string }> {
+export async function markLeadFollowUpDone(
+  lead: Lead,
+  followUp: FollowUp,
+  index: number,
+): Promise<{ id: string; status: string }> {
   if (USE_MOCK) {
     markFollowUpDone(lead.id, index);
     return mockDelay({ id: followUp.id ?? `FU-${index}`, status: "done" });

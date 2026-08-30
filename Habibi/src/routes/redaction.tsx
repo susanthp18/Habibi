@@ -46,12 +46,14 @@ export const Route = createFileRoute("/redaction")({
       { title: "Redaction & Export Hub — BigBound AI" },
       {
         name: "description",
-        content: "Compliance-controlled export workflow — auto-detect PII in transcripts and audio, preview masks, and ship watermarked bundles with an immutable audit log.",
+        content:
+          "Compliance-controlled export workflow — auto-detect PII in transcripts and audio, preview masks, and ship watermarked bundles with an immutable audit log.",
       },
       { property: "og:title", content: "Redaction & Export Hub" },
       {
         property: "og:description",
-        content: "Select call records, preview PII detection, tune redaction rules, and export watermarked evidence for regulators.",
+        content:
+          "Select call records, preview PII detection, tune redaction rules, and export watermarked evidence for regulators.",
       },
     ],
   }),
@@ -80,10 +82,8 @@ function RedactionPage() {
 
   const invalidateRecords = () =>
     queryClient.invalidateQueries({ queryKey: ["redaction-records"] });
-  const invalidateRules = () =>
-    queryClient.invalidateQueries({ queryKey: ["redaction-rules"] });
-  const invalidateExports = () =>
-    queryClient.invalidateQueries({ queryKey: ["export-jobs"] });
+  const invalidateRules = () => queryClient.invalidateQueries({ queryKey: ["redaction-rules"] });
+  const invalidateExports = () => queryClient.invalidateQueries({ queryKey: ["export-jobs"] });
 
   useEffect(() => {
     if (!activeId && recordState.length > 0) {
@@ -96,10 +96,7 @@ function RedactionPage() {
     [rules],
   );
 
-  const visibleRecords = useMemo(
-    () => filterRecords(recordState, filter),
-    [recordState, filter],
-  );
+  const visibleRecords = useMemo(() => filterRecords(recordState, filter), [recordState, filter]);
 
   const active = useMemo(
     () => recordState.find((r) => r.id === activeId) ?? null,
@@ -217,7 +214,7 @@ function RedactionPage() {
       <div className="flex h-full min-h-0 flex-col">
         <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
           <div className="flex items-center gap-100">
-            <h1 className="text-[1.25rem] font-semibold text-text">Redaction & export hub</h1>
+            <h1 className="heading-medium font-semibold text-text">Redaction & export hub</h1>
             <Lozenge tone="selected">
               <ShieldCheck className="h-3 w-3" /> Compliance Officer
             </Lozenge>
@@ -229,7 +226,8 @@ function RedactionPage() {
             </button>
           </div>
           <p className="text-body-small text-text-subtle">
-            Auto-detect and mask PII in transcripts and audio, then ship watermarked evidence to regulators — every download logged.
+            Auto-detect and mask PII in transcripts and audio, then ship watermarked evidence to
+            regulators — every download logged.
           </p>
         </header>
 
@@ -263,7 +261,8 @@ function RedactionPage() {
                       {activeForRender.customer}
                     </div>
                     <span className="text-body-small text-text-subtlest">
-                      {activeForRender.id} · {activeForRender.callId} · {formatDateTime(activeForRender.occurredAt)} · {activeForRender.handler}
+                      {activeForRender.id} · {activeForRender.callId} ·{" "}
+                      {formatDateTime(activeForRender.occurredAt)} · {activeForRender.handler}
                     </span>
                     <button
                       onClick={markReviewed}
@@ -285,7 +284,9 @@ function RedactionPage() {
                     <div className="mb-150 flex items-center justify-between">
                       <div className="text-body font-semibold text-text">Transcript preview</div>
                       <div className="text-body-small text-text-subtlest">
-                        Click any mask to toggle · {activeForRender.findings.filter((f) => f.accepted).length} of {activeForRender.findings.length} applied
+                        Click any mask to toggle ·{" "}
+                        {activeForRender.findings.filter((f) => f.accepted).length} of{" "}
+                        {activeForRender.findings.length} applied
                       </div>
                     </div>
                     <TranscriptRedactor record={activeForRender} onToggleFinding={toggleFinding} />

@@ -1,0 +1,70 @@
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 562 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart services on ports 8000/7860/8080.
+Run real pytest suites and report actual output.
+
+
+TASK: fix THREE authorization/integrity defects found in the discovery audit
+(.loop/out/cycle10.txt findings 4, 5, 6). Each is small; keep the fixes tight
+and root-cause, no refactors:
+
+--- FIX 1: bot_tools.py ~line 174 — paylink read bypasses connector governance ---
+CURRENT: `get_customer_context` calls `paylink_status(ctx.customer_id)` directly,
+gated only on `mcp_client_enabled()`. The sanctioned path (bot_tools.py:799 ->
+connectors.persist.dispatch) enforces `conn["status"] != "approved"` rejection and
+circuit.allow(). A draft/disabled/circuit-open paylink connector still leaks
+payment data into every customer context read.
+REQUIRED: route this call through the same dispatch path (e.g.
+dispatch("ext.paylink.get_status", customer_id=...) or the equivalent sanctioned
+entry point you find in connectors/persist.py). On rejection, degrade gracefully:
+the context card should omit paylink fields (as today when mcp_client_enabled()
+is false), never crash the context build. Keep behaviour identical for an
+approved+healthy connector.
+
+--- FIX 2: agent_core/connectors/persist.py ~line 95 — default id not tenant-scoped ---
+CURRENT: `cid = str(payload.get("id") or f"conn-{slug}")` against
+id TEXT PRIMARY KEY (sql/16_mcp_phase3.sql:38). Two tenants creating slug
+"paylink" -> second INSERT hits PK violation and 500s, because the
+ON CONFLICT (tenant_id, slug) clause cannot absorb a conflict on id.
+REQUIRED: default the id to include the tenant (e.g. f"conn-{tenant_id}-{slug}"
+matching the existing id style you find in seed data / migrations) OR generate a
+uuid when absent. Ensure create-then-create-from-second-tenant succeeds and that
+upsert-by-(tenant,slug) still updates the SAME row on repeat calls (no duplicate
+rows per tenant). Add tests: two tenants same slug both succeed with distinct ids;
+repeat upsert for one tenant does not duplicate.
+
+--- FIX 3: agent_core/skills/runtime.py ~line 71 — DB failure silently restores platform defaults ---
+CURRENT: `except Exception: pass` around packs_for_slugs(slugs); falls through to
+pack_for_slug(slug) reading UNSIGNED on-disk defaults at :76. A transient DB error
+can therefore re-grant tools a tenant explicitly removed via their signed pack
+(intersect.effective_tools gates writes on pack contents).
+REQUIRED: fail closed — log the exception (logger.error with pack slugs), return
+no packs from the DB path, and do NOT fall back to disk defaults in this runtime
+path. On-disk pack_for_slug may remain for genuinely local/dev flows elsewhere;
+grep its callers and leave other call sites alone unless they are this fallback.
+
+ACCEPTANCE CRITERIA:
+1. New tests: paylink-via-dispatch respects non-approved status (context omits
+   paylink fields); two-tenant connector id scenario; runtime.py DB-failure path
+   returns empty packs AND does not consult disk defaults (monkeypatch
+   pack_for_slug to raise if called).
+2. Full suite .venv/Scripts/python -m pytest tests/ -q must end 0 failed with
+   passed >= 2519. Report the tail verbatim.
+3. Files changed limited to backend/bot_tools.py, backend/agent_core/connectors/**,
+   backend/agent_core/skills/runtime.py, and tests. If you must touch anything
+   else, say why explicitly.
+4. Report files changed + pytest tail + remaining issues.

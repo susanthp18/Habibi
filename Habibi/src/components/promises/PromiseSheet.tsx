@@ -1,9 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -53,7 +65,13 @@ const todayISO = () => {
   return d.toISOString().slice(0, 10);
 };
 
-export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, customers: customersProp }: CreateProps) {
+export function CreatePromiseSheet({
+  open,
+  onOpenChange,
+  onSubmit,
+  owners,
+  customers: customersProp,
+}: CreateProps) {
   const customers = useMemo<CustomerOption[]>(
     () => (customersProp && customersProp.length ? customersProp : listCustomerSlim()),
     [customersProp],
@@ -106,12 +124,16 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
       <SheetContent side="right" className="w-full sm:max-w-[25rem]">
         <SheetHeader>
           <SheetTitle>New promise-to-pay</SheetTitle>
-          <SheetDescription>Capture a commitment and BigBound AI will handle reminders.</SheetDescription>
+          <SheetDescription>
+            Capture a commitment and BigBound AI will handle reminders.
+          </SheetDescription>
         </SheetHeader>
         <div className="mt-200 space-y-150">
           <Field label="Customer">
             <Select value={customerId} onValueChange={setCustomerId}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent className="max-h-[17.5rem]">
                 {customers.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
@@ -123,16 +145,28 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
           </Field>
           <div className="grid grid-cols-2 gap-150">
             <Field label="Amount (₹)">
-              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-9" />
+              <Input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="h-9"
+              />
             </Field>
             <Field label="Promised date">
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9" />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="h-9"
+              />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-150">
             <Field label="Channel">
               <Select value={channel} onValueChange={(v) => setChannel(v as PromiseChannel)}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="voice">Voice call</SelectItem>
                   <SelectItem value="whatsapp">WhatsApp</SelectItem>
@@ -144,7 +178,9 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
             </Field>
             <Field label="Source">
               <Select value={source} onValueChange={(v) => setSource(v as PromiseSource)}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="bot">Bot-captured</SelectItem>
                   <SelectItem value="agent">Agent-captured</SelectItem>
@@ -156,15 +192,23 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
           <div className="grid grid-cols-2 gap-150">
             <Field label="Owner">
               <Select value={owner} onValueChange={setOwner}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  {owners.map((o) => (<SelectItem key={o} value={o}>{o}</SelectItem>))}
+                  {owners.map((o) => (
+                    <SelectItem key={o} value={o}>
+                      {o}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
             <Field label="Reminders">
               <Select value={reminder} onValueChange={(v) => setReminder(v as ReminderStatus)}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="off">Off</SelectItem>
                   <SelectItem value="scheduled">24h before</SelectItem>
@@ -174,11 +218,18 @@ export function CreatePromiseSheet({ open, onOpenChange, onSubmit, owners, custo
             </Field>
           </div>
           <Field label="Notes (optional)">
-            <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Context, promised source of funds, etc." />
+            <Textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Context, promised source of funds, etc."
+            />
           </Field>
         </div>
         <div className="mt-300 flex justify-end gap-100">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={submit}>Capture promise</Button>
         </div>
       </SheetContent>
@@ -204,7 +255,13 @@ interface DetailProps {
   onResend?: (p: Promise) => void;
 }
 
-export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule, onResend }: DetailProps) {
+export function PromiseDetailSheet({
+  promise,
+  onOpenChange,
+  onMark,
+  onReschedule,
+  onResend,
+}: DetailProps) {
   const [partialAmt, setPartialAmt] = useState("");
   const [rescheduleDate, setRescheduleDate] = useState("");
 
@@ -223,7 +280,9 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
         <SheetHeader>
           <SheetTitle className="flex items-center gap-100">
             {promise.customerName}
-            <Badge variant="outline" className="text-body-small">{promise.id}</Badge>
+            <Badge variant="outline" className="text-body-small">
+              {promise.id}
+            </Badge>
           </SheetTitle>
           <SheetDescription>
             {fmtMoney(promise.amount)} · promised {fmtDate(promise.promisedDate)}
@@ -245,7 +304,7 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
                   ? `${promise.confirmChannel ?? "sent"}${promise.phoneLast4 ? ` ···${promise.phoneLast4}` : ""}`
                   : promise.confirmStatus === "suppressed"
                     ? "suppressed"
-                    : promise.paymentIntentStatus ?? "—"
+                    : (promise.paymentIntentStatus ?? "—")
               }
             />
             <Meta label="Intent" value={promise.paymentIntentStatus ?? "—"} />
@@ -276,7 +335,12 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
                   <div className="flex-1">
                     <div className="text-text">{ev.label}</div>
                     <div className="text-body-small text-text-subtlest">
-                      {new Date(ev.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                      {new Date(ev.at).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
                     </div>
                   </div>
                 </li>
@@ -286,7 +350,9 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
 
           {(promise.status === "upcoming" || promise.status === "due_today") && onResend && (
             <div className="rounded-medium border border-border p-150">
-              <div className="mb-100 text-body-small font-semibold text-text-subtlest">Payment link</div>
+              <div className="mb-100 text-body-small font-semibold text-text-subtlest">
+                Payment link
+              </div>
               <p className="mb-100 text-body-small text-text-subtle">
                 {promise.payLinkSent
                   ? `Written confirm queued on ${promise.confirmChannel ?? "message"}${promise.phoneLast4 ? ` ending ${promise.phoneLast4}` : ""}.`
@@ -301,38 +367,69 @@ export function PromiseDetailSheet({ promise, onOpenChange, onMark, onReschedule
           {(promise.status === "upcoming" || promise.status === "due_today") && (
             <>
               <div className="rounded-medium border border-border p-150">
-                <div className="mb-100 text-body-small font-semibold text-text-subtlest">Mark outcome</div>
+                <div className="mb-100 text-body-small font-semibold text-text-subtlest">
+                  Mark outcome
+                </div>
                 <div className="flex flex-wrap gap-100">
                   <Button
                     size="sm"
                     onClick={() => onMark(promise, "kept")}
                     disabled={!(promise.paidAmount && promise.paidAmount > 0)}
-                    title={!(promise.paidAmount && promise.paidAmount > 0) ? "Kept requires a recorded payment" : undefined}
+                    title={
+                      !(promise.paidAmount && promise.paidAmount > 0)
+                        ? "Kept requires a recorded payment"
+                        : undefined
+                    }
                     className="bg-background-success-bold hover:bg-background-success-bold-pressed text-white disabled:opacity-40"
                   >
                     Mark kept · {fmtMoney(promise.amount)}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => onMark(promise, "broken")} className="border-border-danger-subtle text-text-danger-bolder hover:bg-background-danger-subtler">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onMark(promise, "broken")}
+                    className="border-border-danger-subtle text-text-danger-bolder hover:bg-background-danger-subtler"
+                  >
                     Mark broken
                   </Button>
                 </div>
                 <div className="mt-150 flex items-end gap-100">
                   <div className="flex-1">
-                    <Label className="text-body-small text-text-subtlest">Partial amount received</Label>
-                    <Input type="number" value={partialAmt} onChange={(e) => setPartialAmt(e.target.value)} className="mt-050 h-9" />
+                    <Label className="text-body-small text-text-subtlest">
+                      Partial amount received
+                    </Label>
+                    <Input
+                      type="number"
+                      value={partialAmt}
+                      onChange={(e) => setPartialAmt(e.target.value)}
+                      className="mt-050 h-9"
+                    />
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => onMark(promise, "partial", { paidAmount: Number(partialAmt) || 0 })}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      onMark(promise, "partial", { paidAmount: Number(partialAmt) || 0 })
+                    }
+                  >
                     Mark partial
                   </Button>
                 </div>
               </div>
 
               <div className="rounded-medium border border-border p-150">
-                <div className="mb-100 text-body-small font-semibold text-text-subtlest">Reschedule</div>
+                <div className="mb-100 text-body-small font-semibold text-text-subtlest">
+                  Reschedule
+                </div>
                 <div className="flex items-end gap-100">
                   <div className="flex-1">
                     <Label className="text-body-small text-text-subtlest">New promised date</Label>
-                    <Input type="date" value={rescheduleDate} onChange={(e) => setRescheduleDate(e.target.value)} className="mt-050 h-9" />
+                    <Input
+                      type="date"
+                      value={rescheduleDate}
+                      onChange={(e) => setRescheduleDate(e.target.value)}
+                      className="mt-050 h-9"
+                    />
                   </div>
                   <Button
                     size="sm"

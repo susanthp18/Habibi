@@ -121,7 +121,8 @@ export const products: Product[] = [
     minTicket: 25_000,
     maxTicket: 500_000,
     indicativeROI: "36% APR (revolving)",
-    description: "Higher spend limit on an existing credit card; eligibility gated by utilisation and bureau score.",
+    description:
+      "Higher spend limit on an existing credit card; eligibility gated by utilisation and bureau score.",
   },
   {
     id: "personal-loan",
@@ -152,7 +153,9 @@ export const products: Product[] = [
   },
 ];
 
-export const productMap: Record<string, Product> = Object.fromEntries(products.map((p) => [p.id, p]));
+export const productMap: Record<string, Product> = Object.fromEntries(
+  products.map((p) => [p.id, p]),
+);
 
 // ---------- utilities ----------
 
@@ -202,7 +205,7 @@ export function moneyValue(n: number | null | undefined): number {
 
 /** The figure a lead contributes to pipeline/closed totals. */
 export function leadValue(l: Pick<Lead, "stage" | "wonAmount" | "estimatedValue">): number {
-  return moneyValue(l.stage === "won" ? l.wonAmount ?? l.estimatedValue : l.estimatedValue);
+  return moneyValue(l.stage === "won" ? (l.wonAmount ?? l.estimatedValue) : l.estimatedValue);
 }
 
 export function fmtDate(iso: string) {
@@ -231,7 +234,14 @@ export function fmtRelative(iso: string) {
 
 // ---------- seed helpers ----------
 
-const OWNERS = ["Priya Nair", "Arjun Mehta", "Sara Khan", "Meera Iyer", "Rahul Verma", "Unassigned"];
+const OWNERS = [
+  "Priya Nair",
+  "Arjun Mehta",
+  "Sara Khan",
+  "Meera Iyer",
+  "Rahul Verma",
+  "Unassigned",
+];
 
 const CUSTOMERS: Array<{ id: string; name: string; accountId: string; tail: string }> = [
   { id: "vikram-rao", name: "Vikram Rao", accountId: "AC-77410", tail: "7410" },
@@ -250,7 +260,11 @@ function eligFor(productId: string, variant: "clean" | "one-warn" | "two-warn"):
     { label: "Bureau score ≥ 720", ok: true, detail: "Latest bureau: 748 (CIBIL)" },
     { label: "DPD-clean 12 months", ok: true, detail: "No 30+ DPD in last 12 cycles" },
     { label: "Income proof on file", ok: true, detail: "Latest 3 salary slips uploaded" },
-    { label: "Existing product eligibility", ok: true, detail: `Eligible for ${productMap[productId]?.name}` },
+    {
+      label: "Existing product eligibility",
+      ok: true,
+      detail: `Eligible for ${productMap[productId]?.name}`,
+    },
   ];
   if (variant === "one-warn") {
     base[2] = { label: "DPD-clean 12 months", ok: false, detail: "1× 30-DPD event 4 months ago" };
@@ -263,10 +277,14 @@ function eligFor(productId: string, variant: "clean" | "one-warn" | "two-warn"):
 }
 
 const snippets: Record<string, string> = {
-  "topup-loan": "Yeh EMI to theek hai, lekin agar 1 lakh aur mil sakta hai top-up mein toh mujhe interest hoga.",
-  "debt-consolidation": "I have three cards outstanding — can we combine into one lower EMI? That would really help.",
-  "cc-limit-upgrade": "My limit is only 80k, please increase it to 2 lakhs — I've been paying full every month.",
-  "personal-loan": "Actually I need around 3 lakhs for my sister's wedding — what's the pre-approved offer?",
+  "topup-loan":
+    "Yeh EMI to theek hai, lekin agar 1 lakh aur mil sakta hai top-up mein toh mujhe interest hoga.",
+  "debt-consolidation":
+    "I have three cards outstanding — can we combine into one lower EMI? That would really help.",
+  "cc-limit-upgrade":
+    "My limit is only 80k, please increase it to 2 lakhs — I've been paying full every month.",
+  "personal-loan":
+    "Actually I need around 3 lakhs for my sister's wedding — what's the pre-approved offer?",
   "gold-loan": "Mere paas thoda gold hai, uspe loan ho jayega? Interest kitna hoga?",
   "bundled-insurance": "Is there any insurance I should add on this loan? Peace of mind types.",
 };
@@ -336,12 +354,25 @@ function make(input: SeedInput): Lead {
           },
         ]
       : [];
-  const closedAt = input.stage === "won" || input.stage === "lost" ? iso(Math.max(0, input.daysAgo - 2), 15) : undefined;
+  const closedAt =
+    input.stage === "won" || input.stage === "lost"
+      ? iso(Math.max(0, input.daysAgo - 2), 15)
+      : undefined;
   if (input.stage === "won") {
-    events.push({ at: closedAt!, kind: "won", by: input.owner, note: `Disbursed ${fmtMoney(input.wonAmount ?? input.amount)}` });
+    events.push({
+      at: closedAt!,
+      kind: "won",
+      by: input.owner,
+      note: `Disbursed ${fmtMoney(input.wonAmount ?? input.amount)}`,
+    });
   }
   if (input.stage === "lost") {
-    events.push({ at: closedAt!, kind: "lost", by: input.owner, note: input.lossReason ?? "Not interested" });
+    events.push({
+      at: closedAt!,
+      kind: "lost",
+      by: input.owner,
+      note: input.lossReason ?? "Not interested",
+    });
   }
   return {
     id: input.id,
@@ -380,36 +411,370 @@ function make(input: SeedInput): Lead {
 
 const _leads: Lead[] = [
   // Interested (top of funnel)
-  make({ id: "LD-1001", cust: 0, productId: "topup-loan", stage: "interested", amount: 150_000, team: "Retail Sales", owner: "Unassigned", source: "bot_voice", sentiment: "positive", score: 0.72, variant: "clean", priority: "high", daysAgo: 0 }),
-  make({ id: "LD-1002", cust: 1, productId: "debt-consolidation", stage: "interested", amount: 450_000, team: "Retail Sales", owner: "Priya Nair", source: "bot_voice", sentiment: "positive", score: 0.66, variant: "one-warn", priority: "high", daysAgo: 0 }),
-  make({ id: "LD-1003", cust: 2, productId: "cc-limit-upgrade", stage: "interested", amount: 200_000, team: "Cards Sales", owner: "Sara Khan", source: "bot_chat", sentiment: "neutral", score: 0.45, variant: "clean", priority: "normal", daysAgo: 1 }),
-  make({ id: "LD-1004", cust: 3, productId: "personal-loan", stage: "interested", amount: 300_000, team: "Retail Sales", owner: "Unassigned", source: "bot_voice", sentiment: "positive", score: 0.78, variant: "clean", priority: "high", daysAgo: 1 }),
-  make({ id: "LD-1005", cust: 4, productId: "gold-loan", stage: "interested", amount: 80_000, team: "Retail Sales", owner: "Arjun Mehta", source: "bot_chat", sentiment: "neutral", score: 0.5, variant: "clean", priority: "normal", daysAgo: 2 }),
-  make({ id: "LD-1006", cust: 5, productId: "bundled-insurance", stage: "interested", amount: 12_000, team: "Insurance", owner: "Unassigned", source: "bot_voice", sentiment: "neutral", score: 0.55, variant: "clean", priority: "low", daysAgo: 2 }),
-  make({ id: "LD-1007", cust: 6, productId: "topup-loan", stage: "interested", amount: 100_000, team: "Retail Sales", owner: "Meera Iyer", source: "agent", sentiment: "positive", score: 0.7, variant: "clean", priority: "normal", daysAgo: 3 }),
+  make({
+    id: "LD-1001",
+    cust: 0,
+    productId: "topup-loan",
+    stage: "interested",
+    amount: 150_000,
+    team: "Retail Sales",
+    owner: "Unassigned",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.72,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 0,
+  }),
+  make({
+    id: "LD-1002",
+    cust: 1,
+    productId: "debt-consolidation",
+    stage: "interested",
+    amount: 450_000,
+    team: "Retail Sales",
+    owner: "Priya Nair",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.66,
+    variant: "one-warn",
+    priority: "high",
+    daysAgo: 0,
+  }),
+  make({
+    id: "LD-1003",
+    cust: 2,
+    productId: "cc-limit-upgrade",
+    stage: "interested",
+    amount: 200_000,
+    team: "Cards Sales",
+    owner: "Sara Khan",
+    source: "bot_chat",
+    sentiment: "neutral",
+    score: 0.45,
+    variant: "clean",
+    priority: "normal",
+    daysAgo: 1,
+  }),
+  make({
+    id: "LD-1004",
+    cust: 3,
+    productId: "personal-loan",
+    stage: "interested",
+    amount: 300_000,
+    team: "Retail Sales",
+    owner: "Unassigned",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.78,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 1,
+  }),
+  make({
+    id: "LD-1005",
+    cust: 4,
+    productId: "gold-loan",
+    stage: "interested",
+    amount: 80_000,
+    team: "Retail Sales",
+    owner: "Arjun Mehta",
+    source: "bot_chat",
+    sentiment: "neutral",
+    score: 0.5,
+    variant: "clean",
+    priority: "normal",
+    daysAgo: 2,
+  }),
+  make({
+    id: "LD-1006",
+    cust: 5,
+    productId: "bundled-insurance",
+    stage: "interested",
+    amount: 12_000,
+    team: "Insurance",
+    owner: "Unassigned",
+    source: "bot_voice",
+    sentiment: "neutral",
+    score: 0.55,
+    variant: "clean",
+    priority: "low",
+    daysAgo: 2,
+  }),
+  make({
+    id: "LD-1007",
+    cust: 6,
+    productId: "topup-loan",
+    stage: "interested",
+    amount: 100_000,
+    team: "Retail Sales",
+    owner: "Meera Iyer",
+    source: "agent",
+    sentiment: "positive",
+    score: 0.7,
+    variant: "clean",
+    priority: "normal",
+    daysAgo: 3,
+  }),
 
   // Contacted
-  make({ id: "LD-1008", cust: 7, productId: "debt-consolidation", stage: "contacted", amount: 600_000, team: "Retail Sales", owner: "Priya Nair", source: "bot_voice", sentiment: "positive", score: 0.68, variant: "clean", priority: "high", daysAgo: 3, nextFollowUpDaysAhead: 1, followUpChannel: "voice", followUpNote: "Confirm income docs and pull latest bureau." }),
-  make({ id: "LD-1009", cust: 0, productId: "cc-limit-upgrade", stage: "contacted", amount: 100_000, team: "Cards Sales", owner: "Sara Khan", source: "agent", sentiment: "neutral", score: 0.5, variant: "clean", priority: "normal", daysAgo: 4, nextFollowUpDaysAhead: 2, followUpChannel: "whatsapp", followUpNote: "Send limit-upgrade brochure." }),
-  make({ id: "LD-1010", cust: 2, productId: "personal-loan", stage: "contacted", amount: 250_000, team: "Retail Sales", owner: "Rahul Verma", source: "bot_voice", sentiment: "positive", score: 0.74, variant: "clean", priority: "high", daysAgo: 4, nextFollowUpDaysAhead: 0, followUpChannel: "voice", followUpNote: "Callback at 4pm as customer requested." }),
-  make({ id: "LD-1011", cust: 4, productId: "topup-loan", stage: "contacted", amount: 200_000, team: "Retail Sales", owner: "Arjun Mehta", source: "bot_chat", sentiment: "positive", score: 0.62, variant: "one-warn", priority: "normal", daysAgo: 5, nextFollowUpDaysAhead: 3 }),
+  make({
+    id: "LD-1008",
+    cust: 7,
+    productId: "debt-consolidation",
+    stage: "contacted",
+    amount: 600_000,
+    team: "Retail Sales",
+    owner: "Priya Nair",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.68,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 3,
+    nextFollowUpDaysAhead: 1,
+    followUpChannel: "voice",
+    followUpNote: "Confirm income docs and pull latest bureau.",
+  }),
+  make({
+    id: "LD-1009",
+    cust: 0,
+    productId: "cc-limit-upgrade",
+    stage: "contacted",
+    amount: 100_000,
+    team: "Cards Sales",
+    owner: "Sara Khan",
+    source: "agent",
+    sentiment: "neutral",
+    score: 0.5,
+    variant: "clean",
+    priority: "normal",
+    daysAgo: 4,
+    nextFollowUpDaysAhead: 2,
+    followUpChannel: "whatsapp",
+    followUpNote: "Send limit-upgrade brochure.",
+  }),
+  make({
+    id: "LD-1010",
+    cust: 2,
+    productId: "personal-loan",
+    stage: "contacted",
+    amount: 250_000,
+    team: "Retail Sales",
+    owner: "Rahul Verma",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.74,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 4,
+    nextFollowUpDaysAhead: 0,
+    followUpChannel: "voice",
+    followUpNote: "Callback at 4pm as customer requested.",
+  }),
+  make({
+    id: "LD-1011",
+    cust: 4,
+    productId: "topup-loan",
+    stage: "contacted",
+    amount: 200_000,
+    team: "Retail Sales",
+    owner: "Arjun Mehta",
+    source: "bot_chat",
+    sentiment: "positive",
+    score: 0.62,
+    variant: "one-warn",
+    priority: "normal",
+    daysAgo: 5,
+    nextFollowUpDaysAhead: 3,
+  }),
 
   // Qualified
-  make({ id: "LD-1012", cust: 1, productId: "debt-consolidation", stage: "qualified", amount: 550_000, team: "Retail Sales", owner: "Priya Nair", source: "bot_voice", sentiment: "positive", score: 0.8, variant: "clean", priority: "high", daysAgo: 6, nextFollowUpDaysAhead: 1, followUpChannel: "voice", followUpNote: "Present final offer and rate." }),
-  make({ id: "LD-1013", cust: 5, productId: "cc-limit-upgrade", stage: "qualified", amount: 150_000, team: "Cards Sales", owner: "Sara Khan", source: "bot_chat", sentiment: "positive", score: 0.72, variant: "clean", priority: "normal", daysAgo: 7, nextFollowUpDaysAhead: 2, followUpChannel: "email" }),
-  make({ id: "LD-1014", cust: 3, productId: "gold-loan", stage: "qualified", amount: 120_000, team: "Retail Sales", owner: "Meera Iyer", source: "agent", sentiment: "positive", score: 0.75, variant: "clean", priority: "high", daysAgo: 8, nextFollowUpDaysAhead: 0, followUpChannel: "voice", followUpNote: "Branch valuation appointment today at 3pm." }),
+  make({
+    id: "LD-1012",
+    cust: 1,
+    productId: "debt-consolidation",
+    stage: "qualified",
+    amount: 550_000,
+    team: "Retail Sales",
+    owner: "Priya Nair",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.8,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 6,
+    nextFollowUpDaysAhead: 1,
+    followUpChannel: "voice",
+    followUpNote: "Present final offer and rate.",
+  }),
+  make({
+    id: "LD-1013",
+    cust: 5,
+    productId: "cc-limit-upgrade",
+    stage: "qualified",
+    amount: 150_000,
+    team: "Cards Sales",
+    owner: "Sara Khan",
+    source: "bot_chat",
+    sentiment: "positive",
+    score: 0.72,
+    variant: "clean",
+    priority: "normal",
+    daysAgo: 7,
+    nextFollowUpDaysAhead: 2,
+    followUpChannel: "email",
+  }),
+  make({
+    id: "LD-1014",
+    cust: 3,
+    productId: "gold-loan",
+    stage: "qualified",
+    amount: 120_000,
+    team: "Retail Sales",
+    owner: "Meera Iyer",
+    source: "agent",
+    sentiment: "positive",
+    score: 0.75,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 8,
+    nextFollowUpDaysAhead: 0,
+    followUpChannel: "voice",
+    followUpNote: "Branch valuation appointment today at 3pm.",
+  }),
 
   // Won
-  make({ id: "LD-1015", cust: 6, productId: "personal-loan", stage: "won", amount: 400_000, wonAmount: 350_000, team: "Retail Sales", owner: "Rahul Verma", source: "bot_voice", sentiment: "positive", score: 0.82, variant: "clean", priority: "high", daysAgo: 3 }),
-  make({ id: "LD-1016", cust: 7, productId: "cc-limit-upgrade", stage: "won", amount: 100_000, wonAmount: 100_000, team: "Cards Sales", owner: "Sara Khan", source: "bot_chat", sentiment: "positive", score: 0.78, variant: "clean", priority: "normal", daysAgo: 5 }),
-  make({ id: "LD-1017", cust: 0, productId: "bundled-insurance", stage: "won", amount: 15_000, wonAmount: 15_000, team: "Insurance", owner: "Meera Iyer", source: "agent", sentiment: "positive", score: 0.7, variant: "clean", priority: "low", daysAgo: 9 }),
-  make({ id: "LD-1018", cust: 2, productId: "topup-loan", stage: "won", amount: 250_000, wonAmount: 250_000, team: "Retail Sales", owner: "Priya Nair", source: "bot_voice", sentiment: "positive", score: 0.85, variant: "clean", priority: "high", daysAgo: 12 }),
+  make({
+    id: "LD-1015",
+    cust: 6,
+    productId: "personal-loan",
+    stage: "won",
+    amount: 400_000,
+    wonAmount: 350_000,
+    team: "Retail Sales",
+    owner: "Rahul Verma",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.82,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 3,
+  }),
+  make({
+    id: "LD-1016",
+    cust: 7,
+    productId: "cc-limit-upgrade",
+    stage: "won",
+    amount: 100_000,
+    wonAmount: 100_000,
+    team: "Cards Sales",
+    owner: "Sara Khan",
+    source: "bot_chat",
+    sentiment: "positive",
+    score: 0.78,
+    variant: "clean",
+    priority: "normal",
+    daysAgo: 5,
+  }),
+  make({
+    id: "LD-1017",
+    cust: 0,
+    productId: "bundled-insurance",
+    stage: "won",
+    amount: 15_000,
+    wonAmount: 15_000,
+    team: "Insurance",
+    owner: "Meera Iyer",
+    source: "agent",
+    sentiment: "positive",
+    score: 0.7,
+    variant: "clean",
+    priority: "low",
+    daysAgo: 9,
+  }),
+  make({
+    id: "LD-1018",
+    cust: 2,
+    productId: "topup-loan",
+    stage: "won",
+    amount: 250_000,
+    wonAmount: 250_000,
+    team: "Retail Sales",
+    owner: "Priya Nair",
+    source: "bot_voice",
+    sentiment: "positive",
+    score: 0.85,
+    variant: "clean",
+    priority: "high",
+    daysAgo: 12,
+  }),
 
   // Lost
-  make({ id: "LD-1019", cust: 4, productId: "debt-consolidation", stage: "lost", amount: 500_000, team: "Retail Sales", owner: "Priya Nair", source: "bot_voice", sentiment: "negative", score: 0.28, variant: "two-warn", priority: "normal", daysAgo: 6, lossReason: "Rate not competitive vs competitor bank" }),
-  make({ id: "LD-1020", cust: 1, productId: "personal-loan", stage: "lost", amount: 200_000, team: "Retail Sales", owner: "Arjun Mehta", source: "bot_chat", sentiment: "neutral", score: 0.35, variant: "two-warn", priority: "low", daysAgo: 10, lossReason: "Ineligible — bureau score below policy" }),
-  make({ id: "LD-1021", cust: 3, productId: "cc-limit-upgrade", stage: "lost", amount: 150_000, team: "Cards Sales", owner: "Sara Khan", source: "agent", sentiment: "neutral", score: 0.4, variant: "one-warn", priority: "normal", daysAgo: 14, lossReason: "Customer withdrew request" }),
-  make({ id: "LD-1022", cust: 5, productId: "gold-loan", stage: "lost", amount: 60_000, team: "Retail Sales", owner: "Meera Iyer", source: "bot_voice", sentiment: "neutral", score: 0.42, variant: "clean", priority: "low", daysAgo: 18, lossReason: "Customer got funds elsewhere" }),
+  make({
+    id: "LD-1019",
+    cust: 4,
+    productId: "debt-consolidation",
+    stage: "lost",
+    amount: 500_000,
+    team: "Retail Sales",
+    owner: "Priya Nair",
+    source: "bot_voice",
+    sentiment: "negative",
+    score: 0.28,
+    variant: "two-warn",
+    priority: "normal",
+    daysAgo: 6,
+    lossReason: "Rate not competitive vs competitor bank",
+  }),
+  make({
+    id: "LD-1020",
+    cust: 1,
+    productId: "personal-loan",
+    stage: "lost",
+    amount: 200_000,
+    team: "Retail Sales",
+    owner: "Arjun Mehta",
+    source: "bot_chat",
+    sentiment: "neutral",
+    score: 0.35,
+    variant: "two-warn",
+    priority: "low",
+    daysAgo: 10,
+    lossReason: "Ineligible — bureau score below policy",
+  }),
+  make({
+    id: "LD-1021",
+    cust: 3,
+    productId: "cc-limit-upgrade",
+    stage: "lost",
+    amount: 150_000,
+    team: "Cards Sales",
+    owner: "Sara Khan",
+    source: "agent",
+    sentiment: "neutral",
+    score: 0.4,
+    variant: "one-warn",
+    priority: "normal",
+    daysAgo: 14,
+    lossReason: "Customer withdrew request",
+  }),
+  make({
+    id: "LD-1022",
+    cust: 5,
+    productId: "gold-loan",
+    stage: "lost",
+    amount: 60_000,
+    team: "Retail Sales",
+    owner: "Meera Iyer",
+    source: "bot_voice",
+    sentiment: "neutral",
+    score: 0.42,
+    variant: "clean",
+    priority: "low",
+    daysAgo: 18,
+    lossReason: "Customer got funds elsewhere",
+  }),
 ];
 
 export const leads = _leads;
@@ -444,7 +809,8 @@ export function filterLeads(list: Lead[], f: Filters): Lead[] {
   const q = f.search.trim().toLowerCase();
   return list.filter((l) => {
     if (q) {
-      const hay = `${l.customerName} ${l.accountId} ${l.accountTail} ${l.offer.label} ${l.transcriptSnippet} ${l.id}`.toLowerCase();
+      const hay =
+        `${l.customerName} ${l.accountId} ${l.accountTail} ${l.offer.label} ${l.transcriptSnippet} ${l.id}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     if (f.team !== "all" && l.team !== f.team) return false;
@@ -494,28 +860,47 @@ export function computeMetrics(list: Lead[]): Metrics {
   const openLeads = openStages.reduce((s, st) => s + perStage[st].count, 0);
   const pipelineValue = openStages.reduce((s, st) => s + perStage[st].amount, 0);
   const wkAgo = Date.now() - 7 * 86400 * 1000;
-  const wonWeekList = list.filter((l) => l.stage === "won" && l.closedAt && new Date(l.closedAt).getTime() >= wkAgo);
+  const wonWeekList = list.filter(
+    (l) => l.stage === "won" && l.closedAt && new Date(l.closedAt).getTime() >= wkAgo,
+  );
   const wonWeek = wonWeekList.length;
   const wonWeekAmount = wonWeekList.reduce((s, l) => s + leadValue(l), 0);
   const monthAgo = Date.now() - 30 * 86400 * 1000;
   const capturedRecent = list.filter((l) => new Date(l.capturedAt).getTime() >= monthAgo);
   const wonRecent = capturedRecent.filter((l) => l.stage === "won").length;
-  const conversionRate = capturedRecent.length === 0 ? 0 : Math.round((wonRecent / capturedRecent.length) * 100);
+  const conversionRate =
+    capturedRecent.length === 0 ? 0 : Math.round((wonRecent / capturedRecent.length) * 100);
   const closed = list.filter((l) => l.closedAt);
   const avgDaysToClose =
     closed.length === 0
       ? 0
       : Math.round(
-          closed.reduce((s, l) => s + (new Date(l.closedAt!).getTime() - new Date(l.capturedAt).getTime()) / 86400000, 0) /
-            closed.length,
+          closed.reduce(
+            (s, l) =>
+              s + (new Date(l.closedAt!).getTime() - new Date(l.capturedAt).getTime()) / 86400000,
+            0,
+          ) / closed.length,
         );
-  return { openLeads, pipelineValue, wonWeek, wonWeekAmount, conversionRate, avgDaysToClose, perStage };
+  return {
+    openLeads,
+    pipelineValue,
+    wonWeek,
+    wonWeekAmount,
+    conversionRate,
+    avgDaysToClose,
+    perStage,
+  };
 }
 
 // ---------- mutations ----------
 
 function push(lead: Lead, ev: Omit<LeadEvent, "at"> & { at?: string }) {
-  lead.events.unshift({ at: ev.at ?? new Date().toISOString(), kind: ev.kind, by: ev.by, note: ev.note });
+  lead.events.unshift({
+    at: ev.at ?? new Date().toISOString(),
+    kind: ev.kind,
+    by: ev.by,
+    note: ev.note,
+  });
 }
 
 export function moveStage(id: string, next: LeadStage, by = CURRENT_AGENT, note?: string) {
@@ -549,14 +934,24 @@ export function reassignTeam(id: string, team: Team, by = CURRENT_AGENT) {
   push(l, { kind: "team_changed", by, note: `Routed to ${team}` });
 }
 
-export function scheduleFollowUp(id: string, at: string, channel: FollowUpChannel, note: string, by = CURRENT_AGENT) {
+export function scheduleFollowUp(
+  id: string,
+  at: string,
+  channel: FollowUpChannel,
+  note: string,
+  by = CURRENT_AGENT,
+) {
   const l = _leads.find((x) => x.id === id);
   if (!l) return;
   l.followUps.push({ at, channel, note, done: false });
   l.followUps.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
   const nextOpen = l.followUps.find((f) => !f.done);
   l.nextFollowUpAt = nextOpen?.at;
-  push(l, { kind: "followup_scheduled", by, note: `Follow-up on ${new Date(at).toLocaleString()} via ${channel}` });
+  push(l, {
+    kind: "followup_scheduled",
+    by,
+    note: `Follow-up on ${new Date(at).toLocaleString()} via ${channel}`,
+  });
 }
 
 export function markFollowUpDone(id: string, idx: number, by = CURRENT_AGENT) {
@@ -597,7 +992,11 @@ export function updateOffer(id: string, patch: Partial<LeadOffer>, by = CURRENT_
   }
   l.offer = nextOffer;
   if (patch.indicativeAmount !== undefined) l.estimatedValue = patch.indicativeAmount;
-  push(l, { kind: "offer_edited", by, note: `Offer updated · ${nextOffer.label} · ${fmtMoney(nextOffer.indicativeAmount)}` });
+  push(l, {
+    kind: "offer_edited",
+    by,
+    note: `Offer updated · ${nextOffer.label} · ${fmtMoney(nextOffer.indicativeAmount)}`,
+  });
 }
 
 let _seq = 2000;

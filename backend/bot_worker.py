@@ -13,6 +13,7 @@ Drains:
   5) due treatment plans (TREATMENT_MODE=live only)
   6) treatment follow-through: outcome attribution + ladder re-decision
   7) the delinquent-book sweep (TREATMENT_SWEEP=1) — the corpus generator
+  8) outbound webhook deliveries (webhook_deliveries.status='pending')
 """
 
 from __future__ import annotations
@@ -31,12 +32,17 @@ load_env()
 
 import azure_openai
 import bot_jobs
+import cadence
+import call_closer
+import campaigns
 import db
+import outbound
 import payment_events
 from agent_core.treatment import enact as treatment_enact
 from agent_core.treatment import followthrough as treatment_followthrough
 from agent_core.treatment import sweep as treatment_sweep
 import promise_fulfillment
+import webhooks_dispatch
 import whatsapp_outbound
 
 logging.basicConfig(
@@ -68,6 +74,21 @@ def process_one_any() -> bool:
             promise_fulfillment.settle_promises(db.engine)
         except Exception:
             logger.exception("settle_promises failed")
+        # Attempts whose carrier callback never arrived. They hold a slot in the
+        # outbound fleet gate and would never reach the Closer, so a dropped
+        # tunnel would quietly throttle dialling to zero over a day.
+        try:
+            outbound.sweep_stale(db.engine)
+        except Exception:
+            logger.exception("outbound stale sweep failed")
+        # Caller-ID health. Cheap (three UPDATEs over one tenant's numbers) and
+        # on the same settle cadence, because a number's answer rate does not
+        # move between iterations and rotating on a stale reading is the same
+        # mistake as not rotating at all.
+        try:
+            outbound.sweep_pool_health(db.engine)
+        except Exception:
+            logger.exception("number pool health sweep failed")
 
     if bot_first and bot_jobs.process_one(db.engine):
         return True
@@ -77,6 +98,29 @@ def process_one_any() -> bool:
         return True
     if payment_events.process_one_voice(db.engine):
         return True
+    # Post-call: turn one finished dial into one structured outcome. Ahead of
+    # the treatment loops because it finishes work rather than generating it,
+    # and because followthrough's attribution reads what it writes — closing a
+    # call after the ladder has already re-decided the case would attribute the
+    # next rung to the wrong attempt.
+    try:
+        if call_closer.process_one(db.engine):
+            return True
+    except Exception:
+        logger.exception("call closer failed")
+    # A retry that is due. Ahead of the campaign runner on purpose: finishing a
+    # case somebody is already halfway through beats starting a new one, and the
+    # borrower waiting on the second attempt has already been rung once.
+    try:
+        if cadence.process_one(db.engine):
+            return True
+    except Exception:
+        logger.exception("cadence retry failed")
+    try:
+        if campaigns.process_one(db.engine):
+            return True
+    except Exception:
+        logger.exception("campaign runner failed")
     # Treatment plans whose moment has arrived. Returns False immediately
     # outside TREATMENT_MODE=live, so a shadow deployment pays one env read per
     # iteration and touches nothing.
@@ -93,6 +137,12 @@ def process_one_any() -> bool:
     # — otherwise a large book pushes the queue further behind every iteration.
     # Off unless TREATMENT_SWEEP is set.
     if treatment_sweep.process_one(db.engine):
+        return True
+    # Outbound webhooks, below everything that talks to a customer. A tenant's
+    # integration is allowed to be a few seconds behind; a borrower waiting on a
+    # reply is not. It is above the fallback so a webhook backlog still drains
+    # on an otherwise idle worker.
+    if webhooks_dispatch.process_one(db.engine):
         return True
     try:
         from agent_core.clerk import process_one as clerk_one, sweep_overdue

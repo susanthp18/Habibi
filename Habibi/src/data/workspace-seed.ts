@@ -151,9 +151,24 @@ export const nextCallback = {
 };
 
 export const slaCountdowns = [
-  { id: "D-4805", label: "Dispute · Kabir Singh", remaining: "Overdue 42m", level: "breach" as SlaLevel },
-  { id: "P-7712", label: "Broken PTP · Ravi Deshmukh", remaining: "26h since break", level: "breach" as SlaLevel },
-  { id: "R-2198", label: "NOC letter · Sanjay Gupta", remaining: "2h 04m left", level: "warn" as SlaLevel },
+  {
+    id: "D-4805",
+    label: "Dispute · Kabir Singh",
+    remaining: "Overdue 42m",
+    level: "breach" as SlaLevel,
+  },
+  {
+    id: "P-7712",
+    label: "Broken PTP · Ravi Deshmukh",
+    remaining: "26h since break",
+    level: "breach" as SlaLevel,
+  },
+  {
+    id: "R-2198",
+    label: "NOC letter · Sanjay Gupta",
+    remaining: "2h 04m left",
+    level: "warn" as SlaLevel,
+  },
 ];
 
 export const outsideWindowCount = 1;

@@ -8,6 +8,7 @@ decision must not appear here.
 
 from __future__ import annotations
 
+import money_inr
 from agent_core.authority.matrix import (
     ASKED_ABOVE_CAP,
     BOUNCE_FORBIDDEN,
@@ -26,9 +27,12 @@ from agent_core.authority.matrix import (
 
 
 def _inr(amount: float | None) -> str:
-    if amount is None:
-        return ""
-    return f"₹{int(round(amount)):,}"
+    """Rupees for a line the agent says out loud to the customer.
+
+    Empty string on None, not an em dash: these are concatenated into sentences
+    ("Goodwill ceiling is …"), and a dash read aloud is worse than silence.
+    """
+    return money_inr.inr(amount, none="")
 
 
 def talk_track(decision: MatrixDecision, *, fee_type: str = "late_fee") -> str:

@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import {
   changePct,
-  inr,
   inrCompact,
   sumRange,
   usageUnits,
@@ -54,10 +53,15 @@ export function ServiceCostTable({
         className: "min-w-[12rem]",
         cell: (r) => (
           <div className="flex min-w-0 items-center gap-100">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-small" style={{ backgroundColor: r.s.color }} />
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-small"
+              style={{ backgroundColor: r.s.color }}
+            />
             <span className="min-w-0">
               <span className="block truncate text-body font-medium text-text">{r.s.name}</span>
-              <span className="block truncate text-body-small text-text-subtlest">{r.s.provider}</span>
+              <span className="block truncate text-body-small text-text-subtlest">
+                {r.s.provider}
+              </span>
             </span>
           </div>
         ),
@@ -100,7 +104,13 @@ export function ServiceCostTable({
         sortValue: (r) => r.s.unitCostInr,
         align: "right",
         className: "min-w-[7rem] whitespace-nowrap",
-        cell: (r) => <span className="tabular-nums text-text-subtle">{inr(r.s.unitCostInr)}</span>,
+        // A unit *rate* is routinely a fraction of a rupee, and the Usage column
+        // beside it divides by that exact rate. Rounded to whole rupees the row
+        // contradicts itself — 715.5k tokens at "₹0" cannot cost ₹47.72 — so
+        // rates use the same compact ladder "Cost breakdown by model" prints.
+        cell: (r) => (
+          <span className="tabular-nums text-text-subtle">{inrCompact(r.s.unitCostInr)}</span>
+        ),
       },
       {
         id: "cost",
@@ -109,7 +119,9 @@ export function ServiceCostTable({
         sortValue: (r) => r.cost,
         align: "right",
         className: "min-w-[6rem] whitespace-nowrap",
-        cell: (r) => <span className="font-semibold tabular-nums text-text">{inrCompact(r.cost)}</span>,
+        cell: (r) => (
+          <span className="font-semibold tabular-nums text-text">{inrCompact(r.cost)}</span>
+        ),
         footer: (visible) => (
           <span className="font-semibold tabular-nums text-text">
             {inrCompact(visible.reduce((s, r) => s + r.cost, 0))}
@@ -123,19 +135,27 @@ export function ServiceCostTable({
         sortValue: (r) => r.delta,
         align: "right",
         className: "min-w-[7rem] whitespace-nowrap",
-        cell: (r) => (
-          <span
-            className={cn(
-              "inline-flex items-center gap-025 rounded px-075 py-025 text-body-small font-semibold",
-              r.delta >= 0
-                ? "bg-background-danger-subtler text-text-danger-bolder"
-                : "bg-background-success-subtler text-text-success-bolder",
-            )}
-          >
-            {r.delta >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-            {Math.abs(r.delta).toFixed(1)}%
-          </span>
-        ),
+        cell: (r) => {
+          // changePct returns a flat 100 when the prior period is zero. That is a
+          // sentinel, not a measurement: spend against no base has no percentage,
+          // and rendering it as "+100.0%" claims a doubling the data never says.
+          if (r.prev === 0 && r.cost > 0) {
+            return <span className="tabular-nums text-text-subtlest">—</span>;
+          }
+          return (
+            <span
+              className={cn(
+                "inline-flex items-center gap-025 rounded px-075 py-025 text-body-small font-semibold",
+                r.delta >= 0
+                  ? "bg-background-danger-subtler text-text-danger-bolder"
+                  : "bg-background-success-subtler text-text-success-bolder",
+              )}
+            >
+              {r.delta >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+              {Math.abs(r.delta).toFixed(1)}%
+            </span>
+          );
+        },
       },
       {
         id: "share",
@@ -166,7 +186,9 @@ export function ServiceCostTable({
     <div className="overflow-hidden rounded-large border border-border bg-surface">
       <div className="border-b border-border px-200 py-100">
         <h3 className="text-body font-semibold text-text">Cost breakdown by service</h3>
-        <p className="text-body-small text-text-subtle">Click a row for tenant mix and period change</p>
+        <p className="text-body-small text-text-subtle">
+          Click a row for tenant mix and period change
+        </p>
       </div>
       <RecordsTable
         rows={rows}

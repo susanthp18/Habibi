@@ -19,7 +19,10 @@ type SlaRow = WorkspaceSlaCountdown & {
 };
 
 function parseSla(row: WorkspaceSlaCountdown): SlaRow {
-  const parts = row.label.split("·").map((p) => p.trim()).filter(Boolean);
+  const parts = row.label
+    .split("·")
+    .map((p) => p.trim())
+    .filter(Boolean);
   return {
     ...row,
     kind: parts[0] || "item",
@@ -34,10 +37,7 @@ export function NeedsAttention() {
   const { data } = useWorkspaceSummary("me");
   const nextCallback = data?.nextCallback;
   const nextLead = data?.nextLead;
-  const rows = useMemo(
-    () => (data?.slaCountdowns ?? []).map(parseSla),
-    [data?.slaCountdowns],
-  );
+  const rows = useMemo(() => (data?.slaCountdowns ?? []).map(parseSla), [data?.slaCountdowns]);
 
   const [startingCall, setStartingCall] = useState(false);
 
@@ -171,7 +171,9 @@ export function NeedsAttention() {
                 <span> · {nextCallback.reason}</span>
               </p>
             ) : (
-              <p className="mt-050 text-body text-text-subtlest">No upcoming callbacks on your queue.</p>
+              <p className="mt-050 text-body text-text-subtlest">
+                No upcoming callbacks on your queue.
+              </p>
             )}
           </div>
           {nextCallback && (
@@ -222,7 +224,9 @@ export function NeedsAttention() {
               <p className="mt-050 text-body text-text-subtlest">No open leads on your queue.</p>
             )}
             {nextLead?.reason ? (
-              <p className="mt-025 truncate text-body-small text-text-subtlest">{nextLead.reason}</p>
+              <p className="mt-025 truncate text-body-small text-text-subtlest">
+                {nextLead.reason}
+              </p>
             ) : null}
           </div>
           {nextLead && (
@@ -253,7 +257,9 @@ export function NeedsAttention() {
         <div className="flex items-center justify-between gap-150 border-b border-border px-250 py-200">
           <div>
             <h2 className="heading-xsmall text-text">Needs attention</h2>
-            <p className="mt-025 text-body-small text-text-subtle">Personal SLA timers on work assigned to you</p>
+            <p className="mt-025 text-body-small text-text-subtle">
+              Personal SLA timers on work assigned to you
+            </p>
           </div>
         </div>
         <div className="bg-surface-sunken/25 p-100">

@@ -1,6 +1,22 @@
-import { Bot, User, Mic, MessageSquare, ShieldCheck, ShieldAlert, CalendarClock, MoreHorizontal } from "lucide-react";
+import {
+  Bot,
+  User,
+  Mic,
+  MessageSquare,
+  ShieldCheck,
+  ShieldAlert,
+  CalendarClock,
+  MoreHorizontal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fmtMoney, fmtRelative, leadValue, SOURCE_LABELS, type Lead, type Sentiment } from "@/data/upsell-seed";
+import {
+  fmtMoney,
+  fmtRelative,
+  leadValue,
+  SOURCE_LABELS,
+  type Lead,
+  type Sentiment,
+} from "@/data/upsell-seed";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 
@@ -25,7 +41,14 @@ export function LeadCard({ lead: l, onOpen }: Props) {
   const failing = l.eligibilityFlags.filter((f) => !f.ok).length;
   const SIcon = l.source === "bot_voice" ? Mic : l.source === "bot_chat" ? MessageSquare : User;
   const owner = l.owner ?? "Unassigned";
-  const initials = owner === "Unassigned" ? "?" : owner.split(" ").map((n) => n[0]).slice(0, 2).join("");
+  const initials =
+    owner === "Unassigned"
+      ? "?"
+      : owner
+          .split(" ")
+          .map((n) => n[0])
+          .slice(0, 2)
+          .join("");
 
   return (
     <div
@@ -40,10 +63,15 @@ export function LeadCard({ lead: l, onOpen }: Props) {
         <div className="flex items-start justify-between gap-100">
           <div className="min-w-0">
             <div className="flex items-center gap-075">
-              <span className={cn("h-1.5 w-1.5 rounded-full", priorityDot[l.priority])} aria-hidden />
+              <span
+                className={cn("h-1.5 w-1.5 rounded-full", priorityDot[l.priority])}
+                aria-hidden
+              />
               <div className="truncate text-body font-semibold text-text">{l.customerName}</div>
             </div>
-            <div className="text-body-small text-text-subtlest">#{l.accountTail} · {l.id}</div>
+            <div className="text-body-small text-text-subtlest">
+              #{l.accountTail} · {l.id}
+            </div>
           </div>
           <div className="shrink-0 text-right">
             <div className="text-body font-semibold text-text tabular-nums">
@@ -58,7 +86,11 @@ export function LeadCard({ lead: l, onOpen }: Props) {
             {l.offer.label}
           </span>
           <span className="inline-flex items-center gap-050 rounded bg-surface-sunken px-075 py-025 text-body-small text-text-subtle">
-            {l.source.startsWith("bot") ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
+            {l.source.startsWith("bot") ? (
+              <Bot className="h-3 w-3" />
+            ) : (
+              <User className="h-3 w-3" />
+            )}
             <SIcon className="h-3 w-3" />
             {SOURCE_LABELS[l.source]}
           </span>
@@ -70,8 +102,13 @@ export function LeadCard({ lead: l, onOpen }: Props) {
 
         <div className="mt-100 flex items-center justify-between gap-100">
           <div className="flex items-center gap-075">
-            <span className={cn("h-1.5 w-1.5 rounded-full", sentimentDot[l.sentimentAtCapture])} aria-hidden />
-            <span className="text-body-small text-text-subtlest capitalize">{l.sentimentAtCapture} @ capture</span>
+            <span
+              className={cn("h-1.5 w-1.5 rounded-full", sentimentDot[l.sentimentAtCapture])}
+              aria-hidden
+            />
+            <span className="text-body-small text-text-subtlest capitalize">
+              {l.sentimentAtCapture} @ capture
+            </span>
           </div>
           {failing > 0 ? (
             <Lozenge tone="warning" className="border-border-warning">
@@ -100,7 +137,9 @@ export function LeadCard({ lead: l, onOpen }: Props) {
               <CalendarClock className="h-3 w-3" /> {fmtRelative(l.nextFollowUpAt)}
             </span>
           ) : (
-            <span className="text-body-small text-text-subtlest">Captured {fmtRelative(l.capturedAt)}</span>
+            <span className="text-body-small text-text-subtlest">
+              Captured {fmtRelative(l.capturedAt)}
+            </span>
           )}
         </div>
       </button>

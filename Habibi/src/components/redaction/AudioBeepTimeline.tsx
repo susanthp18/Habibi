@@ -25,7 +25,8 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
           Audio timeline · {formatSec(record.durationSec)}
         </div>
         <div className="text-body-small text-text-subtlest">
-          {record.audioSegments.filter((s) => s.muted).length} of {record.audioSegments.length} segments beeped
+          {record.audioSegments.filter((s) => s.muted).length} of {record.audioSegments.length}{" "}
+          segments beeped
         </div>
       </div>
 
@@ -66,7 +67,10 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
       <ul className="mt-100 max-h-24 space-y-025 overflow-y-auto text-body-small">
         {record.audioSegments.map((seg) => (
           <li key={seg.findingId} className="flex items-center gap-100">
-            <span className="h-100 w-100 rounded-full" style={{ background: ENTITY_COLORS[seg.type] }} />
+            <span
+              className="h-100 w-100 rounded-full"
+              style={{ background: ENTITY_COLORS[seg.type] }}
+            />
             <span className="font-mono text-text-subtlest">{formatSec(seg.atSec)}</span>
             <span className="text-text-subtle">{DEFAULT_RULES[seg.type].label}</span>
             <button
@@ -74,7 +78,15 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
               onClick={() => onToggleSegment(seg.findingId)}
               className="ml-auto inline-flex items-center gap-050 text-text-brand hover:underline"
             >
-              {seg.muted ? <><VolumeX className="h-3 w-3" /> Beeped</> : <><Volume2 className="h-3 w-3" /> Audible</>}
+              {seg.muted ? (
+                <>
+                  <VolumeX className="h-3 w-3" /> Beeped
+                </>
+              ) : (
+                <>
+                  <Volume2 className="h-3 w-3" /> Audible
+                </>
+              )}
             </button>
           </li>
         ))}

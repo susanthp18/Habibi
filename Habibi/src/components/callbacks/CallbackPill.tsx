@@ -1,4 +1,12 @@
-import { AlertTriangle, Phone, MessageSquare, FileText, HeartHandshake, Sparkles, HelpCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  Phone,
+  MessageSquare,
+  FileText,
+  HeartHandshake,
+  Sparkles,
+  HelpCircle,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtTime, type Callback, type CbReason, type CbStatus } from "@/data/callbacks-seed";
@@ -68,7 +76,9 @@ export function CallbackPill({
             <Lozenge tone={STATUS_LOZENGE_TONE[cb.status]} className="truncate">
               {cb.status.replace("_", " ")}
             </Lozenge>
-            <span className="truncate text-body-small text-text-subtlest">{cb.assignee === "Unassigned" ? "—" : cb.assignee.split(" ")[0]}</span>
+            <span className="truncate text-body-small text-text-subtlest">
+              {cb.assignee === "Unassigned" ? "—" : cb.assignee.split(" ")[0]}
+            </span>
           </div>
         </>
       )}

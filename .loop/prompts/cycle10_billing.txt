@@ -1,0 +1,78 @@
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 558 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart services on ports 8000/7860/8080.
+For UI changes inspect localhost. Report actual terminal output at the end.
+
+
+PAGE: Billing & Usage Analytics (http://localhost:8080/billing)
+
+THREE DISPLAY DEFECTS, one task:
+
+--- BUG 1: Raw ISO timestamp in Recent alerts ---
+REPRODUCTION: Open /billing, scroll to Budgets & alerts -> "Recent alerts".
+The alert date renders literally as "2026-07-21T12:00:00+00:00".
+EXPECTED: A human date, e.g. "21 Jul 26" — src/lib/utils.ts has formatDateTime
+(~line 56, Intl-based, pinned locale) used elsewhere on the page; use it or an
+equivalent existing formatter. Do NOT invent a new formatting utility if one exists.
+EVIDENCE: src/components/billing/BudgetPanel.tsx line ~161 renders {a.when} raw.
+API shape (GET /billing): alerts[].when = "2026-07-21T12:00:00+00:00".
+
+--- BUG 2: Fabricated "+100.0%" delta when previous period is zero ---
+REPRODUCTION: Same page, "Cost breakdown by service" table, "Δ vs prev" column.
+Every row currently shows an up-arrow + "100.0%". The API says previous-period
+spend is ZERO (spendPrev=0; header honestly shows "vs prior ₹0"). changePct()
+returns the SENTINEL 100 when previous===0, and the cell renders it as a real
+percentage with an up arrow — claiming spend doubled when there is no prior base.
+EXPECTED: When previous === 0 (and current > 0), render a neutral em dash "—"
+(no arrow, no percentage). Negative/current-zero paths keep current behaviour.
+EVIDENCE:
+- src/components/billing/ServiceCostTable.tsx ~line 40: delta = changePct(cost, prev)
+- src/data/billing-seed.ts ~line 73-76: changePct returns 100 sentinel on prev===0
+- ServiceCostTable.tsx ~line 137-144 renders r.delta with ArrowUp/ArrowDown +
+  Math.abs(r.delta).toFixed(1)%.
+CONSTRAINT: Do not change changePct's return contract unless you grep ALL its
+callers first and update them consistently; safest is to handle prev===0 at the
+render site where `prev` is available in the row.
+
+--- BUG 3: Unit cost rounded to meaningless rupees ---
+REPRODUCTION: Same table, "Unit cost" column. Azure OpenAI Chat shows "₹0" and
+Azure Speech STT/TTS show "₹1" although their true rates are ₹0.0667 / 1K tokens,
+~₹0.90 / minute etc. The SAME ROW derives Usage from that exact rate
+(usageUnits(cost, unitCost)), so the row contradicts itself: 715.51K tokens at
+"₹0" cannot cost ₹47.72.
+EXPECTED: Sub-rupee precision for unit costs. Match the precision convention the
+page already uses elsewhere — "Cost breakdown by model" renders values like
+"₹0.7895". Suggested: show ₹0.0667-style three decimals when the value rounds to
+less than ₹1 at two decimals; keep whole-rupee rendering otherwise. Reuse or
+extend the existing money helpers in src/data/billing-seed.ts (inr, inrCompact);
+if you add a helper, give it a couple of vitest cases in the existing
+billing-seed.test.ts style (file already exists).
+EVIDENCE:
+- src/components/billing/ServiceCostTable.tsx line ~108: {inr(r.s.unitCostInr)}
+- src/data/billing-seed.ts inr(): "₹" + Math.round(n).toLocaleString("en-IN")
+- GET /billing services[].unitCostInr = 0.0667 (llm_chat)
+NOTE: ServiceDrawer.tsx (~line 64) prints the same inr(unitCostInr) — fix both sites
+consistently via the shared helper, not by duplicating logic.
+
+ACCEPTANCE CRITERIA:
+1. All three defects fixed at render/helper level per above; no API changes.
+2. npm run typecheck passes; npm run lint stays 0 errors / <=62 warnings;
+   npx vitest run passes (54 tests currently green, plus any you add);
+   npm run build passes.
+3. Verify in the served dev output (curl the module from :8080/src/... like
+   before, or reason from source) that the rendered strings changed.
+4. Report files changed + actual gate output.

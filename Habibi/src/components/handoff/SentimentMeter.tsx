@@ -12,8 +12,7 @@ export function SentimentMeter({ series }: Props) {
   const prev = series[series.length - 6] ?? current;
   const delta = current - prev;
 
-  const label =
-    current > 0.25 ? "Positive" : current < -0.2 ? "Negative" : "Neutral";
+  const label = current > 0.25 ? "Positive" : current < -0.2 ? "Negative" : "Neutral";
   const color =
     current > 0.25
       ? "var(--sentiment-positive)"
@@ -21,8 +20,7 @@ export function SentimentMeter({ series }: Props) {
         ? "var(--sentiment-negative)"
         : "var(--sentiment-neutral)";
 
-  const trend =
-    Math.abs(delta) < 0.05 ? "flat" : delta > 0 ? "up" : "down";
+  const trend = Math.abs(delta) < 0.05 ? "flat" : delta > 0 ? "up" : "down";
 
   const path = useMemo(() => buildPath(series, 260, 44), [series]);
   const gaugePct = ((current + 1) / 2) * 100;
@@ -31,11 +29,9 @@ export function SentimentMeter({ series }: Props) {
     <section className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex items-center gap-300">
         <div className="min-w-0">
-          <div className="text-body-small font-semibold text-text-subtlest">
-            Live sentiment
-          </div>
+          <div className="text-body-small font-semibold text-text-subtlest">Live sentiment</div>
           <div className="mt-025 flex items-baseline gap-100">
-            <span className="text-[1.25rem] font-semibold" style={{ color }}>
+            <span className="heading-medium font-semibold" style={{ color }}>
               {label}
             </span>
             <span className="tabular text-body-small text-text-subtle">
@@ -61,8 +57,13 @@ export function SentimentMeter({ series }: Props) {
 
         {/* Gauge bar */}
         <div className="min-w-[10rem] flex-1">
-          <div className="relative h-100 w-full overflow-hidden rounded-full"
-               style={{ background: "linear-gradient(90deg, var(--sentiment-negative) 0%, var(--sentiment-neutral) 50%, var(--sentiment-positive) 100%)" }}>
+          <div
+            className="relative h-100 w-full overflow-hidden rounded-full"
+            style={{
+              background:
+                "linear-gradient(90deg, var(--sentiment-negative) 0%, var(--sentiment-neutral) 50%, var(--sentiment-positive) 100%)",
+            }}
+          >
             <div
               className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-raised"
               style={{ left: `${gaugePct}%`, background: color }}
@@ -85,7 +86,14 @@ export function SentimentMeter({ series }: Props) {
               </linearGradient>
             </defs>
             <path d={path.area} fill="url(#spark-fill)" />
-            <path d={path.line} fill="none" stroke={color} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d={path.line}
+              fill="none"
+              stroke={color}
+              strokeWidth={1.75}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </div>
       </div>

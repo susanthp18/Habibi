@@ -47,6 +47,7 @@ from dataclasses import dataclass
 WAIT = "wait"
 REPRESENT_MANDATE = "represent_mandate"
 EMI_DATE_CHANGE = "emi_date_change"
+SELF_SERVICE_PLAN = "self_service_plan"
 SMS = "sms"
 WHATSAPP = "whatsapp"
 VOICE_BOT = "voice_bot"
@@ -91,6 +92,21 @@ SPECS: dict[str, ActionSpec] = {
     # separate action that pays for its own touch.
     EMI_DATE_CHANGE: ActionSpec(
         EMI_DATE_CHANGE, None, "system", 0, 0.0, False, requires_phone=False
+    ),
+    # Open a borrower-initiated resolution path and let them take it in their
+    # own time. channel=None because nothing is sent: the plan is enabled on
+    # the account and surfaces where the borrower already is -- the app, the
+    # portal, the next statement.
+    #
+    # This is the only one of the design note's three concession actions that
+    # is genuinely an *action*. A part-payment or a restructure has to be said
+    # to somebody, which makes it a property of a contact rather than an
+    # alternative to one; both live on the Action Contract's allowedOffers,
+    # where the authority matrix decides them. Modelling them as actions would
+    # have the engine choosing between "send a WhatsApp" and "offer a
+    # settlement" as if those were the same kind of thing.
+    SELF_SERVICE_PLAN: ActionSpec(
+        SELF_SERVICE_PLAN, None, "system", 0, 0.0, False, requires_phone=False
     ),
     SMS: ActionSpec(SMS, "sms", "system", 1, 0.10, True),
     WHATSAPP: ActionSpec(WHATSAPP, "whatsapp", "system", 1, 0.15, True),
@@ -182,6 +198,7 @@ BUCKETS: dict[str, BucketPolicy] = {
                 WAIT,
                 REPRESENT_MANDATE,
                 EMI_DATE_CHANGE,
+                SELF_SERVICE_PLAN,
                 SMS,
                 WHATSAPP,
                 VOICE_BOT,
@@ -202,6 +219,7 @@ BUCKETS: dict[str, BucketPolicy] = {
                 WAIT,
                 REPRESENT_MANDATE,
                 EMI_DATE_CHANGE,
+                SELF_SERVICE_PLAN,
                 SMS,
                 WHATSAPP,
                 VOICE_BOT,
@@ -224,6 +242,12 @@ BUCKETS: dict[str, BucketPolicy] = {
             {
                 WAIT,
                 REPRESENT_MANDATE,
+                # Still available where the date change is not. A borrower at
+                # 61 DPD has a real arrears problem rather than a timing one,
+                # and a plan they can start themselves is the cheapest route
+                # out of it -- while moving the due date at that point would be
+                # a restructure wearing a self-service label.
+                SELF_SERVICE_PLAN,
                 WHATSAPP,
                 VOICE_BOT,
                 HUMAN_CALL,
@@ -301,6 +325,7 @@ def label(action: str) -> str:
         WAIT: "hold",
         REPRESENT_MANDATE: "re-present mandate",
         EMI_DATE_CHANGE: "EMI date change",
+        SELF_SERVICE_PLAN: "self-service plan",
         SMS: "SMS",
         WHATSAPP: "WhatsApp",
         VOICE_BOT: "bot call",

@@ -1,0 +1,34 @@
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or confirmation.
+This is a REPORT-ONLY task: do not modify ANY file.
+
+Never git stash/reset/clean/checkout/restore. Never push. Never commit.
+
+Approximately 558 uncommitted files are expected; leave everything untouched.
+
+TASK: READ-ONLY DISCOVERY AUDIT of an area no cycle has covered yet:
+
+    backend/voice/          (Pipecat voice service subtree)
+    backend/agent_core/skills/
+    backend/agent_core/connectors/
+
+For each area report:
+
+1. What it is (one paragraph max per module).
+2. How it connects to main.py / worker / db (entry points, routes, jobs).
+3. Dead code: modules nothing imports, endpoints nothing calls, config nothing reads.
+4. Duplicated logic vs code elsewhere (esp. anything reimplementing db.py helpers,
+   money formatting, SLA logic, contact-policy checks, or webhook delivery).
+5. Silent-failure risks: except-pass blocks, swallowed errors, fallbacks that mask
+   real failures.
+6. Test coverage gaps: which behaviours have no test in backend/tests/.
+
+FORMAT: a numbered findings list. For each finding:
+    file:line | severity P1-P5 | issue | evidence (quote the line) | suggested fix (one sentence)
+
+Report ONLY the top 15 most valuable findings across all three areas, ranked by
+severity x confidence. No implementation. Do not create or edit any file.

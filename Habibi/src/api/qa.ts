@@ -57,7 +57,9 @@ export function useQaCoverage() {
   return useQuery({ queryKey: ["qa-coverage"], queryFn: fetchQaCoverage, staleTime: 30_000 });
 }
 
-export async function fetchQaInteractionPack(interactionId: string): Promise<Record<string, unknown>> {
+export async function fetchQaInteractionPack(
+  interactionId: string,
+): Promise<Record<string, unknown>> {
   if (USE_MOCK) {
     return mockDelay({ interactionId, transcript: "", flags: [], liveQa: [] });
   }

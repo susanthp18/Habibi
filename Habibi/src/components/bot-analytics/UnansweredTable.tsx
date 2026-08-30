@@ -195,7 +195,9 @@ export function UnansweredTable({ questions }: { questions: UnansweredQuestion[]
       <div className="border-b border-border px-150 py-100">
         <div className="flex items-center justify-between gap-150">
           <div>
-            <div className="text-body font-semibold text-text">Top unanswered / RAG-miss questions</div>
+            <div className="text-body font-semibold text-text">
+              Top unanswered / RAG-miss questions
+            </div>
             <div className="text-body-small text-text-subtlest">
               Each row is a candidate for Knowledge Base or Prompt Studio work
             </div>

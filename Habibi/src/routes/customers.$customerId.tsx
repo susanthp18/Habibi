@@ -2,7 +2,16 @@ import { createFileRoute, notFound } from "@tanstack/react-router";
 import { z } from "zod";
 import { fetchCustomer } from "@/api/customers";
 
-const TABS = ["overview", "ledger", "emi", "interactions", "promises", "disputes", "documents", "notes"] as const;
+const TABS = [
+  "overview",
+  "ledger",
+  "emi",
+  "interactions",
+  "promises",
+  "disputes",
+  "documents",
+  "notes",
+] as const;
 
 const searchSchema = z.object({
   tab: z.enum(TABS).catch("overview"),
@@ -18,9 +27,7 @@ export const Route = createFileRoute("/customers/$customerId")({
   head: ({ loaderData }) => ({
     meta: [
       {
-        title: loaderData
-          ? `${loaderData.customer.name} — Customer 360`
-          : "Customer 360",
+        title: loaderData ? `${loaderData.customer.name} — Customer 360` : "Customer 360",
       },
       {
         name: "description",

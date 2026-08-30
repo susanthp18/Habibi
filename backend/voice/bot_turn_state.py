@@ -21,6 +21,7 @@ consume or alter them.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -29,6 +30,7 @@ from pipecat.frames.frames import (
     FunctionCallResultFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
@@ -45,8 +47,10 @@ _MAX_USER_TURN_SECONDS = 120.0
 class BotTurnStateObserver(BaseObserver):
     """Tracks whether the bot is mid-turn: generating, calling a tool, or speaking."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_first_speech: Any | None = None) -> None:
         super().__init__()
+        self._on_first_speech = on_first_speech
+        self._first_speech_emitted = False
         self._generating = False
         self._tool_calls = 0
         self._last_activity = 0.0
@@ -64,11 +68,16 @@ class BotTurnStateObserver(BaseObserver):
         # When the caller connected. The origin for silence that precedes any
         # sound at all — see :meth:`silent_for`.
         self._call_started_at = 0.0
+        self._bot_speaking = False
+        self._bot_has_spoken = False
+        self.llm_response_starts = 0
+        self._callee_spoke = False
 
     async def on_push_frame(self, data: FrameProcessed) -> None:
         frame = data.frame
         if isinstance(frame, LLMFullResponseStartFrame):
             self._generating = True
+            self.llm_response_starts += 1
             self._touch()
         elif isinstance(frame, LLMFullResponseEndFrame):
             self._generating = False
@@ -82,6 +91,7 @@ class BotTurnStateObserver(BaseObserver):
             self._tool_calls = max(0, self._tool_calls - 1)
             self._touch()
         elif isinstance(frame, BotStoppedSpeakingFrame):
+            self._bot_speaking = False
             self._touch()
             self._last_audio = time.monotonic()
         elif isinstance(frame, UserStartedSpeakingFrame):
@@ -92,7 +102,21 @@ class BotTurnStateObserver(BaseObserver):
             self._user_speaking = False
             self._last_audio = time.monotonic()
         elif isinstance(frame, BotStartedSpeakingFrame):
+            self._bot_speaking = True
+            self._bot_has_spoken = True
             self._last_audio = time.monotonic()
+            if not self._first_speech_emitted:
+                self._first_speech_emitted = True
+                cb = self._on_first_speech
+                if cb is not None:
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+        elif isinstance(frame, TranscriptionFrame):
+            letters = sum(1 for ch in str(getattr(frame, "text", "") or "") if ch.isalpha())
+            if letters >= 2:
+                self._callee_spoke = True
 
     def _touch(self) -> None:
         self._last_activity = time.monotonic()
@@ -167,3 +191,15 @@ class BotTurnStateObserver(BaseObserver):
         if not self._last_activity:
             return False
         return (time.monotonic() - self._last_activity) < grace_seconds
+
+    def speaking(self) -> bool:
+        """True while TTS is in the ear, or the bot still owes that audio."""
+        return self._bot_speaking or self.busy()
+
+    def has_spoken(self) -> bool:
+        """True after the first BotStartedSpeakingFrame of the call."""
+        return self._bot_has_spoken
+
+    def callee_spoke(self) -> bool:
+        """True after a transcription with real words, not a ringtone blip."""
+        return self._callee_spoke

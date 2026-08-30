@@ -33,6 +33,13 @@ from sqlalchemy import text
 
 from agent_core.treatment import actions as A
 
+#: `customers.timezone` holds display labels ("Asia/Kolkata (IST)") in
+#: seeded data. An unrecognised zone does not fail one row -- it aborts the
+#: transaction. One definition, shared with contact_policy._zone's policy.
+import contact_policy
+
+_SAFE_TZ = contact_policy.safe_tz_sql("c.timezone")
+
 logger = logging.getLogger(__name__)
 
 #: v2 added the case-history fields (``case_attempts`` and friends) when the
@@ -481,7 +488,12 @@ class SqlFeatureProvider:
             logger.exception("consent read failed for %s", customer_id)
             consent = {}
 
-        parsed_hours = contact_policy.parse_allowed_hours(base["allowed_hours"])
+        # The same intersection ``contact_policy._veto`` applies, taken from the
+        # same module. The planner and the gate have to agree about a borrower's
+        # window or timing plans a slot the gate then refuses — and a second
+        # parser that agreed with the first on Tuesday is one that disagrees in
+        # November, which is why this reads the helper rather than re-deriving.
+        parsed_hours = contact_policy.preferred_hours(dict(base))
         _hours = tuple(parsed_hours) if parsed_hours else None
         parsed_days = contact_policy.parse_allowed_days(base["allowed_days"])
         _days = tuple(parsed_days) if parsed_days else None
@@ -668,8 +680,20 @@ class SqlFeatureProvider:
             text(
                 """
                 SELECT
+                  -- CAST before the null test, not after. A bare ``:cycle IS
+                  -- NOT NULL`` gives the planner no way to infer the
+                  -- parameter's type when the value is NULL, and Postgres
+                  -- refuses the whole statement with "could not determine data
+                  -- type of parameter $1".
+                  --
+                  -- The consequence was invisible: the feature build raised,
+                  -- ``recommend_treatment`` caught it as designed and returned
+                  -- no decision, so every account holding a mandate with no
+                  -- current unpaid cycle silently dropped out of the corpus.
+                  -- The engine never failing is what kept it quiet.
                   count(*) FILTER (
-                    WHERE :cycle IS NOT NULL AND presented_for = CAST(:cycle AS date)
+                    WHERE CAST(:cycle AS date) IS NOT NULL
+                      AND presented_for = CAST(:cycle AS date)
                       AND status <> 'cancelled'
                   )::int AS this_cycle,
                   (ARRAY_AGG(return_reason ORDER BY
@@ -950,6 +974,24 @@ class SqlFeatureProvider:
             if wa_floor is None or (_aware(r["created_at"]) or since) >= wa_floor
         ]
 
+        # Delivery receipts, where the provider gives them. This is the real
+        # measurement and the reply counts above are the fallback: a borrower
+        # who reads every message and answers none is perfectly reachable and
+        # completely invisible to a reply rate.
+        receipts = self._receipts(conn, customer_id, since)
+
+        # The attempt ledger, where it has data. It is strictly the better
+        # source: ``contact_events`` counts touches the gate allowed and
+        # ``interactions`` counts calls that connected, so the ratio was built
+        # from two tables that disagree about what an attempt is — and a dial
+        # that rang out appeared in neither. ``call_attempts`` has both halves
+        # of the fraction, by construction, in one row per dial.
+        #
+        # Falls back rather than replaces: a deployment with three days of
+        # attempts and two years of interactions should not have its reach
+        # estimate reset to "unknown" on the day the ledger shipped.
+        ledger = self._voice_reach(conn, customer_id, since)
+
         rate: dict[str, float | None] = {}
         for channel, responded in (
             ("voice", len(countable_voice)),
@@ -962,15 +1004,42 @@ class SqlFeatureProvider:
             rate[channel] = (
                 min(1.0, responded / tried) if tried >= MIN_ATTEMPTS_FOR_RATE else None
             )
-        # No inbound SMS path exists in this stack. Absent, not zero.
+        if ledger and ledger["attempts"] >= MIN_ATTEMPTS_FOR_RATE:
+            rate["voice"] = min(1.0, ledger["answered"] / ledger["attempts"])
+
+        # No inbound SMS path exists in this stack, so a reply can never be the
+        # evidence here. Absent, not zero — until a receipt says otherwise.
         rate["sms"] = None
         rate["field"] = None
 
+        for channel, observed in receipts.items():
+            sent = observed["sent"]
+            if sent < MIN_ATTEMPTS_FOR_RATE:
+                continue
+            # ``read`` means it reached a person; ``delivered`` only means it
+            # reached a handset. Prefer the former and fall back to the latter,
+            # because a channel with no read receipts (SMS) would otherwise be
+            # scored as unreachable rather than as unmeasured — and the engine
+            # would quietly stop using it.
+            reached = observed["read"] or observed["delivered"]
+            rate[channel] = min(1.0, reached / sent)
+
+        # Hours this borrower has actually engaged, from both kinds of evidence.
+        # Voice connects were the only source before; WhatsApp read times are a
+        # far denser signal, because somebody reads a message most days and
+        # answers a call rarely.
         hours = sorted(
             {
                 _aware(r["started_at"]).astimezone(tz).hour
                 for r in connects
                 if _aware(r["started_at"]) is not None
+            }
+            | set((ledger or {}).get("hours") or ())
+            | {
+                _aware(moment).astimezone(tz).hour
+                for observed in receipts.values()
+                for moment in observed["read_at"]
+                if _aware(moment) is not None
             }
         )
 
@@ -1002,6 +1071,97 @@ class SqlFeatureProvider:
             "last_connect_at": last_connect,
             "last_inbound_at": last_inbound,
             "digital_attempts_since_connect": int(digital_since or 0),
+        }
+
+    def _voice_reach(
+        self, conn: Any, customer_id: str, since: Any
+    ) -> dict[str, Any] | None:
+        """Voice reach from the attempt ledger, in the borrower's local hours.
+
+        Suppressed attempts are excluded from the denominator: a call the
+        contact gate refused is not a call the borrower ignored, and counting it
+        as one would make a compliant week look like an unreachable book — the
+        engine would then learn to stop trying exactly when it was *us* who
+        stopped.
+
+        Returns None when the ledger has nothing to say, which is the honest
+        answer on a deployment where it has just been switched on.
+        """
+        try:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT a.answered_at IS NOT NULL AS answered,
+                           EXTRACT(
+                             HOUR FROM (a.reserved_at AT TIME ZONE
+                               """ + _SAFE_TZ + """)
+                           )::int AS local_hour
+                    FROM call_attempts a
+                    JOIN customers c ON c.id = a.customer_id
+                    WHERE a.customer_id = :cid
+                      AND a.state <> 'suppressed'
+                      AND a.reserved_at >= :since
+                    """
+                ),
+                {"cid": customer_id, "since": since},
+            ).mappings().all()
+        except Exception:
+            # The ledger is an optimisation here, not a dependency. A feature
+            # build that failed because a newer table was missing would take
+            # every decision down with it.
+            logger.debug("attempt-ledger reach unavailable", exc_info=True)
+            return None
+        if not rows:
+            return None
+        answered = [r for r in rows if r["answered"]]
+        return {
+            "attempts": len(rows),
+            "answered": len(answered),
+            "hours": {int(r["local_hour"]) for r in answered},
+        }
+
+    def _receipts(
+        self, conn: Any, customer_id: str, since: datetime
+    ) -> dict[str, dict[str, Any]]:
+        """Per-channel delivery evidence from the receipt log.
+
+        Absent entirely for historical traffic — the log only began when the
+        table did — which is why the caller treats it as an override on top of
+        the reply proxy rather than as a replacement for it. A channel with no
+        receipts keeps whatever estimate it had.
+        """
+        try:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT channel,
+                           count(*) FILTER (WHERE state = 'sent')::int      AS sent,
+                           count(*) FILTER (WHERE state = 'delivered')::int AS delivered,
+                           count(*) FILTER (WHERE state = 'read')::int      AS read_n,
+                           array_remove(
+                             array_agg(occurred_at ORDER BY occurred_at DESC)
+                               FILTER (WHERE state = 'read'), NULL
+                           ) AS read_at
+                    FROM contact_delivery_events
+                    WHERE customer_id = :cid AND occurred_at >= :since
+                    GROUP BY channel
+                    """
+                ),
+                {"cid": customer_id, "since": since},
+            ).mappings().all()
+        except Exception:
+            # A missing table on an un-migrated deployment must not cost the
+            # borrower their decision; the reply proxy is still there.
+            logger.exception("delivery receipt read failed for %s", customer_id)
+            return {}
+        return {
+            str(r["channel"]): {
+                "sent": int(r["sent"] or 0),
+                "delivered": int(r["delivered"] or 0),
+                "read": int(r["read_n"] or 0),
+                "read_at": list(r["read_at"] or [])[:200],
+            }
+            for r in rows
         }
 
     def _holds(

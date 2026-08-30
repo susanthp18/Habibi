@@ -1,0 +1,22 @@
+OBJECTIVE (one job): ONE source of truth for dispute SLA. Today Python and TypeScript each compute it, with different formats and different thresholds, and both render - the same dispute shows different labels on two screens of the same product.
+
+Evidence:
+- TypeScript copy (live path): Habibi/src/data/disputes-seed.ts:489-503 slaInfo() - computes msRemaining from due-vs-now, label like "0h 29m left", tones breach/warn/ok (warn when <25% of window remains). Consumers: DisputeCard.tsx:38, DisputeSheet.tsx:77.
+- Python copy: backend/db.py:906-921 _sla_label() - rounds to HOURS ("1h overdue"/"23h left"/"2d left"), NO tone, consumed at db.py:1382 as "slaLabel". Consumer: DisputesTab.tsx:86 (Customer-360 disputes tab).
+- Concrete drift: 29 min to breach reads "0h 29m left / warn" on the board vs "0h left" on the 360 tab; 40 min past due reads "0h 40m over / breach" vs "1h overdue"; the 360 tab can never show red because the server sends no tone.
+- The house pattern for doing this RIGHT already exists: backend/db.py:12199 _work_item_sla returns structured sla fields (value + label + tone) that the workspace uses.
+
+Deliverables:
+1. Backend: replace/augment the dispute serializer so each dispute carries structured SLA - minutes-precise remaining-or-overdue value, a display label, and a tone (ok | warn | breach) using the SAME thresholds as the TS copy today (<25% of window = warn, past-due = breach). Mirror _work_item_sla's shape so the concept has one name across the API. Keep _sla_label working for any other caller OR migrate those callers too - grep first, do not break other endpoints.
+2. Frontend: delete slaInfo() and its SlaInfo type; DisputeCard and DisputeSheet consume the server fields. The Customer-360 tab and the disputes board now render IDENTICAL text for the same dispute. Update the mock branch behind USE_MOCK so dev/demo produces the exact same shape from the seed data.
+3. Tests: extend the existing backend test coverage for the disputes endpoint to assert the new structured SLA fields, including the boundaries: just-inside warn threshold, exactly past-due => breach tone, far-future => ok. If you find an existing test asserting the old "slaLabel" string, UPDATE it to the new contract - do not delete it.
+
+Scope: backend/db.py (dispute serializer + possibly _sla_label callers), the backend test file(s) covering disputes, Habibi/src/data/disputes-seed.ts, DisputeCard.tsx, DisputeSheet.tsx, DisputesTab.tsx. Grep for any OTHER importer of slaInfo/slaLabel before finishing and either migrate or leave-and-report it. Nothing else.
+
+Verify before reporting done, paste the real terminal output of BOTH:
+  cd D:/Hackathon/backend && .venv/Scripts/python -m pytest tests/<the dispute test files> -q
+  cd D:/Hackathon/Habibi && npm run typecheck && npm run lint
+This is a cross-stack change: report that fact; I will run the full gate myself afterwards.
+Then open @url:`http://localhost:8080/disputes` AND a Customer-360 page's disputes tab, compare the SAME dispute's SLA text on both screens, and describe what you saw. They must match word-for-word.
+
+Rules: Never git stash, git reset --hard, git clean, or force-push - this tree has ~270 pre-existing uncommitted files that are not yours. Never commit to main, never push, never open a PR; commit to the current branch only. Never print the contents of .env - it holds live Twilio credentials. Never kill or restart whatever is listening on ports 8000, 7860, or 8080. Never delete a test, skip a test, add an eslint-disable, or widen an ignore list to make something pass. Backend schema changes need BOTH an Alembic migration AND the matching edit in backend/sql/*.sql. If it's a bug, reproduce it and write the failing test before you fix it.

@@ -7,13 +7,18 @@ import re
 from agent_core.cards.schema import (
     LOCKED_POLICY_ENGINES,
     AgentCard,
+    CardCadence,
     CardConnector,
     CardEval,
     CardHandoff,
     CardIdentity,
+    CardObjective,
+    CardOutbound,
+    CardPostCall,
     CardSkillRef,
     CardTools,
     HumanGate,
+    PostCallRule,
 )
 from agent_core.skills.defaults import (
     COLLECTIONS_SKILLS,
@@ -64,6 +69,15 @@ _COLLECTIONS_TOOLS = [
     "recommend_next_offer",
     "request_documents",
     "add_customer_note",
+    # Why the borrower has not paid, as a code. On the collections card only:
+    # an intake or insurance agent asking a servicing caller why they are behind
+    # would be a question nobody asked them to answer.
+    "capture_nonpayment_reason",
+    # Unlike the reason code above, this one is on every customer-facing card.
+    # "Don't ring me before ten" is conduct rather than collections: an
+    # insurance servicing caller who says it is owed the same window, and the
+    # dialler reads one column regardless of which agent heard the sentence.
+    "set_contact_preference",
     "check_product_eligibility",
     "capture_lead",
     "decline_offer",
@@ -78,6 +92,7 @@ _INTAKE_TOOLS = [
     "escalate_to_human",
     "search_knowledge_base",
     "add_customer_note",
+    "set_contact_preference",
     "load_skill",
 ]
 
@@ -88,6 +103,7 @@ _INSURANCE_TOOLS = [
     "get_payment_history",
     "get_emi_schedule",
     "add_customer_note",
+    "set_contact_preference",
     "check_product_eligibility",
     "capture_lead",
     "recommend_next_offer",
@@ -116,6 +132,7 @@ def _card(
     suite_id: str | None = None,
     skills: list[CardSkillRef] | None = None,
     connectors: list[CardConnector] | None = None,
+    outbound: CardOutbound | None = None,
 ) -> AgentCard:
     return AgentCard(
         identity=CardIdentity(
@@ -134,6 +151,7 @@ def _card(
         or [HumanGate(tool_name="create_promise_to_pay", require="identity")],
         eval=CardEval(suite_id=suite_id, require=["regression", "redteam"]),
         connectors=connectors or [],
+        outbound=outbound or CardOutbound(),
     )
 
 
@@ -156,6 +174,108 @@ def intake_card() -> AgentCard:
     )
 
 
+#: The collections agent's outbound configuration.
+#:
+#: Written down here rather than left to an operator's first publish because a
+#: default that dials nothing is not a safe default — it is an agent that
+#: silently does not work, and the first person to notice is whoever wonders
+#: why the campaign finished with zero calls. Four missions, one cadence, and
+#: no offers on any of them.
+#:
+#: Every entry node is ``confirm_identity``: the built-in script has one
+#: outbound door, and the mission briefing in the system prompt is what makes a
+#: bounce cure sound different from a broken-promise chase. An *authored* graph
+#: can give each mission its own door — that is the whole point of ``entryFor``
+#: — and the compiler checks the two agree (G-OB2).
+def _collections_outbound() -> CardOutbound:
+    def objective(key: str, *, success: list[str], minutes: int = 4) -> CardObjective:
+        return CardObjective(
+            key=key,
+            entry_node="confirm_identity",
+            success=success,
+            max_duration_sec=minutes * 60,
+            # Empty, deliberately. A servicing call is not a sales call, and a
+            # borrower who is behind on an instalment did not ask to be sold a
+            # top-up. Turning this on is a decision somebody makes on purpose.
+            allowed_offers=[],
+            cadence="collections",
+        )
+
+    return CardOutbound(
+        # `both`: the same agent answers the phone and places calls. One card,
+        # one persona, one authority envelope, one compliance surface — the
+        # conversation differs at the door and converges immediately after.
+        direction="both",
+        objectives=[
+            objective(
+                "pre_due_reminder",
+                success=["ptp_captured", "paid_in_call"],
+                minutes=3,
+            ),
+            objective(
+                "bounce_cure",
+                success=["ptp_captured", "paid_in_call", "part_payment_agreed"],
+            ),
+            objective(
+                "dpd_reminder",
+                success=[
+                    "ptp_captured",
+                    "paid_in_call",
+                    "part_payment_agreed",
+                    "plan_agreed",
+                ],
+            ),
+            objective(
+                "broken_ptp_chase",
+                success=["ptp_recommitted", "paid_in_call", "part_payment_agreed"],
+                minutes=5,
+            ),
+        ],
+        cadences=[
+            CardCadence(
+                name="collections",
+                max_attempts=3,
+                per_day=1,
+                # Four hours, then a day, then three. The first gap is short
+                # enough to catch somebody who was simply driving; the later
+                # ones are long enough that three attempts do not read as
+                # pursuit.
+                backoff_hours=[4, 24, 72],
+                escalate_to="human",
+            )
+        ],
+        post_call=CardPostCall(
+            on_outcome=[
+                PostCallRule(when="ptp_captured", do=["confirm_written", "schedule_due_reminder"]),
+                PostCallRule(when="ptp_recommitted", do=["confirm_written", "schedule_due_reminder"]),
+                # `confirm_written` comes last in each of these because the verb
+                # before it is what produces the fact the message states — the
+                # hold's end date, the dispute's reference. Reversed, the message
+                # would have nothing to quote and would decline to send.
+                PostCallRule(
+                    when="hardship_declared",
+                    do=["place_hold", "suppress_upsell", "confirm_written"],
+                ),
+                PostCallRule(
+                    when="dispute_raised", do=["flag_dispute", "place_hold", "confirm_written"]
+                ),
+                PostCallRule(
+                    when="callback_requested", do=["schedule_mission", "confirm_written"]
+                ),
+                PostCallRule(when="opt_out_requested", do=["record_optout", "stop_cadence"]),
+                PostCallRule(when="wrong_number", do=["mark_phone_dead", "promote_alternate"]),
+                PostCallRule(when="no_resolution", do=["advance_ladder"]),
+            ]
+        ),
+        # No pool configured: the deployment's single TWILIO_PHONE_NUMBER, which
+        # is what every dial used before pools existed. A tenant on the 1600
+        # series names one here and G-OB4 starts enforcing the offer ban.
+        pool_kind="general",
+        carrier_amd=False,
+        ivr_traversal=False,
+    )
+
+
 def collections_card() -> AgentCard:
     return _card(
         bot_id=COLLECTIONS_BOT_ID,
@@ -172,6 +292,7 @@ def collections_card() -> AgentCard:
         suite_id="eval-regression-collections",
         skills=skill_refs(*COLLECTIONS_SKILLS),
         connectors=[CardConnector(connector_id="paylink", allow_prefixes=["ext.paylink."])],
+        outbound=_collections_outbound(),
     )
 
 

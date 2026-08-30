@@ -31,6 +31,7 @@ from agent_core.tools import ToolResult
 from agent_core.tools.catalog import (
     CATALOG,
     DOCUMENT_TYPES,
+    NONPAYMENT_REASONS,
     VERIFY_METHODS,
 )
 from agent_core.tools import domain
@@ -325,6 +326,11 @@ def build_tools(
             started = time.perf_counter()
             ok = True
             error: str | None = None
+            # Pipecat Flows calls a handler as (args, flow_manager); the audit
+            # row wants the first of those. Read defensively rather than
+            # unpacking: a handler signature change must break the handler, not
+            # silently break the audit trail with it.
+            call_args = args[0] if args and isinstance(args[0], dict) else None
             try:
                 return await handler(*args, **kwargs)
             except Exception as exc:
@@ -340,6 +346,7 @@ def build_tools(
                             result_ok=ok,
                             error=error,
                             latency_ms=int((time.perf_counter() - started) * 1000),
+                            args=call_args,
                         )
                     except Exception:
                         logger.debug("tool call audit enqueue failed", exc_info=True)
@@ -612,6 +619,27 @@ def build_tools(
         if not ix:
             return {"error": "no_interaction"}, None
 
+        # Re-entry guard. Nothing stopped an already-verified caller from
+        # reaching this handler again — a model that re-asks for digits, an STT
+        # mishear the caller corrects, a hop back through the verify node — and
+        # every re-entry burned an attempt. Three of them routed a borrower who
+        # had *already passed* verification to terminate_politely with a
+        # `verification_failed` handoff: a hang-up on a verified customer.
+        # An identity that is bound to this interaction is settled; re-asserting
+        # it costs nothing and must never cost an attempt.
+        if session.identity_verified and session.customer_id:
+            return (
+                {
+                    "ok": True,
+                    "alreadyVerified": True,
+                    "verified": True,
+                    "customerName": state.customer_name,
+                    "attempts": state.verify_attempts,
+                    "say": "confirm they are already verified and continue",
+                },
+                _node(hub_node),
+            )
+
         args = CATALOG.normalize("verify_identity", args)
         method_n = str(args.get("method") or "").strip().lower()
         value = str(args.get("value") or "")
@@ -706,6 +734,30 @@ def build_tools(
         session.customer_id = match["customerId"]
         session.account_id = match.get("accountId")
         session.identity_verified = True
+
+        # Right-party contact, recorded against the dial that produced it.
+        # RPC rate is the metric every collections floor actually manages and
+        # the product had no way to compute it: the only evidence a verification
+        # ever happened lived on the interaction, and an interaction only exists
+        # once media connects. On an outbound leg the attempt is the thing being
+        # measured, so the fact belongs there too.
+        #
+        # Fire-and-forget: a bookkeeping write must never fail a verification
+        # the caller has already passed.
+        _attempt = session.extra.get("attempt_id")
+        if _attempt:
+
+            def _mark_rpc() -> None:
+                import db as _db
+                import outbound as _outbound
+
+                with _db.engine.begin() as conn:
+                    _outbound.mark(conn, str(_attempt), right_party=True, answered_by="human")
+
+            try:
+                await asyncio.to_thread(_mark_rpc)
+            except Exception:
+                logger.debug("right-party mark failed", exc_info=True)
         session.outstanding = to_money(match.get("outstanding"))
         state.minimum_due = match.get("minimumDue")
         state.dpd = match.get("dpd")
@@ -825,6 +877,23 @@ def build_tools(
     async def not_account_holder(flow_manager) -> tuple[Any, dict[str, Any] | None]:
         """Caller says they are not the account holder / third party."""
         session.extra["third_party"] = True
+        # The other half of right-party contact. An attempt that reached a
+        # human who is not the borrower is fully paid for and worth zero, and
+        # until the two were told apart every connect looked like a success.
+        _attempt = session.extra.get("attempt_id")
+        if _attempt:
+
+            def _mark_wrong_party() -> None:
+                import db as _db
+                import outbound as _outbound
+
+                with _db.engine.begin() as conn:
+                    _outbound.mark(conn, str(_attempt), right_party=False, answered_by="human")
+
+            try:
+                await asyncio.to_thread(_mark_wrong_party)
+            except Exception:
+                logger.debug("wrong-party mark failed", exc_info=True)
         ix = session.interaction_id
         if ix:
             await asyncio.to_thread(
@@ -833,16 +902,28 @@ def build_tools(
                 reason="verification_failed",
                 bot_id=bot_id,
             )
+        # Inbound and outbound end differently, and the difference matters.
+        # Inbound: a stranger rang *us* about someone else's account, so
+        # "I can only discuss this with the holder" is the whole answer.
+        # Outbound: we rang *them*, and this person now knows a bank called
+        # about a specific individual. Saying we can only discuss "the account"
+        # has already confirmed there is one. The third_party node exists to say
+        # materially less than that.
+        outbound_leg = str(session.extra.get("objective") or "").strip() != ""
+        landing = _node("third_party") if outbound_leg else None
         return (
             {
                 "ok": True,
                 "thirdParty": True,
                 "say": (
-                    "explain you can only discuss the account with the holder; "
+                    "do not confirm or deny that an account exists; say only that "
+                    "it is a personal matter for the account holder"
+                    if outbound_leg
+                    else "explain you can only discuss the account with the holder; "
                     "suggest the holder call from their registered number"
                 ),
             },
-            _node("terminate_politely"),
+            landing or _node("terminate_politely"),
         )
 
     # ----------------------------------------------------------------- reads
@@ -1056,10 +1137,28 @@ def build_tools(
         promised_raw = str(args.get("promise_date") or "")
         promised_key = promised_raw.strip().split("T", 1)[0]
         # Stable key so retries / double tool-calls don't insert duplicate PTPs.
-        idem = (
-            f"voice-ptp:{session.interaction_id or 'no-ix'}:"
-            f"{cid}:{amt:.2f}:{promised_key}"
-        )
+        #
+        # Scoped to the CARRIER CALL, not the interaction row. A Twilio
+        # media-stream reconnect makes ``start_voice_call`` mint a brand-new
+        # interaction (voice/persist.py does a plain INSERT), so an
+        # interaction-scoped key handed the same borrower commitment a
+        # different key after the reconnect and inserted a second
+        # money-relevant row — the one carrier event idempotency exists for.
+        # ``provider_call_id`` (Twilio CallSid / SmallWebRTC call id) survives
+        # the reconnect; it is unset only for local/sandbox sessions, which
+        # fall back to the interaction id as before.
+        #
+        # The key is consumed by ``agent_core.tools.domain.create_promise_to_pay``
+        # -> ``db.create_promise`` -> ``db._idempotent_response``: an exact
+        # string lookup on (tenant_id, endpoint, key). Nothing parses the key,
+        # so the new scope cannot collide with the old scheme — CallSids and
+        # interaction ids are disjoint id spaces — and there is NO migration:
+        # rows minted under the old format keep their keys, they simply stop
+        # matching. The only cost is a call already in flight at deploy time,
+        # whose replay would insert once more; that is the pre-existing
+        # behaviour, not a regression.
+        call_scope = session.provider_call_id or session.interaction_id or "no-ix"
+        idem = f"voice-ptp:{call_scope}:{cid}:{amt:.2f}:{promised_key}"
 
         try:
             result = await asyncio.to_thread(
@@ -1130,8 +1229,16 @@ def build_tools(
         # Stable key so a duplicated tool call does not open two disputes on the
         # same grievance (the plumbing already existed in domain.flag_dispute;
         # voice was the only write tool besides PTP that never passed one).
+        #
+        # Scoped to the CARRIER CALL, not the interaction row — same reasoning
+        # as ``_create_ptp_handler`` above: a media-stream reconnect mints a new
+        # interaction, so an interaction-scoped key let the reconnect re-open
+        # the same grievance. ``provider_call_id`` survives the reconnect and is
+        # unset only for local/sandbox sessions, which fall back to the
+        # interaction id exactly as before.
+        call_scope = session.provider_call_id or session.interaction_id or "no-ix"
         idem = (
-            f"voice-dispute:{session.interaction_id or 'no-ix'}:"
+            f"voice-dispute:{call_scope}:"
             f"{cid}:{dispute_type}:{'na' if amount is None else f'{float(amount):.2f}'}"
         )
 
@@ -1217,6 +1324,36 @@ def build_tools(
             state.authority_cap = float(cap) if cap is not None else None
         except (TypeError, ValueError):
             state.authority_cap = None
+
+        # The mission's authority profile, applied on top. The matrix decides
+        # what policy permits for this account; the profile is a second and
+        # narrower bound this particular call was sent out under — a pre-due
+        # courtesy call has no business conceding what a broken-promise chase
+        # might. It can only ever lower, which is what stops a card authoring
+        # itself more discretion than the matrix would grant.
+        _mission = session.extra.get("mission")
+        _profile = (_mission or {}).get("authorityProfile") if isinstance(_mission, dict) else None
+        if _profile and state.authority_cap is not None:
+            from agent_core.authority import config as _authority_config
+
+            ceiling = _authority_config.profile_ceiling(_profile)
+            if ceiling is not None and ceiling < state.authority_cap:
+                logger.info(
+                    "authority narrowed by mission profile %s: %s -> %s",
+                    _profile,
+                    state.authority_cap,
+                    ceiling,
+                )
+                state.authority_cap = ceiling
+                payload["approvedAmount"] = ceiling
+                payload["capAmount"] = ceiling
+                payload["narrowedBy"] = _profile
+                if ceiling <= 0:
+                    payload["verdict"] = "escalate"
+                    payload["say"] = (
+                        "do not quote any waiver or settlement figure on this "
+                        "call; offer to have a colleague call them back"
+                    )
         if state.authority_cap is not None:
             session.extra["max_waiver_inr"] = state.authority_cap
         if result.spoken_summary:
@@ -1283,8 +1420,15 @@ def build_tools(
         scheduled_at = str(args.get("scheduled_at") or "")
         # Raw (not parsed) scheduled_at: the key must be derivable before the
         # domain call, and an identical retry carries an identical string.
+        #
+        # Scoped to the CARRIER CALL, not the interaction row — see
+        # ``_create_ptp_handler``. A reconnect mints a new interaction, which
+        # under an interaction-scoped key booked the caller a second callback
+        # for the same slot. ``provider_call_id`` survives it; sessions without
+        # one fall back to the interaction id, unchanged.
+        call_scope = session.provider_call_id or session.interaction_id or "no-ix"
         idem = (
-            f"voice-callback:{session.interaction_id or 'no-ix'}:"
+            f"voice-callback:{call_scope}:"
             f"{cid}:{scheduled_at.strip()}"
         )
 
@@ -1373,6 +1517,144 @@ def build_tools(
 
     add_customer_note = _spec("add_customer_note", 
         _add_customer_note_handler
+    )
+
+    # ------------------------------------------------- why they have not paid
+
+    #: Reasons that make any product offer inappropriate for the rest of the
+    #: call. Pitching to somebody who has just declared hardship is the conduct
+    #: failure that ends a bank pilot, and it costs nothing to make impossible.
+    _HARDSHIP_REASONS = frozenset({"income_loss", "medical"})
+
+    async def _capture_nonpayment_reason_handler(
+        args: dict[str, Any],
+        flow_manager,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Record why the borrower has not paid, as a code.
+
+        The largest analytical gap in the product: the system could say an
+        account was 45 DPD with two bounces and never that the borrower lost
+        their job in June. The code goes on the session so the Closer can read
+        it off the audit row, and `income_loss` / `medical` latch the upsell
+        interlock immediately rather than at wrap-up — the offer node is
+        reachable before post-call processing ever runs.
+        """
+        cid, err = _require_customer()
+        if err:
+            return err, None
+        args = CATALOG.normalize("capture_nonpayment_reason", args)
+        reason = str(args.get("reason") or "").strip()
+        if reason not in NONPAYMENT_REASONS:
+            return {"error": "unknown_reason", "allowed": list(NONPAYMENT_REASONS)}, None
+
+        session.extra["nonpayment_reason"] = reason
+        if reason in _HARDSHIP_REASONS:
+            session.extra["upsell_blocked"] = reason
+
+        note = str(args.get("verbatim") or "").strip()
+        if note:
+            import db
+
+            try:
+                await asyncio.to_thread(
+                    db.add_customer_note,
+                    cid,
+                    {"text": f"[reason: {reason}] {note[:500]}"},
+                )
+            except Exception:
+                # The note is a convenience for a human reading the file; the
+                # code is the thing that matters and it is already captured.
+                logger.exception("nonpayment reason note failed")
+
+        # Never read back to the caller. "I have recorded that you lost your
+        # job" is a sentence no borrower wants to hear said back to them, and
+        # the acknowledgement belongs in whatever the agent was already saying.
+        if spoke_this_response is not None and spoke_this_response():
+            return {"ok": True, "reason": reason}, NO_RESPONSE
+        return {
+            "ok": True,
+            "reason": reason,
+            "say": (
+                "acknowledge what they said briefly and with empathy, then continue"
+            ),
+        }, None
+
+    capture_nonpayment_reason = _spec(
+        "capture_nonpayment_reason", _capture_nonpayment_reason_handler
+    )
+
+    async def _set_contact_preference_handler(
+        args: dict[str, Any],
+        flow_manager,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Record a calling-hours restriction the borrower just stated.
+
+        RBI para 100Y allows the statutory 08:00-19:00 window to move *"unless
+        the borrower has asked otherwise"*, and the veto path has always
+        intersected the statutory window with the consent one. Nothing wrote the
+        consent one. So "please don't ring me before ten" was heard, agreed to,
+        and then contradicted by the next morning's dial.
+
+        ``contact_policy.narrow_window`` refuses to widen, which is why the tool
+        description tells the model not to call this when a borrower says we may
+        call any time: a hallucinated loosening would delete a real restriction,
+        and no log line makes that acceptable.
+        """
+        cid, err = _require_customer()
+        if err:
+            return err, None
+        args = CATALOG.normalize("set_contact_preference", args)
+
+        def _write() -> dict[str, Any]:
+            import contact_policy
+            import db as dbmod
+
+            with dbmod.engine.begin() as conn:
+                return contact_policy.narrow_window(
+                    conn,
+                    customer_id=cid,
+                    earliest_hour=args.get("earliest_hour"),
+                    latest_hour=args.get("latest_hour"),
+                    source="voice",
+                    note=str(args.get("verbatim") or "")[:500] or None,
+                )
+
+        try:
+            outcome = await asyncio.to_thread(_write)
+        except Exception:
+            logger.exception("set_contact_preference failed")
+            return {"error": "preference_not_recorded"}, None
+
+        if not outcome.get("ok"):
+            if outcome.get("reason") == "window_would_be_empty":
+                # They have described a window with nothing in it, which is a
+                # request to stop rather than a preference. Say so out loud and
+                # let the opt-out path handle it deliberately.
+                return {
+                    "ok": False,
+                    "reason": outcome.get("reason"),
+                    "say": (
+                        "check whether they would prefer we stop calling "
+                        "altogether, and if so tell them you will arrange it"
+                    ),
+                }, None
+            return {"ok": False, "reason": outcome.get("reason")}, None
+
+        # No session breadcrumb. The durable record is the consent row plus the
+        # activity line `narrow_window` writes, and a `session.extra` key that
+        # nothing reads is the same species of dead configuration this whole
+        # round of work exists to remove.
+        window = outcome.get("window") or []
+        if spoke_this_response is not None and spoke_this_response():
+            return {"ok": True, "window": window}, NO_RESPONSE
+        return {
+            "ok": True,
+            "window": window,
+            "say": "confirm briefly that you have noted it, then carry on",
+        }, None
+
+    set_contact_preference = _spec(
+        "set_contact_preference", _set_contact_preference_handler
     )
 
     # --------------------------------------------------------------- upsell
@@ -1531,6 +1813,24 @@ def build_tools(
         cid, err = _require_customer()
         if err:
             return err, None
+
+        # Hardship interlock. A borrower who has just told us they lost their
+        # job or are in hospital must not then be pitched a top-up loan, and a
+        # prompt instruction is not an interlock — it is a request. This is a
+        # hard stop in the tool the offer has to come through, so no node,
+        # phrasing or model can route around it. Latched for the rest of the
+        # call: a reason given at turn four still binds at turn forty.
+        blocked = session.extra.get("upsell_blocked")
+        if blocked:
+            logger.info("upsell suppressed for %s · reason=%s", cid, blocked)
+            return {
+                "suppressed": True,
+                "reason": "hardship_declared",
+                "say": (
+                    "do not mention any product or offer; move the conversation "
+                    "on without explaining why"
+                ),
+            }, None
 
         try:
             from agent_core.reco import engine as reco_engine
@@ -1932,8 +2232,16 @@ def build_tools(
         period = args.get("period")
         # A duplicated tool call here means the caller gets the same statement
         # generated and emailed twice.
+        #
+        # Scoped to the CARRIER CALL, not the interaction row — see
+        # ``_create_ptp_handler``. A reconnect mints a new interaction, so an
+        # interaction-scoped key sent the statement a second time when the
+        # model re-raised the request after the drop. ``provider_call_id``
+        # survives the reconnect; without one we fall back to the interaction
+        # id as before.
+        call_scope = session.provider_call_id or session.interaction_id or "no-ix"
         idem = (
-            f"voice-doc:{session.interaction_id or 'no-ix'}:"
+            f"voice-doc:{call_scope}:"
             f"{cid}:{doc_type}:{str(period).strip() if period else 'na'}"
         )
 
@@ -2428,6 +2736,8 @@ def build_tools(
         "apply_goodwill": apply_goodwill,
         "request_callback": request_callback,
         "add_customer_note": add_customer_note,
+        "capture_nonpayment_reason": capture_nonpayment_reason,
+        "set_contact_preference": set_contact_preference,
         "recommend_next_offer": recommend_next_offer,
         "check_product_eligibility": check_product_eligibility,
         "capture_lead": capture_lead,

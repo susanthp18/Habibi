@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import money_inr
 from agent_core.treatment import actions as A
 from agent_core.treatment.features import AccountFeatures, Trigger, zone
 from agent_core.treatment.policy import CONTACT_PREFIX, HOLD_PREFIX
@@ -62,7 +63,14 @@ _CONTACT_PHRASE = {
 
 
 def _inr(amount: float) -> str:
-    return f"{amount:,.0f}"
+    """Whole rupees, symbol included.
+
+    It used to return bare digits with Western grouping and leave the ₹ to each
+    caller, which is how line 122 below ended up printing two different money
+    formats inside one sentence — and that sentence is the decision log's
+    explanation of why an action was taken.
+    """
+    return money_inr.inr(amount)
 
 
 def _when(at: datetime | None, features: AccountFeatures, now: datetime) -> str:
@@ -82,7 +90,7 @@ def _context(features: AccountFeatures, trigger: Trigger, now: datetime) -> str:
     age = trigger.age_hours(now)
     if age is not None and age >= 1:
         phrase = f"{phrase} {int(age)}h ago" if age < 48 else f"{phrase} {int(age / 24)}d ago"
-    stake = f"₹{_inr(features.exposure)} at stake" if features.exposure > 0 else "no balance due"
+    stake = f"{_inr(features.exposure)} at stake" if features.exposure > 0 else "no balance due"
     dpd = f"{features.dpd} DPD" if features.dpd else features.bucket
     return f"{phrase}, {dpd}, {stake}"
 
@@ -119,7 +127,7 @@ def rationale(
     detail = (
         f"{chosen.p_reach:.0%} chance of reaching them, "
         f"{chosen.p_resolve:.0%} of curing if reached, "
-        f"₹{chosen.cost:,.2f} to try — net ₹{_inr(chosen.expected_value)}"
+        f"{money_inr.inr_compact(chosen.cost)} to try — net {_inr(chosen.expected_value)}"
     )
     if chosen.timing_rationale and chosen.timing_rationale not in {
         "no contact planned",

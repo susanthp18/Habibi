@@ -28,13 +28,7 @@ const promiseTone = {
   Partial: "warning",
 } as const;
 
-export function ContextRail({
-  thread,
-  onClose,
-}: {
-  thread: Thread;
-  onClose?: () => void;
-}) {
+export function ContextRail({ thread, onClose }: { thread: Thread; onClose?: () => void }) {
   const c = thread.context;
   const navigate = useNavigate();
   const customerId = thread.customerId;
@@ -87,9 +81,7 @@ export function ContextRail({
                 {thread.customer}
               </Link>
             ) : (
-              <div className="truncate text-body font-semibold text-text">
-                {thread.customer}
-              </div>
+              <div className="truncate text-body font-semibold text-text">{thread.customer}</div>
             )}
             <div className="font-mono text-body-small text-text-subtlest">{thread.accountId}</div>
             <div className="mt-075 flex items-center gap-075 text-body-small text-text-subtle">

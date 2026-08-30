@@ -1,0 +1,56 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 583 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+TASK: two small hygiene items, both flagged by earlier cycles:
+
+--- FIX 1: usage_meter.py private _env_name duplicate ---
+backend/usage_meter.py ~line 257 has its own private `_env_name()` copy of the
+environment-allowlist logic that now lives in backend/env_utils.py as public
+`env_name()` / `NON_PROD_ENVS` (promoted in cycle 15). Fold it: import from
+env_utils, delete the private copy. NOTE: read both implementations FIRST — if
+usage_meter's copy differs semantically (e.g. different default env, different
+normalization), keep its behaviour by parameterising at the call site rather
+than silently changing what gets written into metrics. Report any difference you
+find either way.
+
+--- FIX 2: circuit-breaker test coverage (discovery finding 15) ---
+backend/agent_core/connectors/circuit.py `allow()` has ZERO test coverage,
+including the fail-closed branch: a malformed circuit_opened_at string currently
+returns False forever (permanent block, no recovery path). Add
+backend/tests/test_connector_circuit.py covering:
+  1. no prior failures -> allow True;
+  2. failures below threshold -> allow True;
+  3. threshold reached recently -> allow False (open);
+  4. cooldown elapsed (opened_at far in past) -> allow True again (half-open/recovery);
+  5. malformed/unparseable circuit_opened_at -> decide deliberately and document:
+     treat as expired (allow) OR fail closed but with a logged warning — pick the
+     behaviour consistent with how the codebase treats similar corrupt-state rows
+     (see skills/persist.py cycle-13 decision: corrupt = terminal/skip), implement
+     it, and name the choice in the docstring;
+  6. record-failure path increments and eventually opens.
+If the module lacks a record/reset helper the tests need, add tests only for what
+exists — do not redesign the module; note what's missing instead.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2658. Report tail verbatim.
+2. Files changed limited to backend/usage_meter.py and new/updated tests under
+   backend/tests/. Anything else: explain why explicitly.
+3. Report files changed + pytest tail + remaining issues.

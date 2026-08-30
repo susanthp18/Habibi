@@ -43,7 +43,10 @@ export function SentimentByIntentHeatmap({
               return (
                 <tr
                   key={i.id}
-                  className={cn(dim && "opacity-40", activeId === i.id && "bg-background-brand-subtlest/30")}
+                  className={cn(
+                    dim && "opacity-40",
+                    activeId === i.id && "bg-background-brand-subtlest/30",
+                  )}
                 >
                   <td className="px-150 py-075 font-medium text-text">{i.label}</td>
                   <td

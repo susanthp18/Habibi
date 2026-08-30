@@ -249,3 +249,40 @@ def test_a_self_edge_is_not_also_reported_as_redundant() -> None:
     ).issues
 
     assert [i.code for i in issues if i.edgeId == "e-self"] == ["self_edge"]
+
+
+def test_a_not_found_write_reports_its_message_not_a_key_repr() -> None:
+    """`str(KeyError("x"))` is `"'x'"`, so the 404 detail every write helper
+    raised arrived quoted. The fleet index toasts that string verbatim, which is
+    how an Archive that lost a race told the operator
+    `'agent_card_not_found_or_archived:CL-1234'`."""
+    import main
+    from fastapi import HTTPException
+
+    def _missing():
+        raise KeyError("agent_card_not_found_or_archived:CL-1234")
+
+    with pytest.raises(HTTPException) as caught:
+        main._handle_write(_missing)
+
+    assert caught.value.status_code == 404
+    assert caught.value.detail == "agent_card_not_found_or_archived:CL-1234"
+    assert "'" not in caught.value.detail
+
+
+def test_write_helper_maps_each_failure_kind_to_its_own_status() -> None:
+    """Introspective over the helper's own handlers, so a new `except` clause
+    that forgets to unwrap its message, or reuses a status, fails here."""
+    import main
+    from fastapi import HTTPException
+
+    expected = {KeyError: 404, PermissionError: 403, ValueError: 409}
+    for exc_type, status in expected.items():
+
+        def _raise(exc_type=exc_type):
+            raise exc_type("plain_message")
+
+        with pytest.raises(HTTPException) as caught:
+            main._handle_write(_raise)
+        assert caught.value.status_code == status
+        assert caught.value.detail == "plain_message"

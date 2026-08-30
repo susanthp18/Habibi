@@ -62,9 +62,91 @@ VOICE_NATURALNESS_OVERLAY = (
 )
 
 
+#: Traits whose high and low ends both change how a collections agent should
+#: sound. ``(low, high)`` are the instructions, chosen at the 35/65 cut-points
+#: so a slider left near the middle contributes nothing — a persona that says
+#: something about every trait says nothing about any of them.
+_TRAIT_DIRECTIONS: dict[str, tuple[str, str]] = {
+    "empathy": (
+        "stay matter-of-fact; acknowledge briefly and move on",
+        "lead with acknowledgement of the caller's situation before any ask",
+    ),
+    "firmness": (
+        "stay soft; offer options rather than pressing for one",
+        "be direct and ask for a specific commitment",
+    ),
+    "formality": (
+        "keep it casual and first-name",
+        "stay formal; use the caller's title and full courtesy",
+    ),
+    "verbosity": (
+        "answer in the fewest words that are complete",
+        "add a sentence of context to each answer",
+    ),
+    "upsell": (
+        "never bring up a product unless the caller asks",
+        "raise a relevant offer once the account matter is settled",
+    ),
+}
+
+
+def persona_style_line(persona: dict | None) -> str:
+    """Persona traits as instructions, or "" when the persona says nothing.
+
+    Words, not numbers. The traits reached the voice loop as
+    ``empathy=75, firmness=40`` for a while and were then dropped entirely,
+    which was the right call about the wrong thing: a 0-100 scale is not
+    something an LLM acts on reliably, but that is an argument against the
+    *encoding*, not against the Persona tab meaning anything on a phone call.
+    Dropped, the tab moved five sliders that changed the text channel and left
+    voice — the primary channel — untouched.
+
+    Only the ends speak. A trait between 35 and 65 is "no opinion" and emits
+    nothing, which keeps this to roughly 30 tokens on a typical card against
+    the ~650 the naturalness overlay already costs.
+    """
+    traits = persona.get("traits") if isinstance(persona, dict) else None
+    if not isinstance(traits, dict):
+        return ""
+    directions: list[str] = []
+    for name, (low, high) in _TRAIT_DIRECTIONS.items():
+        raw = traits.get(name)
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            continue
+        if raw < 35:
+            directions.append(low)
+        elif raw > 65:
+            directions.append(high)
+    if not directions:
+        return ""
+    return "- " + "\n- ".join(directions)
+
+
+def persona_language_line(persona: dict | None) -> str:
+    """Which language to speak, and what to do when the caller uses another."""
+    from agent_core import languages
+
+    data = persona if isinstance(persona, dict) else {}
+    primary = str(data.get("language") or "").strip() or languages.DEFAULT_NAME
+    raw_fallbacks = data.get("fallbackLanguages")
+    fallbacks = [
+        str(f).strip()
+        for f in (raw_fallbacks if isinstance(raw_fallbacks, list) else [])
+        if str(f).strip() and str(f).strip() != primary
+    ]
+    line = (
+        f"Speak {primary}. The caller may open in another language — if they do, "
+        f"switch to it for the rest of the call rather than asking them to change."
+    )
+    if fallbacks:
+        line += f" You are fluent in {', '.join(fallbacks)}."
+    return line
+
+
 def build_voice_system_prompt(
     rendered_prompt: str,
     guardrails: dict | None = None,
+    persona: dict | None = None,
 ) -> str:
     """Lean per-call system prompt for the voice loop.
 
@@ -73,15 +155,26 @@ def build_voice_system_prompt(
       - the "(no KB snippets retrieved)" block — voice gets KB via the
         search_knowledge_base tool, never injected here; the empty block also
         nudged the model to over-reach for the (insurance-only) KB;
-      - numeric persona traits (empathy=75…) the LLM doesn't reliably act on;
       - reply rules that duplicate the voice overlay below.
     It KEEPS the authored prompt and every compliance guardrail verbatim.
+
+    ``persona`` is the published card's persona. It was absent from this
+    signature, which is why the Persona tab was inert on every phone call: the
+    traits, the primary language and the fallback languages all reached the
+    text channels through ``build_system_prompt`` and stopped dead here. Traits
+    arrive as directions rather than the numbers that were dropped for good
+    reason — see :func:`persona_style_line`.
     """
     from agent_core import guardrail_rules
 
     from agent_core import clock
 
     parts = [(rendered_prompt or "").strip()]
+    persona_parts = [persona_language_line(persona)]
+    style = persona_style_line(persona)
+    if style:
+        persona_parts.append("Style:\n" + style)
+    parts.append("## Persona\n" + "\n".join(persona_parts))
     # Explicit, not the default: this builder is the voice loop, and the
     # recording disclosure is one of the rules that only applies here.
     rules = guardrail_rules(guardrails or {}, channel="voice")

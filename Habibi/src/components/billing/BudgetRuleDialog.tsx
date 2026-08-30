@@ -1,9 +1,21 @@
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { BudgetRule } from "@/data/billing-seed";
 
 export function BudgetRuleDialog({
@@ -72,7 +84,9 @@ export function BudgetRuleDialog({
               value={draft.severity}
               onValueChange={(v) => setDraft({ ...draft, severity: v as BudgetRule["severity"] })}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="info">Info</SelectItem>
                 <SelectItem value="warn">Warn</SelectItem>

@@ -43,7 +43,8 @@ export const Route = createFileRoute("/compliance")({
       { property: "og:title", content: "Compliance Risk Dashboard" },
       {
         property: "og:description",
-        content: "Rule-hit feed, trend chart, and resolve/acknowledge workflow for BFSI collections compliance.",
+        content:
+          "Rule-hit feed, trend chart, and resolve/acknowledge workflow for BFSI collections compliance.",
       },
     ],
   }),
@@ -135,13 +136,16 @@ function CompliancePage() {
 
   const handleExport = () => {
     toast.success(`Exporting ${filtered.length} violation${filtered.length === 1 ? "" : "s"}`, {
-      description: "Compliance report PDF (PII redacted, watermarked) will be ready in ~30 seconds.",
+      description:
+        "Compliance report PDF (PII redacted, watermarked) will be ready in ~30 seconds.",
     });
   };
 
   const handlePolicyExport = async (fmt: "opa" | "cedar") => {
     try {
-      const bundle = await apiGet<{ format: string; text: string }>(`/compliance/policy-export?fmt=${fmt}`);
+      const bundle = await apiGet<{ format: string; text: string }>(
+        `/compliance/policy-export?fmt=${fmt}`,
+      );
       const blob = new Blob([bundle.text], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -160,7 +164,7 @@ function CompliancePage() {
       <div className="flex h-full min-h-0 flex-col">
         <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
           <div className="flex flex-wrap items-center gap-100">
-            <h1 className="text-[1.25rem] font-semibold text-text">Compliance risk</h1>
+            <h1 className="heading-medium font-semibold text-text">Compliance risk</h1>
             <Lozenge tone="neutral">
               <Lock className="h-3 w-3" /> Immutable evidence
             </Lozenge>
@@ -188,13 +192,19 @@ function CompliancePage() {
             ) : null}
           </div>
           <p className="text-body-small text-text-subtle">
-            Every rule hit — disclosure misses, prohibited language, consent breaches — with transcript evidence, severity ranking, and resolution workflow.
-            Policy export is a projection of live Python. This card cannot disable DND.
+            Every rule hit — disclosure misses, prohibited language, consent breaches — with
+            transcript evidence, severity ranking, and resolution workflow. Policy export is a
+            projection of live Python. This card cannot disable DND.
           </p>
         </header>
 
         <ComplianceStatsStrip all={items} filtered={filtered} />
-        <ComplianceFilters filters={filters} onChange={setFilters} all={items} resultCount={filtered.length} />
+        <ComplianceFilters
+          filters={filters}
+          onChange={setFilters}
+          all={items}
+          resultCount={filtered.length}
+        />
 
         <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">
           <div className="grid gap-200 xl:grid-cols-[minmax(0,1fr)_320px]">

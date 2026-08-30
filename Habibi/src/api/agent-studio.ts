@@ -1,5 +1,17 @@
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiUpload, USE_MOCK } from "./config";
+import { stableStringify } from "@/lib/stable-stringify";
+import {
+  apiDelete,
+  apiGet,
+  retryUnlessClientError,
+  apiGetBlob,
+  apiPatch,
+  apiPost,
+  apiUpload,
+  mockDelay,
+  USE_MOCK,
+} from "./config";
 
 export type AgentCardSummary = {
   botId: string;
@@ -23,11 +35,13 @@ export type AgentCardSummary = {
   /** The bot inbound traffic resolves to (BOT_ID). One per environment. */
   entryBotId: string;
   /**
-   * Routing, not deployment. `entry` takes inbound calls/messages; `handoff` is
-   * in the transitive closure of the entry card's handoff allowlist; everything
-   * else is deployed but unreachable.
+   * Routing, not deployment. `entry` is the bot BOT_ID resolves to; `handoff`
+   * is reached through some live card's allowlist; `direct` holds its own
+   * active deployment so it is addressable by bot_id even though nothing hands
+   * off to it (Intake is the shipped example); `unreachable` has neither a
+   * deployment nor an inbound edge, and is the only one that means dead config.
    */
-  reachability: "entry" | "handoff" | "unreachable" | "archived";
+  reachability: "entry" | "handoff" | "direct" | "unreachable" | "archived";
   archivedAt: string | null;
   /** Re-seeded on API boot, so it can never be archived. */
   isFirstParty: boolean;
@@ -166,6 +180,30 @@ const MOCK_CARDS: AgentCardSummary[] = [
   },
 ];
 
+/**
+ * Everything an Agent Studio write can invalidate, in one place.
+ *
+ * Two bugs came out of hand-rolling this per mutation, and both were the same
+ * mistake — a key that reads like a prefix of the query it meant to refresh but
+ * is not one:
+ *
+ * - Archive/restore invalidated `["agent-studio"]`, which does not reach the
+ *   change log at `["agent-change-log", …]`. The tamper-evident record of the
+ *   archive that just happened stayed stale for 30s while sitting on screen.
+ * - Signing a skill invalidated `["agent-studio","skills"]`, which does not
+ *   prefix-match the detail key `["agent-studio","skill",id]` — one character.
+ *   So after the "Signed" toast the lozenge still read unsigned and the Sign
+ *   button stayed enabled.
+ *
+ * `["agent-studio"]` covers cards, card, graph, skills, skill and templates
+ * because they all descend from it. The two roots that do NOT are listed here
+ * explicitly, so adding a mutation means calling this rather than guessing.
+ */
+export function invalidateAgentStudio(qc: ReturnType<typeof useQueryClient>): void {
+  void qc.invalidateQueries({ queryKey: ["agent-studio"] });
+  void qc.invalidateQueries({ queryKey: ["agent-change-log"] });
+}
+
 export function useAgentStudioCards(includeArchived = false) {
   return useQuery({
     queryKey: ["agent-studio", "cards", includeArchived],
@@ -186,7 +224,7 @@ export function useArchiveAgentCard() {
         `/agent-studio/cards/${body.botId}/${body.archived ? "archive" : "restore"}`,
         {},
       ),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -195,7 +233,7 @@ export function useCompileCard(botId: string) {
   return useMutation({
     mutationFn: async (body?: Record<string, unknown>) =>
       apiPost<CompileReport>(`/agent-studio/cards/${botId}/compile`, body ?? {}),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -207,15 +245,35 @@ export function useCompileCard(botId: string) {
  * re-trigger the preview — a loop. Keyed on the payload, so an unchanged card
  * is served from cache rather than recompiled.
  */
-export function useCompilePreview(
-  botId: string,
-  body: Record<string, unknown>,
-  enabled = true,
-) {
-  const payload = JSON.stringify(body);
+export function useCompilePreview(botId: string, body: Record<string, unknown>, enabled = true) {
+  // Debounced, and serialised key-order-independently.
+  //
+  // The card is a fresh object on every render of the editor, so keying on
+  // `JSON.stringify` alone meant a new query key — and therefore a new POST to
+  // a compiler that walks sixteen gates — for every keystroke in every field
+  // the Tools, Skills and Outbound tabs feed into it. Typing a purpose sent one
+  // compile per character.
+  //
+  // `stableStringify` on top of that, for the same reason the autosave
+  // fingerprint needs it: a spread that rebuilds the card in a different key
+  // order is not a different card, and must not cost a round trip.
+  const key = stableStringify(body);
+  const [debounced, setDebounced] = useState(key);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(key), 400);
+    return () => window.clearTimeout(t);
+  }, [key]);
+
   return useQuery({
-    queryKey: ["agent-studio", "compile-preview", botId, payload],
-    queryFn: () => apiPost<CompileReport>(`/agent-studio/cards/${botId}/compile`, body),
+    queryKey: ["agent-studio", "compile-preview", botId, debounced],
+    // Compile what the key describes, not whatever `body` happens to be on the
+    // render that wins the race — otherwise the cached result is filed under a
+    // payload it was not computed from.
+    queryFn: () =>
+      apiPost<CompileReport>(
+        `/agent-studio/cards/${botId}/compile`,
+        JSON.parse(debounced) as Record<string, unknown>,
+      ),
     enabled: enabled && Boolean(botId),
     staleTime: 30_000,
     retry: false,
@@ -227,7 +285,7 @@ export function usePatchAgentCard(botId: string) {
   return useMutation({
     mutationFn: async (agentCard: Record<string, unknown>) =>
       apiPatch(`/agent-studio/cards/${botId}`, { agentCard }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -236,15 +294,28 @@ export function useAgentStudioCard(botId: string) {
     queryKey: ["agent-studio", "card", botId],
     queryFn: async () =>
       USE_MOCK
-        ? MOCK_CARDS.find((c) => c.botId === botId) ?? null
+        ? (MOCK_CARDS.find((c) => c.botId === botId) ?? null)
         : apiGet<AgentCardSummary>(`/agent-studio/cards/${botId}`),
     enabled: Boolean(botId),
+    // `agent_card_not_found` is a settled answer about this id, and retrying it
+    // three times is not free here: the studio decides whether to render an
+    // editor at all from this query, so seven seconds of "still trying" was
+    // seven seconds of a fully editable studio for a bot that does not exist.
+    retry: retryUnlessClientError,
   });
 }
 
 export type AgentGraph = {
   botId: string;
-  nodes: { id: string; label: string }[];
+  /** `reachability`/`deploymentStatus` mirror AgentCardSummary — the server
+   *  has them already when it builds the node list, and the allowlist editor
+   *  needs them to say whether a target takes traffic today. */
+  nodes: {
+    id: string;
+    label: string;
+    reachability?: AgentCardSummary["reachability"];
+    deploymentStatus?: AgentCardSummary["deploymentStatus"];
+  }[];
   edges: { from: string; to: string }[];
 };
 
@@ -255,7 +326,12 @@ export function useAgentGraph(botId: string) {
       USE_MOCK
         ? {
             botId,
-            nodes: MOCK_CARDS.map((c) => ({ id: c.botId, label: c.name })),
+            nodes: MOCK_CARDS.map((c) => ({
+              id: c.botId,
+              label: c.name,
+              reachability: c.reachability,
+              deploymentStatus: c.deploymentStatus,
+            })),
             edges: [{ from: botId, to: "insurance-v1" }],
           }
         : apiGet<AgentGraph>(`/agent-studio/cards/${botId}/graph`),
@@ -291,14 +367,17 @@ export function useRunEvalSuite(botId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (suiteId: string) =>
-      apiPost<{ suiteId: string; status: string; failed: number; total: number; reportId?: string }>(
-        `/eval/suites/${suiteId}/run${botId ? `?botId=${encodeURIComponent(botId)}` : ""}`,
-        {},
-      ),
+      apiPost<{
+        suiteId: string;
+        status: string;
+        failed: number;
+        total: number;
+        reportId?: string;
+      }>(`/eval/suites/${suiteId}/run${botId ? `?botId=${encodeURIComponent(botId)}` : ""}`, {}),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["eval-suites"] });
       void qc.invalidateQueries({ queryKey: ["eval-reports"] });
-      void qc.invalidateQueries({ queryKey: ["agent-studio"] });
+      invalidateAgentStudio(qc);
     },
   });
 }
@@ -422,7 +501,8 @@ const MOCK_SKILLS: SkillSummary[] = [
     slug: "ptp-negotiate",
     origin: "first_party",
     signatureStatus: "signed",
-    description: "Negotiate a Promise-to-Pay. Authority decides the cap; DND blocks writes outside the calling window.",
+    description:
+      "Negotiate a Promise-to-Pay. Authority decides the cap; DND blocks writes outside the calling window.",
     allowedTools: ["create_promise_to_pay", "evaluate_authority", "run_skill_script"],
     version: "1",
     status: "signed",
@@ -488,7 +568,12 @@ const MOCK_SKILLS: SkillSummary[] = [
     origin: "first_party",
     signatureStatus: "signed",
     description: "Speak one reco-engine product after the primary query is resolved.",
-    allowedTools: ["recommend_next_offer", "check_product_eligibility", "capture_lead", "decline_offer"],
+    allowedTools: [
+      "recommend_next_offer",
+      "check_product_eligibility",
+      "capture_lead",
+      "decline_offer",
+    ],
     version: "1",
     status: "signed",
     attachedCards: ["kaia-v2-4"],
@@ -501,7 +586,12 @@ const MOCK_SKILLS: SkillSummary[] = [
     origin: "first_party",
     signatureStatus: "signed",
     description: "Handle insurance lapse. Reco picks the product. Capture a lead after consent.",
-    allowedTools: ["recommend_next_offer", "check_product_eligibility", "capture_lead", "request_documents"],
+    allowedTools: [
+      "recommend_next_offer",
+      "check_product_eligibility",
+      "capture_lead",
+      "request_documents",
+    ],
     version: "1",
     status: "signed",
     attachedCards: ["insurance-v1"],
@@ -561,9 +651,13 @@ export function useAgentStudioSkill(skillId: string) {
     queryKey: ["agent-studio", "skill", skillId],
     queryFn: async () =>
       USE_MOCK
-        ? MOCK_SKILLS.find((s) => s.id === skillId || s.slug === skillId) ?? null
+        ? (MOCK_SKILLS.find((s) => s.id === skillId || s.slug === skillId) ?? null)
         : apiGet<SkillSummary>(`/agent-studio/skills/${skillId}`),
     enabled: Boolean(skillId),
+    // A 404 is the server's final answer about this id. RQ's default of three
+    // tries turned a mistyped URL into roughly seven seconds of spinner before
+    // the page was allowed to say so.
+    retry: retryUnlessClientError,
   });
 }
 
@@ -576,7 +670,7 @@ export function useCreateSkill() {
       allowedTools?: string[];
       body?: string;
     }) => apiPost<SkillSummary>("/agent-studio/skills", body),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio", "skills"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -585,7 +679,7 @@ export function useDeleteSkill() {
   return useMutation({
     mutationFn: async (skillId: string) =>
       apiDelete<{ ok: boolean; id: string; slug: string }>(`/agent-studio/skills/${skillId}`),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -604,7 +698,7 @@ export function useSignSkill() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (skillId: string) => apiPost(`/agent-studio/skills/${skillId}/sign`, {}),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio", "skills"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -613,22 +707,26 @@ export function useRevertSkill() {
   return useMutation({
     mutationFn: async (body: { skillId: string; versionId?: string }) =>
       apiPost(`/agent-studio/skills/${body.skillId}/revert`, { versionId: body.versionId }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
 export function usePatchSkill(skillId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: Record<string, unknown>) => apiPatch(`/agent-studio/skills/${skillId}`, body),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    mutationFn: async (body: Record<string, unknown>) =>
+      apiPatch(`/agent-studio/skills/${skillId}`, body),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
 export function useRunSkillScript() {
   return useMutation({
     mutationFn: async (body: { name: string; payload: Record<string, unknown> }) =>
-      apiPost<{ ok: boolean; error?: string } & Record<string, unknown>>("/agent-studio/skills/run-script", body),
+      apiPost<{ ok: boolean; error?: string } & Record<string, unknown>>(
+        "/agent-studio/skills/run-script",
+        body,
+      ),
   });
 }
 
@@ -657,7 +755,12 @@ export function useRolesCatalog() {
       USE_MOCK
         ? {
             permissions: [
-              { id: "perm-agent-publish", module: "agent", action: "publish", description: "Compile and publish" },
+              {
+                id: "perm-agent-publish",
+                module: "agent",
+                action: "publish",
+                description: "Compile and publish",
+              },
             ],
             agentPublishRoles: ["Admin"],
             grants: [],
@@ -682,10 +785,30 @@ export function useAgentStudioTemplates() {
     queryFn: async () =>
       USE_MOCK
         ? ([
-            { id: "collections", label: "Collections", sourceBotId: "kaia-v2-4", purpose: "Recover overdue balances." },
-            { id: "lapse", label: "Lapse Specialist", sourceBotId: "insurance-v1", purpose: "Premium lapse." },
-            { id: "hardship", label: "Hardship", sourceBotId: "kaia-v2-4", purpose: "Hold treatment." },
-            { id: "clerk", label: "Clerk", sourceBotId: "supervisor-brief", purpose: "Internal chase." },
+            {
+              id: "collections",
+              label: "Collections",
+              sourceBotId: "kaia-v2-4",
+              purpose: "Recover overdue balances.",
+            },
+            {
+              id: "lapse",
+              label: "Lapse Specialist",
+              sourceBotId: "insurance-v1",
+              purpose: "Premium lapse.",
+            },
+            {
+              id: "hardship",
+              label: "Hardship",
+              sourceBotId: "kaia-v2-4",
+              purpose: "Hold treatment.",
+            },
+            {
+              id: "clerk",
+              label: "Clerk",
+              sourceBotId: "supervisor-brief",
+              purpose: "Internal chase.",
+            },
           ] satisfies CloneTemplate[])
         : apiGet<CloneTemplate[]>("/agent-studio/templates"),
   });
@@ -696,7 +819,7 @@ export function useCloneAgentCard() {
   return useMutation({
     mutationFn: async (body: { templateId: string; name?: string }) =>
       apiPost<AgentCardSummary>("/agent-studio/cards/clone", body),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -705,7 +828,7 @@ export function useCloneSkill() {
   return useMutation({
     mutationFn: async (body: { skillId: string; slug: string }) =>
       apiPost(`/agent-studio/skills/${body.skillId}/clone`, { slug: body.slug }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio", "skills"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -714,7 +837,7 @@ export function useAttachConnector(botId: string) {
   return useMutation({
     mutationFn: async (body: { connectorId: string; allowPrefixes?: string[] }) =>
       apiPost(`/agent-studio/cards/${botId}/connectors`, body),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agent-studio"] }),
+    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -722,18 +845,260 @@ export function useDeploymentExperiments(botId: string) {
   return useQuery({
     queryKey: ["deployments", "experiments", botId],
     queryFn: async () =>
-      USE_MOCK ? [] : apiGet<DeploymentExperiment[]>(`/bot-deployments/experiments?botId=${encodeURIComponent(botId)}`),
+      USE_MOCK
+        ? []
+        : apiGet<DeploymentExperiment[]>(
+            `/bot-deployments/experiments?botId=${encodeURIComponent(botId)}`,
+          ),
   });
 }
+
+/**
+ * `baselineRestored` distinguishes the two outcomes this endpoint has.
+ *
+ * With a baseline deployment it retires the canary and reactivates the previous
+ * one. Without a baseline it closes the experiment and reactivates nothing — the
+ * canary keeps taking traffic. Both used to look identical from here.
+ */
+export type ExperimentRollbackResult = DeploymentExperiment & { baselineRestored?: boolean };
 
 export function useRollbackExperiment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (experimentId: string) =>
-      apiPost(`/bot-deployments/experiments/${experimentId}/rollback`, { reason: "manual" }),
+      apiPost<ExperimentRollbackResult>(`/bot-deployments/experiments/${experimentId}/rollback`, {
+        reason: "manual",
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["deployments"] });
-      void qc.invalidateQueries({ queryKey: ["agent-studio"] });
+      invalidateAgentStudio(qc);
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// GET /agent-studio/change-log — the tamper-evident record of who changed what
+// an agent says.
+//
+// Hash-chained per TENANT, and the verdict travels with the entries rather than
+// on a separate call, because "a change log whose integrity you have to
+// remember to check separately is one nobody checks". Note the asymmetry that
+// follows from the chain being tenant-scoped: filtering by botId narrows
+// `entries` but NOT `chain.checked`, so a card with no publishes still gets a
+// verdict computed over every card in the tenant. The UI has to say which.
+// ---------------------------------------------------------------------------
+
+/** Which parts of a prompt bundle moved in a publish. */
+export type ChangedComponent =
+  "prompt" | "persona" | "voice" | "guardrails" | "flow" | "agent_card";
+
+export type ChangeLogEntry = {
+  id: string;
+  actorUserId: string | null;
+  action: "agent.publish" | "agent.rollback" | "agent.archive" | "agent.restore" | string;
+  botId: string | null;
+  at: string | null;
+  seq?: number;
+  entryHash?: string;
+  prevHash?: string;
+  /** agent.publish only. */
+  versionLabel?: string | null;
+  previousVersionLabel?: string | null;
+  versionId?: string | null;
+  deploymentId?: string | null;
+  summary?: string;
+  changed?: ChangedComponent[];
+  rollout?: { trafficPct: number; shadow: boolean; autoRollback: string[] };
+  gates?: Record<string, string>;
+  /** agent.rollback / agent.archive. */
+  replacedDeploymentId?: string | null;
+  retiredDeploymentId?: string | null;
+  /** agent.restore only — when the card was retired, so the gap is readable. */
+  archivedAt?: string | null;
+};
+
+export type ChainVerdict = {
+  ok: boolean;
+  /** Rows walked. Tenant-wide, NOT the length of `entries`. */
+  checked: number;
+  brokenAt: string | null;
+  /** "prev_hash_mismatch" | "entry_hash_mismatch", or null when intact. */
+  reason: string | null;
+};
+
+export type ChangeLog = { entries: ChangeLogEntry[]; chain: ChainVerdict };
+
+const MOCK_CHANGE_LOG: ChangeLog = {
+  entries: [
+    {
+      id: "AUD-mock-2",
+      actorUserId: "priya-nair",
+      action: "agent.publish",
+      botId: "kaia-v2-4",
+      at: "2026-08-20T06:46:59Z",
+      seq: 2,
+      versionLabel: "v1.1",
+      previousVersionLabel: "v1.0",
+      summary: "voice changed",
+      changed: ["voice", "flow"],
+      rollout: { trafficPct: 100, shadow: false, autoRollback: [] },
+      gates: { G0: "pass", G7: "skipped", G14: "pass" },
+    },
+    {
+      id: "AUD-mock-1",
+      actorUserId: "priya-nair",
+      action: "agent.publish",
+      botId: "kaia-v2-4",
+      at: "2026-08-19T17:21:59Z",
+      seq: 1,
+      versionLabel: "v1.0",
+      previousVersionLabel: null,
+      summary: "first publish",
+      changed: ["prompt", "persona", "guardrails"],
+      rollout: { trafficPct: 100, shadow: false, autoRollback: [] },
+      gates: { G0: "pass" },
+    },
+  ],
+  chain: { ok: true, checked: 2, brokenAt: null, reason: null },
+};
+
+export async function fetchChangeLog(botId?: string, limit = 50): Promise<ChangeLog> {
+  if (USE_MOCK) return mockDelay(MOCK_CHANGE_LOG);
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (botId) q.set("botId", botId);
+  return apiGet<ChangeLog>(`/agent-studio/change-log?${q.toString()}`);
+}
+
+export function useChangeLog(botId?: string, limit = 50) {
+  return useQuery({
+    queryKey: ["agent-change-log", botId ?? "tenant", limit],
+    queryFn: () => fetchChangeLog(botId, limit),
+    staleTime: 30_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// LLM-judge critique — GET /eval/critiques, POST /eval/reports/{id}/critique.
+//
+// Reads failed eval trials and proposes a SKILL.md line. It never writes the
+// skill: `writesProduction` is false on the row and false again inside the
+// diff, and the module docstring says "Suggests a diff; never writes SKILL.md".
+// The UI has to keep saying so, because a suggested diff that looks applied is
+// the dangerous misreading of this screen.
+//
+// Both endpoints degrade rather than fail when the skill_critiques table is
+// absent: the GET returns [], the POST 404s with "skill_critiques_missing".
+// That 404 is a provisioning state, not an error, and reads differently.
+// ---------------------------------------------------------------------------
+
+export type SkillCritique = {
+  id: string;
+  skillSlug: string | null;
+  reportId: string | null;
+  suggestedDiff: {
+    path?: string;
+    op?: string;
+    add?: string;
+    grader?: string;
+    writesProduction?: boolean;
+  };
+  status: string;
+  writesProduction: boolean;
+  createdAt: string | null;
+};
+
+const MOCK_CRITIQUES: SkillCritique[] = [
+  {
+    id: "SCR-mock-1",
+    skillSlug: "ptp-negotiate",
+    reportId: "EVR-mock",
+    suggestedDiff: {
+      path: "SKILL.md",
+      op: "suggest_objection_line",
+      add: "I need to verify your identity before we can set a promise to pay.",
+      grader: "verify_before_ptp",
+      writesProduction: false,
+    },
+    status: "draft",
+    writesProduction: false,
+    createdAt: "2026-08-22T11:00:00Z",
+  },
+];
+
+export async function fetchSkillCritiques(limit = 50): Promise<SkillCritique[]> {
+  if (USE_MOCK) return mockDelay(MOCK_CRITIQUES);
+  return apiGet<SkillCritique[]>(`/eval/critiques?limit=${limit}`);
+}
+
+export function useSkillCritiques(limit = 50) {
+  return useQuery({
+    queryKey: ["eval-critiques", limit],
+    queryFn: () => fetchSkillCritiques(limit),
+    staleTime: 30_000,
+  });
+}
+
+export function useCritiqueReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (reportId: string) => {
+      if (USE_MOCK) return mockDelay(MOCK_CRITIQUES);
+      return apiPost<SkillCritique[]>(`/eval/reports/${encodeURIComponent(reportId)}/critique`, {});
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["eval-critiques"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// GET /eval/disagreements — where the auto-scorer and a human disagreed.
+//
+// Only the two contradictions that matter are mined: live QA passed a call
+// humans scored red, or barged a call humans scored green. Read-only by
+// construction — `applied` is false on the envelope and on every item, and the
+// module says "Rubric tweaks only" / "this never writes the rubric".
+// ---------------------------------------------------------------------------
+
+export type QaDisagreement = {
+  interactionId: string | null;
+  liveVerdict: string;
+  humanBand: string;
+  humanScore: number | null;
+  suggestedRubricTweak: string;
+  applied: boolean;
+};
+
+export type QaDisagreements = {
+  applied: boolean;
+  count: number;
+  items: QaDisagreement[];
+};
+
+const MOCK_DISAGREEMENTS: QaDisagreements = {
+  applied: false,
+  count: 1,
+  items: [
+    {
+      interactionId: "CL-100005",
+      liveVerdict: "pass",
+      humanBand: "red",
+      humanScore: 41,
+      suggestedRubricTweak: "Tighten the live-QA pass bar — humans scored this call red.",
+      applied: false,
+    },
+  ],
+};
+
+export async function fetchQaDisagreements(limit = 50): Promise<QaDisagreements> {
+  if (USE_MOCK) return mockDelay(MOCK_DISAGREEMENTS);
+  return apiGet<QaDisagreements>(`/eval/disagreements?limit=${limit}`);
+}
+
+export function useQaDisagreements(limit = 50) {
+  return useQuery({
+    queryKey: ["eval-disagreements", limit],
+    queryFn: () => fetchQaDisagreements(limit),
+    staleTime: 60_000,
   });
 }

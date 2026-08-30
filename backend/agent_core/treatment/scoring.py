@@ -28,6 +28,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+
+import money_inr
 from typing import Any, Protocol, Sequence
 
 from agent_core.treatment import actions as A
@@ -60,6 +62,9 @@ RESOLVE_PRIOR: dict[str, float] = {
     # Collects nothing today. Its value is in VALUE_HORIZON below, and this is
     # the probability the borrower actually takes up the change once offered.
     A.EMI_DATE_CHANGE: 0.30,
+    # Lower than a date change because it asks more of the borrower:
+    # a date change is applied for them, a plan has to be started.
+    A.SELF_SERVICE_PLAN: 0.18,
     A.SMS: 0.06,
     A.WHATSAPP: 0.12,
     A.VOICE_BOT: 0.22,
@@ -83,6 +88,12 @@ RESOLVE_PRIOR: dict[str, float] = {
 #: willing to claim credit for.
 VALUE_HORIZON: dict[str, float] = {
     A.EMI_DATE_CHANGE: 3.0,
+    # A plan settles the arrears it was opened against, and that is
+    # already more than one instalment by the time the veto lets it
+    # through. Two, not three: unlike a date change it does not stop
+    # future cycles from bouncing, so claiming a third would be
+    # claiming a cure it does not produce.
+    A.SELF_SERVICE_PLAN: 2.0,
 }
 
 #: How curable a bucket is. Day-1 is forgetfulness; Day-92 is distress and a
@@ -474,10 +485,15 @@ class EVScorer:
         cost: float,
         fatigue: float,
     ) -> str:
+        # Attempt cost keeps its paise (it is often under ₹10, and rounding it
+        # to whole rupees would make every channel look free); the expected
+        # value is a rupee figure. Both go through the shared formatter so the
+        # sentence does not carry two conventions, as it used to.
         return (
             f"{A.label(action).capitalize()}: {reach:.0%} chance of reaching them, "
-            f"{resolve:.0%} of curing if reached, ₹{cost + fatigue:.2f} to try — "
-            f"net ₹{ev:,.0f}."
+            f"{resolve:.0%} of curing if reached, "
+            f"{money_inr.inr_compact(cost + fatigue)} to try — "
+            f"net {money_inr.inr(ev)}."
         )
 
 
@@ -520,6 +536,41 @@ def vector(
         "cost": scored.cost,
         "open_bounce": 1.0 if features.open_bounce_id else 0.0,
         "risk_score": float(features.risk_score) if features.risk_score is not None else None,
+        # --- who this borrower is -------------------------------------------
+        # Added after the first reach and timing models both scored an AUC of
+        # 0.50 on a corpus that demonstrably contained learnable heterogeneity.
+        # The vector had the *account* and the *attempt* in it and almost
+        # nothing about the borrower, so a model asked to tell two borrowers
+        # apart had nothing to tell them apart with.
+        #
+        # The design note asks for segment-level uplift over "bucket × channel ×
+        # contactability × cash-flow pattern". Bucket, channel and
+        # contactability were already here. This is the cash-flow pattern.
+        "secured": 1.0 if features.secured else 0.0,
+        "promises_broken": float(features.promises_broken),
+        "days_overdue": (
+            float(features.days_overdue) if features.days_overdue is not None else None
+        ),
+        "open_disputes": float(features.open_dispute_count),
+        "field_visits_90d": float(features.field_visits_90d),
+        "on_hold": 1.0 if features.holds else 0.0,
+        "has_email": 1.0 if features.has_email else 0.0,
+        # The return code, one-hot. This is the single most diagnostic thing we
+        # know about a delinquent account and it was not in the vector at all:
+        # a borrower whose debit bounced for insufficient funds is a cash-flow
+        # problem, one whose mandate was cancelled is a willingness problem, and
+        # a model that cannot see the difference will price them the same.
+        **{
+            f"bounce_{reason}": (
+                1.0 if (features.bounce_reason or "") == reason else 0.0
+            )
+            for reason in (
+                "insufficient_funds",
+                "mandate_expired",
+                "account_closed",
+                "technical",
+            )
+        },
         # Mandate state. Absent rather than zero where it is genuinely unknown:
         # an account with no mandate row and an account whose mandate we have
         # simply not read are different, and a model that reads both as 0 will
@@ -549,10 +600,18 @@ def build_scorer(name: str) -> Recommender:
     """
     from agent_core.treatment import config, rerank
 
+    from agent_core.treatment import models
+
     resolved = (name or "").strip().lower()
     scorer: Recommender
     if resolved in {"", "ev", "rule"}:
         scorer = EVScorer()
+    elif resolved in {"estimators", "ev+", "learned"}:
+        # Whatever is fitted right now. ``models.build`` returns the EV scorer
+        # unchanged when no artifact loads, so this name is safe to set before
+        # any model exists — which is the point, because the alternative is an
+        # env change coupled to a training run.
+        scorer = models.build(EVScorer())
     else:
         logger.warning("unknown TREATMENT_SCORER=%r — falling back to ev", name)
         scorer = EVScorer()

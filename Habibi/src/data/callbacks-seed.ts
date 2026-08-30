@@ -5,13 +5,7 @@ import { customers as _customers } from "./customer360-seed";
 import type { LozengeTone } from "@/components/ui/lozenge";
 
 export type CbStatus =
-  | "scheduled"
-  | "reminded"
-  | "in_progress"
-  | "completed"
-  | "missed"
-  | "rescheduled"
-  | "cancelled";
+  "scheduled" | "reminded" | "in_progress" | "completed" | "missed" | "rescheduled" | "cancelled";
 
 export type CbReason =
   | "payment_discussion"
@@ -26,11 +20,7 @@ export type CbSource = "bot_voice" | "bot_chat" | "agent";
 export type CbPriority = "low" | "normal" | "high" | "urgent";
 
 export type CbDisposition =
-  | "reached"
-  | "no_answer"
-  | "ptp_captured"
-  | "not_interested"
-  | "callback_again";
+  "reached" | "no_answer" | "ptp_captured" | "not_interested" | "callback_again";
 
 export interface CbReminder {
   at: string;
@@ -129,7 +119,12 @@ export const DISPOSITION_LABELS: Record<CbDisposition, string> = {
   callback_again: "Callback again",
 };
 
-export const QUEUES = ["Retail Collections", "Cards Collections", "Loans Collections", "Escalations"];
+export const QUEUES = [
+  "Retail Collections",
+  "Cards Collections",
+  "Loans Collections",
+  "Escalations",
+];
 
 export const AGENTS = [
   "Unassigned",
@@ -172,13 +167,62 @@ const CUST_POOL = _customers.map((c) => ({
 }));
 
 const EXTRA = [
-  { id: "aditya-verma", name: "Aditya Verma", accountId: "AC-99201", dnd: false, preferredWindow: "10:00–19:00 IST", timezone: "Asia/Kolkata (IST)" },
-  { id: "meera-joshi", name: "Meera Joshi", accountId: "AC-99202", dnd: false, preferredWindow: "11:00–20:00 IST", timezone: "Asia/Kolkata (IST)" },
-  { id: "nikhil-bansal", name: "Nikhil Bansal", accountId: "AC-99203", dnd: true, preferredWindow: "18:00–21:00 IST", timezone: "Asia/Kolkata (IST)" },
-  { id: "riya-chawla", name: "Riya Chawla", accountId: "AC-99204", dnd: false, preferredWindow: "09:00–18:00 IST", timezone: "Asia/Kolkata (IST)" },
-  { id: "sneha-pillai", name: "Sneha Pillai", accountId: "AC-99205", dnd: false, preferredWindow: "10:00–19:00 IST", timezone: "Asia/Kolkata (IST)" },
-  { id: "farhan-khan", name: "Farhan Khan", accountId: "AC-99206", dnd: false, preferredWindow: "12:00–20:00 IST", timezone: "Asia/Kolkata (IST)" },
-  { id: "arjun-nair-nyc", name: "Arjun Nair (NY)", accountId: "AC-99207", dnd: false, preferredWindow: "20:00–23:00 IST", timezone: "America/New_York (EST)" },
+  {
+    id: "aditya-verma",
+    name: "Aditya Verma",
+    accountId: "AC-99201",
+    dnd: false,
+    preferredWindow: "10:00–19:00 IST",
+    timezone: "Asia/Kolkata (IST)",
+  },
+  {
+    id: "meera-joshi",
+    name: "Meera Joshi",
+    accountId: "AC-99202",
+    dnd: false,
+    preferredWindow: "11:00–20:00 IST",
+    timezone: "Asia/Kolkata (IST)",
+  },
+  {
+    id: "nikhil-bansal",
+    name: "Nikhil Bansal",
+    accountId: "AC-99203",
+    dnd: true,
+    preferredWindow: "18:00–21:00 IST",
+    timezone: "Asia/Kolkata (IST)",
+  },
+  {
+    id: "riya-chawla",
+    name: "Riya Chawla",
+    accountId: "AC-99204",
+    dnd: false,
+    preferredWindow: "09:00–18:00 IST",
+    timezone: "Asia/Kolkata (IST)",
+  },
+  {
+    id: "sneha-pillai",
+    name: "Sneha Pillai",
+    accountId: "AC-99205",
+    dnd: false,
+    preferredWindow: "10:00–19:00 IST",
+    timezone: "Asia/Kolkata (IST)",
+  },
+  {
+    id: "farhan-khan",
+    name: "Farhan Khan",
+    accountId: "AC-99206",
+    dnd: false,
+    preferredWindow: "12:00–20:00 IST",
+    timezone: "Asia/Kolkata (IST)",
+  },
+  {
+    id: "arjun-nair-nyc",
+    name: "Arjun Nair (NY)",
+    accountId: "AC-99207",
+    dnd: false,
+    preferredWindow: "20:00–23:00 IST",
+    timezone: "America/New_York (EST)",
+  },
 ];
 
 const POOL = [...CUST_POOL, ...EXTRA];
@@ -193,12 +237,13 @@ const REASONS: CbReason[] = [
 ];
 
 const SNIPPETS: Record<CbReason, string> = {
-  payment_discussion: "\"I get salary on the 5th — please call me after that to discuss the overdue.\"",
-  dispute_followup: "\"You said someone will call me back about the double charge on my card.\"",
-  document_query: "\"Can an agent walk me through the interest certificate for tax filing?\"",
-  hardship_review: "\"I lost my job last month — need to talk about reducing the EMI.\"",
-  upsell_interest: "\"Yes, I might be interested in the top-up loan — call me tomorrow evening.\"",
-  general: "\"Please call me back, the bot couldn't answer my question.\"",
+  payment_discussion:
+    '"I get salary on the 5th — please call me after that to discuss the overdue."',
+  dispute_followup: '"You said someone will call me back about the double charge on my card."',
+  document_query: '"Can an agent walk me through the interest certificate for tax filing?"',
+  hardship_review: '"I lost my job last month — need to talk about reducing the EMI."',
+  upsell_interest: '"Yes, I might be interested in the top-up loan — call me tomorrow evening."',
+  general: '"Please call me back, the bot couldn\'t answer my question."',
 };
 
 interface Blueprint {
@@ -216,58 +261,309 @@ interface Blueprint {
 
 const BLUEPRINTS: Blueprint[] = [
   // TODAY — busy schedule
-  { dayOffset: 0, hour: 9, minute: 30, windowMins: 30, reason: "payment_discussion", source: "bot_voice", status: "completed", assigneeIdx: 1 },
-  { dayOffset: 0, hour: 10, minute: 0, windowMins: 60, reason: "dispute_followup", source: "bot_voice", status: "completed", assigneeIdx: 2, priority: "high" },
-  { dayOffset: 0, hour: 11, minute: 0, windowMins: 30, reason: "document_query", source: "bot_chat", status: "missed", assigneeIdx: 3 },
-  { dayOffset: 0, hour: 12, minute: 30, windowMins: 60, reason: "hardship_review", source: "bot_voice", status: "in_progress", assigneeIdx: 1, priority: "urgent" },
-  { dayOffset: 0, hour: 14, minute: 0, windowMins: 30, reason: "upsell_interest", source: "bot_voice", status: "reminded", assigneeIdx: 4 },
-  { dayOffset: 0, hour: 15, minute: 0, windowMins: 60, reason: "payment_discussion", source: "bot_voice", status: "scheduled", assigneeIdx: 1 },
-  { dayOffset: 0, hour: 16, minute: 30, windowMins: 30, reason: "general", source: "bot_chat", status: "scheduled", assigneeIdx: 0 },
-  { dayOffset: 0, hour: 17, minute: 0, windowMins: 60, reason: "payment_discussion", source: "bot_voice", status: "scheduled", assigneeIdx: 5, priority: "high" },
-  { dayOffset: 0, hour: 18, minute: 30, windowMins: 30, reason: "upsell_interest", source: "agent", status: "scheduled", assigneeIdx: 6 },
-  { dayOffset: 0, hour: 20, minute: 0, windowMins: 60, reason: "hardship_review", source: "bot_voice", status: "scheduled", assigneeIdx: 0 }, // late — DND risk
+  {
+    dayOffset: 0,
+    hour: 9,
+    minute: 30,
+    windowMins: 30,
+    reason: "payment_discussion",
+    source: "bot_voice",
+    status: "completed",
+    assigneeIdx: 1,
+  },
+  {
+    dayOffset: 0,
+    hour: 10,
+    minute: 0,
+    windowMins: 60,
+    reason: "dispute_followup",
+    source: "bot_voice",
+    status: "completed",
+    assigneeIdx: 2,
+    priority: "high",
+  },
+  {
+    dayOffset: 0,
+    hour: 11,
+    minute: 0,
+    windowMins: 30,
+    reason: "document_query",
+    source: "bot_chat",
+    status: "missed",
+    assigneeIdx: 3,
+  },
+  {
+    dayOffset: 0,
+    hour: 12,
+    minute: 30,
+    windowMins: 60,
+    reason: "hardship_review",
+    source: "bot_voice",
+    status: "in_progress",
+    assigneeIdx: 1,
+    priority: "urgent",
+  },
+  {
+    dayOffset: 0,
+    hour: 14,
+    minute: 0,
+    windowMins: 30,
+    reason: "upsell_interest",
+    source: "bot_voice",
+    status: "reminded",
+    assigneeIdx: 4,
+  },
+  {
+    dayOffset: 0,
+    hour: 15,
+    minute: 0,
+    windowMins: 60,
+    reason: "payment_discussion",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 1,
+  },
+  {
+    dayOffset: 0,
+    hour: 16,
+    minute: 30,
+    windowMins: 30,
+    reason: "general",
+    source: "bot_chat",
+    status: "scheduled",
+    assigneeIdx: 0,
+  },
+  {
+    dayOffset: 0,
+    hour: 17,
+    minute: 0,
+    windowMins: 60,
+    reason: "payment_discussion",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 5,
+    priority: "high",
+  },
+  {
+    dayOffset: 0,
+    hour: 18,
+    minute: 30,
+    windowMins: 30,
+    reason: "upsell_interest",
+    source: "agent",
+    status: "scheduled",
+    assigneeIdx: 6,
+  },
+  {
+    dayOffset: 0,
+    hour: 20,
+    minute: 0,
+    windowMins: 60,
+    reason: "hardship_review",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 0,
+  }, // late — DND risk
 
   // TOMORROW
-  { dayOffset: 1, hour: 10, minute: 0, windowMins: 30, reason: "payment_discussion", source: "bot_voice", status: "scheduled", assigneeIdx: 1 },
-  { dayOffset: 1, hour: 11, minute: 30, windowMins: 60, reason: "dispute_followup", source: "bot_voice", status: "scheduled", assigneeIdx: 2, priority: "high" },
-  { dayOffset: 1, hour: 14, minute: 0, windowMins: 30, reason: "document_query", source: "bot_chat", status: "scheduled", assigneeIdx: 3 },
-  { dayOffset: 1, hour: 15, minute: 30, windowMins: 60, reason: "upsell_interest", source: "bot_voice", status: "scheduled", assigneeIdx: 4 },
-  { dayOffset: 1, hour: 17, minute: 0, windowMins: 30, reason: "general", source: "agent", status: "scheduled", assigneeIdx: 5 },
+  {
+    dayOffset: 1,
+    hour: 10,
+    minute: 0,
+    windowMins: 30,
+    reason: "payment_discussion",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 1,
+  },
+  {
+    dayOffset: 1,
+    hour: 11,
+    minute: 30,
+    windowMins: 60,
+    reason: "dispute_followup",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 2,
+    priority: "high",
+  },
+  {
+    dayOffset: 1,
+    hour: 14,
+    minute: 0,
+    windowMins: 30,
+    reason: "document_query",
+    source: "bot_chat",
+    status: "scheduled",
+    assigneeIdx: 3,
+  },
+  {
+    dayOffset: 1,
+    hour: 15,
+    minute: 30,
+    windowMins: 60,
+    reason: "upsell_interest",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 4,
+  },
+  {
+    dayOffset: 1,
+    hour: 17,
+    minute: 0,
+    windowMins: 30,
+    reason: "general",
+    source: "agent",
+    status: "scheduled",
+    assigneeIdx: 5,
+  },
 
   // DAY +2
-  { dayOffset: 2, hour: 10, minute: 30, windowMins: 30, reason: "payment_discussion", source: "bot_voice", status: "scheduled", assigneeIdx: 1 },
-  { dayOffset: 2, hour: 13, minute: 0, windowMins: 60, reason: "hardship_review", source: "bot_voice", status: "scheduled", assigneeIdx: 6, priority: "high" },
-  { dayOffset: 2, hour: 16, minute: 0, windowMins: 30, reason: "dispute_followup", source: "bot_chat", status: "scheduled", assigneeIdx: 2 },
+  {
+    dayOffset: 2,
+    hour: 10,
+    minute: 30,
+    windowMins: 30,
+    reason: "payment_discussion",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 1,
+  },
+  {
+    dayOffset: 2,
+    hour: 13,
+    minute: 0,
+    windowMins: 60,
+    reason: "hardship_review",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 6,
+    priority: "high",
+  },
+  {
+    dayOffset: 2,
+    hour: 16,
+    minute: 0,
+    windowMins: 30,
+    reason: "dispute_followup",
+    source: "bot_chat",
+    status: "scheduled",
+    assigneeIdx: 2,
+  },
 
   // DAY +3
-  { dayOffset: 3, hour: 11, minute: 0, windowMins: 30, reason: "upsell_interest", source: "bot_voice", status: "scheduled", assigneeIdx: 4 },
-  { dayOffset: 3, hour: 15, minute: 0, windowMins: 60, reason: "payment_discussion", source: "bot_voice", status: "scheduled", assigneeIdx: 0 },
+  {
+    dayOffset: 3,
+    hour: 11,
+    minute: 0,
+    windowMins: 30,
+    reason: "upsell_interest",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 4,
+  },
+  {
+    dayOffset: 3,
+    hour: 15,
+    minute: 0,
+    windowMins: 60,
+    reason: "payment_discussion",
+    source: "bot_voice",
+    status: "scheduled",
+    assigneeIdx: 0,
+  },
 
   // YESTERDAY — historical
-  { dayOffset: -1, hour: 11, minute: 0, windowMins: 30, reason: "payment_discussion", source: "bot_voice", status: "completed", assigneeIdx: 1 },
-  { dayOffset: -1, hour: 14, minute: 30, windowMins: 30, reason: "document_query", source: "bot_chat", status: "missed", assigneeIdx: 3 },
-  { dayOffset: -1, hour: 16, minute: 0, windowMins: 60, reason: "hardship_review", source: "bot_voice", status: "completed", assigneeIdx: 2 },
-  { dayOffset: -1, hour: 18, minute: 0, windowMins: 30, reason: "upsell_interest", source: "bot_voice", status: "missed", assigneeIdx: 4 },
+  {
+    dayOffset: -1,
+    hour: 11,
+    minute: 0,
+    windowMins: 30,
+    reason: "payment_discussion",
+    source: "bot_voice",
+    status: "completed",
+    assigneeIdx: 1,
+  },
+  {
+    dayOffset: -1,
+    hour: 14,
+    minute: 30,
+    windowMins: 30,
+    reason: "document_query",
+    source: "bot_chat",
+    status: "missed",
+    assigneeIdx: 3,
+  },
+  {
+    dayOffset: -1,
+    hour: 16,
+    minute: 0,
+    windowMins: 60,
+    reason: "hardship_review",
+    source: "bot_voice",
+    status: "completed",
+    assigneeIdx: 2,
+  },
+  {
+    dayOffset: -1,
+    hour: 18,
+    minute: 0,
+    windowMins: 30,
+    reason: "upsell_interest",
+    source: "bot_voice",
+    status: "missed",
+    assigneeIdx: 4,
+  },
 ];
 
-function eventsFor(bp: Blueprint, createdAt: string, scheduledAt: string, cust: { name: string }): CbEvent[] {
+function eventsFor(
+  bp: Blueprint,
+  createdAt: string,
+  scheduledAt: string,
+  cust: { name: string },
+): CbEvent[] {
   const evts: CbEvent[] = [
     { at: createdAt, label: `Callback captured via ${SOURCE_LABELS[bp.source]}`, tone: "info" },
   ];
   if (bp.assigneeIdx !== undefined && bp.assigneeIdx > 0) {
-    evts.push({ at: createdAt, label: `Assigned to ${AGENTS[bp.assigneeIdx]}`, actor: "System", tone: "info" });
+    evts.push({
+      at: createdAt,
+      label: `Assigned to ${AGENTS[bp.assigneeIdx]}`,
+      actor: "System",
+      tone: "info",
+    });
   }
   if (bp.status === "reminded") {
-    evts.push({ at: scheduledAt, label: `Reminder sent · WhatsApp`, actor: "System", tone: "info" });
+    evts.push({
+      at: scheduledAt,
+      label: `Reminder sent · WhatsApp`,
+      actor: "System",
+      tone: "info",
+    });
   }
   if (bp.status === "in_progress") {
-    evts.push({ at: scheduledAt, label: `Call started with ${cust.name}`, actor: AGENTS[bp.assigneeIdx ?? 1], tone: "info" });
+    evts.push({
+      at: scheduledAt,
+      label: `Call started with ${cust.name}`,
+      actor: AGENTS[bp.assigneeIdx ?? 1],
+      tone: "info",
+    });
   }
   if (bp.status === "completed") {
-    evts.push({ at: scheduledAt, label: "Call completed · disposition captured", actor: AGENTS[bp.assigneeIdx ?? 1], tone: "success" });
+    evts.push({
+      at: scheduledAt,
+      label: "Call completed · disposition captured",
+      actor: AGENTS[bp.assigneeIdx ?? 1],
+      tone: "success",
+    });
   }
   if (bp.status === "missed") {
-    evts.push({ at: scheduledAt, label: "Missed — no agent joined in window", actor: "System", tone: "danger" });
+    evts.push({
+      at: scheduledAt,
+      label: "Missed — no agent joined in window",
+      actor: "System",
+      tone: "danger",
+    });
   }
   return evts;
 }
@@ -280,16 +576,31 @@ const _cbs: Callback[] = BLUEPRINTS.map((bp, i) => {
   const createdAt = createdAtDate.toISOString();
   const assignee = AGENTS[bp.assigneeIdx ?? 0];
   const queue = QUEUES[i % QUEUES.length];
-  const channel: CbChannel = bp.channel ?? (i % 3 === 0 ? "sms" : i % 3 === 1 ? "whatsapp" : "email");
+  const channel: CbChannel =
+    bp.channel ?? (i % 3 === 0 ? "sms" : i % 3 === 1 ? "whatsapp" : "email");
 
   const reminders: CbReminder[] = [];
   const rem1 = new Date(scheduledAt);
   rem1.setHours(rem1.getHours() - 24);
-  reminders.push({ at: rem1.toISOString(), channel, status: bp.status === "scheduled" && bp.dayOffset > 0 ? "queued" : "sent" });
+  reminders.push({
+    at: rem1.toISOString(),
+    channel,
+    status: bp.status === "scheduled" && bp.dayOffset > 0 ? "queued" : "sent",
+  });
   if (bp.dayOffset <= 0) {
     const rem2 = new Date(scheduledAt);
     rem2.setMinutes(rem2.getMinutes() - 30);
-    reminders.push({ at: rem2.toISOString(), channel: "sms", status: bp.status === "completed" || bp.status === "missed" || bp.status === "reminded" || bp.status === "in_progress" ? "sent" : "queued" });
+    reminders.push({
+      at: rem2.toISOString(),
+      channel: "sms",
+      status:
+        bp.status === "completed" ||
+        bp.status === "missed" ||
+        bp.status === "reminded" ||
+        bp.status === "in_progress"
+          ? "sent"
+          : "queued",
+    });
   }
 
   // DND check: if scheduled outside preferredWindow OR customer.dnd is true
@@ -319,8 +630,14 @@ const _cbs: Callback[] = BLUEPRINTS.map((bp, i) => {
     originConversationId: bp.source !== "agent" ? `CV-${9000 + i}` : undefined,
     events: eventsFor(bp, createdAt, scheduledAt, cust),
     createdAt,
-    disposition: bp.status === "completed" ? (REASONS[i % REASONS.length] === "upsell_interest" ? "ptp_captured" : "reached") : undefined,
-    outcomeNotes: bp.status === "completed" ? "Customer engaged; details logged to CRM." : undefined,
+    disposition:
+      bp.status === "completed"
+        ? REASONS[i % REASONS.length] === "upsell_interest"
+          ? "ptp_captured"
+          : "reached"
+        : undefined,
+    outcomeNotes:
+      bp.status === "completed" ? "Customer engaged; details logged to CRM." : undefined,
   };
 });
 
@@ -349,7 +666,11 @@ export const defaultFilters: Filters = {
   myQueueOnly: false,
 };
 
-export function filterCallbacks(list: Callback[], f: Filters, myQueue: string = CURRENT_QUEUE): Callback[] {
+export function filterCallbacks(
+  list: Callback[],
+  f: Filters,
+  myQueue: string = CURRENT_QUEUE,
+): Callback[] {
   return list.filter((c) => {
     if (f.myQueueOnly && c.queue !== myQueue) return false;
     if (f.queue !== "all" && c.queue !== f.queue) return false;
@@ -360,7 +681,8 @@ export function filterCallbacks(list: Callback[], f: Filters, myQueue: string = 
     if (f.dndSafeOnly && c.dndActive) return false;
     if (f.search) {
       const q = f.search.toLowerCase();
-      const hay = `${c.customerName} ${c.accountId} ${c.id} ${REASON_LABELS[c.reason]} ${c.assignee}`.toLowerCase();
+      const hay =
+        `${c.customerName} ${c.accountId} ${c.id} ${REASON_LABELS[c.reason]} ${c.assignee}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -370,23 +692,35 @@ export function filterCallbacks(list: Callback[], f: Filters, myQueue: string = 
 // ---- Metrics ----
 export function computeMetrics(list: Callback[]) {
   const now = Date.now();
-  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
   const sevenDaysAgo = now - 7 * 86400000;
 
   const scheduledToday = list.filter((c) => {
     const t = new Date(c.scheduledAt).getTime();
-    return t >= startOfDay.getTime() && t <= endOfDay.getTime() && (c.status === "scheduled" || c.status === "reminded");
+    return (
+      t >= startOfDay.getTime() &&
+      t <= endOfDay.getTime() &&
+      (c.status === "scheduled" || c.status === "reminded")
+    );
   });
   const dueNextHour = list.filter((c) => {
     const t = new Date(c.scheduledAt).getTime();
     return t >= now && t <= now + 3600000 && (c.status === "scheduled" || c.status === "reminded");
   });
-  const missed7d = list.filter((c) => c.status === "missed" && new Date(c.scheduledAt).getTime() >= sevenDaysAgo);
-  const completed7d = list.filter((c) => c.status === "completed" && new Date(c.scheduledAt).getTime() >= sevenDaysAgo);
+  const missed7d = list.filter(
+    (c) => c.status === "missed" && new Date(c.scheduledAt).getTime() >= sevenDaysAgo,
+  );
+  const completed7d = list.filter(
+    (c) => c.status === "completed" && new Date(c.scheduledAt).getTime() >= sevenDaysAgo,
+  );
   const total7d = completed7d.length + missed7d.length;
   const completionRate = total7d ? Math.round((completed7d.length / total7d) * 100) : 0;
-  const unassigned = list.filter((c) => c.assignee === "Unassigned" && (c.status === "scheduled" || c.status === "reminded"));
+  const unassigned = list.filter(
+    (c) => c.assignee === "Unassigned" && (c.status === "scheduled" || c.status === "reminded"),
+  );
 
   return {
     scheduledToday: scheduledToday.length,
@@ -414,7 +748,11 @@ export function weekDays(anchor: Date): Date[] {
 }
 
 export function sameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
 /** Minutes from CALENDAR_START on a date. */
@@ -438,10 +776,19 @@ export function fmtDayShort(d: Date) {
 
 export function fmtLongDate(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-export function isWithinDndWindow(cb: Pick<Callback, "preferredWindow" | "customerDnd">, iso?: string): boolean {
+export function isWithinDndWindow(
+  cb: Pick<Callback, "preferredWindow" | "customerDnd">,
+  iso?: string,
+): boolean {
   const at = iso ? new Date(iso) : new Date((cb as Callback).scheduledAt);
   const hour = at.getHours();
   if (cb.customerDnd) return true;
@@ -478,7 +825,12 @@ export function assign(id: string, assignee: string) {
   if (!c) return;
   const from = c.assignee;
   c.assignee = assignee;
-  appendEvent(c, { at: new Date().toISOString(), label: `Reassigned ${from} → ${assignee}`, actor: CURRENT_AGENT, tone: "info" });
+  appendEvent(c, {
+    at: new Date().toISOString(),
+    label: `Reassigned ${from} → ${assignee}`,
+    actor: CURRENT_AGENT,
+    tone: "info",
+  });
 }
 
 export function reassignQueue(id: string, queue: string) {
@@ -486,14 +838,24 @@ export function reassignQueue(id: string, queue: string) {
   if (!c) return;
   const from = c.queue;
   c.queue = queue;
-  appendEvent(c, { at: new Date().toISOString(), label: `Queue ${from} → ${queue}`, actor: CURRENT_AGENT, tone: "info" });
+  appendEvent(c, {
+    at: new Date().toISOString(),
+    label: `Queue ${from} → ${queue}`,
+    actor: CURRENT_AGENT,
+    tone: "info",
+  });
 }
 
 export function setPriority(id: string, priority: CbPriority) {
   const c = callbacks.find((x) => x.id === id);
   if (!c) return;
   c.priority = priority;
-  appendEvent(c, { at: new Date().toISOString(), label: `Priority → ${PRIORITY_LABELS[priority]}`, actor: CURRENT_AGENT, tone: "info" });
+  appendEvent(c, {
+    at: new Date().toISOString(),
+    label: `Priority → ${PRIORITY_LABELS[priority]}`,
+    actor: CURRENT_AGENT,
+    tone: "info",
+  });
 }
 
 export function reschedule(id: string, newISO: string) {
@@ -515,14 +877,24 @@ export function cancel(id: string, reason: string) {
   const c = callbacks.find((x) => x.id === id);
   if (!c) return;
   c.status = "cancelled";
-  appendEvent(c, { at: new Date().toISOString(), label: `Cancelled · ${reason}`, actor: CURRENT_AGENT, tone: "warn" });
+  appendEvent(c, {
+    at: new Date().toISOString(),
+    label: `Cancelled · ${reason}`,
+    actor: CURRENT_AGENT,
+    tone: "warn",
+  });
 }
 
 export function markMissed(id: string) {
   const c = callbacks.find((x) => x.id === id);
   if (!c) return;
   c.status = "missed";
-  appendEvent(c, { at: new Date().toISOString(), label: "Marked as missed", actor: "System", tone: "danger" });
+  appendEvent(c, {
+    at: new Date().toISOString(),
+    label: "Marked as missed",
+    actor: "System",
+    tone: "danger",
+  });
 }
 
 export function markCompleted(id: string, disposition: CbDisposition, notes: string) {
@@ -543,7 +915,12 @@ export function startCall(id: string) {
   const c = callbacks.find((x) => x.id === id);
   if (!c) return;
   c.status = "in_progress";
-  appendEvent(c, { at: new Date().toISOString(), label: "Call started", actor: CURRENT_AGENT, tone: "info" });
+  appendEvent(c, {
+    at: new Date().toISOString(),
+    label: "Call started",
+    actor: CURRENT_AGENT,
+    tone: "info",
+  });
 }
 
 export function sendReminder(id: string, channel: CbChannel) {
@@ -593,9 +970,20 @@ export function createCallback(input: CreateInput): Callback {
     queue: input.queue,
     priority: input.priority,
     status: "scheduled",
-    reminders: input.reminderChannels.map((ch) => ({ at: createdAt, channel: ch, status: "queued" })),
+    reminders: input.reminderChannels.map((ch) => ({
+      at: createdAt,
+      channel: ch,
+      status: "queued",
+    })),
     transcriptSnippet: input.notes ? `"${input.notes}"` : SNIPPETS[input.reason],
-    events: [{ at: createdAt, label: `Callback created by ${CURRENT_AGENT}`, actor: CURRENT_AGENT, tone: "info" }],
+    events: [
+      {
+        at: createdAt,
+        label: `Callback created by ${CURRENT_AGENT}`,
+        actor: CURRENT_AGENT,
+        tone: "info",
+      },
+    ],
     createdAt,
   };
   cb.dndActive = isWithinDndWindow(cb);
@@ -612,7 +1000,12 @@ export function autoMarkMissed(): number {
     const end = new Date(c.scheduledAt).getTime() + c.windowMins * 60000;
     if (end < now) {
       c.status = "missed";
-      appendEvent(c, { at: new Date().toISOString(), label: "Auto-marked missed (window elapsed)", actor: "System", tone: "danger" });
+      appendEvent(c, {
+        at: new Date().toISOString(),
+        label: "Auto-marked missed (window elapsed)",
+        actor: "System",
+        tone: "danger",
+      });
       n += 1;
     }
   });

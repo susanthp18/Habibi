@@ -206,6 +206,61 @@ def _clamp_int(value: Any, lo: int, hi: int, default: int) -> int:
     return max(lo, min(hi, n))
 
 
+#: Ceilings on ``tts.params``. Not a schema — the whole point of the bag is that
+#: it carries settings this module has never heard of — but an unbounded dict
+#: read straight off a jsonb column and splatted into a constructor is a way to
+#: turn a hand-edited row into a memory problem.
+MAX_TTS_PARAMS = 32
+MAX_TTS_PARAM_KEY = 48
+MAX_TTS_PARAM_STR = 256
+
+#: Keys the Azure-shaped ``tts`` mapping already owns. A param may not restate
+#: one: ``voice`` is resolved by a precedence rule in
+#: ``voice.tuning_apply.resolve_session_tuning`` and ``language`` comes from the
+#: STT locale, so letting the bag win would make either silently unreachable.
+_TTS_PARAM_RESERVED = frozenset({"voice", "language"})
+
+
+def normalize_tts_params(raw: Any) -> dict[str, Any]:
+    """Sanitize the provider-specific TTS settings bag.
+
+    ``AgentTuning.tts`` is Azure/SSML-shaped — voice, style, rate, pitch,
+    volume, emphasis — because Azure was the only provider when it was written.
+    Every other vendor's controls (Fish's temperature / top_p / chunk_length,
+    Cartesia's and Deepgram's equivalents) had nowhere to live, so the Voice
+    tab's model controls changed the preview and nothing else.
+
+    This is that slot. It is deliberately schemaless: the authority on which
+    keys a given model accepts is that model's own Pipecat ``Settings`` class,
+    and ``agent_core.providers.factory.build`` already filters against it and
+    logs what it dropped. Validating here as well would mean a second opinion
+    that goes stale the moment a provider adds a knob.
+
+    Only the shape is enforced — scalars, bounded in count and size.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        if len(out) >= MAX_TTS_PARAMS:
+            break
+        name = str(key).strip()
+        if not name or len(name) > MAX_TTS_PARAM_KEY or name in _TTS_PARAM_RESERVED:
+            continue
+        if isinstance(value, bool):
+            out[name] = value
+        elif isinstance(value, int):
+            out[name] = int(value)
+        elif isinstance(value, float):
+            # A NaN reaching a provider's Settings is a 422 mid-call at best.
+            if math.isfinite(value):
+                out[name] = float(value)
+        elif isinstance(value, str):
+            out[name] = value[:MAX_TTS_PARAM_STR]
+        # Anything else — dict, list, None — is not a provider setting.
+    return out
+
+
 def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     """Fill defaults + clamp to doc-legal ranges. Always returns a full AgentTuning."""
     t = _deep_merge(default_tuning(), raw if isinstance(raw, dict) else None)
@@ -233,6 +288,15 @@ def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
         tts["style"] = str(tts["style"]).strip().lower()
     if tts.get("emphasis") in ("", "none", "null"):
         tts["emphasis"] = None
+    # Absent rather than empty when there is nothing in it. Every deployment
+    # predating this key has no `params`, and inventing `{}` on all of them
+    # would rewrite every stored tuning on first read and show up as a diff on
+    # versions nobody edited.
+    cleaned_params = normalize_tts_params(tts.get("params"))
+    if cleaned_params:
+        tts["params"] = cleaned_params
+    else:
+        tts.pop("params", None)
 
     stt = t["stt"]
     stt["language"] = str(stt.get("language") or "en-IN").strip()
@@ -299,6 +363,7 @@ def apply_voice_config_overlay(
     speed: float | None = None,
     pitch: int | None = None,
     warmth: int | None = None,
+    params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Optionally overlay Prompt Studio voice fields onto AgentTuning.tts.
 
@@ -307,11 +372,19 @@ def apply_voice_config_overlay(
     are intentionally authoritative (legacy path). Pass ``None`` (default from
     voice bot) to leave AgentTuning.tts untouched. ``voice_name`` may still be
     applied so the Prompt Studio voice picker selects the neural voice.
+
+    ``params`` is the Voice tab's provider-specific bag and *replaces* rather
+    than merges. It has to: the tab shows one set of controls for the selected
+    model, so a key that is no longer on screen is a key the operator has
+    removed. Merging would leave a previous provider's temperature bound to a
+    voice whose model never declared one, and nothing in the UI would show it.
     """
     t = normalize_tuning(tuning)
     tts = t["tts"]
     if voice_name:
         tts["voice"] = str(voice_name).strip()
+    if params is not None:
+        tts["params"] = normalize_tts_params(params)
     # These arrive from persisted Studio jsonb, so a legacy/hand-edited row can
     # carry a string or null. Raw float()/int() turned that into a TypeError in
     # the middle of call setup; the clamp helpers fall back the same way every

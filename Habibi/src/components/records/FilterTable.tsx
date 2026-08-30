@@ -87,12 +87,16 @@ export function FilterTable<T, K extends string>({
               )}
             >
               {chip.dot ? (
-                <span className="h-150 w-150 rounded-full" style={{ background: chip.dot }} aria-hidden />
+                <span
+                  className="h-150 w-150 rounded-full"
+                  style={{ background: chip.dot }}
+                  aria-hidden
+                />
               ) : null}
               {chip.label}
               <span
                 className={cn(
-                  "rounded-small px-050 text-[0.65625rem] tabular-nums",
+                  "rounded-small px-050 text-body-micro tabular-nums",
                   active ? "bg-background-neutral text-text-subtle" : "text-text-subtlest",
                 )}
               >
@@ -151,7 +155,9 @@ export function FilterTable<T, K extends string>({
           })}
 
           {visibleCount === 0 && (
-            <div className="px-150 py-500 text-center text-body-small text-text-subtlest">{emptyMessage}</div>
+            <div className="px-150 py-500 text-center text-body-small text-text-subtlest">
+              {emptyMessage}
+            </div>
           )}
         </div>
       </div>

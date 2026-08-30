@@ -49,7 +49,11 @@ export function RecordsTag({
         className,
       )}
     >
-      <span className="h-150 w-150 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
+      <span
+        className="h-150 w-150 shrink-0 rounded-full"
+        style={{ background: color }}
+        aria-hidden
+      />
       <span className="truncate">{name}</span>
     </span>
   );

@@ -5,7 +5,7 @@ import { InsightsPanel } from "./InsightsPanel";
 import { NextBestActionCard } from "./NextBestActionCard";
 import { BehaviorMetricsStrip } from "./BehaviorMetricsStrip";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { applyAuthority } from "@/api/authority";
+import { applyAuthority, authorityPolicyFromNext, useAuthorityNext } from "@/api/authority";
 import { captureLeadFromPolicy } from "@/api/upsell";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
@@ -20,6 +20,19 @@ export function OverviewTab({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // The allowed move comes from the engine that owns it (GET /authority/next).
+  // This panel used to render a client-side re-implementation of the matrix,
+  // frozen at ₹500/₹250 and two escalate reasons while the real one stayed
+  // env-tunable and grew to eleven.
+  const authorityQuery = useAuthorityNext(insights.customerId);
+  const authorityPolicy = authorityQuery.data
+    ? authorityPolicyFromNext(authorityQuery.data, insights.customerId)
+    : null;
+  const authorityState = authorityQuery.isError
+    ? "unavailable"
+    : authorityQuery.isPending || !authorityPolicy
+      ? "pending"
+      : "ready";
   const captureMut = useMutation({
     mutationFn: () => {
       const policy = insights.offerPolicy;
@@ -44,33 +57,37 @@ export function OverviewTab({
   });
   const applyMut = useMutation({
     mutationFn: () => {
-      const policy = insights.authorityPolicy;
-      if (!policy?.decisionId) throw new Error("No authority decision to apply");
+      if (!authorityPolicy?.decisionId) throw new Error("No authority decision to apply");
       return applyAuthority({
-        decisionId: policy.decisionId,
-        amount: policy.approvedAmount,
-        disputeId: policy.disputeId,
+        decisionId: authorityPolicy.decisionId,
+        amount: authorityPolicy.approvedAmount,
+        disputeId: authorityPolicy.disputeId,
       });
     },
     onSuccess: () => {
       toast.success("Goodwill posted");
+      // The verdict changes the moment goodwill posts — a second waiver in the
+      // same 12 months is an escalate — so re-ask rather than keep this one.
+      void queryClient.invalidateQueries({ queryKey: ["authority-next", insights.customerId] });
       void queryClient.invalidateQueries({ queryKey: ["customer-insights", insights.customerId] });
       void queryClient.invalidateQueries({ queryKey: ["customer", insights.customerId] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Goodwill apply failed"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Goodwill apply failed"),
   });
 
   return (
     <div className="space-y-200">
       <BehaviorMetricsStrip metrics={insights.metrics} />
-      {insights.authorityPolicy && insights.authorityPolicy.status !== "none" ? (
-        <AuthorityPolicyBlock
-          policy={insights.authorityPolicy}
-          className="rounded-large border border-border bg-surface !border-t"
-          onApply={() => applyMut.mutate()}
-          applying={applyMut.isPending}
-        />
-      ) : null}
+      <AuthorityPolicyBlock
+        policy={authorityPolicy}
+        state={authorityState}
+        className="rounded-large border border-border bg-surface !border-t"
+        // Only offered when there is a recorded decision to post against. The
+        // mock emulates the verdict but records nothing, so it has no id.
+        onApply={authorityPolicy?.decisionId ? () => applyMut.mutate() : undefined}
+        applying={applyMut.isPending}
+      />
       {insights.offerPolicy && insights.offerPolicy.status !== "none" ? (
         <OfferPolicyBlock
           policy={insights.offerPolicy}

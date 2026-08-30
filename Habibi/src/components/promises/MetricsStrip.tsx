@@ -44,7 +44,9 @@ function Tile({
         <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
         <Icon className={`h-4 w-4 ${iconTone}`} />
       </div>
-      <div className="mt-050 text-[1.5rem] font-semibold leading-tight text-text tabular-nums">{value}</div>
+      <div className="mt-050 heading-large font-semibold leading-tight text-text tabular-nums">
+        {value}
+      </div>
       {sub && <div className="text-body-small text-text-subtle">{sub}</div>}
     </div>
   );

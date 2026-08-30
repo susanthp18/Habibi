@@ -38,12 +38,30 @@ def normalize_language(code: str):
     """
     from pipecat.transcriptions.language import Language
 
+    from agent_core import languages
+
+    # Every tag the Studio can author, plus the two non-Indian English variants
+    # that only ever arrive from tuning JSON. Built from the registry rather
+    # than hand-listed: this map used to carry four entries while the Persona
+    # tab offered eight languages, so choosing Tamil bound an en-IN recogniser
+    # and the mismatch was invisible — ``mapping.get`` falls back silently.
     mapping = {
-        "en-in": Language.EN_IN,
         "en-us": Language.EN_US,
         "en-gb": Language.EN_GB,
-        "hi-in": getattr(Language, "HI_IN", Language.EN_IN),
     }
+    for entry in languages.LANGUAGES:
+        member = entry.tag.replace("-", "_").upper()
+        resolved = getattr(Language, member, None)
+        if resolved is None:
+            # A build of pipecat without this language: keep the recogniser on
+            # en-IN rather than raising inside the audio path, and say so once.
+            logger.warning(
+                "pipecat has no Language.{} for {} — falling back to en-IN",
+                member,
+                entry.name,
+            )
+            continue
+        mapping[entry.tag.lower()] = resolved
     # Case- and separator-insensitive: BCP-47 tags arrive as en-US, en_us or
     # en-us depending on whether they came from the tuning JSON, an operator
     # typing into the Voice tab, or a provider callback. An exact-match lookup
@@ -171,21 +189,41 @@ def build_user_mute_strategies(tuning: dict[str, Any]) -> list[Any]:
     return out
 
 
+def stt_settings_kwargs(tuning: dict[str, Any]) -> dict[str, Any]:
+    """Tuning as plain kwargs, before any provider's Settings class sees them.
+
+    Split out from :func:`build_stt_settings` so the provider registry can bind
+    a non-Azure recogniser: the factory filters these against whichever Settings
+    class the bound model declares, which it cannot do with an already-built
+    ``AzureSTTService.Settings`` instance.
+    """
+    stt = normalize_tuning(tuning)["stt"]
+    return {"language": _language(stt["language"]), "profanity": stt["profanity"]}
+
+
 def build_stt_settings(tuning: dict[str, Any]):
     from pipecat.services.azure.stt import AzureSTTService
 
-    stt = normalize_tuning(tuning)["stt"]
-    return AzureSTTService.Settings(
-        language=_language(stt["language"]),
-        profanity=stt["profanity"],
-    )
+    return AzureSTTService.Settings(**stt_settings_kwargs(tuning))
 
 
-def build_tts_settings(tuning: dict[str, Any]):
-    from pipecat.services.azure.tts import AzureTTSService
+def tts_settings_kwargs(tuning: dict[str, Any]) -> dict[str, Any]:
+    """Tuning as plain kwargs. See :func:`stt_settings_kwargs`.
 
-    tts = normalize_tuning(tuning)["tts"]
-    stt = normalize_tuning(tuning)["stt"]
+    The named keys below are Azure/SSML-shaped because ``AgentTuning.tts`` is.
+    ``tts.params`` carries everything else — the controls the Voice tab renders
+    from the selected model's own ``params_schema``, which for a Fish or
+    Cartesia voice is not a subset of Azure's and for Deepgram is nearly empty.
+
+    Nothing here decides which of those a provider accepts.
+    :func:`agent_core.providers.factory.build` filters the merged settings
+    against the bound model's ``Settings`` class and logs what it dropped, so a
+    Fish ``temperature`` left on the card after switching to an Azure voice is
+    discarded at construction rather than raising in the middle of call setup.
+    """
+    normalized = normalize_tuning(tuning)
+    tts = normalized["tts"]
+    stt = normalized["stt"]
     kwargs: dict[str, Any] = {
         "voice": tts["voice"],
         "language": _language(stt.get("language") or "en-IN"),
@@ -199,6 +237,35 @@ def build_tts_settings(tuning: dict[str, Any]):
         kwargs["style_degree"] = str(tts.get("style_degree") or "1.0")
     if tts.get("emphasis"):
         kwargs["emphasis"] = tts["emphasis"]
+    # setdefault, not assignment: the prosody keys above are derived from the
+    # VoiceConfig sliders through `apply_voice_config_overlay`, and letting the
+    # bag win would give one control two authorities that disagree after a
+    # Tuning Studio edit.
+    for key, value in (tts.get("params") or {}).items():
+        kwargs.setdefault(key, value)
+    return kwargs
+
+
+def build_tts_settings(tuning: dict[str, Any]):
+    """Azure's Settings, for the pre-registry fallback path.
+
+    Filtered, unlike the registry path, because this one names a concrete class:
+    ``tts.params`` may hold another provider's knobs (a card authored against a
+    Fish voice whose binding is missing at call time still reaches here), and an
+    undeclared kwarg is a ``TypeError`` during pipeline construction — which
+    drops the call rather than the setting.
+    """
+    from pipecat.services.azure.tts import AzureTTSService
+
+    from agent_core.providers.factory import settings_field_names
+
+    kwargs = tts_settings_kwargs(tuning)
+    allowed = settings_field_names(AzureTTSService.Settings)
+    if allowed:
+        dropped = sorted(set(kwargs) - allowed)
+        if dropped:
+            logger.debug("azure tts fallback dropped unsupported settings · keys={}", dropped)
+        kwargs = {k: v for k, v in kwargs.items() if k in allowed}
     return AzureTTSService.Settings(**kwargs)
 
 
@@ -265,9 +332,27 @@ async def apply_live_tuning_delta(
 
     if "tts" in live and live["tts"]:
         tts_delta = dict(live["tts"])
+        # `params` is a nested bag, not a setting. Flattening it here is what
+        # lets a mid-call Studio edit change a Fish temperature; leaving it
+        # would hand `Settings(params={...})` to a class with no such field and
+        # abort the whole delta, taking the prosody half down with it.
+        extra = tts_delta.pop("params", None)
+        if isinstance(extra, dict):
+            for key, value in extra.items():
+                tts_delta.setdefault(key, value)
         # language is an enum on Settings — map if present as string.
         if "language" in tts_delta and isinstance(tts_delta["language"], str):
             tts_delta["language"] = _language(tts_delta["language"])
+        from agent_core.providers.factory import settings_field_names
+
+        allowed = settings_field_names(tts_settings_cls)
+        if allowed:
+            unknown = sorted(set(tts_delta) - allowed)
+            if unknown:
+                logger.debug("live tts delta dropped unsupported keys · {}", unknown)
+            tts_delta = {k: v for k, v in tts_delta.items() if k in allowed}
+        if not tts_delta:
+            return live
         try:
             await worker.queue_frame(TTSUpdateSettingsFrame(delta=tts_settings_cls(**tts_delta)))
         except Exception:
@@ -283,6 +368,7 @@ def resolve_session_tuning(
     speed: float | None = None,
     pitch: int | None = None,
     warmth: int | None = None,
+    persona_language: str | None = None,
 ) -> dict[str, Any]:
     """Normalize deployment/session tuning; optionally overlay Prompt Studio voice.
 
@@ -302,13 +388,41 @@ def resolve_session_tuning(
     ``normalize_tuning``, because normalisation invents ``en-IN-AartiNeural``
     for a missing voice — after it runs, a deliberate choice and a default are
     indistinguishable.
+
+    **Language precedence — the same shape, for the same reason.** The Persona
+    tab's ``language`` was read by nothing on a call: the recogniser bound
+    ``AgentTuning.stt.language``, which normalisation fills with ``en-IN`` when
+    absent. So picking Hindi in the Studio changed no recogniser, no synthesiser
+    and no instruction, and the product reported no conflict. ``persona_language``
+    now supplies the default tag when the tuning does not name one, and an
+    explicit ``stt.language`` still wins — the Tuning Studio is the more specific
+    surface, exactly as it is for the voice. Read from *raw* for the same reason.
     """
+    from agent_core import languages
     from agent_core.tuning import apply_voice_config_overlay
 
     explicit = str(((raw or {}).get("tts") or {}).get("voice") or "").strip()
     if explicit and voice_name and explicit != str(voice_name).strip():
         logger.info(
             "tts voice: using tuning '{}' over prompt-studio '{}'", explicit, voice_name
+        )
+    explicit_lang = str(((raw or {}).get("stt") or {}).get("language") or "").strip()
+    persona_tag = languages.tag_for(persona_language)
+    if persona_language and persona_tag is None:
+        # Not silent: an unmappable name means the recogniser keeps whatever it
+        # had, and the operator has no other way to learn their choice did not
+        # take. The registry is the fix, not a guess at the tag.
+        logger.warning(
+            "persona language '{}' is not in the language registry — "
+            "leaving stt.language as configured",
+            persona_language,
+        )
+    elif persona_tag and explicit_lang and persona_tag.lower() != explicit_lang.lower():
+        logger.info(
+            "stt language: using tuning '{}' over persona '{}' ({})",
+            explicit_lang,
+            persona_language,
+            persona_tag,
         )
     tuning = apply_voice_config_overlay(
         normalize_tuning(raw),
@@ -317,6 +431,15 @@ def resolve_session_tuning(
         pitch=pitch,
         warmth=warmth,
     )
+    if persona_tag and not explicit_lang:
+        stt = tuning.setdefault("stt", {})
+        stt["language"] = persona_tag
+        # normalize_tuning has already built fallback_languages around the
+        # default tag. Re-front the chosen one rather than appending: the list
+        # is a priority order and a Hindi card whose first fallback is en-IN
+        # switches itself back to English on the first ambiguous utterance.
+        fallbacks = [f for f in (stt.get("fallback_languages") or []) if f != persona_tag]
+        stt["fallback_languages"] = [persona_tag, *fallbacks]
     try:
         import db
 

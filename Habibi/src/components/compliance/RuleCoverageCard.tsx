@@ -68,7 +68,11 @@ export function RuleCoverageCard({
                 onClick={() => onSelect(active ? "all" : rule.ruleId)}
                 className={cn(
                   "flex w-full items-center gap-100 rounded-medium px-100 py-075 text-left transition-colors",
-                  active ? "bg-background-brand-subtlest" : filterable ? "hover:bg-surface-sunken" : "",
+                  active
+                    ? "bg-background-brand-subtlest"
+                    : filterable
+                      ? "hover:bg-surface-sunken"
+                      : "",
                   !filterable && "cursor-default",
                 )}
               >

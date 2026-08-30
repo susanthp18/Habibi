@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy import text
 
 from env_loader import load_env
-from env_utils import env_float, env_int
+from env_utils import NON_PROD_ENVS, env_float, env_int
 
 logger = logging.getLogger(__name__)
 
@@ -254,10 +254,43 @@ def current_interaction_id() -> str | None:
     return _current_interaction.get()
 
 
-def _env_name() -> str:
+# Not ``env_utils.NON_PROD_ENVS``, and the difference is the point.
+#
+# That allow-list answers "may this box fall back to the dev key committed in
+# this repository?", and it counts ``test``/``testing``/``ci`` as non-production.
+# Billing asks a different question, about a different column. A CI box that
+# meters a real Azure call has spent real money; filing that spend under
+# ``sandbox`` hides it from the production invoice, where the whole point of
+# ``usage_events`` is that /billing reads metered spend instead of synthetic
+# seed burn. So the billing bucket is the shared list minus the three names
+# that mean "a machine running the suite" rather than "a sandbox tenant".
+#
+# Deriving it by subtraction rather than restating the four names keeps the
+# relationship visible: if ``NON_PROD_ENVS`` grows a name, this bucket grows it
+# too unless someone comes here and says why not.
+_SANDBOX_BILLING_ENVS = NON_PROD_ENVS - {"test", "testing", "ci"}
+
+
+def _billing_env() -> str:
+    """The billing environment: exactly ``production`` or ``sandbox``.
+
+    Deliberately *not* :func:`env_utils.env_name`, which was promoted for the
+    signing-key/vault question. This is a two-valued money column, not a
+    free-form environment name — ``db._BILLING_ENVS`` rejects anything else, so
+    an APP_ENV of ``staging`` has to land on one side or the other here rather
+    than reaching the database as itself.
+
+    It also differs on the two inputs the shared helper cannot express:
+    ``BILLING_ENV`` wins over ``APP_ENV``, so a sandbox tenant can be metered
+    separately from the app's own environment; and an environment that says
+    nothing at all bills as ``production``, where the shared helper assumes a
+    laptop. Those defaults point opposite ways on purpose. Guessing "laptop"
+    costs an unsigned artifact; guessing "sandbox" costs an invoice line that
+    silently never appears.
+    """
     load_env()
     raw = (os.getenv("BILLING_ENV") or os.getenv("APP_ENV") or "production").strip().lower()
-    return "sandbox" if raw in {"sandbox", "dev", "development", "local"} else "production"
+    return "sandbox" if raw in _SANDBOX_BILLING_ENVS else "production"
 
 
 # --- Buffered write path ---------------------------------------------------
@@ -366,7 +399,7 @@ def record_usage(
     if units_d <= 0 and cost_d <= 0:
         return
     tid = tenant_id or _tenant_id()
-    env = environment or _env_name()
+    env = environment or _billing_env()
     when = occurred_at or datetime.now(timezone.utc)
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)

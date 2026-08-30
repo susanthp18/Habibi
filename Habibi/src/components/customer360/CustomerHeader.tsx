@@ -9,13 +9,15 @@ import type { Customer } from "@/data/customer360-seed";
 import { fmtMoney } from "@/data/customer360-seed";
 
 function initials(name: string | null | undefined) {
-  return str(name)
-    .split(" ")
-    .map((n) => n[0])
-    .filter(Boolean)
-    .join("")
-    .slice(0, 2)
-    .toUpperCase() || "?";
+  return (
+    str(name)
+      .split(" ")
+      .map((n) => n[0])
+      .filter(Boolean)
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?"
+  );
 }
 
 function str(value: string | null | undefined, fallback = "") {
@@ -61,7 +63,7 @@ export function CustomerHeader({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-100">
-              <h1 className="truncate text-[1.25rem] font-semibold text-text">{customer.name}</h1>
+              <h1 className="truncate heading-medium font-semibold text-text">{customer.name}</h1>
               <RiskBadge level={customer.risk} />
               <button
                 type="button"
@@ -77,10 +79,12 @@ export function CustomerHeader({
               <span className="text-body-small text-text-subtlest">{customer.account.product}</span>
             </div>
             <div className="mt-075 flex flex-wrap items-center gap-075">
-              <ContactabilityPill consent={customer.consent} contact={customer.contact} compact />
+              <ContactabilityPill customerId={customer.id} contact={customer.contact} compact />
               <StatusChip label={`${customer.account.dpd} DPD`} tone={dpdTone} />
               <StatusChip label={customer.account.bucket} tone="neutral" />
-              <span className="text-body-small text-text-subtlest">Assigned · {customer.assignedTo}</span>
+              <span className="text-body-small text-text-subtlest">
+                Assigned · {customer.assignedTo}
+              </span>
             </div>
           </div>
         </div>
@@ -89,22 +93,21 @@ export function CustomerHeader({
         <div className="flex items-baseline gap-200 lg:justify-end">
           <div>
             <div className="text-body-small font-semibold text-text-subtle">Outstanding</div>
-            <div className="text-xl font-semibold text-text tabular sm:text-2xl">{fmtMoney(customer.outstanding)}</div>
+            <div className="text-xl font-semibold text-text tabular sm:text-2xl">
+              {fmtMoney(customer.outstanding)}
+            </div>
           </div>
           <div className="border-l border-border pl-200">
             <div className="text-body-small font-semibold text-text-subtle">Min due</div>
-            <div className="text-sm font-semibold text-text tabular">{fmtMoney(customer.minimumDue)}</div>
+            <div className="text-sm font-semibold text-text tabular">
+              {fmtMoney(customer.minimumDue)}
+            </div>
           </div>
         </div>
 
         {/* CTAs — one primary */}
         <div className="flex items-center gap-100 lg:justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9"
-            asChild
-          >
+          <Button variant="outline" size="sm" className="h-9" asChild>
             <Link to="/handoff" search={{ customerId: customer.id }}>
               <Headphones className="h-3.5 w-3.5" />
               Handoff

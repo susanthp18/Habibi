@@ -5,6 +5,18 @@ CREATE TABLE IF NOT EXISTS tenants (
   billing_aht_sec INTEGER NOT NULL DEFAULT 0,
   budget_inr numeric(14,2),
   spend_share numeric(7,4),
+  -- RBI para 100AA: the grievance redressal officer's name, email, telephone
+  -- number and address must appear in ALL recovery communications. An
+  -- institutional fact, not an authored one — the same officer answers for
+  -- every agent the bank runs, so putting it on the agent card would be a way
+  -- for four cards to name four different people.
+  --
+  -- {"name": "...", "email": "...", "phone": "...", "address": "..."}
+  grievance_officer jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- A number the borrower can actually ring back. Distinct from the number we
+  -- dial *from*, which rotates across a pool — a voicemail asking somebody to
+  -- return a call has to name one that will still be answered tomorrow.
+  contact_number TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

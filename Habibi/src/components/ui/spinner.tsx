@@ -33,7 +33,10 @@ export const Spinner = React.forwardRef<SVGSVGElement, SpinnerProps>(
       role="status"
       aria-label="Loading"
       className={cn(spinnerVariants({ size, tone }), "animate-spin", className)}
-      style={{ animationDuration: "0.86s", animationTimingFunction: "cubic-bezier(0.4, 0.15, 0.6, 0.85)" }}
+      style={{
+        animationDuration: "0.86s",
+        animationTimingFunction: "cubic-bezier(0.4, 0.15, 0.6, 0.85)",
+      }}
       {...props}
     >
       <circle

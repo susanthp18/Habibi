@@ -1,7 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/prompt-studio")({
-  validateSearch: (search: Record<string, unknown>): {
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
     unansweredId?: string;
     note?: string;
   } => ({

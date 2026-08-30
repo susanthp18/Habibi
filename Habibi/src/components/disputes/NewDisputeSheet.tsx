@@ -66,14 +66,27 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      <button aria-label="Close overlay" type="button" onClick={onClose} className="flex-1 bg-black/30" />
+      <button
+        aria-label="Close overlay"
+        type="button"
+        onClick={onClose}
+        className="flex-1 bg-black/30"
+      />
       <aside className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-200 py-150">
           <div>
-            <h2 className="text-[0.875rem] font-semibold text-text">Raise dispute</h2>
-            <p className="text-body-small text-text-subtlest">Log an exception for review on the disputes board.</p>
+            <h2 className="text-body font-semibold text-text">Raise dispute</h2>
+            <p className="text-body-small text-text-subtlest">
+              Log an exception for review on the disputes board.
+            </p>
           </div>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={onClose}
+            aria-label="Close"
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -109,8 +122,15 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
             </select>
           </div>
           <div>
-            <div className="mb-050 text-body-small font-semibold text-text-subtlest">Amount (₹)</div>
-            <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-9" />
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+              Amount (₹)
+            </div>
+            <Input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="h-9"
+            />
           </div>
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Notes</div>

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -50,7 +50,7 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
         text(
             """
             UPDATE customers
-            SET dnd = false, timezone = 'Asia/Kolkata',
+            SET dnd = false, timezone = 'Asia/Kolkata', preferred_window = NULL,
                 phone_primary = COALESCE(NULLIF(phone_primary, ''), '+919800000001')
             WHERE id = :id
             """
@@ -90,7 +90,7 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
                   (id, consent_id, channel, status, weekly_frequency_cap, used_this_week, captured_at)
                 VALUES
                   (:id, :cr, :ch, 'opted_in', 8, 0, now())
-                ON CONFLICT (consent_id, channel)
+                ON CONFLICT (consent_id, channel, purpose)
                 DO UPDATE SET status = 'opted_in', weekly_frequency_cap = 8, captured_at = now()
                 """
             ),
@@ -279,7 +279,10 @@ def test_voice_last_resort_inside_hours(db_tx, monkeypatch: pytest.MonkeyPatch) 
     calls: list[str] = []
     monkeypatch.setattr(
         "voice.twilio_ops.start_outbound_call",
-        lambda *, to, custom=None: calls.append(to) or {"callSid": "CA-t", "to": to, "status": "queued"},
+        # **_ so a new keyword on the real signature (machine_detection) does
+        # not silently turn this fake into a TypeError the dial path swallows.
+        lambda *, to, custom=None, **_: calls.append(to)
+        or {"callSid": "CA-t", "to": to, "status": "queued"},
     )
     emi_id = _seed_emi(db_tx, aid)
     now = datetime(2026, 8, 13, 10, 0, tzinfo=IST)
@@ -301,7 +304,10 @@ def test_voice_last_resort_night_schedules_then_worker_fires(
     calls: list[str] = []
     monkeypatch.setattr(
         "voice.twilio_ops.start_outbound_call",
-        lambda *, to, custom=None: calls.append(to) or {"callSid": "CA-t", "to": to, "status": "queued"},
+        # **_ so a new keyword on the real signature (machine_detection) does
+        # not silently turn this fake into a TypeError the dial path swallows.
+        lambda *, to, custom=None, **_: calls.append(to)
+        or {"callSid": "CA-t", "to": to, "status": "queued"},
     )
     emi_id = _seed_emi(db_tx, aid)
     now = datetime(2026, 8, 13, 0, 12, tzinfo=IST)
@@ -327,7 +333,16 @@ def test_voice_last_resort_night_schedules_then_worker_fires(
     import db as dbmod
     import payment_events as pe
 
-    assert pe.process_one_voice(dbmod.engine) is True
+    # 10:00 IST, inside RBI's 08:00–19:00 window. Reading the wall clock here
+    # made this assertion a function of what time the suite ran: the worker
+    # dials through `contact_policy.admit`, so every evening after 19:00 and
+    # every morning before 08:00 the call was correctly refused and the test
+    # correctly reported that no voice touch happened.
+    #
+    # The scheduling half above already pins a fixed 00:12 IST for the same
+    # reason. This is the other half of the same clock.
+    morning = datetime(2026, 8, 13, 10, 0, tzinfo=IST).astimezone(dt_timezone.utc)
+    assert pe.process_one_voice(dbmod.engine, now=morning) is True
     event = db_tx.execute(
         text("SELECT first_touch_channel FROM payment_events WHERE id = :id"),
         {"id": out["eventId"]},
@@ -377,7 +392,15 @@ def test_statutory_bounce_sends_after_daily_cap(db_tx, monkeypatch: pytest.Monke
 def test_record_payment_cures_bounce(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     _cid, aid = _prep(db_tx, monkeypatch)
     emi_id = _seed_emi(db_tx, aid, amount=1500.0)
-    now = datetime(2026, 8, 13, 10, 0, tzinfo=IST)
+    # Anchored to today rather than to a fixed calendar date, and this one has
+    # to be. ``payments.record_payment`` compares the intent's expiry against
+    # the *Python* clock, not the frozen transaction clock, and a pay-link
+    # lives seven days — so a hard-coded ingest date turns this into a test
+    # that passes for a week and then fails forever. It did: the date it
+    # carried expired the day before this was noticed.
+    now = (datetime.now(IST) - timedelta(days=1)).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    )
     out, _ = _ingest(db_tx, aid, now=now, emiId=emi_id, amount=1500.0)
     import payments
 

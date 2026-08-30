@@ -67,9 +67,7 @@ async function patchStatusThenNote(
         status: prevStatus,
       };
       if (patch.assigneeUserId !== undefined) {
-        rollback.assigneeUserId = prevAssignee
-          ? (await resolveActor(prevAssignee)).id
-          : null;
+        rollback.assigneeUserId = prevAssignee ? (await resolveActor(prevAssignee)).id : null;
       }
       await apiPatch(`/violations/${v.id}`, rollback);
     } catch {

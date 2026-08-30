@@ -3,7 +3,11 @@ import type { Customer, LedgerEntry, LedgerType } from "@/data/customer360-seed"
 import { fmtDate, fmtMoney } from "@/data/customer360-seed";
 import { StatusChip, ledgerTypeTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
-import { FilterTable, type FilterChip, type FilterTableColumn } from "@/components/records/FilterTable";
+import {
+  FilterTable,
+  type FilterChip,
+  type FilterTableColumn,
+} from "@/components/records/FilterTable";
 
 const TYPE_LABEL: Record<LedgerType, string> = {
   charge: "Charge",
@@ -27,9 +31,13 @@ export function LedgerTab({ customer }: { customer: Customer }) {
   const [range, setRange] = useState<90 | 180 | 365>(180);
 
   const summary = useMemo(() => {
-    const principal = customer.ledger.filter((r) => r.type === "charge").reduce((s, r) => s + r.amount, 0);
+    const principal = customer.ledger
+      .filter((r) => r.type === "charge")
+      .reduce((s, r) => s + r.amount, 0);
     const fees = customer.ledger.filter((r) => r.type === "fee").reduce((s, r) => s + r.amount, 0);
-    const payments = customer.ledger.filter((r) => r.type === "payment").reduce((s, r) => s + Math.abs(r.amount), 0);
+    const payments = customer.ledger
+      .filter((r) => r.type === "payment")
+      .reduce((s, r) => s + Math.abs(r.amount), 0);
     const lastPayment = customer.ledger.find((r) => r.type === "payment");
     const total = customer.outstanding;
     return { principal, fees, payments, lastPayment, total };
@@ -55,7 +63,9 @@ export function LedgerTab({ customer }: { customer: Customer }) {
         id: "date",
         header: "Date",
         width: "0.9fr",
-        cell: (r) => <span className="text-body-small tabular-nums text-text-subtle">{fmtDate(r.date)}</span>,
+        cell: (r) => (
+          <span className="text-body-small tabular-nums text-text-subtle">{fmtDate(r.date)}</span>
+        ),
       },
       {
         id: "description",
@@ -65,7 +75,9 @@ export function LedgerTab({ customer }: { customer: Customer }) {
           <div className="min-w-0">
             <div className="truncate text-body text-text">{r.description}</div>
             {r.invoiceId ? (
-              <div className="truncate text-body-small text-text-subtlest">Invoice · {r.invoiceId}</div>
+              <div className="truncate text-body-small text-text-subtlest">
+                Invoice · {r.invoiceId}
+              </div>
             ) : null}
           </div>
         ),
@@ -112,7 +124,10 @@ export function LedgerTab({ customer }: { customer: Customer }) {
         <StatTile label="Fees" value={fmtMoney(summary.fees)} tone="warning" />
         <StatTile label="Payments received" value={fmtMoney(summary.payments)} tone="success" />
         <StatTile label="Outstanding" value={fmtMoney(summary.total)} tone="brand" />
-        <StatTile label="Last payment" value={summary.lastPayment ? fmtDate(summary.lastPayment.date) : "—"} />
+        <StatTile
+          label="Last payment"
+          value={summary.lastPayment ? fmtDate(summary.lastPayment.date) : "—"}
+        />
       </div>
 
       <div className="flex items-center justify-end gap-050">
@@ -124,7 +139,9 @@ export function LedgerTab({ customer }: { customer: Customer }) {
             onClick={() => setRange(r as 90 | 180 | 365)}
             className={cn(
               "rounded-medium px-100 py-025 text-body-small font-medium",
-              range === r ? "bg-background-brand-boldest text-white" : "text-text-subtle hover:bg-surface-sunken",
+              range === r
+                ? "bg-background-brand-boldest text-white"
+                : "text-text-subtle hover:bg-surface-sunken",
             )}
           >
             {r}d

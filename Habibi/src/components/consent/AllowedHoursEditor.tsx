@@ -21,7 +21,8 @@ export function AllowedHoursEditor({
 }) {
   const toggle = (d: number) => {
     const set = new Set(window.days);
-    set.has(d) ? set.delete(d) : set.add(d);
+    if (set.has(d)) set.delete(d);
+    else set.add(d);
     onChange({ ...window, days: Array.from(set).sort() });
   };
 
@@ -57,7 +58,9 @@ export function AllowedHoursEditor({
             className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
           >
             {Array.from({ length: 24 }, (_, i) => (
-              <option key={i} value={i}>{String(i).padStart(2, "0")}:00</option>
+              <option key={i} value={i}>
+                {String(i).padStart(2, "0")}:00
+              </option>
             ))}
           </select>
         </div>
@@ -69,7 +72,9 @@ export function AllowedHoursEditor({
             className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
           >
             {Array.from({ length: 24 }, (_, i) => (
-              <option key={i} value={i}>{String(i).padStart(2, "0")}:00</option>
+              <option key={i} value={i}>
+                {String(i).padStart(2, "0")}:00
+              </option>
             ))}
           </select>
         </div>

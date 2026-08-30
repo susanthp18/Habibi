@@ -9,13 +9,19 @@ interface Props {
 }
 
 export function ViewToggle({ view, onChange }: Props) {
-  const item = (v: UpsellView, label: string, Icon: React.ComponentType<{ className?: string }>) => (
+  const item = (
+    v: UpsellView,
+    label: string,
+    Icon: React.ComponentType<{ className?: string }>,
+  ) => (
     <button
       key={v}
       onClick={() => onChange(v)}
       className={cn(
         "inline-flex items-center gap-075 rounded px-150 py-050 text-body-small transition-colors",
-        view === v ? "bg-background-brand-bold text-white" : "text-text-subtle hover:bg-surface-sunken",
+        view === v
+          ? "bg-background-brand-bold text-white"
+          : "text-text-subtle hover:bg-surface-sunken",
       )}
     >
       <Icon className="h-3.5 w-3.5" />

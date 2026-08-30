@@ -23,13 +23,7 @@ import {
 import { apiGet, mockDelay, USE_MOCK } from "./config";
 
 export type WorkItemEntityType =
-  | "dispute"
-  | "callback"
-  | "document_request"
-  | "promise"
-  | "followup"
-  | "lead"
-  | "bounce";
+  "dispute" | "callback" | "document_request" | "promise" | "followup" | "lead" | "bounce";
 
 export interface WorkItem extends QueueRow {
   entityType: WorkItemEntityType;
@@ -57,8 +51,7 @@ interface WorkItemApi {
 }
 
 function mapWorkItem(row: WorkItemApi): WorkItem {
-  const amount =
-    row.amount === null || row.amount === undefined ? undefined : Number(row.amount);
+  const amount = row.amount === null || row.amount === undefined ? undefined : Number(row.amount);
   return {
     id: row.id,
     customer: row.customer ?? "Unknown",

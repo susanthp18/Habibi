@@ -1,4 +1,4 @@
-"""Agent Card compiler — G0–G8. Empty card is legacy; invalid card cannot publish."""
+"""Agent Card compiler — G0–G15. Empty card is legacy; invalid card cannot publish."""
 
 from __future__ import annotations
 
@@ -13,14 +13,22 @@ from agent_core.cards.defaults import (
 from agent_core.tools.catalog import CATALOG
 
 
-def _compile(bot_id: str, card=None, flow=None, bots=None):
+def _compile(bot_id: str, card=None, flow=None, bots=None, **kwargs):
     raw = card if card is not None else card_dump(bot_id)
+    if flow is None:
+        if bot_id == COLLECTIONS_BOT_ID:
+            from voice.flow_export import built_in_collections_graph
+
+            flow = built_in_collections_graph()
+        else:
+            flow = {}
     return compile_card(
         bot_id=bot_id,
         card_raw=raw,
-        flow=flow or {},
+        flow=flow,
         catalog_names=set(CATALOG.specs),
         known_bot_ids=bots or {COLLECTIONS_BOT_ID, INTAKE_BOT_ID, INSURANCE_BOT_ID, "supervisor-brief"},
+        **kwargs,
     )
 
 
@@ -98,3 +106,87 @@ def test_g12_and_g14_are_honest_on_first_party_cards() -> None:
     assert g13.status == "skipped"
     assert g14.status == "skipped"
     assert report.ok
+
+
+# --- G15 voice_locale -------------------------------------------------------
+#
+# The gate that exists because a draft on the live demo card carried
+# ``fish:7e4fa512aa564e198f8659b466f6ff70`` — AboFlah, an Arabic Fish voice — on
+# a card whose persona is English / en-IN, and cleared G0-G14 with Publish
+# enabled. Warning severity on purpose: a localisation override is a real thing
+# an operator does, so refusing it would be wrong more often than right. What
+# the compiler must not do is stay silent.
+
+
+def _g15(**kwargs):
+    report = _compile(COLLECTIONS_BOT_ID, **kwargs)
+    return next(g for g in report.gates if g.gate == "G15")
+
+
+def test_an_arabic_voice_on_an_english_card_warns() -> None:
+    gate = _g15(
+        voice_short_name="fish:7e4fa512aa564e198f8659b466f6ff70",
+        voice_locale="ar",
+        card_locales=["en-IN", "hi-IN"],
+    )
+    assert gate.status == "warn"
+    assert "ar" in gate.detail and "en-IN" in gate.detail
+    assert gate.issues == [
+        {
+            "voice": "fish:7e4fa512aa564e198f8659b466f6ff70",
+            "voiceLocale": "ar",
+            "cardLocales": ["en-IN", "hi-IN"],
+        }
+    ]
+
+
+def test_a_matching_voice_passes() -> None:
+    gate = _g15(
+        voice_short_name="en-IN-AartiNeural",
+        voice_locale="en-IN",
+        card_locales=["en-IN", "hi-IN"],
+    )
+    assert gate.status == "pass"
+
+
+def test_a_warning_does_not_block_the_publish() -> None:
+    """The whole severity decision, asserted rather than described."""
+    report = _compile(
+        COLLECTIONS_BOT_ID,
+        voice_short_name="fish:7e4fa512aa564e198f8659b466f6ff70",
+        voice_locale="ar",
+        card_locales=["en-IN"],
+    )
+    assert next(g for g in report.gates if g.gate == "G15").status == "warn"
+    assert report.ok, [g.gate for g in report.blocking]
+
+
+def test_a_bare_language_code_matches_a_regional_tag() -> None:
+    """Only Azure publishes en-IN; every other provider syncs a bare ``en``.
+
+    Comparing whole tags would warn on every Cartesia and Fish English voice a
+    card legitimately uses, and a warning that fires on the correct case is one
+    an operator learns to click past.
+    """
+    assert _g15(voice_short_name="cartesia:x", voice_locale="en", card_locales=["en-IN"]).status == "pass"
+    assert _g15(voice_short_name="azure:x", voice_locale="hi-IN", card_locales=["hi-IN"]).status == "pass"
+
+
+def test_a_fallback_language_is_part_of_the_card_set() -> None:
+    """A Hindi voice on an English card with a Hindi fallback is authored, not
+    accidental — the vernacular fallback is why the field exists."""
+    assert _g15(
+        voice_short_name="hi-IN-SwaraNeural", voice_locale="hi-IN", card_locales=["en-IN", "hi-IN"]
+    ).status == "pass"
+
+
+def test_an_unresolvable_voice_skips_rather_than_guessing() -> None:
+    """What the runtime speaks then is the fallback voice, whose locale is not
+    the stored id's. get_tts_voice_warning already reports that id; this gate
+    inventing a second opinion about it would be the wrong answer twice."""
+    assert _g15(voice_short_name="ravi", voice_locale=None, card_locales=["en-IN"]).status == "skipped"
+
+
+def test_no_voice_and_no_language_skip() -> None:
+    assert _g15().status == "skipped"
+    assert _g15(voice_short_name="en-IN-AartiNeural", voice_locale="en-IN").status == "skipped"

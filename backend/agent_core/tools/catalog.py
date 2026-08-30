@@ -255,6 +255,42 @@ CREATE_PROMISE_TO_PAY = _r(
                 required=True,
                 aliases=("promisedDate", "promised_date"),
             ),
+            # A promise is amount and date, and those two say nothing about
+            # whether it will be kept. Broken-PTP rates differ sharply between a
+            # borrower who proposed a number and one who agreed to ours, and
+            # between a firm commitment and a hedged one — and none of that was
+            # recorded anywhere, so "PTP capture rate" looked identical for an
+            # agent negotiating and an agent extracting a yes.
+            ArgSpec(
+                name="confidence",
+                type="string",
+                description=(
+                    "How firm the commitment sounded. firm: they stated it "
+                    "plainly and without hedging. hedged: they agreed but with "
+                    "conditions or uncertainty ('I'll try', 'if my salary "
+                    "comes'). extracted: they agreed only after you proposed it "
+                    "more than once. Report what you heard, not what you hoped."
+                ),
+                enum=("firm", "hedged", "extracted"),
+            ),
+            ArgSpec(
+                name="whose_number",
+                type="string",
+                description=(
+                    "Who named the amount — 'customer' if they proposed it, "
+                    "'agent' if they accepted a figure you suggested."
+                ),
+                enum=("customer", "agent"),
+                aliases=("whoseNumber",),
+            ),
+            ArgSpec(
+                name="verbatim",
+                type="string",
+                description=(
+                    "Short quote of the commitment in their own words. No "
+                    "account numbers."
+                ),
+            ),
         ),
         channels=BOTH,
         entity="promise",
@@ -286,6 +322,113 @@ FLAG_DISPUTE = _r(
         channels=BOTH,
         entity="dispute",
         deep_link="/disputes?id={id}",
+    )
+)
+
+# Why the borrower has not paid, as a code rather than a paragraph.
+#
+# The system can already say an account is 45 DPD with two bounces. It has never
+# been able to say the borrower lost their job in June — the closest thing was a
+# keyword intent bucket and a free-text note, neither of which can segment a
+# book. The value of this tool is entirely in the closed vocabulary: `forgot` is
+# what tells the decision engine it just spent a voice call on somebody a
+# reminder would have cured, and that is the label an uplift model needs in
+# order to learn not to dial the next borrower like them.
+NONPAYMENT_REASONS = (
+    "salary_timing",
+    "income_loss",
+    "medical",
+    "mandate_broken",
+    "disputes_amount",
+    "competing_obligation",
+    "forgot",
+    "unwilling",
+    "not_stated",
+)
+
+CAPTURE_NONPAYMENT_REASON = _r(
+    ToolSpec(
+        name="capture_nonpayment_reason",
+        description=(
+            "Record WHY the customer has not paid, using one of the fixed codes. "
+            "Call this once, as soon as they give a reason in their own words — "
+            "before negotiating, because the reason changes what may be offered. "
+            "Choose the code that matches what they actually said; use "
+            "'not_stated' if they would not say. Never guess a reason from the "
+            "account balance. Declaring hardship (income_loss, medical) stops "
+            "any product offer for the rest of the call."
+        ),
+        args=(
+            ArgSpec(
+                name="reason",
+                type="string",
+                description=(
+                    "salary_timing: money arrives after the EMI date. "
+                    "income_loss: job loss or business downturn. "
+                    "medical: illness or hospitalisation. "
+                    "mandate_broken: the auto-debit is failing but they are willing. "
+                    "disputes_amount: they believe the amount is wrong. "
+                    "competing_obligation: paying another lender first. "
+                    "forgot: genuine oversight, they intend to pay. "
+                    "unwilling: able to pay and refusing. "
+                    "not_stated: they would not say."
+                ),
+                required=True,
+                enum=NONPAYMENT_REASONS,
+                aliases=("nonpaymentReason", "code"),
+            ),
+            ArgSpec(
+                name="verbatim",
+                type="string",
+                description=(
+                    "Short paraphrase of what they said, in their words. "
+                    "No amounts, no account numbers."
+                ),
+            ),
+        ),
+        channels=BOTH,
+    )
+)
+
+SET_CONTACT_PREFERENCE = _r(
+    ToolSpec(
+        name="set_contact_preference",
+        description=(
+            "Record the hours the customer says we may call them, when they "
+            "state a restriction in their own words - 'don't call before ten', "
+            "'not after six', 'mornings only'. Call this the moment they say it, "
+            "not at the end. It can only make the calling window SMALLER: if "
+            "they say we may call any time, do not call this tool, because "
+            "removing a restriction they set earlier needs a person. Never infer "
+            "a preference from when they happened to answer."
+        ),
+        args=(
+            ArgSpec(
+                name="earliest_hour",
+                type="integer",
+                description=(
+                    "First hour of the day we may call, 0-23, local time. "
+                    "'not before ten' is 10. Omit if they only named a latest hour."
+                ),
+                aliases=("earliestHour", "from_hour", "notBefore"),
+            ),
+            ArgSpec(
+                name="latest_hour",
+                type="integer",
+                description=(
+                    "Last hour of the day we may call, 0-23, local time. "
+                    "'not after six in the evening' is 18. Omit if they only "
+                    "named an earliest hour."
+                ),
+                aliases=("latestHour", "to_hour", "notAfter"),
+            ),
+            ArgSpec(
+                name="verbatim",
+                type="string",
+                description="Short paraphrase of what they said, in their words.",
+            ),
+        ),
+        channels=BOTH,
     )
 )
 

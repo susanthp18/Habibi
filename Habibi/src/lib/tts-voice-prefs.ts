@@ -37,7 +37,9 @@ export function toggleTtsFavorite(shortName: string): string[] {
   const sn = shortName.trim();
   if (!sn) return loadTtsFavorites();
   const cur = loadTtsFavorites();
-  const next = cur.includes(sn) ? cur.filter((x) => x !== sn) : [sn, ...cur].slice(0, MAX_FAVORITES);
+  const next = cur.includes(sn)
+    ? cur.filter((x) => x !== sn)
+    : [sn, ...cur].slice(0, MAX_FAVORITES);
   writeStringArray(FAVORITES_KEY, next);
   return next;
 }

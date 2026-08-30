@@ -25,6 +25,18 @@ from env_loader import load_env
 logger = logging.getLogger(__name__)
 
 
+class OutboundDisabled(RuntimeError):
+    """The master outbound switch is off, so no dial was attempted.
+
+    Distinct from every other failure this module raises: nothing was tried,
+    nothing reached the carrier, and retrying changes nothing until an operator
+    turns the switch on. Callers that record attempts use it to write a
+    *suppressed* row rather than a failed one — a dial we declined to place is
+    not a dial the carrier rejected, and conflating them corrupts the answer
+    rate every outbound metric is built on.
+    """
+
+
 def _env(name: str, default: str = "") -> str:
     load_env()
     return (os.getenv(name) or default).strip()
@@ -269,9 +281,45 @@ def start_outbound_call(
     *,
     to: str,
     custom: dict[str, str] | None = None,
+    machine_detection: bool = False,
+    from_number: str | None = None,
 ) -> dict[str, Any]:
-    """Dial ``to`` and connect the answer leg into Media Streams."""
-    from_number = twilio_phone()
+    """Dial ``to`` and connect the answer leg into Media Streams.
+
+    ``status_callback`` is the important argument and it used to be absent. A
+    call created without one reports nothing: Twilio knows it rang out, was
+    busy, or hit a dead number, and we never hear about it. Every attempt state
+    after ``dialing`` in :mod:`outbound` arrives through this callback, so
+    omitting it is what made an unanswered dial invisible to the product.
+
+    The events are named explicitly rather than left to the default. Twilio's
+    default for the REST API is ``completed`` only, which would give us the
+    ending and never the ringing — and ring-to-answer time is a direct input to
+    per-hour reachability.
+
+    ``machine_detection`` asks the *carrier* for an answering-machine verdict,
+    delivered as ``AnsweredBy`` on the callback. It is off by default: Pipecat's
+    in-band detector in ``voice/amd.py`` is the accurate one and already runs,
+    and carrier AMD delays the connect on every dial to buy a signal we mostly
+    already have. Running both and logging disagreement is the cheap way to
+    decide, which is why this is a parameter rather than a deletion.
+    """
+    # The master outbound switch, checked here and not at any of the three call
+    # sites. This is the only function in the product that reaches the carrier,
+    # so a gate here is the one an operator can actually rely on: a future
+    # caller cannot forget to ask, and a bypass would have to be written into
+    # this file. Off by default in every deployment — see `platform_switches`.
+    import platform_switches
+
+    if not platform_switches.outbound_enabled():
+        logger.warning("outbound dial to %s refused — outbound switch is OFF", to)
+        raise OutboundDisabled(
+            "outbound_disabled: turn on outbound calling in Roles & access first"
+        )
+
+    # A caller ID from the tenant's number pool wins; the environment's single
+    # number is the fallback every dial used before pools existed.
+    from_number = (from_number or "").strip() or twilio_phone()
     if not from_number:
         raise RuntimeError("TWILIO_PHONE_NUMBER missing")
     twiml = twiml_connect_stream(
@@ -280,9 +328,68 @@ def start_outbound_call(
             **(custom or {}),
         }
     )
-    call = _client().calls.create(to=to, from_=from_number, twiml=twiml)
+    kwargs: dict[str, Any] = {"to": to, "from_": from_number, "twiml": twiml}
+    status_cb = call_status_callback_url()
+    if status_cb:
+        kwargs["status_callback"] = status_cb
+        kwargs["status_callback_method"] = "POST"
+        kwargs["status_callback_event"] = ["initiated", "ringing", "answered", "completed"]
+    else:
+        # Loud, because the dial still works and the evidence silently does not.
+        logger.warning(
+            "Twilio outbound has no status callback URL (PUBLIC_BASE_URL unset) — "
+            "this call's outcome will never be recorded"
+        )
+    if machine_detection:
+        kwargs["machine_detection"] = "Enable"
+        kwargs["async_amd"] = "true"
+
+    # What we asked Twilio to do, recorded before we ask. Two answered calls
+    # played silence and the logs could not say whether the TwiML carried a
+    # stream, because nothing logged the TwiML. The bytes and the stream host
+    # are enough to tell "we sent no stream" from "we sent one and it was never
+    # dialled", which are different bugs in different systems.
+    from voice.call_trace import event, redact_phone, redact_url
+
+    stream_url = media_stream_wss_url()
+    custom_ids = custom or {}
+    event(
+        "dial.requested",
+        to=redact_phone(to),
+        from_number=redact_phone(from_number),
+        stream=redact_url(stream_url),
+        twiml_bytes=len(twiml or ""),
+        has_stream="<Stream" in (twiml or ""),
+        status_cb=bool(status_cb),
+        amd=machine_detection,
+        attempt=custom_ids.get("attempt_id"),
+        objective=custom_ids.get("objective"),
+        demo=custom_ids.get("demo"),
+        custom=",".join(sorted(custom_ids.keys())) or "-",
+    )
+    try:
+        call = _client().calls.create(**kwargs)
+    except Exception as exc:
+        event(
+            "dial.failed",
+            to=redact_phone(to),
+            error=type(exc).__name__,
+            attempt=custom_ids.get("attempt_id"),
+            objective=custom_ids.get("objective"),
+            demo=custom_ids.get("demo"),
+        )
+        raise
+    event(
+        "dial.placed",
+        sid=call.sid,
+        to=redact_phone(to),
+        status=call.status,
+        attempt=custom_ids.get("attempt_id"),
+        objective=custom_ids.get("objective"),
+        demo=custom_ids.get("demo"),
+    )
     logger.info("Twilio outbound started call_sid=%s to=%s", call.sid, to)
-    return {"callSid": call.sid, "to": to, "status": call.status}
+    return {"callSid": call.sid, "to": to, "status": call.status, "from": from_number}
 
 
 def warm_transfer_to_supervisor(

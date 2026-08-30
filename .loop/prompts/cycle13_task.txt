@@ -1,0 +1,63 @@
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 565 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart services on ports 8000/7860/8080.
+Run real pytest suites and report actual output.
+
+
+TASK: fix THREE more findings from the discovery audit
+(.loop/out/cycle10.txt findings 8, 9, 13). Tight, root-cause fixes only:
+
+--- FIX 1: bot_tools.py ~line 799 — connector dispatch drops model arguments ---
+CURRENT: `result = dispatch(name, customer_id=ctx.customer_id)`; `args` was parsed
+and validated around :784 but never forwarded, and _call_remote hardcodes
+"arguments": {"customer_id": customer_id}. Any remote MCP tool taking a second
+parameter silently receives nothing.
+REQUIRED: thread args through dispatch() into the JSON-RPC "arguments" payload,
+merged OVER the customer_id default (customer_id remains always present).
+Backwards compatible: existing calls with no args behave identically. Update the
+dispatch signature and _call_remote in agent_core/connectors/persist.py; add a
+test asserting the remote payload contains both customer_id and a passed extra arg.
+
+--- FIX 2: agent_core/skills/sign.py ~line 16 — hardcoded dev signing key ---
+CURRENT: `raw = (os.getenv("SKILL_PLATFORM_KEY") or
+"dev-skill-platform-key-not-for-prod").encode()` — an unconfigured deployment
+verifies signatures against a public constant, i.e. trusts forgeable packs at the
+G9 publish gate.
+REQUIRED: when SKILL_PLATFORM_KEY is unset, fall back to the dev key ONLY in an
+explicitly non-production context (e.g. ENV/APP_ENV in {dev,test,sandbox} as
+resolved elsewhere in this codebase — grep for how main.py/config decides env),
+else raise at verification time with a clear error message naming the env var.
+Add tests: missing key + production env -> raises; missing key + dev -> dev key;
+set key -> used.
+
+--- FIX 3: agent_core/skills/persist.py ~line 635 — corrupt signed pack silently
+substituted with unsigned disk pack ---
+CURRENT: parse failure of the signed DB pack logs then falls through to
+pack_for_slug(slug) — a corrupt tenant skill is served as platform-default content
+under the same slug (same fail-open class as cycle 12's runtime fix).
+REQUIRED: on signed-pack parse failure, skip that slug entirely (do NOT serve the
+disk substitute) and keep the logger.exception. The gated-write filter must deny
+rather than act on substituted content. Add a test: DB row with corrupt payload ->
+packs_for_slugs omits the slug entirely.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2535. Report tail verbatim.
+2. Files changed limited to backend/bot_tools.py,
+   backend/agent_core/connectors/persist.py, backend/agent_core/skills/**,
+   plus new/existing tests. Anything else: explain why explicitly.
+3. Report files changed + pytest tail + remaining issues.

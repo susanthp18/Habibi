@@ -121,14 +121,38 @@ tells the engine to escalate.
 `GET /treatment/cases` is the ladder view: one row per case, with the rungs
 already walked.
 
-## The action space, and the two that reach nobody
+## The action space, and the three that reach nobody
 
-`represent_mandate` and `emi_date_change` have `channel=None`. They consume no
-contact budget, face no calling-hour veto, and cost the borrower no goodwill —
-a debit that lands on payday is something they never notice.
+`represent_mandate`, `emi_date_change` and `self_service_plan` have
+`channel=None`. They consume no contact budget, face no calling-hour veto, and
+cost the borrower no goodwill — a debit that lands on payday is something they
+never notice.
 
-That exemption is why each carries limits of its own in `policy.py`. An action
+`NON_CONTACTING` is *derived* from the specs rather than listed, so a new
+`channel=None` action cannot be added without inheriting the exemption. That
+exemption is why each carries limits of its own in `policy.py`. An action
 nothing caps is an action that will be taken until it stops working.
+
+### Why the other two §6 concessions are not actions
+
+The design note proposes `part_payment_offer`, `restructure_offer` and
+`self_service_plan`. Only the last is genuinely an action.
+
+A part-payment or a restructure has to be **said to somebody**, which makes it a
+property of a contact rather than an alternative to one. Both live on the Action
+Contract's `allowedOffers`, where the authority matrix decides them. Modelling
+them as actions would have the engine ranking *"send a WhatsApp"* against
+*"offer a settlement"* as though those were the same kind of thing — and the
+first time the settlement won, a bot would have conceded money no authority
+matrix was asked about.
+
+`matrix.decide` escalates restructures and settlements unconditionally, so they
+are never reachable from a contract at all. What the contract *does* carry, when
+built with a connection, is the late-fee waiver ceiling the matrix already
+allows, plus `waiverRequiresIdentityCheck` — because whether the person who
+answered is the borrower is not knowable before the call, and a ceiling that
+quietly assumed verification would be a bot waiving a fee for whoever picked up
+the phone.
 
 | Guard | Why |
 |---|---|
@@ -137,6 +161,9 @@ nothing caps is an action that will be taken until it stops working.
 | `mandate_presentation_limit` | The rail's ceiling, expressed as a policy row rather than a constant, because it differs per client |
 | `mandate_retry_too_soon` | NACH settles at T+1/T+2; presenting again first debits the borrower twice for one EMI |
 | `emi_date_already_aligned` | Self-limiting: a successful change puts the credit ahead of the due date, the gap goes non-positive, and the veto starts firing on its own |
+| `arrears_not_yet_worth_a_plan` | One missed EMI is a wobble. Opening a repayment plan for it converts a forgetful borrower into a restructured one |
+| `no_digital_surface_to_offer_on` | An offer nobody can see is not an offer — a plan surfaces in the app, the portal or a statement |
+| `self_service_plan_already_open` | Two plans on one account is a borrower with two schedules and a dispute about which one they agreed to |
 
 **Return codes are diagnostic, and the engine now reads them.**
 `payment_events.reason` has carried the four categories since the schema was
@@ -214,6 +241,306 @@ caps and the cooling-off period stay in the environment, because they are
 operational settings this platform chose rather than obligations a regulator
 imposed — and a published rule is a *ceiling*, so a fabricated statutory cap
 would silently clamp every operator who raised theirs.
+
+## The estimators (P1)
+
+Three of the design note's four Layer 1 estimators are learned, and all three
+load from one artifact format in `models.py`. The fourth, cost, is accounting.
+
+| Estimator | Replaces | Label |
+|---|---|---|
+| **reach** | `REACH_PRIOR` | attributed outcome shows contact (`reached`/`ptp`/`refused`) vs `no_answer`/`undeliverable` |
+| **timing** | `urgency_halflife_hours` | did the account resolve with *nothing done to it* |
+| **uplift** | `p_resolve` | treated arm vs `null_treatment` arm — a T-learner, τ is the difference |
+
+`TREATMENT_SCORER=estimators` wraps `EVScorer` in whatever is loadable. Each
+term substitutes independently and falls back independently, so reach and
+timing can ship months before τ has a control arm big enough to fit against.
+With nothing loadable it *is* `EVScorer`.
+
+Fitted with `scripts/train_treatment_models.py`. Measured on an 18,000-decision
+simulated corpus (4,500 accounts, 3,668 in the randomised arm):
+
+| | |
+|---|---|
+| reach | holdout AUC **0.731** on 5,256 attempts |
+| timing | holdout AUC **0.812**, self-cure base rate 0.341 |
+| uplift | treated 52.1% vs control 34.1% → **ATE +0.179** |
+| ladder | 4 strata had the power to be tested, **1 promoted** |
+| off-policy | the estimator challenger scored **−0.019** against the logged policy, on an estimate its own diagnostics call untrustworthy (5,583 of 14,527 decisions unsupported) |
+
+That last row is the system working. The gate refused to promote it, naming
+three reasons, and recorded the challenger as considered-and-declined.
+
+### Four things that scored plausible numbers while being wrong
+
+Each was found by a metric that looked like a finding, and each is now a test.
+
+**`paid` is not evidence the phone was answered.** A borrower who was going to
+pay anyway pays whether the call connected or not, so counting it as a reach
+positive pours the whole self-cure population into the label. Measured: AUC
+0.504 with it, 0.70 without.
+
+**The design matrix was unscaled.** `exposure` is thousands of rupees and
+`intrusiveness` is 0.15; at a learning rate suiting the second, the first
+saturates every sigmoid on the first pass and the model predicts a constant. A
+constant predictor scores an AUC of *exactly* 0.500, which reads like "no
+signal" rather than "this diverged". The vector stays raw — `4503.96` is
+inspectable a year later and `0.31` is not — so the trainer standardises and
+folds the scaling back into the coefficients.
+
+**The vector could not tell two borrowers apart.** It carried the account and
+the attempt and almost nothing about the person. The design note asks for
+segment-level uplift over *bucket × channel × contactability × cash-flow
+pattern*; the first three were there. Return-code one-hots, broken promises,
+security, disputes and holds are the fourth.
+
+**`wait` decisions carried no feature vector.** Reasonable while silence was
+just the absence of an action. Once a control arm existed, a control-arm
+decision *is* a wait — so the engine was logging a full vector for every action
+it did not take and none for the one it did.
+
+## The granularity ladder (P1.5)
+
+τ is the difference of two noisy quantities, so it needs an order of magnitude
+more data than a response model. §9's rule is that granularity is *promoted*,
+never chosen: population → segment → individual, and each rung only if the
+holdout says the finer model beat the coarser one.
+
+`segments.py` defines what a segment is — **bucket × contactability × cash-flow
+pattern**, thirty cells at most, computed from the *logged vector* so an offline
+replay and a live decision cannot disagree about which stratum a March decision
+belonged to.
+
+Channel is not a dimension, and that is a choice. The design note lists it, but
+the action is already a feature *inside* each segment's model (`rung`,
+`intrusiveness`, `connect_rate_channel`), so partitioning on it as well would
+triple the cell count to learn something the model can already express — and
+every cell would hold a third of the data.
+
+### Three gates, all of which must pass
+
+`scripts/train_treatment_models.py` fits a T-learner per stratum and keeps only
+what survives:
+
+| Gate | Test | Why |
+|---|---|---|
+| **Power** | ≥150 treated and ≥200 control rows | a difference of two rates below that is mostly the arm split |
+| **Heterogeneity** | segment ATE more than 1.96 SE from the population ATE | the causal gate, backed by the randomisation rather than by a fit |
+| **Holdout fit** | both halves beat the population halves in log loss on held-out rows | the finer model has to actually predict better |
+
+The middle gate is the load-bearing one. A segment model will nearly always fit
+its own stratum better than a pooled model does — fewer rows to explain and its
+own intercept — so fit quality alone would promote every stratum, which is
+overfitting, and on a difference of two noisy quantities it is exactly how
+confident noise gets shipped.
+
+The report is emitted whether or not anything is promoted. *"We tested nine
+strata and two beat the population"* is the finding; an artifact that silently
+contained two segments would tell you only half of it.
+
+### Shrinkage, not switching
+
+A promoted segment never answers alone. `SegmentModel.weight(k) = n / (n + k)`
+blends it toward the population estimate, so a stratum with 600 rows barely
+moves the pooled answer and one with 60,000 dominates it — continuously.
+
+Hard-switching at a threshold would make τ discontinuous across a boundary a
+borrower crosses by *aging one day*. It is also precisely the machinery §14
+needs for cross-tenant priors: the only thing that changes there is what "the
+pool" means.
+
+A segment fitted under a different `SEGMENT_VERSION` is ignored wholesale — the
+keys would parse and score, they would just mean a different population, which
+no shape check can detect. A *malformed* segment is dropped while the artifact
+still loads, because the population model is right behind it; a malformed
+population model is refused, because nothing is.
+
+## Drift, calibration and the promotion gate (§15)
+
+`monitor.py` runs three checks that fail in three different ways, which is why
+there is no single "model health" score:
+
+- **Feature drift** — recent logged vectors against the artifact's training
+  means, in units of the training σ. *"dpd has moved by 11"* is not a finding
+  until you know whether 11 is a tenth of a σ or three. An artifact with no
+  recorded `stdevs` reports that it cannot be measured rather than reporting no
+  drift, which is what inventing a scale from the recent data would do.
+- **Reach calibration** — reliability bins and ECE against the `pReach` the
+  engine logged. That number is what the EV formula multiplied by rupees, so its
+  honesty is the thing that matters; re-predicting with today's model would
+  score today's model on yesterday's decisions and call the difference
+  calibration.
+- **Uplift calibration** — predicted mean τ against the ATE the randomised arm
+  measured. τ has no per-row label, so there is no curve to draw; but there is
+  one number the randomisation gives for free. **A model claiming +18 points on
+  a book whose control arm measured +4 has not found uplift — it has found
+  self-curers.** This is the only check that sees it.
+
+`registry.py` is the champion/challenger ledger. Promotion is **refused by
+default**: every rule is a reason to say no and there is no positive rule, because
+the cost of not promoting a good model is some foregone lift and the cost of
+promoting a bad one is a book's worth of decisions made confidently wrong.
+
+    scripts/promote_model.py --target uplift --artifact <path> --check
+    scripts/promote_model.py --target uplift --artifact <path> \
+        --evaluation report.json --by <who> --reason "SNIPS +0.031, ESS 62%"
+    scripts/promote_model.py --verify
+
+Refusals: no evaluation attached; holdout lift below `MIN_HOLDOUT_LIFT`; the
+estimate reporting itself untrustworthy; an uplift model naming no control arm;
+a measured ATE at or below zero; a simulated corpus; a stale artifact.
+
+**The registry gates and records. It does not serve.** `models.load_*` stays a
+pure file read — it runs in a service on the audio path of a live call, and a
+database between a scorer and its coefficients trades a real availability
+guarantee for a bookkeeping one. Promotion is what copies the artifact into the
+serving path, and `artifact_sha` is what makes that checkable: `--verify`
+detects a file replaced *after* a promotion, which a registry of version strings
+alone could not see. One champion per target is enforced by a partial unique
+index, so demotion is not something the promotion code has to remember.
+
+## The scoreboard (§17)
+
+`GET /treatment/metrics` — six categories, and the headline is **incremental
+recovery per rupee against the control arm, never a collections rate**. A
+response model looks excellent on collections rate precisely because it targets
+borrowers who were going to pay anyway and books their payments as its own, so a
+dashboard headlined that way shows the wrong system winning, in green, for
+months.
+
+Where an arm is too thin to support a causal figure the field says so and
+returns nothing. A metric that silently degrades to a non-causal proxy is worse
+than a missing one: a missing metric gets chased, a green one gets cited.
+
+Three honesty notes worth reading before the numbers:
+
+- **Recovery is read from `ledger_entries`, not `payment_events`.** The name
+  misleads: `payment_events.kind` is CHECK-constrained to `'bounce'`, so it is a
+  *returns* ledger and a recovery figure read from it is structurally zero.
+  Found by this metric reporting nothing recovered on a corpus where a fifth of
+  the book had cured — caught only because the corpus was large enough for zero
+  to be obviously wrong, which is the same class of failure as the complaint
+  rate below and the reason both are called out here rather than left to be
+  rediscovered.
+- **Attributable recovery is the incremental share only.** The rest belonged to
+  borrowers the control arm says would have paid anyway. Crediting all of it is
+  the response-model error in accounting form.
+- **The complaint rate has no source and says so.** `disputes.type` is
+  constrained to billing disputes — `paid_already`, `wrong_amount`,
+  `not_my_account`, `fee_waiver`, `duplicate_charge`, `fraud` — with no conduct
+  or harassment value, and nothing else in the schema records a complaint about
+  *how* a borrower was contacted. It needs a complaint intake before it can be a
+  number.
+
+**Window and cap breaches are audited from the ledger, not read off a denial
+reason.** There is no reason code for a breach and there should not be: the gate
+does not record permission it did not grant. So the check runs after the fact
+over allowed outbound contacts, and anything it finds got around
+`contact_policy.evaluate()` entirely — which means an executor reached a
+borrower without asking, and no amount of correct gate logic would have caught
+it. Target is zero, not "low".
+
+**Voice minutes per lakh recovered** is deliberately prominent. §18's point is
+that a working decision engine's first observable effect is a drop in call
+volume, and that this is the intended behaviour. Putting the drop next to the
+recovery it did not cost is what turns an alarming chart into the value
+proposition.
+
+## Sizing the control arm (§19.2)
+
+    scripts/power_control_arm.py --book 50000 --delinquency 0.05 --mde 0.02
+
+Prints the trade-off curve rather than a recommendation: for each control-arm
+fraction, the cases needed, the weeks to get them, and the incremental recovery
+forgone by withholding treatment from that arm. Choosing a point on it means
+weighing a measurement against real borrowers who were not contacted, and that
+is a decision with a name attached to it, not an argmax.
+
+Two things it gets right that a naive version would not:
+
+- **n is cases, not decisions.** `config.assign_variant` hashes the *customer
+  id*, so the unit of randomisation is the borrower. Counting decisions would
+  count one borrower's fortnight of daily sweeps as fourteen independent
+  observations of the same coin and report a book as powered weeks before it is.
+- **Repeat borrowers are clustered.** `--design-effect` applies the standard
+  `1 + (m−1)·ICC` inflation; `--from-db` measures the clustering rather than
+  assuming it away.
+
+The finding on a 50k book at 5% delinquency: a **5-point** effect is detectable
+in 5–15 weeks depending on the split. A **2-point** effect — which is the size
+uplift work actually deals in — is **not powerable inside two quarters at any
+split**. That is the product-strategy answer §19.2 asks for, and it is better
+known now than after a contract is shaped the other way.
+
+## Delivery receipts
+
+`contact_delivery_events` is an append-only log of transitions, not a status
+column. WhatsApp receipts already arrived and already updated
+`messages.delivery_status`, but that is a *current state*: a message that went
+sent → delivered → read leaves only "read", and the moment it was read — the
+fact that separates a borrower reachable at 09:00 from one reachable at all —
+was overwritten. SMS had no receipts at all; the Twilio SID was logged and
+dropped.
+
+`features._reachability` now prefers real receipts over the inbound-reply
+proxy, and takes `responsive_hours` from read times as well as voice connects.
+A borrower who reads every message and answers none is perfectly reachable and
+completely invisible to a reply rate.
+
+## Off-policy evaluation
+
+`ope.py` answers what a *different* policy would have recovered, from the log
+alone. `scripts/evaluate_policy.py` is the champion/challenger gate.
+
+Two questions, deliberately different machinery:
+
+- **"Does contacting people work?"** — a difference of means between the treated
+  arms and `null_treatment`. The arm assignment *is* the randomisation, so no
+  reweighting is applied; adding importance weights would add variance to a
+  question already settled by design.
+- **"Would a different ranking have done better?"** — IPS / SNIPS / DR over the
+  treated arms only. The control arm is excluded: it is not a different ranking
+  of the same actions, it is the absence of one.
+
+**Read the diagnostics before the estimate.** ESS, unsupported count and
+clipping are reported with every number, and `Estimate.trustworthy` is what
+gates a promotion. A deterministic logging policy has support on exactly one
+action per decision, so *every* disagreement is unsupported — which is why
+exploration had to come first.
+
+Measured on a 400-account, 10-day simulated book: the greedy-on-logged-EV policy
+scores SNIPS 0.594 against a logged baseline of 0.540, ESS 64%, 0 unsupported —
+trustworthy. The estimator-backed challenger scores −0.076 with ESS 26.6% and
+1054 of 2960 decisions unsupported, and is flagged **do not act on this**. That
+is the machinery working: it refuses to endorse a policy it cannot evaluate.
+
+## Layer 3 — book allocation
+
+`allocate.py`. Not an LP — two million accounts by nine actions is eighteen
+million variables. Lagrangian decomposition instead: price each scarce resource,
+subtract price × usage from every action's value, and the problem falls back
+into independent per-account argmaxes. Solve for the price at which demand meets
+capacity and the local answers are jointly optimal.
+
+**The dual prices are the output that matters**, not the plan. `costs.for_action`
+adds today's price to the ledger cost, so:
+
+```
+agent capacity abundant   ->  contact stays cheap
+agent capacity scarce     ->  contact becomes expensive
+field capacity exhausted  ->  field falls below the floor by itself
+```
+
+Nobody writes down "stop making field visits below ₹900". On a 200-account book
+with 400 agent-minutes, the solver prices an agent-minute at ₹17.50, field
+visits collapse from 272 to zero, and `represent_mandate` absorbs the displaced
+demand. It also found that the binding constraint was agent *minutes* rather
+than field slots — 45 minutes a visit is what actually runs out.
+
+`TREATMENT_DUAL_PRICING` is off by default and the write is a separate switch
+from the read, on purpose: an optimiser amplifies estimator error rather than
+correcting it, so solve first, look at the numbers, then decide.
 
 ## The corpus
 
@@ -325,6 +652,18 @@ restart.
 | `TREATMENT_MANDATE_MAX_PRESENTATIONS` | `3` | fallback when no policy rule is published |
 | `TREATMENT_COST_REPRESENT_MANDATE` | `0.50` | not zero on purpose — see `config.py` |
 | `TREATMENT_COST_EMI_DATE_CHANGE` | `15.0` | an LMS work item and somebody's ten minutes |
+| `TREATMENT_COST_SELF_SERVICE_PLAN` | `8.0` | no schedule to rebuild — the cost is the servicing tail of a half-completed plan |
+| `TREATMENT_SCORER` | `ev` | `estimators` to use whatever models load |
+| `TREATMENT_REACH_MODEL_PATH` | `models/treatment_reach.json` | |
+| `TREATMENT_TIMING_MODEL_PATH` | `models/treatment_timing.json` | |
+| `TREATMENT_UPLIFT_MODEL_PATH` | `models/treatment_uplift.json` | |
+| `TREATMENT_MODEL_MAX_AGE_DAYS` | `90` | refuse an artifact older than this |
+| `TREATMENT_ALLOW_SIMULATED_MODELS` | `false` | let a model of a synthetic book score real borrowers |
+| `TREATMENT_DUAL_PRICING` | `false` | let capacity prices reach `costs.for_action` |
+| `TREATMENT_CAPACITY_AGENT_MINUTES` | — | unset means unconstrained, not zero |
+| `TREATMENT_CAPACITY_FIELD_SLOTS` | — | |
+| `TREATMENT_CAPACITY_BOT_MINUTES` | — | |
+| `TREATMENT_CAPACITY_MANDATE_PRESENTATIONS` | — | |
 
 Built-in arms: `control`, `eager`, `patient`, `holdout`. Bucketing is hashed on
 the **customer**, so a borrower treated patiently after Monday's bounce and

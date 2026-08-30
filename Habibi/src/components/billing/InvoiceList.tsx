@@ -1,7 +1,11 @@
 import { useMemo } from "react";
 import { inrCompact, type Invoice } from "@/data/billing-seed";
 import { Lozenge } from "@/components/ui/lozenge";
-import { FilterTable, type FilterChip, type FilterTableColumn } from "@/components/records/FilterTable";
+import {
+  FilterTable,
+  type FilterChip,
+  type FilterTableColumn,
+} from "@/components/records/FilterTable";
 
 type InvoiceStatus = Invoice["status"];
 
@@ -42,7 +46,9 @@ export function InvoiceList({ invoices }: { invoices: Invoice[] }) {
         width: "0.8fr",
         cell: (inv) => (
           <Lozenge
-            tone={inv.status === "paid" ? "success" : inv.status === "pending" ? "warning" : "neutral"}
+            tone={
+              inv.status === "paid" ? "success" : inv.status === "pending" ? "warning" : "neutral"
+            }
             className="capitalize"
           >
             {inv.status}

@@ -11,6 +11,12 @@ import { useStore } from "@xyflow/react";
  * from the new, disagreeing about the very threshold they are meant to share.
  * Components-only modules on one side, plain values on the other, keeps refresh
  * predictable.
+ *
+ * Three tiers, because a flow canvas is read three different ways:
+ *
+ *   overview  (< LOD_ZOOM)     "where am I" — identity and what is broken
+ *   working   (LOD .. DETAIL)  "what does this step do" — the summary card
+ *   detail    (>= DETAIL_ZOOM) "everything" — tools and captured values by name
  */
 
 /** Below this, a node card is too small to read and swaps to a key-only form. */
@@ -22,10 +28,21 @@ export const LOD_ZOOM = 0.62;
  */
 export const LABEL_ZOOM = 0.8;
 
+/**
+ * At or above this a card has the room to name its tools and captured
+ * variables instead of counting them. Counting tells you a node has three
+ * tools; naming tells you one of them hangs up the call.
+ */
+export const DETAIL_ZOOM = 1.15;
+
 export function useCompact(): boolean {
   return useStore((s) => s.transform[2] < LOD_ZOOM);
 }
 
 export function useLabelsVisible(): boolean {
   return useStore((s) => s.transform[2] >= LABEL_ZOOM);
+}
+
+export function useDetail(): boolean {
+  return useStore((s) => s.transform[2] >= DETAIL_ZOOM);
 }

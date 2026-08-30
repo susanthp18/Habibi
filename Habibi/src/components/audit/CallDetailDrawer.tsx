@@ -23,11 +23,7 @@ import { AudioPlayer } from "./AudioPlayer";
 import { CallCostPanel } from "./CallCostPanel";
 import { SentimentTimeline } from "./SentimentTimeline";
 import { TranscriptView } from "./TranscriptView";
-import {
-  formatDateTime,
-  formatDuration,
-  type CallRecord,
-} from "@/data/audit-seed";
+import { formatDateTime, formatDuration, type CallRecord } from "@/data/audit-seed";
 
 interface Props {
   call: CallRecord | null;
@@ -74,11 +70,13 @@ export function CallDetailDrawer({ call, onClose }: Props) {
   const markers = useMemo(() => {
     if (!call) return [];
     return [
-      ...call.disclosures.filter((d) => d.read && d.atSec != null).map((d) => ({
-        t: d.atSec!,
-        tone: "var(--success)",
-        label: `Disclosure: ${d.label}`,
-      })),
+      ...call.disclosures
+        .filter((d) => d.read && d.atSec != null)
+        .map((d) => ({
+          t: d.atSec!,
+          tone: "var(--success)",
+          label: `Disclosure: ${d.label}`,
+        })),
       ...call.flags.map((f) => ({
         t: Math.max(4, call.duration * 0.6),
         tone: "var(--danger)",
@@ -115,16 +113,12 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                 </span>
               </div>
               <div className="mt-050 flex items-center gap-100">
-                <h2 className="truncate text-[0.875rem] font-semibold text-text">
-                  {call.customerName}
-                </h2>
+                <h2 className="truncate text-body font-semibold text-text">{call.customerName}</h2>
                 <span className="text-body-small text-text-subtle">{call.phoneMasked}</span>
                 <span className="text-body-small text-text-subtlest">· {call.accountId}</span>
               </div>
               <div className="mt-075 flex flex-wrap items-center gap-100 text-body-small">
-                <Lozenge tone="selected">
-                  {call.disposition}
-                </Lozenge>
+                <Lozenge tone="selected">{call.disposition}</Lozenge>
                 {call.handledBy.kind === "bot" && (
                   <span className="inline-flex items-center gap-050 text-text-subtle">
                     <Bot className="h-3.5 w-3.5" /> {call.handledBy.bot}
@@ -137,7 +131,8 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                 )}
                 {call.handledBy.kind === "handoff" && (
                   <span className="inline-flex items-center gap-050 text-text-subtle">
-                    <ArrowLeftRight className="h-3.5 w-3.5" /> {call.handledBy.bot} → {call.handledBy.agent}
+                    <ArrowLeftRight className="h-3.5 w-3.5" /> {call.handledBy.bot} →{" "}
+                    {call.handledBy.agent}
                   </span>
                 )}
               </div>
@@ -195,7 +190,11 @@ export function CallDetailDrawer({ call, onClose }: Props) {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-250 py-150">
             <TabsContent value="transcript" className="mt-0">
-              <TranscriptView turns={call.transcript} currentTime={currentTime} onSeek={setCurrentTime} />
+              <TranscriptView
+                turns={call.transcript}
+                currentTime={currentTime}
+                onSeek={setCurrentTime}
+              />
             </TabsContent>
 
             {/* Per-turn timeline: which tools ran, what was retrieved and where
@@ -233,7 +232,9 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                 <div className="mb-050 text-body-small font-semibold text-text-subtlest">Flags</div>
                 <div className="flex flex-wrap gap-075">
                   {call.flags.length === 0 ? (
-                    <span className="text-body-small text-text-success">Clean call — no flags.</span>
+                    <span className="text-body-small text-text-success">
+                      Clean call — no flags.
+                    </span>
                   ) : (
                     call.flags.map((f) => (
                       <Lozenge key={f} tone="danger">
@@ -248,7 +249,10 @@ export function CallDetailDrawer({ call, onClose }: Props) {
             <TabsContent value="disclosures" className="mt-0">
               <ul className="divide-y divide-border rounded-medium border border-border bg-surface">
                 {call.disclosures.map((d) => (
-                  <li key={d.id} className="flex items-center justify-between gap-150 px-150 py-100">
+                  <li
+                    key={d.id}
+                    className="flex items-center justify-between gap-150 px-150 py-100"
+                  >
                     <div className="flex items-center gap-100">
                       {d.read ? (
                         <ShieldCheck className="h-4 w-4 text-text-success" />
@@ -259,7 +263,9 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                     </div>
                     <div className="text-body-small">
                       {d.read ? (
-                        <span className="font-mono text-text-subtle">at {formatDuration(d.atSec ?? 0)}</span>
+                        <span className="font-mono text-text-subtle">
+                          at {formatDuration(d.atSec ?? 0)}
+                        </span>
                       ) : (
                         <span className="font-medium text-text-danger">Missed</span>
                       )}

@@ -465,6 +465,7 @@ def synthesize(
     pitch: int = 0,
     warmth: int = 60,
     pause_ms: int = 300,
+    force_fresh: bool = False,
 ) -> dict[str, Any]:
     """Synthesize MP3 audio. Returns {audio, contentType, cacheHit, cacheKey, voiceName, latencyMs}."""
     voice = (voice_name or get_default_voice()).strip()
@@ -481,8 +482,14 @@ def synthesize(
     # exists() → read_bytes() is not atomic, and _maybe_sweep_tts_cache() above
     # can evict this very entry in between. Treat the race as a miss and
     # synthesize rather than raising FileNotFoundError at the caller.
+    # `force_fresh` is the studio's re-roll. Azure is effectively deterministic
+    # — with this cache cleared, three synthesises of the same text returned
+    # 85248 bytes every time, differing only in low-order encoder bits — so the
+    # studio does not offer a re-roll for Azure voices. Honoured anyway: the
+    # request can be made, and silently serving a cache hit for an explicit
+    # "new take" would be the kind of lie this path already had one of.
     try:
-        if path.exists() and path.stat().st_size > 0:
+        if not force_fresh and path.exists() and path.stat().st_size > 0:
             return {
                 "audio": path.read_bytes(),
                 "contentType": "audio/mpeg",

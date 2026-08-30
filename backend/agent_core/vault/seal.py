@@ -12,14 +12,44 @@ import hashlib
 import hmac
 import os
 
+# The "is this actually a laptop?" test, shared rather than re-typed: a second
+# copy of an allow-list like this drifts, and the two keys it guards must agree
+# on what counts as production. It lives in ``env_utils`` — the leaf — rather
+# than in the skill signer, so sealing a connector credential does not drag in
+# skill packs to answer a question about ``APP_ENV``.
+from env_utils import NON_PROD_ENVS, env_name
+
 _NONCE = 16
 _TAG = 32
 
+DEV_MASTER_KEY = "dev-vault-master-key-not-for-prod"
+
 
 def master_key() -> bytes:
-    raw = (os.getenv("VAULT_MASTER_KEY") or os.getenv("SKILL_PLATFORM_KEY") or "").strip()
+    """The key every ``vault_refs.ciphertext`` is sealed under.
+
+    ``VAULT_MASTER_KEY`` is the only variable that names it. It used to fall
+    back to ``SKILL_PLATFORM_KEY`` — the skill *signing* key — which meant one
+    operator secret silently did two unrelated jobs: anyone who could read or
+    rotate the signing key could also open every sealed connector credential,
+    and rotating it for a signing incident would have made the vault
+    undecryptable. Two secrets, two variables.
+
+    As with :func:`agent_core.skills.sign.platform_key`, the built-in
+    development key is still right for a laptop, but only where the environment
+    says it is not production.
+    """
+    raw = (os.getenv("VAULT_MASTER_KEY") or "").strip()
     if not raw:
-        raw = "dev-vault-master-key-not-for-prod"
+        env = env_name()
+        if env not in NON_PROD_ENVS:
+            raise RuntimeError(
+                "VAULT_MASTER_KEY is not set and APP_ENV=" + env + " is not a "
+                "non-production environment " + str(sorted(NON_PROD_ENVS)) + ". "
+                "Vault ciphertext must not be sealed with the built-in "
+                "development key outside development. Set VAULT_MASTER_KEY."
+            )
+        raw = DEV_MASTER_KEY
     return hashlib.sha256(raw.encode("utf-8")).digest()
 
 

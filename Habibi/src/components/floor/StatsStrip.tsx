@@ -36,7 +36,9 @@ function Tile({ label, value, icon: Icon, live, active, tone = "default", onClic
       onClick={onClick}
       className={cn(
         "flex min-w-0 flex-1 items-center gap-150 rounded-large border bg-surface px-150 py-100 text-left transition-colors",
-        active ? "border-border-brand bg-background-brand-subtlest/40" : "border-border hover:bg-surface-sunken",
+        active
+          ? "border-border-brand bg-background-brand-subtlest/40"
+          : "border-border hover:bg-surface-sunken",
       )}
     >
       <div className={cn("grid h-400 w-400 shrink-0 place-items-center rounded-medium", iconTone)}>
@@ -47,7 +49,9 @@ function Tile({ label, value, icon: Icon, live, active, tone = "default", onClic
           {label}
           {live && <span className="h-1.5 w-1.5 pulse-dot rounded-full bg-background-success" />}
         </div>
-        <div className="tabular truncate text-[1.25rem] font-semibold leading-tight text-text">{value}</div>
+        <div className="tabular truncate heading-medium font-semibold leading-tight text-text">
+          {value}
+        </div>
       </div>
     </button>
   );

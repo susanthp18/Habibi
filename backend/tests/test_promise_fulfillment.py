@@ -197,7 +197,11 @@ def test_auto_break_after_due(db_tx) -> None:
     import promise_fulfillment
 
     customer_id, account_id = _customer(db_tx)
-    result = _create(customer_id, account_id, amount=90.0, days=-1)
+    # Created for a real (future) date — the tool refuses a promise that was
+    # already past when it was made, since its pay link would expire before the
+    # customer could use it. Overdue is a state the row *reaches*, so the
+    # UPDATE below back-dates it, which is what this test is actually about.
+    result = _create(customer_id, account_id, amount=90.0, days=1)
     assert result.ok
     pid = result.data["promiseId"]
     db_tx.execute(

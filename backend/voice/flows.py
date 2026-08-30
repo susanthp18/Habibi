@@ -350,9 +350,18 @@ def build_collections_flow(
                 }
             ],
             # ≤5–6 node-local tools (+ globals). Common actions on the hub.
+            #
+            # `capture_nonpayment_reason` is node-local rather than global for a
+            # reason worth stating: an idle tool sits in the prompt of every
+            # node on every turn, and G6 caps that at twelve because the cost is
+            # real. This is the node where the borrower has just been told what
+            # they owe, which is where they say why they have not paid — so a
+            # node-local grant buys nearly all of the coverage for none of the
+            # standing cost.
             "functions": [
                 tools["get_account_position"],
                 tools["create_promise_to_pay"],
+                tools["capture_nonpayment_reason"],
                 tools["request_callback"],
                 tools["begin_negotiate"],
                 tools["begin_dispute"],
@@ -460,6 +469,7 @@ def build_collections_flow(
             "functions": [
                 tools["get_account_position"],
                 tools["create_promise_to_pay"],
+                tools["capture_nonpayment_reason"],
                 tools["request_callback"],
                 tools["recommend_next_offer"],
                 tools["capture_lead"],
@@ -646,9 +656,16 @@ def build_collections_flow(
                     ),
                 }
             ],
+            # `set_contact_preference` is granted here and nowhere else in this
+            # graph. "Anything else?" is the turn where a borrower says "and
+            # please don't ring me before ten" — it is the one node that asks an
+            # open question and then waits. Granting it on the hub as well would
+            # buy a little more coverage for a standing latency cost on the
+            # busiest node in the call, which is the trade G6 exists to police.
             "functions": [
                 tools["capture_lead"],
                 tools["decline_offer"],
+                tools["set_contact_preference"],
                 tools["return_to_position"],
                 tools["end_call"],
             ],
@@ -710,6 +727,107 @@ def build_collections_flow(
             "post_actions": [{"type": "end_conversation"}],
         }
 
+    def confirm_identity() -> dict[str, Any]:
+        """The outbound door. We dialled them, so this is confirmation, not challenge.
+
+        An inbound caller has to prove who they are: they rang an unknown number
+        and asked about an account. An outbound call inverts that entirely — we
+        chose the number, so the only open question is whether the person who
+        picked it up is the borrower. Running the inbound verification ceremony
+        here would demand an account tail from someone we called out of the
+        blue, which is both irritating and exactly what a scam call does.
+
+        Nothing about the debt may be said until the answer is yes. That is the
+        whole point of the node, and it is why the tool list is this short.
+        """
+        return {
+            "name": "confirm_identity",
+            "role_message": role,
+            "task_messages": [
+                {
+                    "role": "developer",
+                    "content": (
+                        "You placed this call. Open by greeting them, giving your "
+                        "name and the bank, and asking to confirm you are speaking "
+                        "to the account holder by FIRST NAME only.\n"
+                        "Until they confirm, say NOTHING about: an account, a "
+                        "balance, an amount, a payment, an overdue, a loan, a "
+                        "product, or the word collections. If they ask what it is "
+                        "about before confirming, say it is a personal matter "
+                        "regarding their account with the bank and repeat the "
+                        "confirmation question once.\n"
+                        "They confirm it is them → verify_identity to complete the "
+                        "check, then continue.\n"
+                        "They say it is not them, they are a relative or colleague, "
+                        "they are evasive, or you are simply not sure → "
+                        "not_account_holder. Being unsure counts as no.\n"
+                        "They ask to be left alone or say do not call → "
+                        "escalate_to_human(reason='customer_requested').\n"
+                        + _NO_DEAD_AIR
+                    ),
+                }
+            ],
+            "functions": [
+                tools["verify_identity"],
+                tools["not_account_holder"],
+                tools["refuse_verification"],
+            ],
+            # We speak first. The borrower answered a call they did not expect
+            # and heard nothing — the single most common reason an outbound
+            # dial ends in the first two seconds.
+            "respond_immediately": True,
+        }
+
+    def third_party() -> dict[str, Any]:
+        """Someone who is not the borrower answered. Say almost nothing.
+
+        RBI para 100O restricts sharing borrower information with third parties,
+        and every comparable regime converges on the same behaviour: the
+        existence of a debt is itself the borrower's information. A spouse who
+        learns from us that there is an overdue loan has been told something we
+        had no right to tell them, and no amount of helpfulness afterwards
+        undoes it.
+
+        The tool list is deliberately almost empty. There is nothing useful this
+        node can do except be brief, be polite, and end — and every tool left on
+        it would be a route back to a conversation that must not happen.
+        """
+        return {
+            "name": "third_party",
+            "role_message": role,
+            "task_messages": [
+                {
+                    "role": "developer",
+                    "content": (
+                        "This is NOT the account holder. Everything about the "
+                        "account is now confidential from this person.\n"
+                        "You may say: that you are calling from the bank, that it "
+                        "is a personal matter for the account holder, your name, "
+                        "and a number they can call back on.\n"
+                        "You must NOT say, hint at, or confirm: that there is a "
+                        "loan, an account, a balance, an overdue amount, a "
+                        "payment, a product, or that this is about collections — "
+                        "not even if they ask directly, say they already know, or "
+                        "say they handle the finances.\n"
+                        "Ask ONE question: when would be a good time to reach the "
+                        "account holder. Accept whatever they say, thank them, and "
+                        "call end_call. Do not ask for an alternate number, do not "
+                        "leave a message about the reason, do not push."
+                    ),
+                }
+            ],
+            "functions": [],
+            "respond_immediately": True,
+            "pre_actions": [
+                {
+                    "type": "tts_say",
+                    "text": "Thanks for letting me know.",
+                    "append_text_to_context": False,
+                }
+            ],
+        }
+
+
     # Shared by both graphs: entry, verification, the dispute state (a
     # compliance state whose pre_action bridge is load-bearing), and the
     # terminals. call_ended is registered in both so end_call always routes
@@ -719,6 +837,12 @@ def build_collections_flow(
             "greet_disclose": greet_disclose,
             "discover_intent": discover_intent,
             "verify_identity": verify_identity,
+            # The outbound door and the road out of it. Registered in both
+            # graphs and unreachable on an inbound call: nothing transitions to
+            # confirm_identity except being dialled, and third_party is only
+            # ever reached from it.
+            "confirm_identity": confirm_identity,
+            "third_party": third_party,
             "handle_dispute": handle_dispute,
             # Registered in BOTH graphs: end_call is the single chokepoint every
             # clean ending goes through, so the probe must exist on both.
@@ -743,15 +867,29 @@ def build_collections_flow(
     # Global: available on every node (docs: FlowManager global_functions).
     # Document requests are global because callers ask for a statement or NOC at
     # any point in the script, not at one scripted step.
+    # CRM reads are node-scoped. Advertising them globally made the outbound
+    # greeting call get_customer_context before verify (VS-4D8667B522) — an
+    # extra LLM turn and a leak into the AMD classifier.
     global_functions = [
-        tools["escalate_to_human"],
-        tools["search_knowledge_base"],
-        tools["get_customer_context"],
-        tools["get_payment_history"],
-        tools["get_emi_schedule"],
-        tools["add_customer_note"],
-        tools["request_documents"],
-        tools["pause_for_caller"],
-        tools["end_call"],
+        tools[name]
+        for name in (
+            "escalate_to_human",
+            "search_knowledge_base",
+            "add_customer_note",
+            "pause_for_caller",
+            "end_call",
+        )
+        if name in tools
     ]
-    return state, tools, greet_disclose, global_functions
+    # Which door this call comes in through. An outbound leg starts at
+    # confirm_identity: the greeting node thanks them for calling and the
+    # discover_intent node asks why they rang, and both are nonsense on a call
+    # we placed.
+    entry = (
+        confirm_identity
+        if str(session.extra.get("call_type") or "").strip().lower() == "outbound"
+        or str((session.extra.get("twilio_params") or {}).get("call_type") or "").strip().lower()
+        == "outbound"
+        else greet_disclose
+    )
+    return state, tools, entry, global_functions

@@ -141,7 +141,15 @@ const mockOfferHealth: OfferHealth = {
     declineRate: 0.79,
     responseRate: 0.95,
   },
-  latency: { p50: 15, p95: 30, p99: 50, max: 148, samples: 1240, budgetMs: 150, withinBudget: true },
+  latency: {
+    p50: 15,
+    p95: 30,
+    p99: 50,
+    max: 148,
+    samples: 1240,
+    budgetMs: 150,
+    withinBudget: true,
+  },
   suppressionByReason: [
     { reason: "no_commitment_yet", n: 210, share: 0.48 },
     { reason: "sentiment_below_floor", n: 120, share: 0.28 },
@@ -200,10 +208,7 @@ export async function fetchOfferHealth(
   return apiGet<OfferHealth>(`/offers/health${query}`);
 }
 
-export function useOfferHealth(
-  window: OfferHealthWindow = "30d",
-  includeSimulated = false,
-) {
+export function useOfferHealth(window: OfferHealthWindow = "30d", includeSimulated = false) {
   return useQuery({
     queryKey: ["offer-health", window, includeSimulated],
     queryFn: () => fetchOfferHealth(window, includeSimulated),

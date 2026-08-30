@@ -1313,6 +1313,9 @@ def _delivery_contract(row: dict[str, Any], max_attempts: int = 3) -> dict[str, 
         "at": at_ms,
         "payload": payload,
         "responseBody": row.get("response_body"),
+        # 'live' or 'simulated'. The test-fire button does no egress, and a row
+        # it produced must never be mistaken for a delivery that happened.
+        "mode": row.get("delivery_mode") or "live",
     }
 
 
@@ -1344,6 +1347,15 @@ def list_webhook_deliveries(endpoint_id: str | None = None, limit: int = 100) ->
 
 
 def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[str, Any]:
+    """The Integrations test-fire button. Simulated on purpose — no egress.
+
+    This exists so the screen can be demonstrated without a receiver, and it is
+    the ONLY path that still simulates. Real events go through
+    ``webhooks_dispatch.dispatch``, and the row this writes is stamped
+    ``delivery_mode='simulated'`` so the log distinguishes the two. It used to
+    be the only producer of deliveries at all, which is how a system that had
+    never sent a webhook came to have a delivery log full of 200s.
+    """
     with db.engine.begin() as conn:
         ep = _endpoint_contract(conn, endpoint_id)
         if ep is None:
@@ -1376,10 +1388,12 @@ def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[st
                 """
                 INSERT INTO webhook_deliveries (
                   id, endpoint_id, event_type_id, payload, response_body,
-                  http_status, attempt_number, latency_ms, status, created_at, updated_at
+                  http_status, attempt_number, latency_ms, status,
+                  delivery_mode, created_at, updated_at
                 ) VALUES (
                   :id, :eid, :et, CAST(:payload AS jsonb), :body,
-                  :http, 1, :lat, :status, now(), now()
+                  :http, 1, :lat, :status,
+                  'simulated', now(), now()
                 )
                 """
             ),
@@ -1404,18 +1418,33 @@ def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[st
             "attempt_number": 1,
             "latency_ms": latency,
             "status": status,
+            "delivery_mode": "simulated",
             "created_at": datetime.now(timezone.utc),
         }
     return _delivery_contract(row, ep["retry"]["attempts"])
 
 
 def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
+    """Re-queue the ORIGINAL payload for real delivery.
+
+    This used to select ``d.payload`` and then throw it away, calling the
+    simulator instead — so "retry" re-simulated a different, synthetic event and
+    reported success for something that had never been sent. The receiver that
+    missed the payment notification still had not received it.
+
+    One click, one attempt. ``attempt_number`` carries forward from the row
+    being retried rather than resetting, so a delivery that already burned its
+    automatic ladder does not silently start a fresh one: the worker settles it
+    terminally and the operator decides whether to click again.
+    """
     with db.engine.connect() as conn:
         row = db._one(
             conn.execute(
                 text(
                     """
-                    SELECT d.endpoint_id, et.name AS event_name, d.payload
+                    SELECT d.endpoint_id, d.event_type_id, d.payload,
+                           d.attempt_number, d.delivery_mode,
+                           et.name AS event_name, e.status AS endpoint_status
                     FROM webhook_deliveries d
                     JOIN webhook_endpoints e ON e.id = d.endpoint_id
                     LEFT JOIN event_types et ON et.id = d.event_type_id
@@ -1427,7 +1456,57 @@ def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
         )
     if row is None:
         raise KeyError("delivery_not_found")
-    return test_fire_webhook(row["endpoint_id"], row.get("event_name"))
+    if row.get("endpoint_status") == "paused":
+        raise ValueError("endpoint_paused")
+    # A simulated row has no real payload behind it, so retrying one can only
+    # mean firing the simulator again. Say so by staying on that path.
+    if (row.get("delivery_mode") or "live") == "simulated":
+        return test_fire_webhook(row["endpoint_id"], row.get("event_name"))
+
+    payload = row.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    did = _sid("dlv")
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO webhook_deliveries (
+                  id, endpoint_id, event_type_id, payload, attempt_number,
+                  status, delivery_mode, created_at, updated_at
+                ) VALUES (
+                  :id, :eid, :et, CAST(:payload AS jsonb), :attempt,
+                  'pending', 'live', now(), now()
+                )
+                """
+            ),
+            {
+                "id": did,
+                "eid": row["endpoint_id"],
+                "et": row["event_type_id"],
+                "payload": json.dumps(payload),
+                "attempt": int(row.get("attempt_number") or 1),
+            },
+        )
+        fresh = db._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT d.*, et.name AS event_name, rp.max_attempts
+                    FROM webhook_deliveries d
+                    LEFT JOIN event_types et ON et.id = d.event_type_id
+                    LEFT JOIN webhook_retry_policies rp ON rp.endpoint_id = d.endpoint_id
+                    WHERE d.id = :id
+                    """
+                ),
+                {"id": did},
+            )
+        )
+    assert fresh is not None
+    return _delivery_contract(fresh, int(fresh.get("max_attempts") or 3))
 
 
 # ── Integrations ─────────────────────────────────────────────────────────────

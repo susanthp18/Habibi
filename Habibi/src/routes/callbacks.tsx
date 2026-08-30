@@ -43,12 +43,14 @@ export const Route = createFileRoute("/callbacks")({
       { title: "Callback & Scheduling Manager — BigBound AI" },
       {
         name: "description",
-        content: "Week calendar and list for customer-requested callbacks — DND-aware scheduling, reminders, assignment, and outcome capture.",
+        content:
+          "Week calendar and list for customer-requested callbacks — DND-aware scheduling, reminders, assignment, and outcome capture.",
       },
       { property: "og:title", content: "Callback & Scheduling Manager" },
       {
         property: "og:description",
-        content: "Schedule and honour callbacks captured by the bot: drag-to-reschedule, DND-safe slots, reminders, and CRM writeback.",
+        content:
+          "Schedule and honour callbacks captured by the bot: drag-to-reschedule, DND-safe slots, reminders, and CRM writeback.",
       },
     ],
   }),
@@ -79,7 +81,15 @@ function CallbacksPage() {
   // Live: real DB humans/teams. Mock: seed rosters (includes synthetic agents/queues).
   const assignees = useMemo(() => {
     if (!USE_MOCK) return [UNASSIGNED_LABEL, ...humanNames(staff)];
-    return ["Unassigned", "Priya Nair", "Rohan Sethi", "Ananya Iyer", "Kabir Rao", "Sana Kapoor", "Vikram Menon"];
+    return [
+      "Unassigned",
+      "Priya Nair",
+      "Rohan Sethi",
+      "Ananya Iyer",
+      "Kabir Rao",
+      "Sana Kapoor",
+      "Vikram Menon",
+    ];
   }, [staff]);
 
   const queues = useMemo(() => {
@@ -120,15 +130,21 @@ function CallbacksPage() {
   );
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
   const missedRows = useMemo(
-    () => filtered.filter((c) => c.status === "missed").sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()),
+    () =>
+      filtered
+        .filter((c) => c.status === "missed")
+        .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()),
     [filtered],
   );
   const listRows = useMemo(
-    () => [...filtered].sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
+    () =>
+      [...filtered].sort(
+        (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
+      ),
     [filtered],
   );
 
-  const openCb = openId ? callbacksData.find((c) => c.id === openId) ?? null : null;
+  const openCb = openId ? (callbacksData.find((c) => c.id === openId) ?? null) : null;
 
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
 
@@ -223,12 +239,18 @@ function CallbacksPage() {
           <div className="flex items-center gap-100">
             <CalendarClock className="h-250 w-250 text-text-brand" />
             <div>
-              <h1 className="text-[1rem] font-semibold text-text leading-none">Callback & scheduling manager</h1>
-              <p className="text-body-small text-text-subtle">Honour every "call me back" — DND-safe scheduling, reminders, and outcome capture.</p>
+              <h1 className="heading-small font-semibold text-text leading-none">
+                Callback & scheduling manager
+              </h1>
+              <p className="text-body-small text-text-subtle">
+                Honour every "call me back" — DND-safe scheduling, reminders, and outcome capture.
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-100">
-            <div className="text-body-small text-text-subtlest">Showing {filtered.length} of {callbacksData.length}</div>
+            <div className="text-body-small text-text-subtlest">
+              Showing {filtered.length} of {callbacksData.length}
+            </div>
             <Button size="sm" className="h-400 text-body-small" onClick={() => setShowNew(true)}>
               <Plus className="mr-050 h-3.5 w-3.5" /> New callback
             </Button>
@@ -253,8 +275,20 @@ function CallbacksPage() {
           <WeekCalendar
             list={filtered.filter((c) => c.status !== "cancelled")}
             weekAnchor={weekAnchor}
-            onPrevWeek={() => setWeekAnchor((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
-            onNextWeek={() => setWeekAnchor((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
+            onPrevWeek={() =>
+              setWeekAnchor((d) => {
+                const n = new Date(d);
+                n.setDate(n.getDate() - 7);
+                return n;
+              })
+            }
+            onNextWeek={() =>
+              setWeekAnchor((d) => {
+                const n = new Date(d);
+                n.setDate(n.getDate() + 7);
+                return n;
+              })
+            }
             onToday={() => setWeekAnchor(new Date())}
             onOpen={(id) => setOpenId(id)}
             onDrop={handleDrop}
@@ -302,4 +336,3 @@ function CallbacksPage() {
     </AppShell>
   );
 }
-

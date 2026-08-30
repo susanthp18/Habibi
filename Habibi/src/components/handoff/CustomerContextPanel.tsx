@@ -65,7 +65,8 @@ export function CustomerContextPanel({
       toast.success("Goodwill posted");
       void queryClient.invalidateQueries({ queryKey: ["handoff"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Goodwill apply failed"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Goodwill apply failed"),
   });
   return (
     <div className="rounded-large border border-border bg-surface">
@@ -86,7 +87,7 @@ export function CustomerContextPanel({
           Open Customer 360
         </Link>
         <div className="mt-050 text-body-small text-text-subtlest">Outstanding</div>
-        <div className="tabular text-[1.5rem] font-semibold text-text">{money(c.outstanding)}</div>
+        <div className="tabular heading-large font-semibold text-text">{money(c.outstanding)}</div>
         <div className="text-body-small text-text-subtle">
           {c.product}
           {c.tenureMonths ? ` · tenure ${c.tenureMonths}m` : ""}
@@ -106,7 +107,12 @@ export function CustomerContextPanel({
             c.lastPromise
               ? {
                   text: ptpStatus || "open",
-                  tone: ptpStatus === "broken" ? "danger" : ptpStatus === "kept" ? "success" : "warning",
+                  tone:
+                    ptpStatus === "broken"
+                      ? "danger"
+                      : ptpStatus === "kept"
+                        ? "success"
+                        : "warning",
                 }
               : { text: "—", tone: "info" }
           }
@@ -115,7 +121,9 @@ export function CustomerContextPanel({
           icon={<CalendarClock className="h-3.5 w-3.5 text-text-brand" />}
           label="Next EMI"
           value={
-            c.nextEmi ? `${money(c.nextEmi.amount)} · due ${fmtDate(c.nextEmi.dueDate)}` : "No upcoming EMI"
+            c.nextEmi
+              ? `${money(c.nextEmi.amount)} · due ${fmtDate(c.nextEmi.dueDate)}`
+              : "No upcoming EMI"
           }
           badge={
             c.nextEmi && c.nextEmi.daysOverdue > 0

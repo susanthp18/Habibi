@@ -1,4 +1,11 @@
-import { AlertTriangle, Headphones, MessageSquare, PhoneForwarded, LayoutGrid, Check } from "lucide-react";
+import {
+  AlertTriangle,
+  Headphones,
+  MessageSquare,
+  PhoneForwarded,
+  LayoutGrid,
+  Check,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { actionLabel, type ActiveCall, type FloorAction, type FloorAlert } from "@/data/floor-seed";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +47,9 @@ export function PriorityLane({ alerts, calls, onFocus, onAction, onAck }: Props)
         </Badge>
       </div>
       {ranked.length === 0 ? (
-        <p className="px-200 pb-150 text-body-small text-text-subtlest">No live exceptions. Floor is calm.</p>
+        <p className="px-200 pb-150 text-body-small text-text-subtlest">
+          No live exceptions. Floor is calm.
+        </p>
       ) : (
         <ul className="flex gap-100 overflow-x-auto px-200 pb-150">
           {ranked.map((a) => {
@@ -55,10 +64,18 @@ export function PriorityLane({ alerts, calls, onFocus, onAction, onAck }: Props)
                   sevCls[a.severity],
                 )}
               >
-                <button type="button" onClick={() => onFocus(a.callId)} className="w-full text-left">
+                <button
+                  type="button"
+                  onClick={() => onFocus(a.callId)}
+                  className="w-full text-left"
+                >
                   <div className="flex items-center gap-075">
-                    <span className="truncate text-body-small font-semibold text-text">{call.customer}</span>
-                    <Lozenge tone="neutral">{call.handler.kind === "human" ? call.handler.name : "Bot"}</Lozenge>
+                    <span className="truncate text-body-small font-semibold text-text">
+                      {call.customer}
+                    </span>
+                    <Lozenge tone="neutral">
+                      {call.handler.kind === "human" ? call.handler.name : "Bot"}
+                    </Lozenge>
                   </div>
                   <p className="mt-025 line-clamp-2 text-body-small text-text-subtle">{a.reason}</p>
                   <span className="tabular text-body-small text-text-subtlest">{a.at}</span>

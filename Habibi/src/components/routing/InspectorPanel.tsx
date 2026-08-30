@@ -33,19 +33,38 @@ type Props = {
   onClose?: () => void;
 };
 
-export function InspectorPanel({ tab, onTab, editingRule, rules, audit, onSaveRule, onSaveAndTest, onCancelEdit, onClose }: Props) {
+export function InspectorPanel({
+  tab,
+  onTab,
+  editingRule,
+  rules,
+  audit,
+  onSaveRule,
+  onSaveAndTest,
+  onCancelEdit,
+  onClose,
+}: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
       <div className="flex shrink-0 items-center border-b border-border bg-surface">
         <Tabs value={tab} onValueChange={(v) => onTab(v as InspectorTab)} className="flex-1">
           <TabsList className="h-500 w-full justify-start rounded-none bg-transparent p-0">
-            <TabsTrigger value="editor" className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <TabsTrigger
+              value="editor"
+              className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
               Rule editor
             </TabsTrigger>
-            <TabsTrigger value="sim" className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <TabsTrigger
+              value="sim"
+              className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
               Simulator
             </TabsTrigger>
-            <TabsTrigger value="audit" className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <TabsTrigger
+              value="audit"
+              className="rounded-none border-b-2 border-transparent px-200 data-[state=active]:border-border-brand data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
               Audit log
             </TabsTrigger>
           </TabsList>
@@ -57,8 +76,8 @@ export function InspectorPanel({ tab, onTab, editingRule, rules, audit, onSaveRu
         )}
       </div>
 
-      {tab === "editor" && (
-        editingRule ? (
+      {tab === "editor" &&
+        (editingRule ? (
           <>
             <div className="border-b border-border px-200 py-100 text-body-small">
               <span className="font-semibold">Cards this rule allows: </span>
@@ -76,8 +95,7 @@ export function InspectorPanel({ tab, onTab, editingRule, rules, audit, onSaveRu
           <div className="flex flex-1 items-center justify-center p-400 text-center text-body-small text-text-subtlest">
             Select a rule to edit, or create a new one.
           </div>
-        )
-      )}
+        ))}
       {tab === "sim" && <Simulator rules={rules} />}
       {tab === "audit" && <AuditLog entries={audit} />}
     </div>

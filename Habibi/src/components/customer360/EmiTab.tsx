@@ -3,9 +3,16 @@ import type { Customer, EmiRow, EmiStatus } from "@/data/customer360-seed";
 import { fmtDate, fmtMoney } from "@/data/customer360-seed";
 import { StatusChip, type ChipTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
-import { FilterTable, type FilterChip, type FilterTableColumn } from "@/components/records/FilterTable";
+import {
+  FilterTable,
+  type FilterChip,
+  type FilterTableColumn,
+} from "@/components/records/FilterTable";
 
-const STATUS_META: Record<EmiStatus, { tone: ChipTone; dot: string; label: string; chipDot: string }> = {
+const STATUS_META: Record<
+  EmiStatus,
+  { tone: ChipTone; dot: string; label: string; chipDot: string }
+> = {
   paid: {
     tone: "success",
     dot: "bg-background-success",
@@ -59,20 +66,26 @@ export function EmiTab({ customer }: { customer: Customer }) {
         id: "index",
         header: "#",
         width: "0.45fr",
-        cell: (r) => <span className="text-body font-medium tabular-nums text-text">#{r.index}</span>,
+        cell: (r) => (
+          <span className="text-body font-medium tabular-nums text-text">#{r.index}</span>
+        ),
       },
       {
         id: "due",
         header: "Due date",
         width: "1fr",
-        cell: (r) => <span className="text-body tabular-nums text-text-subtle">{fmtDate(r.dueDate)}</span>,
+        cell: (r) => (
+          <span className="text-body tabular-nums text-text-subtle">{fmtDate(r.dueDate)}</span>
+        ),
       },
       {
         id: "amount",
         header: "Amount",
         width: "0.9fr",
         className: "text-right",
-        cell: (r) => <span className="text-body font-medium tabular-nums text-text">{fmtMoney(r.amount)}</span>,
+        cell: (r) => (
+          <span className="text-body font-medium tabular-nums text-text">{fmtMoney(r.amount)}</span>
+        ),
       },
       {
         id: "paidOn",
@@ -83,7 +96,9 @@ export function EmiTab({ customer }: { customer: Customer }) {
             <span className="text-body tabular-nums text-text-subtle">
               {fmtDate(r.paidOn)}
               {r.paidAmount && r.paidAmount !== r.amount ? (
-                <span className="ml-050 text-body-small text-text-warning">· {fmtMoney(r.paidAmount)}</span>
+                <span className="ml-050 text-body-small text-text-warning">
+                  · {fmtMoney(r.paidAmount)}
+                </span>
               ) : null}
             </span>
           ) : (
@@ -105,7 +120,9 @@ export function EmiTab({ customer }: { customer: Customer }) {
         width: "1fr",
         className: "text-right",
         cell: (r) => (
-          <span className="text-body tabular-nums text-text-subtle">{fmtMoney(r.balanceCarried)}</span>
+          <span className="text-body tabular-nums text-text-subtle">
+            {fmtMoney(r.balanceCarried)}
+          </span>
         ),
       },
     ],
@@ -125,12 +142,17 @@ export function EmiTab({ customer }: { customer: Customer }) {
           <div className="text-lg font-semibold text-text-brand tabular">{pct.toFixed(0)}%</div>
         </div>
         <div className="h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
-          <div className="h-full rounded-full bg-background-brand-bold" style={{ width: `${pct}%` }} />
+          <div
+            className="h-full rounded-full bg-background-brand-bold"
+            style={{ width: `${pct}%` }}
+          />
         </div>
       </div>
 
       <div className="rounded-large border border-border bg-surface p-200">
-        <div className="mb-150 text-body-small font-semibold text-text-subtle">Installment timeline</div>
+        <div className="mb-150 text-body-small font-semibold text-text-subtle">
+          Installment timeline
+        </div>
         <div className="flex items-center gap-050 overflow-x-auto pb-050">
           {customer.emi.map((e) => {
             const t = STATUS_META[e.status];

@@ -58,20 +58,13 @@ export function WebhooksStats({
       {tiles.map((t) => {
         const Icon = t.icon;
         return (
-          <div
-            key={t.label}
-            className="rounded-large border border-border bg-surface p-150"
-          >
+          <div key={t.label} className="rounded-large border border-border bg-surface p-150">
             <div className="flex items-center justify-between">
-              <span className="text-body-small font-medium text-text-subtlest">
-                {t.label}
-              </span>
+              <span className="text-body-small font-medium text-text-subtlest">{t.label}</span>
               <Icon className={cn("h-4 w-4", t.tone)} />
             </div>
             <div className="mt-050 flex items-baseline gap-100">
-              <span className={cn("text-[1.5rem] font-semibold", t.tone)}>
-                {t.value}
-              </span>
+              <span className={cn("heading-large font-semibold", t.tone)}>{t.value}</span>
               <span className="text-body-small text-text-subtlest">{t.hint}</span>
             </div>
           </div>

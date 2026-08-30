@@ -3,7 +3,6 @@ import {
   STATUS_LABELS,
   STATUS_ORDER,
   fmtMoney,
-  slaInfo,
   type Dispute,
   type DisputeStatus,
 } from "@/data/disputes-seed";
@@ -27,7 +26,14 @@ const columnAccent: Record<DisputeStatus, string> = {
   rejected: "border-t-border-bold",
 };
 
-export function DisputeBoard({ disputes, counts, subtotals, onOpen, onAssignMe, onDropStatus }: Props) {
+export function DisputeBoard({
+  disputes,
+  counts,
+  subtotals,
+  onOpen,
+  onAssignMe,
+  onDropStatus,
+}: Props) {
   const [dragOver, setDragOver] = useState<DisputeStatus | null>(null);
 
   return (
@@ -37,11 +43,9 @@ export function DisputeBoard({ disputes, counts, subtotals, onOpen, onAssignMe, 
         const items = disputes
           .filter((d) => d.status === status)
           .sort((a, b) => {
-            const sa = slaInfo(a);
-            const sb = slaInfo(b);
-            if (sa.tone === "breach" && sb.tone !== "breach") return -1;
-            if (sb.tone === "breach" && sa.tone !== "breach") return 1;
-            return sa.msRemaining - sb.msRemaining;
+            if (a.sla === "breach" && b.sla !== "breach") return -1;
+            if (b.sla === "breach" && a.sla !== "breach") return 1;
+            return a.slaMinutes - b.slaMinutes;
           });
         return (
           <div
@@ -61,12 +65,16 @@ export function DisputeBoard({ disputes, counts, subtotals, onOpen, onAssignMe, 
             className={cn(
               "flex w-[18.75rem] shrink-0 flex-col rounded-large border border-t-2 bg-surface-sunken/60 transition-colors",
               columnAccent[status],
-              dragOver === status ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40" : "border-border",
+              dragOver === status
+                ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40"
+                : "border-border",
             )}
           >
             <div className="flex items-center justify-between border-b border-border px-150 py-100">
               <div>
-                <div className="text-body-small font-semibold text-text">{STATUS_LABELS[status]}</div>
+                <div className="text-body-small font-semibold text-text">
+                  {STATUS_LABELS[status]}
+                </div>
                 <div className="text-body-small text-text-subtlest tabular-nums">
                   {counts[status]} · {fmtMoney(subtotals[status])}
                 </div>

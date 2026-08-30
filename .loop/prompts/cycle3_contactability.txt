@@ -1,0 +1,24 @@
+OBJECTIVE (one job): Make the customer ContactabilityPill reflect the AUTHORITATIVE backend contact policy instead of recomputing the calling window in the agent's browser timezone. This is a compliance-facing wrong answer today.
+
+Current state:
+- Habibi/src/components/customer360/ContactabilityPill.tsx lines 8-16: withinWindow() parses preferredWindow and compares against `new Date()` hours/minutes in BROWSER local time. Four defects vs backend/contact_policy.py (the authority):
+  (a) wrong timezone - borrower's quiet hours show green if the AGENT sits elsewhere;
+  (b) no preferredWindow => always contactable, while backend applies RBI 08:00-19:00 voice bounds by default;
+  (c) allowed_days ignored entirely - a Sunday-blocked account shows green on Sunday;
+  (d) inclusive end (`cur <= end`) where backend uses exclusive end - at exactly 19:00 pill says OK, veto says blocked.
+- The authoritative verdict already exists: GET /customers/{id}/contact-policy (backend/main.py:875) - ZERO frontend callers today. Response carries the verdict/reason the backend would actually apply (customer timezone, channel rules, allowed days, consent).
+- Pill is rendered at Habibi/src/components/customer360/CustomerHeader.tsx:82. Grep for every consumer of `contactabilityState` before you start so none is left behind.
+
+Deliverables:
+1. A typed client + TanStack Query hook (e.g. useContactPolicy(customerId)) following the house apiGet pattern; wire the pill(s) to render the backend verdict/reason instead of withinWindow(). contactabilityState may survive purely as a formatter over the server verdict.
+2. Mock branch behind the existing USE_MOCK seam (src/api/config.ts): when mock is on, derive the SAME shape from the customer360 seed data - but apply the backend rules (borrower timezone field from the seed, RBI default window with EXCLUSIVE end hour, allowed days) so dev/demo shows truthful behaviour. Mark it clearly as the mock emulation of contact_policy.py.
+3. Loading/error/degraded states: while fetching show the neutral/pending chip, never a transient "OK to contact". If the policy call fails, the pill must NOT claim contactable - show an explicit unknown/unavailable state. Silent green on error is exactly the bug class we are killing.
+
+Scope: ContactabilityPill.tsx, its consumers (CustomerHeader.tsx and any other contactabilityState importer found by grep), ONE new or existing api module file for the hook. Do NOT touch backend files, do NOT refactor unrelated parts of customer360, do NOT change the visual design language beyond what the new states require.
+
+Verify before reporting done, paste the real terminal output:
+  cd D:/Hackathon/Habibi && npm run typecheck && npm run lint
+Frontend-only change - no pytest this cycle.
+Then open @url:`http://localhost:8080` and navigate into a Customer 360 page, look at the actual pill in both light and dark theme, and describe what you saw. Specifically exercise at least one borrower whose window is closed RIGHT NOW (or simulate via the mock branch) and describe how the pill renders. In your reply paste one grep line proving `withinWindow` is gone and list each file you changed with why.
+
+Rules: Never git stash, git reset --hard, git clean, or force-push - this tree has ~270 pre-existing uncommitted files that are not yours. Never commit to main, never push, never open a PR; commit to the current branch only. Never print the contents of .env - it holds live Twilio credentials. Never kill or restart whatever is listening on ports 8000, 7860, or 8080. Never delete a test, skip a test, add an eslint-disable, or widen an ignore list to make something pass. If it's a bug, reproduce it and write the failing test before you fix it.

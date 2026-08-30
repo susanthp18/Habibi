@@ -1,5 +1,11 @@
 DO $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_contact_delivery_events_message') THEN
+    ALTER TABLE contact_delivery_events
+      ADD CONSTRAINT fk_contact_delivery_events_message
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_teams_supervisor') THEN
     ALTER TABLE teams
       ADD CONSTRAINT fk_teams_supervisor
@@ -40,6 +46,13 @@ BEGIN
     ALTER TABLE payment_events
       ADD CONSTRAINT fk_payment_events_intent
       FOREIGN KEY (payment_intent_id) REFERENCES payment_intents(id) ON DELETE SET NULL;
+  END IF;
+
+  -- tts_voice_catalog (09) → providers (10): forward reference across layers.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_tts_voice_catalog_provider') THEN
+    ALTER TABLE tts_voice_catalog
+      ADD CONSTRAINT fk_tts_voice_catalog_provider
+      FOREIGN KEY (provider_id) REFERENCES providers(id);
   END IF;
 END $$;
 

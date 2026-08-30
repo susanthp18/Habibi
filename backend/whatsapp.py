@@ -54,7 +54,15 @@ def verify_signature(app_secret: str | None, raw_body: bytes, header: str | None
         return False
     expected = hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     provided = header[len(prefix) :].strip()
-    return hmac.compare_digest(expected, provided)
+    # compare_digest raises TypeError on a non-ASCII str, and this header is
+    # attacker-controlled: one byte above 0x7f turned a forged signature into an
+    # unhandled 500 instead of a 403. A hex digest is ASCII by definition, so
+    # anything else is simply not a signature.
+    try:
+        provided_bytes = provided.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return hmac.compare_digest(expected.encode("ascii"), provided_bytes)
 
 
 def send_text_message(*, to_phone: str, body: str, preview_url: bool = False) -> dict[str, Any]:

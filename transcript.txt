@@ -1,0 +1,726 @@
+BIGBOUND AI - HACKATHON TALK
+Speaking transcript, 21 slides, about 15 minutes.
+
+Roughly 1,900 words. That is 15 minutes at a normal talking speed.
+If you are running long by slide 12, cut slide 15 and slide 16 to one line each.
+Round brackets are pacing notes. Do not read them out.
+
+
+=====================================================================
+SLIDE 1 - TITLE
+=====================================================================
+
+This is BigBound AI. It works in loan collections.
+
+The easiest way to explain it is to say what it is not. It is not a voice bot. There
+are plenty of those already.
+
+What we built is everything around the voice. The rules, the checks, the memory. The
+whole floor that the voice stands on. The voice itself is the smallest part of it.
+
+Fifteen minutes on the slides. Then the real thing running.
+
+
+=====================================================================
+SLIDE 2 - 00:12 AM
+=====================================================================
+
+(Slow down here. This is the story. Let it breathe.)
+
+Start with one account, on one night.
+
+It is twelve minutes past midnight. A customer's auto debit fails. The bank tried to
+pull eighteen thousand four hundred rupees out of his account and the money was not
+there. That is the whole event.
+
+Nobody is awake. No alarm goes off. Nothing happens.
+
+Next morning at nine, this account turns up in a report, along with four thousand
+others.
+
+Day three, somebody finally calls. No answer. Unknown number, so he does not pick up.
+
+Day twelve, they speak to him for the first time. But his salary has already come and
+gone. That money is spent.
+
+Day thirty one, this is a real problem. It goes to the credit bureau. Somebody has to
+physically travel to his house, and that costs around twelve hundred rupees.
+
+(Pause.)
+
+Nobody made a mistake here. The telecaller did her job. The system worked exactly as it
+was designed. They just lost to the clock.
+
+
+=====================================================================
+SLIDE 3 - DELAY, NOT DIALOGUE
+=====================================================================
+
+This is the idea the whole product sits on.
+
+Banks in India already know how to collect money. They have been doing it for thirty
+years. They are good at it.
+
+Their problem is the first thirty days. High volume, very messy, a lot of rules. And
+most of it is still one person with a headset, a screen, and a daily target.
+
+The voice agent is only the mouth. The money is in everything around the call. Who gets
+contacted, how fast, on which channel, what we are allowed to offer, and whether the
+customer actually paid in the end.
+
+So the starting point was not the call. It was the delay.
+
+
+=====================================================================
+SLIDE 4 - THE FACTORY NOBODY AUTOMATED
+=====================================================================
+
+Some numbers on how bad it gets. These are industry numbers, not ours.
+
+Around seventy percent of calls are never answered. Unknown number, nobody picks up.
+
+Twenty to forty percent of a caller's day is not talking. It is typing notes after the
+call is over.
+
+Only two to five percent of calls are ever checked for quality. So if a customer
+complains, the chance anybody actually heard that call is very small.
+
+And close to half of all field visits, the person is not home. Eight hundred to fifteen
+hundred rupees, gone.
+
+Then the last one. The compliance team has to make sure nobody is called after seven in
+the evening, nobody on the do not disturb list is called, and nobody is called too many
+times. They track all of that in a spreadsheet. By hand.
+
+
+=====================================================================
+SLIDE 5 - SIX JOBS ON ONE FLOOR
+=====================================================================
+
+There are six jobs on a collections floor, and we were strict about which ones a
+machine should take.
+
+The telecaller, at volume, yes. A hundred and fifty calls a day of the same
+conversation is a machine job.
+
+The floor lead gets help, not replacement.
+
+Quality checking, yes, and better, because every call gets checked instead of three out
+of a hundred.
+
+The compliance desk, yes. That should never have been a spreadsheet.
+
+The back office clerk chasing yesterday's promises, yes.
+
+And the last row. Field, legal, and hardship. Somebody who lost their job. A death in
+the family. We do not touch that. A machine has no business in that conversation.
+
+So we drew the line there, and we left it there.
+
+
+=====================================================================
+SLIDE 6 - EVERYONE SHIPPED A VOICE BOT
+=====================================================================
+
+Voice bots already exist. So the fair question is why this is any different.
+
+On the left is what a normal voice AI tool gives you. A prompt box. A phone number. A
+transcript after the call. Some numbers on a dashboard.
+
+On the right is what a collections head actually asked us in a meeting.
+
+Was that call even legal at that hour. What did we promise, and did he pay. Who
+approved that waiver, and were they allowed to. Show me all my calls checked, not three
+percent. And then let my ops team change it without waiting for a developer.
+
+Not one of those can be answered by a transcript. A mouth is not an operation.
+
+
+=====================================================================
+SLIDE 7 - SECTION 01
+=====================================================================
+
+So, what actually got built.
+
+
+=====================================================================
+SLIDE 8 - ONE SYSTEM, FOUR LAYERS
+=====================================================================
+
+Four layers.
+
+The mouth. Voice, phone line, WhatsApp, SMS. It switches between Hindi and English in
+the middle of a call.
+
+The brains. A set of engines that decide what is allowed. Not the AI model. Plain code.
+
+The hands. Twenty four things the agent is allowed to do. Check identity, record a
+promise, raise a dispute, send documents, transfer to a human. It cannot do anything
+outside that list.
+
+And memory. Around a hundred and fifty tables. Customers, loans, promises, disputes,
+consent, and a log of everything that ever happened.
+
+If a better voice model comes out next month, the top layer gets swapped in a day. The
+three layers under it are the real product.
+
+
+=====================================================================
+SLIDE 9 - THE MODEL NEVER DECIDES
+=====================================================================
+
+This is the one rule everything follows.
+
+The model never decides. It only speaks.
+
+The AI does not choose the waiver. It does not choose whether to call. It does not
+decide who gets a settlement.
+
+The engines run first. They pull the facts. They apply the blocks, like do not disturb,
+calling hours, and how many times we already called. Then they score what is left, pick
+one, and write it all down.
+
+Only then does the model get told, say this. Its only job is to say it well, in the
+right language.
+
+It looks like less AI. It is less guessing. Anything that skips this looks brilliant in
+a demo and turns into a legal problem in production.
+
+
+=====================================================================
+SLIDE 10 - FOUR BRAINS
+=====================================================================
+
+Four engines sit behind that one voice.
+
+Reco decides what can be offered, with caps, so the same customer does not get spammed.
+
+Treatment decides what to do next. Stay quiet, send an SMS, WhatsApp, call, send a
+human, or go legal. Everything is scored in rupees. Doing nothing scores zero, so any
+action has to be worth more than doing nothing.
+
+Authority is the money one. On a live call it says, this much can be approved, this much
+cannot, and this needs a supervisor. A human telecaller is not allowed to hand out
+waivers on his own. So instead of hoping the AI behaves, that policy is written into
+code.
+
+And live QA. Every turn of every call is scored while it is happening. If something
+serious goes wrong, it can cut into the call live.
+
+
+=====================================================================
+SLIDE 11 - A MESH, NOT A MONOLOGUE
+=====================================================================
+
+It is not one bot doing everything. It is a small team of them.
+
+Intake checks who you are, then hands over to collections. From there, hardship goes to
+a specialist and then to a human. Dispute goes one way. Insurance goes another. And if
+the amount is above what it can approve, it goes to a supervisor.
+
+The handover is a proper action with a rule behind it. The AI cannot simply say the
+words transferring you to legal and have it happen. That is far too easy to trick.
+
+Bottom left are the hard rails. Sixty one days late, the bot does not stay on the call.
+Do not disturb, no voice at all. Customer sounds upset, no selling. Outside eight to
+seven, the call never even dials.
+
+
+=====================================================================
+SLIDE 12 - SECTION 02
+=====================================================================
+
+Second part. How somebody else makes this their own.
+
+
+=====================================================================
+SLIDE 13 - THREE LAYERS YOU CAN EDIT
+=====================================================================
+
+Three layers you can edit, and one you cannot.
+
+Skills are the know how. How to handle a customer who says I will pay on Saturday. A
+folder of instructions and examples. It only loads when that topic comes up, so the call
+stays fast.
+
+Agents are the who. Which skills it carries, which tools it can use, who it can hand
+over to.
+
+Connectors are what it plugs into. Core banking, UPI, WhatsApp.
+
+And the fourth one, in black, is the policy engines. Those cannot be edited. The
+dangerous decisions are not in the editable part in the first place, and that is exactly
+what makes it safe to hand the rest to a business user.
+
+
+=====================================================================
+SLIDE 14 - THE AGENT CARD
+=====================================================================
+
+An agent is a card, not a prompt.
+
+Name, channels, voice, languages, skills, tools, who it can hand over to, and what it is
+allowed to approve.
+
+On the right, publishing. It is not a save button. You write test cases, and if the
+agent fails them, it does not go live. Same as code. And it can be rolled back.
+
+
+=====================================================================
+SLIDE 15 - SHIPPED WITHOUT AN ENGINEER
+=====================================================================
+
+All of this is screens in the product today, not a plan for later.
+
+Prompt studio, flow canvas, routing rules with a simulator, knowledge base, quality
+scorecards, a sandbox to rehearse in, consent and DND, and integrations.
+
+A collections head, an insurance ops lead, and a compliance officer can each build their
+own agent, on the same brain, without calling us.
+
+
+=====================================================================
+SLIDE 16 - MCP IN BOTH DIRECTIONS
+=====================================================================
+
+A quick one on MCP. This is how tools talk to each other now.
+
+It works both ways. Other systems can read from us, but only read. Every write is
+blocked, and there is a test that fails the build if anybody changes that.
+
+And we can read from the bank's systems. Live balance, so nobody is looking at a stale
+record. Payment status, so when a customer says I already paid, we know in two seconds.
+The do not call registry, as a hard block.
+
+One rule. Eighty tools never get dumped into a voice call. Voice has to answer fast.
+
+
+=====================================================================
+SLIDE 17 - COMPLIANCE IS THE PRODUCT
+=====================================================================
+
+(Slow down again. This is the part that lands.)
+
+This is the part that is hard to copy.
+
+Every outbound thing, call, WhatsApp, SMS, gets checked before it leaves. Calling hours,
+do not disturb, how many times we already called this week. And it is shared across all
+channels, so troubling a customer is not even possible.
+
+Every call is scored live, not a sample reviewed next week.
+
+And there is proof. Personal details masked in recordings. Every action logged and never
+edited. One click to hand an auditor everything.
+
+Under RBI rules, if a recovery agent misbehaves, the bank is responsible. A voice bot is
+a recovery agent. So a call at eight in the evening is not an operations mistake. It is
+a bug in the product. It got treated like one.
+
+
+=====================================================================
+SLIDE 18 - THIS IS BUILT
+=====================================================================
+
+Proof that this is real and not slideware.
+
+Around a hundred and fifty tables. Two hundred and eighty odd APIs. Twenty four tools.
+Over a hundred test files. Hindi and English switching mid call.
+
+On the left, seven things shipped this cycle. On the right, the voice stack with real
+numbers. The big win was keeping connections warm. That alone cut setup time by about
+three times.
+
+Some of these engines are running in shadow mode right now. They decide, they log, they
+do not act yet. That is on purpose. They get switched on once the numbers look right.
+
+
+=====================================================================
+SLIDE 19 - THE SCOREBOARD
+=====================================================================
+
+Now the business side.
+
+The buyer is a collections head. He does not care about AI. He cares about six numbers.
+Cost to collect. How many promises actually get paid. How fast a customer is reached
+after a bounce. How much of the book was covered in forty eight hours. Compliance
+coverage. And cost per resolved customer.
+
+The numbers in the black box, forty percent cost cut, ten percent better recovery, are
+McKinsey's published figures. Not ours. There has been no pilot yet.
+
+The one that matters is promises kept. A promise made means nothing. A promise paid is
+the number.
+
+
+=====================================================================
+SLIDE 20 - SAME DEMO, DIFFERENT PRODUCT
+=====================================================================
+
+Side by side.
+
+Who decides the offer. There, the model, inside a prompt. Here, an engine decides and
+the model just says it.
+
+Can it approve a waiver. There, whatever the prompt allows. Here, a matrix in rupees,
+with a log.
+
+How many calls get checked. There, a sample, later. Here, all of them, live.
+
+What stops an eight pm call. There, a line of text in a prompt. Here, a gate the prompt
+cannot even reach.
+
+To be fair to them, the voice quality of those tools is excellent, and that is genuinely
+hard engineering. They are just in a different category. They are building the mouth.
+This is the operation that mouth is allowed to speak for.
+
+
+=====================================================================
+SLIDE 21 - CLOSE
+=====================================================================
+
+We did not build a voice agent. We built the floor it works on.
+
+Today it is one voice. Next is the studio, so people can build their own. Then plugging
+into core banking and UPI. And always shadow mode first. Nothing goes live until the log
+says it is safe.
+
+Now, the demo.
+
+
+=====================================================================
+LIVE DEMO - OVERVIEW
+(Keep this under a minute. Then go page by page.)
+=====================================================================
+
+This is the same product, just running. The left side has four sections, and that is
+how the floor is organised.
+
+Live operations is what is happening right now. Who is on a call, who needs a human,
+and what is sitting on Priya's desk this morning.
+
+CRM and resolution is everything the call leaves behind. The customer, the promise,
+the dispute, the callback, the document. This is where a promise made becomes a
+promise kept, or it does not.
+
+Compliance and QA is the rules, and the proof. Who we are allowed to call, when, and
+how often. And every call gets scored, not three percent of them next week.
+
+Bot configuration is how the mouth gets changed. Prompts, flows, knowledge, routing.
+The engines we talked about do not live here. Those cannot be edited from a screen,
+and that is on purpose.
+
+These are not the four layers from the slides. Mouth, brains, hands, and memory sit
+under all of this. The sidebar is just how people move around the floor.
+
+We will walk them in that order.
+
+
+=====================================================================
+LIVE DEMO - PAGE 1 - MY WORKSPACE
+=====================================================================
+
+This is Priya's desk for the shift. She can see her queue, her numbers for the week,
+and anything that is about to breach.
+
+That yellow bar is do not disturb. The product is already blocking a call she is not
+allowed to make, before she even picks up the phone.
+
+
+=====================================================================
+LIVE DEMO - PAGE 2 - CONVERSATION INBOX
+=====================================================================
+
+This is WhatsApp, SMS, and chat. Same customer, just not a phone call.
+
+The bot keeps talking until it gets stuck. Then Priya takes over, finishes the
+thread, and can hand it back to the bot when she is done.
+
+
+=====================================================================
+LIVE DEMO - PAGE 3 - HANDOFF HUB
+=====================================================================
+
+This is the live call when the bot needs a person. You get the transcript on one
+side and the customer on the other.
+
+Priya can see why it came up and what she is allowed to say, and she has to wrap
+the call before she hangs up, so the notes are not left for later.
+
+
+=====================================================================
+LIVE DEMO - PAGE 4 - FLOOR COMMAND
+=====================================================================
+
+This is the floor lead's screen. Every live call, bot and human, sits in one place.
+
+If a bot skips a recording disclosure, it lights up here. That is live QA, not a
+sample somebody listens to next week.
+(Point at missing recording disclosure. Do not read the numbers.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 5 - EXECUTIVE DASHBOARD
+=====================================================================
+
+This is the collections head, not Priya. Recovered money, promises kept, how fast
+we reach someone after a bounce.
+
+Do not read the cards. Point at promise kept. That is the number from the slides.
+A promise made means nothing. A promise paid is what this screen is for.
+
+
+=====================================================================
+LIVE DEMO - PAGE 6 - CUSTOMER 360
+=====================================================================
+
+This is one customer, fully. Open anybody from the list and you get the loan, the
+ledger, every call, every promise, every dispute, in one place. That is the memory
+layer from the slides, just looking at a person instead of a table.
+
+The right side is what to do next. Not a guess from the model. The engines have
+already decided, and this is the talk track.
+(Open Susanth if you want one example. Do not read the cards.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 7 - PROMISE TO PAY
+=====================================================================
+
+This is why we said a promise made means nothing. Upcoming, due today, kept, or
+broken, in rupees, not in a notebook after the call.
+
+When a promise breaks, it does not wait for somebody to notice. It moves by itself,
+and that is the clerk job from the slides, sitting on a screen.
+(Point at kept versus broken. Skip the payment plans unless they ask.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 8 - DISPUTES QUEUE
+=====================================================================
+
+When a customer says the amount is wrong, or they want a fee waived, it does not
+stay inside the transcript. It becomes a case, with an owner and an SLA.
+
+The bot can log it. It cannot close it. Waivers and settlements stay with a person,
+which is the line we drew on the slides.
+(Point at under review. Do not open a card unless they ask.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 9 - DOCUMENT DESK
+=====================================================================
+
+Customer asks for a statement or a no-dues letter. It is requested on the call, and
+this desk actually sends it, on WhatsApp or email, with a log of whether it went
+out.
+
+That used to be a clerk chasing a ticket the next morning. Now it is the same hour
+as the request.
+(Do not click around. One sent row is enough.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 10 - CALLBACKS
+=====================================================================
+
+Customer says call me back. That used to live in somebody's diary. Here it is a
+slot, with a reminder, and it will not even book if it sits on do not disturb or
+outside calling hours.
+
+The DND-safe toggle is the same gate we talked about. The calendar is just how it
+looks to a person.
+(Point at DND-safe only. Do not hunt for an empty slot.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 11 - UPSELL AND LEADS
+=====================================================================
+
+This is selling, but only after collecting. The bot does not pick a product on the
+call. Reco already decided what is allowed, and if anything was suppressed, that
+reason is here too.
+
+A lead that shows up is one that passed the gates. Upset customer, no pitch. No
+promise yet, no pitch. Same rule as the slides.
+(This is the last CRM page. Then compliance.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 12 - AUDIT TRAIL
+=====================================================================
+
+We are in compliance now. This is every call and every chat, as it happened, and
+nobody can edit the row. Customer, channel, who handled it, how it ended.
+
+When somebody asks who said what, this is the log, not a recording sitting in a
+folder.
+(Do not open a call. The immutable badge is the point.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 13 - COMPLIANCE RISK
+=====================================================================
+
+This is every rule that actually fired. Missed disclosure, do not disturb, the
+words we are not allowed to use, with the transcript still attached.
+
+It says it on the screen. This card cannot turn DND off. Policy is a projection of
+the live code, not a setting a manager can toggle.
+(Point at missed disclosure / DND in top rule hits.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 14 - CONSENT AND DND
+=====================================================================
+
+This is who we are allowed to contact, on which channel, in which window, and how
+many times this week. Callbacks and inbox read the same status. There is not a
+second list in a spreadsheet.
+
+If consent has expired, or they are on do not disturb, the dial does not go out.
+That is the gate from the slides, looking at a person.
+(Point at DND active. Do not import a CSV.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 15 - REDACTION AND EXPORT
+=====================================================================
+
+Before anything leaves the building, names, phones, cards get masked, including
+in the audio. Then you export a watermarked file for a compliance officer, not a
+raw recording on a laptop.
+
+That is the proof we talked about. Personal details do not travel with the file.
+
+
+=====================================================================
+LIVE DEMO - PAGE 16 - QA SCORECARDS
+=====================================================================
+
+Every call gets a scorecard, bot and human. Coverage here is a hundred percent,
+not two to five percent next week.
+
+A person still coaches. The machine only drafts. Soft stuff like tone does not
+overwrite a hard miss, like skipping the recording line.
+(Leave it on the queue. Do not publish a score.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 17 - BOT ANALYTICS
+=====================================================================
+
+This is how the mouth is doing. Where people drop off, how often it contained the
+call, how slow it was. The collections scoreboard was two pages back. This one is
+whether the voice is actually working.
+
+Latency is on here on purpose. If the call starts feeling slow, this is where you
+see it, not in a prompt.
+(Then bot configuration.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 18 - KNOWLEDGE BASE
+=====================================================================
+
+We are in bot configuration now. This is what the mouth is allowed to look up.
+Policies, benefits, FAQs, sitting as documents, not pasted into a prompt.
+
+The gaps tab is questions it could not answer. Test retrieval is you asking one
+yourself and seeing the snippet it would actually read on the call, with a score,
+so it is not making the policy up.
+(If Test retrieval is already open, point at the source line. Do not re-run it.)
+
+
+=====================================================================
+LIVE DEMO - PAGE 19 - AGENT STUDIO
+(This is the slide 13 to 15 screen. Take a minute. If you are late, skip Persona,
+Voice, and Connectors.)
+=====================================================================
+
+This is not one bot. It is a small team, same as the slides. Intake checks who you
+are. Collections recovers the money. Insurance only comes in after a handoff.
+Supervisor brief is what a human gets when we transfer. Open Collections.
+
+Twelve tabs across the top. You do not need to click all of them. Just say what
+they are as you go.
+
+System Prompt is how it talks. The persona, the job, the language. This is the
+mouth's script, and it is still not allowed to decide money.
+
+Flow is the conversation itself. Greet, disclose, verify, then the hub. Voice
+needs that shape or it rambles.
+
+Agent graph is who can hand over to whom. Intake to collections is allowed.
+Collections saying transfer you to legal, in words, is not. That is a typed
+handoff, which is the point from the slides.
+
+Persona is the tone. Soft collector, firm collector. Voice is which voice says it,
+and in which language.
+
+Guardrails are the never-say list on this card. No rates, no waiver promises, always
+disclose the recording. These are extra brakes on the mouth. They are not the
+engines.
+
+Tools are the hands. Identity, promise, dispute, documents. It cannot do anything
+that is not on this list.
+
+Skills are the know-how. How to chase a broken promise, how to log a dispute. Only
+the description sits in the prompt until that topic comes up, so the call stays
+fast. If you opened the skills page, that is all it is. Folders of instructions,
+not a new bot for every chore.
+
+Connectors are what it plugs into. Core banking, pay link. Empty today is fine.
+Say we read from the bank, we do not dump eighty tools onto a live call.
+
+Policy is the one you cannot edit away. Reco, treatment, authority, live QA. This
+card has to bind them. A collections head can change the script. They cannot turn
+off do not disturb from here.
+
+Evals are the tests. If it fails them, it does not go live. Same as code.
+
+Ship is publish, canary, rollback. There is a button on the right that goes back
+to the last good version. It is not a save button. It is a release.
+
+That is the whole studio. Three layers you can edit, and one you cannot. Then we
+test it in the sandbox.
+
+
+=====================================================================
+IF SOMEBODY ASKS
+=====================================================================
+
+Why not just write a better prompt?
+Because a prompt cannot be audited. When RBI asks who approved that waiver, the answer
+has to be a row in a table with a name and a timestamp, not a sentence in a transcript.
+
+How fast is it really?
+Warm calls answer in around half a second to three quarters. First response from the
+model is one and a half to two seconds. Keeping the connections warm was the fix.
+
+Are those McKinsey numbers yours?
+No. There has been no pilot. Those are published industry figures, used to size the
+opportunity, nothing more.
+
+Why does the AI do so little?
+It does the one thing it is genuinely good at, which is talking to a person in their own
+language. Everything involving money or the law is code, because code can be tested and
+defended.
+
+What is left to build?
+The studio, so a business user can create agents. The bank system connectors. And
+turning the shadow engines on for real.
+
+What is a canary?
+You do not put a new voice on every customer at once. Ten percent get the new
+version, the rest stay on the old one. Same customer always gets the same version.
+If calls get slow, live QA starts failing, or an eval breaks, it rolls back by
+itself. A split with no rollback is not allowed to publish. A hundred percent is
+just a full ship.
+
+How do evals work?
+They are tests, not another AI judging the transcript. We write situations, like
+promise without identity, or the bot saying transfer to legal in words. Code
+checks whether the CRM row actually appeared. Regression is still-works. Red team
+is somebody trying to trick it. If those fail, it does not go live. Skipped means
+we have not run it, not a fake pass.
+

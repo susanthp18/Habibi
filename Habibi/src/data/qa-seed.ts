@@ -91,8 +91,18 @@ export const defaultRubric: Rubric = {
       label: "Empathy & Tone",
       weight: 20,
       criteria: [
-        { id: "emp-acknowledge", label: "Acknowledged customer situation", description: "Reflected feeling before pushing agenda.", weight: 50 },
-        { id: "emp-tone", label: "Calm, respectful tone maintained", description: "No sarcasm, no raised voice, no interruption.", weight: 50 },
+        {
+          id: "emp-acknowledge",
+          label: "Acknowledged customer situation",
+          description: "Reflected feeling before pushing agenda.",
+          weight: 50,
+        },
+        {
+          id: "emp-tone",
+          label: "Calm, respectful tone maintained",
+          description: "No sarcasm, no raised voice, no interruption.",
+          weight: 50,
+        },
       ],
     },
     {
@@ -100,9 +110,24 @@ export const defaultRubric: Rubric = {
       label: "Resolution & Accuracy",
       weight: 30,
       criteria: [
-        { id: "res-identify", label: "Correctly identified customer need", description: "Root need captured within 2 turns.", weight: 30 },
-        { id: "res-answer", label: "Accurate answer / next-step", description: "Dues, EMI, dispute path stated correctly.", weight: 40 },
-        { id: "res-close", label: "Confirmed resolution before closing", description: "Summarised action + expectation.", weight: 30 },
+        {
+          id: "res-identify",
+          label: "Correctly identified customer need",
+          description: "Root need captured within 2 turns.",
+          weight: 30,
+        },
+        {
+          id: "res-answer",
+          label: "Accurate answer / next-step",
+          description: "Dues, EMI, dispute path stated correctly.",
+          weight: 40,
+        },
+        {
+          id: "res-close",
+          label: "Confirmed resolution before closing",
+          description: "Summarised action + expectation.",
+          weight: 30,
+        },
       ],
     },
     {
@@ -110,10 +135,34 @@ export const defaultRubric: Rubric = {
       label: "Compliance",
       weight: 25,
       criteria: [
-        { id: "cmp-recording", label: "Recording notice given", description: "Within first 20 seconds.", weight: 25, critical: true },
-        { id: "cmp-miranda", label: "Mini-Miranda debt disclosure", description: "Read verbatim before dues discussion.", weight: 30, critical: true },
-        { id: "cmp-dnd", label: "DND / opt-out honoured", description: "No contact outside allowed window; opt-out respected.", weight: 25, critical: true },
-        { id: "cmp-language", label: "No prohibited language", description: "No threats, no third-party disclosure.", weight: 20, critical: true },
+        {
+          id: "cmp-recording",
+          label: "Recording notice given",
+          description: "Within first 20 seconds.",
+          weight: 25,
+          critical: true,
+        },
+        {
+          id: "cmp-miranda",
+          label: "Mini-Miranda debt disclosure",
+          description: "Read verbatim before dues discussion.",
+          weight: 30,
+          critical: true,
+        },
+        {
+          id: "cmp-dnd",
+          label: "DND / opt-out honoured",
+          description: "No contact outside allowed window; opt-out respected.",
+          weight: 25,
+          critical: true,
+        },
+        {
+          id: "cmp-language",
+          label: "No prohibited language",
+          description: "No threats, no third-party disclosure.",
+          weight: 20,
+          critical: true,
+        },
       ],
     },
     {
@@ -121,8 +170,18 @@ export const defaultRubric: Rubric = {
       label: "Script Adherence",
       weight: 15,
       criteria: [
-        { id: "scr-verify", label: "Identity verification followed", description: "DOB / OTP as per SOP.", weight: 50 },
-        { id: "scr-closing", label: "Approved closing script used", description: "Includes ticket ID + next step.", weight: 50 },
+        {
+          id: "scr-verify",
+          label: "Identity verification followed",
+          description: "DOB / OTP as per SOP.",
+          weight: 50,
+        },
+        {
+          id: "scr-closing",
+          label: "Approved closing script used",
+          description: "Includes ticket ID + next step.",
+          weight: 50,
+        },
       ],
     },
     {
@@ -130,8 +189,18 @@ export const defaultRubric: Rubric = {
       label: "Upsell & Value",
       weight: 10,
       criteria: [
-        { id: "ups-eligibility", label: "Checked eligibility before pitch", description: "Only pitched if flags green.", weight: 50 },
-        { id: "ups-pitch", label: "Contextual, non-pushy pitch", description: "Tied to customer's stated need.", weight: 50 },
+        {
+          id: "ups-eligibility",
+          label: "Checked eligibility before pitch",
+          description: "Only pitched if flags green.",
+          weight: 50,
+        },
+        {
+          id: "ups-pitch",
+          label: "Contextual, non-pushy pitch",
+          description: "Tied to customer's stated need.",
+          weight: 50,
+        },
       ],
     },
   ],
@@ -169,7 +238,11 @@ export function sectionTotal(section: RubricSection, entries: ScorecardEntry[]):
   return acc * 100; // 0..100 within section
 }
 
-export function computeTotal(sc: Scorecard, rubric: Rubric): number {
+// Takes only what it reads. Typed as a whole Scorecard, every caller that
+// scored a subset of entries — the calibration table scores each section
+// separately — had to `as any` a two-field object past the signature, which
+// silenced the check for the field it does use as well.
+export function computeTotal(sc: Pick<Scorecard, "entries">, rubric: Rubric): number {
   // Critical-fail: any critical criterion with score 0 caps total at 40.
   const hasCriticalZero = rubric.sections.some((s) =>
     s.criteria.some(
@@ -191,9 +264,23 @@ export function bandFor(total: number): ScoreBand {
 }
 
 export function bandColor(band: ScoreBand): { text: string; bg: string; border: string } {
-  if (band === "green") return { text: "text-text-success-bolder", bg: "bg-background-success-subtler", border: "border-border-success-subtle" };
-  if (band === "amber") return { text: "text-text-warning-bolder", bg: "bg-background-warning-subtler", border: "border-border-warning-subtle" };
-  return { text: "text-text-danger-bolder", bg: "bg-background-danger-subtler", border: "border-border-danger-subtle" };
+  if (band === "green")
+    return {
+      text: "text-text-success-bolder",
+      bg: "bg-background-success-subtler",
+      border: "border-border-success-subtle",
+    };
+  if (band === "amber")
+    return {
+      text: "text-text-warning-bolder",
+      bg: "bg-background-warning-subtler",
+      border: "border-border-warning-subtle",
+    };
+  return {
+    text: "text-text-danger-bolder",
+    bg: "bg-background-danger-subtler",
+    border: "border-border-danger-subtle",
+  };
 }
 
 // ---------- seed generation ----------
@@ -230,13 +317,19 @@ function seedFrom(calls: CallRecord[]): Scorecard[] {
     const call = calls[i]!;
     const rand = rng(call.id + "-qa");
     const kind = call.handledBy.kind;
-    const label = kind === "bot" ? call.handledBy.bot ?? BOTS[0]! : call.handledBy.agent ?? AGENTS[i % AGENTS.length]!;
+    const label =
+      kind === "bot"
+        ? (call.handledBy.bot ?? BOTS[0]!)
+        : (call.handledBy.agent ?? AGENTS[i % AGENTS.length]!);
     const agentId = kind === "bot" ? BOTS[0]! : AGENTS[i % AGENTS.length]!;
     const status: ScorecardStatus = i < 6 ? "unscored" : i < 16 ? "ai_draft" : "final";
     // bias derives from avgSentiment + flags
     const flagPenalty = call.flags.length * 0.08;
     const bias = Math.max(0.1, Math.min(0.95, 0.55 + call.avgSentiment * 0.35 - flagPenalty));
-    const entries = status === "unscored" ? makeEntries(rand, defaultRubric, bias, false).map((e) => ({ ...e, score: 0 })) : makeEntries(rand, defaultRubric, bias, status === "final");
+    const entries =
+      status === "unscored"
+        ? makeEntries(rand, defaultRubric, bias, false).map((e) => ({ ...e, score: 0 }))
+        : makeEntries(rand, defaultRubric, bias, status === "final");
     list.push({
       id: `qa-${call.id}`,
       callId: call.id,
@@ -244,10 +337,14 @@ function seedFrom(calls: CallRecord[]): Scorecard[] {
       disposition: call.disposition,
       handledBy: { kind, label },
       agentId,
-      reviewer: status === "final" ? "Meera Joshi" : status === "ai_draft" ? "BigBound QA" : undefined,
+      reviewer:
+        status === "final" ? "Meera Joshi" : status === "ai_draft" ? "BigBound QA" : undefined,
       status,
       entries,
-      scoredAt: status === "final" ? new Date(Date.parse(call.startedAt) + 3600_000).toISOString() : undefined,
+      scoredAt:
+        status === "final"
+          ? new Date(Date.parse(call.startedAt) + 3600_000).toISOString()
+          : undefined,
       createdAt: call.startedAt,
     });
   }
@@ -271,7 +368,11 @@ export interface AgentQaStat {
   sectionScores: Array<{ section: string; value: number }>;
 }
 
-export function agentStats(all: Scorecard[], rubric: Rubric, coaching: CoachingAction[]): AgentQaStat[] {
+export function agentStats(
+  all: Scorecard[],
+  rubric: Rubric,
+  coaching: CoachingAction[],
+): AgentQaStat[] {
   const byAgent = new Map<string, Scorecard[]>();
   for (const s of all) {
     if (s.status === "unscored") continue;
@@ -292,7 +393,9 @@ export function agentStats(all: Scorecard[], rubric: Rubric, coaching: CoachingA
     });
     const weakest = sectionScores.slice().sort((a, b) => a.value - b.value)[0]?.section ?? "—";
     const rand = rng(agentId + "-trend");
-    const trend = Array.from({ length: 7 }, (_, i) => Math.max(40, Math.min(100, avg + (rand() - 0.5) * 10 - i)));
+    const trend = Array.from({ length: 7 }, (_, i) =>
+      Math.max(40, Math.min(100, avg + (rand() - 0.5) * 10 - i)),
+    );
     out.push({
       agentId,
       isBot: agentId === BOTS[0],
@@ -321,7 +424,13 @@ export const initialCoaching: CoachingAction[] = [
     scorecardId: `qa-${auditCalls[3]?.id ?? ""}`,
     dueAt: new Date(Date.now() + 2 * 86400_000).toISOString(),
     status: "assigned",
-    notes: [{ at: new Date().toISOString(), author: "Meera Joshi", text: "Missed on 3 of last 10 calls." }],
+    notes: [
+      {
+        at: new Date().toISOString(),
+        author: "Meera Joshi",
+        text: "Missed on 3 of last 10 calls.",
+      },
+    ],
     createdAt: new Date(Date.now() - 86400_000).toISOString(),
   },
   {
@@ -332,7 +441,13 @@ export const initialCoaching: CoachingAction[] = [
     callId: auditCalls[7]?.id,
     dueAt: new Date(Date.now() + 5 * 86400_000).toISOString(),
     status: "in_progress",
-    notes: [{ at: new Date().toISOString(), author: "Meera Joshi", text: "Customer confused twice — walk through worked example." }],
+    notes: [
+      {
+        at: new Date().toISOString(),
+        author: "Meera Joshi",
+        text: "Customer confused twice — walk through worked example.",
+      },
+    ],
     createdAt: new Date(Date.now() - 3 * 86400_000).toISOString(),
   },
   {
@@ -352,7 +467,13 @@ export const initialCoaching: CoachingAction[] = [
     category: "Empathy",
     dueAt: new Date(Date.now() + 7 * 86400_000).toISOString(),
     status: "in_progress",
-    notes: [{ at: new Date().toISOString(), author: "Meera Joshi", text: "Role-play scheduled Thursday." }],
+    notes: [
+      {
+        at: new Date().toISOString(),
+        author: "Meera Joshi",
+        text: "Role-play scheduled Thursday.",
+      },
+    ],
     createdAt: new Date(Date.now() - 4 * 86400_000).toISOString(),
   },
   {
@@ -362,7 +483,13 @@ export const initialCoaching: CoachingAction[] = [
     category: "Upsell",
     dueAt: new Date(Date.now() - 86400_000).toISOString(),
     status: "done",
-    notes: [{ at: new Date().toISOString(), author: "Meera Joshi", text: "Signed off — improvement visible on last 8 calls." }],
+    notes: [
+      {
+        at: new Date().toISOString(),
+        author: "Meera Joshi",
+        text: "Signed off — improvement visible on last 8 calls.",
+      },
+    ],
     createdAt: new Date(Date.now() - 10 * 86400_000).toISOString(),
   },
   {
@@ -372,14 +499,21 @@ export const initialCoaching: CoachingAction[] = [
     category: "Empathy",
     dueAt: new Date(Date.now() + 4 * 86400_000).toISOString(),
     status: "assigned",
-    notes: [{ at: new Date().toISOString(), author: "Bot Ops", text: "Route to Prompt Studio owner." }],
+    notes: [
+      { at: new Date().toISOString(), author: "Bot Ops", text: "Route to Prompt Studio owner." },
+    ],
     createdAt: new Date().toISOString(),
   },
 ];
 
 // ---------- calibration seed ----------
 
-function calibrationEntries(rubric: Rubric, base: number, jitter: number, seed: string): ScorecardEntry[] {
+function calibrationEntries(
+  rubric: Rubric,
+  base: number,
+  jitter: number,
+  seed: string,
+): ScorecardEntry[] {
   const rand = rng(seed);
   return allCriteria(rubric).map((c) => {
     const s = Math.max(0, Math.min(5, Math.round(base + (rand() - 0.5) * jitter)));

@@ -38,8 +38,10 @@ export function SpendTrendChart({ data, services }: { data: DayPoint[]; services
       className="min-h-[17.5rem]"
       action={
         <div className="text-right">
-          <div className="text-[10.5px] text-text-subtlest">Period total</div>
-          <div className="text-body font-semibold tabular-nums text-text">{inrCompact(periodTotal)}</div>
+          <div className="text-body-micro text-text-subtlest">Period total</div>
+          <div className="text-body font-semibold tabular-nums text-text">
+            {inrCompact(periodTotal)}
+          </div>
         </div>
       }
     >
@@ -59,7 +61,7 @@ export function SpendTrendChart({ data, services }: { data: DayPoint[]; services
                   return next;
                 })
               }
-              className={`inline-flex items-center gap-050 rounded-full px-075 py-025 text-[11px] transition-[background-color,opacity,transform] duration-150 active:scale-[0.96] ${
+              className={`inline-flex items-center gap-050 rounded-full px-075 py-025 text-body-tiny transition-[background-color,opacity,transform] duration-150 active:scale-[0.96] ${
                 on ? "bg-surface-sunken text-text" : "text-text-subtlest opacity-50"
               }`}
             >
@@ -72,7 +74,7 @@ export function SpendTrendChart({ data, services }: { data: DayPoint[]; services
       <ChartStage
         toolbar={
           <>
-            <span className="text-[11px] tabular-nums text-text-subtlest">Daily burn</span>
+            <span className="text-body-tiny tabular-nums text-text-subtlest">Daily burn</span>
             <SnapshotPill />
           </>
         }

@@ -34,7 +34,7 @@ export function SegmentedBar({
     <div className={cn("flex h-full flex-col", className)}>
       {title ? <span className="text-body-small font-medium text-text">{title}</span> : null}
       {active?.valueLabel ? (
-        <span className="mt-050 block text-[1.25rem] font-semibold tracking-tight text-text tabular-nums">
+        <span className="mt-050 block heading-medium font-semibold tracking-tight text-text tabular-nums">
           {active.valueLabel}
         </span>
       ) : null}
@@ -88,15 +88,14 @@ export function SegmentedBar({
             aria-pressed={selected === s.id}
             onClick={() => setSelected(s.id)}
             className={cn(
-              "flex items-center gap-050 rounded-full px-075 py-025 text-[11px] transition-[background-color,color,transform] duration-150 active:scale-[0.96]",
+              "flex items-center gap-050 rounded-full px-075 py-025 text-body-tiny transition-[background-color,color,transform] duration-150 active:scale-[0.96]",
               selected === s.id
                 ? "bg-surface-sunken text-text"
                 : "text-text-subtle hover:bg-surface-sunken hover:text-text",
             )}
           >
             <span className="size-1.5 rounded-full" style={{ background: s.color }} />
-            {s.label}{" "}
-            <span className="tabular-nums">{s.pct.toFixed(1)}%</span>
+            {s.label} <span className="tabular-nums">{s.pct.toFixed(1)}%</span>
           </button>
         ))}
       </div>
@@ -104,7 +103,9 @@ export function SegmentedBar({
       {active?.detail ? (
         <div className="mt-150 min-h-16 rounded-medium bg-surface-sunken px-150 py-100 shadow-raised">
           <span className="block text-body-small font-medium text-text">{active.label}</span>
-          <span className="mt-050 block text-[11px] leading-relaxed text-text-subtlest">{active.detail}</span>
+          <span className="mt-050 block text-body-tiny leading-relaxed text-text-subtlest">
+            {active.detail}
+          </span>
         </div>
       ) : null}
     </div>

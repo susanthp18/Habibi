@@ -4,7 +4,11 @@ bot_deployments is the authoritative runtime config source (see deployment.py).
 """
 
 from agent_core.deployment import load_active_bundle, resolve_prompt_bundle
-from agent_core.guardrails import evaluate_guardrails, should_halt
+from agent_core.guardrails import (
+    evaluate_guardrails,
+    mentions_recording_disclosure,
+    should_halt,
+)
 from agent_core.intent import classify_intent, resolve_intent
 from agent_core.prompt import build_system_prompt, default_context, guardrail_rules
 from agent_core.sentiment import estimate_sentiment, sentiment_label
@@ -40,6 +44,7 @@ __all__ = [
     "default_tuning",
     "estimate_sentiment",
     "evaluate_guardrails",
+    "mentions_recording_disclosure",
     "get_preset",
     "list_presets",
     "load_active_bundle",

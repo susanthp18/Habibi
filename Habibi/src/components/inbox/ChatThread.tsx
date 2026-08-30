@@ -13,14 +13,25 @@ function isMessage(item: ThreadItem): item is Extract<ThreadItem, { sender: unkn
 
 function BotTypingBubble() {
   return (
-    <div className="animate-fade-up flex flex-col items-start" aria-live="polite" aria-label="Bot is typing">
-      <span className="mb-025 px-050 text-body-small font-semibold text-text-brand">
-        Bot
-      </span>
+    <div
+      className="animate-fade-up flex flex-col items-start"
+      aria-live="polite"
+      aria-label="Bot is typing"
+    >
+      <span className="mb-025 px-050 text-body-small font-semibold text-text-brand">Bot</span>
       <div className="inline-flex items-center gap-050 rounded-xxlarge rounded-bl-md border border-border bg-background-brand-subtlest px-200 py-150">
-        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold" style={{ animationDelay: "0ms" }} />
-        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold" style={{ animationDelay: "160ms" }} />
-        <span className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold" style={{ animationDelay: "320ms" }} />
+        <span
+          className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold"
+          style={{ animationDelay: "0ms" }}
+        />
+        <span
+          className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold"
+          style={{ animationDelay: "160ms" }}
+        />
+        <span
+          className="typing-dot h-1.5 w-1.5 rounded-full bg-background-brand-bold"
+          style={{ animationDelay: "320ms" }}
+        />
       </div>
       <div className="mt-050 px-050 text-body-small text-text-subtlest">typing…</div>
     </div>
@@ -45,13 +56,35 @@ export function ChatThread({
   const scrollRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const { needsClaim, canReturnToBot, botHandling } = getThreadHandoffState(thread, Boolean(onReturnToBot));
+  const { needsClaim, canReturnToBot, botHandling, heldByTeammate } = getThreadHandoffState(
+    thread,
+    Boolean(onReturnToBot),
+  );
   const botTyping = Boolean(thread.botTyping) && thread.status === "bot" && !thread.isMine;
+
+  // Opening a thread always lands at the newest message; after that, follow
+  // only if the reader is already at the bottom. The list re-renders on every
+  // poll — 1.5s while the bot is typing — and each one used to yank the view
+  // back down, so scrolling up to read what the customer said earlier was
+  // impossible while a turn was in flight.
+  const atBottomRef = useRef(true);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [thread.id, thread.messages.length, botTyping]);
+    if (!el) return;
+    atBottomRef.current = true;
+    el.scrollTop = el.scrollHeight;
+  }, [thread.id]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [thread.messages.length, botTyping]);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -79,9 +112,7 @@ export function ChatThread({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface">
       <div className="flex shrink-0 items-center gap-150 border-b border-border bg-surface px-250 py-100">
-        <h2 className="min-w-0 truncate heading-xsmall text-text">
-          {thread.customer}
-        </h2>
+        <h2 className="min-w-0 truncate heading-xsmall text-text">{thread.customer}</h2>
 
         <div className="ml-auto flex shrink-0 items-center gap-100">
           {botTyping ? (
@@ -96,6 +127,10 @@ export function ChatThread({
             </Lozenge>
           ) : thread.isMine ? (
             <Lozenge tone="selected">You&apos;ve taken over</Lozenge>
+          ) : heldByTeammate ? (
+            // "Awaiting agent" was shown here too, about a thread an agent is
+            // already holding.
+            <Lozenge tone="neutral">Another agent has this</Lozenge>
           ) : (
             <Lozenge tone="warning">Awaiting agent</Lozenge>
           )}
@@ -166,7 +201,11 @@ export function ChatThread({
         </div>
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-300 py-250">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto px-300 py-250"
+      >
         <div className="mx-auto flex max-w-[50rem] flex-col gap-100">
           {thread.messages.map((item, idx) => {
             if (!isMessage(item)) {

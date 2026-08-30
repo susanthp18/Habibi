@@ -232,7 +232,7 @@ def kb_enrich_fallback() -> str:
 
 
 def voice_flow_graph() -> str:
-    """``legacy`` | ``hub`` | ``db`` | ``auto`` (default).
+    """``legacy`` | ``hub`` | ``db`` | ``auto`` (default) | ``required``.
 
     ``auto`` (unset) runs the Prompt Studio graph when the published version
     actually has nodes, otherwise the hardcoded collections script. ``legacy``
@@ -240,19 +240,41 @@ def voice_flow_graph() -> str:
     the authored graph (and still falls back if it is empty or fails to
     compile). ``hub`` is the merged collections_hub experiment.
 
+    ``required`` is the one that makes Agent Studio load-bearing. Under it a
+    bot with no published graph, or one whose graph will not compile, does not
+    quietly run the Python script instead — it refuses, and says which bot and
+    why. The fallback is the reason a card can look authored, be edited,
+    published, and change nothing about the call: the studio is decorative until
+    something breaks when it is empty.
+
+    Refusing is the point, and it is also the cost. Under ``required`` a broken
+    graph is a failed call rather than a degraded one, which is the correct
+    trade only once the graphs are real.
+
     An unrecognised value falls back to ``auto`` rather than raising: an
     operator typo must not take voice down.
     """
     load_env()
     raw = (os.getenv("VOICE_FLOW_GRAPH") or "").strip().lower()
-    return raw if raw in {"hub", "db", "legacy", "auto"} else "auto"
+    return raw if raw in {"hub", "db", "legacy", "auto", "required"} else "auto"
+
+
+def voice_flow_required() -> bool:
+    """Is a published, compilable Agent Studio graph mandatory for every call?"""
+    return voice_flow_graph() == "required"
 
 
 def voice_uses_authored_flow(graph_data: Any, *, override: str | None = None) -> bool:
     """Whether this call should compile ``prompt_versions.flow`` instead of Python.
 
-    ``legacy`` / ``hub`` never do. ``db`` / ``auto`` do when the stored JSON
-    has nodes. Sandbox per-call override is ``session.extra["flowGraph"]``.
+    ``legacy`` / ``hub`` never do. ``db`` / ``auto`` / ``required`` do when the
+    stored JSON has nodes. Sandbox per-call override is
+    ``session.extra["flowGraph"]``.
+
+    Note what this does *not* decide: under ``required`` a graph that is absent
+    still returns False here, because it genuinely is not authored. Turning that
+    into a refusal is :func:`voice_flow_required`'s job at the call site, where
+    there is a session to name in the error.
     """
     mode = (override or voice_flow_graph()).strip().lower()
     if mode in {"legacy", "hub"}:

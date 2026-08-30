@@ -59,6 +59,9 @@ MANDATE_TOO_SOON = "mandate_retry_too_soon"
 EMI_DATE_ALIGNED = "emi_date_already_aligned"
 EMI_TIMING_UNKNOWN = "salary_timing_unknown"
 TECHNICAL_RETURN = "technical_return_not_borrower_fault"
+SELF_SERVICE_OPEN = "self_service_plan_already_open"
+SELF_SERVICE_NO_SURFACE = "no_digital_surface_to_offer_on"
+SELF_SERVICE_TOO_EARLY = "arrears_not_yet_worth_a_plan"
 
 #: Holds that stop collections outreach outright. ``legal`` is deliberately not
 #: in this set: once a matter is with legal the *statutory* clock is the only
@@ -205,6 +208,11 @@ def veto(
         if reason:
             return reason
 
+    if action == A.SELF_SERVICE_PLAN:
+        reason = _self_service_veto(conn, features)
+        if reason:
+            return reason
+
     if spec.channel:
         # A bank-side return is not the borrower's failure, and dunning them
         # for it is the collections equivalent of billing someone for our own
@@ -325,6 +333,89 @@ def _emi_date_veto(features: AccountFeatures) -> str | None:
         return EMI_TIMING_UNKNOWN
     if gap <= EMI_TIMING_TOLERANCE_DAYS:
         return EMI_DATE_ALIGNED
+    return None
+
+
+#: Instalments in arrears below which a self-service plan is not offered. One
+#: missed EMI is a wobble and the ordinary machinery -- a re-presentment, a
+#: reminder -- resolves it; opening a repayment plan for it converts a
+#: forgetful borrower into a restructured one and costs the interest on a
+#: cycle that would have cured itself.
+SELF_SERVICE_MIN_INSTALMENTS = 2
+
+
+def _instalments_in_arrears(features: AccountFeatures) -> float:
+    """How many EMIs behind this borrower is, from the best signal available.
+
+    Deliberately **not** ``exposure / instalment_amount``. ``exposure`` is a
+    property that returns the instalment itself whenever one is known, so that
+    ratio is 1.0 on every account with a schedule — a gate that would have
+    fired on the whole book while looking like arithmetic.
+
+    Nor ``outstanding / instalment_amount``: outstanding is the remaining
+    balance of the loan, so a thirty-six-month tenor reads as thirty-six
+    instalments behind on day one, which fails the same way in the opposite
+    direction.
+
+    ``minimum_due`` is the amount actually payable now and accumulates across
+    missed cycles, so it is the right numerator where we have it. Where we do
+    not, DPD stands in: a borrower thirty days past due has missed the next
+    cycle as well, whatever the ledger says.
+    """
+    instalment = features.instalment_amount
+    if instalment and instalment > 0 and features.minimum_due:
+        return features.minimum_due / instalment
+    if features.dpd is not None:
+        # One cycle per thirty days, plus the one that started the clock.
+        return 1.0 + features.dpd / 30.0
+    return 0.0
+
+
+def _self_service_veto(conn: Any, features: AccountFeatures) -> str | None:
+    """May we open a borrower-initiated repayment path on this account?
+
+    ``channel=None`` buys this action the same exemption ``represent_mandate``
+    has: no frequency cap, no calling window. As with that one, the exemption is
+    exactly why the limits have to live here -- an action nothing caps is an
+    action that will be taken every single day the engine runs.
+
+    Three bounds, and the middle one is the interesting one. An offer nobody can
+    see is not an offer: a self-service plan surfaces in the app, the portal or
+    a statement, so a borrower we hold no digital identifier for cannot take it
+    up and the engine would be scoring a cure it has no way to deliver.
+    """
+    if _instalments_in_arrears(features) < SELF_SERVICE_MIN_INSTALMENTS:
+        return SELF_SERVICE_TOO_EARLY
+
+    if not features.has_email and not features.has_phone:
+        return SELF_SERVICE_NO_SURFACE
+
+    if conn is None:
+        # No connection means the open-plan check cannot run. Allowing the
+        # action is the right degradation: ``enact`` inserts the work item with
+        # the decision id as its idempotency key, so a duplicate plan is
+        # refused by the database even when this check could not be made.
+        return None
+
+    from sqlalchemy import text
+
+    open_plan = conn.execute(
+        text(
+            """
+            SELECT 1 FROM work_runtime_jobs
+            WHERE tenant_id = :tenant
+              AND workflow_type = 'self_service_plan'
+              AND customer_id = :cid
+              AND status NOT IN ('completed', 'failed', 'cancelled')
+            LIMIT 1
+            """
+        ),
+        {"tenant": features.tenant_id, "cid": features.customer_id},
+    ).first()
+    if open_plan:
+        # Offering a second plan while the first is still open is how a borrower
+        # ends up with two schedules and a dispute about which one they were on.
+        return SELF_SERVICE_OPEN
     return None
 
 

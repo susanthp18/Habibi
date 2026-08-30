@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+import webhooks_dispatch
 from env_loader import load_env
 
 logger = logging.getLogger(__name__)
@@ -237,6 +238,23 @@ def record_payment(
     except Exception:
         logger.exception("bounce cure failed account=%s", intent["account_id"])
     _close_treatment_cases(conn, bounce_ids=cured, promises=allocated)
+    # Inside the caller's transaction, so the notification commits with the
+    # payment or not at all. `payment.updated` is the catalog key; there is no
+    # separate `payment.received`.
+    webhooks_dispatch.dispatch(
+        conn,
+        "payment.updated",
+        {
+            "intentId": intent["id"],
+            "accountId": intent["account_id"],
+            "status": "paid",
+            "amount": float(paid),
+            "ledgerEntryId": ledger_id,
+            "providerRef": provider_ref,
+            "allocated": allocated,
+            "curedEvents": cured,
+        },
+    )
     return {
         "ok": True,
         "intentId": intent["id"],
@@ -358,6 +376,20 @@ def allocate_to_promises(
                 "status": next_status,
             }
         )
+        if next_status == "kept":
+            # The only place in production a promise becomes kept. Subscribers
+            # to promise.kept had nothing emitting it until now.
+            webhooks_dispatch.dispatch(
+                conn,
+                "promise.kept",
+                {
+                    "promiseId": row["id"],
+                    "customerId": row["customer_id"],
+                    "amount": float(promised),
+                    "paidAmount": float(new_paid),
+                    "applied": float(take),
+                },
+            )
         remaining -= take
     return applied
 

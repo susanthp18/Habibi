@@ -40,7 +40,12 @@ from voice.session import VoiceSession
 #: 2240px and fitted at ~0.2 zoom — every node an unreadable smudge. A tall
 #: layout matches the pane's shape and fits near 0.5.
 _LAYOUT: dict[str, tuple[int, int]] = {
+    # The two doors sit side by side on the top row, which is the shape of the
+    # thing: an inbound caller enters left, an outbound mission enters right,
+    # and everything below the second row is shared.
     "greet_disclose": (0, 0),
+    "confirm_identity": (-360, 0),
+    "third_party": (-680, 150),
     "discover_intent": (0, 150),
     "verify_identity": (0, 300),
     "terminate_politely": (-320, 300),
@@ -58,8 +63,20 @@ _LAYOUT: dict[str, tuple[int, int]] = {
 #: Order the nodes are emitted in. Anything the builder registers that is not
 #: listed still ships — appended in registry order — so a new built-in node
 #: cannot be silently dropped from the export.
+#: Missions the exported built-in graph advertises on ``confirm_identity``.
+#: Matches ``agent_core.cards.defaults._collections_outbound``; the compiler
+#: (G-OB2) is what keeps the two honest if either moves.
+_OUTBOUND_ENTRY_MISSIONS: tuple[str, ...] = (
+    "pre_due_reminder",
+    "bounce_cure",
+    "dpd_reminder",
+    "broken_ptp_chase",
+)
+
 _ORDER: tuple[str, ...] = (
     "greet_disclose",
+    "confirm_identity",
+    "third_party",
     "discover_intent",
     "verify_identity",
     "state_position",
@@ -156,6 +173,13 @@ def _node_json(
             "instructionType": "prompt",
             "instructions": _instructions(node),
             "isStart": key == "greet_disclose",
+            # The built-in script has one outbound door, and every collections
+            # mission comes in through it — the mission briefing in the system
+            # prompt is what makes a bounce cure sound different from a
+            # broken-promise chase. An *authored* graph can give each mission
+            # its own door; that is the whole point of `entryFor`, and exporting
+            # the built-in one this way is what shows an author where to start.
+            "entryFor": list(_OUTBOUND_ENTRY_MISSIONS) if key == "confirm_identity" else [],
             "respondImmediately": bool(node.get("respond_immediately", True)),
             "entryLine": _entry_line(node),
             "tools": _tool_names(node.get("functions") or [], tools),

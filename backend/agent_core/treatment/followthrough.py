@@ -44,13 +44,37 @@ logger = logging.getLogger(__name__)
 #: Only these carry a case identity worth chasing. A ``manual`` decision is a
 #: supervisor asking "what would you do here?" — a question, not a campaign, and
 #: re-deciding it on a timer would be answering a question nobody asked twice.
-LOOPED_TRIGGERS: frozenset[str] = frozenset({"bounce", "broken_ptp", "pre_due"})
+#:
+#: ``dpd_tick`` is here because ``sweep.py``'s docstring always said it was —
+#: "followthrough treats a day's sweep as an ordinary case it can walk a ladder
+#: over" — and the frozenset disagreed. The sweep is the corpus generator and
+#: the only trigger that fires on the silent roller, the account that never
+#: bounces again because the mandate was cancelled in March. Leaving it out gave
+#: the largest population in the book exactly one decision a day and no
+#: escalation at all.
+#:
+#: The case key is the borrower's own local date, so a day's sweep is one case
+#: and the ladder walks *within* the day. Tomorrow's sweep opens a new case
+#: rather than continuing yesterday's, which is the property that stops a
+#: quiet account accumulating an unbounded ladder over a month.
+LOOPED_TRIGGERS: frozenset[str] = frozenset(
+    {"bounce", "broken_ptp", "pre_due", "dpd_tick"}
+)
 
 #: Outcomes that end a case. Anything else leaves it open for another rung.
 RESOLVING = frozenset({"paid", "ptp", "superseded", "cancelled"})
 
+#: How long a withheld decision is watched before its silence counts as
+#: evidence. Long enough that a borrower who was going to pay this cycle has
+#: had the chance — this is the window the counterfactual is defined over, and
+#: making it shorter does not produce more data, it produces the same data with
+#: more of the positives mislabelled as negatives.
+OBSERVATION_WINDOW = timedelta(days=14)
+
 #: Outcomes that mean "that attempt did not work" — the loop's cue.
-UNRESOLVED = frozenset({"no_answer", "refused", "undeliverable", "reached"})
+UNRESOLVED = frozenset(
+    {"no_answer", "refused", "undeliverable", "reached", "unresolved"}
+)
 
 #: How many decisions to attribute in one pass. Bounded so a backlog cannot
 #: monopolise the worker.
@@ -85,9 +109,23 @@ def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = B
               -- avoid.
               AND mode <> 'simulated'
               AND chosen_action IS NOT NULL
-              AND chosen_action <> 'wait'
+              -- ``wait`` used to be excluded, because a decision to do nothing
+              -- produced nothing to attribute. It is included now: a
+              -- control-arm wait is the counterfactual observation, and it is
+              -- the row the whole uplift estimate is measured against.
+              -- _outcome_for still refuses to label an ordinary shadow wait.
               AND created_at >= now() - interval '30 days'
-            ORDER BY created_at ASC
+            -- Least-recently-examined first, never-examined before that.
+            --
+            -- Ordering by created_at alone deadlocked the loop. A row that
+            -- *cannot* be labelled -- an unenacted shadow decision outside a
+            -- withholding arm, where nothing was sent so there is nothing to
+            -- call unanswered and silence is not evidence either -- stayed at
+            -- the front of every pass and was re-examined forever. One batch of
+            -- those and the loop stops labelling anything, while the worker
+            -- keeps reporting that it ran and the corpus quietly stops
+            -- acquiring outcomes.
+            ORDER BY outcome_checked_at ASC NULLS FIRST, created_at ASC
             LIMIT :limit
             """
         ),
@@ -95,12 +133,26 @@ def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = B
     ).mappings().all()
 
     labelled = 0
+    inconclusive: list[str] = []
     for row in rows:
         outcome = _outcome_for(conn, dict(row), now=instant)
         if outcome is None:
+            inconclusive.append(str(row["id"]))
             continue
         decisions.record_outcome(row["id"], outcome, conn=conn)
         labelled += 1
+
+    if inconclusive:
+        # Stamped so the next pass moves past them. Only the inconclusive ones:
+        # a labelled row leaves the queue on its outcome and has no reason to
+        # carry a watermark.
+        conn.execute(
+            text(
+                "UPDATE treatment_decisions SET outcome_checked_at = :now"
+                " WHERE id = ANY(:ids)"
+            ),
+            {"now": instant, "ids": inconclusive},
+        )
     return labelled
 
 
@@ -125,10 +177,20 @@ def _outcome_for(conn: Any, row: dict[str, Any], *, now: datetime) -> str | None
         return "ptp"
 
     if not enacted:
-        # Nothing was sent, so there is nothing to call unanswered. A shadow
-        # decision on a case that simply stayed open is not a negative example
-        # of anything — it is an absence of evidence, and labelling it would
-        # manufacture a training signal out of a decision nobody acted on.
+        # Nothing was sent, so there is nothing to call *unanswered* — a shadow
+        # decision on a case that simply stayed open is an absence of evidence,
+        # and labelling it ``no_answer`` would manufacture a training signal out
+        # of a decision nobody acted on.
+        #
+        # But withholding on purpose is not the same as failing to act, and
+        # after the observation window the silence is itself the observation:
+        # we did nothing and the borrower did not pay. That row is the
+        # counterfactual, and it is the only kind of row that can measure
+        # self-cure — without it a control arm contains nothing but positives,
+        # every cure rate it reports is 1.0, and the estimated treatment effect
+        # is a finding about the labeller.
+        if _withheld_on_purpose(row) and now - since >= OBSERVATION_WINDOW:
+            return "unresolved"
         return None
 
     if _reached_since(conn, row, since):
@@ -140,6 +202,21 @@ def _outcome_for(conn: Any, row: dict[str, Any], *, now: datetime) -> str | None
     if now - since >= grace:
         return "no_answer"
     return None
+
+
+def _withheld_on_purpose(row: dict[str, Any]) -> bool:
+    """Was this a deliberate no-treatment, or merely a plan nobody carried out?
+
+    The distinction decides whether silence is evidence. A control-arm decision
+    withheld treatment by design, so "they did not pay" answers the question the
+    arm was created to ask. A shadow decision that went unenacted answers
+    nothing: the borrower may have been contacted by the dialler, by an agent,
+    or by a reminder the engine never saw.
+    """
+    from agent_core.treatment import config
+
+    arm = config.variants().get(str(row.get("variant") or "").strip().lower())
+    return bool(arm and arm.suppress_discretionary)
 
 
 def _superseded(conn: Any, row: dict[str, Any]) -> bool:

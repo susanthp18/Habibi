@@ -22,6 +22,7 @@ import {
   moveDispute as moveSeedDispute,
   rejectDispute as rejectSeedDispute,
   resolveDispute as resolveSeedDispute,
+  withMockSla,
   type Dispute,
   type DisputeStatus,
   type DisputeType,
@@ -44,7 +45,9 @@ export type CreateDisputeInput = {
 };
 
 export async function fetchDisputes(): Promise<Dispute[]> {
-  if (USE_MOCK) return mockDelay(seedDisputes);
+  // The SLA fields are the server's to compute; mock recomputes them on every
+  // fetch (as the server would) rather than freezing them into the seed row.
+  if (USE_MOCK) return mockDelay(seedDisputes.map(withMockSla));
   return apiGet<Dispute[]>("/disputes");
 }
 
@@ -133,7 +136,11 @@ export async function attachEvidence(
   });
 }
 
-export async function resolveDispute(d: Dispute, code: ResolutionCode, notes: string): Promise<void> {
+export async function resolveDispute(
+  d: Dispute,
+  code: ResolutionCode,
+  notes: string,
+): Promise<void> {
   if (USE_MOCK) {
     resolveSeedDispute(d.id, code, notes);
     return;

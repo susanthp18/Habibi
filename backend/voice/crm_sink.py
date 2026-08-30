@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from agent_core import classify_intent
 from agent_core import turn_critic
+from agent_core.guardrails import mentions_recording_disclosure
 from voice import persist
 from voice.safety import (
     SENTIMENT_WINDOW,
@@ -32,6 +34,45 @@ from voice.session import VoiceSession
 from voice.usage import VoiceUsageMeter
 
 logger = logging.getLogger(__name__)
+
+#: Disposition filed on the minimal interaction row written for a call whose
+#: CRM bind failed at connect. Deliberately not one of
+#: ``capture.disposition_from_flags``'s values: "we did not record this call
+#: properly" must never be readable as an outcome the bot achieved.
+CRM_DEGRADED_DISPOSITION = "crm_degraded"
+#: Passed alongside it because ``complete_voice_call`` forwards
+#: ``force_summary=not summary`` into ``capture.rollup_interaction``, and a
+#: forced rollup overwrites the disposition we just wrote.
+CRM_DEGRADED_SUMMARY = (
+    "CRM persistence was unavailable when this call connected. "
+    "The call is recorded but its transcript, tool calls and alerts are not."
+)
+
+#: Logged verbatim when a call loses its CRM bind. A stable prefix on purpose —
+#: it is what an alert rule matches on, and the one line that says a live call is
+#: running without a record.
+CRM_DEGRADED_LOG = (
+    "crm_persistence_degraded · session=%s · call continues; a minimal "
+    "interaction row will be filed at teardown"
+)
+
+
+def mark_crm_degraded(session: VoiceSession, exc: BaseException | None = None) -> None:
+    """Flag a call whose CRM bind failed, loudly.
+
+    The connect path used to catch the bind failure, log it and carry on with
+    ``interaction_id`` still None: every CRM job for the rest of the call was
+    then discarded by the ``interaction_id`` guards below, and a collections
+    call completed with no record that it had ever happened.
+
+    Degrade, do not abort — hanging up on a borrower mid-disclosure to protect a
+    database is not a trade this call gets to make. Setting the flag here rather
+    than in ``bot.py`` keeps the one thing teardown depends on next to the code
+    that reads it, and gives it a seam a test can hold.
+    """
+    session.crm_degraded = True
+    logger.error(CRM_DEGRADED_LOG, session.session_id, exc_info=exc)
+
 
 EscalateHandler = Callable[[str, str], Awaitable[None]]
 HoldHandler = Callable[[], Awaitable[None]]
@@ -136,6 +177,18 @@ class CrmSink:
         # Per-service latency for the next bot turn (UserBotLatencyObserver).
         self._pending_breakdown: dict[str, int] = {}
         self._user_bot_latency_ms: list[float] = []
+        # CRM work discarded because the session never got an interaction_id,
+        # counted by job kind. These guards used to be a bare `return`: an
+        # entire call's transcript turns, tool-call audit rows, live alerts and
+        # guardrail violations could go missing without one line in the log.
+        # Counted here and reported once per session — a line per lost turn
+        # would be the loudest thing in the log on exactly the call that already
+        # went wrong, and ops would filter it out.
+        #
+        # Written from the drain thread and the audio path both, hence the lock.
+        self._dropped_jobs: dict[str, int] = {}
+        self._drop_logged = False
+        self._drop_lock = threading.Lock()
         self._closed = False
         self._completed = False
         self._escalated_live = False
@@ -165,6 +218,91 @@ class CrmSink:
         if fallback_languages is not None:
             self._fallback_languages = list(fallback_languages)
 
+    def _note_dropped(self, kind: str) -> None:
+        """Record one CRM job lost to a missing ``interaction_id``.
+
+        The first loss on a session logs at ERROR and names the kind — this is
+        persistence failing, not a debug detail. Every later loss only
+        increments the counter; the per-kind totals go out once at teardown.
+        Keeping the drop itself is deliberate: there is no id to write against,
+        so the choice is between losing the row loudly and losing it silently.
+        """
+        with self._drop_lock:
+            self._dropped_jobs[kind] = self._dropped_jobs.get(kind, 0) + 1
+            already_logged = self._drop_logged
+            self._drop_logged = True
+            count = self._dropped_jobs[kind]
+        if already_logged:
+            return
+        logger.error(
+            "crm job dropped, interaction_id unset · kind=%s · dropped=%d · session=%s · "
+            "further drops on this session are counted, not logged",
+            kind,
+            count,
+            self.session.session_id,
+        )
+
+    def _report_dropped(self) -> None:
+        """Per-kind totals, once, at teardown. Nothing to report is the norm."""
+        with self._drop_lock:
+            dropped = dict(self._dropped_jobs)
+        if not dropped:
+            return
+        logger.warning(
+            "crm jobs dropped this session · session=%s · %s · total=%d",
+            self.session.session_id,
+            " · ".join(f"{kind}={n}" for kind, n in sorted(dropped.items())),
+            sum(dropped.values()),
+        )
+
+    def _file_degraded_interaction(self) -> None:
+        """File the minimal interaction row for a call the bind never covered.
+
+        Reuses ``start_voice_call`` rather than a bespoke INSERT so the row
+        carries the same tenant, bot, direction and account resolution every
+        other call gets — a reviewer opens it in the same screen. ``started_at``
+        is the moment the borrower answered, so the duration ``complete`` then
+        computes is the real one and not a teardown artefact.
+
+        ``bot_id`` and the direction come from ``session.extra``, where the
+        connect path leaves whatever the failed bind resolved: this row is thin
+        by necessity and must not also be wrong about who answered.
+
+        Failing here leaves the call genuinely unrecorded, so it says exactly
+        that rather than another quiet ``return``.
+        """
+        extra = self.session.extra or {}
+        try:
+            row = persist.start_voice_call(
+                session_id=self.session.session_id,
+                deployment_id=self.session.deployment_id,
+                transport=self.session.transport,
+                provider_call_id=(
+                    self.session.provider_call_id
+                    or (str(extra.get("call_sid") or "").strip() or None)
+                ),
+                customer_id=self.session.customer_id,
+                account_id=self.session.account_id,
+                bot_id=str(extra.get("bot_id") or "").strip() or None,
+                direction=str(extra.get("call_direction") or self.call_direction),
+                started_at=self.session.call_started_at,
+            )
+        except Exception:
+            logger.exception(
+                "crm_persistence_degraded · minimal interaction could NOT be filed · "
+                "session=%s · this call is unrecorded",
+                self.session.session_id,
+            )
+            return
+        self.session.interaction_id = row["interactionId"]
+        self.session.customer_id = row["customerId"]
+        self.session.account_id = row.get("accountId")
+        logger.error(
+            "crm_persistence_degraded · minimal interaction filed · session=%s · interaction=%s",
+            self.session.session_id,
+            row["interactionId"],
+        )
+
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         if self._task is None:
@@ -178,6 +316,19 @@ class CrmSink:
         if self._closed:
             return
         self._closed = True
+        # A call whose bind failed at connect has no interaction row, so every
+        # job above was dropped and `complete` would be dropped too — the call
+        # would end with nothing written anywhere. File the minimal row first:
+        # it makes the call auditable, and anything still queued drains against
+        # a real id instead of into the void.
+        #
+        # A bind that succeeded and only tripped afterwards is deliberately NOT
+        # this case: its interaction row exists and the queue drains into it, so
+        # labelling the call ``crm_degraded`` would misreport a call that was in
+        # fact recorded.
+        unrecorded = bool(self.session.crm_degraded and not self.session.interaction_id)
+        if unrecorded:
+            await asyncio.to_thread(self._file_degraded_interaction)
         avg = (
             sum(self._sentiment_scores) / len(self._sentiment_scores)
             if self._sentiment_scores
@@ -202,6 +353,9 @@ class CrmSink:
                 "rag_hits": self.session.rag_hits,
             },
         )
+        if unrecorded:
+            complete_job.payload["disposition"] = CRM_DEGRADED_DISPOSITION
+            complete_job.payload["summary"] = CRM_DEGRADED_SUMMARY
         # Give the analysis queue a short, separate budget BEFORE the CRM drain,
         # so a slow classifier eats its own deadline rather than the 15 seconds
         # the interaction's completion depends on. Anything still queued is
@@ -214,6 +368,7 @@ class CrmSink:
         if self._task is None:
             # start() never ran — drain synchronously so interaction completes.
             await self._drain()
+            self._report_dropped()
             return
         try:
             try:
@@ -233,6 +388,7 @@ class CrmSink:
                 await self._finish_drain_task(complete_job)
         finally:
             self._task = None
+            self._report_dropped()
 
     # Short on purpose. At teardown the call is over: nobody is waiting on a
     # refined intent, and the only thing a longer wait buys is a marginally
@@ -583,6 +739,7 @@ class CrmSink:
         # Correct what the keyword pass already persisted for this turn.
         ix = self.session.interaction_id
         if not ix:
+            self._note_dropped("turn_understanding")
             return
         try:
             persist.update_turn_understanding(
@@ -603,8 +760,13 @@ class CrmSink:
         result_ok: bool,
         error: str | None,
         latency_ms: int,
+        args: dict[str, Any] | None = None,
     ) -> None:
-        """Audit one voice tool call. Queued — the caller is mid-turn."""
+        """Audit one voice tool call. Queued — the caller is mid-turn.
+
+        ``args`` are filtered by ``persist._audit_args`` on the way to the row,
+        not here: this runs on the turn and must stay a dict copy and an enqueue.
+        """
         self.enqueue(
             "tool_call",
             tool_name=tool_name,
@@ -612,6 +774,7 @@ class CrmSink:
             result_ok=result_ok,
             error=error,
             latency_ms=latency_ms,
+            args=dict(args) if isinstance(args, dict) else None,
         )
 
     def enqueue_kb_gap(self, payload: dict[str, Any]) -> None:
@@ -636,6 +799,7 @@ class CrmSink:
         customer's turn whenever Postgres is slow.
         """
         if not self.session.interaction_id:
+            self._note_dropped("live_alert")
             return
         self.enqueue("live_alert", alert_kind=kind, reason=reason)
 
@@ -654,6 +818,11 @@ class CrmSink:
                 self.enqueue("live_alert", alert_kind=kind, reason=detail or reason)
             except Exception:
                 logger.exception("live escalate alert failed")
+        else:
+            # The escalation still runs below — a caller who needs a human gets
+            # one — but the alert that would have told the floor console why is
+            # gone. Say so; this is the loss that used to be invisible.
+            self._note_dropped("live_alert_escalation")
         if self._on_escalate is not None:
             try:
                 await self._on_escalate(reason, detail)
@@ -858,7 +1027,10 @@ class CrmSink:
             tokens=int(tokens) if tokens is not None else None,
             **{_camel(k): v for k, v in breakdown.items()},
         )
-        if not self._recording_disclosed and "record" in text.lower():
+        # Same predicate the guardrail uses (agent_core.guardrails). A bare
+        # "record" substring also matched "let me record your promise to
+        # pay", which would mark an undisclosed call compliant.
+        if not self._recording_disclosed and mentions_recording_disclosure(text):
             self._recording_disclosed = True
         self._recent_bot_texts.append(text)
         if len(self._recent_bot_texts) > 8:
@@ -1233,6 +1405,7 @@ class CrmSink:
 
         ix = self.session.interaction_id
         if not ix:
+            self._note_dropped(job.kind)
             return
         if job.kind == "tool_call":
             persist.record_voice_tool_call(
@@ -1242,6 +1415,7 @@ class CrmSink:
                 result_ok=bool(p.get("result_ok")),
                 error=p.get("error"),
                 latency_ms=p.get("latency_ms"),
+                args=p.get("args") if isinstance(p.get("args"), dict) else None,
             )
             return
         if job.kind == "live_alert":

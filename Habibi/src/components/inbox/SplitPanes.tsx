@@ -1,11 +1,4 @@
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 function clamp(n: number, min: number, max: number) {
@@ -120,13 +113,13 @@ export function SplitPanes({
   // Keyboard resize for the focusable separator (a11y parity with pointer drag).
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>, i: number) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       const root = rootRef.current;
       if (!root) return;
       e.preventDefault();
       const totalPx = root.getBoundingClientRect().width;
       if (totalPx <= 0) return;
-      const stepPx = e.key === 'ArrowLeft' ? -10 : 10;
+      const stepPx = e.key === "ArrowLeft" ? -10 : 10;
       const deltaPct = (stepPx / totalPx) * 100;
       const next = [...widths];
       const leftMin = ((minWidthsPx[i] ?? 160) / totalPx) * 100;

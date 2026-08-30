@@ -26,6 +26,53 @@ def _https_ok(url: str | None) -> bool:
     return parsed.scheme == "https" and bool(parsed.netloc)
 
 
+def _guard_outbound_url(url: str | None) -> str:
+    """Resolve ``url`` and refuse anything that is not publicly routable.
+
+    ``_https_ok`` reads the scheme and netloc and nothing else, so
+    ``https://169.254.169.254/mcp`` — the cloud metadata endpoint — passed
+    registration and we POSTed the connector's bearer token straight at it.
+    This is the same check the webhook dispatcher makes, through the same two
+    helpers, and for the same reason it makes it immediately before the connect
+    rather than at registration: a name that resolved publicly when an operator
+    approved the connector is free to answer with 10.0.0.5 by the time we dial
+    it, which is the whole rebinding attack.
+
+    Raises ``ValueError`` with a ``connector_url_*`` code so callers can tell a
+    blocked target from a flaky one — the first must not trip the circuit.
+    """
+    import webhooks_dispatch
+
+    target = str(url or "").strip()
+    if not target:
+        raise ValueError("connector_url_required")
+    try:
+        webhooks_dispatch.resolve_public_host(target)
+    except ValueError as exc:
+        reason = str(exc)
+        if "private_forbidden" in reason:
+            raise ValueError(
+                f"connector_url_private_forbidden: {reason.split(': ', 1)[-1]}"
+            ) from exc
+        if "https_required" in reason:
+            raise ValueError("connector_url_https_only") from exc
+        raise ValueError(f"connector_url_unresolvable: {reason}") from exc
+    return target
+
+
+def _blocked_url_code(exc: BaseException) -> str | None:
+    """The ``connector_url_*`` code behind ``exc``, or None if it is not one.
+
+    Narrow on purpose: ``json.JSONDecodeError`` is a ``ValueError`` too, and a
+    malformed remote response is a transport fault that *should* count against
+    the circuit.
+    """
+    if not isinstance(exc, ValueError):
+        return None
+    code = str(exc).split(":", 1)[0].strip()
+    return code if code.startswith("connector_url_") else None
+
+
 def list_connectors() -> list[dict[str, Any]]:
     with db.engine.connect() as conn:
         rows = db._rows(
@@ -92,7 +139,13 @@ def upsert_connector(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("connector_url_https_only")
     prefixes = payload.get("allowPrefixes") or payload.get("allow_prefixes") or [f"ext.{slug}."]
     data_class = payload.get("dataClass") or payload.get("data_class") or ["pii"]
-    cid = str(payload.get("id") or f"conn-{slug}")
+    # The id carries the tenant because it is the PRIMARY KEY while the
+    # uniqueness the registry actually wants is (tenant_id, slug). A bare
+    # ``conn-{slug}`` default made the second tenant to register "paylink"
+    # collide on the PK, which ``ON CONFLICT (tenant_id, slug)`` below cannot
+    # absorb — the INSERT raised instead of upserting. Explicit ids from the
+    # caller are left alone; only the default is scoped.
+    cid = str(payload.get("id") or f"conn-{db._tenant()}-{slug}")
     with db.engine.begin() as conn:
         conn.execute(
             text(
@@ -158,8 +211,11 @@ def bound_tool_names(card_connectors: list[dict[str, Any]]) -> list[str]:
     if not mcp_client_enabled():
         return []
     names: list[str] = []
-    by_id = {c["id"]: c for c in list_connectors()}
-    by_slug = {c["slug"]: c for c in list_connectors()}
+    # One registry read, two indexes. Calling list_connectors() twice put a
+    # second `SELECT * FROM mcp_connectors` on the compile hot path for nothing.
+    connectors = list_connectors()
+    by_id = {c["id"]: c for c in connectors}
+    by_slug = {c["slug"]: c for c in connectors}
     for ref in card_connectors:
         cid = str(ref.get("connector_id") or ref.get("connectorId") or "")
         conn = by_id.get(cid) or by_slug.get(cid)
@@ -179,29 +235,58 @@ def bound_tool_names(card_connectors: list[dict[str, Any]]) -> list[str]:
     return names
 
 
-def dispatch(name: str, *, customer_id: str, connector_id: str | None = None) -> dict[str, Any]:
+def dispatch(
+    name: str,
+    *,
+    customer_id: str,
+    connector_id: str | None = None,
+    args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call a bound connector tool.
+
+    ``args`` is the caller's own argument object — the model's tool-call
+    payload, in the ``bot_tools`` path. It was parsed and validated there and
+    then thrown away, so a remote tool declaring anything beyond
+    ``customer_id`` was invoked with that parameter missing every single time.
+    First-party tools keep their fixed one-argument signature; only the remote
+    JSON-RPC leg carries the extra keys.
+    """
     if not mcp_client_enabled():
         return {"ok": False, "error": "mcp_client_disabled"}
-    if name in FIRST_PARTY_TOOLS:
-        return dispatch_first_party(name, customer_id)
     conn = None
     if connector_id:
         conn = get_connector(connector_id)
     if conn is None:
-        slug = name.split(".")[1] if name.startswith("ext.") else ""
+        slug = FIRST_PARTY_TOOLS.get(name) or (name.split(".")[1] if name.startswith("ext.") else "")
         conn = get_connector(slug) if slug else None
     if not conn or conn["status"] != "approved":
         return {"ok": False, "error": "connector_not_bound"}
     if not circuit.allow({"circuit_opened_at": conn.get("circuitOpenedAt")}):
         return {"ok": False, "error": "connector_circuit_open"}
+    # First-party tools read the same CRM the bot already reads, but they read
+    # it *as a connector* — so they answer to the same registry the remote ones
+    # do. Gating them below the status and circuit checks rather than above is
+    # the whole point: a first-party connector left in draft, or switched to
+    # disabled after an incident, was still serving payment data to every
+    # caller of dispatch().
+    if name in FIRST_PARTY_TOOLS:
+        return dispatch_first_party(name, customer_id)
     try:
-        result = _call_remote(conn, name, customer_id)
-        circuit.record_success(conn["id"])
-        return strip_result(result)
-    except Exception:
+        result = _call_remote(conn, name, customer_id, args=args)
+    except Exception as exc:
+        code = _blocked_url_code(exc)
+        if code:
+            # Not a transport fault: this connector is not flaky, its target is
+            # not allowed. Counting it against the circuit would bury a
+            # misconfigured (or repointed) URL behind a generic circuit-open for
+            # whoever looks next.
+            logger.error("connector call blocked · %s · %s", name, exc)
+            return {"ok": False, "error": code}
         logger.exception("remote connector failed · %s", name)
         circuit.record_failure(conn["id"])
         return {"ok": False, "error": "connector_call_failed"}
+    circuit.record_success(conn["id"])
+    return strip_result(result)
 
 
 def health_test(connector_id: str) -> dict[str, Any]:
@@ -230,6 +315,10 @@ def health_test(connector_id: str) -> dict[str, Any]:
         circuit.record_success(conn["id"])
         return {"ok": True, "tools": len(listed)}
     except Exception as exc:
+        code = _blocked_url_code(exc)
+        if code:
+            logger.error("connector health probe blocked · %s · %s", conn["id"], exc)
+            return {"ok": False, "error": code}
         circuit.record_failure(conn["id"])
         return {"ok": False, "error": type(exc).__name__}
 
@@ -244,19 +333,42 @@ def _auth_header(conn: dict[str, Any]) -> dict[str, str]:
     return {"Authorization": f"Bearer {secret}"}
 
 
-def _call_remote(conn: dict[str, Any], name: str, customer_id: str) -> dict[str, Any]:
+def _remote_arguments(customer_id: str, args: dict[str, Any] | None) -> dict[str, Any]:
+    """``customer_id`` plus whatever the caller passed, caller's keys winning.
+
+    ``customer_id`` is a default rather than an override so it is always on the
+    wire — a remote tool that only knows about it keeps working unchanged — but
+    the caller's object is layered on top, which is the whole point of
+    forwarding it.
+    """
+    arguments: dict[str, Any] = {"customer_id": customer_id}
+    if isinstance(args, dict):
+        arguments.update(args)
+    return arguments
+
+
+def _call_remote(
+    conn: dict[str, Any],
+    name: str,
+    customer_id: str,
+    args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     import httpx
 
     remote_name = name.split(".", 2)[-1] if name.startswith("ext.") else name
     timeout = max(0.2, (conn.get("timeoutMs") or 2500) / 1000)
+    endpoint = _guard_outbound_url(conn.get("url")).rstrip("/") + "/mcp"
     resp = httpx.post(
-        str(conn["url"]).rstrip("/") + "/mcp",
+        endpoint,
         headers={**_auth_header(conn), "Content-Type": "application/json"},
         json={
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": remote_name, "arguments": {"customer_id": customer_id}},
+            "params": {
+                "name": remote_name,
+                "arguments": _remote_arguments(customer_id, args),
+            },
         },
         timeout=timeout,
     )
@@ -278,8 +390,9 @@ def _remote_tools_list(conn: dict[str, Any]) -> list[dict[str, Any]]:
     import httpx
 
     timeout = max(0.2, (conn.get("timeoutMs") or 2500) / 1000)
+    endpoint = _guard_outbound_url(conn.get("url")).rstrip("/") + "/mcp"
     resp = httpx.post(
-        str(conn["url"]).rstrip("/") + "/mcp",
+        endpoint,
         headers={**_auth_header(conn), "Content-Type": "application/json"},
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
         timeout=timeout,

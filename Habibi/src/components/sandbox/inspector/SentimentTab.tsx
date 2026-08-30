@@ -48,7 +48,9 @@ export function SentimentTab({
       <div className="flex items-center gap-150 rounded-medium border border-border bg-surface-sunken p-150 shadow-raised">
         <div>
           <div className="text-body-small text-text-subtlest">Current</div>
-          <div className="text-[1.25rem] font-semibold tabular-nums text-text">{last.toFixed(2)}</div>
+          <div className="heading-medium font-semibold tabular-nums text-text">
+            {last.toFixed(2)}
+          </div>
         </div>
         <div className={`ml-auto inline-flex items-center gap-050 text-body-small ${trendColor}`}>
           <Icon className="h-3.5 w-3.5" />
@@ -69,7 +71,9 @@ export function SentimentTab({
           grid
         />
       </ChartStage>
-      <div className="text-body-small text-text-subtlest">−1 hostile · 0 neutral · +1 delighted</div>
+      <div className="text-body-small text-text-subtlest">
+        −1 hostile · 0 neutral · +1 delighted
+      </div>
     </div>
   );
 }

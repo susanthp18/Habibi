@@ -4,7 +4,15 @@ import { Badge } from "@/components/ui/badge";
 
 export type CbView = "week" | "list" | "missed";
 
-export function ViewToggle({ view, onChange, missedCount }: { view: CbView; onChange: (v: CbView) => void; missedCount: number }) {
+export function ViewToggle({
+  view,
+  onChange,
+  missedCount,
+}: {
+  view: CbView;
+  onChange: (v: CbView) => void;
+  missedCount: number;
+}) {
   const items: { id: CbView; label: string; icon: typeof CalendarDays; badge?: number }[] = [
     { id: "week", label: "Week calendar", icon: CalendarDays },
     { id: "list", label: "List", icon: List },

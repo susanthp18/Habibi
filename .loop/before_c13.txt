@@ -1,0 +1,565 @@
+ M .gitignore
+ M backend/.env.example
+ M backend/agent_core/authority/config.py
+ M backend/agent_core/authority/enact.py
+ M backend/agent_core/authority/talk.py
+ M backend/agent_core/canary.py
+ M backend/agent_core/cards/compile.py
+ M backend/agent_core/cards/defaults.py
+ M backend/agent_core/cards/routing.py
+ M backend/agent_core/cards/schema.py
+ M backend/agent_core/change_log.py
+ M backend/agent_core/clock.py
+ M backend/agent_core/connectors/persist.py
+ M backend/agent_core/context.py
+ M backend/agent_core/eval/graders.py
+ M backend/agent_core/platform_flags.py
+ M backend/agent_core/prompt.py
+ M backend/agent_core/skills/intersect.py
+ M backend/agent_core/skills/packs/hardship-intake/SKILL.md
+ M backend/agent_core/skills/packs/ptp-negotiate/SKILL.md
+ M backend/agent_core/skills/packs/verify-and-disclose/SKILL.md
+ M backend/agent_core/skills/runtime.py
+ M backend/agent_core/tools/catalog.py
+ M backend/agent_core/treatment/actions.py
+ M backend/agent_core/treatment/config.py
+ M backend/agent_core/treatment/decisions.py
+ M backend/agent_core/treatment/enact.py
+ M backend/agent_core/treatment/engine.py
+ M backend/agent_core/treatment/features.py
+ M backend/agent_core/treatment/followthrough.py
+ M backend/agent_core/treatment/narrate.py
+ M backend/agent_core/treatment/policy.py
+ M backend/agent_core/treatment/README.md
+ M backend/agent_core/treatment/scoring.py
+ M backend/agent_core/treatment/sweep.py
+ M backend/agent_core/tuning.py
+ M backend/authz.py
+ M backend/azure_speech.py
+ M backend/bot_tools.py
+ M backend/bot_worker.py
+ M backend/capture.py
+ M backend/contact_policy.py
+ M backend/customer_insights.py
+ M backend/db.py
+ M backend/flow_graph.py
+ M backend/main.py
+ M backend/ops_screens.py
+ M backend/payment_events.py
+ M backend/payments.py
+ M backend/promise_fulfillment.py
+ M backend/prompt_lint.py
+ M backend/qa_autoscore.py
+ M backend/requirements-voice.txt
+ M backend/schemas.py
+ M backend/scripts/simulate_treatment_corpus.py
+ M backend/seed/calls.json
+ M backend/seed_postgres.py
+ M backend/sql/01_identity.sql
+ M backend/sql/03_consent.sql
+ M backend/sql/05_collections.sql
+ M backend/sql/09_bot_config.sql
+ M backend/sql/10_admin.sql
+ M backend/sql/14_agent_factory.sql
+ M backend/sql/90_deferred_fks.sql
+ M backend/tests/conftest.py
+ M backend/tests/test_agent_card_compile.py
+ M backend/tests/test_agent_card_routing.py
+ M backend/tests/test_agent_change_log.py
+ M backend/tests/test_agent_studio_edge_cases.py
+ M backend/tests/test_auth_cors_middleware.py
+ M backend/tests/test_contact_policy.py
+ M backend/tests/test_decision_intelligence_p0.py
+ M backend/tests/test_flow_export.py
+ M backend/tests/test_job_claim.py
+ M backend/tests/test_lead_pipeline.py
+ M backend/tests/test_payment_events.py
+ M backend/tests/test_prompt_lint.py
+ M backend/tests/test_rls.py
+ M backend/tests/test_tenant_scoping.py
+ M backend/tests/test_treatment_followthrough.py
+ M backend/tests/test_voice_flows_graph.py
+ M backend/tests/test_voice_tool_registry.py
+ M backend/twilio_sms.py
+ M backend/voice/amd.py
+ M backend/voice/bot.py
+ M backend/voice/crm_sink.py
+ M backend/voice/flow_export.py
+ M backend/voice/flows.py
+ M backend/voice/flows_dynamic.py
+ M backend/voice/ivr.py
+ M backend/voice/natural.py
+ M backend/voice/persist.py
+ M backend/voice/session.py
+ M backend/voice/tools.py
+ M backend/voice/tuning_apply.py
+ M backend/voice/twilio_ops.py
+ M Habibi/.prettierrc
+ M Habibi/package.json
+ M Habibi/package-lock.json
+ M Habibi/scripts/check-spacing-scale.mjs
+ M Habibi/src/api/agent-studio.ts
+ M Habibi/src/api/authority.ts
+ M Habibi/src/api/billing.ts
+ M Habibi/src/api/compliance.ts
+ M Habibi/src/api/config.ts
+ M Habibi/src/api/customers.ts
+ M Habibi/src/api/disputes.ts
+ M Habibi/src/api/floor.ts
+ M Habibi/src/api/flow.ts
+ M Habibi/src/api/handoff.ts
+ M Habibi/src/api/inbox.ts
+ M Habibi/src/api/integrations.ts
+ M Habibi/src/api/kb.ts
+ M Habibi/src/api/offer-health.ts
+ M Habibi/src/api/products.ts
+ M Habibi/src/api/promises.ts
+ M Habibi/src/api/prompt-studio.ts
+ M Habibi/src/api/qa.ts
+ M Habibi/src/api/redaction.ts
+ M Habibi/src/api/routing.ts
+ M Habibi/src/api/staff.ts
+ M Habibi/src/api/upsell.ts
+ M Habibi/src/api/voice-sandbox.ts
+ M Habibi/src/api/webhooks.ts
+ M Habibi/src/api/workspace.ts
+ M Habibi/src/components/audit/AudioPlayer.tsx
+ M Habibi/src/components/audit/AuditFilters.tsx
+ M Habibi/src/components/audit/CallCostPanel.tsx
+ M Habibi/src/components/audit/CallDetailDrawer.tsx
+ M Habibi/src/components/audit/CallsTable.tsx
+ M Habibi/src/components/audit/SentimentTimeline.tsx
+ M Habibi/src/components/audit/TranscriptView.tsx
+ M Habibi/src/components/billing/BillingHeader.tsx
+ M Habibi/src/components/billing/BillingKpiStrip.tsx
+ M Habibi/src/components/billing/BudgetPanel.tsx
+ M Habibi/src/components/billing/BudgetRuleDialog.tsx
+ M Habibi/src/components/billing/InvoiceList.tsx
+ M Habibi/src/components/billing/ModelCostTable.tsx
+ M Habibi/src/components/billing/ServiceCostTable.tsx
+ M Habibi/src/components/billing/ServiceDonut.tsx
+ M Habibi/src/components/billing/ServiceDrawer.tsx
+ M Habibi/src/components/billing/SpendTrendChart.tsx
+ M Habibi/src/components/billing/TenantTable.tsx
+ M Habibi/src/components/bot-analytics/BotAnalyticsHeader.tsx
+ M Habibi/src/components/bot-analytics/CardSkillAnalytics.tsx
+ M Habibi/src/components/bot-analytics/DropOffFunnel.tsx
+ M Habibi/src/components/bot-analytics/EscalationReasons.tsx
+ M Habibi/src/components/bot-analytics/HeroStrip.tsx
+ M Habibi/src/components/bot-analytics/IntentDistribution.tsx
+ M Habibi/src/components/bot-analytics/LatencyChart.tsx
+ M Habibi/src/components/bot-analytics/SentimentByIntentHeatmap.tsx
+ M Habibi/src/components/bot-analytics/UnansweredTable.tsx
+ M Habibi/src/components/callbacks/CallbackList.tsx
+ M Habibi/src/components/callbacks/CallbackPill.tsx
+ M Habibi/src/components/callbacks/CallbackSheet.tsx
+ M Habibi/src/components/callbacks/FiltersBar.tsx
+ M Habibi/src/components/callbacks/MetricsStrip.tsx
+ M Habibi/src/components/callbacks/MissedLane.tsx
+ M Habibi/src/components/callbacks/NewCallbackSheet.tsx
+ M Habibi/src/components/callbacks/ViewToggle.tsx
+ M Habibi/src/components/callbacks/WeekCalendar.tsx
+ M Habibi/src/components/charts/chart-shell.tsx
+ M Habibi/src/components/charts/liveline-trend.tsx
+ M Habibi/src/components/charts/modern-bars.tsx
+ M Habibi/src/components/charts/modern-donut.tsx
+ M Habibi/src/components/charts/segmented-bar.tsx
+ M Habibi/src/components/compliance/ComplianceFilters.tsx
+ M Habibi/src/components/compliance/ComplianceStatsStrip.tsx
+ M Habibi/src/components/compliance/RuleBreakdown.tsx
+ M Habibi/src/components/compliance/RuleCoverageCard.tsx
+ M Habibi/src/components/compliance/ViolationCard.tsx
+ M Habibi/src/components/compliance/ViolationFeed.tsx
+ M Habibi/src/components/compliance/ViolationSheet.tsx
+ M Habibi/src/components/compliance/ViolationTrendChart.tsx
+ M Habibi/src/components/consent/AllowedHoursEditor.tsx
+ M Habibi/src/components/consent/ChannelMatrix.tsx
+ M Habibi/src/components/consent/ConsentDrawer.tsx
+ M Habibi/src/components/consent/ConsentFilters.tsx
+ M Habibi/src/components/consent/ConsentStatsStrip.tsx
+ M Habibi/src/components/consent/ConsentTable.tsx
+ M Habibi/src/components/consent/FrequencyCapsEditor.tsx
+ M Habibi/src/components/consent/OptOutLog.tsx
+ M Habibi/src/components/customer360/ActionSheets.tsx
+ M Habibi/src/components/customer360/ActivityTimeline.tsx
+ M Habibi/src/components/customer360/BehaviorMetricsStrip.tsx
+ M Habibi/src/components/customer360/ContactabilityPill.tsx
+ M Habibi/src/components/customer360/CustomerHeader.tsx
+ M Habibi/src/components/customer360/DisputesTab.tsx
+ M Habibi/src/components/customer360/DocumentsTab.tsx
+ M Habibi/src/components/customer360/EmiTab.tsx
+ M Habibi/src/components/customer360/InsightsPanel.tsx
+ M Habibi/src/components/customer360/InteractionsTab.tsx
+ M Habibi/src/components/customer360/LedgerTab.tsx
+ M Habibi/src/components/customer360/NextBestActionCard.tsx
+ M Habibi/src/components/customer360/NotesTab.tsx
+ M Habibi/src/components/customer360/OverviewTab.tsx
+ M Habibi/src/components/customer360/PromisesTab.tsx
+ M Habibi/src/components/customer360/QuickActionsRail.tsx
+ M Habibi/src/components/customer360/RiskBadge.tsx
+ M Habibi/src/components/dashboard/AgentLeaderboard.tsx
+ M Habibi/src/components/dashboard/AtRiskAccounts.tsx
+ M Habibi/src/components/dashboard/BotVsHumanDonut.tsx
+ M Habibi/src/components/dashboard/CallVolumeChart.tsx
+ M Habibi/src/components/dashboard/FiltersBar.tsx
+ M Habibi/src/components/dashboard/HeroKpiCard.tsx
+ M Habibi/src/components/dashboard/KpiTile.tsx
+ M Habibi/src/components/dashboard/RecoveryTrendChart.tsx
+ M Habibi/src/components/disputes/DisputeBoard.tsx
+ M Habibi/src/components/disputes/DisputeCard.tsx
+ M Habibi/src/components/disputes/DisputeSheet.tsx
+ M Habibi/src/components/disputes/FiltersBar.tsx
+ M Habibi/src/components/disputes/MetricsStrip.tsx
+ M Habibi/src/components/disputes/NewDisputeSheet.tsx
+ M Habibi/src/components/documents/BulkActionBar.tsx
+ M Habibi/src/components/documents/FiltersBar.tsx
+ M Habibi/src/components/documents/MetricsStrip.tsx
+ M Habibi/src/components/documents/NewRequestSheet.tsx
+ M Habibi/src/components/documents/PipelineStrip.tsx
+ M Habibi/src/components/documents/RequestSheet.tsx
+ M Habibi/src/components/documents/RequestsTable.tsx
+ M Habibi/src/components/floor/CallTile.tsx
+ M Habibi/src/components/floor/Inspector.tsx
+ M Habibi/src/components/floor/LiveTable.tsx
+ M Habibi/src/components/floor/PriorityLane.tsx
+ M Habibi/src/components/floor/SentimentBubble.tsx
+ M Habibi/src/components/floor/StatsStrip.tsx
+ M Habibi/src/components/floor/Waveform.tsx
+ M Habibi/src/components/flow/FlowCanvas.tsx
+ M Habibi/src/components/flow/FlowConditionEdge.tsx
+ M Habibi/src/components/flow/FlowInspector.tsx
+ M Habibi/src/components/flow/FlowNodes.tsx
+ M Habibi/src/components/flow/zoom.ts
+ M Habibi/src/components/handoff/CallHeader.tsx
+ M Habibi/src/components/handoff/CustomerContextPanel.tsx
+ M Habibi/src/components/handoff/HandoffCopilot.tsx
+ M Habibi/src/components/handoff/HandoffQueue.tsx
+ M Habibi/src/components/handoff/LiveTranscript.tsx
+ M Habibi/src/components/handoff/SentimentMeter.tsx
+ M Habibi/src/components/handoff/WrapUpBar.tsx
+ M Habibi/src/components/inbox/ChatThread.tsx
+ M Habibi/src/components/inbox/Composer.tsx
+ M Habibi/src/components/inbox/ContextRail.tsx
+ M Habibi/src/components/inbox/ConversationList.tsx
+ M Habibi/src/components/inbox/MessageBubble.tsx
+ M Habibi/src/components/inbox/meta.tsx
+ M Habibi/src/components/inbox/SplitPanes.tsx
+ M Habibi/src/components/integrations/IntegrationsHeader.tsx
+ M Habibi/src/components/integrations/MaskedInput.tsx
+ M Habibi/src/components/integrations/McpConsole.tsx
+ M Habibi/src/components/integrations/PipelineBanner.tsx
+ M Habibi/src/components/integrations/ProviderCard.tsx
+ M Habibi/src/components/integrations/ProviderDrawer.tsx
+ M Habibi/src/components/kb/AnalyticsGapsTable.tsx
+ M Habibi/src/components/kb/ChunkModal.tsx
+ M Habibi/src/components/kb/DocumentInspector.tsx
+ M Habibi/src/components/kb/DocumentsTable.tsx
+ M Habibi/src/components/kb/FaqEditorSheet.tsx
+ M Habibi/src/components/kb/KbSnapshotsStrip.tsx
+ M Habibi/src/components/kb/KbStatsStrip.tsx
+ M Habibi/src/components/kb/KbTagEditor.tsx
+ M Habibi/src/components/kb/KbToolbar.tsx
+ M Habibi/src/components/kb/TestRetrievalPanel.tsx
+ M Habibi/src/components/kb/UploadWizard.tsx
+ M Habibi/src/components/offers/AuthorityPolicyBlock.tsx
+ M Habibi/src/components/offers/OfferPolicyBlock.tsx
+ M Habibi/src/components/promises/FiltersBar.tsx
+ M Habibi/src/components/promises/MetricsStrip.tsx
+ M Habibi/src/components/promises/PaymentPlansTable.tsx
+ M Habibi/src/components/promises/PlanBuilderSheet.tsx
+ M Habibi/src/components/promises/PlanDetailDrawer.tsx
+ M Habibi/src/components/promises/PromiseCard.tsx
+ M Habibi/src/components/promises/PromisePipeline.tsx
+ M Habibi/src/components/promises/PromiseSheet.tsx
+ M Habibi/src/components/prompt-studio/AgentCardPanels.tsx
+ M Habibi/src/components/prompt-studio/GuardrailsPanel.tsx
+ M Habibi/src/components/prompt-studio/PersonaSliders.tsx
+ M Habibi/src/components/prompt-studio/PromptEditor.tsx
+ M Habibi/src/components/prompt-studio/PublishDialog.tsx
+ M Habibi/src/components/prompt-studio/ShipTab.tsx
+ M Habibi/src/components/prompt-studio/StudioHeader.tsx
+ M Habibi/src/components/prompt-studio/useVoicePreview.ts
+ M Habibi/src/components/prompt-studio/VersionHistory.tsx
+ M Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx
+ M Habibi/src/components/prompt-studio/VoicePanel.tsx
+ M Habibi/src/components/qa/AgentTrendCard.tsx
+ M Habibi/src/components/qa/CalibrationView.tsx
+ M Habibi/src/components/qa/CoachingBoard.tsx
+ M Habibi/src/components/qa/NewCoachingSheet.tsx
+ M Habibi/src/components/qa/QaStatsStrip.tsx
+ M Habibi/src/components/qa/RubricBuilderSheet.tsx
+ M Habibi/src/components/qa/RubricScorer.tsx
+ M Habibi/src/components/qa/ScoreBand.tsx
+ M Habibi/src/components/qa/ScoringCanvas.tsx
+ M Habibi/src/components/qa/ScoringQueue.tsx
+ M Habibi/src/components/records/FilterTable.tsx
+ M Habibi/src/components/records/index.ts
+ M Habibi/src/components/records/RecordsTable.tsx
+ M Habibi/src/components/records/RecordsTag.tsx
+ M Habibi/src/components/redaction/AudioBeepTimeline.tsx
+ M Habibi/src/components/redaction/ExportAuditLog.tsx
+ M Habibi/src/components/redaction/ExportConfigPanel.tsx
+ M Habibi/src/components/redaction/PiiLegend.tsx
+ M Habibi/src/components/redaction/RecordPicker.tsx
+ M Habibi/src/components/redaction/RedactionStatsStrip.tsx
+ M Habibi/src/components/redaction/RulesSheet.tsx
+ M Habibi/src/components/redaction/TranscriptRedactor.tsx
+ M Habibi/src/components/routing/AuditLog.tsx
+ M Habibi/src/components/routing/ConditionRow.tsx
+ M Habibi/src/components/routing/InspectorPanel.tsx
+ M Habibi/src/components/routing/RoutingStats.tsx
+ M Habibi/src/components/routing/RuleCard.tsx
+ M Habibi/src/components/routing/RuleChips.tsx
+ M Habibi/src/components/routing/RuleEditor.tsx
+ M Habibi/src/components/routing/RuleList.tsx
+ M Habibi/src/components/routing/Simulator.tsx
+ M Habibi/src/components/sandbox/ConversationPanel.tsx
+ M Habibi/src/components/sandbox/EvalCockpit.tsx
+ M Habibi/src/components/sandbox/inspector/IntentTab.tsx
+ M Habibi/src/components/sandbox/inspector/MetricsTab.tsx
+ M Habibi/src/components/sandbox/inspector/RetrievalTab.tsx
+ M Habibi/src/components/sandbox/inspector/SentimentTab.tsx
+ M Habibi/src/components/sandbox/inspector/ToolsTab.tsx
+ M Habibi/src/components/sandbox/inspector/TraceTab.tsx
+ M Habibi/src/components/sandbox/inspector/TwinTab.tsx
+ M Habibi/src/components/sandbox/InspectorPanel.tsx
+ M Habibi/src/components/sandbox/PromoteDialog.tsx
+ M Habibi/src/components/sandbox/SandboxHeader.tsx
+ M Habibi/src/components/sandbox/ScenarioList.tsx
+ M Habibi/src/components/sandbox/TuningStudio.tsx
+ M Habibi/src/components/sandbox/voice/liveEvents.ts
+ M Habibi/src/components/sandbox/voice/useSandboxLiveCall.ts
+ M Habibi/src/components/shell/CommandPalette.tsx
+ M Habibi/src/components/shell/HelpPopover.tsx
+ M Habibi/src/components/shell/MobileNav.tsx
+ M Habibi/src/components/shell/NotificationsPopover.tsx
+ M Habibi/src/components/shell/Sidebar.tsx
+ M Habibi/src/components/shell/sidebar-ui.tsx
+ M Habibi/src/components/trace/TurnTraceView.tsx
+ M Habibi/src/components/ui/button.tsx
+ M Habibi/src/components/ui/calendar.tsx
+ M Habibi/src/components/ui/command.tsx
+ M Habibi/src/components/ui/context-menu.tsx
+ M Habibi/src/components/ui/dialog.tsx
+ M Habibi/src/components/ui/dropdown-menu.tsx
+ M Habibi/src/components/ui/form.tsx
+ M Habibi/src/components/ui/loading-state.tsx
+ M Habibi/src/components/ui/menubar.tsx
+ M Habibi/src/components/ui/progress.tsx
+ M Habibi/src/components/ui/radio-group.tsx
+ M Habibi/src/components/ui/section-message.tsx
+ M Habibi/src/components/ui/spinner.tsx
+ M Habibi/src/components/ui/switch.tsx
+ M Habibi/src/components/ui/table.tsx
+ M Habibi/src/components/ui/toggle.tsx
+ M Habibi/src/components/upsell/FiltersBar.tsx
+ M Habibi/src/components/upsell/LeadBoard.tsx
+ M Habibi/src/components/upsell/LeadCard.tsx
+ M Habibi/src/components/upsell/LeadSheet.tsx
+ M Habibi/src/components/upsell/LeadTable.tsx
+ M Habibi/src/components/upsell/MetricsStrip.tsx
+ M Habibi/src/components/upsell/NewLeadSheet.tsx
+ M Habibi/src/components/upsell/OfferHealthPanel.tsx
+ M Habibi/src/components/upsell/ViewToggle.tsx
+ M Habibi/src/components/webhooks/DeliveryLogPane.tsx
+ M Habibi/src/components/webhooks/DeliveryRow.tsx
+ M Habibi/src/components/webhooks/EndpointDrawer.tsx
+ M Habibi/src/components/webhooks/EndpointSheet.tsx
+ M Habibi/src/components/webhooks/EndpointTable.tsx
+ M Habibi/src/components/webhooks/EventCatalogDialog.tsx
+ M Habibi/src/components/webhooks/WebhooksHeader.tsx
+ M Habibi/src/components/webhooks/WebhooksStats.tsx
+ M Habibi/src/components/workspace/AssignedQueue.tsx
+ M Habibi/src/components/workspace/AvailabilityToggle.tsx
+ M Habibi/src/components/workspace/NeedsAttention.tsx
+ M Habibi/src/components/workspace/StatsStrip.tsx
+ M Habibi/src/data/agent-tuning.ts
+ M Habibi/src/data/audit-seed.ts
+ M Habibi/src/data/billing-seed.ts
+ M Habibi/src/data/bot-analytics-seed.ts
+ M Habibi/src/data/callbacks-seed.ts
+ M Habibi/src/data/compliance-seed.ts
+ M Habibi/src/data/consent-seed.ts
+ M Habibi/src/data/customer360-seed.ts
+ M Habibi/src/data/dashboard-seed.ts
+ M Habibi/src/data/disputes-seed.ts
+ M Habibi/src/data/documents-seed.ts
+ M Habibi/src/data/floor-seed.ts
+ M Habibi/src/data/handoff-seed.ts
+ M Habibi/src/data/inbox-seed.ts
+ M Habibi/src/data/integrations-seed.ts
+ M Habibi/src/data/kb-seed.ts
+ M Habibi/src/data/promises-seed.ts
+ M Habibi/src/data/prompt-studio-seed.ts
+ M Habibi/src/data/qa-seed.ts
+ M Habibi/src/data/redaction-seed.ts
+ M Habibi/src/data/routing-seed.ts
+ M Habibi/src/data/sandbox-seed.ts
+ M Habibi/src/data/upsell-seed.ts
+ M Habibi/src/data/webhooks-seed.ts
+ M Habibi/src/data/workspace-seed.ts
+ M Habibi/src/lib/authority-policy.ts
+ M Habibi/src/lib/customerInsights.ts
+ M Habibi/src/lib/tts-voice-prefs.ts
+ M Habibi/src/lib/workspace-nav.ts
+ M Habibi/src/routes/agent-studio.$botId.lazy.tsx
+ M Habibi/src/routes/agent-studio.$botId.tsx
+ M Habibi/src/routes/agent-studio.index.tsx
+ M Habibi/src/routes/agent-studio.skills.$skillId.tsx
+ M Habibi/src/routes/agent-studio.skills.index.tsx
+ M Habibi/src/routes/audit.lazy.tsx
+ M Habibi/src/routes/billing.tsx
+ M Habibi/src/routes/bot-analytics.lazy.tsx
+ M Habibi/src/routes/bot-analytics.tsx
+ M Habibi/src/routes/callbacks.tsx
+ M Habibi/src/routes/compliance.tsx
+ M Habibi/src/routes/consent.tsx
+ M Habibi/src/routes/customers.$customerId.lazy.tsx
+ M Habibi/src/routes/customers.$customerId.tsx
+ M Habibi/src/routes/customers.index.tsx
+ M Habibi/src/routes/disputes.tsx
+ M Habibi/src/routes/documents.tsx
+ M Habibi/src/routes/floor.tsx
+ M Habibi/src/routes/handoff.lazy.tsx
+ M Habibi/src/routes/inbox.tsx
+ M Habibi/src/routes/integrations.tsx
+ M Habibi/src/routes/knowledge-base.lazy.tsx
+ M Habibi/src/routes/promises.tsx
+ M Habibi/src/routes/prompt-studio.lazy.tsx
+ M Habibi/src/routes/prompt-studio.tsx
+ M Habibi/src/routes/qa.tsx
+ M Habibi/src/routes/redaction.tsx
+ M Habibi/src/routes/roles.tsx
+ M Habibi/src/routes/routing.tsx
+ M Habibi/src/routes/sandbox.lazy.tsx
+ M Habibi/src/routes/upsell.tsx
+ M Habibi/src/routes/webhooks.tsx
+ M Habibi/src/routeTree.gen.ts
+ M Habibi/src/styles.css
+ M Habibi/tsconfig.json
+?? .coderabbit-datamodel-alembic-run.sh
+?? .coderabbit-datamodel-sql.err
+?? .coderabbit-datamodel-sql.jsonl
+?? .cursor/
+?? .idea/
+?? .loop/
+?? .vite/
+?? backend/agent_core/languages.py
+?? backend/agent_core/providers/
+?? backend/agent_core/treatment/allocate.py
+?? backend/agent_core/treatment/contract.py
+?? backend/agent_core/treatment/metrics.py
+?? backend/agent_core/treatment/models.py
+?? backend/agent_core/treatment/monitor.py
+?? backend/agent_core/treatment/ope.py
+?? backend/agent_core/treatment/registry.py
+?? backend/agent_core/treatment/segments.py
+?? backend/alembic/versions/20260821_0086_contact_delivery_events.py
+?? backend/alembic/versions/20260821_0087_unresolved_outcome.py
+?? backend/alembic/versions/20260821_0088_capacity_duals.py
+?? backend/alembic/versions/20260821_0089_model_registry.py
+?? backend/alembic/versions/20260821_0090_self_service_plan.py
+?? backend/alembic/versions/20260821_0091_outcome_checked_at.py
+?? backend/alembic/versions/20260821_0092_provider_registry.py
+?? backend/alembic/versions/20260821_0093_provider_param_schema.py
+?? backend/alembic/versions/20260822_0094_outbound_attempts.py
+?? backend/alembic/versions/20260822_0095_campaign_cadence_numbers.py
+?? backend/alembic/versions/20260822_0096_outbound_eval_suite.py
+?? backend/alembic/versions/20260822_0097_grievance_officer.py
+?? backend/alembic/versions/20260822_0098_consent_purpose.py
+?? backend/alembic/versions/20260822_0099_pool_number_health.py
+?? backend/alembic/versions/20260823_0100_webhook_delivery_queue.py
+?? backend/cadence.py
+?? backend/call_closer.py
+?? backend/campaigns.py
+?? backend/compliance_copy.py
+?? backend/delivery_receipts.py
+?? backend/mission.py
+?? backend/models/treatment_reach.json
+?? backend/models/treatment_timing.json
+?? backend/models/treatment_uplift.json
+?? backend/money_inr.py
+?? backend/outbound.py
+?? backend/post_call_actions.py
+?? backend/provider_tts.py
+?? backend/provider_voice_sync.py
+?? backend/scripts/dial_test.py
+?? backend/scripts/evaluate_policy.py
+?? backend/scripts/power_control_arm.py
+?? backend/scripts/promote_model.py
+?? backend/scripts/repair_voice_ids.py
+?? backend/scripts/solve_capacity.py
+?? backend/scripts/train_treatment_models.py
+?? backend/sql/21_outbound.sql
+?? backend/sql/22_campaigns.sql
+?? backend/tests/test_agent_card_schema_drift.py
+?? backend/tests/test_connector_governance.py
+?? backend/tests/test_connector_ssrf_guard.py
+?? backend/tests/test_customer_insights_api.py
+?? backend/tests/test_decision_intelligence_p1.py
+?? backend/tests/test_decision_intelligence_p2.py
+?? backend/tests/test_decision_intelligence_p3.py
+?? backend/tests/test_dispute_sla.py
+?? backend/tests/test_language_is_one_setting.py
+?? backend/tests/test_language_registry_drift.py
+?? backend/tests/test_money_formatting.py
+?? backend/tests/test_outbound_attempts.py
+?? backend/tests/test_outbound_card_switches.py
+?? backend/tests/test_outbound_card_vocabulary.py
+?? backend/tests/test_outbound_completion.py
+?? backend/tests/test_outbound_conduct.py
+?? backend/tests/test_outbound_missions.py
+?? backend/tests/test_prompt_lint_ai_review.py
+?? backend/tests/test_prompt_token_estimate.py
+?? backend/tests/test_prompt_variables_are_real.py
+?? backend/tests/test_provider_pool.py
+?? backend/tests/test_provider_preview_routing.py
+?? backend/tests/test_provider_registry_runtime.py
+?? backend/tests/test_seed_coherence.py
+?? backend/tests/test_skill_packs_fail_closed.py
+?? backend/tests/test_tts_preview_cache.py
+?? backend/tests/test_voice_crm_degraded.py
+?? backend/tests/test_voice_integrity.py
+?? backend/tests/test_voice_model_params.py
+?? backend/tests/test_voice_persona_reaches_the_call.py
+?? backend/tests/test_voice_provider_bind.py
+?? backend/tests/test_webhooks_dispatch.py
+?? backend/tests/test_whatsapp_template_fallback.py
+?? backend/tts_preview_cache.py
+?? backend/voice/budget.py
+?? backend/voice/provider_bind.py
+?? backend/webhooks_dispatch.py
+?? backend/written_followup.py
+?? BigBound_AI_Hackathon.pptx
+?? Brand_Manual_Guide_BigTapp.pdf
+?? Habibi/scripts/check-type-scale.mjs
+?? Habibi/src/api/agent-card.ts
+?? Habibi/src/api/contact-policy.test.ts
+?? Habibi/src/api/contact-policy.ts
+?? Habibi/src/api/outbound.ts
+?? Habibi/src/api/providers.ts
+?? Habibi/src/api/treatment.ts
+?? Habibi/src/components/customer360/ContactabilityPill.test.ts
+?? Habibi/src/components/integrations/PoolHealthStrip.tsx
+?? Habibi/src/components/prompt-studio/BindingsTab.tsx
+?? Habibi/src/components/prompt-studio/ChangeLogTab.tsx
+?? Habibi/src/components/prompt-studio/CritiquesPanel.tsx
+?? Habibi/src/components/prompt-studio/FilterChips.tsx
+?? Habibi/src/components/prompt-studio/NumberPoolTable.tsx
+?? Habibi/src/components/prompt-studio/OutboundCardEditor.tsx
+?? Habibi/src/components/prompt-studio/OutboundTab.tsx
+?? Habibi/src/components/prompt-studio/ScrubField.tsx
+?? Habibi/src/components/prompt-studio/VoiceCatalogTable.tsx
+?? Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx
+?? Habibi/src/components/qa/DisagreementsView.tsx
+?? Habibi/src/data/billing-seed.test.ts
+?? Habibi/src/data/dispute-sla.test.ts
+?? Habibi/src/data/dispute-sla.ts
+?? Habibi/src/routes/treatment.lazy.tsx
+?? Habibi/src/routes/treatment.tsx
+?? Habibi/vitest.config.ts
+?? IDEA.md
+?? multilingual-architecture.md
+?? outbound-agent-engine.md
+?? scratch_x
+?? transcript.txt

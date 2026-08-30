@@ -1,5 +1,11 @@
 import type { Trend } from "@/data/dashboard-seed";
-import { ChartCard, ChartEmpty, ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
+import {
+  ChartCard,
+  ChartEmpty,
+  ChartStage,
+  LivelineTrend,
+  SnapshotPill,
+} from "@/components/charts";
 
 function fmtDate(d: string) {
   const dt = new Date(d);
@@ -24,7 +30,7 @@ export function RecoveryTrendChart({ data }: { data: Trend[] }) {
       subtitle="Payments posted in the selected period"
       action={
         <div className="text-right">
-          <div className="text-[10.5px] text-text-subtlest">Period total</div>
+          <div className="text-body-micro text-text-subtlest">Period total</div>
           <div className="text-body font-semibold text-text tabular-nums">{fmtMoney(total)}</div>
         </div>
       }
@@ -33,7 +39,7 @@ export function RecoveryTrendChart({ data }: { data: Trend[] }) {
         className="min-h-0 flex-1"
         toolbar={
           <>
-            <span className="text-[11px] tabular-nums text-text-subtlest">Trend snapshot</span>
+            <span className="text-body-tiny tabular-nums text-text-subtlest">Trend snapshot</span>
             <SnapshotPill />
           </>
         }

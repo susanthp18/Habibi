@@ -1,7 +1,11 @@
 // Promise-to-Pay & Payment Plans seed data.
 // All state is mutated in-memory by the route so actions feel real.
 
-import { customers as _customers, fmtMoney as _fmtMoney, fmtDate as _fmtDate } from "./customer360-seed";
+import {
+  customers as _customers,
+  fmtMoney as _fmtMoney,
+  fmtDate as _fmtDate,
+} from "./customer360-seed";
 
 export type PromiseStatus = "upcoming" | "due_today" | "kept" | "broken" | "partial";
 export type PromiseChannel = "voice" | "whatsapp" | "sms" | "chat" | "email";
@@ -101,10 +105,21 @@ const custPool: CustSlim[] = _customers.map((c) => ({
 
 // Enrich with a wider synthetic roster
 const extraNames = [
-  "Aditya Verma", "Meera Joshi", "Nikhil Bansal", "Riya Chawla",
-  "Vikram Malhotra", "Sneha Pillai", "Arjun Menon", "Devika Rao",
-  "Farhan Khan", "Isha Kapoor", "Sameer Ahuja", "Tanvi Shah",
-  "Rahul Sinha", "Neha Trivedi", "Yash Gupta",
+  "Aditya Verma",
+  "Meera Joshi",
+  "Nikhil Bansal",
+  "Riya Chawla",
+  "Vikram Malhotra",
+  "Sneha Pillai",
+  "Arjun Menon",
+  "Devika Rao",
+  "Farhan Khan",
+  "Isha Kapoor",
+  "Sameer Ahuja",
+  "Tanvi Shah",
+  "Rahul Sinha",
+  "Neha Trivedi",
+  "Yash Gupta",
 ];
 extraNames.forEach((name, i) => {
   custPool.push({
@@ -162,35 +177,48 @@ const blueprints: Blueprint[] = [
   { status: "upcoming", daysOffset: 14, createdOffset: -1 },
 ];
 
-function eventsForStatus(status: PromiseStatus, created: string, promised: string, amount: number, paidAmount?: number): PtpEvent[] {
-  const evts: PtpEvent[] = [
-    { at: created, label: "Promise captured", tone: "info" },
-  ];
+function eventsForStatus(
+  status: PromiseStatus,
+  created: string,
+  promised: string,
+  amount: number,
+  paidAmount?: number,
+): PtpEvent[] {
+  const evts: PtpEvent[] = [{ at: created, label: "Promise captured", tone: "info" }];
   if (status === "upcoming" || status === "due_today") {
     evts.push({ at: created, label: "Reminder scheduled", tone: "info" });
-    if (status === "due_today") evts.push({ at: promised, label: "Reminder sent (SMS + WhatsApp)", tone: "info" });
+    if (status === "due_today")
+      evts.push({ at: promised, label: "Reminder sent (SMS + WhatsApp)", tone: "info" });
   }
   if (status === "kept") {
     evts.push({ at: promised, label: `Payment received · ${_fmtMoney(amount)}`, tone: "success" });
   }
   if (status === "partial") {
-    evts.push({ at: promised, label: `Partial payment · ${_fmtMoney(paidAmount ?? amount / 2)}`, tone: "warn" });
+    evts.push({
+      at: promised,
+      label: `Partial payment · ${_fmtMoney(paidAmount ?? amount / 2)}`,
+      tone: "warn",
+    });
     evts.push({ at: promised, label: "Balance follow-up scheduled", tone: "info" });
   }
   if (status === "broken") {
     evts.push({ at: promised, label: "Reminder sent, no response", tone: "warn" });
-    evts.push({ at: promised, label: "Auto-flagged as broken · routed to follow-up", tone: "danger" });
+    evts.push({
+      at: promised,
+      label: "Auto-flagged as broken · routed to follow-up",
+      tone: "danger",
+    });
   }
   return evts;
 }
 
-let _seedPromises: Promise[] = blueprints.map((bp, i) => {
+const _seedPromises: Promise[] = blueprints.map((bp, i) => {
   const c = custPool[i % custPool.length];
   const base = 2000 + ((i * 1373) % 22000);
   const amount = Math.round(base / 100) * 100;
   const created = dayISO(bp.createdOffset);
   const promised = dayISO(bp.daysOffset);
-  const paidAmount = bp.status === "partial" ? Math.round(amount * 0.4 / 100) * 100 : undefined;
+  const paidAmount = bp.status === "partial" ? Math.round((amount * 0.4) / 100) * 100 : undefined;
   return {
     id: `PTP-${(1001 + i).toString()}`,
     customerId: c.id,
@@ -212,7 +240,14 @@ let _seedPromises: Promise[] = blueprints.map((bp, i) => {
 
 // ---- payment plans ----
 let _seedPlans: PaymentPlan[] = [];
-function buildPlan(idx: number, customer: CustSlim, total: number, n: number, cadence: PlanCadence, paidCount: number): PaymentPlan {
+function buildPlan(
+  idx: number,
+  customer: CustSlim,
+  total: number,
+  n: number,
+  cadence: PlanCadence,
+  paidCount: number,
+): PaymentPlan {
   const startOffset = -n + paidCount; // start so paidCount installments are past-due
   const startDate = dayISO(startOffset * cadenceDays(cadence));
   const per = Math.round(total / n / 100) * 100;
@@ -226,7 +261,9 @@ function buildPlan(idx: number, customer: CustSlim, total: number, n: number, ca
       paidOn: i < paidCount ? due : undefined,
     };
   });
-  const overdue = installments.some((x) => !x.paid && new Date(x.dueDate).getTime() < Date.now() - 86400000);
+  const overdue = installments.some(
+    (x) => !x.paid && new Date(x.dueDate).getTime() < Date.now() - 86400000,
+  );
   const status: PlanStatus = paidCount === n ? "completed" : overdue ? "slipped" : "on_track";
   return {
     id: `PLAN-${2001 + idx}`,
@@ -271,7 +308,12 @@ export interface ScheduleInput {
   startDate: string; // ISO
   cadence: PlanCadence;
 }
-export function buildSchedule({ total, installments, startDate, cadence }: ScheduleInput): Installment[] {
+export function buildSchedule({
+  total,
+  installments,
+  startDate,
+  cadence,
+}: ScheduleInput): Installment[] {
   const per = Math.round(total / installments / 100) * 100;
   const start = new Date(startDate);
   const days = cadenceDays(cadence);
@@ -313,7 +355,12 @@ export function filterPromises(list: Promise[], f: Filters): Promise[] {
     if (f.owner !== "all" && p.owner !== f.owner) return false;
     if (f.search) {
       const q = f.search.toLowerCase();
-      if (!p.customerName.toLowerCase().includes(q) && !p.accountTail.includes(q) && !p.id.toLowerCase().includes(q)) return false;
+      if (
+        !p.customerName.toLowerCase().includes(q) &&
+        !p.accountTail.includes(q) &&
+        !p.id.toLowerCase().includes(q)
+      )
+        return false;
     }
     if (f.amount !== "any") {
       const a = p.amount;
@@ -340,17 +387,24 @@ export function computeMetrics(list: Promise[]) {
   const broken = list.filter((p) => p.status === "broken");
   const partial = list.filter((p) => p.status === "partial");
   const resolved = kept.length + broken.length + partial.length;
-  const keptRate = resolved === 0 ? 0 : Math.round(((kept.length + partial.length * 0.5) / resolved) * 100);
+  const keptRate =
+    resolved === 0 ? 0 : Math.round(((kept.length + partial.length * 0.5) / resolved) * 100);
 
-  const atRiskAmt = broken.reduce((s, p) => s + p.amount, 0) +
+  const atRiskAmt =
+    broken.reduce((s, p) => s + p.amount, 0) +
     partial.reduce((s, p) => s + (p.amount - (p.paidAmount ?? 0)), 0);
 
   // avg days-to-keep among kept promises
   const daysToKeep = kept.map((p) => {
-    const days = Math.round((new Date(p.promisedDate).getTime() - new Date(p.createdAt).getTime()) / 86400000);
+    const days = Math.round(
+      (new Date(p.promisedDate).getTime() - new Date(p.createdAt).getTime()) / 86400000,
+    );
     return Math.max(days, 0);
   });
-  const avgDays = daysToKeep.length === 0 ? 0 : Math.round((daysToKeep.reduce((a, b) => a + b, 0) / daysToKeep.length) * 10) / 10;
+  const avgDays =
+    daysToKeep.length === 0
+      ? 0
+      : Math.round((daysToKeep.reduce((a, b) => a + b, 0) / daysToKeep.length) * 10) / 10;
 
   return {
     keptRate,
@@ -415,7 +469,9 @@ export function createPromise(input: {
     notes: input.notes,
     events: [
       { at: createdAt, label: "Promise captured", tone: "info" },
-      ...(input.reminder !== "off" ? [{ at: createdAt, label: "Reminder scheduled", tone: "info" as const }] : []),
+      ...(input.reminder !== "off"
+        ? [{ at: createdAt, label: "Reminder scheduled", tone: "info" as const }]
+        : []),
     ],
   };
   promises.unshift(p);
@@ -471,7 +527,11 @@ export function createPlan(input: {
   return plan;
 }
 
-export function movePromise(id: string, next: PromiseStatus, opts?: { paidAmount?: number }): FollowUp | undefined {
+export function movePromise(
+  id: string,
+  next: PromiseStatus,
+  opts?: { paidAmount?: number },
+): FollowUp | undefined {
   const p = promises.find((x) => x.id === id);
   if (!p) return;
   const at = new Date().toISOString();
@@ -506,7 +566,11 @@ export function reschedulePromise(id: string, newDate: string) {
   const today = new Date().setHours(0, 0, 0, 0);
   const promisedDay = new Date(newDate).setHours(0, 0, 0, 0);
   p.status = promisedDay === today ? "due_today" : "upcoming";
-  p.events.push({ at: new Date().toISOString(), label: `Rescheduled to ${fmtDate(newDate)}`, tone: "info" });
+  p.events.push({
+    at: new Date().toISOString(),
+    label: `Rescheduled to ${fmtDate(newDate)}`,
+    tone: "info",
+  });
 }
 
 export const STATUS_ORDER: PromiseStatus[] = ["upcoming", "due_today", "kept", "broken", "partial"];

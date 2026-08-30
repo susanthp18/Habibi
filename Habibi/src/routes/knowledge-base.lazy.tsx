@@ -149,14 +149,19 @@ function KnowledgeBasePage() {
   }, [docs, search, typeFilter, enabledFilter]);
 
   const selectedHiddenByFilter = Boolean(
-    selectedDocId && docs.some((d) => d.id === selectedDocId) && !filteredDocs.some((d) => d.id === selectedDocId),
+    selectedDocId &&
+    docs.some((d) => d.id === selectedDocId) &&
+    !filteredDocs.some((d) => d.id === selectedDocId),
   );
 
   const filteredFaqs = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return faqs;
     return faqs.filter(
-      (f) => f.question.toLowerCase().includes(q) || f.answer.toLowerCase().includes(q) || f.intent.includes(q),
+      (f) =>
+        f.question.toLowerCase().includes(q) ||
+        f.answer.toLowerCase().includes(q) ||
+        f.intent.includes(q),
     );
   }, [faqs, search]);
 
@@ -167,7 +172,8 @@ function KnowledgeBasePage() {
       if (g.text.toLowerCase().includes(q) || g.topIntent.toLowerCase().includes(q)) return true;
       if (g.linkedDocumentId) {
         const doc = docs.find((d) => d.id === g.linkedDocumentId);
-        if (doc?.title.toLowerCase().includes(q) || doc?.filename.toLowerCase().includes(q)) return true;
+        if (doc?.title.toLowerCase().includes(q) || doc?.filename.toLowerCase().includes(q))
+          return true;
       }
       if (g.linkedFaqId) {
         const faq = faqs.find((f) => f.id === g.linkedFaqId);
@@ -324,7 +330,9 @@ function KnowledgeBasePage() {
       }
 
       if (settled.failed === 0 && settled.timedOut === 0) {
-        toast.success(`Full re-index complete — ${settled.succeeded}/${result.jobIds.length} succeeded`);
+        toast.success(
+          `Full re-index complete — ${settled.succeeded}/${result.jobIds.length} succeeded`,
+        );
       } else {
         toast.error(
           `Re-index finished with issues — ${settled.succeeded} ok, ${settled.failed} failed, ${settled.timedOut} timed out`,
@@ -341,7 +349,9 @@ function KnowledgeBasePage() {
   const runSyncFromSourceDb = async () => {
     setSyncBusy(true);
     setSyncConfirmOpen(false);
-    const toastId = toast.loading("Syncing HDFC corpus from source_db… this may take a few minutes");
+    const toastId = toast.loading(
+      "Syncing HDFC corpus from source_db… this may take a few minutes",
+    );
     try {
       const result = await ingestSourceDb();
       toast.success(
@@ -502,14 +512,21 @@ function KnowledgeBasePage() {
   };
 
   const pendingDeleteDoc = pendingDeleteId ? docs.find((d) => d.id === pendingDeleteId) : null;
-  const pendingDeleteFaq = pendingDeleteFaqId ? faqs.find((f) => f.id === pendingDeleteFaqId) : null;
+  const pendingDeleteFaq = pendingDeleteFaqId
+    ? faqs.find((f) => f.id === pendingDeleteFaqId)
+    : null;
   const visibleGaps = showResolved ? filteredGaps : filteredGaps.filter((g) => !g.resolved);
   const searchActive =
     Boolean(search.trim()) ||
     (tab === "documents" && (typeFilter !== "all" || enabledFilter !== "all"));
   const toolbarVisible =
-    tab === "documents" ? filteredDocs.length : tab === "faqs" ? filteredFaqs.length : visibleGaps.length;
-  const toolbarTotal = tab === "documents" ? docs.length : tab === "faqs" ? faqs.length : gaps.length;
+    tab === "documents"
+      ? filteredDocs.length
+      : tab === "faqs"
+        ? filteredFaqs.length
+        : visibleGaps.length;
+  const toolbarTotal =
+    tab === "documents" ? docs.length : tab === "faqs" ? faqs.length : gaps.length;
   const docTypeOptions = useMemo(() => {
     const types = new Set(docs.map((d) => d.type));
     return Array.from(types).sort();
@@ -521,7 +538,7 @@ function KnowledgeBasePage() {
         <div className="shrink-0 border-b border-border px-200 py-150">
           <div className="flex flex-wrap items-center justify-between gap-150">
             <div className="min-w-0">
-              <h1 className="text-[1rem] font-semibold leading-none text-text">Knowledge base</h1>
+              <h1 className="heading-small font-semibold leading-none text-text">Knowledge base</h1>
               <p className="mt-050 text-body-small text-text-subtlest">
                 Sources the bot retrieves at runtime — documents, FAQs, and coverage gaps.
               </p>
@@ -560,7 +577,12 @@ function KnowledgeBasePage() {
               )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={globalBusy} aria-label="More actions">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={globalBusy}
+                    aria-label="More actions"
+                  >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -645,7 +667,10 @@ function KnowledgeBasePage() {
             onShowResolved={setShowResolved}
           />
 
-          <TabsContent value="documents" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+          <TabsContent
+            value="documents"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
             <div className="relative flex min-h-0 flex-1 overflow-hidden">
               <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
                 <DocumentsTable
@@ -695,7 +720,9 @@ function KnowledgeBasePage() {
               onDelete={(id) => setPendingDeleteFaqId(id)}
               selectedId={editingFaq?.id || null}
               loading={faqsLoading}
-              emptyFromFilter={Boolean(search.trim()) && filteredFaqs.length === 0 && faqs.length > 0}
+              emptyFromFilter={
+                Boolean(search.trim()) && filteredFaqs.length === 0 && faqs.length > 0
+              }
             />
           </TabsContent>
 
@@ -763,8 +790,8 @@ function KnowledgeBasePage() {
             <AlertDialogTitle>Sync from source_db?</AlertDialogTitle>
             <AlertDialogDescription>
               Re-reads policy, benefits and FAQ files from disk, re-embeds changed content, and
-              replaces product FAQ pairs. Uploaded-only documents are left untouched. Azure embedding
-              calls may take several minutes.
+              replaces product FAQ pairs. Uploaded-only documents are left untouched. Azure
+              embedding calls may take several minutes.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -804,9 +831,7 @@ function KnowledgeBasePage() {
               </select>
             </div>
             <div>
-              <Label className="text-body-small text-text-subtlest">
-                Type DELETE
-              </Label>
+              <Label className="text-body-small text-text-subtlest">Type DELETE</Label>
               <Input
                 className="mt-050"
                 value={purgeTyped}
@@ -840,9 +865,7 @@ function KnowledgeBasePage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete “{pendingDeleteDoc?.title ?? "document"}”?
-            </AlertDialogTitle>
+            <AlertDialogTitle>Delete “{pendingDeleteDoc?.title ?? "document"}”?</AlertDialogTitle>
             <AlertDialogDescription>
               Permanently removes this document and its chunks. This cannot be undone.
             </AlertDialogDescription>
@@ -871,9 +894,7 @@ function KnowledgeBasePage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete “{pendingDeleteFaq?.question ?? "FAQ"}”?
-            </AlertDialogTitle>
+            <AlertDialogTitle>Delete “{pendingDeleteFaq?.question ?? "FAQ"}”?</AlertDialogTitle>
             <AlertDialogDescription>
               Permanently removes this FAQ pair. Linked analytics gaps keep their question but lose
               the FAQ link.

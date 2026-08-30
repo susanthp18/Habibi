@@ -42,8 +42,7 @@ const API_KEY = (import.meta.env.VITE_API_KEY as string | undefined)?.trim() || 
  * allows actor headers (ALLOW_ACTOR_HEADER / non-prod). Prefer per-user
  * API_KEY_MAP on the server for production attribution.
  */
-const ACTOR_USER_ID =
-  (import.meta.env.VITE_ACTOR_USER_ID as string | undefined)?.trim() || "";
+const ACTOR_USER_ID = (import.meta.env.VITE_ACTOR_USER_ID as string | undefined)?.trim() || "";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -71,9 +70,7 @@ function requestSignal(caller?: AbortSignal, ms = DEFAULT_TIMEOUT_MS): AbortSign
   if (!caller) return timeout;
   // AbortSignal.any is baseline in every browser this app targets; fall back to
   // the caller's signal if an older runtime lacks it.
-  return typeof AbortSignal.any === "function"
-    ? AbortSignal.any([caller, timeout])
-    : caller;
+  return typeof AbortSignal.any === "function" ? AbortSignal.any([caller, timeout]) : caller;
 }
 
 /** Simulate network latency so loading/skeleton states are exercised in mock mode. */
@@ -114,6 +111,62 @@ async function errorDetail(res: Response): Promise<string> {
   }
 }
 
+/**
+ * A failed HTTP response, carrying the status that produced it.
+ *
+ * Before this existed every helper threw a bare `Error`, which meant a caller
+ * that wanted to treat "the server says this does not exist" differently from
+ * "the request did not complete" had no way to ask — so callers stopped asking.
+ * The result is the failure mode this codebase names as its #1: absence and
+ * failure rendered identically, and always as absence. A card that IS live
+ * showing "never published" during an outage; a skill detail page rendering
+ * "Skill not found." on a 500; a connectors panel telling the author to go
+ * approve connectors that are, in fact, already approved.
+ *
+ * None of those are fixable at the call site while the only thing thrown is a
+ * string. So the status travels with the error, and `isNotFound` is the one
+ * predicate a caller needs to write the honest version.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: string;
+  readonly path: string;
+
+  constructor(method: string, path: string, status: number, detail: string) {
+    super(`${method} ${path} failed: ${detail}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+    this.path = path;
+  }
+}
+
+/** True only for a real 404 from the API — never for a network or 5xx failure. */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+/**
+ * React-Query `retry` for endpoints whose 4xx answers are deterministic.
+ *
+ * RQ v5 retries everything three times by default, so a genuinely bad URL costs
+ * ~7s of spinner before the page is allowed to say so, and a 400/422 from a
+ * request that will be rejected identically every time is sent three more
+ * times. Server faults are still worth retrying; a verdict is not.
+ */
+export function retryUnlessClientError(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+    // Two 4xx codes are about timing rather than about the request, so resending
+    // the identical body is exactly the right move: 408 says the server gave up
+    // waiting for it, and 429 says to come back. Treating the whole 4xx range as
+    // a settled verdict would make the studio give up on a rate limit it only
+    // had to wait out.
+    if (error.status === 408 || error.status === 429) return failureCount < 2;
+    return false;
+  }
+  return failureCount < 2;
+}
+
 /** Thin typed GET helper for the live API. */
 export async function apiGet<T>(path: string, init?: { signal?: AbortSignal }): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -123,7 +176,7 @@ export async function apiGet<T>(path: string, init?: { signal?: AbortSignal }): 
   });
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
-    throw new Error(`GET ${path} failed: ${await errorDetail(res)}`);
+    throw new ApiError("GET", path, res.status, await errorDetail(res));
   }
   const text = await res.text();
   if (!text) return undefined as T;
@@ -150,7 +203,7 @@ async function apiSend<T>(
     signal: requestSignal(init?.signal),
   });
   if (!res.ok) {
-    throw new Error(await errorDetail(res));
+    throw new ApiError(method, path, res.status, await errorDetail(res));
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -182,7 +235,7 @@ export async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: H
     signal: withTimeout(60_000),
   });
   if (!res.ok) {
-    throw new Error(await errorDetail(res));
+    throw new ApiError("GET", path, res.status, await errorDetail(res));
   }
   return { blob: await res.blob(), headers: res.headers };
 }
@@ -201,7 +254,7 @@ export async function apiPostBlob(
     signal: withTimeout(60_000),
   });
   if (!res.ok) {
-    throw new Error(await errorDetail(res));
+    throw new ApiError("POST", path, res.status, await errorDetail(res));
   }
   return { blob: await res.blob(), headers: res.headers };
 }
@@ -216,7 +269,7 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
     signal: withTimeout(120_000),
   });
   if (!res.ok) {
-    throw new Error(await errorDetail(res));
+    throw new ApiError("POST", path, res.status, await errorDetail(res));
   }
   return (await res.json()) as T;
 }
@@ -233,7 +286,7 @@ export async function apiEventStream(
     signal: init?.signal,
   });
   if (!res.ok) {
-    throw new Error(`GET ${path} failed: ${await errorDetail(res)}`);
+    throw new ApiError("GET", path, res.status, await errorDetail(res));
   }
   if (!res.body) return;
   const reader = res.body.getReader();

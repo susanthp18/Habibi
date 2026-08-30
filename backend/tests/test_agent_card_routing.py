@@ -1,10 +1,16 @@
 """Routing vs deployment, and the archive lifecycle.
 
 The fleet index badged every published card "live · 100%". That describes the
-deployment row and says nothing about traffic: inbound resolves exactly one bot
-(``BOT_ID``), and every other card is reachable only through the entry card's
-handoff allowlist. Three of four first-party cards were badged as live; only
-one takes a call.
+deployment row and says nothing about traffic, so the badge was replaced by a
+reachability walk over the handoff graph.
+
+That walk then over-corrected. It seeded from ``BOT_ID`` alone, on the premise
+that inbound resolves exactly one bot — but ``agent_core/deployment.py``
+resolves ``bot_id or DEFAULT_BOT_ID`` against ``bot_deployments``, so the
+default is a fallback and any card holding an active production deployment is
+separately addressable. Intake, a live front door at 100% traffic that routes
+*to* Collections, was reported "unreachable" alongside two empty scaffolds that
+genuinely are. ``direct`` is the state that separates them.
 """
 
 from __future__ import annotations
@@ -150,3 +156,66 @@ def test_a_bot_with_no_version_gets_an_authorable_card(db_tx) -> None:
     finally:
         with db.engine.begin() as conn:
             conn.execute(text("DELETE FROM bots WHERE id = :i"), {"i": bot_id})
+
+
+def test_a_live_card_nothing_hands_off_to_is_direct_not_unreachable() -> None:
+    """Intake is the shipped case: a front door at 100% traffic that routes
+    *to* Collections while Collections is the configured default.
+
+    Calling it "unreachable" was wrong twice over — it takes calls, and the word
+    was doing real work elsewhere on the same screen for cards that genuinely
+    take none.
+    """
+    routes = reachability(
+        [("entry", _card("mid")), ("mid", _card()), ("front", _card("entry")), ("dead", _card())],
+        entry="entry",
+        deployed=["front"],
+    )
+    assert routes == {
+        "entry": "entry",
+        "mid": "handoff",
+        "front": "direct",
+        "dead": "unreachable",
+    }
+
+
+def test_an_inbound_edge_outranks_a_deployment_of_its_own() -> None:
+    """Position in the conversation graph is the more specific fact."""
+    routes = reachability(
+        [("entry", _card("both")), ("both", _card())], entry="entry", deployed=["both"]
+    )
+    assert routes["both"] == "handoff"
+
+
+def test_a_deployed_card_opens_the_graph_behind_it() -> None:
+    """Whatever the front door can reach is reachable, even when the configured
+    entry card cannot reach it."""
+    routes = reachability(
+        [("entry", _card()), ("front", _card("behind")), ("behind", _card())],
+        entry="entry",
+        deployed=["front"],
+    )
+    assert routes["behind"] == "handoff"
+
+
+def test_the_fleet_and_the_single_card_endpoint_agree(db_tx) -> None:
+    """They compute reachability from different edge queries. _handoff_edges
+    was missing the tenant predicate the fleet index applies, so the detail page
+    and the index could label the same card differently."""
+    disagree = {
+        c["botId"]: (c["reachability"], db.get_agent_studio_card(c["botId"])["reachability"])
+        for c in db.list_agent_studio_cards()
+        if db.get_agent_studio_card(c["botId"])["reachability"] != c["reachability"]
+    }
+    assert disagree == {}
+
+
+def test_a_card_with_no_version_and_no_deployment_is_still_unreachable(db_tx) -> None:
+    """The word has to keep meaning something. Seeding the walk with deployed
+    cards must not quietly promote the empty scaffolds."""
+    cards = {c["botId"]: c for c in db.list_agent_studio_cards()}
+    empty = [c for c in cards.values() if c["deploymentStatus"] == "empty"]
+    if not empty:
+        pytest.skip("fleet has no empty cards to check")
+    for card in empty:
+        assert card["reachability"] == "unreachable", card["botId"]

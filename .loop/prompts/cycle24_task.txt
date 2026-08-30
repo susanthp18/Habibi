@@ -1,0 +1,51 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 594 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Core-agentic campaign. Inbound flow (sandbox rehearsal) has been
+repaired and instrumented over cycles 18-23. This cycle pivots to OUTBOUND:
+the campaign -> contact -> cadence -> dialer chain. Discovery found earlier
+(cycle 1, out/cycle1.txt) that much of outbound was unwired; cycles since
+fixed pool-health visibility and missions. What has NOT been verified is the
+actual end-to-end dialer decision loop against business rules.
+
+TASK: REPORT-ONLY AUDIT (no code changes) of the outbound decision core:
+
+1. Trace and document the actual call path: campaigns.process_one ->
+   eligibility/contact-policy gate -> cadence.process_one -> queue/dialer ->
+   attempt creation -> disposition handling (call_closer). Name file:line for
+   each hop. Note where bot_worker ordering (bot_worker.py) affects it.
+
+2. EDGE-CASE MATRIX — for each rule below, state whether it is ENFORCED in the
+   dialer path (file:line), ENFORCED ONLY IN TESTS, or MISSING entirely:
+   DND / consent opt-out; contact window (contact_window.py); timezone
+   correctness; campaign paused/active; duplicate-attempt prevention;
+   max attempts per cadence rung; retry ladder exhaustion; invalid number
+   formats; provider failure mid-call; idempotent attempt creation under
+   concurrent workers (SKIP LOCKED).
+
+3. LATENCY/OBSERVABILITY: what telemetry exists per attempt (timestamps,
+   ring duration, connect latency)? Is there any budget/alerting?
+
+4. List the top 5 gaps ranked by severity x confidence, each with a concrete
+   suggested fix and whether it is SAFE TO AUTO-FIX overnight or needs human
+   judgement (e.g. anything touching Twilio spend).
+
+Write the full audit to .loop/out/cycle24_outbound_audit.txt via your final
+report (do not create other files). No implementation in this cycle.

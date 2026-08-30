@@ -13,9 +13,7 @@ export function WebhooksHeader({
   return (
     <div className="flex shrink-0 items-center justify-between gap-200 border-b border-border bg-surface px-300 py-150">
       <div>
-        <h1 className="text-[0.875rem] font-semibold text-text">
-          Webhooks & Event Subscriptions
-        </h1>
+        <h1 className="text-body font-semibold text-text">Webhooks & Event Subscriptions</h1>
         <p className="text-body-small text-text-subtle">
           Register downstream endpoints, subscribe them to CRM events, and monitor deliveries.
         </p>

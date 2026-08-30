@@ -36,7 +36,7 @@ function cloneRules(source: RedactionRules): RedactionRules {
   return next;
 }
 
-let _mockRules: RedactionRules = cloneRules(DEFAULT_RULES);
+const _mockRules: RedactionRules = cloneRules(DEFAULT_RULES);
 
 export async function fetchRedactionRecords(): Promise<RedactionRecord[]> {
   if (USE_MOCK) return mockDelay(seedRecords);
@@ -89,10 +89,7 @@ export function useExportJobs() {
   });
 }
 
-export async function toggleFindingAccepted(
-  findingId: string,
-  accepted: boolean,
-): Promise<void> {
+export async function toggleFindingAccepted(findingId: string, accepted: boolean): Promise<void> {
   if (USE_MOCK) {
     for (const r of seedRecords) {
       const f = r.findings.find((x) => x.id === findingId);

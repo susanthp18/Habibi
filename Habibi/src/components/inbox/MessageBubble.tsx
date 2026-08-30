@@ -6,10 +6,7 @@ function Ticks({ status }: { status: Message["delivery"] }) {
   if (!status) return null;
   if (status === "pending") {
     return (
-      <Clock
-        className="h-3.5 w-3.5 text-text-inverse/50"
-        aria-label="Queued — not yet sent"
-      />
+      <Clock className="h-3.5 w-3.5 text-text-inverse/50" aria-label="Queued — not yet sent" />
     );
   }
   if (status === "failed") {
@@ -25,13 +22,7 @@ function Ticks({ status }: { status: Message["delivery"] }) {
   return <Icon className={cn("h-3.5 w-3.5", color)} />;
 }
 
-export function MessageBubble({
-  message,
-  showTag,
-}: {
-  message: Message;
-  showTag: boolean;
-}) {
+export function MessageBubble({ message, showTag }: { message: Message; showTag: boolean }) {
   const isMine = message.sender !== "customer";
 
   const bubbleClass = cn(
@@ -48,12 +39,7 @@ export function MessageBubble({
   );
 
   return (
-    <div
-      className={cn(
-        "animate-fade-up flex flex-col",
-        isMine ? "items-end" : "items-start",
-      )}
-    >
+    <div className={cn("animate-fade-up flex flex-col", isMine ? "items-end" : "items-start")}>
       {showTag && (
         <span
           className={cn(

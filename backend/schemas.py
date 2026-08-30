@@ -111,13 +111,21 @@ class PromiseResponse(BaseModel):
     reminderStatus: Literal["queued", "sent", "acknowledged", "off"]
 
 
+# Disputes carry the work-item tones plus "done": a resolved dispute has no
+# countdown left to run, and the board greys the chip rather than colouring it.
+DisputeSla = Literal["ok", "warn", "breach", "done"]
+
+
 class DisputeResponse(BaseModel):
     id: str
     type: str
     amount: float | None = None
     transcriptSnippet: str = ""
     status: Literal["new", "under_review", "awaiting_customer", "resolved", "rejected"]
+    sla: DisputeSla = "ok"
     slaLabel: str = "Open"
+    # Signed minutes: positive is time remaining, negative is time overdue.
+    slaMinutes: int = 0
     filedAt: str
     assignee: str | None = None
 
@@ -179,9 +187,39 @@ class NbaItemResponse(BaseModel):
     rank: int
     title: str
     reason: str
-    action: Literal["ptp", "dispute", "statement", "call", "callback", "review", "offer"]
+    # Mirrors NbaActionKind in Habibi/src/lib/customerInsights.ts. The six after
+    # "offer" are the decision engine's own vocabulary, mapped from A.ALL by
+    # customer_insights._TREATMENT_ACTION_KIND; "wait" is a held decision, which
+    # an operator has to see rather than an empty card. This Literal used to stop
+    # at "offer", so every customer with a treatment snapshot — which is every
+    # customer, since recommend_treatment never raises — 500'd on the way out.
+    action: Literal[
+        "ptp",
+        "dispute",
+        "statement",
+        "call",
+        "callback",
+        "review",
+        "offer",
+        "message",
+        "mandate",
+        "schedule",
+        "plan",
+        "field",
+        "legal",
+        "wait",
+    ]
     priority: Literal["high", "medium", "low"]
     leadId: str | None = None
+    # Only on the engine's row (customer_insights._treatment_nba). Absent on the
+    # case-handling items, hence every one of them optional.
+    source: str | None = None
+    decisionId: str | None = None
+    expectedValueInr: float | None = None
+    scheduledAt: str | None = None
+    treatmentAction: str | None = None
+    #: The engine decided but is not acting - shadow mode. Labelled, not hidden.
+    advisory: bool | None = None
 
 
 class OfferPolicyResponse(BaseModel):
@@ -280,8 +318,68 @@ class ActivityPreviewItemResponse(BaseModel):
     kind: str
     label: str
     note: str | None = None
-    at: str
+    # customer_insights.synthesize_activity reads this off startedAt / createdAt /
+    # filedAt / requestedAt, any of which can be null. Required-and-non-null here
+    # was a second ResponseValidationError waiting for an empty activity preview.
+    at: str | None = None
     tone: str | None = None
+
+
+class TreatmentAlternativeResponse(BaseModel):
+    """One ranked action the engine considered but did not pick.
+
+    Mirrors agent_core.treatment.scoring.ScoredAction.to_log(). Note the key is
+    ``expectedValue`` here and ``expectedValueInr`` on the chosen action - the
+    producer spells them differently, so this model does too.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+    channel: str | None = None
+    at: str | None = None
+    expectedValue: float | None = None
+    pReach: float | None = None
+    pResolve: float | None = None
+    cost: float | None = None
+    reasonCodes: list[str] = []
+    #: Scorer-internal term breakdown. Open by construction - the components a
+    #: scorer reports are its own business, and pinning them here would make
+    #: adding a term to the scorer a schema change.
+    components: dict[str, float] = {}
+
+
+class TreatmentSnapshotResponse(BaseModel):
+    """The decision engine's full payload, not just the row rendered as an NBA.
+
+    Mirrors agent_core.treatment.engine.TreatmentResult.to_payload(). The
+    excluded reasons and the ranked alternatives are what a supervisor
+    overriding the decision needs, and they are already computed.
+
+    test_customer_insights_api asserts field-for-field against to_payload(), so
+    a key added there fails loudly here rather than 500ing in production.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+    actionLabel: str | None = None
+    channel: str | None = None
+    at: str | None = None
+    expectedValueInr: float | None = None
+    suppressed: bool = False
+    reason: str | None = None
+    reasonText: str | None = None
+    rationale: str = ""
+    decisionId: str | None = None
+    propensity: float | None = None
+    policyVersion: int | None = None
+    mode: str | None = None
+    variant: str | None = None
+    latencyMs: int | None = None
+    alternatives: list[TreatmentAlternativeResponse] = []
+    #: action -> veto reason, for the actions arbitration ruled out.
+    excluded: dict[str, str] = {}
 
 
 class CustomerInsightsResponse(BaseModel):
@@ -295,6 +393,7 @@ class CustomerInsightsResponse(BaseModel):
     generatedAt: str
     offerPolicy: OfferPolicyResponse | None = None
     authorityPolicy: AuthorityPolicyResponse | None = None
+    treatment: TreatmentSnapshotResponse | None = None
 
 
 class CallResponse(BaseModel):
@@ -551,6 +650,10 @@ class DisputeListResponse(BaseModel):
     originConversationId: str | None = None
     capturedAt: str
     slaDueAt: str
+    sla: DisputeSla
+    slaLabel: str
+    # Signed minutes: positive is time remaining, negative is time overdue.
+    slaMinutes: int
     status: Literal["new", "under_review", "awaiting_customer", "resolved", "rejected"]
     assignee: str
     priority: Literal["low", "normal", "high", "urgent"]
@@ -2066,6 +2169,21 @@ class VoiceConfig(BaseModel):
     # Prompt Studio / Sandbox persist these alongside the studio voiceId.
     azureVoiceName: str | None = None
     style: str | None = None
+    #: The selected model's own controls, keyed by ``provider_models.params_schema``.
+    #:
+    #: The five prosody fields above are Azure/SSML-shaped, because Azure was
+    #: the only provider when this model was written. They are not a superset of
+    #: anything — Fish S2.1 Pro has a temperature and no pitch, Deepgram Aura-2
+    #: has almost no prosody — so every other vendor's controls need a slot, and
+    #: this is it. ``db._prompt_voice`` sanitises it and
+    #: ``agent_core.tuning.apply_voice_config_overlay`` folds it into
+    #: ``AgentTuning.tts.params``, which is what reaches the bound provider.
+    #:
+    #: Untyped by key on purpose: the authority on which keys a model accepts is
+    #: that model's own Pipecat ``Settings`` class, and
+    #: ``providers.factory.build`` filters against it. A second opinion here
+    #: would go stale the moment a vendor adds a knob.
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class Guardrails(BaseModel):
@@ -2101,6 +2219,15 @@ class PromptVersionResponse(BaseModel):
     # Authored conversation graph (backend/flow_graph.py). Empty on every
     # version created before flow authoring existed.
     flow: FlowGraph = Field(default_factory=FlowGraph)
+    #: True when the stored graph could not be parsed and `flow` above is the
+    #: empty sentinel standing in for it.
+    #:
+    #: Without this, "this version never authored a flow" and "this version's
+    #: graph is corrupt and we are hiding it" are the same response. The row
+    #: mapper degrades rather than raising because the alternative is a 500 for
+    #: every version of the bot; this is what stops that degradation from being
+    #: silent.
+    flowUnreadable: bool = False
     botId: str = "kaia-v2-4"
     agentCard: dict[str, Any] = Field(default_factory=dict)
 
@@ -2152,6 +2279,9 @@ class TtsCatalogVoiceItem(BaseModel):
     modelSeries: list[str] = Field(default_factory=list)
     removedAt: str | None = None
     enabledForPicker: bool = True
+    #: Which vendor this voice came from. Defaults to azure because every row
+    #: that predates the provider registry was written by the Azure sync.
+    providerId: str = "azure"
     raw: dict[str, Any] | None = None
 
 
@@ -2259,6 +2389,15 @@ class PromptVersionPublishRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    #: Which draft to publish, for the by-bot endpoint that does not name one in
+    #: its path. Ignored by ``POST /prompt-versions/{id}/publish``, which has the
+    #: id already.
+    #:
+    #: The by-bot endpoint used to pick "the first draft in the newest twenty
+    #: versions" with no way for the caller to say which one it meant — so a bot
+    #: with two open drafts published whichever one sorted first, and the studio,
+    #: which tracks a specific draftId, had no way to express its choice.
+    versionId: str | None = None
     summary: str = ""
     kbSnapshotId: str | None = None
     tuning: dict[str, Any] | None = None
@@ -2439,6 +2578,10 @@ class SandboxTurnCreateRequest(BaseModel):
     history: list[SandboxHistoryItem] = []
     context: SandboxContext | None = None
     topK: int = Field(default=4, ge=1, le=20)
+    # The studio always posts this (Habibi/src/api/sandbox.ts) and
+    # sandbox_runtime pins the active skill from it. Omitted here, every
+    # customer turn was rejected 422 by extra="forbid" before the handler ran.
+    skillSlug: str | None = None
 
 
 class SandboxChunkHit(BaseModel):
@@ -2514,6 +2657,21 @@ class TtsPreviewRequest(BaseModel):
     warmth: int = 60
     pauseMs: int = 300
     style: str | None = None
+    #: Model-declared controls, keyed by provider_models.params_schema.
+    #: The Azure-shaped fields above stay for the existing callers; this
+    #: is how a Fish voice sends temperature/latency/prosody, which have
+    #: no equivalent among them. Unknown keys are dropped by the adapter,
+    #: not forwarded — a knob with no transport must not reach a vendor.
+    params: dict[str, Any] = Field(default_factory=dict)
+    #: Take a new sample instead of returning the stored one.
+    #:
+    #: Previews are cached so that auditioning A, then B, then A again plays the
+    #: same A both times — Cartesia, Deepgram and Fish are sampling models and
+    #: were returning a different performance on every click, which made
+    #: comparison meaningless. Hearing a second take is still a legitimate thing
+    #: to want, so it stays available; it is just a deliberate act now rather
+    #: than what happens whenever you press play twice.
+    fresh: bool = False
 
 
 class SttTranscribeResponse(BaseModel):
@@ -2553,21 +2711,40 @@ class PromptLintResponse(BaseModel):
 
 
 class PromptTokenEstimateRequest(BaseModel):
-    """Count prompt tokens with the same tiktoken encoding as chat/KB."""
+    """Count prompt tokens with the same tiktoken encoding as chat/KB.
+
+    ``guardrails`` and ``persona`` are optional, and supplying them is what
+    makes the answer describe the call rather than the textarea: the system
+    message the model receives is the authored prompt *plus* the generated
+    guardrail rules, persona directions, local time and the voice naturalness
+    overlay. Counting only ``prompt`` understated a live card by about 7x.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     prompt: str
+    guardrails: Guardrails | None = None
+    persona: PersonaState | None = None
+    channel: Literal["voice", "text"] = "voice"
 
 
 class PromptTokenEstimateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    #: The authored text alone — what the editor holds.
     tokens: int
     encoding: str
     usdPer1M: float
+    #: Input cost of ``tokens`` alone. Kept as the authored figure so the two
+    #: numbers on screen are comparable; ``assembledCostUsd`` is the one to
+    #: budget with.
     costUsd: float
     source: Literal["tiktoken", "heuristic"] = "tiktoken"
+    #: The whole system message as assembled for ``channel``. ``None`` when the
+    #: caller supplied no guardrails, because the assembly would then be a
+    #: guess presented as a measurement.
+    assembledTokens: int | None = None
+    assembledCostUsd: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -3168,3 +3345,109 @@ class AuthorityApplyRequest(BaseModel):
     decisionId: str
     amount: float | None = None
     disputeId: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Provider registry (Agent Studio → Providers)
+# ---------------------------------------------------------------------------
+
+
+class ProviderModelItem(BaseModel):
+    """One row of the capability matrix, joined to its provider."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    providerId: str
+    providerName: str
+    kind: str
+    modelId: str
+    displayName: str
+    serviceClass: str
+    locales: list[str] = Field(default_factory=list)
+    streaming: bool = True
+    codeSwitch: bool = False
+    onPrem: bool = False
+    diarization: bool = False
+    styles: list[str] = Field(default_factory=list)
+    costPerUnit: float | None = None
+    costUnit: str | None = None
+    #: NULL until a shadow run measures it against our own audio.
+    measuredLatencyP50Ms: int | None = None
+    measuredLatencyP95Ms: int | None = None
+    notes: str = ""
+    #: The controls this model honours, rendered generically by the inspector.
+    #: Empty means "not yet mapped" — the UI shows nothing rather than showing
+    #: another provider's knobs, which would be controls that do nothing.
+    paramsSchema: list[dict[str, Any]] = Field(default_factory=list)
+    enabled: bool = True
+    #: False when no API key is present, so the picker can show the provider
+    #: greyed rather than hiding it — "why can't I pick X" must be answerable
+    #: from the screen.
+    configured: bool = True
+    #: Whether the model can be constructed for a live call: ``live``,
+    #: ``preview_only`` (auditionable but no streaming integration), or
+    #: ``unavailable`` (the service class does not import — a missing Pipecat
+    #: extra, or a class that was never written). A key alone does not make a
+    #: model runnable, and binding one that is not silently fell back to Azure.
+    runtime: str = "live"
+    #: Why, when ``runtime`` is not ``live``. Shown as the tooltip on the chip.
+    runtimeDetail: str = ""
+    #: True when two identical requests give two different performances, so a
+    #: "new take" control is meaningful. Deterministic engines get no such
+    #: button rather than one that appears to do nothing. See
+    #: ``ModelSpec.sampling`` for the measurements.
+    sampling: bool = False
+
+
+class ProviderBindingItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    botId: str | None = None
+    slot: str
+    locale: str | None = None
+    providerModelId: str
+    providerId: str
+    providerName: str
+    modelId: str
+    displayName: str
+    voiceRef: str | None = None
+    priority: int
+    settings: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class ProviderBindingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slot: str = Field(pattern="^(stt|tts|llm)$")
+    providerModelId: str
+    botId: str | None = None
+    locale: str | None = None
+    voiceRef: str | None = None
+    priority: int = Field(default=100, ge=1, le=1000)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class ProviderPoolKey(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tail: str
+    uses: int
+    retired: bool
+    lastError: str = ""
+
+
+class ProviderPoolStatus(BaseModel):
+    """Key-pool health. Surfaces free-tier exhaustion before a demo hits it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    total: int
+    available: int
+    retired: int
+    sessionsBound: int
+    keys: list[ProviderPoolKey] = Field(default_factory=list)

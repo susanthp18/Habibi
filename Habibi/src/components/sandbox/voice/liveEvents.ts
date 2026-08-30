@@ -265,7 +265,8 @@ export function asServerMessage(data: unknown): ServerMessage | null {
     }
     case "rag.hits": {
       if (typeof o.query !== "string") return null;
-      if (!Array.isArray(o.chunkIds) || !o.chunkIds.every((id) => typeof id === "string")) return null;
+      if (!Array.isArray(o.chunkIds) || !o.chunkIds.every((id) => typeof id === "string"))
+        return null;
       return {
         type,
         query: o.query,

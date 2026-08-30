@@ -37,7 +37,7 @@ function Tile({
       </div>
       <div className="min-w-0">
         <div className="text-body-small text-text-subtlest">{label}</div>
-        <div className="text-[0.875rem] font-semibold text-text leading-tight tabular-nums">{value}</div>
+        <div className="text-body font-semibold text-text leading-tight tabular-nums">{value}</div>
         {sub && <div className="text-body-small text-text-subtlest">{sub}</div>}
       </div>
     </div>
@@ -47,11 +47,41 @@ function Tile({
 export function MetricsStrip({ m }: { m: Metrics }) {
   return (
     <div className="grid shrink-0 grid-cols-2 gap-100 md:grid-cols-3 xl:grid-cols-5">
-      <Tile label="Scheduled today" value={m.scheduledToday} icon={CalendarClock} tone="brand" sub="Open + reminded" />
-      <Tile label="Due next hour" value={m.dueNextHour} icon={Timer} tone="amber" sub="Prep or dial" />
-      <Tile label="Missed (7d)" value={m.missed7d} icon={PhoneOff} tone="red" sub="Needs recovery" />
-      <Tile label="Completion (7d)" value={`${m.completionRate}%`} icon={CheckCircle2} tone="emerald" sub="Completed / total" />
-      <Tile label="Unassigned" value={m.unassigned} icon={UserX} tone="slate" sub="Awaiting owner" />
+      <Tile
+        label="Scheduled today"
+        value={m.scheduledToday}
+        icon={CalendarClock}
+        tone="brand"
+        sub="Open + reminded"
+      />
+      <Tile
+        label="Due next hour"
+        value={m.dueNextHour}
+        icon={Timer}
+        tone="amber"
+        sub="Prep or dial"
+      />
+      <Tile
+        label="Missed (7d)"
+        value={m.missed7d}
+        icon={PhoneOff}
+        tone="red"
+        sub="Needs recovery"
+      />
+      <Tile
+        label="Completion (7d)"
+        value={`${m.completionRate}%`}
+        icon={CheckCircle2}
+        tone="emerald"
+        sub="Completed / total"
+      />
+      <Tile
+        label="Unassigned"
+        value={m.unassigned}
+        icon={UserX}
+        tone="slate"
+        sub="Awaiting owner"
+      />
     </div>
   );
 }

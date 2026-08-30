@@ -31,11 +31,15 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
     filters.myQueue;
 
   const toggleType = (t: DisputeType) => {
-    const next = filters.types.includes(t) ? filters.types.filter((x) => x !== t) : [...filters.types, t];
+    const next = filters.types.includes(t)
+      ? filters.types.filter((x) => x !== t)
+      : [...filters.types, t];
     onPatch({ types: next });
   };
   const toggleSource = (s: DisputeSource) => {
-    const next = filters.sources.includes(s) ? filters.sources.filter((x) => x !== s) : [...filters.sources, s];
+    const next = filters.sources.includes(s)
+      ? filters.sources.filter((x) => x !== s)
+      : [...filters.sources, s];
     onPatch({ sources: next });
   };
 
@@ -131,7 +135,10 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
         </summary>
         <div className="absolute right-0 z-20 mt-050 w-56 rounded-medium border border-border bg-surface p-100 shadow-overlay">
           {TYPES.map((t) => (
-            <label key={t} className="flex cursor-pointer items-center gap-100 rounded px-100 py-050 text-body-small hover:bg-surface-sunken">
+            <label
+              key={t}
+              className="flex cursor-pointer items-center gap-100 rounded px-100 py-050 text-body-small hover:bg-surface-sunken"
+            >
               <input
                 type="checkbox"
                 checked={filters.types.includes(t)}

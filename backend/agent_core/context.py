@@ -21,6 +21,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+import money_inr
+
 logger = logging.getLogger(__name__)
 
 Channel = Literal["voice", "whatsapp", "sandbox_text", "sandbox_live"]
@@ -79,11 +81,16 @@ def product_keys_for_node(node: str | None) -> list[str] | None:
 
 
 def _inr(value: Any) -> str | None:
+    """Rupees for the customer card that goes into the agent's system prompt.
+
+    Returns None (not a dash) for an unusable value, because the caller drops
+    the field entirely rather than telling the model the balance is "—".
+    """
     try:
         amount = float(value)
     except (TypeError, ValueError):
         return None
-    return f"₹{amount:,.0f}"
+    return money_inr.inr(amount)
 
 
 @dataclass

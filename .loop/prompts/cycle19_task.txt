@@ -1,0 +1,77 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 589 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: This cycle begins a focused campaign on CORE AGENTIC functionality:
+tool use, latency, inbound flow end-to-end, outbound flow end-to-end, and edge
+cases in those flows. Live evidence from the sandbox (Prompt rehearsal) on
+2026-08-25 found two defects in the guardrail/grounding telemetry layer.
+
+--- FIX 1: missing-recording-disclosure fires despite the greeting disclosing ---
+REPRODUCTION (live): /sandbox Prompt rehearsal, card kaia-v2-4, scenario
+angry-waiver. The OPENING bot greeting says verbatim: "This call is recorded for
+quality." Yet turn 1's botTurn.guardrailFlags contains "missing-recording-disclosure",
+and turn 2 carries it again.
+EXPECTED: if the disclosure was made in the conversation (greeting counts — the
+template literally contains the sentence), the flag must NOT be set on subsequent
+turns. The flag exists to catch calls where dues were discussed with NO disclosure.
+ACTUAL: flag present from the first customer reply onwards, i.e. false positive
+on every run that uses this greeting.
+INVESTIGATE (root cause before fixing):
+- Find the detector: grep for missing-recording-disclosure in backend/ (likely a
+  guardrails module under agent_core/ or voice/, or inside sandbox_runtime.py).
+- Determine what evidence it checks (transcript scan? a disclosed boolean? RTVI
+  event?). Hypotheses to verify: (a) the detector scans only CUSTOMER-visible
+  text of turns AFTER turn 0 and never sees the opening template; (b) it looks
+  for an exact phrase different from the greeting's wording ("recorded for
+  quality" vs "this call is recorded"); (c) sandbox path never sets the
+  disclosure state that the live-call path sets.
+- Fix so the greeting's disclosure is recognised. If the right fix is that
+  append_sandbox_turn must seed the disclosure state from the openingTemplate /
+  greeting row, do that; keep the detector strict for genuinely undisclosed runs.
+TESTS: greeting-with-disclosure -> no flag on later turns; transcript with NO
+disclosure anywhere + dues discussion -> flag still fires; wording variant
+("this call is recorded") -> recognised.
+
+--- FIX 2: grounding chip/count mismatch — "0 chunks" but 3 FAQ chips shown ---
+REPRODUCTION (live): same session, turn 2 response footer read
+"3034ms · 1241t · 0 chunks" while directly above it three grounding chips rendered:
+"grounded in FAQ · collections.22cb7ec6fe89", "...c0dde3ffd3b6", "...3f6cc9c3d774".
+Turn 1 correctly showed "7979ms · 1338t · 1 chunks" with one policy chip.
+EXPECTED: the N-chunks counter equals the number of grounded sources displayed.
+ACTUAL: counter 0, chips 3 — contradictory telemetry on the same turn card.
+INVESTIGATE: find how the footer count is computed vs how the chips are computed
+(Habibi/src/components/sandbox/* + src/api/sandbox.ts SandboxTurnResult: likely
+botTurn.chunkIds vs botTurn.chunks divergence — e.g. count reads chunkIds.length
+while chips read chunks[], and one endpoint path fills only one of them).
+Fix so both come from the same source of truth. Frontend-only fix acceptable if
+the API shape is consistent; if the backend emits divergent fields, prefer fixing
+the backend serialiser and note it.
+TESTS: whatever layer you fix — add/extend vitest (Habibi npm test) or pytest so
+the count and the chips cannot diverge again.
+
+ACCEPTANCE CRITERIA:
+1. Full backend suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed,
+   passed >= 2710. Report tail verbatim.
+2. If you touched Habibi: npx vitest run green (56+ tests currently), report tail;
+   typecheck/lint unchanged baselines (0 errors / <=62 warnings).
+3. Files changed limited to: the guardrail/detector module you find,
+   backend/sandbox_runtime.py, backend/tests/**, Habibi/src/components/sandbox/**,
+   Habibi/src/api/sandbox.ts, Habibi tests. Anything else: explain explicitly.
+4. Report files changed + test tails + remaining issues.

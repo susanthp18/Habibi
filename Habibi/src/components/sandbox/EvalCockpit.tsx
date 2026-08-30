@@ -52,13 +52,13 @@ function ReportRow({ report }: { report: EvalReport }) {
         <div className="truncate text-body-small font-medium text-text">
           {report.suiteName || report.suiteId}
         </div>
-        <div className="text-caption text-text-subtle">
+        <div className="text-body-tiny text-text-subtle">
           {report.kind} · {report.origin || "manual"}
           {report.createdAt ? ` · ${report.createdAt.slice(0, 16).replace("T", " ")}` : ""}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-075">
-        <span className="tabular text-caption text-text-subtle">
+        <span className="tabular text-body-tiny text-text-subtle">
           {total - failed}/{total}
         </span>
         <Lozenge tone={report.status === "pass" ? "success" : "danger"}>{report.status}</Lozenge>

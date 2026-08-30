@@ -61,7 +61,9 @@ export function ComplianceFilters({
 
         <select
           value={filters.dateRange}
-          onChange={(e) => patch({ dateRange: e.target.value as ComplianceFilterState["dateRange"] })}
+          onChange={(e) =>
+            patch({ dateRange: e.target.value as ComplianceFilterState["dateRange"] })
+          }
           className="h-9 rounded-medium border border-border bg-surface px-100 text-body"
         >
           <option value="today">Today</option>
@@ -100,7 +102,9 @@ export function ComplianceFilters({
         >
           <option value="all">All actors</option>
           {agents.map((a) => (
-            <option key={a} value={a}>{a}</option>
+            <option key={a} value={a}>
+              {a}
+            </option>
           ))}
         </select>
 
@@ -138,7 +142,8 @@ export function ComplianceFilters({
         )}
 
         <div className="ml-auto text-body-small text-text-subtle">
-          <span className="font-semibold text-text">{resultCount}</span> violation{resultCount === 1 ? "" : "s"}
+          <span className="font-semibold text-text">{resultCount}</span> violation
+          {resultCount === 1 ? "" : "s"}
         </div>
       </div>
 
@@ -151,7 +156,9 @@ export function ComplianceFilters({
               key={s}
               onClick={() => toggleSev(s)}
               className={`inline-flex items-center gap-050 rounded-full border px-150 py-025 text-body-small font-medium capitalize transition-colors ${
-                active ? SEV_COLORS[s] : "border-border bg-surface text-text-subtle hover:bg-surface-sunken"
+                active
+                  ? SEV_COLORS[s]
+                  : "border-border bg-surface text-text-subtle hover:bg-surface-sunken"
               }`}
             >
               {s}

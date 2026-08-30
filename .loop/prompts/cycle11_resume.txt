@@ -1,0 +1,79 @@
+NOTE: a previous run of this exact task was interrupted by a network failure AFTER making partial edits. Current state you must build on (do not redo or revert):
+
+- backend/voice/session.py: `crm_degraded: bool = False` field ALREADY ADDED with comment. Keep it.
+- backend/agent_core/connectors/persist.py: SSRF-guard changes ALREADY PARTIALLY APPLIED (+71 lines). Read the current file first; finish/verify the guard on _call_remote AND _remote_tools_list using webhooks_dispatch.resolve_public_host/_is_private_ip, then write the unit tests.
+
+Remaining work: Fix 1 wiring in voice/bot.py (set crm_degraded=True on bind/start failure + ERROR log + minimal interaction row at teardown via existing sink path), Fix 2 rate-limited drop logging at crm_sink.py :1241/:585/:653, and ALL tests from the original brief.
+
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 558 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart services on ports 8000/7860/8080.
+For backend changes run real pytest suites and report actual output.
+
+
+TASK: fix THREE related silent-failure P1s in the voice CRM persistence path,
+so that a broken persistence edge can never again produce an unrecorded
+collections call, and so that dropped work is always visible:
+
+--- FIX 1: voice/bot.py ~line 1815 (block 1727-1814) ---
+CURRENT: the whole `bind_session_start` + `sink.start()` block sits inside
+    try: ... except Exception: logger.exception("Failed to start CRM persistence — call continues without DB")
+On failure, session.interaction_id stays None and the call proceeds with no
+interaction row — an unrecorded collections call.
+REQUIRED:
+- On bind/start failure, do NOT proceed silently as if nothing happened.
+- Preferred behaviour: mark the session degraded (e.g. session.crm_degraded=True
+  or an equivalent field/mechanism you find consistent with the codebase), log at
+  ERROR with a stable message, and let end_call/hangup path record a minimal
+  interaction row (start/end/disposition="crm_degraded") so the call is still
+  auditable. If there is an existing mechanism for this, reuse it; do not invent
+  parallel state.
+- The call itself must still complete safely for the borrower — do not hang up on
+  them mid-disclosure; degrade, don't abort.
+
+--- FIX 2: backend/voice/crm_sink.py guards at :1241, :585, :653 ---
+CURRENT: `if not ix: return` discards queued CRM jobs with zero logging when
+interaction_id is unset — transcript turns, tool-call audit rows, live alerts and
+guardrail violations vanish silently.
+REQUIRED: when dropping jobs because interaction_id is unset, emit a rate-limited
+(one per session) logger.error naming the job kind and the count dropped, so ops
+can see the loss. Keep the drop semantics (do not attempt to process without an
+id) — make it VISIBLE.
+
+--- FIX 3: SSRF guard for connector outbound calls ---
+backend/agent_core/connectors/persist.py `_call_remote` (~:252) and
+`_remote_tools_list` POST to operator-supplied URLs after only _https_ok()
+(scheme/netloc). https://169.254.169.254/mcp passes today.
+REQUIRED: resolve + validate every URL immediately before POST using the existing
+helpers webhooks_dispatch.resolve_public_host / _is_private_ip (see how
+webhooks_dispatch._post does it). Raise the same style of ValueError
+("webhook_url_private_forbidden"-equivalent, e.g. "connector_url_private_forbidden")
+and ensure callers turn it into a clean error (connector error result / HTTP 4xx),
+not a crash. Add unit tests: private IPv4 rejected, loopback rejected, public
+hostname passes (mock DNS resolution the same way test_webhooks_dispatch.py:314
+does).
+
+ACCEPTANCE CRITERIA:
+1. New tests cover: degraded-session flag set on bind failure (mock the failure),
+   rate-limited drop logging exists (assert logger called once per session, not
+   per job), and the three connector SSRF cases above.
+2. Full backend suite: .venv/Scripts/python -m pytest tests/ -q — report the tail.
+   Must be >= current baseline 2495 passed, 0 failed (12 skipped OK).
+3. No changes to files outside backend/voice/, backend/agent_core/connectors/,
+   backend/agent_core/skills/, bot_tools.py, and new/existing tests — unless you
+   must touch db.py for the degraded flag, in which case explain why.
+4. Report: files changed, actual pytest tail, remaining issues.

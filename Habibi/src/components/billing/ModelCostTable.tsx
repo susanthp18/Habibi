@@ -18,7 +18,11 @@ export function ModelCostTable({ rows }: { rows: BillingModelSpend[] }) {
         className: "min-w-[12rem]",
         cell: (r) => (
           <div className="flex min-w-0 items-center gap-075">
-            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: r.color }} />
+            <span
+              aria-hidden
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: r.color }}
+            />
             <span className="truncate text-body font-medium text-text">{r.model}</span>
           </div>
         ),
@@ -44,7 +48,7 @@ export function ModelCostTable({ rows }: { rows: BillingModelSpend[] }) {
         sortValue: (r) => r.sourceRef ?? "",
         className: "min-w-[10rem] whitespace-nowrap",
         cell: (r) => (
-          <span className="font-mono text-caption text-text-subtle">{r.sourceRef || "—"}</span>
+          <span className="font-mono text-body-tiny text-text-subtle">{r.sourceRef || "—"}</span>
         ),
       },
       {
@@ -56,7 +60,8 @@ export function ModelCostTable({ rows }: { rows: BillingModelSpend[] }) {
         className: "min-w-[8rem] whitespace-nowrap",
         cell: (r) => (
           <span className="tabular-nums text-text-subtle">
-            {r.units >= 100 ? Math.round(r.units).toLocaleString("en-IN") : r.units.toFixed(2)} {r.unit}
+            {r.units >= 100 ? Math.round(r.units).toLocaleString("en-IN") : r.units.toFixed(2)}{" "}
+            {r.unit}
           </span>
         ),
       },
@@ -67,9 +72,13 @@ export function ModelCostTable({ rows }: { rows: BillingModelSpend[] }) {
         sortValue: (r) => r.calls,
         align: "right",
         className: "min-w-[5.5rem] whitespace-nowrap",
-        cell: (r) => <span className="tabular-nums text-text-subtle">{r.calls.toLocaleString("en-IN")}</span>,
+        cell: (r) => (
+          <span className="tabular-nums text-text-subtle">{r.calls.toLocaleString("en-IN")}</span>
+        ),
         footer: (visible) => (
-          <span className="tabular-nums">{visible.reduce((s, r) => s + r.calls, 0).toLocaleString("en-IN")}</span>
+          <span className="tabular-nums">
+            {visible.reduce((s, r) => s + r.calls, 0).toLocaleString("en-IN")}
+          </span>
         ),
       },
       {

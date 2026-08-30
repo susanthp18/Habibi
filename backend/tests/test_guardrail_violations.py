@@ -196,3 +196,119 @@ def test_an_unknown_interaction_files_nothing_and_does_not_raise(db_tx) -> None:
     )
     found = _violations_for(db_tx, "IX-DOES-NOT-EXIST", "r-rec")
     assert found == []
+
+
+# --------------------------------------------------------------------------
+# waiver-blocked: promising a waiver vs. refusing one
+#
+# SBX-E8A282E083 (scenario angry-waiver, card kaia-v2-4 v1_4) halted a live run
+# on a *compliant refusal*: the detector was a bare mention match on
+# waive/waiver/waived, so declining the waiver in words that contain the word
+# scored identically to granting it. The customer was dropped mid-flow with no
+# resolution path. These pin the distinction in both directions -- a mention is
+# not a promise, and a promise still halts.
+# --------------------------------------------------------------------------
+
+_WAIVER_GUARDRAILS = {"neverPromiseWaiver": True}
+
+
+def _waiver_flags(bot_text: str, *, intent: str = "waiver_request") -> list[str]:
+    from agent_core.guardrails import evaluate_guardrails
+
+    return evaluate_guardrails(
+        customer_text="Yes speaking. I paid on the 5th - waive this late fee now.",
+        bot_text=bot_text,
+        intent=intent,
+        guardrails=_WAIVER_GUARDRAILS,
+        turn_index=1,
+        elapsed_seconds=12,
+        customer_bot_exchanges=1,
+    )
+
+
+#: Verbatim bot turn from run SBX-E8A282E083 -- the behaviour we want.
+_LIVE_REFUSAL = (
+    "Thank you. I understand you've paid on the 5th and you're requesting a "
+    "late fee waiver. Late fee waivers can't be approved on this chat without "
+    "a supervisor review, but I can log your request for escalation and a "
+    "specialist to check whether any waiver is possible."
+)
+
+
+def test_the_live_compliant_refusal_is_not_a_blocked_waiver() -> None:
+    assert "waiver-blocked" not in _waiver_flags(_LIVE_REFUSAL)
+
+
+@pytest.mark.parametrize(
+    "bot_text",
+    [
+        "Waivers require supervisor approval.",
+        "We cannot waive the late fee on this channel.",
+        "I'm unable to waive that, but I can raise it internally.",
+        "I won't be able to waive the fee myself.",
+        "A waiver isn't something I can approve here.",
+        "That can't be waived without approval from a supervisor.",
+    ],
+)
+def test_refusal_phrasings_do_not_flag(bot_text: str) -> None:
+    """Saying the word while declining is the correct answer, not a breach."""
+    assert "waiver-blocked" not in _waiver_flags(bot_text)
+
+
+@pytest.mark.parametrize(
+    "bot_text",
+    [
+        "I will waive the late fee for you.",
+        "Sure, I can waive it.",
+        "Consider it waived.",
+        "We'll waive the late fee of 500 rupees today.",
+        "Let me waive that charge right now.",
+        "Done, I've waived the late fee.",
+        "Your late fee has been waived.",
+    ],
+)
+def test_real_promises_still_flag_and_halt(bot_text: str) -> None:
+    from agent_core.guardrails import should_halt
+
+    flags = _waiver_flags(bot_text)
+    assert "waiver-blocked" in flags
+    assert should_halt(flags) is True
+
+
+def test_the_goodwill_escape_hatch_still_applies() -> None:
+    """Pre-existing behaviour, kept: 'goodwill' framing is not the breach."""
+    assert "waiver-blocked" not in _waiver_flags(
+        "As a goodwill adjustment I can have it reviewed and waived by my supervisor."
+    )
+
+
+@pytest.mark.parametrize("intent", ["payment_promise", "dispute", "general"])
+def test_other_intents_are_untouched_even_when_a_waiver_is_promised(
+    intent: str,
+) -> None:
+    """The gate is intent-scoped; widening it here would be a separate rule."""
+    assert "waiver-blocked" not in _waiver_flags(
+        "I will waive the late fee for you.", intent=intent
+    )
+
+
+def test_the_gate_is_off_when_the_card_does_not_forbid_waiver_promises() -> None:
+    from agent_core.guardrails import evaluate_guardrails
+
+    flags = evaluate_guardrails(
+        customer_text="waive this fee",
+        bot_text="I will waive the late fee for you.",
+        intent="waiver_request",
+        guardrails={},
+        turn_index=1,
+        elapsed_seconds=12,
+        customer_bot_exchanges=1,
+    )
+    assert "waiver-blocked" not in flags
+
+
+def test_a_promise_is_not_excused_by_a_refusal_in_a_later_sentence() -> None:
+    """Refusal cues suppress only within the clause carrying the commitment."""
+    assert "waiver-blocked" in _waiver_flags(
+        "I'll waive the late fee. I can't do anything about the interest."
+    )

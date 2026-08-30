@@ -119,8 +119,8 @@ export function ModernBars({
               time={data[hover].label}
               rows={
                 data[hover].stack?.length
-                  ? data[hover].stack!
-                      .filter((s) => s.value > 0)
+                  ? data[hover]
+                      .stack!.filter((s) => s.value > 0)
                       .map((s) => ({
                         label: s.label,
                         value: formatValue(s.value),
@@ -144,7 +144,7 @@ export function ModernBars({
           <div
             key={`${d.label}-lbl-${i}`}
             className={cn(
-              "min-w-0 flex-1 truncate text-center text-[10px] tabular-nums text-text-subtlest",
+              "min-w-0 flex-1 truncate text-center text-body-micro tabular-nums text-text-subtlest",
               hover === i && "font-medium text-text",
             )}
           >

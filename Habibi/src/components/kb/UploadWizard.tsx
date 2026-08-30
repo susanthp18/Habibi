@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DOC_TYPE_LABEL, type KbDocType } from "@/data/kb-seed";
 import { previewChunksFromText, type KbUploadInput } from "@/api/kb";
 import { KbTagEditor } from "@/components/kb/KbTagEditor";
@@ -48,7 +60,9 @@ export function UploadWizard({
       return;
     }
     if (file.size > MAX_KB_UPLOAD_BYTES) {
-      toast.error(`File too large (${Math.round(file.size / (1024 * 1024))} MB). Max ${MAX_KB_UPLOAD_BYTES / (1024 * 1024)} MB.`);
+      toast.error(
+        `File too large (${Math.round(file.size / (1024 * 1024))} MB). Max ${MAX_KB_UPLOAD_BYTES / (1024 * 1024)} MB.`,
+      );
       setFile(null);
       setFileText("");
       setReading(false);
@@ -137,8 +151,7 @@ export function UploadWizard({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-100 text-base">
             <UploadCloud className="h-4 w-4 text-text-brand" />
-            Upload document · Step {step} of 3
-            {submitting ? " · Uploading…" : ""}
+            Upload document · Step {step} of 3{submitting ? " · Uploading…" : ""}
           </DialogTitle>
         </DialogHeader>
 
@@ -179,10 +192,14 @@ export function UploadWizard({
                   onValueChange={(v) => setType(v as KbDocType)}
                   disabled={submitting}
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {(Object.keys(DOC_TYPE_LABEL) as KbDocType[]).map((k) => (
-                      <SelectItem key={k} value={k}>{DOC_TYPE_LABEL[k]}</SelectItem>
+                      <SelectItem key={k} value={k}>
+                        {DOC_TYPE_LABEL[k]}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -199,7 +216,12 @@ export function UploadWizard({
             </div>
             <div>
               <Label>Tags</Label>
-              <KbTagEditor tags={tags} onChange={setTags} disabled={submitting} className="mt-050" />
+              <KbTagEditor
+                tags={tags}
+                onChange={setTags}
+                disabled={submitting}
+                className="mt-050"
+              />
             </div>
           </div>
         )}
@@ -245,8 +267,8 @@ export function UploadWizard({
                 "Reading file…"
               ) : (
                 <>
-                  Estimated ~<strong>{preview.count}</strong> chunks from this file · avg {size} words/window ·{" "}
-                  {overlap} overlap
+                  Estimated ~<strong>{preview.count}</strong> chunks from this file · avg {size}{" "}
+                  words/window · {overlap} overlap
                   <span className="block text-body-small opacity-80">
                     Local word-window preview — server indexing uses tiktoken.
                   </span>
@@ -283,16 +305,23 @@ export function UploadWizard({
                 {title || filename.replace(/\.[a-z]+$/i, "") || "Untitled"}
               </div>
               <div className="mt-100 grid grid-cols-2 gap-100 text-body-small text-text-subtle">
-                <div>Type: <span className="text-text">{DOC_TYPE_LABEL[type]}</span></div>
-                <div>Chunks: <span className="text-text">{preview.count}</span></div>
-                <div>Chunk size: <span className="text-text">{size}</span></div>
-                <div>Overlap: <span className="text-text">{overlap}</span></div>
+                <div>
+                  Type: <span className="text-text">{DOC_TYPE_LABEL[type]}</span>
+                </div>
+                <div>
+                  Chunks: <span className="text-text">{preview.count}</span>
+                </div>
+                <div>
+                  Chunk size: <span className="text-text">{size}</span>
+                </div>
+                <div>
+                  Overlap: <span className="text-text">{overlap}</span>
+                </div>
               </div>
               {tags.length > 0 && (
                 <div className="mt-100 flex flex-wrap gap-050">
                   {tags.map((t) => (
-                    <Lozenge
-                      key={t} tone="neutral">
+                    <Lozenge key={t} tone="neutral">
                       #{t}
                     </Lozenge>
                   ))}
@@ -309,7 +338,11 @@ export function UploadWizard({
 
         <DialogFooter>
           {step > 1 && (
-            <Button variant="ghost" onClick={() => setStep((step - 1) as Step)} disabled={submitting}>
+            <Button
+              variant="ghost"
+              onClick={() => setStep((step - 1) as Step)}
+              disabled={submitting}
+            >
               Back
             </Button>
           )}
@@ -323,7 +356,11 @@ export function UploadWizard({
           )}
           {step === 3 && (
             <>
-              <Button variant="outline" onClick={() => void create(false)} disabled={submitting || !file}>
+              <Button
+                variant="outline"
+                onClick={() => void create(false)}
+                disabled={submitting || !file}
+              >
                 {submitting ? "Working…" : "Save as draft"}
               </Button>
               <Button onClick={() => void create(true)} disabled={submitting || !file}>

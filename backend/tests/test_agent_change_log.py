@@ -59,14 +59,22 @@ def test_the_diff_names_only_what_actually_moved(cloned_bot: str) -> None:
     first = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
     db.publish_prompt_version(first, "v1")
 
+    # Hold *everything* else constant, flow included. Omitting flow used to pass
+    # only because the cloned card's flow happened to be the empty sentinel:
+    # empty-to-empty is not a change, so the diff stayed quiet by luck. Once the
+    # source card carried a real authored graph, dropping it here was a genuine
+    # change and the log correctly said so — the assertion below is about the
+    # diff being precise, not about flow being ignorable.
+    previous = db.get_prompt_version(first)
     second = db.create_prompt_version(
         {
             "botId": cloned_bot,
             "label": "v1.1",
             "prompt": "A completely different instruction.",
-            "persona": db.get_prompt_version(first)["persona"],
-            "voice": db.get_prompt_version(first)["voice"],
-            "guardrails": db.get_prompt_version(first)["guardrails"],
+            "persona": previous["persona"],
+            "voice": previous["voice"],
+            "guardrails": previous["guardrails"],
+            "flow": previous["flow"],
         }
     )["id"]
     db.publish_prompt_version(second, "prompt only")
@@ -110,6 +118,38 @@ def test_rollback_and_archive_are_in_the_same_chain(cloned_bot: str) -> None:
         "agent.publish",
         "agent.publish",
     ]
+
+
+def test_restoring_a_card_is_recorded_too(cloned_bot: str) -> None:
+    """Archive was chained and restore was not, so the log said a card had been
+    retired and never that it came back — a hole shaped exactly like the thing
+    someone would want hidden. Both halves of the roster toggle are recorded."""
+    db.archive_agent_studio_card(cloned_bot)
+    db.restore_agent_studio_card(cloned_bot)
+
+    entries = _entries(cloned_bot)
+    assert [e["action"] for e in entries[:2]] == ["agent.restore", "agent.archive"]
+    # The retired window is the fact an auditor reconstructs; it is read before
+    # the UPDATE nulls the column, so it cannot come back empty.
+    assert entries[0]["archivedAt"]
+    assert db.agent_change_log(cloned_bot)["chain"]["ok"] is True
+
+
+def test_every_lifecycle_action_has_a_verb_the_log_can_render(cloned_bot: str) -> None:
+    """Introspective: the actions the module can emit, not a list someone has to
+    remember to extend. A new `record_*` writing an unlisted action fails here
+    rather than rendering as a raw `agent.whatever` on the fleet index."""
+    emitted = {
+        value
+        for name, value in vars(change_log).items()
+        if name.isupper() and isinstance(value, str) and value.startswith("agent.")
+    }
+    assert emitted == {"agent.publish", "agent.rollback", "agent.archive", "agent.restore"}
+
+    db.archive_agent_studio_card(cloned_bot)
+    db.restore_agent_studio_card(cloned_bot)
+    for entry in _entries(cloned_bot):
+        assert entry["action"] in emitted
 
 
 def test_the_chain_detects_an_edited_entry(cloned_bot: str) -> None:

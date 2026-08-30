@@ -6,6 +6,7 @@ import {
   type PromptVersion,
   type VoiceConfig,
 } from "@/data/prompt-studio-seed";
+import { stableStringify } from "@/lib/stable-stringify";
 
 type Snapshot = {
   label: string;
@@ -13,6 +14,23 @@ type Snapshot = {
   persona: PersonaState;
   voice: VoiceConfig;
   guardrails: Guardrails;
+  /**
+   * A version stores six things and this modal compared four of them.
+   *
+   * `flow` and `agentCard` are stored on `prompt_versions` and shipped by
+   * publish, so rewiring the conversation graph, adding a tool, binding a
+   * connector or moving the canary produced a diff reading "no changes" —
+   * on the screen an operator opens specifically to find out what changed
+   * between two versions. The publish dialog had already been fixed to report
+   * both; this is the same fix on the compare view.
+   *
+   * Reported as changed/unchanged rather than folded into the line diff, for
+   * the same reason it is there: rendering structured JSON as added and removed
+   * text lines yields a number derived from the change that says nothing about
+   * it.
+   */
+  flow?: unknown;
+  agentCard?: unknown;
 };
 
 type Props = {
@@ -25,6 +43,9 @@ type Props = {
 export function DiffModal({ open, onOpenChange, base, current }: Props) {
   if (!base) return null;
   const lines = diffStudioVersions(base, current);
+  const flowChanged = stableStringify(base.flow ?? null) !== stableStringify(current.flow ?? null);
+  const cardChanged =
+    stableStringify(base.agentCard ?? null) !== stableStringify(current.agentCard ?? null);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
@@ -35,7 +56,16 @@ export function DiffModal({ open, onOpenChange, base, current }: Props) {
           </DialogTitle>
         </DialogHeader>
         <p className="text-body-small text-text-subtlest">
-          Includes system prompt, persona traits, voice settings, and guardrails.
+          Text diff covers the system prompt, persona traits, voice settings and guardrails. The
+          conversation graph is{" "}
+          <span className={flowChanged ? "font-medium text-text-warning-bolder" : undefined}>
+            {flowChanged ? "changed" : "unchanged"}
+          </span>{" "}
+          and the agent card is{" "}
+          <span className={cardChanged ? "font-medium text-text-warning-bolder" : undefined}>
+            {cardChanged ? "changed" : "unchanged"}
+          </span>
+          .
         </p>
         <div className="rounded-medium border border-border bg-surface-sunken font-mono text-body-small">
           {lines.map((l, i) => (

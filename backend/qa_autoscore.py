@@ -135,6 +135,61 @@ def _clamp_score(raw: Any) -> float | None:
     return max(0.0, min(5.0, round(value, 2)))
 
 
+#: What fraction of calls "sampled" scores, as a percentage. An operational
+#: setting rather than a constant of the domain, so it reads from the
+#: environment like the rest of this module's tunables.
+def qa_sample_pct() -> int:
+    from env_utils import env_int
+
+    return max(1, min(100, env_int("QA_AUTOSCORE_SAMPLE_PCT", 20)))
+
+
+def _card_qa_policy(interaction_id: str) -> str:
+    """``card.outbound.post_call.qa`` for the agent that took this call.
+
+    "always" on any failure. The fallback has to be the behaviour of a card that
+    says nothing, and an unreadable card must not silently stop QA — a gap in
+    the scorecard record is exactly what nobody notices.
+    """
+    import db
+
+    try:
+        with db.engine.connect() as conn:
+            # `handler_bot_id`, not `bot_id` — `interactions` has no such column.
+            # Getting this wrong is not a caught exception and a default: under
+            # the test fixture every caller shares one transaction, so the failed
+            # statement aborts it and the *next* eighteen queries fail too. The
+            # try/except below cannot undo that, which is why the column name
+            # matters more here than the fallback does.
+            bot_id = conn.execute(
+                text("SELECT handler_bot_id FROM interactions WHERE id = :id"),
+                {"id": interaction_id},
+            ).scalar()
+        if not bot_id:
+            return "always"
+        import mission as mission_mod
+
+        card = mission_mod.card_for_bot(str(bot_id))
+        post_call = getattr(getattr(card, "outbound", None), "post_call", None)
+        return str(getattr(post_call, "qa", "always") or "always")
+    except Exception:
+        logger.debug("qa policy lookup failed for %s", interaction_id, exc_info=True)
+        return "always"
+
+
+def _in_qa_sample(interaction_id: str) -> bool:
+    """Deterministic per interaction, so a retry of the same call agrees.
+
+    A random draw here would mean the sweep's second pass over an interaction it
+    already skipped could pick it up, which makes "sampled at 20%" a floor that
+    creeps toward 100% with every retry rather than a rate.
+    """
+    import hashlib
+
+    digest = hashlib.sha256(interaction_id.encode("utf-8")).digest()
+    return (int.from_bytes(digest[:4], "big") % 100) < qa_sample_pct()
+
+
 def score_interaction(
     interaction_id: str,
     *,
@@ -150,6 +205,19 @@ def score_interaction(
     import azure_openai
     import db
     import transcript_view
+
+    # `CardPostCall.qa` — the card's own QA policy, and until now a validated,
+    # versioned, publishable field that nothing read. This sweep scored every
+    # completed bot call regardless of what the agent's card said.
+    #
+    # Checked before the rubric lookup so "never" costs nothing, and it returns
+    # None like every other expected miss: an unscored call is an honest state.
+    policy = _card_qa_policy(interaction_id)
+    if policy == "never":
+        logger.debug("qa autoscore: card says never for %s", interaction_id)
+        return None
+    if policy == "sampled" and not _in_qa_sample(interaction_id):
+        return None
 
     if not rubric_id:
         rubric_id = db.rubric_id_for_interaction(interaction_id)

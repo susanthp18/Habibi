@@ -1,4 +1,19 @@
-import { ArrowRight, CalendarClock, FileText, HandCoins, PhoneCall, Scale, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarClock,
+  CalendarSync,
+  FileText,
+  Gavel,
+  HandCoins,
+  Landmark,
+  ListChecks,
+  MapPin,
+  MessageSquare,
+  PauseCircle,
+  PhoneCall,
+  Scale,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { NbaActionKind, NbaItem } from "@/lib/customerInsights";
 import { StatusChip, type ChipTone } from "./StatusChip";
@@ -18,6 +33,17 @@ const ACTION_ICON: Record<NbaActionKind, typeof PhoneCall> = {
   callback: CalendarClock,
   review: Scale,
   offer: Sparkles,
+  // The decision engine's vocabulary. Typed as a total Record on purpose:
+  // adding an action to the engine without giving it an icon is a compile
+  // error rather than a card that renders nothing where a recommendation
+  // should be.
+  message: MessageSquare,
+  mandate: Landmark,
+  schedule: CalendarSync,
+  plan: ListChecks,
+  field: MapPin,
+  legal: Gavel,
+  wait: PauseCircle,
 };
 
 type Handlers = {
@@ -43,9 +69,18 @@ export function NextBestActionCard({ items, onAction }: { items: NbaItem[] } & H
               <div className="flex flex-wrap items-center gap-075">
                 <StatusChip label={`#${primary.rank}`} tone="brand" />
                 <StatusChip label={primary.priority} tone={PRIORITY_TONE[primary.priority]} />
+                {/* Shadow mode decides and does not act. Saying so beside the
+                    recommendation is the difference between a supervisor
+                    reading it as advice and reading it as queued work. */}
+                {primary.advisory ? <StatusChip label="shadow" tone="neutral" /> : null}
+                {primary.source === "treatment_engine" ? (
+                  <StatusChip label="decision engine" tone="neutral" />
+                ) : null}
               </div>
               <div className="mt-075 text-body font-semibold text-text">{primary.title}</div>
-              <p className="mt-050 text-body-small leading-snug text-text-subtle">{primary.reason}</p>
+              <p className="mt-050 text-body-small leading-snug text-text-subtle">
+                {primary.reason}
+              </p>
             </div>
           </div>
           <Button

@@ -328,11 +328,13 @@ CREATE TABLE IF NOT EXISTS treatment_decisions (
   features jsonb NOT NULL DEFAULT '{}'::jsonb,
   candidates jsonb NOT NULL DEFAULT '[]'::jsonb,
   excluded jsonb NOT NULL DEFAULT '{}'::jsonb,
-  -- represent_mandate and emi_date_change both have channel=None, so neither
-  -- widens what the contact-frequency cap governs.
+  -- represent_mandate, emi_date_change and self_service_plan all have
+  -- channel=None, so none of them widens what the contact-frequency cap
+  -- governs. Each carries its own veto in treatment/policy.py instead, which
+  -- is the obligation that comes with the exemption.
   chosen_action TEXT CHECK (chosen_action IS NULL OR chosen_action IN (
     'wait','sms','whatsapp','voice_bot','human_call','field_visit','legal_notice',
-    'represent_mandate','emi_date_change'
+    'represent_mandate','emi_date_change','self_service_plan'
   )),
   chosen_channel TEXT CHECK (chosen_channel IS NULL OR chosen_channel IN (
     'voice','whatsapp','sms','email','chat','field'
@@ -358,13 +360,35 @@ CREATE TABLE IF NOT EXISTS treatment_decisions (
   enacted boolean NOT NULL DEFAULT false,
   enacted_at timestamptz,
   enacted_ref TEXT,
+  -- 'unresolved' is the counterfactual's negative class: we deliberately
+  -- withheld treatment and the borrower did not pay within the observation
+  -- window. Distinct from 'no_answer' because nobody was asked, so nobody
+  -- failed to answer -- and without it a control arm contains only positives,
+  -- every cure rate it measures is 1.0, and the estimated treatment effect is
+  -- a finding about the labeller rather than about collections.
   outcome TEXT CHECK (outcome IS NULL OR outcome IN (
-    'reached','no_answer','paid','ptp','refused','undeliverable','cancelled','superseded'
+    'reached','no_answer','paid','ptp','refused','undeliverable','cancelled',
+    'superseded','unresolved'
   )),
   outcome_at timestamptz,
+  -- When the attribution loop last looked at this row and could not yet say.
+  --
+  -- Not bookkeeping: it is what stops head-of-line blocking. Ordering the
+  -- attribution queue by created_at alone meant a row that can never be
+  -- labelled -- an unenacted shadow decision outside a withholding arm -- sat
+  -- at the front of every pass forever. Twenty-five of those (one batch) and
+  -- the loop stops labelling anything at all, silently, during exactly the
+  -- shadow fortnight the rollout prescribes.
+  outcome_checked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_treatment_decisions_tenant_id ON treatment_decisions(tenant_id);
+-- The attribution loop's queue: never-examined rows first, then least-recently
+-- examined. Partial, because only rows still awaiting an outcome are ordered
+-- by it and on a live book those are a small and shrinking slice.
+CREATE INDEX IF NOT EXISTS idx_treatment_decisions_attribution
+  ON treatment_decisions (outcome_checked_at NULLS FIRST, created_at)
+  WHERE outcome IS NULL;
 CREATE INDEX IF NOT EXISTS idx_treatment_decisions_customer
   ON treatment_decisions (customer_id, created_at);
 -- The shadow scoreboard groups by mode over a window.
@@ -528,3 +552,89 @@ CREATE INDEX IF NOT EXISTS idx_authority_decisions_customer_id ON authority_deci
 CREATE INDEX IF NOT EXISTS idx_authority_decisions_interaction
   ON authority_decisions (interaction_id, created_at DESC)
   WHERE interaction_id IS NOT NULL;
+
+
+-- Book-level allocation: the marginal value of one more agent-hour -----------
+-- Per-account argmax is a local decision. Solving the whole book against fixed
+-- capacity yields shadow prices, and feeding those back as the cost term makes
+-- every local decision globally optimal without anybody writing a threshold
+-- down: a field visit costs its ledger price on a quiet Tuesday and four times
+-- that when the vans are full, so the ladder throttles itself.
+CREATE TABLE IF NOT EXISTS capacity_duals (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  -- The borrower's local day the plan is for, not the day it was solved.
+  plan_date date NOT NULL,
+  resource TEXT NOT NULL,
+  capacity numeric(14,2) NOT NULL,
+  -- What the solver expects to consume at this price. "High price, under
+  -- capacity" and "high price, exactly at capacity" mean different things and
+  -- only the second is a scarcity signal.
+  demand numeric(14,2) NOT NULL DEFAULT 0,
+  -- Rupees of expected recovery forgone by giving up one unit. Zero means the
+  -- resource is not binding -- the common case, and the one that must not read
+  -- as "free".
+  dual_price numeric(14,4) NOT NULL DEFAULT 0,
+  accounts INTEGER NOT NULL DEFAULT 0,
+  converged boolean NOT NULL DEFAULT false,
+  iterations INTEGER NOT NULL DEFAULT 0,
+  solved_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_capacity_duals_day
+  ON capacity_duals (tenant_id, plan_date, resource);
+CREATE INDEX IF NOT EXISTS idx_capacity_duals_tenant_id ON capacity_duals(tenant_id);
+
+-- ---------------------------------------------------------------------------
+-- Model registry -- the champion/challenger ledger (design note S15).
+-- ---------------------------------------------------------------------------
+-- Promotion gated on holdout lift, never on offline metrics alone. This table
+-- is where that gate leaves its evidence: a champion row cannot exist without
+-- the estimate that justified it, so "why is this model serving?" has an answer
+-- that is not a Slack thread.
+--
+-- The registry records and gates; it does not serve. models.load_* stays a pure
+-- file read with no database on the scoring path, and promotion is what copies
+-- a challenger artifact into the serving location. artifact_sha is what makes
+-- that honest: it detects a file swapped underneath a promotion.
+CREATE TABLE IF NOT EXISTS treatment_model_registry (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  target TEXT NOT NULL CHECK (target IN ('reach','timing','uplift')),
+  -- The artifact's own version string, and the sha256 of the file it came from.
+  version TEXT NOT NULL,
+  artifact_sha TEXT NOT NULL,
+  artifact_path TEXT,
+  -- 'challenger' is where everything starts. Nothing is born a champion.
+  status TEXT NOT NULL DEFAULT 'challenger'
+    CHECK (status IN ('challenger','champion','retired','rejected')),
+  -- Which book it was fitted on. A simulated artifact can be registered and
+  -- inspected; promoting one is refused.
+  corpus TEXT NOT NULL DEFAULT 'live',
+  n_samples INTEGER NOT NULL DEFAULT 0,
+  control_n INTEGER NOT NULL DEFAULT 0,
+  segments_promoted INTEGER NOT NULL DEFAULT 0,
+  -- The artifact's metrics block, verbatim.
+  metrics jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- The holdout / OPE evidence that justified the promotion, verbatim from
+  -- evaluate_policy. Null on a challenger that has not been evaluated.
+  evaluation jsonb,
+  registered_at timestamptz NOT NULL DEFAULT now(),
+  promoted_at timestamptz,
+  promoted_by TEXT,
+  retired_at timestamptz,
+  reason TEXT,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- One champion per target per tenant, enforced by the database rather than by
+-- the promotion code remembering to demote. Two champions is not a state the
+-- serving path can express, so it must not be a state the ledger can hold.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_treatment_model_champion
+  ON treatment_model_registry (tenant_id, target)
+  WHERE status = 'champion';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_treatment_model_version
+  ON treatment_model_registry (tenant_id, target, version, artifact_sha);
+CREATE INDEX IF NOT EXISTS idx_treatment_model_registry_tenant_id
+  ON treatment_model_registry(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_treatment_model_registry_target
+  ON treatment_model_registry(tenant_id, target, registered_at DESC);

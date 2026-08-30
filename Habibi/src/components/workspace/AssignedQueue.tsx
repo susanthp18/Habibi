@@ -172,7 +172,8 @@ export function AssignedQueue() {
         },
         footer: (visible) => {
           const sum = visible.reduce(
-            (s, r) => s + (typeof r.amount === "number" && Number.isFinite(r.amount) ? r.amount : 0),
+            (s, r) =>
+              s + (typeof r.amount === "number" && Number.isFinite(r.amount) ? r.amount : 0),
             0,
           );
           return sum > 0 ? (
@@ -202,7 +203,9 @@ export function AssignedQueue() {
         sortable: true,
         sortValue: (row) => row.ageHours ?? 0,
         className: "min-w-[4.5rem] whitespace-nowrap",
-        cell: (row) => <span className="text-body tabular-nums text-text-subtle">{row.ageHours}h</span>,
+        cell: (row) => (
+          <span className="text-body tabular-nums text-text-subtle">{row.ageHours}h</span>
+        ),
       },
       {
         id: "open",
@@ -229,7 +232,9 @@ export function AssignedQueue() {
       <div className="flex items-center justify-between gap-150 border-b border-border px-250 py-200">
         <div>
           <h2 className="heading-xsmall text-text">My assigned queue</h2>
-          <p className="mt-025 text-body-small text-text-subtle">Items routed to you across channels</p>
+          <p className="mt-025 text-body-small text-text-subtle">
+            Items routed to you across channels
+          </p>
         </div>
         <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
           <PopoverTrigger asChild>

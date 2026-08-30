@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
-import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { FaqPair, KbDocument } from "@/data/kb-seed";
 import {
   AlertDialog,
@@ -150,22 +150,33 @@ export function FaqEditorSheet({
             <div>
               <Label>Intent</Label>
               <Select value={intent} onValueChange={setIntent}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {intents.map((i) => (
-                    <SelectItem key={i} value={i}>{i}</SelectItem>
+                    <SelectItem key={i} value={i}>
+                      {i}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
               <Label>Linked document</Label>
-              <Select value={linkedDocId || "none"} onValueChange={(v) => setLinkedDocId(v === "none" ? "" : v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={linkedDocId || "none"}
+                onValueChange={(v) => setLinkedDocId(v === "none" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">— None —</SelectItem>
                   {documents.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>{d.title}</SelectItem>
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.title}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

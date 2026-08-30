@@ -10,7 +10,12 @@ import { FiltersBar } from "@/components/promises/FiltersBar";
 import { PromisePipeline } from "@/components/promises/PromisePipeline";
 import { PaymentPlansTable } from "@/components/promises/PaymentPlansTable";
 import { PlanDetailDrawer } from "@/components/promises/PlanDetailDrawer";
-import { CreatePromiseSheet, PromiseDetailSheet, type CreateInput, type CustomerOption } from "@/components/promises/PromiseSheet";
+import {
+  CreatePromiseSheet,
+  PromiseDetailSheet,
+  type CreateInput,
+  type CustomerOption,
+} from "@/components/promises/PromiseSheet";
 import { PlanBuilderSheet, type PlanInput } from "@/components/promises/PlanBuilderSheet";
 import {
   computeMetrics,
@@ -41,9 +46,17 @@ export const Route = createFileRoute("/promises")({
   head: () => ({
     meta: [
       { title: "Promise-to-Pay & Payment Plans — BigBound AI" },
-      { name: "description", content: "Capture, track, and follow up on payment commitments across bot and agent channels — the beating heart of collections." },
+      {
+        name: "description",
+        content:
+          "Capture, track, and follow up on payment commitments across bot and agent channels — the beating heart of collections.",
+      },
       { property: "og:title", content: "Promise-to-Pay & Payment Plans" },
-      { property: "og:description", content: "Pipeline of upcoming, due, kept, broken, and partial promises with installment plans." },
+      {
+        property: "og:description",
+        content:
+          "Pipeline of upcoming, due, kept, broken, and partial promises with installment plans.",
+      },
     ],
   }),
   component: PromisesPage,
@@ -104,8 +117,10 @@ function PromisesPage() {
     onSuccess: (_r, v) => {
       invalidate();
       if (v.status === "kept") toast.success(`Marked kept · ${v.p.customerName}`);
-      else if (v.status === "partial") toast.warning(`Partial payment logged · ${v.p.customerName}`);
-      else if (v.status === "broken") toast.error(`Broken promise · ${v.p.customerName} routed to follow-up`);
+      else if (v.status === "partial")
+        toast.warning(`Partial payment logged · ${v.p.customerName}`);
+      else if (v.status === "broken")
+        toast.error(`Broken promise · ${v.p.customerName} routed to follow-up`);
       else toast(`Updated to ${v.status.replace("_", " ")}`);
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Update failed"),
@@ -176,7 +191,7 @@ function PromisesPage() {
   const handleCreate = (input: CreateInput) => createMutation.mutate(input);
   const handleCreatePlan = (input: PlanInput) => planMutation.mutate(input);
 
-  const detail = detailId ? promisesData.find((p) => p.id === detailId) ?? null : null;
+  const detail = detailId ? (promisesData.find((p) => p.id === detailId) ?? null) : null;
 
   useEffect(() => {
     if (!search.id && !search.new) return;
@@ -198,9 +213,10 @@ function PromisesPage() {
               <HandCoins className="h-4 w-4" />
             </div>
             <div>
-              <h1 className="text-[0.875rem] font-semibold text-text">Promises & payment plans</h1>
+              <h1 className="text-body font-semibold text-text">Promises & payment plans</h1>
               <p className="text-body-small text-text-subtle">
-                {totalMetrics.activeCount} active · {totalMetrics.keptRate}% kept-rate · {followUps.length} follow-up
+                {totalMetrics.activeCount} active · {totalMetrics.keptRate}% kept-rate ·{" "}
+                {followUps.length} follow-up
                 {followUps.length === 1 ? "" : "s"} created this session
               </p>
             </div>
@@ -229,9 +245,14 @@ function PromisesPage() {
               <div className="flex items-start gap-150 rounded-large border border-border-danger-subtle bg-background-danger-subtler/60 px-150 py-100 text-body-small">
                 <Inbox className="mt-025 h-4 w-4 text-text-danger" />
                 <div className="flex-1">
-                  <div className="font-semibold text-text-danger-bolder">Broken promises routed to Follow-up Queue</div>
+                  <div className="font-semibold text-text-danger-bolder">
+                    Broken promises routed to Follow-up Queue
+                  </div>
                   <div className="text-text-danger-bolder/80">
-                    {followUps.slice(0, 3).map((f) => `${f.customerName} · ${f.promiseId}`).join(" · ")}
+                    {followUps
+                      .slice(0, 3)
+                      .map((f) => `${f.customerName} · ${f.promiseId}`)
+                      .join(" · ")}
                     {followUps.length > 3 && ` · +${followUps.length - 3} more`}
                   </div>
                 </div>

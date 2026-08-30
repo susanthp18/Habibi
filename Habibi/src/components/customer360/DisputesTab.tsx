@@ -2,8 +2,20 @@ import { Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Customer, Dispute, DisputeStatus } from "@/data/customer360-seed";
 import { fmtDate, fmtMoney } from "@/data/customer360-seed";
+import type { SlaTone } from "@/data/dispute-sla";
 import { TYPE_LABELS, type DisputeType } from "@/data/disputes-seed";
+import { cn } from "@/lib/utils";
 import { StatusChip, disputeStatusTone } from "./StatusChip";
+
+// The label is the server's; the tone is too. This tab used to paint every SLA
+// amber because the 360 contract carried no tone at all — a breached dispute
+// was indistinguishable from one with two days left.
+const SLA_TONE: Record<SlaTone, string> = {
+  ok: "text-text-success",
+  warn: "text-text-warning",
+  breach: "text-text-danger",
+  done: "text-text-subtlest",
+};
 
 const STATUS_LABEL: Record<DisputeStatus, string> = {
   new: "New",
@@ -18,11 +30,19 @@ export function DisputesTab({ customer, onCreate }: { customer: Customer; onCrea
     <div className="space-y-200">
       <div className="flex items-center justify-between gap-150">
         <div>
-          <div className="text-sm font-semibold text-text">{customer.disputes.length} disputes on file</div>
-          <div className="text-xs text-text-subtle">Bot flags, human resolves. SLA counts down from filing time.</div>
+          <div className="text-sm font-semibold text-text">
+            {customer.disputes.length} disputes on file
+          </div>
+          <div className="text-xs text-text-subtle">
+            Bot flags, human resolves. SLA counts down from filing time.
+          </div>
         </div>
         {customer.disputes.length === 0 ? (
-          <Button size="sm" className="bg-background-brand-bold hover:bg-background-brand-bold-hovered" onClick={onCreate}>
+          <Button
+            size="sm"
+            className="bg-background-brand-bold hover:bg-background-brand-bold-hovered"
+            onClick={onCreate}
+          >
             Raise dispute
           </Button>
         ) : null}
@@ -73,11 +93,13 @@ function DisputeCard({ d }: { d: Dispute }) {
         </div>
       </div>
       <div className="mt-150 flex items-center justify-between border-t border-border pt-150 text-body-small">
-        <span className="inline-flex items-center gap-050 text-text-warning">
+        <span className={cn("inline-flex items-center gap-050 tabular-nums", SLA_TONE[d.sla])}>
           <Timer className="h-3 w-3" />
           {d.slaLabel}
         </span>
-        <button className="font-medium text-text-brand hover:underline">View in Disputes Queue →</button>
+        <button className="font-medium text-text-brand hover:underline">
+          View in Disputes Queue →
+        </button>
       </div>
     </div>
   );

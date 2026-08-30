@@ -14,9 +14,12 @@ design that cannot be added retrospectively.
 **One decision per account per local day.** ``trigger_ref`` is the borrower's
 own local date, so the case key is ``(customer, 'dpd_tick', '2026-08-21')`` and
 :mod:`followthrough` treats a day's sweep as an ordinary case it can walk a
-ladder over. Local rather than UTC because a "day" is the borrower's day: an
-account swept at 23:30 IST and again at 00:30 IST has been swept twice, and
-under UTC dates it would look like once.
+ladder over — ``dpd_tick`` is in ``LOOPED_TRIGGERS``, which for a while it was
+not, so this sentence described an intention rather than a behaviour. Local
+rather than UTC because a "day" is the borrower's day: an account swept at
+23:30 IST and again at 00:30 IST has been swept twice, and under UTC dates it
+would look like once. It is also what bounds the ladder: a day is one case, so
+tomorrow starts a new one instead of extending yesterday's forever.
 
 **Resumable, and it does not restart.** The cursor is the last account id
 visited, held in ``work_runtime_jobs`` under one well-known key, so a worker

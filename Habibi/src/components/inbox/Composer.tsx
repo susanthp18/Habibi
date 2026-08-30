@@ -17,7 +17,23 @@ import type { Thread } from "@/data/inbox-seed";
 import { getThreadHandoffState } from "@/components/inbox/meta";
 import { ingestInboxDocument, useCannedResponses } from "@/api/inbox";
 
-const EMOJIS = ["👍", "🙏", "✅", "🙂", "😮", "😂", "📎", "₹", "⏰", "✔️", "❗", "👋", "🤝", "💯", "⚠️"];
+const EMOJIS = [
+  "👍",
+  "🙏",
+  "✅",
+  "🙂",
+  "😮",
+  "😂",
+  "📎",
+  "₹",
+  "⏰",
+  "✔️",
+  "❗",
+  "👋",
+  "🤝",
+  "💯",
+  "⚠️",
+];
 
 function SuggestionCard({
   text,
@@ -60,9 +76,7 @@ function SuggestionCard({
         <Zap className="mt-025 h-3.5 w-3.5 shrink-0 text-text-brand" />
         <div className="min-w-0 flex-1">
           {title && (
-            <div className="mb-050 text-body-small font-semibold text-text-brand">
-              {title}
-            </div>
+            <div className="mb-050 text-body-small font-semibold text-text-brand">{title}</div>
           )}
           {expanded ? (
             <div
@@ -78,7 +92,9 @@ function SuggestionCard({
               {body}
             </div>
           ) : (
-            <p className="line-clamp-2 break-words text-body-small leading-relaxed text-text">{body}</p>
+            <p className="line-clamp-2 break-words text-body-small leading-relaxed text-text">
+              {body}
+            </p>
           )}
           <div className="mt-075 flex flex-wrap items-center gap-100">
             <button
@@ -146,7 +162,14 @@ export function Composer({
   const fileRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const seenSuggestLoading = useRef(false);
-  const { data: cannedResponses = [] } = useCannedResponses();
+  // `data = []` on failure is the graceful-degradation lie this codebase keeps
+  // catching: an API outage rendered as "No canned responses configured", which
+  // is a statement about the tenant's setup, not about the network.
+  const {
+    data: cannedResponses = [],
+    isPending: cannedPending,
+    isError: cannedFailed,
+  } = useCannedResponses();
 
   const { needsClaim } = getThreadHandoffState(thread, false);
   const disabled = needsClaim || busy || sending;
@@ -207,7 +230,9 @@ export function Composer({
     const lower = file.name.toLowerCase();
     if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".csv")) {
       if (file.size > 200_000) {
-        toast.error("File too large for inline paste (max ~200KB). Summarize or paste text instead.");
+        toast.error(
+          "File too large for inline paste (max ~200KB). Summarize or paste text instead.",
+        );
         return;
       }
       try {
@@ -317,7 +342,9 @@ export function Composer({
             )}
           >
             {sourceCount === 0 && !ragLoading && !ragError && (
-              <span className="text-body-small text-text-subtlest">No KB hits yet for this thread.</span>
+              <span className="text-body-small text-text-subtlest">
+                No KB hits yet for this thread.
+              </span>
             )}
             {thread.ragSuggestions.map((s, i) => (
               <SuggestionCard
@@ -353,9 +380,17 @@ export function Composer({
             Canned responses
           </div>
           <div className="flex flex-wrap gap-075">
-            {cannedResponses.length === 0 && (
-              <span className="text-body-small text-text-subtle">No canned responses configured.</span>
-            )}
+            {cannedFailed ? (
+              <span className="text-body-small text-text-danger">
+                Could not load canned responses. They may still be configured — retry in a moment.
+              </span>
+            ) : cannedPending ? (
+              <span className="text-body-small text-text-subtle">Loading canned responses…</span>
+            ) : cannedResponses.length === 0 ? (
+              <span className="text-body-small text-text-subtle">
+                No canned responses configured.
+              </span>
+            ) : null}
             {cannedResponses.map((c) => (
               <button
                 key={c.id}
@@ -376,9 +411,7 @@ export function Composer({
       {emojiOpen && (
         <div className="border-t border-border bg-surface-sunken px-200 py-150">
           <div className="mb-075 flex items-center justify-between">
-            <span className="text-body-small font-semibold text-text-subtlest">
-              Insert emoji
-            </span>
+            <span className="text-body-small font-semibold text-text-subtlest">Insert emoji</span>
             <button
               type="button"
               onClick={() => setEmojiOpen(false)}

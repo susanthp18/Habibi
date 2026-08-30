@@ -1,0 +1,78 @@
+Done. This is a **cross-stack change** (backend serializer + response models + frontend contract), so it needs your full gate.
+
+## What changed
+
+**Backend — one computation, one shape**
+- `backend/db.py`: `_sla_label()` (hour-rounded, no tone) is gone, replaced by `_dispute_sla(sla_due_at, captured_at, status) → (sla, slaLabel, slaMinutes)`, mirroring `_work_item_sla`'s tuple shape. Thresholds are the TS ones: past-due → `breach`, under 25% of the filing→due window → `warn`, else `ok`; closed → `done`/`"Closed"`. Label format is the board's: `0h 29m left` / `0h 40m over`.
+- Both serializers now emit the fields: `_dispute_contracts` (Customer 360, also feeds POST/PATCH responses via `_dispute_by_id`) and `list_disputes` (board).
+- `_sla_label` had exactly one caller (`db.py:1382`) — migrated, then deleted. Nothing else referenced it.
+- `backend/schemas.py`: added `sla`/`slaLabel`/`slaMinutes` to `DisputeResponse` and `DisputeListResponse`. Not optional housekeeping — `DisputeListResponse` is `extra="forbid"`, so the new keys would have been rejected at the route.
+- No schema change, so no migration/`sql/*.sql` edit is in play.
+
+**Frontend — the client stops computing it**
+- `slaInfo()` and `SlaInfo` deleted. `DisputeCard`, `DisputeSheet`, `DisputeBoard` (sort), `filterDisputes`, `computeMetrics` all read `d.sla` / `d.slaLabel` / `d.slaMinutes`.
+- `DisputesTab` renders the server label and now colours it from the server tone — it could previously never show red.
+- Mock: `fetchDisputes` maps seed rows through `withMockSla` on every fetch; the 360 seed rows and `createDispute`'s mock row produce the same three fields from the same rule.
+
+**One file outside your scope list**: `Habibi/src/data/dispute-sla.ts`, holding `SlaTone`/`DisputeSla` and the mock's mirror of `_dispute_sla`. `disputes-seed` already imports `customer360-seed`, so putting the shared mock helper in either seed creates a real ESM cycle (TDZ crash at module init). `SlaTone` is re-exported from `disputes-seed`, so `SlaChip` is unchanged.
+
+## Bug reproduced first
+
+No existing test asserted the old `slaLabel` string (grepped `tests/` — only `list_disputes`/`_dispute_contracts` appear in pagination and tenancy suites), so there was nothing to update; I added `backend/tests/test_dispute_sla.py`. I reproduced the drift by running the **committed** `_sla_label` against the same instants:
+
+```
+29 min to breach    committed 360 tab:      0h left   |   new contract (both screens): ('warn', '0h 29m left', 29)
+40 min past due     committed 360 tab:   1h overdue   |   new contract (both screens): ('breach', '0h 40m over', -40)
+```
+
+## Verification output
+
+```
+$ cd D:/Hackathon/backend && .venv/Scripts/python -m pytest tests/test_dispute_sla.py tests/test_list_bounds.py -q
+........................................................................ [ 75%]
+.......................                                                  [100%]
+============================== warnings summary ===============================
+tests/test_list_bounds.py::test_route_honours_limit_end_to_end[/customers]
+  D:\Hackathon\backend\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+95 passed, 1 warning in 9.26s
+```
+
+```
+$ cd D:/Hackathon/Habibi && npm run typecheck && npm run lint
+npm notice run typecheck
+npm notice run tsc --noEmit
+
+✖ 62 problems (0 errors, 62 warnings)
+
+check-spacing-scale: clean (14 defined steps)
+check-type-scale: clean (16 defined tokens)
+```
+0 errors; all 62 warnings are pre-existing `react-hooks/exhaustive-deps` / `react-refresh` warnings in files I didn't touch. Also ran `test_cross_tenant_reads`, `test_object_visibility`, `test_domain_handlers` alongside: 163 passed.
+
+## The two screens — what I could and couldn't check
+
+I could not open the screens visually: there's no browser tool in this session, and the uvicorn on :8000 runs **without `--reload`**, so it's still serving pre-change code and I'm not allowed to restart it. Instead I started a second API on :8001 (8000/8080/7860 untouched, and I stopped :8001 afterwards) and compared exactly what each screen consumes for the same dispute:
+
+```
+BEFORE (running server, pre-change code)
+   /disputes  (board  ) D-4805: sla=<absent> slaLabel=<absent>       ← board computed "709h 35m over" client-side
+   /customers (360 tab) D-4805: sla=<absent> slaLabel=710h overdue
+
+AFTER  (this change)
+   /disputes  (board  ) D-4805: sla=breach slaLabel=709h 35m over
+   /customers (360 tab) D-4805: sla=breach slaLabel=709h 35m over
+```
+Identical for `D-4805` and `D-4821` across tone, label and minutes. Both components render `{d.slaLabel}` verbatim, so identical payload means identical text — but I'm reporting a payload comparison, not something I saw rendered.
+
+Every seeded dispute has `sla_due_at = 2026-07-24`, so all live rows are `breach`; the `warn`/`ok`/`done` boundaries are covered by the unit tests (just-inside 25%, just-outside, exactly past-due, far-future, closed, null due date).
+
+## Two things to know before you gate
+
+1. **The frontend now requires the new backend fields.** The app at :8080 is in live mode (`.env.local` has `VITE_USE_MOCK=false`) against the un-reloaded :8000, which doesn't send them yet — the board will render an empty chip until that process is restarted. Your call when.
+2. **Behaviour change I chose deliberately:** a dispute with a NULL `sla_due_at` now reads `Open`/`ok` on the board. Previously `list_disputes` coalesced `slaDueAt` to `capturedAt`, which made the client render it as instantly breached, while the 360 tab said "Open". I unified on the 360/`_work_item_sla` answer; `slaDueAt` in the payload keeps its existing fallback so nothing else shifts.
+
+Nothing committed — the working tree is as you left it plus these edits.
+CYCLE4_EXIT=0

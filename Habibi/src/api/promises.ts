@@ -63,7 +63,11 @@ export async function createPromise(input: CreateInput): Promise<{ id: string }>
   });
 }
 
-export async function movePromise(p: Ptp, status: PromiseStatus, opts?: { paidAmount?: number }): Promise<void> {
+export async function movePromise(
+  p: Ptp,
+  status: PromiseStatus,
+  opts?: { paidAmount?: number },
+): Promise<void> {
   if (USE_MOCK) {
     moveSeedPromise(p.id, status, opts);
     return;

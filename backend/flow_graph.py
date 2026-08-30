@@ -47,6 +47,11 @@ _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 #: is not required to define them; defining one wires up the corresponding
 #: built-in transition. Keep in sync with the ``_node("…")`` calls there.
 RESERVED_NODE_KEYS: dict[str, str] = {
+    # `confirm_identity` is deliberately NOT here. Reserved keys are the nodes
+    # `voice/tools.py` transitions to *by name*; the outbound door is reached by
+    # being dialled, which is what `FlowNodeData.entryFor` expresses. Reserving
+    # it would claim a built-in transition that does not exist.
+    "third_party": "not_account_holder moves here on an outbound leg",
     "discover_intent": "disclose_recording moves here once the greeting is spoken",
     "verify_identity": "capture_call_goal moves here once the caller states why they called",
     "terminate_politely": "refuse_verification / not_account_holder / failed verification",
@@ -60,6 +65,48 @@ RESERVED_NODE_KEYS: dict[str, str] = {
     "gated_upsell": "recommend_next_offer moves here when upselling is enabled",
     "call_ended": "terminal node after the farewell",
 }
+
+#: The missions an outbound agent can be sent on. A node claims one or more of
+#: these in ``entryFor`` and becomes the place that conversation *starts*.
+#:
+#: Declared here rather than on the Agent Card because the validator has to
+#: check a claim without importing the card package — and because the graph is
+#: the thing that has to contain a matching node. ``agent_core.cards.schema``
+#: re-exports it so an author sees one list, not two.
+OBJECTIVES: tuple[str, ...] = (
+    "inbound",
+    "pre_due_reminder",
+    "bounce_cure",
+    "dpd_reminder",
+    "broken_ptp_chase",
+    "hardship_intake",
+    "mandate_reregistration",
+    "document_chase",
+    "callback_honour",
+    "welcome_onboarding",
+    "retention_save",
+    "cross_sell",
+    "manual_outbound",
+)
+
+#: Objectives whose contact is made *in order to sell something*, which under
+#: DPDP purpose limitation needs a consent basis of its own rather than the one
+#: captured to service the loan.
+#:
+#: Only ``cross_sell`` is on this list, and the omissions are the interesting
+#: part. ``retention_save`` is a call about a product the borrower already
+#: holds — keeping an existing relationship is servicing it, not marketing to
+#: them. ``welcome_onboarding`` explains the first EMI. A collections call that
+#: happens to reach a gated offer is not here either: whether an offer folded
+#: into a servicing conversation makes that conversation promotional is the open
+#: question in section 18.1 of the outbound design doc, and it belongs to the
+#: client's compliance officer rather than to this frozenset.
+PROMOTIONAL_OBJECTIVES: frozenset[str] = frozenset({"cross_sell"})
+
+
+def data_purpose_for(objective: str | None) -> str:
+    """``servicing`` or ``promotional`` for a mission objective."""
+    return "promotional" if str(objective or "") in PROMOTIONAL_OBJECTIVES else "servicing"
 
 FlowInstructionType = Literal["prompt", "say"]
 FlowVariableType = Literal["string", "number", "boolean"]
@@ -106,6 +153,18 @@ class FlowNodeData(BaseModel):
     instructionType: FlowInstructionType = "prompt"
     instructions: str = ""
     isStart: bool = False
+    #: Missions that *begin* at this node. An outbound call is not the inbound
+    #: script with a different greeting: we chose the borrower, the moment and
+    #: the reason, so asking them why we called is absurd. A graph therefore
+    #: needs more than one way in.
+    #:
+    #: Deliberately additive to ``isStart`` rather than replacing it. ``isStart``
+    #: is where an inbound caller lands and stays exactly one node — a graph with
+    #: two "the phone rang" entries is ambiguous. ``entryFor`` is where a mission
+    #: lands, and each mission has exactly one. The spine after the first two or
+    #: three nodes is shared, which is the whole reason this is one graph with
+    #: several doors rather than several graphs that drift.
+    entryFor: list[str] = Field(default_factory=list)
     #: False makes the bot listen first — the node the caller is expected to
     #: open. Mirrors Pipecat's NodeConfig field of the same name.
     respondImmediately: bool = True
@@ -188,6 +247,33 @@ class FlowGraph(BaseModel):
         return next(
             (n for n in self.nodes if n.type == "conversation" and n.data.isStart), None
         )
+
+    def entry_for(self, objective: str | None) -> FlowNode | None:
+        """The node a mission starts at, or None to fall back to ``start_node``.
+
+        ``inbound`` resolves to the start node when no node claims it, so a graph
+        authored before missions existed keeps behaving exactly as it did.
+        """
+        key = (objective or "").strip()
+        if not key:
+            return None
+        node = next(
+            (n for n in self.nodes if n.type == "conversation" and key in n.data.entryFor),
+            None,
+        )
+        if node is None and key == "inbound":
+            return self.start_node
+        return node
+
+    def entry_objectives(self) -> dict[str, str]:
+        """objective -> node key, for the compiler and the Studio canvas."""
+        out: dict[str, str] = {}
+        for node in self.nodes:
+            if node.type != "conversation":
+                continue
+            for objective in node.data.entryFor:
+                out.setdefault(objective, node.key)
+        return out
 
 
 class FlowIssue(BaseModel):
@@ -281,12 +367,35 @@ def parse_graph(raw: Any) -> FlowGraph:
     return FlowGraph.model_validate(raw)
 
 
-def is_authored(raw: Any) -> bool:
-    """True when the stored JSON is a real graph, not the built-in-script sentinel."""
+def is_unauthored(raw: Any) -> bool:
+    """True only for the built-in-script sentinel: no nodes AND no edges.
+
+    "No nodes" on its own is a weaker claim and was the one being made. A row
+    holding zero nodes and one or more edges is not a card that declined to
+    author a flow — it is a corrupted graph, and every check that abbreviated
+    the sentinel test to ``not nodes`` waved it through: ``assert_publishable``
+    returned before reaching the dangling-edge rules, the compile gate passed,
+    the canvas skipped validation, and the studio printed "No authored flow"
+    over it.
+
+    That mattered precisely because the two rows are otherwise identical from
+    the outside. kaia's published v1_4 stores the genuine ``{nodes: [], edges:
+    []}``; a corrupted edge-only row looked exactly like it to anything counting
+    nodes, so the corruption had nowhere left to surface.
+
+    Unparseable JSON is not unauthored either — it is broken, and saying so is
+    ``assert_publishable``'s job.
+    """
     try:
-        return bool(parse_graph(raw).nodes)
+        graph = parse_graph(raw)
     except Exception:
         return False
+    return not graph.nodes and not graph.edges
+
+
+def is_authored(raw: Any) -> bool:
+    """True when the stored JSON is a real graph, not the built-in-script sentinel."""
+    return not is_unauthored(raw)
 
 
 def assert_publishable(
@@ -311,7 +420,10 @@ def assert_publishable(
                 ],
             )
         ) from exc
-    if not graph.nodes:
+    # Only the true sentinel skips validation. See `is_unauthored`: a graph with
+    # edges and no nodes used to return here untouched, which is how an
+    # edge-only row reached production wearing "no authored flow".
+    if not graph.nodes and not graph.edges:
         return graph
     tools = (
         list(known_tools)
@@ -410,6 +522,55 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
                 "More than one node is marked as the start node.",
                 nodeId=node.id,
             )
+
+    # --- mission entry points ---
+    #
+    # One node per mission, and only conversation nodes. Two nodes claiming the
+    # same mission is not a preference the runtime can resolve — it would pick
+    # whichever the node list happened to order first, so a graph edit could
+    # silently change what a borrower hears without changing anything visible.
+    claimed: dict[str, list[FlowNode]] = {}
+    for node in graph.nodes:
+        for objective in node.data.entryFor:
+            if objective not in OBJECTIVES:
+                err(
+                    "unknown_objective",
+                    f"{objective!r} is not a mission this system knows. "
+                    f"One of: {', '.join(OBJECTIVES)}.",
+                    nodeId=node.id,
+                )
+                continue
+            if node.type != "conversation":
+                err(
+                    "entry_on_end_node",
+                    "A call cannot begin at an end step.",
+                    nodeId=node.id,
+                )
+                continue
+            claimed.setdefault(objective, []).append(node)
+    for objective, nodes in claimed.items():
+        if len(nodes) > 1:
+            for node in nodes:
+                err(
+                    "duplicate_entry",
+                    f"More than one step is the entry for {objective!r}. "
+                    "Exactly one step must begin each mission.",
+                    nodeId=node.id,
+                )
+    # An entry step that listens first with nothing to say is dead air on a call
+    # *we* placed — the borrower answered and heard silence. Tolerable on the
+    # inbound start node, where the caller speaks first by definition.
+    for objective, nodes in claimed.items():
+        if objective == "inbound":
+            continue
+        for node in nodes:
+            if not node.data.respondImmediately and not node.data.entryLine.strip():
+                err(
+                    "silent_outbound_entry",
+                    "This step begins an outbound call but neither speaks first "
+                    "nor has an entry line — the borrower would answer to silence.",
+                    nodeId=node.id,
+                )
 
     # --- edges ---
     by_id = {n.id: n for n in graph.nodes}
@@ -557,6 +718,9 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             # nodes are reached exactly that way.
             if node.key in RESERVED_NODE_KEYS:
                 continue
+            # A mission entry is reached by being dialled, not by an edge.
+            if node.data.entryFor:
+                continue
             warn(
                 "unreachable",
                 f"Node {node.data.name!r} cannot be reached from the start node.",
@@ -567,6 +731,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             node.type == "conversation"
             and node.id not in incoming
             and not node.data.isStart
+            and not node.data.entryFor
             and node.id in by_id
         ):
             # Covered by "unreachable" when a start exists; this catches the

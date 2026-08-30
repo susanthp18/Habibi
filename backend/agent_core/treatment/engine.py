@@ -80,11 +80,48 @@ class TreatmentResult:
     latency_ms: int = 0
     alternatives: list[ScoredAction] = field(default_factory=list)
     excluded: dict[str, str] = field(default_factory=dict)
+    #: pi(a|x) under the logging policy, and the rule set that approved this.
+    #:
+    #: Both were being written to treatment_decisions and neither reached the
+    #: caller, which the design note warns about by name: without the
+    #: propensity, nothing an execution channel logs against this decision can
+    #: be off-policy evaluated, and the corpus acquires the exact defect P0
+    #: existed to remove.
+    propensity: float = 1.0
+    policy_version: int | None = None
+    #: The features this was decided against. Carried so the Action Contract can
+    #: state what the channel may and may not do without re-reading the
+    #: database from inside a live call.
+    features: Any | None = None
 
     @property
     def actionable(self) -> bool:
         """True only when something should actually happen, now or later."""
         return not self.suppressed and self.action != A.WAIT
+
+    def action_contract(self, *, conn: Any | None = None) -> dict[str, Any] | None:
+        """The authorisation an execution channel receives. None when there is none.
+
+        Deliberately absent for a suppressed or ``wait`` decision rather than
+        present-and-empty: a contract is an authorisation to act, and handing a
+        channel an empty one invites it to decide for itself what that means.
+
+        ``conn`` is optional and enriches rather than enables. With one, the
+        authority matrix is consulted and the envelope carries the fee-waiver
+        ceiling the channel may work inside; without one, the contract simply
+        permits no waiver — which degrades toward conceding less, never more.
+        """
+        if not self.actionable:
+            return None
+        from agent_core.treatment import contract
+
+        return contract.build(
+            self,
+            features=self.features,
+            policy_version=self.policy_version,
+            propensity=self.propensity,
+            conn=conn,
+        )
 
     def to_payload(self) -> dict[str, Any]:
         """Model- and UI-facing shape.
@@ -105,6 +142,8 @@ class TreatmentResult:
             "reasonText": narrate.humanise(self.reason) if self.reason else None,
             "rationale": self.rationale,
             "decisionId": self.decision_id,
+            "propensity": round(self.propensity, 6),
+            "policyVersion": self.policy_version,
             "mode": self.mode,
             "variant": self.variant,
             "latencyMs": self.latency_ms,
@@ -397,6 +436,9 @@ def _decide(
         latency_ms=latency_ms,
         alternatives=list(verdict.alternatives),
         excluded=dict(excluded),
+        propensity=verdict.propensity,
+        policy_version=rules.version,
+        features=features,
     )
 
 
@@ -554,8 +596,22 @@ def _candidate_log(
     by_action = {s.action: s for s in scored}
     for row in rows:
         s = by_action.get(str(row.get("action")))
-        if s is None or s.action == A.WAIT:
+        if s is None:
             continue
+        # ``wait`` is vectorised too, and it was not always. Skipping it made
+        # sense while silence was just the absence of an action: its
+        # action-specific half is all zeros and there is nothing to rank.
+        #
+        # It stopped making sense the moment a randomised control arm existed.
+        # A control-arm decision *is* a wait, and its account-level features are
+        # the counterfactual — the only rows in the corpus that can say what
+        # would have happened anyway. Without a vector on them the timing model
+        # has no training data at all and the control half of the uplift
+        # T-learner cannot be fitted, so the engine logs a full feature vector
+        # for every action it did not take and none for the one it did.
+        #
+        # Found by the trainer refusing to fit, which is what that refusal is
+        # for.
         try:
             row["vector"] = {
                 k: (round(v, 6) if v is not None else None)

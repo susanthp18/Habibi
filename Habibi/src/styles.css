@@ -1305,6 +1305,24 @@ html.dark {
   font-weight: 400;
   line-height: 1rem;
 }
+/* The scale used to stop at 0.75rem, and the app did not. Badge counts, chart
+ * axes, table meta lines and helper text all need something smaller, so 70
+ * sites invented one each: 8.8px, 9.6px, 10px, 10.4px, 10.5px, 11px, 11.2px and
+ * 11.5px were all in use, in sizes nobody can tell apart on a screen but which
+ * no stylesheet change can ever move together.
+ *
+ * Two steps absorb all of them. Line-heights continue the scale's own trend of
+ * tightening as the size drops (1.5, 1.43, 1.33 → 1.27, 1.2). */
+@utility text-body-tiny {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  line-height: 0.875rem;
+}
+@utility text-body-micro {
+  font-size: 0.625rem;
+  font-weight: 400;
+  line-height: 0.75rem;
+}
 @utility metric-large {
   font-size: 1.75rem;
   font-weight: 653;
@@ -1390,6 +1408,25 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
 }
 *::-webkit-scrollbar-corner {
   background-color: var(--background-brand-subtlest);
+}
+
+/*
+ * Opt out of the scrollbar above, for a strip that scrolls but should not say
+ * so with a scrollbar — a tab row, a chip rail. The element must still be
+ * reachable another way (arrow keys, an auto-scrolled active item, an edge
+ * fade), or this hides the only affordance it had.
+ *
+ * Unlayered on purpose, and it has to be: the `*` rules above are unlayered
+ * too, and unlayered CSS beats everything in a cascade layer no matter how
+ * specific. A Tailwind utility — `[scrollbar-width:none]`, generated into
+ * `@layer utilities` — loses to `*` here, silently, which is exactly what it
+ * did before this rule existed.
+ */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 /* App equalizer mark (Uiverse.io / Nawsome). Native artboard is 75×100; bars

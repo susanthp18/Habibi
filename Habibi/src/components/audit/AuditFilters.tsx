@@ -9,11 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ALL_DISPOSITIONS,
-  listAgents,
-  type AuditFilterState,
-} from "@/data/audit-seed";
+import { ALL_DISPOSITIONS, listAgents, type AuditFilterState } from "@/data/audit-seed";
 
 interface Props {
   filters: AuditFilterState;
@@ -23,13 +19,7 @@ interface Props {
   onExport: () => void;
 }
 
-export function AuditFilters({
-  filters,
-  onChange,
-  resultCount,
-  selectedCount,
-  onExport,
-}: Props) {
+export function AuditFilters({ filters, onChange, resultCount, selectedCount, onExport }: Props) {
   const set = <K extends keyof AuditFilterState>(k: K, v: AuditFilterState[K]) =>
     onChange({ ...filters, [k]: v });
   const agents = listAgents();
@@ -47,8 +37,13 @@ export function AuditFilters({
           />
         </div>
 
-        <Select value={filters.dateRange} onValueChange={(v) => set("dateRange", v as AuditFilterState["dateRange"])}>
-          <SelectTrigger className="w-[8.125rem]"><SelectValue /></SelectTrigger>
+        <Select
+          value={filters.dateRange}
+          onValueChange={(v) => set("dateRange", v as AuditFilterState["dateRange"])}
+        >
+          <SelectTrigger className="w-[8.125rem]">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="today">Today</SelectItem>
             <SelectItem value="7d">Last 7 days</SelectItem>
@@ -57,8 +52,13 @@ export function AuditFilters({
           </SelectContent>
         </Select>
 
-        <Select value={filters.channel} onValueChange={(v) => set("channel", v as AuditFilterState["channel"])}>
-          <SelectTrigger className="w-[8.125rem]"><SelectValue placeholder="Channel" /></SelectTrigger>
+        <Select
+          value={filters.channel}
+          onValueChange={(v) => set("channel", v as AuditFilterState["channel"])}
+        >
+          <SelectTrigger className="w-[8.125rem]">
+            <SelectValue placeholder="Channel" />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All channels</SelectItem>
             <SelectItem value="voice">Voice</SelectItem>
@@ -67,8 +67,13 @@ export function AuditFilters({
           </SelectContent>
         </Select>
 
-        <Select value={filters.handler} onValueChange={(v) => set("handler", v as AuditFilterState["handler"])}>
-          <SelectTrigger className="w-[8.125rem]"><SelectValue /></SelectTrigger>
+        <Select
+          value={filters.handler}
+          onValueChange={(v) => set("handler", v as AuditFilterState["handler"])}
+        >
+          <SelectTrigger className="w-[8.125rem]">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Bot &amp; human</SelectItem>
             <SelectItem value="bot">Bot only</SelectItem>
@@ -78,27 +83,43 @@ export function AuditFilters({
         </Select>
 
         <Select value={filters.agent} onValueChange={(v) => set("agent", v)}>
-          <SelectTrigger className="w-[9.375rem]"><SelectValue placeholder="Agent" /></SelectTrigger>
+          <SelectTrigger className="w-[9.375rem]">
+            <SelectValue placeholder="Agent" />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All agents</SelectItem>
             {agents.map((a) => (
-              <SelectItem key={a} value={a}>{a}</SelectItem>
+              <SelectItem key={a} value={a}>
+                {a}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <Select value={filters.disposition} onValueChange={(v) => set("disposition", v as AuditFilterState["disposition"])}>
-          <SelectTrigger className="w-[11.25rem]"><SelectValue /></SelectTrigger>
+        <Select
+          value={filters.disposition}
+          onValueChange={(v) => set("disposition", v as AuditFilterState["disposition"])}
+        >
+          <SelectTrigger className="w-[11.25rem]">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All dispositions</SelectItem>
             {ALL_DISPOSITIONS.map((d) => (
-              <SelectItem key={d} value={d}>{d}</SelectItem>
+              <SelectItem key={d} value={d}>
+                {d}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <Select value={filters.sentiment} onValueChange={(v) => set("sentiment", v as AuditFilterState["sentiment"])}>
-          <SelectTrigger className="w-[8.125rem]"><SelectValue /></SelectTrigger>
+        <Select
+          value={filters.sentiment}
+          onValueChange={(v) => set("sentiment", v as AuditFilterState["sentiment"])}
+        >
+          <SelectTrigger className="w-[8.125rem]">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Any sentiment</SelectItem>
             <SelectItem value="positive">Positive</SelectItem>
@@ -122,9 +143,7 @@ export function AuditFilters({
         <div>
           <span className="font-semibold text-text">{resultCount}</span> calls
           {selectedCount > 0 && (
-            <span className="ml-100 text-text-brand">
-              · {selectedCount} selected
-            </span>
+            <span className="ml-100 text-text-brand">· {selectedCount} selected</span>
           )}
         </div>
         <Button

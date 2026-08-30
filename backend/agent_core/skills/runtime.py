@@ -7,10 +7,13 @@ block and is dropped on switch. References never grant tools.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agent_core.skills.intersect import tools_after_references
 from agent_core.skills.pack import SkillPack
+
+logger = logging.getLogger(__name__)
 
 SKILL_BODY_PREFIX = "ACTIVE SKILL"
 INTENT_TO_SKILL: dict[str, str] = {
@@ -69,7 +72,14 @@ def packs_from_card(card_raw: Any) -> list[SkillPack]:
         if db_packs:
             return db_packs
     except Exception:
-        pass
+        # Fail closed. The on-disk packs below are the *unsigned* platform
+        # defaults, so falling through to them on a DB fault silently reinstates
+        # tool grants this tenant removed in their signed pack — and
+        # ``intersect.effective_tools`` gates writes on pack contents, so the
+        # bot would regain e.g. create_promise_to_pay for the duration of the
+        # blip. No packs means the gate denies, which is the safe direction.
+        logger.error("skill packs unavailable — failing closed · slugs=%s", slugs, exc_info=True)
+        return []
     packs: list[SkillPack] = []
     for slug in slugs:
         try:

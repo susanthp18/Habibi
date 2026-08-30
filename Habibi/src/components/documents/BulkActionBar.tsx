@@ -30,14 +30,28 @@ export function BulkActionBar({ count, onGenerate, onResend, onReassignChannel, 
         >
           <MessageCircle className="h-3.5 w-3.5 text-text-success" />
         </button>
-        <button onClick={() => onReassignChannel("email")} className="rounded p-025 hover:bg-surface-sunken" title="Switch to Email">
+        <button
+          onClick={() => onReassignChannel("email")}
+          className="rounded p-025 hover:bg-surface-sunken"
+          title="Switch to Email"
+        >
           <Mail className="h-3.5 w-3.5 text-text-brand" />
         </button>
-        <button onClick={() => onReassignChannel("sms")} className="rounded p-025 hover:bg-surface-sunken" title="Switch to SMS">
+        <button
+          onClick={() => onReassignChannel("sms")}
+          className="rounded p-025 hover:bg-surface-sunken"
+          title="Switch to SMS"
+        >
           <Smartphone className="h-3.5 w-3.5 text-text-warning" />
         </button>
       </div>
-      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClear} aria-label="Clear selection">
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-7 w-7"
+        onClick={onClear}
+        aria-label="Clear selection"
+      >
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>

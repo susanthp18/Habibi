@@ -204,8 +204,7 @@ export function useCopilotStream(interactionId: string | null) {
     setState({ ...EMPTY_STREAM, streaming: true });
 
     if (USE_MOCK) {
-      const seed =
-        "Stay with the current script. No engine veto is in force.";
+      const seed = "Stay with the current script. No engine veto is in force.";
       const words = seed.match(/\S+\s*/g) ?? [seed];
       let i = 0;
       const tick = window.setInterval(() => {
@@ -295,6 +294,9 @@ export function useFloorApprovals() {
   });
 }
 
-export async function signalFloorApproval(jobId: string, name: "approve" | "reject"): Promise<FloorApproval> {
+export async function signalFloorApproval(
+  jobId: string,
+  name: "approve" | "reject",
+): Promise<FloorApproval> {
   return apiPost<FloorApproval>(`/floor/approvals/${jobId}/signal`, { name });
 }

@@ -19,8 +19,19 @@ import {
   type TtsVoice,
   type VoiceConfig,
 } from "@/data/prompt-studio-seed";
-import { apiGet, apiPatch, apiPost, apiPostBlob, mockDelay, USE_MOCK } from "./config";
+import {
+  ApiError,
+  apiGet,
+  apiPatch,
+  apiPost,
+  apiPostBlob,
+  isNotFound,
+  retryUnlessClientError,
+  mockDelay,
+  USE_MOCK,
+} from "./config";
 import type { FlowGraph } from "./flow";
+import { stableStringify } from "@/lib/stable-stringify";
 
 export type BotDeployment = {
   id: string;
@@ -118,11 +129,22 @@ function invalidatePromptStudio(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: VERSIONS_KEY });
   void qc.invalidateQueries({ queryKey: PUBLISHED_KEY });
   void qc.invalidateQueries({ queryKey: DEPLOYMENTS_KEY });
+  // A publish is the single biggest thing that happens to a card, and it lands
+  // in two places this key set does not otherwise reach: the fleet list (which
+  // shows deploymentStatus / lastPublish / draft chips) and the change log,
+  // whose whole job is to have already recorded it. Neither is a prefix of
+  // ["prompt-versions"], so both were stale on the screen that caused them.
+  void qc.invalidateQueries({ queryKey: ["agent-studio"] });
+  void qc.invalidateQueries({ queryKey: ["agent-change-log"] });
 }
 
 let _mockVersions: PromptVersion[] = VERSION_HISTORY.map((v) => ({
   ...v,
-  persona: { ...v.persona, traits: { ...v.persona.traits }, fallbackLanguages: [...v.persona.fallbackLanguages] },
+  persona: {
+    ...v.persona,
+    traits: { ...v.persona.traits },
+    fallbackLanguages: [...v.persona.fallbackLanguages],
+  },
   voice: { ...v.voice },
   guardrails: { ...v.guardrails, prohibited: [...v.guardrails.prohibited] },
 }));
@@ -130,7 +152,11 @@ let _mockVersions: PromptVersion[] = VERSION_HISTORY.map((v) => ({
 function _mockClone(v: PromptVersion): PromptVersion {
   return {
     ...v,
-    persona: { ...v.persona, traits: { ...v.persona.traits }, fallbackLanguages: [...v.persona.fallbackLanguages] },
+    persona: {
+      ...v.persona,
+      traits: { ...v.persona.traits },
+      fallbackLanguages: [...v.persona.fallbackLanguages],
+    },
     voice: { ...v.voice },
     guardrails: { ...v.guardrails, prohibited: [...v.guardrails.prohibited] },
     flow: v.flow ? { ...v.flow, nodes: [...v.flow.nodes], edges: [...v.flow.edges] } : v.flow,
@@ -149,15 +175,23 @@ export async function fetchPublishedPromptVersion(botId?: string): Promise<Promp
   if (USE_MOCK) {
     return mockDelay(
       _mockClone(
-        _mockVersions.find((v) => v.status === "published") ?? _mockVersions[0] ?? VERSION_HISTORY[0],
+        _mockVersions.find((v) => v.status === "published") ??
+          _mockVersions[0] ??
+          VERSION_HISTORY[0],
       ),
     );
   }
+  const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
   try {
-    const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
     return await apiGet<PromptVersion>(`/prompt-versions/published${q}`);
-  } catch {
-    return null;
+  } catch (err) {
+    // Only a 404 means "this card has never published". Anything else — a 500,
+    // a timeout, the API being down — is a failure, and flattening it to null
+    // made the studio announce "never published" for a card that is serving
+    // production traffic, and hide its rollback panel while it did. The caller
+    // renders an outage as an outage; it can only do that if one reaches it.
+    if (isNotFound(err)) return null;
+    throw err;
   }
 }
 
@@ -198,6 +232,9 @@ export type TtsCatalogVoice = {
   modelSeries: string[];
   removedAt?: string | null;
   enabledForPicker?: boolean;
+  /** Which vendor synced this voice. Defaults to azure — every row that
+   *  predates the provider registry came from the Azure catalog sync. */
+  providerId?: string;
   raw?: Record<string, unknown> | null;
 };
 
@@ -216,6 +253,9 @@ export type TtsCatalogQuery = {
   gender?: string;
   status?: string;
   priceTier?: string;
+  /** Filter to one vendor. Server-side: the list is keyset-paginated, so a
+   *  client-side filter would only ever filter the page already fetched. */
+  providerId?: string;
   includePremium?: boolean;
   includeRemoved?: boolean;
   limit?: number;
@@ -286,6 +326,7 @@ export async function fetchTtsVoiceCatalog(params: TtsCatalogQuery = {}): Promis
   if (params.gender) q.set("gender", params.gender);
   if (params.status) q.set("status", params.status);
   if (params.priceTier) q.set("price_tier", params.priceTier);
+  if (params.providerId) q.set("providerId", params.providerId);
   if (params.includePremium) q.set("include_premium", "true");
   if (params.includeRemoved) q.set("include_removed", "true");
   if (params.limit) q.set("limit", String(params.limit));
@@ -307,7 +348,13 @@ export async function fetchTtsVoiceDetail(shortName: string): Promise<TtsCatalog
 export async function fetchTtsPricing(): Promise<TtsPriceTier[]> {
   if (USE_MOCK) {
     return mockDelay([
-      { tier: "standard", label: "Standard Neural", approxUsdPer1MChars: 15, isPremium: false, notes: "" },
+      {
+        tier: "standard",
+        label: "Standard Neural",
+        approxUsdPer1MChars: 15,
+        isPremium: false,
+        notes: "",
+      },
       { tier: "hd", label: "Neural HD", approxUsdPer1MChars: 22, isPremium: true, notes: "" },
     ]);
   }
@@ -414,9 +461,8 @@ export async function fetchBotDeployments(params?: {
         botId: "kaia-v2-4",
         promptVersionId: published?.id ?? "v1_4",
         kbSnapshotId: "kb-snapshot-2026-07",
-        ttsVoiceId: published?.voice.azureVoiceName
-          ?? published?.voice.voiceId
-          ?? "en-IN-AartiNeural",
+        ttsVoiceId:
+          published?.voice.azureVoiceName ?? published?.voice.voiceId ?? "en-IN-AartiNeural",
         environment: "production" as const,
         status: "active" as const,
         publishedBy: "Priya Nair",
@@ -467,40 +513,90 @@ export function useTtsVoices() {
 }
 
 export type PromptTokenEstimate = {
+  /** The authored text alone — what the editor holds. */
   tokens: number;
   encoding: string;
   usdPer1M: number;
+  /** Input cost of the authored text alone. */
   costUsd: number;
   source: "tiktoken" | "heuristic";
+  /**
+   * The whole system message as the runtime assembles it: authored prompt plus
+   * generated guardrail rules, persona directions, tenant-local time and, on
+   * voice, the naturalness overlay. `null` when no guardrails were sent, since
+   * the assembly would then be a guess presented as a measurement.
+   *
+   * This is the figure that bills — it is re-sent on every LLM call, two or
+   * three times a turn through Flows.
+   */
+  assembledTokens: number | null;
+  assembledCostUsd: number | null;
 };
 
-export async function estimatePromptTokens(prompt: string): Promise<PromptTokenEstimate> {
+export type PromptTokenEstimateInput = {
+  prompt: string;
+  /** Supplying these is what makes the answer describe the call. */
+  guardrails?: Guardrails;
+  persona?: PersonaState;
+  channel?: "voice" | "text";
+};
+
+export async function estimatePromptTokens(
+  input: PromptTokenEstimateInput,
+): Promise<PromptTokenEstimate> {
   if (USE_MOCK) {
-    const tokens = Math.ceil((prompt || "").length / 4);
+    const tokens = Math.ceil((input.prompt || "").length / 4);
     const usdPer1M = 2.5;
+    const usd = (n: number) => Math.round(((n * usdPer1M) / 1_000_000) * 1_000_000) / 1_000_000;
+    // The mock keeps the shape honest about the ratio it stands in for: the
+    // generated sections dwarf the authored text on a real card, and a mock
+    // that returned equal figures would make the footer look broken offline.
+    const assembled = input.guardrails ? tokens + 700 : null;
     return mockDelay({
       tokens,
       encoding: "heuristic",
       usdPer1M,
-      costUsd: Math.round((tokens * usdPer1M) / 1_000_000 * 1_000_000) / 1_000_000,
+      costUsd: usd(tokens),
       source: "heuristic",
+      assembledTokens: assembled,
+      assembledCostUsd: assembled === null ? null : usd(assembled),
     });
   }
-  return apiPost<PromptTokenEstimate>("/prompt-versions/estimate-tokens", { prompt });
+  return apiPost<PromptTokenEstimate>("/prompt-versions/estimate-tokens", {
+    prompt: input.prompt,
+    ...(input.guardrails ? { guardrails: input.guardrails } : {}),
+    ...(input.persona ? { persona: input.persona } : {}),
+    ...(input.channel ? { channel: input.channel } : {}),
+  });
 }
 
 /** Debounced tiktoken estimate for the Prompt Studio editor footer. */
-export function usePromptTokenEstimate(prompt: string) {
-  const [debounced, setDebounced] = useState(prompt);
+export function usePromptTokenEstimate(input: PromptTokenEstimateInput) {
+  const [debounced, setDebounced] = useState(input);
+  // Serialised, not compared by reference: `guardrails` and `persona` are fresh
+  // object literals on every render of the Studio, so a dependency on the
+  // objects themselves would restart the debounce timer forever and the figure
+  // would never settle.
+  const key = stableStringify(input);
   useEffect(() => {
-    const t = window.setTimeout(() => setDebounced(prompt), 250);
+    const t = window.setTimeout(
+      () => setDebounced(JSON.parse(key) as PromptTokenEstimateInput),
+      250,
+    );
     return () => window.clearTimeout(t);
-  }, [prompt]);
+  }, [key]);
 
   return useQuery({
-    queryKey: ["prompt-studio", "token-estimate", debounced],
+    queryKey: ["prompt-studio", "token-estimate", stableStringify(debounced)],
     queryFn: () => estimatePromptTokens(debounced),
     placeholderData: (prev) => prev,
+    // Not before the editor has anything in it. The Studio mounts with an empty
+    // prompt and hydrates a tick later, so an unguarded query spends a request
+    // measuring the empty string and briefly renders its answer as the card's.
+    enabled: debounced.prompt.trim().length > 0,
+    // A 400/422 here is a verdict about this exact body and will be identical
+    // three milliseconds later; RQ's default of three tries just sends it again.
+    retry: retryUnlessClientError,
     staleTime: 30_000,
   });
 }
@@ -628,8 +724,7 @@ export async function rollbackBotDeployment(deploymentId: string): Promise<BotDe
       botId: "kaia-v2-4",
       promptVersionId: archived.id,
       kbSnapshotId: "kb-snapshot-2026-07",
-      ttsVoiceId:
-        archived.voice.azureVoiceName ?? archived.voice.voiceId ?? "en-IN-AartiNeural",
+      ttsVoiceId: archived.voice.azureVoiceName ?? archived.voice.voiceId ?? "en-IN-AartiNeural",
       environment: "production",
       status: "active",
       publishedBy: "You",
@@ -678,11 +773,28 @@ export async function lintPromptVersion(input: {
         message: `Unknown variable {${v}} — will not be substituted at runtime.`,
       });
     }
-    if (input.guardrails.alwaysDiscloseRecording && !/record/i.test(input.prompt)) {
+    // Mirrors prompt_lint.lint_prompt. With the guardrail ON the platform
+    // appends the disclosure to every call itself, so a silent prompt is not a
+    // defect — reporting one told authors to write "Always disclose that the
+    // call is recorded", which is what made a live call say it three times. The
+    // gap worth reporting is the opposite: the guardrail off AND no disclosure,
+    // where nothing on the card discloses anything.
+    const discloses = /record/i.test(input.prompt);
+    if (input.guardrails.alwaysDiscloseRecording) {
+      if (discloses) {
+        findings.push({
+          severity: "info",
+          code: "recording_disclosure_duplicated",
+          message:
+            "The alwaysDiscloseRecording guardrail already adds a recording disclosure to every voice call, worded to be said once and not repeated. You can delete this line.",
+        });
+      }
+    } else if (!discloses) {
       findings.push({
-        severity: "error",
-        code: "missing_recording_disclosure",
-        message: "Guardrail alwaysDiscloseRecording is on, but the prompt has no recording-disclosure language.",
+        severity: "warn",
+        code: "recording_disclosure_unenforced",
+        message:
+          "Nothing on this card discloses call recording — the guardrail is off and the prompt does not mention it either.",
       });
     }
     for (const w of input.guardrails.prohibited || []) {
@@ -726,6 +838,52 @@ export function useLintPrompt() {
   });
 }
 
+/**
+ * The deterministic lint, run continuously rather than on a button.
+ *
+ * It used to be a header button, and the cost of that was measurable: linting
+ * the thirteen prompt versions in the database found sixteen CRM tokens across
+ * four cards, three of them published — including the card every inbound call
+ * resolves to, whose live system prompt loses two of its six authored lines
+ * before the model sees them. Nobody had pressed the button.
+ *
+ * There is no reason it needed one. The pass is deterministic, has no LLM in
+ * it, and answers a question the author is asking continuously while typing —
+ * "will the runtime keep what I just wrote?". Debounced and cached exactly like
+ * `usePromptTokenEstimate` above, which already runs per edit in the same
+ * editor against the same server.
+ *
+ * `includeLlm` is deliberately not a parameter. The costed Azure pass stays an
+ * explicit action; this is the free half.
+ */
+export function useAutoLint(input: { prompt: string; guardrails: Guardrails }) {
+  const [debounced, setDebounced] = useState(input);
+  // Serialised for the same reason the estimate is: `guardrails` is a fresh
+  // object literal on every Studio render, so depending on the object would
+  // restart the timer forever and findings would never appear.
+  const key = stableStringify(input);
+  useEffect(() => {
+    const t = window.setTimeout(
+      () => setDebounced(JSON.parse(key) as { prompt: string; guardrails: Guardrails }),
+      400,
+    );
+    return () => window.clearTimeout(t);
+  }, [key]);
+
+  return useQuery({
+    queryKey: ["prompt-studio", "auto-lint", stableStringify(debounced)],
+    queryFn: () => lintPromptVersion({ ...debounced, includeLlm: false }),
+    // Same two guards as the token estimate: nothing to lint before hydration,
+    // and a rejected body stays rejected however many times it is resent.
+    enabled: debounced.prompt.trim().length > 0,
+    retry: retryUnlessClientError,
+    // No placeholderData: a stale finding list is worse than none. Findings
+    // point at spans in text that has since changed, and "your prompt is clean"
+    // is the one thing this must never say by accident.
+    staleTime: 30_000,
+  });
+}
+
 export async function fetchActiveBotDeployment(
   environment: "production" | "sandbox" = "production",
   botId?: string,
@@ -734,12 +892,16 @@ export async function fetchActiveBotDeployment(
     const rows = await fetchBotDeployments({ environment, status: "active", botId });
     return rows[0] ?? null;
   }
+  const q = new URLSearchParams({ environment });
+  if (botId) q.set("botId", botId);
   try {
-    const q = new URLSearchParams({ environment });
-    if (botId) q.set("botId", botId);
     return await apiGet<BotDeployment>(`/bot-deployments/active?${q.toString()}`);
-  } catch {
-    return null;
+  } catch (err) {
+    // 404 is `active_deployment_not_found` — a real, reportable absence. The
+    // backend is careful to distinguish that from a fault; see the note on the
+    // published-version fetcher above for what discarding the difference cost.
+    if (isNotFound(err)) return null;
+    throw err;
   }
 }
 
@@ -761,6 +923,11 @@ export function useProdDeployments(botId?: string) {
 
 /** True when PATCH draft is expected to fail and caller should create a new draft instead. */
 function isDraftPatchFallbackError(err: unknown): boolean {
+  // The status is the real signal: 404 (the draft was discarded under us) and
+  // 409 (it has since been published, so it is no longer a draft) both mean
+  // "create a new draft instead". The message sniff below is kept only for the
+  // mock transport, which throws plain Errors with no status.
+  if (err instanceof ApiError) return err.status === 404 || err.status === 409;
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
   return (
@@ -898,6 +1065,10 @@ export type TtsPreviewInput = {
   warmth: number;
   pauseMs: number;
   style?: string | null;
+  /** Model-declared controls keyed by provider_models.params_schema. */
+  params?: Record<string, unknown>;
+  /** Force a new sample instead of replaying the cached take. */
+  fresh?: boolean;
 };
 
 export type TtsPreviewResult = {
@@ -949,6 +1120,16 @@ export async function previewTts(input: TtsPreviewInput): Promise<TtsPreviewResu
     warmth: input.warmth,
     pauseMs: input.pauseMs,
     style: input.style || undefined,
+    // `params` was declared on TtsPreviewInput and passed by every caller, and
+    // then not put in the body — so every model-declared control (temperature,
+    // top_p, latency, format, chunk_length, normalize) was collected by the
+    // inspector, sent nowhere, and silently replaced by the backend's own
+    // defaults. Nine sliders that moved and changed nothing.
+    params: input.params ?? {},
+    // Take a new sample rather than the stored one. Previews are cached now,
+    // so pressing play twice replays the same take; hearing a different one is
+    // a deliberate act.
+    fresh: input.fresh ?? false,
   });
   const lat = headers.get("X-TTS-Latency-Ms");
   return {

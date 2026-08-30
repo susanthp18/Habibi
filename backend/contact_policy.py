@@ -50,6 +50,18 @@ REASON_WINDOW = "outside_allowed_window"
 REASON_COOLING = "cooling_off"
 REASON_DAILY = "daily_cap"
 REASON_WEEKLY = "weekly_cap"
+#: DPDP purpose limitation. The number was collected to service a loan; using it
+#: to sell something is a different purpose and needs its own consent basis.
+#: Absence of that basis is a refusal, not a fallback to the servicing one.
+REASON_NO_PROMO_CONSENT = "no_promotional_consent"
+
+#: The DPDP purposes a contact can be made for. Deliberately a different axis
+#: from :data:`PURPOSES` — that one is *why we may contact now* (outreach vs a
+#: statutory notice vs a reply inside a live session), this one is *what the
+#: data is being used for*. They are both called "purpose" in their respective
+#: source documents and conflating them would be easy, so the parameter here is
+#: named ``data_purpose`` everywhere it appears.
+DATA_PURPOSES = frozenset({"servicing", "promotional"})
 
 #: The fallback calling window, used when no statutory rule set is published.
 #: These stay because "unregulated by the rules table" must not mean
@@ -148,6 +160,48 @@ def _zone(name: str | None) -> ZoneInfo:
         return ZoneInfo(DEFAULT_TZ)
 
 
+def safe_tz_sql(expr: str = "c.timezone") -> str:
+    """SQL that turns ``customers.timezone`` into a zone Postgres will accept.
+
+    ``expr`` is the SQL expression holding the label — a column
+    (``c.timezone``) at the call sites, a bound parameter (``:tz``) in tests.
+
+    ``customers.timezone`` is data, and this deployment's data is not clean:
+    ``backend/seed/customers.json`` stores display labels like
+    ``Asia/Kolkata (IST)``, so a re-seed puts them back. :func:`_zone` has always
+    treated the column as untrusted; the SQL did not, and interpolating the raw
+    value into ``AT TIME ZONE`` raises
+
+        InvalidParameterValue: time zone "Asia/Kolkata (IST)" not recognized
+
+    which aborts the whole transaction, not just the statement.
+
+    Same policy as :func:`_zone`, expressed once here so both paths agree:
+
+    1. take the part before any parenthetical suffix, so the label form resolves
+       to the zone it actually names rather than to the default — falling back
+       would be right by accident for an Indian borrower and wrong for anyone
+       else;
+    2. accept it only if Postgres knows it;
+    3. otherwise use the tenant default.
+
+    Returns a SQL fragment, so the caller keeps its bound parameter and nothing
+    is interpolated but the parameter's own name.
+    """
+    return (
+        "COALESCE("
+        "  (SELECT n.name FROM pg_timezone_names n"
+        f"    WHERE n.name = btrim(split_part(COALESCE({expr}, ''), '(', 1))"
+        "    LIMIT 1),"
+        f"  '{DEFAULT_TZ}')"
+    )
+
+
+#: Ready-made fragments for callers that bind the label as a parameter.
+SQL_SAFE_TZ = safe_tz_sql(":tz")
+SQL_SAFE_TZ_ALT = safe_tz_sql(":tz2")
+
+
 def _aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -166,7 +220,17 @@ def _parse_hours(raw: str | None) -> tuple[int, int] | None:
 def _parse_days(raw: str | None) -> list[int] | None:
     if not raw or not str(raw).strip():
         return None
-    text_val = str(raw).strip().lower()
+    # Ranges arrive with whichever dash the operator's keyboard produced. The
+    # sibling allowed_hours column in this database already holds both
+    # "10:00-19:00 IST" and "10:00–19:00 IST", and _parse_hours only
+    # tolerates that because its regex skips over the separator entirely.
+    #
+    # Here the dash is load-bearing. Without this, "Mon–Sat" misses the
+    # range branch below, falls through to the token split, matches the leading
+    # "mon" and returns Monday alone — silently narrowing a six-day consent
+    # window to one. It fails closed, so nobody is contacted illegally; they are
+    # simply never contacted, which is the kind of wrong that does not raise.
+    text_val = str(raw).strip().lower().replace("–", "-").replace("—", "-")
     if "-" in text_val and "," not in text_val:
         parts = [p.strip() for p in text_val.split("-", 1)]
         if len(parts) == 2 and parts[0][:3] in _DAY_NAME_TO_NUM and parts[1][:3] in _DAY_NAME_TO_NUM:
@@ -190,6 +254,46 @@ parse_allowed_hours = _parse_hours
 parse_allowed_days = _parse_days
 
 
+def _preferred_hours(customer: dict[str, Any]) -> tuple[int, int] | None:
+    """The borrower's own window: consent hours intersected with their preference.
+
+    Two columns describe the same thing and only one of them was ever consulted
+    here. ``consent_records.allowed_hours`` is what an operator captures at
+    onboarding; ``customers.preferred_window`` is what the CRM carries, is
+    populated across the seeded book, and — until now — was read by exactly one
+    thing: the recommender's talk track, which used it to *phrase* an offer
+    ("we can call you back in your usual window") while the dialler ignored it
+    and rang at four in the afternoon anyway.
+
+    The intersection, rather than a precedence order, is the point. Both are
+    statements by or about the borrower and neither is entitled to overrule the
+    other upwards; taking the tighter of the two is the only combination that
+    cannot produce a call neither column would have permitted on its own. It is
+    also what makes this safe to switch on against real data: the seeded book
+    contains an ``18:00-21:00 IST`` preference, and intersecting it with the
+    statutory 19:00 cut-off is what stops that row buying a nine o'clock call.
+    """
+    consent = _parse_hours(customer.get("allowed_hours"))
+    stated = _parse_hours(customer.get("preferred_window"))
+    if consent is None:
+        return stated
+    if stated is None:
+        return consent
+    start = max(consent[0], stated[0])
+    end = min(consent[1], stated[1])
+    # Two windows that do not overlap describe a borrower nobody may ever call,
+    # which is almost certainly a data-entry error rather than a wish. Fall back
+    # to the recorded consent — the column an operator captured deliberately —
+    # and leave the statutory window doing the outer bounding it always did.
+    return (start, end) if start < end else consent
+
+
+#: The borrower's effective window — consent hours intersected with the CRM's
+#: ``preferred_window``. Exported for the same reason as the two above: the
+#: planner has to see the window the veto will apply, not a near-miss of it.
+preferred_hours = _preferred_hours
+
+
 def _consent_reason(status: str) -> str:
     if status == "dnd":
         return REASON_CHANNEL_DND
@@ -202,7 +306,7 @@ def _load_customer(conn: Any, customer_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         text(
             """
-            SELECT c.id, c.tenant_id, c.dnd, c.timezone,
+            SELECT c.id, c.tenant_id, c.dnd, c.timezone, c.preferred_window,
                    cr.allowed_days, cr.allowed_hours, cr.dnd_registry, cr.expires_at
             FROM customers c
             LEFT JOIN consent_records cr ON cr.customer_id = c.id
@@ -219,6 +323,17 @@ def _channel_status(conn: Any, customer_id: str, channel: str) -> str | None:
 
     by_ch = capture.latest_consent_by_channel(conn, customer_id)
     return by_ch.get(channel) or by_ch.get("voice" if channel == "call" else channel)
+
+
+def _promotional_status(conn: Any, customer_id: str, channel: str) -> str | None:
+    """Promotional consent for this channel, or None if never captured."""
+    try:
+        import capture
+
+        return capture.promotional_consent(conn, customer_id, channel)
+    except Exception:
+        logger.debug("promotional consent unreadable", exc_info=True)
+        return None
 
 
 def _weekly_cap_for(
@@ -367,12 +482,21 @@ def _veto(
     status: str | None,
     now_local: datetime,
     rules: Any | None = None,
+    data_purpose: str = "servicing",
+    promo_status: str | None = None,
 ) -> str | None:
     if customer is None:
         return REASON_NO_CUSTOMER if purpose == "outreach" else None
 
     if status in BLOCKING_CONSENT:
         return _consent_reason(status)
+
+    if data_purpose == "promotional" and promo_status != "opted_in":
+        # Checked before the in_session shortcut below on purpose. "They are
+        # already on the line" is a reason the timing is acceptable; it is not a
+        # consent basis for using their contact data to market to them, and the
+        # two are separate questions that a single early return would merge.
+        return REASON_NO_PROMO_CONSENT
 
     if purpose == "in_session":
         return None
@@ -393,7 +517,7 @@ def _veto(
                 return REASON_HOURS
 
     if purpose == "outreach":
-        hours = _parse_hours(customer.get("allowed_hours"))
+        hours = _preferred_hours(customer)
         days = _parse_days(customer.get("allowed_days"))
         if hours is not None:
             start_h, end_h = hours
@@ -414,10 +538,12 @@ def evaluate(
     purpose: str = "outreach",
     session_key: str | None = None,
     now: datetime | None = None,
+    data_purpose: str = "servicing",
 ) -> Decision:
     """Dry-run. No writes. Used by the UI and later as a P3 veto."""
     cap = daily_cap()
     purpose = purpose if purpose in PURPOSES else "outreach"
+    data_purpose = data_purpose if data_purpose in DATA_PURPOSES else "servicing"
     channel = normalize_channel(channel)
     cid = (customer_id or "").strip()
     if not cid:
@@ -443,6 +569,12 @@ def evaluate(
             status=status,
             now_local=local,
             rules=rules,
+            data_purpose=data_purpose,
+            promo_status=(
+                _promotional_status(conn, cid, channel)
+                if customer and data_purpose == "promotional"
+                else None
+            ),
         )
         today = _today_count(conn, cid, local.date()) if customer else 0
         if reason:
@@ -485,6 +617,122 @@ SCHEDULING_VETOES = frozenset(
         REASON_WINDOW,
     }
 )
+
+
+def narrow_window(
+    conn: Any,
+    *,
+    customer_id: str,
+    earliest_hour: int | None = None,
+    latest_hour: int | None = None,
+    source: str = "voice",
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Tighten a borrower's calling window because they asked. Never widens.
+
+    RBI para 100Y sets 08:00-19:00 and adds *"unless the borrower has asked
+    otherwise"*. The read path already honours a narrower window: :func:`_veto`
+    checks the statutory hours and then the consent hours, so the effective
+    window has always been the intersection of the two. What was missing is any
+    way for the borrower's own words to reach the column — ``allowed_hours`` was
+    a field an operator could type into and nothing else, so "never call me
+    before ten" was a sentence the agent heard, agreed with, and forgot.
+
+    Two directions, one of them refused
+    -----------------------------------
+    A stated restriction may only ever make the window smaller. That is not
+    symmetry for its own sake: the value arrives from a language model reading a
+    live conversation, and the failure modes are not equal. Mishearing "don't
+    call before ten" tightens a window by two hours and costs us some reach.
+    Mishearing agreement as *"call any time"* would delete a restriction the
+    borrower actually stated, and there is no log entry that makes that all
+    right. Widening therefore needs a human, and this function will not do it.
+
+    The statutory window is the outer bound regardless — a borrower cannot
+    consent us into calling at 06:00 through this path, because para 100Y's
+    exception is about *narrowing* in practice and an agent that could be talked
+    into a dawn call is the conduct problem the paragraph exists to stop.
+    """
+    result: dict[str, Any] = {"ok": False, "reason": None, "window": None}
+    cid = (customer_id or "").strip()
+    if not cid:
+        result["reason"] = REASON_NO_CUSTOMER
+        return result
+
+    def _hour(value: Any) -> int | None:
+        try:
+            hour = int(value)
+        except (TypeError, ValueError):
+            return None
+        return hour if 0 <= hour <= 23 else None
+
+    want_start = _hour(earliest_hour)
+    want_end = _hour(latest_hour)
+    if want_start is None and want_end is None:
+        result["reason"] = "no_bound_given"
+        return result
+
+    try:
+        customer = _load_customer(conn, cid)
+        if customer is None:
+            result["reason"] = REASON_NO_CUSTOMER
+            return result
+
+        rules = _rules_for(conn, customer, datetime.now(timezone.utc))
+        statutory = (rules.calling_window("voice") if rules is not None else None) or (
+            RBI_VOICE_START,
+            RBI_VOICE_END,
+        )
+        # The same intersection the veto uses, so narrowing composes with a
+        # preference already on file instead of quietly replacing it.
+        current = _preferred_hours(customer) or statutory
+
+        start = max(current[0], statutory[0], want_start if want_start is not None else 0)
+        end = min(current[1], statutory[1], want_end if want_end is not None else 23)
+        if start >= end:
+            # "Never before ten and never after nine in the morning" is not a
+            # window, it is a request to stop calling — which is an opt-out and
+            # has its own tool, its own consent row and its own audit trail.
+            result["reason"] = "window_would_be_empty"
+            return result
+        if (start, end) == current:
+            result["ok"] = True
+            result["reason"] = "already_narrower"
+            result["window"] = list(current)
+            return result
+
+        value = f"{start:02d}:00-{end:02d}:00 IST"
+        conn.execute(
+            text(
+                """
+                INSERT INTO consent_records (id, customer_id, allowed_hours, updated_at)
+                VALUES (:id, :cid, :hours, now())
+                ON CONFLICT (customer_id)
+                DO UPDATE SET allowed_hours = EXCLUDED.allowed_hours, updated_at = now()
+                """
+            ),
+            # A consent row, not a contact event — the CE- prefix would be a
+            # small lie in every audit export that joins on id prefixes.
+            {"id": f"CR-{uuid.uuid4().hex[:10].upper()}", "cid": cid, "hours": value},
+        )
+        import db as dbmod
+
+        dbmod.record_activity(
+            conn,
+            "customer",
+            cid,
+            "contact_window_narrowed",
+            f"Calling window narrowed to {value}",
+            (note or source)[:500],
+            cid,
+        )
+        logger.info("contact window narrowed for %s to %s (%s)", cid, value, source)
+        result.update({"ok": True, "window": [start, end], "reason": "narrowed"})
+        return result
+    except Exception:
+        logger.exception("narrow_window failed for %s", cid)
+        result["reason"] = "failed"
+        return result
 
 
 def blocks_scheduling(
@@ -649,10 +897,12 @@ def admit(
     actor_user_id: str | None = None,
     account_id: str | None = None,
     now: datetime | None = None,
+    data_purpose: str = "servicing",
 ) -> Decision:
     """Evaluate, reserve, log. Never raises."""
     cap = daily_cap()
     purpose = purpose if purpose in PURPOSES else "outreach"
+    data_purpose = data_purpose if data_purpose in DATA_PURPOSES else "servicing"
     channel = normalize_channel(channel)
     cid = (customer_id or "").strip()
     instant = _aware(now or datetime.now(timezone.utc))
@@ -681,6 +931,12 @@ def admit(
             status=status,
             now_local=local,
             rules=rules,
+            data_purpose=data_purpose,
+            promo_status=(
+                _promotional_status(conn, cid, channel)
+                if data_purpose == "promotional"
+                else None
+            ),
         )
         today = _today_count(conn, cid, local.date())
 
@@ -802,12 +1058,19 @@ def ledger_usage(conn: Any, customer_ids: list[str]) -> dict[str, dict[str, Any]
             FROM contact_day_counters c
             WHERE c.customer_id = ANY(:ids)
               AND c.local_date = (
-                SELECT (now() AT TIME ZONE COALESCE(cu.timezone, 'Asia/Kolkata'))::date
+                -- `customers.timezone` holds display labels in seeded data, and
+                -- an unrecognised zone here aborts the whole transaction rather
+                -- than just this statement. Same rule as `_zone()` in Python.
+                SELECT (now() AT TIME ZONE COALESCE(
+                          (SELECT n.name FROM pg_timezone_names n
+                            WHERE n.name = btrim(split_part(COALESCE(cu.timezone, ''), '(', 1))
+                            LIMIT 1),
+                          :default_tz))::date
                 FROM customers cu WHERE cu.id = c.customer_id
               )
             """
         ),
-        {"ids": customer_ids},
+        {"ids": customer_ids, "default_tz": DEFAULT_TZ},
     ).mappings().all()
     deny_rows = conn.execute(
         text(

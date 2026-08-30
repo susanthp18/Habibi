@@ -3,13 +3,7 @@ export type EndpointStatus = "active" | "paused" | "broken";
 export type DeliveryStatus = "success" | "client_err" | "server_err" | "pending";
 export type TargetSystem = "Core Banking" | "CRM" | "Data Lake" | "Custom";
 
-export type EventCategory =
-  | "Calls"
-  | "Promises"
-  | "Disputes"
-  | "Payments"
-  | "Consent"
-  | "Bot";
+export type EventCategory = "Calls" | "Promises" | "Disputes" | "Payments" | "Consent" | "Bot";
 
 export type EventKey =
   | "call.started"
@@ -67,6 +61,12 @@ export type Delivery = {
   at: number;
   payload: Record<string, unknown>;
   responseBody?: string;
+  /**
+   * "simulated" rows come from the Integrations test-fire button, which does no
+   * egress. Optional because rows written before the backend had a
+   * delivery_mode column have no opinion; those default to "live".
+   */
+  mode?: "live" | "simulated";
 };
 
 const now = Date.now();
@@ -79,31 +79,61 @@ export const EVENT_CATALOG: EventDef[] = [
     key: "call.started",
     category: "Calls",
     description: "Fired when a caller is connected to the voice bot.",
-    sample: { call_id: "CALL-88213", from: "+91-9XXXXXX210", to: "1800-266-4332", started_at: "2026-07-21T09:14:22Z", channel: "voice", tenant: "hdfc.retail" },
+    sample: {
+      call_id: "CALL-88213",
+      from: "+91-9XXXXXX210",
+      to: "1800-266-4332",
+      started_at: "2026-07-21T09:14:22Z",
+      channel: "voice",
+      tenant: "hdfc.retail",
+    },
   },
   {
     key: "call.completed",
     category: "Calls",
     description: "Emitted at hangup with duration, disposition and AHT.",
-    sample: { call_id: "CALL-88213", duration_s: 187, disposition: "resolved", aht_bucket: "under_3m", agent: "bot", handoff: false },
+    sample: {
+      call_id: "CALL-88213",
+      duration_s: 187,
+      disposition: "resolved",
+      aht_bucket: "under_3m",
+      agent: "bot",
+      handoff: false,
+    },
   },
   {
     key: "call.summary.ready",
     category: "Calls",
     description: "Structured summary + action items ready for CRM writeback.",
-    sample: { call_id: "CALL-88213", summary: "Customer requested EMI waiver; declined; offered top-up.", action_items: ["send_statement"], sentiment: "neutral" },
+    sample: {
+      call_id: "CALL-88213",
+      summary: "Customer requested EMI waiver; declined; offered top-up.",
+      action_items: ["send_statement"],
+      sentiment: "neutral",
+    },
   },
   {
     key: "call.escalated",
     category: "Calls",
     description: "Bot triggered a human handoff.",
-    sample: { call_id: "CALL-88213", reason: "high_anger", queue: "collections_l2", escalated_at: "2026-07-21T09:16:04Z" },
+    sample: {
+      call_id: "CALL-88213",
+      reason: "high_anger",
+      queue: "collections_l2",
+      escalated_at: "2026-07-21T09:16:04Z",
+    },
   },
   {
     key: "promise.created",
     category: "Promises",
     description: "Customer committed to a Promise-to-Pay.",
-    sample: { ptp_id: "PTP-5521", customer_id: "CUS-778213", amount: 12500, due_date: "2026-07-28", source: "bot" },
+    sample: {
+      ptp_id: "PTP-5521",
+      customer_id: "CUS-778213",
+      amount: 12500,
+      due_date: "2026-07-28",
+      source: "bot",
+    },
   },
   {
     key: "promise.kept",
@@ -121,7 +151,12 @@ export const EVENT_CATALOG: EventDef[] = [
     key: "dispute.raised",
     category: "Disputes",
     description: "New dispute recorded from a call.",
-    sample: { dispute_id: "DSP-3390", customer_id: "CUS-778213", type: "late_fee", severity: "medium" },
+    sample: {
+      dispute_id: "DSP-3390",
+      customer_id: "CUS-778213",
+      type: "late_fee",
+      severity: "medium",
+    },
   },
   {
     key: "dispute.resolved",
@@ -139,13 +174,23 @@ export const EVENT_CATALOG: EventDef[] = [
     key: "payment.reversed",
     category: "Payments",
     description: "Payment reversed / bounced.",
-    sample: { account_id: "LN-99812", ref: "NEFT-7712", amount: 8320, reason: "insufficient_funds" },
+    sample: {
+      account_id: "LN-99812",
+      ref: "NEFT-7712",
+      amount: 8320,
+      reason: "insufficient_funds",
+    },
   },
   {
     key: "consent.dnd.updated",
     category: "Consent",
     description: "DND window changed for a customer.",
-    sample: { customer_id: "CUS-778213", channel: "voice", window: "21:00-08:00 IST", effective: "2026-07-21T09:16:00Z" },
+    sample: {
+      customer_id: "CUS-778213",
+      channel: "voice",
+      window: "21:00-08:00 IST",
+      effective: "2026-07-21T09:16:00Z",
+    },
   },
   {
     key: "consent.opted_out",
@@ -157,7 +202,11 @@ export const EVENT_CATALOG: EventDef[] = [
     key: "bot.handoff",
     category: "Bot",
     description: "Bot handed the call to a human queue.",
-    sample: { call_id: "CALL-88213", to_agent: "AG-4021", context_summary: "waiver dispute, anger 0.82" },
+    sample: {
+      call_id: "CALL-88213",
+      to_agent: "AG-4021",
+      context_summary: "waiver dispute, anger 0.82",
+    },
   },
   {
     key: "bot.compliance.flag",
@@ -283,7 +332,7 @@ export const SEED_ENDPOINTS: Endpoint[] = [
 
 /* ---------- Deliveries ---------- */
 
-const rand = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+const rand = <T>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
 
 function makeDelivery(
   ep: Endpoint,
@@ -307,9 +356,7 @@ function makeDelivery(
           ? 500 + Math.floor(Math.random() * 4)
           : 0;
   const attempt =
-    status === "success"
-      ? 1
-      : Math.min(ep.retry.attempts, 1 + Math.floor(Math.random() * 3));
+    status === "success" ? 1 : Math.min(ep.retry.attempts, 1 + Math.floor(Math.random() * 3));
   const latencyMs =
     status === "success"
       ? 60 + Math.floor(Math.random() * 320)
@@ -351,6 +398,7 @@ export const SEED_DELIVERIES: Delivery[] = seedDeliveries(SEED_ENDPOINTS);
 
 /* ---------- Helpers ---------- */
 
+/** The test-fire path. Every row it produces is labelled as simulated. */
 export function simulateDelivery(
   ep: Endpoint,
   event: EventKey,
@@ -358,6 +406,7 @@ export function simulateDelivery(
 ): Delivery {
   const base = makeDelivery(ep, event, Date.now());
   if (payloadOverride) base.payload = payloadOverride;
+  base.mode = "simulated";
   return base;
 }
 

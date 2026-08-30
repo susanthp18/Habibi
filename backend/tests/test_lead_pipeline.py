@@ -118,9 +118,65 @@ def test_the_capture_event_does_not_double_the_lead_timeline(db_tx):
 
 
 def _slot_at_ist_hour(hour: int) -> str:
-    """A slot tomorrow at a given IST hour, as an ISO string."""
+    """A slot tomorrow at a given IST hour, as an ISO string.
+
+    Safe for the *refusal* case at any hour outside 08:00–19:00: the RBI check
+    runs ahead of the consent window, so an illegal hour is always reported as
+    ``outside_calling_hours`` whatever day tomorrow happens to be.
+    """
     tomorrow = datetime.now(IST) + timedelta(days=1)
     return tomorrow.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _slot_the_customer_permits(conn, lead_id: str, hour: int = 11) -> str:
+    """A future slot that breaks neither the RBI window nor *this* customer's
+    own consent window.
+
+    Two separate gates return two different reasons, and the booking test is
+    about the first one — so the second has to be satisfied rather than tripped
+    over. Hardcoding "tomorrow at 11:00" tripped over it: every seeded customer
+    carries ``allowed_days = 'Mon-Sat'``, so the test refused its own legal slot
+    with ``outside_allowed_window`` on precisely one day of the week, and the
+    suite was red every Saturday for a reason that had nothing to do with what
+    it was testing.
+
+    The window is read with contact_policy's own exported parsers rather than a
+    second copy: a copy agrees on Tuesday and disagrees in November, which is
+    the exact failure those exports exist to prevent.
+    """
+    import contact_policy
+
+    row = (
+        conn.execute(
+            text(
+                "SELECT cr.allowed_days, cr.allowed_hours FROM leads l"
+                " LEFT JOIN consent_records cr ON cr.customer_id = l.customer_id"
+                " WHERE l.id = :id"
+            ),
+            {"id": lead_id},
+        )
+        .mappings()
+        .first()
+    )
+    days = contact_policy.parse_allowed_days(row["allowed_days"]) if row else None
+    hours = contact_policy.parse_allowed_hours(row["allowed_hours"]) if row else None
+
+    # Intersect the customer's hours with RBI's, then sit inside both.
+    start_h = max(contact_policy.RBI_VOICE_START, hours[0] if hours else 0)
+    end_h = min(contact_policy.RBI_VOICE_END, hours[1] if hours else 24)
+    if start_h >= end_h:
+        pytest.skip("this customer's consent window excludes every legal calling hour")
+    hour = min(max(hour, start_h), end_h - 1)
+
+    when = datetime.now(IST) + timedelta(days=1)
+    for _ in range(7):
+        # Consent days: 0=Sun … 6=Sat, same convention evaluate() compares with.
+        if days is None or (when.isoweekday() % 7) in days:
+            break
+        when += timedelta(days=1)
+    else:  # pragma: no cover - a consent record allowing no day at all
+        pytest.skip("this customer's consent window excludes every day")
+    return when.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
 
 
 def test_a_follow_up_outside_the_calling_window_is_refused(db_tx):
@@ -153,7 +209,11 @@ def test_a_follow_up_inside_the_calling_window_is_booked(db_tx):
 
     result = db.add_lead_followup(
         lead_id,
-        {"scheduledAt": _slot_at_ist_hour(11), "channel": "voice", "note": "x"},
+        {
+            "scheduledAt": _slot_the_customer_permits(db_tx, lead_id),
+            "channel": "voice",
+            "note": "x",
+        },
     )
     assert result["status"] == "open"
 

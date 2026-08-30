@@ -19,7 +19,16 @@ from typing import Any, Callable
 from fastapi import Depends, Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import HTTPConnection
+from starlette.responses import Response
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -131,6 +140,10 @@ from schemas import (
     SandboxTurnCreateRequest,
     SandboxTurnResponse,
     SupervisorActionRequest,
+    ProviderBindingInput,
+    ProviderBindingItem,
+    ProviderModelItem,
+    ProviderPoolStatus,
     TtsPreviewRequest,
     SttTranscribeResponse,
     PromptLintRequest,
@@ -459,6 +472,17 @@ async def lifespan(_app: FastAPI):
             await asyncio.to_thread(ensure_first_party_skills)
         except Exception:
             logger.warning("skill catalog boot seed failed", exc_info=True)
+        try:
+            # The capability matrix lives in agent_core/providers/registry.py and
+            # reaches the database only through this upsert. Without it, the sole
+            # writer was migration 0092's static INSERT, so every later edit —
+            # a new model, a corrected service_class, a params_schema entry —
+            # needed its own migration or silently never shipped.
+            from agent_core.providers.persist import sync_seed as sync_provider_seed
+
+            await asyncio.to_thread(sync_provider_seed)
+        except Exception:
+            logger.warning("provider registry boot seed failed", exc_info=True)
         yield
     finally:
         # Before the DB engine goes away: live calls write CRM rows on teardown.
@@ -481,7 +505,7 @@ async def lifespan(_app: FastAPI):
         db.dispose_engine()
 
 
-async def _authz_guard(request: Request) -> None:
+async def _authz_guard(conn: HTTPConnection) -> None:
     """Per-route permission check, applied to every route in the app.
 
     Registered as a global dependency rather than 180 per-route ``Depends``
@@ -493,22 +517,66 @@ async def _authz_guard(request: Request) -> None:
     *template* (``/customers/{customer_id}``), which is what the registry keys
     on. Falling back to the raw path would mean a parameterised route never
     matches and is therefore denied — the safe direction, but useless.
+
+    The parameter is an ``HTTPConnection`` — the base class of both ``Request``
+    and ``WebSocket`` — because "every route in the app" includes the two
+    websocket ones. Annotated ``Request``, this did not quietly skip sockets:
+    FastAPI cannot build a ``Request`` from a websocket scope, so the dependency
+    solver raised ``TypeError`` and rejected the upgrade with a 500. Twilio's
+    Media Stream never connected, the customer heard silence, and every status
+    callback still reported a healthy call.
     """
-    route = request.scope.get("route")
-    path_template = getattr(route, "path", None) or request.url.path
+    # A socket has no method, and the registry is keyed on one. The two
+    # websocket routes authorise themselves with ``VOICE_WS_PROXY_SECRET``
+    # (`_voice_ws_upgrade_authorized`, fail-closed in production) — that is the
+    # design, not an oversight. ``tests/test_voice_ws_authz.py`` pins the route
+    # list so a websocket added later cannot inherit this exemption in silence.
+    if conn.scope.get("type") != "http":
+        return
+
+    route = conn.scope.get("route")
+    path_template = getattr(route, "path", None) or conn.url.path
+    method = conn.scope.get("method", "")
     # Only an actor the auth middleware actually authenticated counts. Not
     # actor_context.get_actor_user_id(), which falls back to the process default
     # — that would hand an unauthenticated caller the default user's grants.
-    actor = getattr(request.state, "actor_user_id", None)
+    actor = getattr(conn.state, "actor_user_id", None)
     try:
-        authz.check(request.method, path_template, actor)
+        authz.check(method, path_template, actor)
     except authz.PermissionDenied as exc:
         logger.warning(
             "authz denied actor=%s %s %s (needs %s)",
-            actor, request.method, path_template, exc.permission,
+            actor, method, path_template, exc.permission,
         )
         observability.observe_authz_denial(route=path_template, permission=exc.permission)
         raise HTTPException(status_code=403, detail=f"forbidden:{exc.permission}") from exc
+
+
+class Utf8JSONResponse(JSONResponse):
+    """JSON responses that state their encoding instead of assuming it is obvious.
+
+    Starlette only appends ``charset`` to ``text/*`` media types, so every
+    response here went out as a bare ``application/json``. RFC 8259 makes UTF-8
+    mandatory for JSON exchanged between systems, so that is not *wrong* — but a
+    charset nobody states is a charset every client is free to guess, and a
+    significant number of them guess ISO-8859-1.
+
+    That is not hypothetical. Windows PowerShell 5.1's ``Invoke-RestMethod`` —
+    the default HTTP client on the machines this is operated from — decodes a
+    charset-less response as ISO-8859-1, which turns the three correct UTF-8
+    bytes of an em dash into the three characters U+00E2 U+0080 U+0094. An audit
+    of the skill catalog did exactly that and reported permanent mojibake inside
+    a signed first-party pack, with the contentHash and signature said to cover
+    the corrupt bytes. Two rounds of investigation went into a repair migration
+    for data that was never damaged: the database, the disk and the wire all
+    held U+2014 the whole time, and only the reader disagreed.
+
+    For a product whose content is largely Hindi, Tamil, Telugu, Kannada,
+    Marathi and Bengali, a client that silently mangles every non-ASCII
+    character is not a curiosity. Nine bytes of header removes the ambiguity.
+    """
+
+    media_type = "application/json; charset=utf-8"
 
 
 app = FastAPI(
@@ -516,6 +584,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
     dependencies=[Depends(_authz_guard)],
+    default_response_class=Utf8JSONResponse,
     # Prod: do not publish the OpenAPI schema unauthenticated.
     docs_url=None if _IS_PROD else "/docs",
     redoc_url=None if _IS_PROD else "/redoc",
@@ -548,6 +617,31 @@ app.add_middleware(ApiKeyMiddleware)
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
+#: Response headers a browser client is allowed to read.
+#:
+#: `allow_headers=["*"]` covers *request* headers and does nothing for these:
+#: without an explicit expose list, `fetch().headers.get("X-Tts-Cache")` is
+#: null on every cross-origin call, and the studio runs on :8080 against this
+#: API on :8000. So the Voice tab's "cache hit · 240ms" line had been reading
+#: three headers it could never see, and silently rendering nothing for them.
+#:
+#: X-Tts-Cache is now load-bearing rather than cosmetic — it is how the studio
+#: tells the operator whether they are hearing the same take as last time.
+#: Content-Disposition is on this list for exactly the reason above, one
+#: endpoint later. The skill export sets a correct quoted filename and the
+#: browser could not read it, so `apiGetBlob` saw a null header every time and
+#: fell through to `${skill.id}.zip` — a file named after a row id rather than
+#: the pack. The note about `allow_headers` not covering response headers was
+#: already written here when export was added; the list was not extended.
+_CORS_EXPOSE_HEADERS = [
+    "X-Request-Id",
+    "X-Tts-Cache",
+    "X-Tts-Voice",
+    "X-Tts-Latency-Ms",
+    "X-Tts-Provider",
+    "Content-Disposition",
+]
+
 _cors_origins = [o.strip() for o in (os.getenv("CORS_ORIGINS") or "").split(",") if o.strip()]
 if _cors_origins:
     # Prod: explicit allowlist + credentials (required for cookie auth).
@@ -557,6 +651,7 @@ if _cors_origins:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=_CORS_EXPOSE_HEADERS,
     )
 else:
     # Dev: any localhost port (Vite may fall back to 8081…). Credentials
@@ -567,6 +662,7 @@ else:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=_CORS_EXPOSE_HEADERS,
     )
 
 # VOICE_EMBEDDED_HOST=true: serve SmallWebRTC signalling here instead of
@@ -577,10 +673,38 @@ if _EMBEDDED_VOICE_HOST:
     _register_voice_routes(app)
 
 
+# Error bodies are JSON too, and `default_response_class` does not reach them.
+#
+# FastAPI builds HTTPException and validation responses with its own
+# `JSONResponse`, so those went out as bare `application/json` even after the
+# app default was set — leaving exactly the charset-less responses that started
+# this, on the path most likely to carry a non-ASCII detail string (a customer
+# name, a Hindi KB title, a skill slug echoed back in a 409).
+#
+# Delegating to the stock handler and rewriting one header keeps FastAPI's
+# status codes, bodies and headers (including the WWW-Authenticate a 401 must
+# carry) exactly as they were.
+async def _json_charset(response: Response) -> Response:
+    media = response.headers.get("content-type", "")
+    if media.startswith("application/json") and "charset=" not in media.lower():
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_charset(request: Request, exc: StarletteHTTPException):
+    return await _json_charset(await http_exception_handler(request, exc))
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_charset(request: Request, exc: RequestValidationError):
+    return await _json_charset(await request_validation_exception_handler(request, exc))
+
+
 # Azure concurrency saturation / circuit open → shed load fast.
 @app.exception_handler(azure_openai.AzureBusyError)
 async def _azure_busy_handler(_request: Request, exc: azure_openai.AzureBusyError):
-    return JSONResponse(
+    return Utf8JSONResponse(
         status_code=503,
         content={"detail": str(exc) or "azure_concurrency_saturated"},
     )
@@ -588,7 +712,7 @@ async def _azure_busy_handler(_request: Request, exc: azure_openai.AzureBusyErro
 
 @app.exception_handler(circuit_breaker.CircuitOpenError)
 async def _circuit_open_handler(_request: Request, exc: circuit_breaker.CircuitOpenError):
-    return JSONResponse(
+    return Utf8JSONResponse(
         status_code=503,
         content={"detail": str(exc) or "circuit_open"},
     )
@@ -598,7 +722,11 @@ def _handle_write(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # `str(KeyError("x"))` is `"'x'"` — the repr, not the message. It reached
+        # the UI verbatim, so an Archive that lost a race toasted the operator
+        # `'agent_card_not_found_or_archived:sweep-probe'`, stray quotes and all.
+        detail = str(exc.args[0]) if exc.args else str(exc)
+        raise HTTPException(status_code=404, detail=detail) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1940,13 +2068,19 @@ def patch_agent_studio_card(bot_id: str, payload: dict[str, Any]):
 
 @app.post("/agent-studio/cards/{bot_id}/archive")
 def archive_agent_studio_card(bot_id: str):
-    """Retire a tenant card. Refuses first-party, the runtime entry bot, and
-    anything with an active production deployment."""
+    """Retire a tenant card. Refuses first-party and the runtime entry bot.
+
+    An active production deployment is retired here, not refused — this text
+    used to say otherwise, and it was the description OpenAPI served long after
+    the guard was removed for making the feature unreachable (publish always
+    leaves an active deployment).
+    """
     return _handle_write(db.archive_agent_studio_card, bot_id)
 
 
 @app.post("/agent-studio/cards/{bot_id}/restore")
 def restore_agent_studio_card(bot_id: str):
+    """Put a retired card back on the roster. Does not redeploy it."""
     return _handle_write(db.restore_agent_studio_card, bot_id)
 
 
@@ -1975,16 +2109,54 @@ def compile_agent_studio_card(bot_id: str, payload: dict[str, Any] | None = None
         # Preview what publish will ship, not what the card was authored with.
         traffic_pct=int(pct) if isinstance(pct, (int, float)) else None,
         auto_rollback=[str(t) for t in triggers] if isinstance(triggers, list) else None,
+        # G15 reads the mouth columns, which the editor holds unsaved between
+        # autosaves. Omitted, the preview gates the last saved voice rather than
+        # the one the Publish button is about to ship.
+        voice=body.get("voice") if isinstance(body.get("voice"), dict) else None,
+        persona=body.get("persona") if isinstance(body.get("persona"), dict) else None,
     )
 
 
 @app.post("/agent-studio/cards/{bot_id}/publish")
 def publish_agent_studio_card(bot_id: str, payload: PromptVersionPublishRequest):
-    versions = db.list_prompt_versions(bot_id=bot_id, limit=20)
-    draft = next((v for v in versions if v["status"] == "draft"), None)
-    if draft is None:
+    """Publish one of this bot's drafts — the one the caller names, by preference.
+
+    This used to take ``next(v for v in newest_20 if v["status"] == "draft")``:
+    whichever draft happened to sort first inside an arbitrary window, with no
+    way for the caller to say which draft it meant. A bot with two open drafts
+    therefore published a version nobody selected, and the studio — which tracks
+    the exact draft it is editing — could not express its choice through this
+    endpoint at all.
+
+    So: publish what was asked for; publish the only draft when there is exactly
+    one; and refuse rather than guess when there is more than one and no
+    instruction. Guessing here promotes text to production.
+    """
+    versions = db.list_prompt_versions(bot_id=bot_id)
+    drafts = [v for v in versions if v["status"] == "draft"]
+    if payload.versionId:
+        chosen = next((v for v in drafts if v["id"] == payload.versionId), None)
+        if chosen is None:
+            # Distinguish "not a draft of this bot" from "not a draft", since the
+            # caller can fix only one of those.
+            exists = any(v["id"] == payload.versionId for v in versions)
+            raise HTTPException(
+                status_code=409 if exists else 404,
+                detail="prompt_version_not_draft" if exists else "prompt_version_not_found",
+            )
+        return publish_prompt_version(chosen["id"], payload)
+    if not drafts:
         raise HTTPException(status_code=409, detail="no_draft_to_publish")
-    return publish_prompt_version(draft["id"], payload)
+    if len(drafts) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "ambiguous_draft_to_publish: this bot has "
+                f"{len(drafts)} open drafts ({', '.join(v['id'] for v in drafts)}). "
+                "Name one with versionId."
+            ),
+        )
+    return publish_prompt_version(drafts[0]["id"], payload)
 
 
 @app.post("/agent-studio/cards/{bot_id}/connectors")
@@ -2012,7 +2184,18 @@ def get_agent_studio_graph(bot_id: str):
     handoffs = raw.get("handoffs") if isinstance(raw, dict) else []
     return {
         "botId": bot_id,
-        "nodes": [{"id": c["botId"], "label": c["name"]} for c in db.list_agent_studio_cards()],
+        # Reachability rides along because list_agent_studio_cards already
+        # computed it: the allowlist editor can then say whether a target takes
+        # traffic today, and whether this card's own allowlist routes anything.
+        "nodes": [
+            {
+                "id": c["botId"],
+                "label": c["name"],
+                "reachability": c["reachability"],
+                "deploymentStatus": c["deploymentStatus"],
+            }
+            for c in db.list_agent_studio_cards()
+        ],
         "edges": [
             {"from": bot_id, "to": h.get("to_bot_id")}
             for h in (handoffs or [])
@@ -2182,7 +2365,20 @@ def run_agent_studio_script(payload: dict[str, Any]):
     from agent_core.skills.scripts import run_script
 
     name = str(payload.get("name") or "").strip()
-    args = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    args = payload.get("payload")
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        # Reject rather than coerce. This used to substitute `{}` for anything
+        # that was not a dict, so posting `[1, 2]` ran the script against no
+        # arguments at all and returned `numeric_required` — a verdict that
+        # reads exactly like one computed from the input, on input that was
+        # never looked at. The console tells the user the payload "must be a
+        # JSON object"; this is the endpoint agreeing with it.
+        raise HTTPException(
+            status_code=422,
+            detail="script_payload_must_be_an_object",
+        )
     return run_script(name, args)
 
 
@@ -2696,6 +2892,7 @@ def list_tts_voice_catalog(
     gender: str | None = Query(default=None),
     status: str | None = Query(default="GA"),
     price_tier: str | None = Query(default=None),
+    providerId: str | None = Query(default=None),
     include_premium: bool = Query(default=False),
     include_removed: bool = Query(default=False),
     limit: int = Query(default=60, ge=1, le=200),
@@ -2708,6 +2905,7 @@ def list_tts_voice_catalog(
         gender=gender,
         status=status,
         price_tier=price_tier,
+        provider_id=providerId,
         include_premium=include_premium,
         include_removed=include_removed,
         limit=limit,
@@ -2753,7 +2951,17 @@ def sync_tts_voice_catalog(_admin: None = Depends(require_admin)):
 
 @app.post("/tts/preview")
 def tts_preview(payload: TtsPreviewRequest):
-    """Azure Speech TTS preview — returns audio/mpeg (cached by synthesis params)."""
+    """TTS preview. Azure keeps its cached path; other vendors dispatch out.
+
+    The catalog is multi-vendor now, so a preview request can name a
+    Cartesia, Deepgram or OpenRouter voice. Those used to fall through to
+    Azure resolution and surface an Azure error for a voice that was never
+    Azure's — a picker that lists a voice it cannot play.
+
+    Azure stays inline rather than moving into provider_tts because this
+    path also carries the synthesis cache and the removed-voice fallback,
+    neither of which the other providers have.
+    """
     import azure_speech
 
     text = (payload.text or "").strip()
@@ -2763,6 +2971,41 @@ def tts_preview(payload: TtsPreviewRequest):
         text = text[:500].rstrip() + "…"
 
     short = (payload.shortName or payload.azureVoiceName or "").strip()
+
+    if short:
+        import provider_tts
+
+        provider = provider_tts.provider_for_voice(short)
+        if provider != "azure":
+            try:
+                audio, mime, meta = provider_tts.synthesize(
+                    short_name=short,
+                    text_body=text,
+                    # `params` last: a model-declared `speed` is the control the
+                    # operator actually turned, and it must win over the
+                    # Azure-shaped `speed` field that every request carries a
+                    # default for.
+                    params={"speed": payload.speed, **(payload.params or {})},
+                    force_fresh=payload.fresh,
+                )
+            except provider_tts.PreviewUnavailable as exc:
+                # 422 not 500: the request was well formed, this voice just
+                # cannot be auditioned right now (no key, quota, vendor 4xx).
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            return Response(
+                content=audio,
+                media_type=mime,
+                headers={
+                    "X-Tts-Provider": str(meta["provider"]),
+                    "X-Tts-Voice": str(meta["voiceName"]),
+                    "X-Tts-Latency-Ms": str(meta["latencyMs"]),
+                    # Was the literal "miss" — there was no cache on this path
+                    # at all, so the header was accurate and useless. Same
+                    # HIT/MISS casing as the Azure branch below, because the
+                    # client reads one header for both.
+                    "X-Tts-Cache": "HIT" if meta["cacheHit"] else "MISS",
+                },
+            )
     voice_id = (payload.voiceId or "").strip()
     azure_name: str | None = short or None
     if not azure_name and voice_id:
@@ -2788,6 +3031,7 @@ def tts_preview(payload: TtsPreviewRequest):
             pitch=payload.pitch,
             warmth=payload.warmth,
             pause_ms=payload.pauseMs,
+            force_fresh=payload.fresh,
         )
     except azure_speech.AzureSpeechConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -2914,6 +3158,18 @@ def lint_prompt_version(payload: PromptLintRequest):
 def estimate_prompt_tokens(payload: PromptTokenEstimateRequest):
     """Tiktoken (cl100k_base) prompt token count + input-$ estimate for Studio.
 
+    Returns two figures. ``tokens`` is the authored text, which is what the
+    editor shows a character count for. ``assembledTokens`` is the whole system
+    message as the runtime builds it — authored prompt, generated guardrail
+    rules, persona directions, tenant-local time and (on voice) the naturalness
+    overlay — and is only present when the caller supplies guardrails, since
+    without them the assembly would be a guess wearing the clothes of a
+    measurement.
+
+    The second figure is the one that bills. It is re-sent on every LLM call,
+    2-3x per turn through Flows, so a card whose authored prompt is 100 tokens
+    can be paying for 800.
+
     Cost uses AZURE_OPENAI_INPUT_USD_PER_1M (default 2.50) — prompt-input only,
     not a full turn (completion / RAG context excluded).
     """
@@ -2929,13 +3185,48 @@ def estimate_prompt_tokens(payload: PromptTokenEstimateRequest):
         usd_per_1m = 2.5
     if usd_per_1m < 0:
         usd_per_1m = 0.0
-    cost_usd = round(tokens * usd_per_1m / 1_000_000.0, 6)
+
+    def _cost(count: int) -> float:
+        return round(count * usd_per_1m / 1_000_000.0, 6)
+
+    assembled_tokens: int | None = None
+    if payload.guardrails is not None:
+        # Assemble with the real builders rather than re-implementing the
+        # concatenation here or in the browser. The generated sections are
+        # several times the size of the authored text and they change whenever
+        # a guardrail is toggled or the naturalness overlay is edited; a second
+        # copy of that arithmetic would be wrong within a week.
+        from agent_core.prompt import build_system_prompt, default_context
+        from prompt_render import render_system_prompt, strip_unrendered_crm_tokens
+
+        persona = payload.persona.model_dump() if payload.persona is not None else {}
+        guardrails = payload.guardrails.model_dump()
+        ctx = default_context({"language": persona["language"]} if persona else None)
+        # Same two steps the runtimes take, so the count reflects the CRM lines
+        # that get deleted rather than the ones that were typed.
+        rendered = strip_unrendered_crm_tokens(render_system_prompt(text, ctx))
+        if payload.channel == "voice":
+            from voice.natural import build_voice_system_prompt
+
+            assembled = build_voice_system_prompt(rendered, guardrails, persona=persona or None)
+        else:
+            assembled = build_system_prompt(
+                rendered_prompt=rendered,
+                persona=persona,
+                guardrails=guardrails,
+                context_blocks=[],
+                channel="whatsapp",
+            )
+        assembled_tokens = count_tokens(assembled)
+
     return {
         "tokens": tokens,
         "encoding": "cl100k_base",
         "usdPer1M": usd_per_1m,
-        "costUsd": cost_usd,
+        "costUsd": _cost(tokens),
         "source": "tiktoken",
+        "assembledTokens": assembled_tokens,
+        "assembledCostUsd": None if assembled_tokens is None else _cost(assembled_tokens),
     }
 
 
@@ -3307,26 +3598,147 @@ async def twilio_voice_stream_status(request: Request):
 
 @app.post("/twilio/voice/call-status")
 async def twilio_voice_call_status(request: Request):
-    """Incoming Phone Number StatusCallback — dial/ring/answer/complete."""
+    """Call StatusCallback — dial / ring / answer / complete.
+
+    This endpoint used to log and return 204. Everything the product could not
+    say about outbound calling followed from that: an unanswered dial produced
+    no row anywhere, because ``interactions`` is created from
+    ``on_client_connected`` and a call that never connects never gets there.
+    Answer rate, right-party-contact rate, best-time-to-call and cost per
+    connect were all uncomputable from what we kept.
+
+    Now it drives the ``call_attempts`` state machine. Three properties matter:
+
+    * **Idempotent.** Twilio retries callbacks; ``apply_provider_status`` locks
+      the row and refuses to re-stamp a terminal state.
+    * **Order-insensitive.** Callbacks are not ordered, so a late ``ringing``
+      cannot overwrite a ``completed`` that already landed.
+    * **Silent on unknown call ids.** Inbound calls have no attempt row, and a
+      status endpoint that 4xx'd on them would earn a retry storm.
+    """
     form = dict(await request.form())
     if not _twilio_signature_ok(request, form):
         raise HTTPException(status_code=403, detail="invalid_twilio_signature")
 
-    call_sid = str(form.get("CallSid") or "")
-    status = str(form.get("CallStatus") or form.get("CallStatusCallbackEvent") or "")
-    duration = str(form.get("CallDuration") or form.get("Duration") or "")
+    call_sid = str(form.get("CallSid") or "").strip()
+    status = str(form.get("CallStatus") or form.get("CallStatusCallbackEvent") or "").strip()
+    raw_duration = str(form.get("CallDuration") or form.get("Duration") or "").strip()
+    try:
+        duration = int(raw_duration) if raw_duration else None
+    except ValueError:
+        duration = None
+    answered_by = str(form.get("AnsweredBy") or "").strip() or None
+    error_code = str(form.get("ErrorCode") or "").strip() or None
+
     logger.info(
-        "Twilio call status CallSid=%s status=%s duration=%s",
+        "Twilio call status CallSid=%s status=%s duration=%s answeredBy=%s",
         call_sid or None,
         status or None,
-        duration or None,
+        duration,
+        answered_by,
     )
+    if not call_sid or not status:
+        return Response(status_code=204)
+
+    import outbound
+
+    def _apply() -> dict[str, Any] | None:
+        with db.engine.begin() as conn:
+            return outbound.apply_provider_status(
+                conn,
+                provider_call_id=call_sid,
+                status=status,
+                duration_sec=duration,
+                error_code=error_code,
+                answered_by=answered_by,
+            )
+
+    try:
+        row = await asyncio.to_thread(_apply)
+    except Exception:
+        # A 500 here makes Twilio retry, which is the right behaviour for a
+        # transient database blip and the reason this is not swallowed silently.
+        logger.exception("call-status: attempt update failed sid=%s", call_sid)
+        raise HTTPException(status_code=500, detail="attempt_update_failed")
+
+    if row is None:
+        # Inbound, or a call placed before this table existed. Not an error.
+        logger.debug("call-status for unknown attempt sid=%s", call_sid)
+    return Response(status_code=204)
+
+
+@app.post("/twilio/sms/status")
+async def twilio_sms_status(request: Request):
+    """SMS StatusCallback — queued / sent / delivered / undelivered / failed.
+
+    Appends one row per transition to the delivery-receipt log. That log is what
+    lets the reach estimator answer "does an SMS to this borrower actually
+    arrive", which until now had no evidence at all on this channel: the SID was
+    logged and dropped, so a delivered message and a dead number looked
+    identical.
+
+    The borrower is resolved from the receipt written at send time rather than
+    from the phone number in the callback. Matching on the number would attribute
+    a delivery to whichever borrower shares it — households and re-issued
+    numbers both do — and would work perfectly right up until it silently did
+    not.
+    """
+    form = dict(await request.form())
+    if not _twilio_signature_ok(request, form):
+        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
+
+    import delivery_receipts
+
+    sid = str(form.get("MessageSid") or form.get("SmsSid") or "").strip()
+    state = delivery_receipts.normalise_twilio(
+        str(form.get("MessageStatus") or form.get("SmsStatus") or "")
+    )
+    if not sid or not state:
+        # 204 rather than 4xx: an unrecognised status is not something Twilio
+        # can fix by retrying, and a retry storm against a status endpoint is
+        # how a receipt log becomes an incident.
+        return Response(status_code=204)
+
+    with db.engine.begin() as conn:
+        origin = conn.execute(
+            text(
+                """
+                SELECT tenant_id, customer_id, related_id
+                FROM contact_delivery_events
+                WHERE provider = 'twilio' AND provider_ref = :sid
+                ORDER BY occurred_at ASC
+                LIMIT 1
+                """
+            ),
+            {"sid": sid},
+        ).mappings().first()
+        if origin is None:
+            logger.info("twilio sms status for unknown sid=%s state=%s", sid, state)
+            return Response(status_code=204)
+        delivery_receipts.record(
+            conn,
+            tenant_id=str(origin["tenant_id"]),
+            customer_id=str(origin["customer_id"]),
+            channel="sms",
+            provider="twilio",
+            provider_ref=sid,
+            related_id=origin["related_id"],
+            state=state,
+            reason=str(form.get("ErrorCode") or "") or None,
+        )
     return Response(status_code=204)
 
 
 @app.post("/twilio/voice/outbound")
 async def twilio_voice_outbound(payload: dict[str, Any]):
-    """Start an outbound PSTN call that connects into the same Media Stream bot."""
+    """Start an outbound PSTN call that connects into the same Media Stream bot.
+
+    The order here is the design's, not a convenience: the attempt row is
+    written and committed **before** the contact gate runs, so a refusal has
+    something to attach to. That is what turns the eleven ``contact_policy``
+    denial reasons into a queryable denial rate instead of a log line, and it
+    is the record that answers "why did nobody call this borrower on Tuesday".
+    """
     from voice import twilio_ops
 
     if not twilio_ops.configured():
@@ -3335,9 +3747,34 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
     if not to:
         raise HTTPException(status_code=400, detail="to_required")
     customer_id = str(payload.get("customerId") or payload.get("customer_id") or "").strip()
-    import contact_policy
+    objective = str(payload.get("objective") or "manual_outbound").strip() or "manual_outbound"
+    account_id = str(payload.get("accountId") or payload.get("account_id") or "").strip() or None
 
+    import contact_policy
+    import mission as mission_mod
+    import outbound
+
+    attempt: dict[str, Any] | None = None
     with db.engine.begin() as conn:
+        if customer_id:
+            bot_id = str(payload.get("botId") or db.DEFAULT_BOT_ID)
+            built = mission_mod.build(
+                conn,
+                customer_id=customer_id,
+                objective=objective,
+                account_id=account_id,
+                card=mission_mod.card_for_bot(bot_id),
+                bot_id=bot_id,
+            )
+            attempt = outbound.reserve(
+                conn,
+                customer_id=customer_id,
+                to_phone=to,
+                objective=objective,
+                account_id=account_id,
+                bot_id=bot_id,
+                context={"source": "manual_endpoint", "mission": built},
+            )
         decision = contact_policy.admit(
             conn,
             customer_id=customer_id or None,
@@ -3345,11 +3782,14 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
             purpose="outreach",
             session_key=customer_id or to,
             source="voice_outbound",
-            related_id=to,
+            related_id=attempt["id"] if attempt else to,
             actor_kind="human",
         )
+        if not decision.allowed and attempt:
+            outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")
     if not decision.allowed:
         raise HTTPException(status_code=409, detail=decision.reason or "contact_policy")
+
     custom = {
         k: str(v)
         for k, v in (payload.get("custom") or {}).items()
@@ -3357,13 +3797,378 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
     }
     if customer_id:
         custom["customer_id"] = customer_id
-    elif payload.get("customerId"):
-        custom["customer_id"] = str(payload["customerId"])
+
+    # An ad-hoc dial to a bare number with no customer on file keeps the old
+    # path: there is no borrower to attribute an attempt to, and inventing a
+    # customer row to satisfy a foreign key would be worse than the gap.
+    if attempt is None:
+        try:
+            return twilio_ops.start_outbound_call(to=to, custom=custom or None)
+        except Exception as exc:
+            logger.exception("Twilio outbound failed")
+            raise HTTPException(status_code=502, detail="twilio_outbound_failed") from exc
+
+    result = await asyncio.to_thread(
+        outbound.place, db.engine, attempt, to_phone=to, custom=custom or None
+    )
+    if not result.get("placed"):
+        reason = result.get("reason") or "dial_failed"
+        raise HTTPException(
+            status_code=503 if reason == "fleet_busy" else 502, detail=reason
+        )
+    return result
+
+
+@app.get("/platform/switches")
+def list_platform_switches():
+    """Operator-flippable runtime switches and their current state.
+
+    Every known switch is returned whether or not a row exists for it, because
+    "no row" is a real state — off — and a screen that showed nothing until
+    somebody flipped something would be lying about the default.
+    """
+    import platform_switches
+
+    with db.engine.connect() as conn:
+        return {"switches": platform_switches.get_all(conn)}
+
+
+@app.patch("/platform/switches/{key}")
+def patch_platform_switch(key: str, payload: dict[str, Any]):
+    import platform_switches
+
+    enabled = payload.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=422, detail="enabled_must_be_boolean")
+    note = payload.get("note")
+    note = str(note).strip()[:200] if note else None
     try:
-        return twilio_ops.start_outbound_call(to=to, custom=custom or None)
-    except Exception as exc:
-        logger.exception("Twilio outbound failed")
-        raise HTTPException(status_code=502, detail="twilio_outbound_failed") from exc
+        with db.engine.begin() as conn:
+            result = platform_switches.set_enabled(conn, key, enabled, note=note)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="unknown_switch") from None
+    logger.warning(
+        "platform switch %s set to %s by %s", key, enabled, db._actor_user_id()
+    )
+    return result
+
+
+#: The number the demo dials. A constant, not a request parameter: this button
+#: exists so a rehearsed demo is one click, and an endpoint that accepts an
+#: arbitrary number is a dialer, not a demo. Ad-hoc dialling already has a home
+#: at POST /twilio/voice/outbound, behind the same switch.
+DEMO_OUTBOUND_PHONE_DEFAULT = "919655282324"
+
+
+def _demo_waivable_reasons() -> frozenset[str]:
+    """Contact-policy refusals the demo switch may override.
+
+    Every one is a rule about *timing or frequency* — when a borrower may be
+    called and how often. None of them is a rule about whether the borrower
+    consented to be called at all; those stay in force whatever the switch says,
+    which is the line this set exists to draw.
+    """
+    import contact_policy
+
+    return frozenset(
+        {
+            contact_policy.REASON_HOURS,    # statutory calling hours
+            contact_policy.REASON_WINDOW,   # the borrower's narrower preference
+            contact_policy.REASON_COOLING,  # gap between consecutive contacts
+            contact_policy.REASON_DAILY,    # touches per day
+            contact_policy.REASON_WEEKLY,   # touches per week
+        }
+    )
+
+
+_DEMO_WAIVABLE_REASONS = _demo_waivable_reasons()
+
+
+def _demo_outbound_phone() -> str:
+    return (os.getenv("DEMO_OUTBOUND_PHONE") or DEMO_OUTBOUND_PHONE_DEFAULT).strip()
+
+
+def _demo_outbound_bot_id() -> str:
+    """The card that will speak, not always the tenant default."""
+    import mission as mission_mod
+
+    return mission_mod.resolve_outbound_bot_id(
+        explicit=(os.getenv("DEMO_OUTBOUND_BOT_ID") or "").strip() or None,
+        objective=(
+            os.getenv("DEMO_OUTBOUND_OBJECTIVE") or DEMO_OUTBOUND_OBJECTIVE_DEFAULT
+        ).strip(),
+    )
+
+
+#: The objective the demo runs under. It must be one the *card* declares, not a
+#: label invented here: `entry_node`, the success criteria, the duration budget,
+#: the voicemail policy and the cadence all come from the card's objective spec,
+#: and `OBJECTIVE_BRIEF` — the paragraph telling the agent what this call is for
+#: — is keyed by it. An unrecognised objective silently yields an empty brief
+#: and no spec, which is a materially worse call that still connects.
+DEMO_OUTBOUND_OBJECTIVE_DEFAULT = "dpd_reminder"
+
+
+def _demo_outbound_objective(card: Any) -> str:
+    """The demo objective, validated against the card that will run it."""
+    wanted = (
+        os.getenv("DEMO_OUTBOUND_OBJECTIVE") or DEMO_OUTBOUND_OBJECTIVE_DEFAULT
+    ).strip()
+    declared = [
+        str(getattr(o, "key", "")) for o in (getattr(getattr(card, "outbound", None), "objectives", None) or [])
+    ]
+    if wanted in declared:
+        return wanted
+    if declared:
+        logger.warning(
+            "demo objective %r is not declared by the card (has %s) — using %s",
+            wanted,
+            declared,
+            declared[0],
+        )
+        return declared[0]
+    return wanted
+
+
+@app.get("/demo/outbound-call")
+def demo_outbound_target():
+    """Who the demo button will call, and whether it can right now.
+
+    The screen needs to say this *before* the click. "Dial and find out" is a
+    poor design for a control whose side effect is a real phone ringing in
+    somebody's hand.
+    """
+    import platform_switches
+    from voice import twilio_ops
+
+    phone = _demo_outbound_phone()
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    customer: dict[str, Any] | None = None
+    with db.engine.connect() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT id, name, phone_primary, dnd
+                FROM customers
+                WHERE tenant_id = :t
+                  AND regexp_replace(COALESCE(phone_primary, ''), '\\D', '', 'g') = :d
+                LIMIT 1
+                """
+            ),
+            {"t": db._tenant(), "d": digits},
+        ).mappings().first()
+        if row:
+            customer = {
+                "id": row["id"],
+                "name": row["name"],
+                "phone": row["phone_primary"],
+                "dnd": bool(row["dnd"]),
+            }
+    # What the call will actually be authorised to do. `allowed_offers` is empty
+    # on every objective this card declares, and `mission.build` turns that into
+    # an explicit "do NOT mention any product, offer, top-up or upgrade" line in
+    # the brief. Saying so here is the difference between a demo that surprises
+    # the person running it and one that does not: whoever clicks this deserves
+    # to know upsell is off *before* they promise a customer they will see it.
+    import mission as mission_mod
+
+    objective = ""
+    offers_allowed = False
+    try:
+        card = mission_mod.card_for_bot(_demo_outbound_bot_id())
+        objective = _demo_outbound_objective(card)
+        for spec in getattr(getattr(card, "outbound", None), "objectives", None) or []:
+            if str(getattr(spec, "key", "")) == objective:
+                offers_allowed = bool(getattr(spec, "allowed_offers", None))
+                break
+    except Exception:
+        logger.exception("demo target: could not resolve the objective")
+
+    # Whether the call would be permitted *right now*, using the dry-run
+    # evaluator so asking the question costs the borrower nothing — `admit`
+    # increments the daily counter, `evaluate` does not.
+    policy_reason: str | None = None
+    #: Set when the waiver is what makes the call possible, so the screen can say
+    #: "we are overriding this" rather than silently showing all-clear.
+    policy_waived: str | None = None
+    if customer:
+        try:
+            import contact_policy
+
+            with db.engine.connect() as conn:
+                verdict = contact_policy.evaluate(
+                    conn, customer_id=customer["id"], channel="voice", purpose="outreach"
+                )
+            policy_reason = None if verdict.allowed else (verdict.reason or "contact_policy")
+            # Report what the *button* will do, not what the raw engine said.
+            # The POST applies the demo waiver, so a screen that showed the
+            # unwaived refusal would tell the operator they are blocked and then
+            # place the call anyway — the same class of confident-but-wrong
+            # state this product keeps getting caught by.
+            if (
+                policy_reason in _DEMO_WAIVABLE_REASONS
+                and platform_switches.demo_ignores_window()
+            ):
+                policy_waived = policy_reason
+                policy_reason = None
+        except Exception:
+            logger.exception("demo target: contact policy dry-run failed")
+
+    return {
+        "phone": phone,
+        "customer": customer,
+        "objective": objective,
+        "offersAllowed": offers_allowed,
+        "outboundEnabled": platform_switches.outbound_enabled(),
+        "demoIgnoresWindow": platform_switches.demo_ignores_window(),
+        "policyReason": policy_reason,
+        "policyWaived": policy_waived,
+        "twilioConfigured": twilio_ops.configured(),
+    }
+
+
+@app.post("/demo/outbound-call")
+async def demo_outbound_call():
+    """Place the demo call: one number, the full mission, every real gate.
+
+    Deliberately *not* a shortcut around the pipeline. It builds a mission from
+    the live agent card, reserves an attempt, runs `contact_policy` and honours
+    the outbound switch — so what the customer watches is the product, not a
+    demo harness that resembles it. The compliance refusals are part of the
+    demo: a call declined at 21:00 because the statutory window closed is a
+    better thing to show than one that goes through.
+    """
+    import contact_policy
+    import mission as mission_mod
+    import outbound
+    import platform_switches
+    from voice import twilio_ops
+
+    if not platform_switches.outbound_enabled():
+        raise HTTPException(status_code=409, detail="outbound_disabled")
+    if not twilio_ops.configured():
+        raise HTTPException(status_code=503, detail="twilio_not_configured")
+
+    phone = _demo_outbound_phone()
+    digits = "".join(ch for ch in phone if ch.isdigit())
+
+    with db.engine.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT id FROM customers
+                WHERE tenant_id = :t
+                  AND regexp_replace(COALESCE(phone_primary, ''), '\\D', '', 'g') = :d
+                LIMIT 1
+                """
+            ),
+            {"t": db._tenant(), "d": digits},
+        ).mappings().first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="demo_customer_not_found")
+        customer_id = str(row["id"])
+        account_id = conn.execute(
+            text(
+                "SELECT id FROM accounts WHERE customer_id = :c"
+                " ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id LIMIT 1"
+            ),
+            {"c": customer_id},
+        ).scalar()
+
+        bot_id = _demo_outbound_bot_id()
+        card = mission_mod.card_for_bot(bot_id)
+        objective = _demo_outbound_objective(card)
+        built = mission_mod.build(
+            conn,
+            customer_id=customer_id,
+            objective=objective,
+            account_id=account_id,
+            card=card,
+            bot_id=bot_id,
+        )
+        attempt = outbound.reserve(
+            conn,
+            customer_id=customer_id,
+            to_phone=phone,
+            objective=objective,
+            account_id=account_id,
+            bot_id=bot_id,
+            context={"source": "demo_button", "mission": built},
+        )
+        decision = contact_policy.admit(
+            conn,
+            customer_id=customer_id,
+            channel="voice",
+            purpose="outreach",
+            session_key=customer_id,
+            source="voice_outbound",
+            related_id=attempt["id"] if attempt else phone,
+            actor_kind="human",
+        )
+        # The one override, and its limits.
+        #
+        # Waivable: *when* and *how often*. The calling hours, the borrower's
+        # preferred window, the cooling-off gap and the daily and weekly caps
+        # all exist to stop a borrower being rung repeatedly. The demo endpoint
+        # takes no phone number — it dials one configured handset, the one the
+        # operator running the demo is holding — so rehearsing on it is not the
+        # harm any of those rules were written to prevent. Hitting `cooling_off`
+        # after three rehearsal calls to your own phone is the rule working
+        # correctly on the wrong subject.
+        #
+        # Not waivable, at any switch setting: consent, opt-out, DND, the
+        # registry and the DPDP promotional-purpose basis. Those answer "may we
+        # contact this person at all", which a demo does not get to re-answer —
+        # and they are not what is blocking anyone here, so waiving them would
+        # buy nothing and cost the one guarantee worth keeping.
+        reason = decision.reason or "contact_policy"
+        waivable_for_demo = reason in _DEMO_WAIVABLE_REASONS
+        waived = (
+            not decision.allowed
+            and waivable_for_demo
+            and platform_switches.demo_ignores_window()
+        )
+        if waived:
+            logger.warning(
+                "demo call: waiving %s for the demo number by operator switch", reason
+            )
+            db.record_activity(
+                conn,
+                "customer",
+                customer_id,
+                "demo_window_waived",
+                f"Demo call placed despite {reason}",
+                f"waived:{reason}",
+                customer_id,
+            )
+        elif not decision.allowed and attempt:
+            outbound.suppress(conn, attempt["id"], reason)
+
+    if not decision.allowed and not waived:
+        # 409 with the engine's own reason. `outside_allowed_window` here is the
+        # calling window doing its job, not a bug in the button.
+        raise HTTPException(status_code=409, detail=reason)
+
+    result = await asyncio.to_thread(
+        outbound.place,
+        db.engine,
+        attempt,
+        to_phone=phone,
+        custom={"customer_id": customer_id, "demo": "1"},
+    )
+    if not result.get("placed"):
+        reason = result.get("reason") or "dial_failed"
+        raise HTTPException(
+            status_code=503 if reason in {"fleet_busy", "outbound_disabled"} else 502,
+            detail=reason,
+        )
+    return {
+        "placed": True,
+        "customerId": customer_id,
+        "phone": phone,
+        "attemptId": result.get("attemptId"),
+        "callSid": result.get("callSid"),
+    }
 
 
 @app.get("/twilio/voice/status")
@@ -3405,18 +4210,32 @@ async def _voice_media_stream_entry(
     ``VOICE_EMBEDDED_HOST=true`` serves the call here in-process; otherwise the
     socket is bridged to the standalone Pipecat runner on :7860.
     """
+    from voice.call_trace import event
     from voice.host import embedded_host_enabled, run_websocket_session
     from voice.ws_proxy import proxy_voice_websocket, ws_proxy_enabled
 
+    # First line of the socket's story. Without it, "Twilio never connected" and
+    # "we refused Twilio" are the same absence of a log line — and they were,
+    # for two answered calls that played silence.
+    peer = getattr(getattr(websocket, "client", None), "host", None)
+    event(
+        "ws.arrived",
+        peer=peer,
+        secret="path" if path_secret else "header-or-query",
+    )
+
     embedded = embedded_host_enabled()
     if not embedded and not ws_proxy_enabled():
+        event("ws.refused", reason="no_host_and_proxy_disabled")
         await websocket.close(code=1008)
         return
     # The upgrade gate applies to both modes — hosting the pipeline in-process
     # makes an unauthenticated socket more dangerous, not less.
     if not _voice_ws_upgrade_authorized(websocket, path_secret=path_secret):
+        event("ws.refused", reason="unauthorized", peer=peer)
         await websocket.close(code=1008, reason="unauthorized")
         return
+    event("ws.authorized", mode="embedded" if embedded else "proxy")
     if embedded:
         await run_websocket_session(websocket)
         return
@@ -3833,6 +4652,41 @@ def treatment_insights(days: int = Query(default=14, ge=1, le=90)):
     return db.treatment_insights(days)
 
 
+@app.get("/treatment/metrics")
+def treatment_metrics(
+    days: int = Query(default=28, ge=1, le=180),
+    includeSimulated: bool = Query(default=False),
+):
+    """Section 17 in full: is the engine working, and what is it costing?
+
+    ``/treatment/insights`` says whether it is safe to switch on. This says
+    whether switching it on paid, measured against the randomised control arm.
+    Where an arm is too thin to support a causal figure the field says so
+    rather than degrading to a collections rate -- which is the number a
+    response model wins on, and therefore the number this endpoint exists not
+    to report.
+    """
+    return db.treatment_metrics(days, include_simulated=includeSimulated)
+
+
+@app.get("/treatment/model-health")
+def treatment_model_health(
+    days: int = Query(default=14, ge=1, le=180),
+    includeSimulated: bool = Query(default=False),
+):
+    """Feature drift, reach calibration, and predicted tau against measured ATE."""
+    return db.treatment_model_health(days, include_simulated=includeSimulated)
+
+
+@app.get("/treatment/models")
+def treatment_models(
+    target: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """The champion/challenger ledger, and whether it matches what is serving."""
+    return db.treatment_models(target, limit)
+
+
 @app.get("/treatment/holds")
 def list_treatment_holds(
     customerId: str | None = Query(default=None),
@@ -3885,6 +4739,510 @@ def list_treatment_cases(
 
 
 # ---------------------------------------------------------------------------
+# Outbound — the reach numbers that did not exist before call_attempts
+# ---------------------------------------------------------------------------
+
+
+@app.get("/outbound/stats")
+def outbound_stats(days: int = Query(default=14, ge=1, le=90)):
+    """Answer rate, right-party rate, attempts per connect, denial rate.
+
+    Every one of these was uncomputable until an unanswered dial started
+    leaving a row: ``interactions`` is created when media connects, so the
+    denominator of "how often do we reach the people we call" was never
+    recorded anywhere.
+
+    Suppressed attempts are reported beside the reach figures rather than
+    inside them. A call the contact gate refused is not a call the borrower
+    ignored, and folding the two together would make a compliant week look like
+    an unreachable book.
+    """
+    import outbound
+
+    with db.engine.connect() as conn:
+        return outbound.reach_stats(conn, tenant_id=db.current_tenant(), days=days)
+
+
+@app.get("/outbound/attempts")
+def outbound_attempts(
+    customerId: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    """The dial log, newest first — including the ones that never connected."""
+    clauses = ["a.tenant_id = :tenant"]
+    params: dict[str, Any] = {"tenant": db.current_tenant(), "limit": limit, "offset": offset}
+    if customerId:
+        clauses.append("a.customer_id = :cid")
+        params["cid"] = customerId
+    if state:
+        clauses.append("a.state = :state")
+        params["state"] = state
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"""
+                SELECT a.id, a.customer_id, c.name AS customer_name, a.objective,
+                       a.attempt_no, a.state, a.suppressed_reason, a.to_phone_last4,
+                       a.answered_by, a.right_party, a.ring_sec, a.talk_sec,
+                       a.provider_call_id, a.provider_status, a.provider_error,
+                       a.interaction_id, a.decision_id, a.reserved_at, a.placed_at,
+                       a.answered_at, a.ended_at,
+                       o.connection, o.business, o.objective_met, o.nonpayment_reason,
+                       o.summary, o.summary_source
+                FROM call_attempts a
+                JOIN customers c ON c.id = a.customer_id
+                LEFT JOIN call_outcomes o ON o.attempt_id = a.id
+                WHERE {' AND '.join(clauses)}
+                ORDER BY a.reserved_at DESC
+                LIMIT :limit OFFSET :offset
+                """
+            ),
+            params,
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/outbound/reasons")
+def outbound_reasons(days: int = Query(default=30, ge=1, le=180)):
+    """Why the book is not paying, counted.
+
+    The question the product could not answer at all: it could say an account
+    was 45 DPD with two bounces and never that the borrower lost their job in
+    June. ``forgot`` is the row to watch — it counts the calls that were worth
+    less than a reminder.
+    """
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT nonpayment_reason AS reason, count(*) AS calls,
+                       count(*) FILTER (WHERE objective_met) AS resolved
+                FROM call_outcomes
+                WHERE tenant_id = :tenant
+                  AND nonpayment_reason IS NOT NULL
+                  AND created_at >= now() - make_interval(days => :days)
+                GROUP BY 1 ORDER BY 2 DESC
+                """
+            ),
+            {"tenant": db.current_tenant(), "days": days},
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/customers/{customer_id}/outbound/hours")
+def outbound_hourly(customer_id: str, days: int = Query(default=90, ge=1, le=365)):
+    """Per-hour answer rate for one borrower, in their own local time.
+
+    This is what ``treatment/features.responsive_hours`` should eventually read:
+    unlike the connect-only version, it has a denominator.
+    """
+    import outbound
+
+    with db.engine.connect() as conn:
+        return outbound.hourly_reach(conn, customer_id=customer_id, days=days)
+
+
+@app.get("/outbound/campaigns")
+def list_campaign_runs(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
+):
+    """Runs and how far through each one is."""
+    clauses = ["r.tenant_id = :tenant"]
+    params: dict[str, Any] = {"tenant": db.current_tenant(), "limit": limit}
+    if status:
+        clauses.append("r.status = :status")
+        params["status"] = status
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"""
+                SELECT r.*,
+                  (SELECT count(*) FROM campaign_targets t
+                    WHERE t.run_id = r.id AND t.state = 'pending')  AS pending,
+                  (SELECT count(*) FROM campaign_targets t
+                    WHERE t.run_id = r.id AND t.state = 'done')     AS done,
+                  (SELECT count(*) FROM campaign_targets t
+                    WHERE t.run_id = r.id AND t.state = 'skipped')  AS skipped
+                FROM campaign_runs r
+                WHERE {' AND '.join(clauses)}
+                ORDER BY r.created_at DESC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.post("/outbound/campaigns")
+def create_campaign_run(payload: dict[str, Any]):
+    """Create a run in ``draft``. Nothing dials until it is explicitly started.
+
+    Draft-by-default is the point. A campaign is the one object in this system
+    whose accidental creation rings real phones, so bringing it into existence
+    and setting it going are two deliberate acts rather than one.
+    """
+    import campaigns
+
+    name = str(payload.get("name") or "").strip()
+    objective = str(payload.get("objective") or "").strip()
+    if not name or not objective:
+        raise HTTPException(status_code=400, detail="name_and_objective_required")
+    import flow_graph as fg
+
+    if objective not in fg.OBJECTIVES:
+        raise HTTPException(status_code=400, detail="unknown_objective")
+
+    with db.engine.begin() as conn:
+        run = campaigns.create(
+            conn,
+            tenant_id=db.current_tenant(),
+            name=name,
+            objective=objective,
+            bot_id=payload.get("botId"),
+            cadence=str(payload.get("cadence") or "default"),
+            source=str(payload.get("source") or "list"),
+            selector=payload.get("selector") or {},
+            window_start_hour=int(payload.get("windowStartHour") or 10),
+            window_end_hour=int(payload.get("windowEndHour") or 18),
+            max_concurrent=int(payload.get("maxConcurrent") or 5),
+            created_by_user_id=db._actor_user_id(),
+        )
+        ids = [str(c) for c in (payload.get("customerIds") or []) if str(c).strip()]
+        if ids:
+            campaigns.add_targets(conn, run["id"], ids)
+        # A selector on the payload is resolved now, against the book as it
+        # stands, and the resulting targets are frozen onto the run. Re-resolving
+        # at dial time would mean the cohort an operator reviewed and the cohort
+        # that got called were different populations — which is precisely the
+        # audit answer a campaign exists to be able to give.
+        selector = payload.get("selector") or {}
+        if selector:
+            try:
+                campaigns.add_targets_from_selector(
+                    conn, run["id"], tenant_id=db.current_tenant(), selector=selector
+                )
+            except campaigns.SelectorError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return dict(run)
+
+
+@app.post("/outbound/campaigns/preview")
+def preview_campaign_cohort(payload: dict[str, Any]):
+    """Who this selector would call, before a run exists.
+
+    Deliberately reachable without a run id. A campaign is the one object here
+    whose accidental creation rings real phones, so seeing the population has to
+    be possible *before* committing to one — otherwise the only way to check a
+    cohort is to create the thing you were checking.
+    """
+    import campaigns
+
+    try:
+        with db.engine.connect() as conn:
+            return campaigns.preview_selector(
+                conn,
+                tenant_id=db.current_tenant(),
+                selector=payload.get("selector") or {},
+                sample=int(payload.get("sample") or 10),
+            )
+    except campaigns.SelectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/outbound/campaigns/{run_id}/targets")
+def add_campaign_targets(run_id: str, payload: dict[str, Any]):
+    import campaigns
+
+    ids = [str(c) for c in (payload.get("customerIds") or []) if str(c).strip()]
+    selector = payload.get("selector") or {}
+    if not ids and not selector:
+        raise HTTPException(status_code=400, detail="customer_ids_or_selector_required")
+    try:
+        with db.engine.begin() as conn:
+            added = campaigns.add_targets(conn, run_id, ids) if ids else 0
+            if selector:
+                added += campaigns.add_targets_from_selector(
+                    conn, run_id, tenant_id=db.current_tenant(), selector=selector
+                )
+    except campaigns.SelectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runId": run_id, "added": added, "requested": len(ids)}
+
+
+@app.post("/outbound/campaigns/{run_id}/status")
+def set_campaign_status(run_id: str, payload: dict[str, Any]):
+    """start / pause / finish / cancel.
+
+    Pause takes effect on the next worker iteration and never mid-call: a call
+    already in progress is a conversation with a person, and hanging up on them
+    to honour a button is worse than letting it finish.
+    """
+    import campaigns
+
+    status = str(payload.get("status") or "").strip()
+    allowed = {
+        campaigns.STATUS_RUNNING,
+        campaigns.STATUS_PAUSED,
+        campaigns.STATUS_FINISHED,
+        campaigns.STATUS_CANCELLED,
+    }
+    if status not in allowed:
+        raise HTTPException(status_code=400, detail="bad_status")
+    if status == campaigns.STATUS_RUNNING and not campaigns.enabled():
+        raise HTTPException(status_code=409, detail="campaign_runtime_disabled")
+    if status == campaigns.STATUS_RUNNING:
+        import platform_switches
+
+        if not platform_switches.outbound_enabled():
+            raise HTTPException(status_code=409, detail="outbound_disabled")
+    with db.engine.begin() as conn:
+        run = campaigns.set_status(conn, run_id, status)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run_not_found")
+    return dict(run)
+
+
+@app.get("/outbound/campaigns/{run_id}")
+def get_campaign_run(run_id: str):
+    import campaigns
+
+    with db.engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT * FROM campaign_runs WHERE id = :id AND tenant_id = :t"),
+            {"id": run_id, "t": db.current_tenant()},
+        ).mappings().first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="run_not_found")
+        return {**dict(row), "progress": campaigns.progress(conn, run_id)}
+
+
+@app.get("/outbound/cadence")
+def list_cadence_cases(
+    customerId: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
+):
+    """Open retry ladders — what is waiting, and what ran out of attempts."""
+    clauses = ["s.tenant_id = :tenant"]
+    params: dict[str, Any] = {"tenant": db.current_tenant(), "limit": limit}
+    if customerId:
+        clauses.append("s.customer_id = :cid")
+        params["cid"] = customerId
+    if state:
+        clauses.append("s.state = :state")
+        params["state"] = state
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"""
+                SELECT s.*, c.name AS customer_name
+                FROM call_cadence_state s
+                JOIN customers c ON c.id = s.customer_id
+                WHERE {' AND '.join(clauses)}
+                ORDER BY s.next_attempt_at ASC NULLS LAST, s.updated_at DESC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/outbound/number-pools")
+def list_number_pools():
+    """Caller-ID pools and the numbers in them, with how each is performing."""
+    with db.engine.connect() as conn:
+        pools = conn.execute(
+            text(
+                "SELECT * FROM number_pools WHERE tenant_id = :t ORDER BY name"
+            ),
+            {"t": db.current_tenant()},
+        ).mappings().all()
+        numbers = conn.execute(
+            text(
+                """
+                SELECT n.* FROM pool_numbers n
+                JOIN number_pools p ON p.id = n.pool_id
+                WHERE p.tenant_id = :t
+                ORDER BY n.e164
+                """
+            ),
+            {"t": db.current_tenant()},
+        ).mappings().all()
+    by_pool: dict[str, list[dict[str, Any]]] = {}
+    for row in numbers:
+        by_pool.setdefault(str(row["pool_id"]), []).append(dict(row))
+    return [{**dict(p), "numbers": by_pool.get(str(p["id"]), [])} for p in pools]
+
+
+@app.get("/outbound/obligations")
+def list_agent_obligations(
+    state: str = Query(default="open"),
+    limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
+):
+    """What the agent promised and whether we kept it.
+
+    An agent that keeps its promises is the whole trust proposition of an
+    automated collections line, and a missed obligation is a QA finding with a
+    named owner rather than a thing nobody knew happened.
+    """
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT o.*, c.name AS customer_name
+                FROM agent_obligations o
+                JOIN customers c ON c.id = o.customer_id
+                WHERE o.tenant_id = :t AND (:state = 'all' OR o.state = :state)
+                ORDER BY o.due_at ASC
+                LIMIT :limit
+                """
+            ),
+            {"t": db.current_tenant(), "state": state, "limit": limit},
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/outbound/card-vocabulary")
+def outbound_card_vocabulary():
+    """Every closed vocabulary the Outbound card editor has to offer.
+
+    One endpoint rather than a constant per list in the frontend, and derived
+    from the definitions the runtime and the compiler actually use rather than
+    restated. That is not tidiness: ``card.outbound`` is validated by Pydantic
+    models with ``extra="forbid"`` and gated by G-OB1..8, so an option the
+    editor offers that the backend does not know is not a cosmetic mismatch —
+    it builds a card that cannot be published, and the author finds out at the
+    publish button with a validation error naming a field they picked from a
+    dropdown.
+
+    ``dailyCap`` is here for the same reason. G-OB3 fails a cadence planning
+    more contacts per day than ``contact_policy`` permits; the editor can say so
+    while the number is being typed instead of at compile time.
+    """
+    from typing import get_args
+
+    import contact_policy
+    import flow_graph as fg
+    import mission as mission_mod
+    import outbound as outbound_mod
+    from agent_core.authority import config as authority_config
+    from agent_core.cards import compile as compile_mod
+    from agent_core.cards import schema as card_schema
+
+    pools: list[dict[str, Any]] = []
+    try:
+        with db.engine.connect() as conn:
+            pools = [
+                {"name": str(r["name"]), "kind": str(r["kind"])}
+                for r in conn.execute(
+                    text(
+                        "SELECT name, kind FROM number_pools "
+                        "WHERE tenant_id = :t AND enabled IS TRUE ORDER BY name"
+                    ),
+                    {"t": db.current_tenant()},
+                ).mappings()
+            ]
+    except Exception:
+        # A tenant with no pools table yet still gets a usable editor; the pool
+        # name is free text on the card and G-OB4 keys off `pool_kind`.
+        logger.debug("number pool lookup failed", exc_info=True)
+
+    return {
+        "objectives": list(fg.OBJECTIVES),
+        "objectiveBriefs": dict(mission_mod.OBJECTIVE_BRIEF),
+        "directions": list(get_args(card_schema.Direction)),
+        "voicemailModes": list(get_args(card_schema.VoicemailMode)),
+        "timeOfDay": list(get_args(card_schema.TimeOfDay)),
+        "poolKinds": list(get_args(card_schema.PoolKind)),
+        "qaModes": ["always", "sampled", "never"],
+        # The Closer's taxonomy — what `success` / `partial` / `stop_on` and a
+        # post-call rule's `when` may name. G-OB6 rejects anything else.
+        "outcomeCodes": sorted(compile_mod.OUTCOME_CODES),
+        # Verbs the Closer implements. A rule may also name any tool on the
+        # card, which is why G-OB6 checks the union rather than this alone.
+        "postCallActions": sorted(compile_mod.POST_CALL_ACTIONS),
+        # `retry_on` is matched against the attempt's connection outcome *and*
+        # its state, so the offerable set is the states worth another dial.
+        "retryStates": sorted(outbound_mod.RETRYABLE),
+        "authorityProfiles": [
+            {"name": name, "ceilingInr": authority_config.profile_ceilings().get(name)}
+            for name in authority_config.profile_names()
+        ],
+        "numberPools": pools,
+        "dailyCap": contact_policy.daily_cap(),
+    }
+
+
+@app.get("/outbound/missions")
+def list_missions(botId: str | None = Query(default=None)):
+    """The missions a card can run, and where each starts.
+
+    Serves the Outbound tab. Two sources, deliberately both: what the *card*
+    declares and what the *graph* claims. They disagreeing is the failure G-OB2
+    exists to catch, and an author needs to see both halves to fix it.
+
+    ``botId`` is not optional in spirit. This read the default bot and nothing
+    else, while the tab that calls it lives inside a per-card editor and says
+    "No missions on **this card**" — so opening Outbound on any other card
+    reported the default bot's missions, direction and number pool under that
+    card's name. It is invisible today only because no card declares an
+    outbound block yet, which makes every card show the same empty state; the
+    first card to declare one would have shown its missions on all of them.
+    """
+    import flow_graph as fg
+    import mission as mission_mod
+
+    bot_id = (botId or "").strip() or db.DEFAULT_BOT_ID
+    card = mission_mod.card_for_bot(bot_id)
+    graph_entries: dict[str, str] = {}
+    try:
+        version = None
+        studio = db.get_agent_studio_card(bot_id) or {}
+        draft_id = studio.get("draftVersionId")
+        if draft_id:
+            version = db.get_prompt_version(draft_id) or {}
+        if not (version and version.get("flow")):
+            deployment = db.get_active_deployment(bot_id=bot_id, environment="production")
+            if deployment and deployment.get("promptVersionId"):
+                version = db.get_prompt_version(deployment["promptVersionId"]) or {}
+        if version:
+            graph_entries = fg.parse_graph(version.get("flow") or {}).entry_objectives()
+    except Exception:
+        logger.debug("mission entry lookup failed", exc_info=True)
+
+    outbound_cfg = getattr(card, "outbound", None) if card is not None else None
+    declared = [
+        {
+            "key": o.key,
+            "entryNode": o.entry_node,
+            "graphEntryNode": graph_entries.get(o.key),
+            "agrees": graph_entries.get(o.key) == o.entry_node,
+            "maxDurationSec": o.max_duration_sec,
+            "allowedOffers": o.allowed_offers,
+            "authorityProfile": o.authority_profile,
+            "cadence": o.cadence,
+            "success": o.success,
+            "brief": mission_mod.OBJECTIVE_BRIEF.get(o.key, ""),
+        }
+        for o in (outbound_cfg.objectives if outbound_cfg else [])
+    ]
+    return {
+        "botId": bot_id,
+        "direction": getattr(outbound_cfg, "direction", "inbound"),
+        "poolKind": getattr(outbound_cfg, "pool_kind", "general"),
+        "numberPool": getattr(outbound_cfg, "number_pool", None),
+        "objectives": declared,
+        "graphEntries": graph_entries,
+        "available": list(fg.OBJECTIVES),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Live authority matrix (P4)
 # ---------------------------------------------------------------------------
 
@@ -3916,3 +5274,176 @@ def authority_next(
 def authority_apply(payload: AuthorityApplyRequest):
     """Post the goodwill the matrix already approved. Live mode only."""
     return _handle_write(db.apply_authority, payload.model_dump(exclude_none=True))
+
+
+# ---------------------------------------------------------------------------
+# Provider registry — Agent Studio picks the vendor, the runtime obeys.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/providers/models", response_model=list[ProviderModelItem])
+def list_provider_models(kind: str | None = Query(default=None, pattern="^(stt|tts|llm)$")):
+    """The capability matrix. Unconfigured providers are returned too, marked
+    ``configured: false`` — hiding them makes "why can't I pick X?" unanswerable
+    from the screen."""
+    from agent_core.providers import persist as pv
+    from agent_core.providers.registry import (
+        RUNTIME_LIVE,
+        configured_providers,
+        find_model,
+        runtime_status,
+    )
+
+    live = configured_providers()
+    out = []
+    for row in pv.list_models(kind):
+        # A key makes a provider *configured*; it does not make the model
+        # *runnable*. Both are reported because they fail differently: no key is
+        # something the operator can fix from the Integrations screen, a missing
+        # service class is not.
+        spec = find_model(row["provider_id"], row["model_id"])
+        runtime, detail = runtime_status(spec) if spec is not None else (RUNTIME_LIVE, "")
+        out.append(
+            {
+                "id": row["id"],
+                "providerId": row["provider_id"],
+                "providerName": row["provider_name"],
+                "kind": row["kind"],
+                "modelId": row["model_id"],
+                "displayName": row["display_name"],
+                "serviceClass": row["service_class"],
+                "locales": list(row["locales"] or []),
+                "streaming": bool(row["streaming"]),
+                "codeSwitch": bool(row["code_switch"]),
+                "onPrem": bool(row["on_prem"]),
+                "diarization": bool(row["diarization"]),
+                "styles": list(row["styles"] or []),
+                "costPerUnit": float(row["cost_per_unit"]) if row["cost_per_unit"] is not None else None,
+                "costUnit": row["cost_unit"],
+                "measuredLatencyP50Ms": row["measured_latency_p50_ms"],
+                "measuredLatencyP95Ms": row["measured_latency_p95_ms"],
+                "notes": row["notes"] or "",
+                "paramsSchema": list(row["params_schema"] or []),
+                "enabled": bool(row["enabled"]),
+                "configured": row["provider_id"] in live,
+                "runtime": runtime,
+                "runtimeDetail": detail,
+                # Read off the registry rather than the row: it is a measured
+                # property of the vendor's engine, not tenant configuration, so
+                # it has no business being editable per deployment.
+                "sampling": bool(spec.sampling) if spec is not None else False,
+            }
+        )
+    return out
+
+
+@app.get("/providers/bindings", response_model=list[ProviderBindingItem])
+def list_provider_bindings(botId: str | None = Query(default=None)):
+    """Bindings for a bot plus the tenant defaults it inherits."""
+    from agent_core.providers import persist as pv
+
+    return [
+        {
+            "id": b["id"],
+            "botId": b["bot_id"],
+            "slot": b["slot"],
+            "locale": b["locale"],
+            "providerModelId": b["provider_model_id"],
+            "providerId": b["provider_id"],
+            "providerName": b["provider_name"],
+            "modelId": b["model_id"],
+            "displayName": b["display_name"],
+            "voiceRef": b["voice_ref"],
+            "priority": int(b["priority"]),
+            "settings": dict(b["settings"] or {}),
+            "enabled": bool(b["enabled"]),
+        }
+        for b in pv.list_bindings(tenant_id=db.current_tenant(), bot_id=botId)
+    ]
+
+
+@app.post("/providers/bindings", response_model=ProviderBindingItem)
+def upsert_provider_binding(payload: ProviderBindingInput):
+    from agent_core.providers import persist as pv
+
+    binding_id = pv.upsert_binding(
+        tenant_id=db.current_tenant(),
+        slot=payload.slot,
+        provider_model_id=payload.providerModelId,
+        bot_id=payload.botId,
+        locale=payload.locale,
+        voice_ref=payload.voiceRef,
+        priority=payload.priority,
+        settings=payload.settings,
+        enabled=payload.enabled,
+    )
+    rows = [b for b in pv.list_bindings(tenant_id=db.current_tenant(), bot_id=payload.botId)
+            if b["id"] == binding_id]
+    if not rows:
+        raise HTTPException(status_code=500, detail="binding_write_failed")
+    b = rows[0]
+    return {
+        "id": b["id"],
+        "botId": b["bot_id"],
+        "slot": b["slot"],
+        "locale": b["locale"],
+        "providerModelId": b["provider_model_id"],
+        "providerId": b["provider_id"],
+        "providerName": b["provider_name"],
+        "modelId": b["model_id"],
+        "displayName": b["display_name"],
+        "voiceRef": b["voice_ref"],
+        "priority": int(b["priority"]),
+        "settings": dict(b["settings"] or {}),
+        "enabled": bool(b["enabled"]),
+    }
+
+
+@app.delete("/providers/bindings/{binding_id}")
+def delete_provider_binding(binding_id: str):
+    from agent_core.providers import persist as pv
+
+    if not pv.delete_binding(tenant_id=db.current_tenant(), binding_id=binding_id):
+        raise HTTPException(status_code=404, detail="binding_not_found")
+    return {"ok": True}
+
+
+@app.get("/providers/pools", response_model=list[ProviderPoolStatus])
+def list_provider_pools():
+    """Key-pool health, so free-tier exhaustion is visible before a demo hits it."""
+    from agent_core.providers import pool as pool_mod
+    from agent_core.providers.registry import SEED
+
+    # Touch every seeded provider so a pool that has never been acquired from
+    # still reports (total=0) rather than being absent from the list.
+    for spec in SEED:
+        pool_mod.get_pool(spec.slug)
+    return [
+        {
+            "provider": s.provider,
+            "total": s.total,
+            "available": s.available,
+            "retired": s.retired,
+            "sessionsBound": s.sessions_bound,
+            "keys": s.keys,
+        }
+        for s in pool_mod.all_stats()
+    ]
+
+
+@app.get("/tts-voices/catalog-provider-counts")
+def tts_voice_provider_counts():
+    """Per-provider voice counts for the catalog filter chips.
+
+    Dash-separated rather than `/catalog/provider-counts`: the latter would be
+    captured by the `/tts-voices/catalog/{short_name}` route declared above and
+    looked up as a voice named "provider-counts". Same reason
+    `/tts-voices/catalog-warning` is spelled that way.
+    """
+    return db.list_tts_voice_provider_counts()
+
+
+@app.get("/tts-voices/catalog-locale-counts")
+def tts_voice_locale_counts(limit: int = Query(default=60, ge=1, le=400)):
+    """Locales present in the catalog, most-voices-first, for the locale picker."""
+    return db.list_tts_voice_locale_counts(limit=limit)

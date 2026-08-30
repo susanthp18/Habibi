@@ -33,7 +33,15 @@ interface Props {
   onDrop: (id: string, newISO: string) => void;
 }
 
-export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday, onOpen, onDrop }: Props) {
+export function WeekCalendar({
+  list,
+  weekAnchor,
+  onPrevWeek,
+  onNextWeek,
+  onToday,
+  onOpen,
+  onDrop,
+}: Props) {
   const days = useMemo(() => weekDays(weekAnchor), [weekAnchor]);
   const rangeLabel = `${days[0].toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${days[6].toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -41,7 +49,9 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
   const now = new Date();
 
   const byDay = days.map((day) =>
-    list.filter((cb) => sameDay(new Date(cb.scheduledAt), day)).sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
+    list
+      .filter((cb) => sameDay(new Date(cb.scheduledAt), day))
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
   );
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -59,26 +69,45 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
     <div className="flex min-h-0 flex-1 flex-col rounded-large border border-border bg-surface">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-150 py-100">
         <div className="flex items-center gap-100">
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onPrevWeek}><ChevronLeft className="h-4 w-4" /></Button>
-          <Button variant="outline" size="sm" className="h-7 text-body-small" onClick={onToday}>Today</Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onNextWeek}><ChevronRight className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onPrevWeek}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-body-small" onClick={onToday}>
+            Today
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onNextWeek}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
           <div className="ml-050 text-body-small font-semibold text-text">{rangeLabel}</div>
         </div>
         <div className="text-body-small text-text-subtlest">
-          {CALENDAR_START_HOUR.toString().padStart(2, "0")}:00 – {CALENDAR_END_HOUR.toString().padStart(2, "0")}:00 · Drag pills to reschedule
+          {CALENDAR_START_HOUR.toString().padStart(2, "0")}:00 –{" "}
+          {CALENDAR_END_HOUR.toString().padStart(2, "0")}:00 · Drag pills to reschedule
         </div>
       </div>
 
       {/* header row */}
-      <div className="grid shrink-0 border-b border-border" style={{ gridTemplateColumns: "56px repeat(7, 1fr)" }}>
+      <div
+        className="grid shrink-0 border-b border-border"
+        style={{ gridTemplateColumns: "56px repeat(7, 1fr)" }}
+      >
         <div className="border-r border-border bg-surface-sunken/50" />
         {days.map((d) => {
           const isToday = sameDay(d, new Date());
           const dayList = byDay[days.indexOf(d)];
           return (
-            <div key={d.toISOString()} className={`border-r border-border px-100 py-050 text-center ${isToday ? "bg-background-brand-subtlest/40" : ""}`}>
-              <div className={`text-body-small font-semibold ${isToday ? "text-text-brand" : "text-text"}`}>{fmtDayShort(d)}</div>
-              <div className="text-body-small text-text-subtlest">{dayList.length} callback{dayList.length === 1 ? "" : "s"}</div>
+            <div
+              key={d.toISOString()}
+              className={`border-r border-border px-100 py-050 text-center ${isToday ? "bg-background-brand-subtlest/40" : ""}`}
+            >
+              <div
+                className={`text-body-small font-semibold ${isToday ? "text-text-brand" : "text-text"}`}
+              >
+                {fmtDayShort(d)}
+              </div>
+              <div className="text-body-small text-text-subtlest">
+                {dayList.length} callback{dayList.length === 1 ? "" : "s"}
+              </div>
             </div>
           );
         })}
@@ -86,7 +115,10 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
 
       {/* grid body — scrollable */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="relative grid" style={{ gridTemplateColumns: "56px repeat(7, 1fr)", height: TOTAL_H }}>
+        <div
+          className="relative grid"
+          style={{ gridTemplateColumns: "56px repeat(7, 1fr)", height: TOTAL_H }}
+        >
           {/* Time rail */}
           <div className="relative border-r border-border bg-surface-sunken/30">
             {rows.map((r) => {
@@ -95,7 +127,11 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
               const minute = totalMins % 60;
               if (minute !== 0) return null;
               return (
-                <div key={r} className="absolute right-1 -translate-y-1/2 text-body-small text-text-subtlest" style={{ top: r * ROW_H }}>
+                <div
+                  key={r}
+                  className="absolute right-1 -translate-y-1/2 text-body-small text-text-subtlest"
+                  style={{ top: r * ROW_H }}
+                >
                   {hour.toString().padStart(2, "0")}:00
                 </div>
               );
@@ -105,7 +141,9 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
           {/* Day columns */}
           {days.map((day, di) => {
             const isToday = sameDay(day, new Date());
-            const nowMins = isToday ? (now.getHours() - CALENDAR_START_HOUR) * 60 + now.getMinutes() : -1;
+            const nowMins = isToday
+              ? (now.getHours() - CALENDAR_START_HOUR) * 60 + now.getMinutes()
+              : -1;
             const nowTop = (nowMins / SLOT_MINUTES) * ROW_H;
 
             return (
@@ -128,7 +166,10 @@ export function WeekCalendar({ list, weekAnchor, onPrevWeek, onNextWeek, onToday
 
                 {/* Now line */}
                 {isToday && nowMins >= 0 && nowMins <= CAL_MINUTES && (
-                  <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: nowTop }}>
+                  <div
+                    className="pointer-events-none absolute inset-x-0 z-10 flex items-center"
+                    style={{ top: nowTop }}
+                  >
                     <div className="h-1.5 w-1.5 rounded-full bg-background-danger-bold" />
                     <div className="h-px flex-1 bg-background-danger-bold" />
                   </div>

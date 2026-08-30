@@ -20,7 +20,9 @@ export function ViolationFeed({
       <div className="flex h-full flex-col items-center justify-center gap-100 rounded-medium border border-dashed border-border bg-surface p-500 text-center">
         <ShieldCheck className="h-400 w-400 text-text-success" />
         <div className="text-body font-semibold text-text">No violations match these filters</div>
-        <div className="text-body-small text-text-subtlest">Compliance is clean for the current scope.</div>
+        <div className="text-body-small text-text-subtlest">
+          Compliance is clean for the current scope.
+        </div>
       </div>
     );
   }

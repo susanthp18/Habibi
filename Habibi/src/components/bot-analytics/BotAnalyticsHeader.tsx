@@ -30,10 +30,8 @@ export function BotAnalyticsHeader({
   return (
     <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex flex-wrap items-center gap-100">
-        <h1 className="text-[1.25rem] font-semibold text-text">Conversation & bot analytics</h1>
-        <Lozenge tone="neutral">
-          Diagnostic view · feeds KB + Prompt Studio
-        </Lozenge>
+        <h1 className="heading-medium font-semibold text-text">Conversation & bot analytics</h1>
+        <Lozenge tone="neutral">Diagnostic view · feeds KB + Prompt Studio</Lozenge>
         <div className="ml-auto flex flex-wrap items-center gap-100">
           <div className="inline-flex overflow-hidden rounded-medium border border-border">
             {RANGES.map((r) => (
@@ -42,7 +40,9 @@ export function BotAnalyticsHeader({
                 onClick={() => onRange(r.key)}
                 className={cn(
                   "px-150 py-050 text-body-small",
-                  range === r.key ? "bg-background-brand-subtlest text-text-brand font-semibold" : "text-text-subtle hover:bg-surface-sunken",
+                  range === r.key
+                    ? "bg-background-brand-subtlest text-text-brand font-semibold"
+                    : "text-text-subtle hover:bg-surface-sunken",
                 )}
               >
                 {r.label}
@@ -54,10 +54,18 @@ export function BotAnalyticsHeader({
             onChange={(e) => onChannel(e.target.value as ChannelKey)}
             className="rounded-medium border border-border bg-surface px-100 py-050 text-body-small"
           >
-            {CHANNELS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            {CHANNELS.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
+              </option>
+            ))}
           </select>
           <button
-            onClick={() => toast.success("Export queued", { description: "Conversation analytics CSV will be ready in ~30 seconds." })}
+            onClick={() =>
+              toast.success("Export queued", {
+                description: "Conversation analytics CSV will be ready in ~30 seconds.",
+              })
+            }
             className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest"
           >
             <Download className="h-3.5 w-3.5" /> Export
@@ -65,7 +73,8 @@ export function BotAnalyticsHeader({
         </div>
       </div>
       <p className="text-body-small text-text-subtle">
-        Intent mix, containment funnel, escalation reasons, RAG misses, latency — every gap here is a candidate for KB or prompt tuning.
+        Intent mix, containment funnel, escalation reasons, RAG misses, latency — every gap here is
+        a candidate for KB or prompt tuning.
       </p>
     </header>
   );

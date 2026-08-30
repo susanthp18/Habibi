@@ -1,8 +1,27 @@
 import type { Customer } from "@/data/customer360-seed";
 import { emptyOfferPolicy, fmtOfferAmount, type OfferPolicy } from "@/lib/offer-policy";
-import { emptyAuthorityPolicy, fmtAuthorityAmount, type AuthorityPolicy } from "@/lib/authority-policy";
 
-export type NbaActionKind = "ptp" | "dispute" | "statement" | "call" | "callback" | "review" | "offer";
+export type NbaActionKind =
+  | "ptp"
+  | "dispute"
+  | "statement"
+  | "call"
+  | "callback"
+  | "review"
+  | "offer"
+  // Spoken by the decision engine. The card used to have its own contact
+  // ladder — "DND, so WhatsApp", "outside the window, so schedule a callback",
+  // "over 30 DPD, so call" — written twice, once here and once in Python, and
+  // kept in step by hand. The engine decides those against the real consent
+  // record, the real calling window and the real frequency budget, so they are
+  // gone from both copies and these are what it says instead.
+  | "message"
+  | "mandate"
+  | "schedule"
+  | "plan"
+  | "field"
+  | "legal"
+  | "wait";
 
 export type InsightBullet = {
   id: string;
@@ -19,6 +38,16 @@ export type NbaItem = {
   action: NbaActionKind;
   priority: "high" | "medium" | "low";
   leadId?: string | null;
+  /** Present on the engine's row. A rupee figure a collections head can argue
+   *  with, rather than a dimensionless priority nobody can. */
+  expectedValueInr?: number | null;
+  scheduledAt?: string | null;
+  decisionId?: string | null;
+  treatmentAction?: string | null;
+  source?: "treatment_engine" | null;
+  /** The engine decided but is not acting — shadow mode. Labelled rather than
+   *  hidden, so nobody reads a shadow recommendation as queued work. */
+  advisory?: boolean;
 };
 
 export type BehaviorMetrics = {
@@ -41,6 +70,47 @@ export type ActivityPreviewItem = {
   tone?: string | null;
 };
 
+/** One ranked action the engine considered but did not pick.
+ *  Mirrors agent_core/treatment/scoring.py :: ScoredAction.to_log(). Note the
+ *  key is `expectedValue` here and `expectedValueInr` on the chosen action —
+ *  the producer spells them differently, so this does too. */
+export type TreatmentAlternative = {
+  action: string;
+  channel?: string | null;
+  at?: string | null;
+  expectedValue?: number | null;
+  pReach?: number | null;
+  pResolve?: number | null;
+  cost?: number | null;
+  reasonCodes?: string[];
+  components?: Record<string, number>;
+};
+
+/** The engine's full payload, not just the row rendered as an NBA. The excluded
+ *  reasons and the ranked alternatives are what a supervisor overriding the
+ *  decision needs, and they are already computed server-side.
+ *  Mirrors agent_core/treatment/engine.py :: TreatmentResult.to_payload(). */
+export type TreatmentSnapshot = {
+  action: string;
+  actionLabel?: string | null;
+  channel?: string | null;
+  at?: string | null;
+  expectedValueInr?: number | null;
+  suppressed?: boolean;
+  reason?: string | null;
+  reasonText?: string | null;
+  rationale?: string;
+  decisionId?: string | null;
+  propensity?: number | null;
+  policyVersion?: number | null;
+  mode?: string | null;
+  variant?: string | null;
+  latencyMs?: number | null;
+  alternatives?: TreatmentAlternative[];
+  /** action -> veto reason, for the actions arbitration ruled out. */
+  excluded?: Record<string, string>;
+};
+
 export type CustomerInsights = {
   customerId: string;
   summary: InsightBullet[];
@@ -49,7 +119,14 @@ export type CustomerInsights = {
   activity: ActivityPreviewItem[];
   generatedAt: string;
   offerPolicy?: OfferPolicy | null;
-  authorityPolicy?: AuthorityPolicy | null;
+  // No authorityPolicy. The goodwill matrix is env-tunable policy-as-code the
+  // server owns (agent_core/authority); this module used to carry a frozen copy
+  // of it — dpd >= 61 escalates, ₹500/₹250 caps, two of its eleven escalate
+  // reasons — which quietly diverged from the running thresholds. The panel
+  // asks GET /authority/next instead: api/authority.ts :: useAuthorityNext.
+  //
+  // The offline derivation below never produces this — only the server does.
+  treatment?: TreatmentSnapshot | null;
 };
 
 function daysBetween(iso: string, now = Date.now()): number {
@@ -70,15 +147,11 @@ function sortByIsoDesc<T>(items: T[], iso: (item: T) => string | null | undefine
   return [...items].sort((a, b) => str(iso(b)).localeCompare(str(iso(a))));
 }
 
-function withinWindow(pref: string | null | undefined): boolean {
-  const m = str(pref).match(/(\d{1,2}):(\d{2})[–-](\d{1,2}):(\d{2})/);
-  if (!m) return true;
-  const start = Number(m[1]) * 60 + Number(m[2]);
-  const end = Number(m[3]) * 60 + Number(m[4]);
-  const now = new Date();
-  const cur = now.getHours() * 60 + now.getMinutes();
-  return cur >= start && cur <= end;
-}
+// withinWindow lived here and is gone with the ladder that used it. It parsed
+// a display string like "10:00–18:00" out of the customer record and compared
+// it to the browser clock — so a rep in a different timezone from the borrower
+// got a different answer about whether it was safe to dial, and neither answer
+// consulted the statutory calling window. contact_policy owns that question.
 
 function computeMetrics(customer: Customer): BehaviorMetrics {
   const settled = customer.promises.filter((p) => p.status === "kept" || p.status === "broken");
@@ -93,7 +166,9 @@ function computeMetrics(customer: Customer): BehaviorMetrics {
     .filter((d) => d.status !== "resolved" && d.status !== "rejected")
     .reduce((s, d) => s + (d.amount ?? 0), 0);
 
-  const nextEmi = customer.emi.find((e) => e.status === "overdue") ?? customer.emi.find((e) => e.status === "upcoming");
+  const nextEmi =
+    customer.emi.find((e) => e.status === "overdue") ??
+    customer.emi.find((e) => e.status === "upcoming");
   const brokenPromiseCount = customer.promises.filter((p) => p.status === "broken").length;
   const activePromiseAmount = customer.promises
     .filter((p) => p.status === "upcoming")
@@ -165,77 +240,42 @@ function offerNba(policy: OfferPolicy | null | undefined): NbaItem | null {
   };
 }
 
-function mockAuthorityPolicy(customer: Customer): AuthorityPolicy {
-  const priorWaiver = customer.ledger.some((e) => e.type === "waiver");
-  const feeWaiver = customer.disputes.find(
-    (d) => d.type === "fee_waiver" && d.status !== "resolved" && d.status !== "rejected",
-  );
-  if (!feeWaiver && !priorWaiver) {
-    return { ...emptyAuthorityPolicy(), customerId: customer.id };
-  }
-  if (priorWaiver || customer.account.dpd >= 61) {
-    const reason = priorWaiver ? "prior_goodwill_12m" : "dpd_too_high";
-    const reasonLabel = priorWaiver
-      ? "Goodwill already used in the last 12 months"
-      : "DPD too high for live goodwill";
-    return {
-      ...emptyAuthorityPolicy(),
-      status: "escalate",
-      customerId: customer.id,
-      feeType: "late_fee",
-      verdict: "escalate",
-      reason,
-      reasonLabel,
-      talkTrack: priorWaiver
-        ? "A goodwill waiver already posted in the last 12 months. Escalate — do not offer another reversal on this call."
-        : "Out of policy for live goodwill — DPD is too high. Transfer; do not quote a waiver amount.",
-    };
-  }
-  const cap = customer.account.dpd <= 30 ? 500 : 250;
-  return {
-    ...emptyAuthorityPolicy(),
-    status: "shadow",
-    customerId: customer.id,
-    mode: "shadow",
-    feeType: "late_fee",
-    verdict: "cap_inr",
-    approvedAmount: cap,
-    capAmount: cap,
-    reason: "cap_available",
-    reasonLabel: "In-policy goodwill ceiling",
-    talkTrack: `Goodwill ceiling is ${fmtAuthorityAmount(cap)}. You may reverse up to that. If they insist on more, escalate without quoting a larger number.`,
-  };
-}
+// mockAuthorityPolicy lived here and is gone with the matrix it re-implemented.
+// It decided goodwill in the browser — dpd >= 61 escalates, ceiling ₹500 under
+// 30 DPD and ₹250 above, two escalate reasons — against thresholds the backend
+// reads from the environment at call time and an escalate set five times the
+// size. api/authority.ts asks the engine, and emulates the *backend's* ladder
+// (all of it, env overrides included) when there is no backend to ask.
 
-function buildNba(customer: Customer, metrics: BehaviorMetrics, offerPolicy?: OfferPolicy | null): NbaItem[] {
+function buildNba(
+  customer: Customer,
+  metrics: BehaviorMetrics,
+  offerPolicy?: OfferPolicy | null,
+): NbaItem[] {
   const items: NbaItem[] = [];
-  const callOptedIn = customer.consent.find((c) => c.channel === "call")?.optedIn ?? false;
-  const inWindow = withinWindow(customer.contact.preferredWindow);
-  const openDispute = customer.disputes.find((d) => d.status === "under_review" || d.status === "new");
+  const openDispute = customer.disputes.find(
+    (d) => d.status === "under_review" || d.status === "new",
+  );
   const upcomingPtp = customer.promises
     .filter((p) => p.status === "upcoming")
     .sort((a, b) => str(a.promisedDate).localeCompare(str(b.promisedDate)))[0];
   const daysToPtp = upcomingPtp?.promisedDate ? -daysBetween(upcomingPtp.promisedDate) : null;
 
-  if (customer.contact.dnd || !callOptedIn) {
-    items.push({
-      id: "nba-callback-channel",
-      rank: 1,
-      title: "Use WhatsApp / email — voice blocked",
-      reason: customer.contact.dnd ? "DND is active on this account." : "Customer opted out of voice.",
-      action: "callback",
-      priority: "high",
-    });
-  } else if (!inWindow) {
-    items.push({
-      id: "nba-schedule-callback",
-      rank: 1,
-      title: "Schedule callback in contact window",
-      reason: `Outside preferred window (${customer.contact.preferredWindow}). Do not dial now.`,
-      action: "callback",
-      priority: "high",
-    });
-  }
+  // No contact ladder here any more. This function is the *offline* copy —
+  // mock mode, and the catch-fallback when the insights API is unreachable —
+  // and a second implementation of a decision the engine owns is exactly the
+  // drift the backend copy was deleted to stop. What survives is case
+  // handling, which the engine does not model.
+  items.push({
+    id: "nba-engine-unavailable",
+    rank: 1,
+    title: "Recommendation unavailable",
+    reason:
+      "The decision engine could not be reached, so this list is case handling only — " +
+      "no contact recommendation has been made for this account.",
+    action: "wait",
+    priority: "low",
+  });
 
   if (openDispute) {
     items.push({
@@ -266,22 +306,6 @@ function buildNba(customer: Customer, metrics: BehaviorMetrics, offerPolicy?: Of
       title: "Offer smaller PTP or payment plan",
       reason: `${metrics.brokenPromiseCount} broken promise(s) on file — avoid repeating full-balance asks.`,
       action: "ptp",
-      priority: "medium",
-    });
-  }
-
-  if (
-    customer.account.dpd > 30 &&
-    (metrics.daysSinceContact === null || metrics.daysSinceContact >= 7) &&
-    callOptedIn &&
-    !customer.contact.dnd
-  ) {
-    items.push({
-      id: "nba-outbound-call",
-      rank: items.length + 1,
-      title: "Log outbound collections call",
-      reason: `DPD ${customer.account.dpd} with ${metrics.daysSinceContact ?? "no"} day(s) since last contact.`,
-      action: "call",
       priority: "medium",
     });
   }
@@ -325,7 +349,6 @@ function buildSummary(
   metrics: BehaviorMetrics,
   nba: NbaItem[],
   offerPolicy?: OfferPolicy | null,
-  authorityPolicy?: AuthorityPolicy | null,
 ): InsightBullet[] {
   const bullets: InsightBullet[] = [];
 
@@ -368,7 +391,9 @@ function buildSummary(
     });
   }
 
-  const openDispute = customer.disputes.find((d) => d.status !== "resolved" && d.status !== "rejected");
+  const openDispute = customer.disputes.find(
+    (d) => d.status !== "resolved" && d.status !== "rejected",
+  );
   if (openDispute) {
     bullets.push({
       id: "ins-dispute",
@@ -378,26 +403,9 @@ function buildSummary(
     });
   }
 
-  if (authorityPolicy && authorityPolicy.status !== "none") {
-    let text: string;
-    if (authorityPolicy.status === "escalate") {
-      text = `Live goodwill is out of policy: ${authorityPolicy.reasonLabel ?? authorityPolicy.reason ?? "escalate"}. Do not quote a waiver or settlement figure.`;
-    } else if (authorityPolicy.status === "applied") {
-      const amt = fmtAuthorityAmount(authorityPolicy.approvedAmount);
-      text = `Goodwill already posted${amt ? ` (${amt})` : ""}.`;
-    } else {
-      const amt = fmtAuthorityAmount(authorityPolicy.approvedAmount);
-      text = amt
-        ? `In-policy late-fee goodwill up to ${amt}.`
-        : "Authority matrix has an allowed move — do not invent a larger figure.";
-    }
-    bullets.push({
-      id: "ins-authority",
-      text,
-      source: "from authority matrix",
-      confidence: "high",
-    });
-  }
+  // No "from authority matrix" bullet. It restated a verdict this file was
+  // inventing; the Authority panel now renders the server's, and a summary line
+  // paraphrasing a ceiling from a second source is how the two drift apart.
 
   if (offerPolicy?.status === "suppressed") {
     bullets.push({
@@ -484,9 +492,8 @@ function synthesizeActivity(customer: Customer): ActivityPreviewItem[] {
 export function deriveCustomerInsights(customer: Customer): CustomerInsights {
   const metrics = computeMetrics(customer);
   const offerPolicy = mockOfferPolicy(customer);
-  const authorityPolicy = mockAuthorityPolicy(customer);
   const nba = buildNba(customer, metrics, offerPolicy);
-  const summary = buildSummary(customer, metrics, nba, offerPolicy, authorityPolicy);
+  const summary = buildSummary(customer, metrics, nba, offerPolicy);
   const activity = synthesizeActivity(customer);
   return {
     customerId: customer.id,
@@ -496,6 +503,5 @@ export function deriveCustomerInsights(customer: Customer): CustomerInsights {
     activity,
     generatedAt: new Date().toISOString(),
     offerPolicy,
-    authorityPolicy,
   };
 }

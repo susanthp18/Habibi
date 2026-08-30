@@ -102,7 +102,10 @@ export function KbToolbar({
       {tab === "documents" && (
         <>
           <div className="flex flex-wrap items-center gap-050">
-            <Pill active={filters.type === "all"} onClick={() => onFilters({ ...filters, type: "all" })}>
+            <Pill
+              active={filters.type === "all"}
+              onClick={() => onFilters({ ...filters, type: "all" })}
+            >
               All types
             </Pill>
             {docTypeOptions.map((t) => (
@@ -138,7 +141,11 @@ export function KbToolbar({
       {tab === "gaps" && (
         <>
           <label className="flex items-center gap-100 text-body-small text-text-subtle">
-            <Switch aria-label="Show resolved" checked={showResolved} onCheckedChange={onShowResolved} />
+            <Switch
+              aria-label="Show resolved"
+              checked={showResolved}
+              onCheckedChange={onShowResolved}
+            />
             Show resolved
           </label>
           <Link

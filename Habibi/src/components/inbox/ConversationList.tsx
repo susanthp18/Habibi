@@ -109,7 +109,9 @@ export function ConversationList({
               {f.label}
               <Badge
                 className={cn(
-                  filter === f.key ? "bg-surface text-text-brand" : "bg-surface-sunken text-text-subtle",
+                  filter === f.key
+                    ? "bg-surface text-text-brand"
+                    : "bg-surface-sunken text-text-subtle",
                 )}
               >
                 {counts[f.key]}
@@ -189,7 +191,7 @@ export function ConversationList({
                       <span
                         className={cn(
                           "h-1.5 w-1.5 shrink-0 rounded-full",
-                          t.unread > 0 ? slaColor[t.sla] : statusDot[chip] ?? "bg-text-subtlest",
+                          t.unread > 0 ? slaColor[t.sla] : (statusDot[chip] ?? "bg-text-subtlest"),
                         )}
                         title={statusMeta[chip].label}
                       />
@@ -198,11 +200,7 @@ export function ConversationList({
                           <span className="font-medium text-text-brand">Bot is typing…</span>
                         ) : (
                           <>
-                            {t.lastFrom === "bot"
-                              ? "Bot: "
-                              : t.lastFrom === "agent"
-                                ? "You: "
-                                : ""}
+                            {t.lastFrom === "bot" ? "Bot: " : t.lastFrom === "agent" ? "You: " : ""}
                             {t.lastPreview}
                           </>
                         )}

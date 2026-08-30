@@ -253,3 +253,129 @@ def test_invalid_authored_graph_is_not_publishable() -> None:
 
 def test_starter_graph_is_publishable_against_the_live_catalog() -> None:
     fg.assert_publishable(fg.empty_graph())
+
+
+# ---------------------------------------------------------------------------
+# "No nodes" is not the same claim as "no graph".
+#
+# The sentinel a card stores when it has no authored flow is `{nodes: [],
+# edges: []}` — the runtime falls back to the built-in script. Both sides of the
+# app abbreviated that test to "nodes is empty", so a row holding zero nodes and
+# some number of edges was classified as *unauthored* rather than as *broken*:
+# `assert_publishable` short-circuited before it reached the dangling-edge
+# checks, the compile gate passed, the canvas skipped validation, and the studio
+# rendered "No authored flow" over a graph that is nothing of the kind.
+#
+# The distinction matters because those two rows are indistinguishable in the
+# database otherwise. kaia's published v1_4 stores the genuine sentinel; a
+# corrupted edge-only row looks identical to every check that only counts nodes.
+# ---------------------------------------------------------------------------
+
+
+def test_a_graph_with_edges_but_no_nodes_is_not_treated_as_unauthored() -> None:
+    from flow_graph import is_authored, is_unauthored
+
+    raw = {
+        "version": 1,
+        "globalTools": [],
+        "nodes": [],
+        "edges": [
+            {
+                "id": "e-1",
+                "source": "n-gone",
+                "target": "n-also-gone",
+                "data": {
+                    "condition": {"type": "always", "prompt": "", "match": "all", "clauses": []}
+                },
+            }
+        ],
+    }
+    assert is_unauthored(raw) is False
+    assert is_authored(raw) is True
+
+
+def test_the_real_sentinel_is_still_unauthored() -> None:
+    from flow_graph import is_authored, is_unauthored
+
+    raw = {"version": 1, "globalTools": [], "nodes": [], "edges": []}
+    assert is_unauthored(raw) is True
+    assert is_authored(raw) is False
+
+
+def test_publishing_a_node_less_graph_with_edges_is_rejected() -> None:
+    from flow_graph import FlowInvalidError, assert_publishable
+
+    raw = {
+        "version": 1,
+        "globalTools": [],
+        "nodes": [],
+        "edges": [
+            {
+                "id": "e-1",
+                "source": "n-gone",
+                "target": "n-also-gone",
+                "data": {
+                    "condition": {"type": "always", "prompt": "", "match": "all", "clauses": []}
+                },
+            }
+        ],
+    }
+    with pytest.raises(FlowInvalidError) as excinfo:
+        assert_publishable(raw, known_tools=[])
+    codes = {issue.code for issue in excinfo.value.validation.issues}
+    assert "dangling_source" in codes
+
+
+# ---------------------------------------------------------------------------
+# One unreadable stored graph must cost that graph, not the whole bot.
+#
+# `PromptVersionResponse.flow` is a `FlowGraph` with `extra="forbid"`, and the
+# row mapper handed the stored jsonb straight to it. So a single version whose
+# `flow` column held an unknown key or an out-of-vocabulary enum — a hand-edited
+# row, a forward-compatible write from a newer build — raised
+# ResponseValidationError, which is a 500 on GET /prompt-versions for the ENTIRE
+# bot. Every version becomes unreadable because one of them is, and the studio
+# has no way in at all: no history, no editor, no diff, no way to discard the
+# offending draft.
+#
+# Degrading that one row's graph to the "no authored flow" sentinel keeps the
+# other twelve versions reachable, and `flowUnreadable` is what stops that
+# degradation from being another silent lie — the studio can say which version
+# lost its graph instead of showing an empty canvas as if it were authored that
+# way.
+# ---------------------------------------------------------------------------
+
+
+def test_an_unparseable_stored_graph_degrades_that_row_only() -> None:
+    import db
+
+    row = {
+        "id": "pv-x",
+        "label": "v9.9",
+        "status": "draft",
+        "created_at": "2026-08-25T00:00:00Z",
+        "prompt": "hello",
+        "flow": {"version": 1, "nodes": [], "edges": [], "notAFieldWeKnow": True},
+    }
+    mapped = db._map_prompt_version(row)
+    assert mapped["flow"] == {}
+    assert mapped["flowUnreadable"] is True
+
+
+def test_a_good_stored_graph_is_passed_through_untouched() -> None:
+    import db
+    import flow_graph as fg
+
+    good = fg.empty_graph().model_dump()
+    mapped = db._map_prompt_version(
+        {
+            "id": "pv-y",
+            "label": "v1.0",
+            "status": "published",
+            "created_at": "2026-08-25T00:00:00Z",
+            "prompt": "hi",
+            "flow": good,
+        }
+    )
+    assert mapped["flow"] == good
+    assert mapped["flowUnreadable"] is False

@@ -1,4 +1,13 @@
-import { Bot, ShieldCheck, AlertTriangle, MessageSquare, Timer, Smile, TrendingUp, HandCoins } from "lucide-react";
+import {
+  Bot,
+  ShieldCheck,
+  AlertTriangle,
+  MessageSquare,
+  Timer,
+  Smile,
+  TrendingUp,
+  HandCoins,
+} from "lucide-react";
 import type { Kpis } from "@/data/bot-analytics-seed";
 import { VOICE_TTFA_SLO_MS } from "@/data/bot-analytics-seed";
 import { LivelineSpark } from "@/components/charts";
@@ -25,7 +34,11 @@ function Tile({
       <div className="flex items-center gap-075 text-body-small font-medium text-text-subtlest">
         <Icon className="h-3.5 w-3.5" /> {label}
       </div>
-      <div className={`mt-025 text-[1.5rem] font-semibold tracking-tight tabular-nums ${tone ?? "text-text"}`}>{value}</div>
+      <div
+        className={`mt-025 heading-large font-semibold tracking-tight tabular-nums ${tone ?? "text-text"}`}
+      >
+        {value}
+      </div>
       {hint && <div className="text-body-small text-text-subtlest">{hint}</div>}
       <div className="mt-075 overflow-hidden rounded-medium bg-surface-sunken">
         <LivelineSpark data={spark} color={sparkColor} height={36} />
@@ -44,8 +57,16 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           value={`${kpis.containment.toFixed(1)}%`}
           hint={`${kpis.sessions.toLocaleString()} sessions`}
           spark={kpis.containmentSpark}
-          sparkColor={kpis.containment >= 80 ? "#5b7f24" : kpis.containment >= 65 ? "#e06c00" : "#e2483d"}
-          tone={kpis.containment >= 80 ? "text-text-success-bolder" : kpis.containment >= 65 ? "text-text-warning-bolder" : "text-text-danger-bolder"}
+          sparkColor={
+            kpis.containment >= 80 ? "#5b7f24" : kpis.containment >= 65 ? "#e06c00" : "#e2483d"
+          }
+          tone={
+            kpis.containment >= 80
+              ? "text-text-success-bolder"
+              : kpis.containment >= 65
+                ? "text-text-warning-bolder"
+                : "text-text-danger-bolder"
+          }
         />
         <Tile
           icon={Bot}
@@ -96,7 +117,11 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           hint={`p50 ${(kpis.latencyP50 / 1000).toFixed(2)}s · SLO ${VOICE_TTFA_SLO_MS}ms`}
           spark={kpis.latencySpark}
           sparkColor={kpis.latencyP90 > VOICE_TTFA_SLO_MS ? "#e06c00" : "#5b7f24"}
-          tone={kpis.latencyP90 > VOICE_TTFA_SLO_MS ? "text-text-warning-bolder" : "text-text-success-bolder"}
+          tone={
+            kpis.latencyP90 > VOICE_TTFA_SLO_MS
+              ? "text-text-warning-bolder"
+              : "text-text-success-bolder"
+          }
         />
         <Tile
           icon={Smile}

@@ -59,7 +59,11 @@ export function LeadTable({ leads, onOpen }: Props) {
         sortValue: (l) => l.customerName,
         className: "min-w-[13rem]",
         cell: (l) => (
-          <button type="button" onClick={() => onOpen(l)} className="flex min-w-0 items-center gap-100 text-left">
+          <button
+            type="button"
+            onClick={() => onOpen(l)}
+            className="flex min-w-0 items-center gap-100 text-left"
+          >
             <RecordsAvatarMark label={l.customerName || "?"} />
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium text-text-brand hover:underline">
@@ -99,7 +103,9 @@ export function LeadTable({ leads, onOpen }: Props) {
         sortable: true,
         sortValue: (l) => stageRank[l.stage] ?? 0,
         cell: (l) => (
-          <Lozenge tone={stageTone[l.stage] ?? "neutral"}>{STAGE_LABELS[l.stage] ?? l.stage}</Lozenge>
+          <Lozenge tone={stageTone[l.stage] ?? "neutral"}>
+            {STAGE_LABELS[l.stage] ?? l.stage}
+          </Lozenge>
         ),
         footer: (visible) => {
           const won = visible.filter((l) => l.stage === "won").length;
@@ -150,7 +156,9 @@ export function LeadTable({ leads, onOpen }: Props) {
             >
               {l.owner || "Unassigned"}
             </div>
-            <div className="truncate text-body-small text-text-subtlest">{l.team || "Unrouted"}</div>
+            <div className="truncate text-body-small text-text-subtlest">
+              {l.team || "Unrouted"}
+            </div>
           </div>
         ),
       },
@@ -159,7 +167,8 @@ export function LeadTable({ leads, onOpen }: Props) {
         header: "Next follow-up",
         headerIcon: <CalendarClock className="h-3.5 w-3.5" />,
         sortable: true,
-        sortValue: (l) => (l.nextFollowUpAt ? new Date(l.nextFollowUpAt).getTime() : Number.MAX_SAFE_INTEGER),
+        sortValue: (l) =>
+          l.nextFollowUpAt ? new Date(l.nextFollowUpAt).getTime() : Number.MAX_SAFE_INTEGER,
         cell: (l) =>
           l.nextFollowUpAt ? (
             <span className="inline-flex items-center gap-050 text-text-subtle">
@@ -180,7 +189,10 @@ export function LeadTable({ leads, onOpen }: Props) {
         cell: (l) => (
           <div className="flex items-center justify-end gap-075">
             <span
-              className={cn("h-1.5 w-1.5 rounded-full", sentimentDot[l.sentimentAtCapture] ?? sentimentDot.neutral)}
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                sentimentDot[l.sentimentAtCapture] ?? sentimentDot.neutral,
+              )}
               aria-hidden
             />
             <span className="capitalize text-text-subtle">{l.sentimentAtCapture || "—"}</span>

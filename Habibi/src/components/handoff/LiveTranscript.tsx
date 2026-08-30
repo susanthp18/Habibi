@@ -133,7 +133,9 @@ function speakerMeta(sp: Speaker, speakers?: Record<string, string>) {
 }
 
 function fmtTime(at: number) {
-  const m = Math.floor(at / 60).toString().padStart(2, "0");
+  const m = Math.floor(at / 60)
+    .toString()
+    .padStart(2, "0");
   const s = (at % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
 }
@@ -166,14 +168,21 @@ function TranscriptBubble({
         <div
           className={cn(
             "mt-025 grid h-7 w-7 shrink-0 place-items-center rounded-full",
-            meta.tone === "warn" ? "bg-background-warning text-text-warning" : "bg-surface-sunken text-text-subtle",
+            meta.tone === "warn"
+              ? "bg-background-warning text-text-warning"
+              : "bg-surface-sunken text-text-subtle",
           )}
         >
           <meta.Icon className="h-3.5 w-3.5" />
         </div>
       )}
       <div className={cn("max-w-[75%]", isRight && "text-right")}>
-        <div className={cn("mb-025 flex items-center gap-075 text-body-small text-text-subtlest", isRight && "justify-end")}>
+        <div
+          className={cn(
+            "mb-025 flex items-center gap-075 text-body-small text-text-subtlest",
+            isRight && "justify-end",
+          )}
+        >
           <span className="font-semibold text-text-subtle">{meta.name}</span>
           <span className="tabular">{fmtTime(turn.at)}</span>
         </div>

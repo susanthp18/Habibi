@@ -1,4 +1,13 @@
-import { FileText, FileSpreadsheet, FileArchive, Download, RotateCcw, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import {
+  FileText,
+  FileSpreadsheet,
+  FileArchive,
+  Download,
+  RotateCcw,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+} from "lucide-react";
 import type { ExportJob } from "@/data/redaction-seed";
 import { formatDateTime } from "@/data/redaction-seed";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -31,19 +40,25 @@ export function ExportAuditLog({ jobs, onDownload, onRetry }: Props) {
                   <div className="flex items-center gap-100">
                     <span className="text-body-small font-semibold text-text">{j.id}</span>
                     <StatusPill status={j.status} />
-                    <span className="ml-auto text-body-small text-text-subtlest">{formatDateTime(j.at)}</span>
+                    <span className="ml-auto text-body-small text-text-subtlest">
+                      {formatDateTime(j.at)}
+                    </span>
                   </div>
                   <div className="mt-025 truncate text-body-small text-text-subtle">
                     {j.actor} · {j.actorRole}
                   </div>
                   <div className="mt-025 flex flex-wrap items-center gap-x-100 gap-y-025 text-body-small text-text-subtlest">
-                    <span>{j.recordIds.length} record{j.recordIds.length === 1 ? "" : "s"}</span>
+                    <span>
+                      {j.recordIds.length} record{j.recordIds.length === 1 ? "" : "s"}
+                    </span>
                     <span>·</span>
                     <span>{j.entitiesRedacted} redacted</span>
                     <span>·</span>
                     <span>DL × {j.downloadCount}</span>
                   </div>
-                  <div className="mt-025 truncate text-body-small italic text-text-subtlest">"{j.watermark}"</div>
+                  <div className="mt-025 truncate text-body-small italic text-text-subtlest">
+                    "{j.watermark}"
+                  </div>
                 </div>
               </div>
               <div className="mt-075 flex justify-end gap-050">
@@ -68,7 +83,9 @@ export function ExportAuditLog({ jobs, onDownload, onRetry }: Props) {
           );
         })}
         {jobs.length === 0 && (
-          <li className="px-150 py-300 text-center text-body-small text-text-subtlest">No exports yet</li>
+          <li className="px-150 py-300 text-center text-body-small text-text-subtlest">
+            No exports yet
+          </li>
         )}
       </ul>
     </div>
@@ -77,9 +94,9 @@ export function ExportAuditLog({ jobs, onDownload, onRetry }: Props) {
 
 function StatusPill({ status }: { status: ExportJob["status"] }) {
   const map = {
-    ready:  { icon: CheckCircle2, bg: "var(--success-bg)",  fg: "var(--success)",  label: "Ready" },
-    queued: { icon: Clock,        bg: "var(--warning-bg)",  fg: "var(--warning)",  label: "Queued" },
-    failed: { icon: AlertCircle,  bg: "var(--danger-bg)",   fg: "var(--danger)",   label: "Failed" },
+    ready: { icon: CheckCircle2, bg: "var(--success-bg)", fg: "var(--success)", label: "Ready" },
+    queued: { icon: Clock, bg: "var(--warning-bg)", fg: "var(--warning)", label: "Queued" },
+    failed: { icon: AlertCircle, bg: "var(--danger-bg)", fg: "var(--danger)", label: "Failed" },
   } as const;
   const s = map[status];
   const Icon = s.icon;

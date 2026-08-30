@@ -16,13 +16,21 @@ export function PromisesTab({ customer, onCreate }: { customer: Customer; onCrea
   const settled = customer.promises.filter((p) => p.status === "kept" || p.status === "broken");
   const kept = customer.promises.filter((p) => p.status === "kept").length;
   const keepRate = settled.length ? Math.round((kept / settled.length) * 100) : null;
-  const active = customer.promises.filter((p) => p.status === "upcoming").reduce((s, p) => s + p.amount, 0);
-  const atRisk = customer.promises.filter((p) => p.status === "broken").reduce((s, p) => s + p.amount, 0);
+  const active = customer.promises
+    .filter((p) => p.status === "upcoming")
+    .reduce((s, p) => s + p.amount, 0);
+  const atRisk = customer.promises
+    .filter((p) => p.status === "broken")
+    .reduce((s, p) => s + p.amount, 0);
 
   return (
     <div className="space-y-200">
       <div className="grid grid-cols-2 gap-150 md:grid-cols-3">
-        <Metric label="PTP-kept rate" value={keepRate !== null ? `${keepRate}%` : "—"} tone="brand" />
+        <Metric
+          label="PTP-kept rate"
+          value={keepRate !== null ? `${keepRate}%` : "—"}
+          tone="brand"
+        />
         <Metric label="$ Active" value={fmtMoney(active)} />
         <Metric label="$ Broken" value={fmtMoney(atRisk)} tone="danger" />
       </div>
@@ -53,7 +61,11 @@ function PromiseCard({ p }: { p: Promise }) {
         <StatusChip label={p.status} tone={ptpStatusTone(p.status)} />
       </div>
       <div className="mt-150 grid grid-cols-2 gap-100 text-xs">
-        <Field label="Promised for" value={fmtDate(p.promisedDate)} sub={daysUntil(p.promisedDate)} />
+        <Field
+          label="Promised for"
+          value={fmtDate(p.promisedDate)}
+          sub={daysUntil(p.promisedDate)}
+        />
         <Field label="Captured by" value={p.handler} sub={fmtDate(p.createdAt)} />
       </div>
       <div className="mt-150 flex items-center justify-between border-t border-border pt-150 text-body-small text-text-subtle">
@@ -70,8 +82,17 @@ function PromiseCard({ p }: { p: Promise }) {
   );
 }
 
-function Metric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "brand" | "danger" }) {
-  const t = tone === "brand" ? "text-text-brand" : tone === "danger" ? "text-text-danger" : "text-text";
+function Metric({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "brand" | "danger";
+}) {
+  const t =
+    tone === "brand" ? "text-text-brand" : tone === "danger" ? "text-text-danger" : "text-text";
   return (
     <div className="rounded-large border border-border bg-surface p-150">
       <div className="text-body-small text-text-subtle">{label}</div>
@@ -98,7 +119,11 @@ function Empty({ onCreate }: { onCreate: () => void }) {
         <div className="text-sm font-semibold text-text">No promise-to-pay yet</div>
         <div className="text-xs text-text-subtle">Capture a commitment during your next call.</div>
       </div>
-      <Button size="sm" className="bg-background-brand-bold hover:bg-background-brand-bold-hovered" onClick={onCreate}>
+      <Button
+        size="sm"
+        className="bg-background-brand-bold hover:bg-background-brand-bold-hovered"
+        onClick={onCreate}
+      >
         Create PTP
       </Button>
     </div>

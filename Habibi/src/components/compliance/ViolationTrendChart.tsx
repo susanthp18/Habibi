@@ -23,7 +23,7 @@ export function ViolationTrendChart({ all }: { all: Violation[] }) {
       title="Violation trend"
       subtitle="Last 30 days · by severity"
       action={
-        <div className="flex flex-wrap items-center gap-100 text-[11px] text-text-subtle">
+        <div className="flex flex-wrap items-center gap-100 text-body-tiny text-text-subtle">
           {SERIES.map((s) => (
             <span key={s.id} className="inline-flex items-center gap-050">
               <span className="size-1.5 rounded-full" style={{ background: s.color }} />
@@ -36,7 +36,7 @@ export function ViolationTrendChart({ all }: { all: Violation[] }) {
       <ChartStage
         toolbar={
           <>
-            <span className="text-[11px] tabular-nums text-text-subtlest">30-day snapshot</span>
+            <span className="text-body-tiny tabular-nums text-text-subtlest">30-day snapshot</span>
             <SnapshotPill />
           </>
         }

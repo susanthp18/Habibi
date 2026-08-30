@@ -71,15 +71,9 @@ export async function setProviderEnabled(
   return apiPatch<Provider>(`/providers/${providerId}/configs/${env}`, { enabled });
 }
 
-export async function testProviderConnection(
-  provider: Provider,
-  env: Env,
-): Promise<TestLogEntry> {
+export async function testProviderConnection(provider: Provider, env: Env): Promise<TestLogEntry> {
   if (USE_MOCK) return runMockHealthCheck(provider, env);
-  return apiPost<TestLogEntry>(
-    `/providers/${provider.id}/test?env=${encodeURIComponent(env)}`,
-    {},
-  );
+  return apiPost<TestLogEntry>(`/providers/${provider.id}/test?env=${encodeURIComponent(env)}`, {});
 }
 
 export async function fetchProviderTestLogs(providerId: ProviderId): Promise<TestLogEntry[]> {
@@ -280,7 +274,8 @@ const MOCK_GATEWAY: GatewayStatus = {
 export function useConnectors() {
   return useQuery({
     queryKey: ["connectors"],
-    queryFn: async () => (USE_MOCK ? mockDelay(MOCK_CONNECTORS) : apiGet<Connector[]>("/connectors")),
+    queryFn: async () =>
+      USE_MOCK ? mockDelay(MOCK_CONNECTORS) : apiGet<Connector[]>("/connectors"),
     staleTime: 15_000,
   });
 }
@@ -301,7 +296,9 @@ export function useConnectorMutations() {
     }),
     test: useMutation({
       mutationFn: (id: string) =>
-        USE_MOCK ? mockDelay({ ok: true, kind: "first_party" }) : apiPost(`/connectors/${id}/test`, {}),
+        USE_MOCK
+          ? mockDelay({ ok: true, kind: "first_party" })
+          : apiPost(`/connectors/${id}/test`, {}),
       onSuccess: invalidate,
     }),
     cimd: useMutation({
@@ -317,7 +314,8 @@ export function useConnectorMutations() {
 export function useVaultRefs() {
   return useQuery({
     queryKey: ["vault-refs"],
-    queryFn: async () => (USE_MOCK ? mockDelay([] as VaultRef[]) : apiGet<VaultRef[]>("/vault/refs")),
+    queryFn: async () =>
+      USE_MOCK ? mockDelay([] as VaultRef[]) : apiGet<VaultRef[]>("/vault/refs"),
     staleTime: 15_000,
   });
 }
@@ -329,19 +327,25 @@ export function useVaultMutations() {
     put: useMutation({
       mutationFn: (payload: { name: string; purpose: string; secret: string }) =>
         USE_MOCK
-          ? mockDelay({
+          ? // `satisfies` checks the literal against VaultRef but does not widen
+            // it, so mockDelay inferred `{hasSecret: true}` and the ternary
+            // produced `Promise<thatLiteral> | Promise<VaultRef>` — a union no
+            // MutationFunction accepts. The type argument makes both arms agree.
+            mockDelay<VaultRef>({
               id: `vault-mock`,
               name: payload.name,
               purpose: payload.purpose,
               backend: "local",
               hasSecret: true,
-            } satisfies VaultRef)
+            })
           : apiPost<VaultRef>("/vault/refs", payload),
       onSuccess: invalidate,
     }),
     rotate: useMutation({
       mutationFn: (input: { id: string; secret: string }) =>
-        USE_MOCK ? mockDelay({ ok: true }) : apiPost(`/vault/refs/${input.id}/rotate`, { secret: input.secret }),
+        USE_MOCK
+          ? mockDelay({ ok: true })
+          : apiPost(`/vault/refs/${input.id}/rotate`, { secret: input.secret }),
       onSuccess: invalidate,
     }),
   };
@@ -362,20 +366,33 @@ export function useMcpKeyMutations() {
     mint: useMutation({
       mutationFn: (payload: { name: string; scopes: string[] }) =>
         USE_MOCK
-          ? mockDelay({
+          ? mockDelay<McpKey>({
               id: "mcpk-mock",
               name: payload.name,
               prefix: "mcp_moc",
               scopes: payload.scopes,
               revoked: false,
               key: "mcp_mock-shown-once",
-            } satisfies McpKey)
+            })
           : apiPost<McpKey>("/mcp/keys", payload),
       onSuccess: invalidate,
     }),
     rotate: useMutation({
+      // The mock returned a bare `{key}` while the real call returns the whole
+      // row, so the caller had to `as McpKey` its way past the union to read
+      // the one field it wanted. Returning the same shape from both arms is
+      // what lets that cast go.
       mutationFn: (id: string) =>
-        USE_MOCK ? mockDelay({ key: "mcp_rotated-shown-once" }) : apiPost<McpKey>(`/mcp/keys/${id}/rotate`, {}),
+        USE_MOCK
+          ? mockDelay<McpKey>({
+              id,
+              name: "Mock key",
+              prefix: "mcp_rot",
+              scopes: [],
+              revoked: false,
+              key: "mcp_rotated-shown-once",
+            })
+          : apiPost<McpKey>(`/mcp/keys/${id}/rotate`, {}),
       onSuccess: invalidate,
     }),
     revoke: useMutation({
@@ -405,7 +422,8 @@ export function useMcpTasks() {
 export function useGatewayStatus() {
   return useQuery({
     queryKey: ["gateway-status"],
-    queryFn: async () => (USE_MOCK ? mockDelay(MOCK_GATEWAY) : apiGet<GatewayStatus>("/gateway/status")),
+    queryFn: async () =>
+      USE_MOCK ? mockDelay(MOCK_GATEWAY) : apiGet<GatewayStatus>("/gateway/status"),
     staleTime: 30_000,
   });
 }
@@ -424,7 +442,8 @@ export function useGatewayCanary() {
 export function useProposeGatewayCanary() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (candidateModel: string) => apiPost<GatewayCanary>("/gateway/canary", { candidateModel }),
+    mutationFn: (candidateModel: string) =>
+      apiPost<GatewayCanary>("/gateway/canary", { candidateModel }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["gateway-canary"] });
       void qc.invalidateQueries({ queryKey: ["gateway-status"] });
@@ -446,7 +465,8 @@ export function usePromoteGatewayCanary() {
 export function useA2aPartners() {
   return useQuery({
     queryKey: ["a2a-partners"],
-    queryFn: async () => (USE_MOCK ? mockDelay([] as A2aPartner[]) : apiGet<A2aPartner[]>("/a2a/partners")),
+    queryFn: async () =>
+      USE_MOCK ? mockDelay([] as A2aPartner[]) : apiGet<A2aPartner[]>("/a2a/partners"),
     staleTime: 15_000,
   });
 }
@@ -462,8 +482,12 @@ export function useA2aTasks() {
 export function useUpsertA2aPartner() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name: string; certDn: string; cardUrl?: string; allowedSkills?: string[] }) =>
-      apiPost<A2aPartner>("/a2a/partners", body),
+    mutationFn: async (body: {
+      name: string;
+      certDn: string;
+      cardUrl?: string;
+      allowedSkills?: string[];
+    }) => apiPost<A2aPartner>("/a2a/partners", body),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["a2a-partners"] }),
   });
 }

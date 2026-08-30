@@ -67,6 +67,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = CATALOG.openai_tools(
         "apply_goodwill",
         "request_callback",
         "add_customer_note",
+        "capture_nonpayment_reason",
+        "set_contact_preference",
         "escalate_to_human",
         "handoff_to_agent",
         "recommend_next_offer",
@@ -157,6 +159,11 @@ class ToolContext:
         self.allowed_tools: set[str] | None = None
         self.active_skill: str | None = None
         self.attached_skills: list[Any] = []
+        # The card this turn is actually running, straight from the deployed
+        # bundle. The handoff allowlist reads it here rather than re-resolving
+        # from the environment's BOT_ID, which is a different question and, on
+        # a clone-card deployment, a different answer.
+        self.agent_card: dict[str, Any] | None = None
 
 
 def _tool_get_customer_context(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -165,13 +172,18 @@ def _tool_get_customer_context(ctx: ToolContext, args: dict[str, Any]) -> dict[s
         raise KeyError("customer_not_found")
     out = _compact_customer(customer)
     try:
-        from agent_core.platform_flags import mcp_client_enabled
-        from agent_core.connectors.first_party import paylink_status
+        # Through the connector registry, not straight at
+        # first_party.paylink_status. The registry is where the approval
+        # status, the allow-prefixes and the circuit breaker live, and a
+        # context read — which happens on every customer the bot touches — is
+        # exactly the place a draft, disabled or circuit-open paylink
+        # connector must not be able to answer. A rejection degrades to a card
+        # with no payLink, the same shape as MCP being switched off.
+        from agent_core.connectors.persist import dispatch
 
-        if mcp_client_enabled():
-            pay = paylink_status(ctx.customer_id)
-            if pay.get("status") and pay.get("status") != "none":
-                out["payLink"] = pay
+        pay = dispatch("ext.paylink.get_status", customer_id=ctx.customer_id)
+        if pay.get("ok") is not False and pay.get("status") and pay.get("status") != "none":
+            out["payLink"] = pay
     except Exception:
         logger.exception("paylink prefetch failed")
     return out
@@ -353,6 +365,52 @@ def _tool_add_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True}
 
 
+def _tool_capture_nonpayment_reason(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Record why the customer has not paid, as a code.
+
+    The code's real home is ``bot_tool_calls.args``, which the text runtime
+    already persists and which the post-call Closer reads — so this handler's
+    only job is to validate against the closed vocabulary and leave a note a
+    human can read on the file. A reason outside the list is rejected rather
+    than stored: the entire value of the field is that you can group by it.
+    """
+    from agent_core.tools.catalog import NONPAYMENT_REASONS
+
+    reason = str(args.get("reason") or "").strip()
+    if reason not in NONPAYMENT_REASONS:
+        return {"error": "unknown_reason", "allowed": list(NONPAYMENT_REASONS)}
+    note = str(args.get("verbatim") or "").strip()
+    db.add_customer_note(
+        ctx.customer_id,
+        {"text": f"[reason: {reason}]" + (f" {note[:500]}" if note else "")},
+    )
+    return {"ok": True, "reason": reason}
+
+
+def _tool_set_contact_preference(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Narrow the hours we may call this customer, because they said so.
+
+    Same semantics as the voice handler and for the same reason: the window the
+    dialler obeys is read from the consent record, so a restriction stated in
+    chat has to land in the same column a restriction stated on the phone lands
+    in, or the two channels disagree about the same borrower.
+    """
+    import contact_policy
+
+    with db.engine.begin() as conn:
+        outcome = contact_policy.narrow_window(
+            conn,
+            customer_id=ctx.customer_id,
+            earliest_hour=args.get("earliest_hour"),
+            latest_hour=args.get("latest_hour"),
+            source="chat",
+            note=str(args.get("verbatim") or "")[:500] or None,
+        )
+    if not outcome.get("ok"):
+        return {"ok": False, "reason": outcome.get("reason")}
+    return {"ok": True, "window": outcome.get("window")}
+
+
 def _tool_escalate(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     reason = (args.get("reason") or "escalated_by_bot").strip()
     db.escalate_conversation_to_human(ctx.conversation_id, reason=reason)
@@ -361,18 +419,43 @@ def _tool_escalate(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "status": "needs_human", "reason": reason}
 
 
-def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    from agent_core.cards.defaults import card_for
+def _handoff_allowlist(ctx: ToolContext) -> set[str]:
+    """Which bots this turn is permitted to transfer to.
 
+    Two ways this control used to evaporate. It resolved the card from the
+    environment's ``BOT_ID`` rather than the card the turn was running, so a
+    clone-card deployment enforced the wrong card's targets; and when the id
+    resolved to no card at all it returned ``None``, which
+    ``domain.handoff_to_agent`` reads as *unrestricted*. The check therefore
+    disabled itself at precisely the moment identity was misconfigured.
+
+    Resolution order is live card → built-in card → deny. Denying is the safe
+    end: the model stays on topic and ``escalate_to_human`` is still there.
+    """
+    from agent_core.cards.defaults import card_for
+    from agent_core.cards.schema import parse_card
+
+    if ctx.agent_card:
+        try:
+            return set(parse_card(ctx.agent_card).handoff_targets())
+        except Exception:
+            logger.warning("handoff allowlist: live card unreadable, falling back to built-in")
+
+    if ctx.bot_id:
+        try:
+            return set(card_for(ctx.bot_id).handoff_targets())
+        except KeyError:
+            logger.warning(
+                "handoff allowlist: no card for bot_id=%s — denying every target", ctx.bot_id
+            )
+    return set()
+
+
+def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     target = str(args.get("target_bot_id") or "").strip()
     reason = str(args.get("reason") or "").strip()
     payload = args.get("payload")
-    allowlist: set[str] | None = None
-    if ctx.bot_id:
-        try:
-            allowlist = set(card_for(ctx.bot_id).handoff_targets())
-        except KeyError:
-            allowlist = None
+    allowlist = _handoff_allowlist(ctx)
     result = domain.handoff_to_agent(
         interaction_id=ctx.interaction_id,
         from_bot_id=ctx.bot_id,
@@ -714,6 +797,8 @@ HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "apply_goodwill": _tool_apply_goodwill,
     "request_callback": _tool_request_callback,
     "add_customer_note": _tool_add_note,
+    "capture_nonpayment_reason": _tool_capture_nonpayment_reason,
+    "set_contact_preference": _tool_set_contact_preference,
     "escalate_to_human": _tool_escalate,
     "handoff_to_agent": _tool_handoff_to_agent,
     "recommend_next_offer": _tool_recommend_next_offer,
@@ -746,7 +831,11 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
         from agent_core.connectors.persist import dispatch
 
         try:
-            result = dispatch(name, customer_id=ctx.customer_id)
+            # The model's own arguments travel with the call. Dropping them
+            # meant every remote MCP tool with a second parameter ran on its
+            # defaults — the caller asked for one invoice and got whatever the
+            # remote picked.
+            result = dispatch(name, customer_id=ctx.customer_id, args=args)
             latency = int((time.perf_counter() - t0) * 1000)
             ok = not (isinstance(result, dict) and result.get("ok") is False)
             return ok, result, latency

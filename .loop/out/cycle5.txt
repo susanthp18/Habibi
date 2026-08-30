@@ -1,0 +1,109 @@
+Done. Your reading of the root cause was correct, and I confirmed it independently.
+
+## Diagnosis verified
+
+Two live `python -m worker` processes (PIDs 35744, 33264) poll every 2s (`--poll` default `2.0`, worker.py:382) via `process_one` → `claim_next_job` — `WHERE status='queued' ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1` (kb_ingest.py:151). Exactly the query the test races. Incidental corroboration: two orphaned probe rows from my aborted simulator runs came back as `status='failed'` with `minio_get_failed: ... NoSuchBucket: kb-sources` — a live worker had claimed them and tried to genuinely index the document. The theft is real and it does production work on the way past.
+
+## Mechanism chosen: detection (prevention is not available)
+
+Prevention would need to block foreign `FOR UPDATE SKIP LOCKED` claimers. The only table-lock mode that conflicts with their `ROW SHARE` is `EXCLUSIVE`/`ACCESS EXCLUSIVE` — which would equally block the two racing connections and destroy the race being tested. So: **window minimisation + proof-based detection.**
+
+1. **Window minimisation** — both claimer threads now open their connection and transaction *before* the probe job is inserted, parking on a 3-party barrier that the main thread joins. Exposure drops from "two thread starts + two pool checkouts" to "one INSERT commit + one barrier release."
+2. **Proof, in three signals**, only consulted when neither thread got the probe:
+   - Post-race row state read with **blocking `FOR UPDATE`** (no SKIP LOCKED), sharing the cleanup transaction, under `SET LOCAL lock_timeout='10s'` — it *waits out* a thief's in-flight transaction rather than racing it. Catches the committed claim (`status='running'`, `started_at` set) or a vanished row.
+   - `visible` — could an empty-handed claimer see the row as queued at all.
+   - `lockable` — was the row lock free. Visible-but-unlockable is the only signal that catches a foreign claimer whose transaction later **rolls back**, which leaves no other trace.
+
+If none of the three fires, nothing foreign is implicated and the original assertions run and fail.
+
+## Exact skip wording
+
+```
+kb_index_jobs worker contention: a foreign session claimed this test's probe job
+{job_id} before either racing thread could, so SKIP LOCKED was never exercised and
+this run has no verdict. Observed: {theft}; pre-race status was {pre_race_status!r};
+the two claimers returned {results}. This machine runs the live KB index workers
+(python -m worker) against the same Postgres and they poll this queue every 2s with
+the same FOR UPDATE SKIP LOCKED claim — see the module docstring. Re-run to get a
+verdict; do not stop the workers.
+```
+
+`{theft}` is one of four observed facts, e.g. `the probe row was left status='running' started_at=datetime.datetime(2026, 8, 23, ...)` or `claimer 0 saw the queued probe row but its row lock was held by a third session`. The same text is also emitted as a `UserWarning` — a warning survives `-q`, where a bare `s` looks too much like a pass.
+
+## Assertions byte-for-byte intact
+
+`git diff -U0 | grep -E "^[-+][^-+].*assert"` returns 3 hits, **all prose** (docstring/comment lines containing the word "assertions"). No `assert` statement was added, removed, or edited:
+
+```
+    assert not errors, errors
+    assert len(claimed) == 1, f"expected exactly one claimer to win, got {results}"
+    assert claimed[0] == job_id
+    assert results.count(None) == 1
+```
+
+## A defect the negative control caught
+
+My first detector version was wrong and I only found it because I tested the failure direction. The two claimers' own probes take the row lock for the length of a savepoint, so one claimer could see its *partner's* momentary lock and report "a third session has it" — excusing a genuine defect as worker contention:
+
+```
+[negative control] *** SKIPPED — a real defect was excused: ... claimer 1 saw the
+queued probe row but its row lock was held by a third session
+```
+
+Fixed with a `probe_gate` lock serialising the probes. The savepoint bounds how *long* the lock is held, not *when*; both guards are needed and the comment says so.
+
+## Sibling tests — all five audited, none implicated, none changed
+
+| Test | Verdict |
+|---|---|
+| `test_treatment_followthrough.py:331` | Inserts `whatsapp_outbound_jobs` at `'failed'`, inside the `db_tx` rollback fixture. Never `queued`, never committed, invisible to any foreign session. Safe. |
+| `test_promise_fulfillment.py:123` | Only counts `whatsapp_outbound_jobs`, inside `db_tx`. Safe. |
+| `test_inbox_outbound_visibility.py` | Drives `_warn_if_queue_is_not_draining` through fake connections. No DB queue rows. Safe. |
+| `test_production_hardening.py:394` | `UPDATE kb_index_jobs` against a test double, not Postgres. Safe. |
+| `test_contact_policy.py:317` | Sets `promise_reminders` to `'queued'` inside `db_tx`. Rolled back, never visible. Safe. |
+| `test_voice_session_store_contention.py` | Modelled on this test and uses real committed rows + threads, but on a uniquely-keyed `voice_sessions` row with no claim semantics — nothing polls for it. Safe. |
+
+`test_job_claim.py` is the only park-insert-race against a queue with live claimers. **No production code touched**; only `backend/tests/test_job_claim.py` is modified. Both scratch scripts I used for the simulation were deleted, and I removed the two orphaned probe rows they left (`leftover park markers: 0`, `remaining probe rows: 0`). No worker was killed or restarted.
+
+## Verification output
+
+Required run:
+```
+$ cd D:/Hackathon/backend && .venv/Scripts/python -m pytest tests/test_job_claim.py -q
+.                                                                        [100%]
+1 passed in 5.74s
+```
+
+Six consecutive runs against the live workers:
+```
+--- consecutive run 1 ---   .   1 passed in 6.48s
+--- consecutive run 2 ---   .   1 passed in 6.66s
+--- consecutive run 3 ---   .   1 passed in 6.24s
+--- consecutive run 4 ---   .   1 passed in 5.91s
+--- consecutive run 5 ---   .   1 passed in 6.78s
+--- consecutive run 6 ---   .   1 passed in 6.30s
+```
+
+Sibling tests (audited, unchanged):
+```
+$ .venv/Scripts/python -m pytest tests/test_voice_session_store_contention.py \
+    tests/test_treatment_followthrough.py tests/test_promise_fulfillment.py \
+    tests/test_inbox_outbound_visibility.py tests/test_production_hardening.py \
+    tests/test_contact_policy.py -q
+98 passed, 1 warning in 40.06s
+```
+(The one warning is a pre-existing Starlette/httpx deprecation, unrelated.)
+
+Detector behaviour, forced four consecutive times via a simulated worker (scratch script, since deleted):
+```
+[committed thief]   SKIPPED as designed
+[rolled-back thief] SKIPPED as designed
+[control, no thief] PASSED — assertions still exercised
+[negative control]  FAILED as designed: expected exactly one claimer to win, got [None, None]
+```
+
+Two caveats worth your attention, both pre-existing and outside the scope you set:
+
+- When a live worker does steal the probe, it performs a **real reindex** of whatever `kb_documents LIMIT 1` returned, using the test's chunk params (800/120, `text-embedding-3-small`) rather than the document's own. On this box it fails harmlessly at MinIO, but on a box with a working `kb-sources` bucket it would re-chunk a live document with test settings. Fixing that means having the test create its own throwaway `kb_documents` row — happy to do it as a follow-up.
+- Nothing is committed; the change is sitting in the working tree on `greptile-review/local-wip`.
+CYCLE5_EXIT=0

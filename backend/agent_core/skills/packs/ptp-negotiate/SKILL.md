@@ -3,6 +3,7 @@ name: ptp-negotiate
 description: Negotiate a Promise-to-Pay. Authority decides the cap; DND blocks writes outside the calling window. Call create_promise_to_pay only after verify. Use run_skill_script for EMI remaining and date-in-window.
 allowed-tools:
   - create_promise_to_pay
+  - capture_nonpayment_reason
   - evaluate_authority
   - request_callback
   - get_customer_context
@@ -10,7 +11,7 @@ allowed-tools:
   - get_emi_schedule
   - run_skill_script
 metadata:
-  version: 1.4.0
+  version: 1.5.0
   data_class:
     - money
     - pii

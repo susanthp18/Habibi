@@ -71,10 +71,18 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
       <aside className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay">
         <div className="shrink-0 flex items-center justify-between border-b border-border px-200 py-150">
           <div>
-            <h2 className="text-[0.875rem] font-semibold text-text">New document request</h2>
-            <p className="text-body-small text-text-subtlest">Raise a fulfilment task for a customer.</p>
+            <h2 className="text-body font-semibold text-text">New document request</h2>
+            <p className="text-body-small text-text-subtlest">
+              Raise a fulfilment task for a customer.
+            </p>
           </div>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={onClose}
+            aria-label="Close"
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -89,7 +97,9 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
             >
               {!pool.length && <option value="">Loading customers…</option>}
               {pool.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} · {c.accountId}</option>
+                <option key={c.id} value={c.id}>
+                  {c.name} · {c.accountId}
+                </option>
               ))}
             </select>
           </Field>
@@ -106,7 +116,9 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
               className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
             >
               {(Object.keys(DOC_TYPE_LABELS) as DocType[]).map((t) => (
-                <option key={t} value={t}>{DOC_TYPE_LABELS[t]}</option>
+                <option key={t} value={t}>
+                  {DOC_TYPE_LABELS[t]}
+                </option>
               ))}
             </select>
           </Field>
@@ -119,7 +131,9 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
               className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
             >
               {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
               ))}
             </select>
           </Field>
@@ -156,7 +170,9 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
         </div>
 
         <div className="shrink-0 flex justify-end gap-100 border-t border-border px-200 py-150">
-          <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
           <Button size="sm" onClick={() => void submit()} disabled={busy || !pool.length}>
             <Send className="mr-050 h-3.5 w-3.5" /> Create request
           </Button>

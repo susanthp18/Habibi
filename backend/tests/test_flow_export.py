@@ -55,15 +55,23 @@ def test_node_keys_are_reserved_so_built_in_transitions_still_land(graph: dict) 
     """Naming is the wiring: `_node("verify_identity")` resolves against the
     authored registry, so a renamed key silently breaks every scripted hop.
 
-    greet_disclose is the sole exception — it is the entry node, so nothing
-    transitions *to* it and it needs no reserved name.
+    The exceptions are the two *doors*: greet_disclose is where an inbound
+    caller lands and confirm_identity is where an outbound mission does. Nothing
+    transitions to either — one is reached by the phone ringing and the other by
+    us dialling — so neither needs a reserved name, and reserving them would
+    claim a built-in hop that does not exist.
     """
+    doors = {"greet_disclose", "confirm_identity"}
     unreserved = [
         n["key"]
         for n in graph["nodes"]
-        if n["key"] not in flow_graph.RESERVED_NODE_KEYS and n["key"] != "greet_disclose"
+        if n["key"] not in flow_graph.RESERVED_NODE_KEYS and n["key"] not in doors
     ]
     assert unreserved == []
+    # The outbound door has to say which missions it opens, or an author
+    # importing this graph gets a node nothing can ever reach.
+    entry = next(n for n in graph["nodes"] if n["key"] == "confirm_identity")
+    assert entry["data"]["entryFor"], "the exported outbound door claims no mission"
 
 
 def test_every_built_in_transition_target_is_a_documented_reserved_key() -> None:
@@ -108,7 +116,11 @@ def test_per_node_tools_match_the_built_in(graph: dict) -> None:
         "not_account_holder",
     }
     assert "get_account_position" in by_key["state_position"]
-    assert len(by_key["state_position"]) == 6
+    # The reason code is captured where the borrower is told what they owe —
+    # node-local rather than global, because an idle tool sits in every node's
+    # prompt on every turn and G6 caps that count.
+    assert "capture_nonpayment_reason" in by_key["state_position"]
+    assert len(by_key["state_position"]) == 7
 
 
 def test_instructions_are_carried_verbatim(graph: dict, built_in: dict) -> None:

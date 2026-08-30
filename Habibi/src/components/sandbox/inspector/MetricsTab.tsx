@@ -1,8 +1,5 @@
 import type { SandboxTurn } from "@/data/sandbox-seed";
-import type {
-  LiveTurnAudio,
-  TurnAnalysisEvent,
-} from "@/components/sandbox/voice/liveEvents";
+import type { LiveTurnAudio, TurnAnalysisEvent } from "@/components/sandbox/voice/liveEvents";
 
 export type TurnMetric = {
   id: string;
@@ -125,7 +122,9 @@ export function MetricsTab({
                     return (
                       <div
                         key={key}
-                        className={i % 2 ? "bg-background-brand-bold/50" : "bg-background-brand-bold"}
+                        className={
+                          i % 2 ? "bg-background-brand-bold/50" : "bg-background-brand-bold"
+                        }
                         style={{ width: `${(v / total) * 100}%` }}
                       />
                     );
@@ -171,7 +170,9 @@ export function MetricsTab({
       ))}
       {turnAudio.length > 0 && (
         <div className="space-y-075">
-          <div className="text-body-small font-medium text-text-subtle">Turn audio (last clips)</div>
+          <div className="text-body-small font-medium text-text-subtle">
+            Turn audio (last clips)
+          </div>
           {turnAudio.map((clip) => (
             <button
               key={clip.id}

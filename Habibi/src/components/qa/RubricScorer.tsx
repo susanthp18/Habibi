@@ -34,23 +34,29 @@ export function RubricScorer({
                 <div className="text-body-small text-text-subtlest">Weight {section.weight}%</div>
               </div>
               <div className="text-right">
-                <div className="text-[0.875rem] font-semibold text-text-brand">{subtotal.toFixed(0)}</div>
+                <div className="text-body font-semibold text-text-brand">{subtotal.toFixed(0)}</div>
                 <div className="text-body-small text-text-subtlest">Subtotal</div>
               </div>
             </div>
             <div className="divide-y divide-border">
               {section.criteria.map((c) => {
-                const entry = entries.find((e) => e.criterionId === c.id) ?? { criterionId: c.id, aiSuggested: 0, score: 0 };
+                const entry = entries.find((e) => e.criterionId === c.id) ?? {
+                  criterionId: c.id,
+                  aiSuggested: 0,
+                  score: 0,
+                };
                 const diff = entry.score !== entry.aiSuggested;
                 const liveLocked = Boolean(entry.note?.startsWith("[live]"));
                 return (
                   <div key={c.id} className="px-150 py-150">
                     <div className="flex items-start justify-between gap-100">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-075 text-[0.75rem] font-medium text-text">
+                        <div className="flex items-center gap-075 text-body-small font-medium text-text">
                           {c.label}
                           {c.critical && (
-                            <span className="rounded bg-background-danger-subtler px-050 py-025 text-body-small font-semibold text-text-danger-bolder">Critical</span>
+                            <span className="rounded bg-background-danger-subtler px-050 py-025 text-body-small font-semibold text-text-danger-bolder">
+                              Critical
+                            </span>
                           )}
                           {liveLocked && (
                             <span
@@ -64,7 +70,10 @@ export function RubricScorer({
                         <div className="text-body-small text-text-subtle">{c.description}</div>
                       </div>
                       <div className="shrink-0 text-right">
-                        <div className="text-[1rem] font-semibold text-text">{entry.score.toFixed(0)}<span className="text-body-small text-text-subtlest">/5</span></div>
+                        <div className="heading-small font-semibold text-text">
+                          {entry.score.toFixed(0)}
+                          <span className="text-body-small text-text-subtlest">/5</span>
+                        </div>
                       </div>
                     </div>
                     <div className="mt-100 flex items-center gap-100">
@@ -75,7 +84,12 @@ export function RubricScorer({
                         step={1}
                         value={entry.score}
                         disabled={readOnly}
-                        onChange={(e) => update(c.id, { score: Number(e.target.value), accepted: Number(e.target.value) === entry.aiSuggested })}
+                        onChange={(e) =>
+                          update(c.id, {
+                            score: Number(e.target.value),
+                            accepted: Number(e.target.value) === entry.aiSuggested,
+                          })
+                        }
                         className="h-050 flex-1 cursor-pointer accent-[var(--background-brand-bold)]"
                       />
                       <button

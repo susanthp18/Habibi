@@ -1,0 +1,83 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval.
+Do not wait for permission.
+Do not stop for confirmation.
+
+Never git stash.
+Never git reset --hard.
+Never git clean.
+Never git checkout -- .
+Never git restore .
+Never force-push.
+Never push.
+Never commit to main.
+
+Approximately 558 uncommitted files are expected. Do not destroy unrelated existing work.
+
+Never delete a test.
+Never skip a test.
+Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+
+Never print .env.
+Never print credentials.
+Never expose Twilio credentials.
+
+Do not restart or kill services listening on 8000, 7860, 8080 unless the task explicitly requires a safe application-level reload.
+
+Do not use Docker to start API or voice. API and voice run natively on the host.
+
+If a bug is identified: reproduce, diagnose root cause, fix root cause, add regression coverage where appropriate, verify.
+
+For UI changes: inspect localhost. Do not claim success without real terminal output.
+
+At the end report: files changed, tests run, actual test output, remaining issues.
+
+
+PAGE: QA Scorecards & Coaching (http://localhost:8080/qa), Agent Trends tab
+
+ELEMENT: Agent trend card — "Section breakdown" value labels
+
+REPRODUCTION:
+Open http://localhost:8080/qa, click the "Agent Trends" tab, then open any agent's
+trend card (e.g. "CollectionsBot v2.4"). The Section breakdown rows render the raw
+fractional averages, for example:
+  Resolution & Accuracy   72.66666666666667
+  Compliance              85.66666666666667
+  Empathy & Tone          83.33333333
+Observed live in the browser on 2026-08-23 against the running dev server.
+
+EXPECTED: Section scores are displayed as integers (or at most one decimal), consistent
+with the score trend chart above which already renders via v.toFixed(0), and consistent
+with every other score display on the page (e.g. "80 / 100").
+
+ACTUAL: Raw float averages printed verbatim with full floating point precision.
+
+EVIDENCE:
+- src/components/qa/AgentTrendCard.tsx line ~69 prints {s.value} directly as the row label.
+- The same component line ~41 formats the sparkline with formatValue={(v) => v.toFixed(0)},
+  so the card is internally inconsistent.
+- The values come from buildAgentQaStats in src/data/qa-seed.ts (~line 390):
+    const vals = cards.map((c) => sectionTotal(s, c.entries));
+    return { section: s.label, value: vals.reduce((a, b) => a + b, 0) / (vals.length || 1) };
+  i.e. true sum/count fractions — the aggregation itself is correct; only the display
+  is wrong.
+
+SUSPECTED AREA: src/components/qa/AgentTrendCard.tsx section breakdown label rendering.
+
+ACCEPTANCE CRITERIA:
+1. Section breakdown values render rounded to whole numbers (match the chart's
+   toFixed(0) convention; Math.round at the render site is acceptable).
+2. Bar widths must keep using the exact fractional value — do not round what feeds
+   width: style, only the printed label.
+3. No change to the aggregation math in qa-seed.ts unless you find it cleaner to round
+   there instead of at the render site; if so, verify nothing else consumes the raw
+   fraction from sectionScores before switching (grep all consumers).
+4. npm run typecheck passes; npm run lint stays at 0 errors and no more than 62 warnings;
+   npm run build passes; npx vitest run passes (54 tests currently green — none may fail).
+5. Report actual terminal output for each gate.

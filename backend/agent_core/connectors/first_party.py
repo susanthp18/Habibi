@@ -19,6 +19,13 @@ FIRST_PARTY_TOOLS = {
 
 
 def paylink_status(customer_id: str) -> dict[str, Any]:
+    """Latest pay-link status for a customer *in the caller's tenant*.
+
+    The read is tenant-scoped like every other CRM read behind a connector
+    (``lms_balance`` gets it from ``db.get_customer``). RLS is opt-in and the
+    app connects as BYPASSRLS, so a bare ``customer_id`` predicate made a
+    cross-tenant id return that tenant's payment status.
+    """
     with db.engine.connect() as conn:
         row = db._one(
             conn.execute(
@@ -26,12 +33,15 @@ def paylink_status(customer_id: str) -> dict[str, Any]:
                     """
                     SELECT pi.status, pi.amount, pi.paid_at, pi.provider_ref, pi.id
                       FROM payment_intents pi
+                      JOIN customers c ON c.id = pi.customer_id
                      WHERE pi.customer_id = :cid
+                       AND c.tenant_id = :t
+                       AND pi.tenant_id = :t
                      ORDER BY pi.created_at DESC NULLS LAST
                      LIMIT 1
                     """
                 ),
-                {"cid": customer_id},
+                {"cid": customer_id, "t": db._tenant()},
             )
         )
     if not row:

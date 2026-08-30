@@ -14,8 +14,7 @@ export const Route = createFileRoute("/bot-analytics")({
       { property: "og:title", content: "Conversation & Bot Analytics" },
       {
         property: "og:description",
-        content:
-          "Understand why the bot fails and where to improve prompts and RAG coverage.",
+        content: "Understand why the bot fails and where to improve prompts and RAG coverage.",
       },
     ],
   }),

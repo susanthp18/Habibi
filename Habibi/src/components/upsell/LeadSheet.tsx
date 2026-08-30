@@ -35,7 +35,13 @@ import {
   type LeadStage,
   type Priority,
 } from "@/data/upsell-seed";
-import { addLeadFollowUp, leadContactChannel, markLeadFollowUpDone, patchLead, revalidateLead } from "@/api/upsell";
+import {
+  addLeadFollowUp,
+  leadContactChannel,
+  markLeadFollowUpDone,
+  patchLead,
+  revalidateLead,
+} from "@/api/upsell";
 import { useProducts } from "@/api/products";
 import { humanNames, useStaff } from "@/api/staff";
 import { teamNames, useTeams } from "@/api/teams";
@@ -89,14 +95,8 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
     () => (USE_MOCK ? listOwners() : [...humanNames(staff), "Unassigned"]),
     [staff],
   );
-  const teamOptions = useMemo(
-    () => (USE_MOCK ? TEAM_OPTIONS : teamNames(teams)),
-    [teams],
-  );
-  const productOptions = useMemo(
-    () => (catalog.length > 0 ? catalog : products),
-    [catalog],
-  );
+  const teamOptions = useMemo(() => (USE_MOCK ? TEAM_OPTIONS : teamNames(teams)), [teams]);
+  const productOptions = useMemo(() => (catalog.length > 0 ? catalog : products), [catalog]);
 
   const [productId, setProductId] = useState(lead.offer.productId);
   const [amount, setAmount] = useState(String(lead.offer.indicativeAmount));
@@ -114,7 +114,9 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
     d.setMinutes(0, 0, 0);
     return d.toISOString().slice(0, 16);
   });
-  const [fuChannel, setFuChannel] = useState<FollowUpChannel>(() => leadContactChannel(lead.source));
+  const [fuChannel, setFuChannel] = useState<FollowUpChannel>(() =>
+    leadContactChannel(lead.source),
+  );
   const [fuNote, setFuNote] = useState("");
 
   useEffect(() => {
@@ -128,14 +130,18 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Lead update failed"),
   });
   const followUpMutation = useMutation({
-    mutationFn: (input: { at: string; channel: FollowUpChannel; note: string }) => addLeadFollowUp(lead, input),
+    mutationFn: (input: { at: string; channel: FollowUpChannel; note: string }) =>
+      addLeadFollowUp(lead, input),
     onSuccess: () => onMutate(),
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Follow-up scheduling failed"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Follow-up scheduling failed"),
   });
   const followUpDoneMutation = useMutation({
-    mutationFn: ({ followUp, index }: { followUp: Lead["followUps"][number]; index: number }) => markLeadFollowUpDone(lead, followUp, index),
+    mutationFn: ({ followUp, index }: { followUp: Lead["followUps"][number]; index: number }) =>
+      markLeadFollowUpDone(lead, followUp, index),
     onSuccess: () => onMutate(),
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Follow-up update failed"),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Follow-up update failed"),
   });
   // Eligibility was evaluated once, at capture. Consent and DPD move; the
   // badge on this drawer does not, so a rep could work a lead the customer has
@@ -159,7 +165,10 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
       setLostOpen(true);
       return;
     }
-    leadMutation.mutate({ stage: s }, { onSuccess: () => toast.success(`Moved to ${STAGE_LABELS[s]}`) });
+    leadMutation.mutate(
+      { stage: s },
+      { onSuccess: () => toast.success(`Moved to ${STAGE_LABELS[s]}`) },
+    );
   };
 
   const saveOffer = () => {
@@ -168,13 +177,20 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
       toast.error("Enter a valid amount");
       return;
     }
-    leadMutation.mutate({ offer: { productId, indicativeAmount: n, indicativeROI: roi } }, { onSuccess: () => toast.success("Offer updated") });
+    leadMutation.mutate(
+      { offer: { productId, indicativeAmount: n, indicativeROI: roi } },
+      { onSuccess: () => toast.success("Offer updated") },
+    );
   };
 
   const submitFollowUp = () => {
     if (!fuDate) return;
     followUpMutation.mutate(
-      { at: new Date(fuDate).toISOString(), channel: fuChannel, note: fuNote || "Follow-up scheduled." },
+      {
+        at: new Date(fuDate).toISOString(),
+        channel: fuChannel,
+        note: fuNote || "Follow-up scheduled.",
+      },
       {
         onSuccess: () => {
           setFuNote("");
@@ -216,17 +232,20 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
           <div className="flex items-start justify-between gap-100">
             <div className="min-w-0">
               <div className="flex items-center gap-100">
-                <Lozenge tone={stageTone[lead.stage]}>
-                  {STAGE_LABELS[lead.stage]}
-                </Lozenge>
+                <Lozenge tone={stageTone[lead.stage]}>{STAGE_LABELS[lead.stage]}</Lozenge>
                 <span className="text-body-small text-text-subtlest">{lead.id}</span>
               </div>
-              <h2 className="mt-050 truncate text-[0.875rem] font-semibold text-text">{lead.customerName}</h2>
+              <h2 className="mt-050 truncate text-body font-semibold text-text">
+                {lead.customerName}
+              </h2>
               <div className="text-body-small text-text-subtle">
                 {lead.offer.label} · {fmtMoney(lead.estimatedValue)} · {lead.offer.indicativeROI}
               </div>
             </div>
-            <button onClick={onClose} className="rounded p-050 text-text-subtlest hover:bg-surface-sunken">
+            <button
+              onClick={onClose}
+              className="rounded p-050 text-text-subtlest hover:bg-surface-sunken"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -254,7 +273,9 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                 onClick={() => setTab(t)}
                 className={cn(
                   "rounded px-150 py-050 text-body-small capitalize",
-                  tab === t ? "bg-background-brand-subtlest text-text-brand" : "text-text-subtle hover:bg-surface-sunken",
+                  tab === t
+                    ? "bg-background-brand-subtlest text-text-brand"
+                    : "text-text-subtle hover:bg-surface-sunken",
                 )}
               >
                 {t === "followups" ? "Follow-ups" : t}
@@ -292,10 +313,17 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
               {/* Source + snippet */}
               <div className="rounded-medium border border-border bg-surface-sunken/50 p-150">
                 <div className="flex items-center justify-between text-body-small text-text-subtlest">
-                  <span>Source · {SOURCE_LABELS[lead.source]}{lead.sourceCallId ? ` · ${lead.sourceCallId}` : ""}</span>
-                  <span className="capitalize">Sentiment: {lead.sentimentAtCapture} ({fmtSentiment(lead.sentimentScore)})</span>
+                  <span>
+                    Source · {SOURCE_LABELS[lead.source]}
+                    {lead.sourceCallId ? ` · ${lead.sourceCallId}` : ""}
+                  </span>
+                  <span className="capitalize">
+                    Sentiment: {lead.sentimentAtCapture} ({fmtSentiment(lead.sentimentScore)})
+                  </span>
                 </div>
-                <p className="mt-075 text-body-small italic text-text-subtle">“{lead.transcriptSnippet}”</p>
+                <p className="mt-075 text-body-small italic text-text-subtle">
+                  “{lead.transcriptSnippet}”
+                </p>
               </div>
 
               {/* Offer editor */}
@@ -312,11 +340,23 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                     className="col-span-2 h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
                   >
                     {productOptions.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
                     ))}
                   </select>
-                  <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Indicative amount" className="h-400 text-body-small" />
-                  <Input value={roi} onChange={(e) => setRoi(e.target.value)} placeholder="Indicative ROI" className="h-400 text-body-small" />
+                  <Input
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="Indicative amount"
+                    className="h-400 text-body-small"
+                  />
+                  <Input
+                    value={roi}
+                    onChange={(e) => setRoi(e.target.value)}
+                    placeholder="Indicative ROI"
+                    className="h-400 text-body-small"
+                  />
                 </div>
                 <Button size="sm" className="mt-100 h-7 text-body-small" onClick={saveOffer}>
                   Save offer
@@ -326,7 +366,9 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
               {/* Owner + team + priority */}
               <div className="grid grid-cols-2 gap-100">
                 <div>
-                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">Owner</div>
+                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                    Owner
+                  </div>
                   <select
                     value={lead.owner ?? "Unassigned"}
                     onChange={(e) => {
@@ -336,29 +378,39 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                     className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
                   >
                     {owners.map((o) => (
-                      <option key={o} value={o}>{o}</option>
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">Team</div>
+                  <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                    Team
+                  </div>
                   <select
                     value={lead.team ?? ""}
                     onChange={(e) => {
-                      leadMutation.mutate({ team: e.target.value as (typeof TEAM_OPTIONS)[number] });
+                      leadMutation.mutate({
+                        team: e.target.value as (typeof TEAM_OPTIONS)[number],
+                      });
                       toast.success(`Routed to ${e.target.value}`);
                     }}
                     className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
                   >
                     {teamOptions.map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
                     ))}
                   </select>
                 </div>
               </div>
 
               <div>
-                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Priority</div>
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  Priority
+                </div>
                 <div className="flex items-center gap-050">
                   {(["high", "normal", "low"] as Priority[]).map((p) => (
                     <Lozenge
@@ -377,7 +429,9 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                   <div className="flex items-center gap-075 font-semibold">
                     <Trophy className="h-4 w-4" /> Won · {fmtMoney(lead.wonAmount)}
                   </div>
-                  <div className="mt-025 text-body-small text-text-success-bolder">Closed {lead.closedAt ? fmtRelative(lead.closedAt) : ""}.</div>
+                  <div className="mt-025 text-body-small text-text-success-bolder">
+                    Closed {lead.closedAt ? fmtRelative(lead.closedAt) : ""}.
+                  </div>
                 </div>
               )}
               {lead.stage === "lost" && lead.lossReason && (
@@ -398,7 +452,8 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-050 text-text-warning-bolder">
-                    <ShieldAlert className="h-4 w-4" /> {failing.length} flag{failing.length > 1 ? "s" : ""} needs review before disbursement.
+                    <ShieldAlert className="h-4 w-4" /> {failing.length} flag
+                    {failing.length > 1 ? "s" : ""} needs review before disbursement.
                   </span>
                 )}
                 <Button
@@ -412,14 +467,17 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                 </Button>
               </div>
               <p className="px-050 text-body-small text-text-subtlest">
-                Checked when the lead was captured. Consent and DPD change — re-check before contacting.
+                Checked when the lead was captured. Consent and DPD change — re-check before
+                contacting.
               </p>
               {lead.eligibilityFlags.map((f, i) => (
                 <div
                   key={i}
                   className={cn(
                     "flex items-start gap-100 rounded-medium border p-150",
-                    f.ok ? "border-border-success-subtle bg-background-success-subtler/40" : "border-border-warning bg-background-warning-subtler/50",
+                    f.ok
+                      ? "border-border-success-subtle bg-background-success-subtler/40"
+                      : "border-border-warning bg-background-warning-subtler/50",
                   )}
                 >
                   {f.ok ? (
@@ -428,7 +486,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                     <XCircle className="mt-025 h-4 w-4 shrink-0 text-text-warning" />
                   )}
                   <div>
-                    <div className="text-[0.75rem] font-medium text-text">{f.label}</div>
+                    <div className="text-body-small font-medium text-text">{f.label}</div>
                     <div className="text-body-small text-text-subtle">{f.detail}</div>
                   </div>
                 </div>
@@ -439,7 +497,9 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
           {tab === "followups" && (
             <div className="space-y-200">
               <div className="rounded-medium border border-border p-150">
-                <div className="mb-100 text-body-small font-semibold text-text-subtlest">Schedule follow-up</div>
+                <div className="mb-100 text-body-small font-semibold text-text-subtlest">
+                  Schedule follow-up
+                </div>
                 <div className="grid grid-cols-2 gap-100">
                   <input
                     type="datetime-local"
@@ -471,7 +531,9 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
               </div>
 
               <div>
-                <div className="mb-075 text-body-small font-semibold text-text-subtlest">History</div>
+                <div className="mb-075 text-body-small font-semibold text-text-subtlest">
+                  History
+                </div>
                 {lead.followUps.length === 0 ? (
                   <div className="rounded border border-dashed border-border p-200 text-center text-body-small text-text-subtlest">
                     No follow-ups yet.
@@ -479,19 +541,29 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                 ) : (
                   <div className="space-y-075">
                     {lead.followUps.map((f, i) => {
-                      const Icon = f.channel === "voice" ? Phone : f.channel === "email" ? Mail : f.channel === "sms" ? MessageSquare : MessageSquare;
+                      const Icon =
+                        f.channel === "voice"
+                          ? Phone
+                          : f.channel === "email"
+                            ? Mail
+                            : f.channel === "sms"
+                              ? MessageSquare
+                              : MessageSquare;
                       return (
                         <div
                           key={i}
                           className={cn(
                             "flex items-center gap-100 rounded-medium border p-100 text-body-small",
-                            f.done ? "border-border-success-subtle bg-background-success-subtler/40 text-text-success-bolder" : "border-border bg-surface",
+                            f.done
+                              ? "border-border-success-subtle bg-background-success-subtler/40 text-text-success-bolder"
+                              : "border-border bg-surface",
                           )}
                         >
                           <Icon className="h-3.5 w-3.5 text-text-subtlest" />
                           <div className="flex-1">
                             <div className={cn(f.done && "line-through opacity-70")}>
-                              {fmtDateTime(f.at)} <span className="text-text-subtlest">· {f.channel}</span>
+                              {fmtDateTime(f.at)}{" "}
+                              <span className="text-text-subtlest">· {f.channel}</span>
                             </div>
                             {f.note && <div className="text-text-subtle">{f.note}</div>}
                           </div>
@@ -520,13 +592,18 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
           {tab === "timeline" && (
             <div className="space-y-100">
               {lead.events.map((e, i) => (
-                <div key={i} className="flex items-start gap-100 rounded-medium border border-border bg-surface p-150">
+                <div
+                  key={i}
+                  className="flex items-start gap-100 rounded-medium border border-border bg-surface p-150"
+                >
                   <div className="mt-050 grid h-250 w-250 shrink-0 place-items-center rounded-full bg-background-brand-subtlest">
                     <CalendarClock className="h-3 w-3 text-text-brand" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-100 text-body-small">
-                      <span className="font-medium text-text capitalize">{e.kind.replace(/_/g, " ")}</span>
+                      <span className="font-medium text-text capitalize">
+                        {e.kind.replace(/_/g, " ")}
+                      </span>
                       <span className="text-text-subtlest">{fmtRelative(e.at)}</span>
                     </div>
                     {e.note && <div className="text-body-small text-text-subtle">{e.note}</div>}
@@ -543,10 +620,20 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
           {wonOpen ? (
             <div className="flex items-end gap-100">
               <div className="flex-1">
-                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Disbursed amount</div>
-                <Input value={wonAmt} onChange={(e) => setWonAmt(e.target.value)} className="h-400 text-body-small" />
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  Disbursed amount
+                </div>
+                <Input
+                  value={wonAmt}
+                  onChange={(e) => setWonAmt(e.target.value)}
+                  className="h-400 text-body-small"
+                />
               </div>
-              <Button size="sm" className="h-400 bg-background-success-bold text-white hover:bg-background-success-bold-pressed" onClick={submitWon}>
+              <Button
+                size="sm"
+                className="h-400 bg-background-success-bold text-white hover:bg-background-success-bold-pressed"
+                onClick={submitWon}
+              >
                 Confirm won
               </Button>
               <Button size="sm" variant="ghost" className="h-400" onClick={() => setWonOpen(false)}>
@@ -556,34 +643,64 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
           ) : lostOpen ? (
             <div className="flex items-end gap-100">
               <div className="flex-1">
-                <div className="mb-050 text-body-small font-semibold text-text-subtlest">Loss reason</div>
-                <Input value={lossReason} onChange={(e) => setLossReason(e.target.value)} placeholder="e.g. Rate not competitive" className="h-400 text-body-small" />
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  Loss reason
+                </div>
+                <Input
+                  value={lossReason}
+                  onChange={(e) => setLossReason(e.target.value)}
+                  placeholder="e.g. Rate not competitive"
+                  className="h-400 text-body-small"
+                />
               </div>
               <Button size="sm" className="h-400" onClick={submitLost}>
                 Confirm lost
               </Button>
-              <Button size="sm" variant="ghost" className="h-400" onClick={() => setLostOpen(false)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-400"
+                onClick={() => setLostOpen(false)}
+              >
                 Cancel
               </Button>
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-end gap-100">
               {lead.stage === "interested" && (
-                <Button size="sm" className="h-400 text-body-small" onClick={() => doStage("contacted")}>
+                <Button
+                  size="sm"
+                  className="h-400 text-body-small"
+                  onClick={() => doStage("contacted")}
+                >
                   <ArrowRight className="mr-050 h-3.5 w-3.5" /> Mark contacted
                 </Button>
               )}
               {(lead.stage === "interested" || lead.stage === "contacted") && (
-                <Button size="sm" variant="outline" className="h-400 text-body-small" onClick={() => doStage("qualified")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-400 text-body-small"
+                  onClick={() => doStage("qualified")}
+                >
                   Mark qualified
                 </Button>
               )}
               {lead.stage !== "won" && lead.stage !== "lost" && (
                 <>
-                  <Button size="sm" className="h-400 bg-background-success-bold text-white text-body-small hover:bg-background-success-bold-pressed" onClick={() => setWonOpen(true)}>
+                  <Button
+                    size="sm"
+                    className="h-400 bg-background-success-bold text-white text-body-small hover:bg-background-success-bold-pressed"
+                    onClick={() => setWonOpen(true)}
+                  >
                     <Trophy className="mr-050 h-3.5 w-3.5" /> Won
                   </Button>
-                  <Button size="sm" variant="outline" className="h-400 text-body-small" onClick={() => setLostOpen(true)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-400 text-body-small"
+                    onClick={() => setLostOpen(true)}
+                  >
                     Lost
                   </Button>
                 </>

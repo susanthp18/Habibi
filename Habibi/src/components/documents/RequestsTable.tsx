@@ -1,6 +1,16 @@
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Mail, MessageCircle, Smartphone, Bot, User, Mic, Send, RotateCw, MoreHorizontal } from "lucide-react";
+import {
+  Mail,
+  MessageCircle,
+  Smartphone,
+  Bot,
+  User,
+  Mic,
+  Send,
+  RotateCw,
+  MoreHorizontal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -15,7 +25,11 @@ import {
   type DocRequest,
   type DocStatus,
 } from "@/data/documents-seed";
-import { FilterTable, type FilterChip, type FilterTableColumn } from "@/components/records/FilterTable";
+import {
+  FilterTable,
+  type FilterChip,
+  type FilterTableColumn,
+} from "@/components/records/FilterTable";
 
 interface Props {
   rows: DocRequest[];
@@ -29,7 +43,12 @@ interface Props {
 
 function ChannelIcon({ c }: { c: DocChannel }) {
   const I = c === "whatsapp" ? MessageCircle : c === "email" ? Mail : Smartphone;
-  const tone = c === "whatsapp" ? "text-text-success" : c === "email" ? "text-text-brand" : "text-text-warning";
+  const tone =
+    c === "whatsapp"
+      ? "text-text-success"
+      : c === "email"
+        ? "text-text-brand"
+        : "text-text-warning";
   return <I className={cn("h-3.5 w-3.5", tone)} />;
 }
 
@@ -54,13 +73,19 @@ const AGING_TONE = {
   done: "bg-surface-sunken text-text-subtlest",
 };
 
-export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, onGenerate, onRetry }: Props) {
+export function RequestsTable({
+  rows,
+  selected,
+  onToggle,
+  onToggleAll,
+  onOpen,
+  onGenerate,
+  onRetry,
+}: Props) {
   const [statusFilter, setStatusFilter] = useState<DocStatus | "all">("all");
 
   const visibleIds = useMemo(() => {
-    return rows
-      .filter((d) => statusFilter === "all" || d.status === statusFilter)
-      .map((d) => d.id);
+    return rows.filter((d) => statusFilter === "all" || d.status === statusFilter).map((d) => d.id);
   }, [rows, statusFilter]);
 
   const chips = useMemo<FilterChip<DocStatus>[]>(() => {
@@ -77,8 +102,7 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
     ];
   }, [rows]);
 
-  const allVisibleSelected =
-    visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someVisibleSelected = visibleIds.some((id) => selected.has(id));
 
   const columns = useMemo<FilterTableColumn<DocRequest>[]>(
@@ -123,8 +147,12 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
         width: "1.15fr",
         cell: (d) => (
           <div className="min-w-0">
-            <div className="truncate font-medium text-text">{DOC_TYPE_LABELS[d.docType] ?? d.docType}</div>
-            {d.period ? <div className="truncate text-body-small text-text-subtlest">{d.period}</div> : null}
+            <div className="truncate font-medium text-text">
+              {DOC_TYPE_LABELS[d.docType] ?? d.docType}
+            </div>
+            {d.period ? (
+              <div className="truncate text-body-small text-text-subtlest">{d.period}</div>
+            ) : null}
           </div>
         ),
       },
@@ -190,14 +218,17 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
           <div>
             <span
               className={cn(
-                "inline-flex h-400 items-center rounded-small px-075 text-[0.6875rem] font-medium",
+                "inline-flex h-400 items-center rounded-small px-075 text-body-tiny font-medium",
                 STATUS_PILL[d.status],
               )}
             >
               {STATUS_LABELS[d.status]}
             </span>
             {d.status === "failed" && d.failedReason ? (
-              <div className="mt-025 truncate text-body-small text-text-danger" title={d.failedReason}>
+              <div
+                className="mt-025 truncate text-body-small text-text-danger"
+                title={d.failedReason}
+              >
                 {d.failedReason}
               </div>
             ) : null}
@@ -211,7 +242,12 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
         cell: (d) => {
           const aging = agingInfo(d);
           return (
-            <span className={cn("rounded px-075 py-025 text-body-small font-medium tabular-nums", AGING_TONE[aging.tone])}>
+            <span
+              className={cn(
+                "rounded px-075 py-025 text-body-small font-medium tabular-nums",
+                AGING_TONE[aging.tone],
+              )}
+            >
               {aging.label}
             </span>
           );
@@ -221,7 +257,11 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
         id: "assignee",
         header: "Assignee",
         width: "0.75fr",
-        cell: (d) => <span className="truncate text-body-small text-text-subtle">{d.assignee || "Unassigned"}</span>,
+        cell: (d) => (
+          <span className="truncate text-body-small text-text-subtle">
+            {d.assignee || "Unassigned"}
+          </span>
+        ),
       },
       {
         id: "actions",
@@ -229,23 +269,46 @@ export function RequestsTable({ rows, selected, onToggle, onToggleAll, onOpen, o
         width: "1fr",
         className: "text-right",
         cell: (d) => (
-          <div className="inline-flex items-center justify-end gap-050" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="inline-flex items-center justify-end gap-050"
+            onClick={(e) => e.stopPropagation()}
+          >
             {d.status === "requested" && (
-              <Button size="sm" className="h-7 px-100 text-body-small" onClick={() => onGenerate(d)}>
+              <Button
+                size="sm"
+                className="h-7 px-100 text-body-small"
+                onClick={() => onGenerate(d)}
+              >
                 <Send className="mr-050 h-3 w-3" /> Generate
               </Button>
             )}
             {d.status === "failed" && (
-              <Button size="sm" variant="outline" className="h-7 px-100 text-body-small" onClick={() => onRetry(d)}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-100 text-body-small"
+                onClick={() => onRetry(d)}
+              >
                 <RotateCw className="mr-050 h-3 w-3" /> Retry
               </Button>
             )}
             {d.status === "sent" && (
-              <Button size="sm" variant="outline" className="h-7 px-100 text-body-small" onClick={() => onGenerate(d)}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-100 text-body-small"
+                onClick={() => onGenerate(d)}
+              >
                 <RotateCw className="mr-050 h-3 w-3" /> Resend
               </Button>
             )}
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onOpen(d)} aria-label="Open">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => onOpen(d)}
+              aria-label="Open"
+            >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
           </div>

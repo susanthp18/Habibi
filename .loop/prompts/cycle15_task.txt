@@ -1,0 +1,54 @@
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 571 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart services on ports 8000/7860/8080.
+Run real pytest suites and report actual output.
+
+
+TASK: three small hygiene fixes, all from prior cycles' flagged leftovers:
+
+--- FIX 1: promote the shared env helper ---
+backend/vault/seal.py imports _env_name (private) from agent_core/skills/sign.py,
+making vault depend on skills. Move that environment-allowlist helper into
+backend/env_utils.py (the established leaf module) as a public name (e.g.
+env_allows_dev_key() or env_name()), update seal.py + sign.py to import it from
+there. No behaviour change. Update existing tests only if they monkeypatch the
+old private symbol location.
+
+--- FIX 2: G10 get_connector outside try — cards/compile.py ---
+From cycle 14: "G10 still calls get_connector outside a try, so a DB error there
+propagates out of compile_card entirely". Wrap it consistent with how cycle 14
+made bound_tool_names degrade loudly: catch, log with card context, append a
+compile issue/warning ("connector lookup unavailable — ext.* gates skipped"),
+continue compiling without connector gating rather than crashing the compile.
+Follow the issue-sink pattern already introduced in that file.
+
+--- FIX 3: test_job_claim probe isolation (long-standing follow-up) ---
+backend/tests/test_job_claim.py: per an old queue note, "probe job should be its
+own throwaway kb_documents row — live worker would really reindex on a
+bucket-enabled box". Read the current probe mechanism; if the probe still uses a
+shared/real kb_documents row, give it a dedicated throwaway row (unique id per
+run, cleaned up in teardown) so a concurrently-running native worker can never
+steal or really-process it. Keep the proof-based contention detector intact.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2607. Report tail verbatim.
+2. Files changed limited to backend/env_utils.py, backend/vault/seal.py,
+   backend/agent_core/skills/sign.py, backend/agent_core/cards/compile.py,
+   backend/tests/test_job_claim.py, plus new/updated tests. Anything else:
+   explain why explicitly.
+3. Report files changed + pytest tail + remaining issues.

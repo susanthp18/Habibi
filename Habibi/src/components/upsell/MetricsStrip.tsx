@@ -35,7 +35,9 @@ function Tile({
         <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
         <Icon className={`h-4 w-4 ${iconTone}`} />
       </div>
-      <div className="mt-050 text-[1.5rem] font-semibold leading-tight text-text tabular-nums">{value}</div>
+      <div className="mt-050 heading-large font-semibold leading-tight text-text tabular-nums">
+        {value}
+      </div>
       {sub && <div className="text-body-small text-text-subtle">{sub}</div>}
     </div>
   );
@@ -44,7 +46,13 @@ function Tile({
 export function MetricsStrip({ m }: { m?: LeadMetrics }) {
   return (
     <div className="grid shrink-0 grid-cols-2 gap-150 md:grid-cols-3 xl:grid-cols-5">
-      <Tile label="Open leads" value={num(m?.openLeads)} sub="Interested + Contacted + Qualified" icon={Sparkles} tone="brand" />
+      <Tile
+        label="Open leads"
+        value={num(m?.openLeads)}
+        sub="Interested + Contacted + Qualified"
+        icon={Sparkles}
+        tone="brand"
+      />
       <Tile
         label="Pipeline value"
         value={m ? fmtMoney(m.pipelineValue) : "—"}

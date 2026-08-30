@@ -14,7 +14,8 @@ type Notif = {
   title: string;
   body: string;
   level: "breach" | "warn" | "info";
-  href?: { entityType: string; id: string } | { to: string; search?: Record<string, string | boolean> };
+  href?:
+    { entityType: string; id: string } | { to: string; search?: Record<string, string | boolean> };
 };
 
 function readSet(): Set<string> {
@@ -120,10 +121,13 @@ export function NotificationsPopover() {
       );
       return;
     }
-    navigateWorkItem(navigate as (opts: { to: string; search?: Record<string, unknown> }) => unknown, {
-      id: n.href.id,
-      entityType: n.href.entityType,
-    });
+    navigateWorkItem(
+      navigate as (opts: { to: string; search?: Record<string, unknown> }) => unknown,
+      {
+        id: n.href.id,
+        entityType: n.href.entityType,
+      },
+    );
   };
 
   return (
@@ -178,10 +182,18 @@ export function NotificationsPopover() {
                   )}
                 >
                   <div className="flex items-center gap-100">
-                    {isUnread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-background-brand-bold" />}
-                    <span className="text-[0.75rem] font-semibold text-text">{n.title}</span>
+                    {isUnread && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-background-brand-bold" />
+                    )}
+                    <span className="text-body-small font-semibold text-text">{n.title}</span>
                     <Lozenge
-                      tone={n.level === "breach" ? "danger" : n.level === "warn" ? "warning" : "selected"}
+                      tone={
+                        n.level === "breach"
+                          ? "danger"
+                          : n.level === "warn"
+                            ? "warning"
+                            : "selected"
+                      }
                       className="ml-auto"
                     >
                       {n.level}

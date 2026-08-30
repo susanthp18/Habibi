@@ -13,7 +13,17 @@ import db
 
 logger = logging.getLogger(__name__)
 
-ROLLBACK_TRIGGERS = frozenset({"slo_miss", "live_qa_burn", "eval_fail"})
+# Imported, not restated. This module evaluated all six while
+# cards/schema.py's Literal carried only the first three, so the outbound
+# three could never reach a published card and the branches below that check
+# them were unreachable. The vocabulary lives in one place now.
+from agent_core.cards.schema import ROLLBACK_TRIGGERS  # noqa: E402
+
+#: Opt-out requests in the sample window above which a canary is pulled. Not
+#: zero: a borrower asking to be left alone is a legitimate outcome and an agent
+#: that never produced one would be the more worrying artefact. Three inside
+#: fifteen minutes on one bot is a pattern.
+OPTOUT_SPIKE_THRESHOLD = 3
 VOICE_SLO_MS = 800
 
 
@@ -124,7 +134,18 @@ def record_experiment(
 
 
 def rollback_experiment(experiment_id: str, *, reason: str) -> dict[str, Any]:
-    """Swap active back to baseline. Canary is retired."""
+    """Swap active back to baseline. Canary is retired.
+
+    The returned row carries ``baselineRestored``, which is the difference
+    between the two things this function can do. With a baseline it retires the
+    canary and reactivates the previous deployment — a rollback. Without one
+    (a first canary, nothing to go back to) it only marks the experiment
+    ``rolled_back`` and *nothing is reactivated*: the canary keeps serving.
+
+    Both used to return the same shape, so the console reported both as "Canary
+    rolled back to baseline" and an operator watching a bad canary was told the
+    traffic had been moved off it when it had not.
+    """
     with db.engine.begin() as conn:
         if not _require_table(conn):
             raise KeyError("deployment_experiments_missing")
@@ -137,7 +158,9 @@ def rollback_experiment(experiment_id: str, *, reason: str) -> dict[str, Any]:
         if not exp:
             raise KeyError("experiment_not_found")
         if exp["status"] != "running":
-            return dict(exp)
+            # Already rolled back or finished. Nothing was restored by *this*
+            # call, whatever a previous one did.
+            return {**dict(exp), "baselineRestored": False}
         baseline = exp.get("baseline_deployment_id")
         canary = exp.get("canary_deployment_id")
         if baseline:
@@ -159,12 +182,13 @@ def rollback_experiment(experiment_id: str, *, reason: str) -> dict[str, Any]:
             ),
             {"id": experiment_id, "r": reason},
         )
-        return dict(
+        row = (
             db._one(
                 conn.execute(text("SELECT * FROM deployment_experiments WHERE id = :id"), {"id": experiment_id})
             )
             or exp
         )
+        return {**dict(row), "baselineRestored": bool(baseline)}
 
 
 def _live_qa_burn(conn: Any, bot_id: str) -> float:
@@ -192,6 +216,77 @@ def _live_qa_burn(conn: Any, bot_id: str) -> float:
     if prior <= 0:
         return 1.0 if recent >= 3 else 0.0
     return recent / prior
+
+
+def _abandoned(conn: Any, bot_id: str) -> int:
+    """Calls where our side dropped after connecting. Target is zero, literally.
+
+    Section 8.1 is explicit that this is not a rate to be managed down: a
+    delinquent borrower whose phone rings, who answers, who hears silence and
+    hangs up is the exact conduct the RBI amendment was written to stop. The
+    design makes it structurally impossible by acquiring the slot before the
+    dial, so any occurrence at all means something in that chain broke — which
+    is why the threshold is one and not a percentage.
+    """
+    return int(
+        conn.execute(
+            text(
+                """
+                SELECT count(*) FROM call_attempts
+                WHERE bot_id = :b
+                  AND state = 'abandoned'
+                  AND updated_at > now() - interval '15 minutes'
+                """
+            ),
+            {"b": bot_id},
+        ).scalar()
+        or 0
+    )
+
+
+def _third_party_leaks(conn: Any, bot_id: str) -> int:
+    """Times this bot said something about a debt to somebody who is not the borrower.
+
+    ``third-party-leak`` is already in ``_LIVE_ALERT_FLAGS`` and can barge the
+    call in progress, so the detection exists and works. What did not exist was
+    anything that treated a canary producing them as a canary to pull.
+    """
+    return int(
+        conn.execute(
+            text(
+                """
+                SELECT count(*)
+                FROM interaction_flags f
+                JOIN interactions i ON i.id = f.interaction_id
+                WHERE i.handler_bot_id = :b
+                  AND f.flag = 'third-party-leak'
+                  AND f.created_at > now() - interval '15 minutes'
+                """
+            ),
+            {"b": bot_id},
+        ).scalar()
+        or 0
+    )
+
+
+def _optouts(conn: Any, bot_id: str) -> int:
+    """Borrowers who asked to be left alone after speaking to this bot."""
+    return int(
+        conn.execute(
+            text(
+                """
+                SELECT count(*)
+                FROM call_outcomes o
+                JOIN call_attempts a ON a.id = o.attempt_id
+                WHERE a.bot_id = :b
+                  AND o.business = 'opt_out_requested'
+                  AND o.created_at > now() - interval '15 minutes'
+                """
+            ),
+            {"b": bot_id},
+        ).scalar()
+        or 0
+    )
 
 
 def _slo_miss(conn: Any, bot_id: str) -> bool:
@@ -299,6 +394,28 @@ def sweep_rollbacks() -> bool:
                             reason = "live_qa_burn"
                     except Exception:
                         logger.exception("canary live-qa sample failed")
+                # The outbound three, checked last only because they are the
+                # newest; each is independently sufficient and none of them is a
+                # ratio against a baseline. There is no acceptable rate of
+                # telling a stranger about somebody's debt.
+                if reason is None and "abandon_rate" in triggers:
+                    try:
+                        if _abandoned(conn, exp["bot_id"]) > 0:
+                            reason = "abandon_rate"
+                    except Exception:
+                        logger.exception("canary abandon sample failed")
+                if reason is None and "third_party_leak" in triggers:
+                    try:
+                        if _third_party_leaks(conn, exp["bot_id"]) > 0:
+                            reason = "third_party_leak"
+                    except Exception:
+                        logger.exception("canary leak sample failed")
+                if reason is None and "optout_spike" in triggers:
+                    try:
+                        if _optouts(conn, exp["bot_id"]) >= OPTOUT_SPIKE_THRESHOLD:
+                            reason = "optout_spike"
+                    except Exception:
+                        logger.exception("canary opt-out sample failed")
             if reason:
                 rollback_experiment(exp["id"], reason=reason)
                 acted = True

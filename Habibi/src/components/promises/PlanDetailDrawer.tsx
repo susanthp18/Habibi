@@ -1,4 +1,10 @@
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { fmtDate, fmtMoney, type PaymentPlan } from "@/data/promises-seed";
 import { cn } from "@/lib/utils";
@@ -21,7 +27,9 @@ export function PlanDetailDrawer({ plan, onOpenChange }: Props) {
         <SheetHeader>
           <SheetTitle className="flex items-center gap-100">
             {plan.customerName}
-            <Badge variant="outline" className="text-body-small">{plan.id}</Badge>
+            <Badge variant="outline" className="text-body-small">
+              {plan.id}
+            </Badge>
           </SheetTitle>
           <SheetDescription>
             {plan.installments.length}-installment {plan.cadence} plan · owner {plan.owner}
@@ -39,11 +47,15 @@ export function PlanDetailDrawer({ plan, onOpenChange }: Props) {
             <div className="mt-100 h-100 overflow-hidden rounded-full bg-surface">
               <div className="h-full bg-background-brand-bold" style={{ width: `${pct}%` }} />
             </div>
-            <div className="mt-050 text-body-small text-text-subtlest">{paid} of {plan.installments.length} installments · {pct}%</div>
+            <div className="mt-050 text-body-small text-text-subtlest">
+              {paid} of {plan.installments.length} installments · {pct}%
+            </div>
           </div>
 
           <div>
-            <div className="mb-100 text-body-small font-semibold text-text-subtlest">Installments</div>
+            <div className="mb-100 text-body-small font-semibold text-text-subtlest">
+              Installments
+            </div>
             <ol className="space-y-075">
               {plan.installments.map((i) => {
                 const overdue = !i.paid && new Date(i.dueDate).getTime() < Date.now();
@@ -64,7 +76,9 @@ export function PlanDetailDrawer({ plan, onOpenChange }: Props) {
                       <span className="text-text">{fmtDate(i.dueDate)}</span>
                     </div>
                     <div className="flex items-center gap-100">
-                      <span className="tabular-nums font-medium text-text">{fmtMoney(i.amount)}</span>
+                      <span className="tabular-nums font-medium text-text">
+                        {fmtMoney(i.amount)}
+                      </span>
                       <Lozenge tone={i.paid ? "success" : overdue ? "danger" : "neutral"}>
                         {i.paid ? "Paid" : overdue ? "Overdue" : "Upcoming"}
                       </Lozenge>

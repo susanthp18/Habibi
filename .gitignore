@@ -36,3 +36,4 @@ _diskpart_compact.txt
 _docker_err.txt
 _docker_out.txt
 _wsl_clean.sh
+.hermes/

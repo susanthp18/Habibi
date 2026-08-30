@@ -1,5 +1,10 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { EVENT_CATALOG, EVENT_CATEGORIES } from "@/data/webhooks-seed";
 
 export function EventCatalogDialog({
@@ -18,7 +23,11 @@ export function EventCatalogDialog({
         <div className="max-h-[70vh] overflow-y-auto pr-100">
           <Accordion type="multiple" className="space-y-050">
             {EVENT_CATEGORIES.map((cat) => (
-              <AccordionItem key={cat} value={cat} className="rounded-medium border border-border px-150">
+              <AccordionItem
+                key={cat}
+                value={cat}
+                className="rounded-medium border border-border px-150"
+              >
                 <AccordionTrigger className="text-body font-semibold text-text">
                   {cat}
                   <span className="ml-100 text-body-small font-normal text-text-subtlest">
@@ -34,7 +43,7 @@ export function EventCatalogDialog({
                         </div>
                         <p className="mb-050 text-body-small text-text-subtle">{e.description}</p>
                         <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
-{JSON.stringify(e.sample, null, 2)}
+                          {JSON.stringify(e.sample, null, 2)}
                         </pre>
                       </div>
                     ))}

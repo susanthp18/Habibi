@@ -4,7 +4,11 @@
 CREATE TABLE IF NOT EXISTS eval_suites (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('regression','capability','redteam','twin')),
+  -- `outbound` covers the failure modes that are invisible until a campaign
+  -- is already running: pitching to a voicemail, confirming a debt to a
+  -- spouse, honouring an opt-out a tick late. Compile gate G-OB9 blocks an
+  -- outbound publish without a passing report from one of these.
+  kind TEXT NOT NULL CHECK (kind IN ('regression','capability','redteam','twin','outbound')),
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),

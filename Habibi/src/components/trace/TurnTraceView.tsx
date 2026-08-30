@@ -20,9 +20,7 @@ export function TurnTraceView({ interactionId }: { interactionId: string }) {
   const { data, isLoading, isError, error } = useTurnTrace(interactionId);
 
   if (USE_MOCK) {
-    return (
-      <Empty>Traces are served by the API — switch off mock mode to view one.</Empty>
-    );
+    return <Empty>Traces are served by the API — switch off mock mode to view one.</Empty>;
   }
   if (isLoading) {
     return (

@@ -1,10 +1,23 @@
 import { useState, type ReactNode } from "react";
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TYPE_LABELS, type DisputeType } from "@/data/disputes-seed";
 
 type Kind = "ptp" | "dispute" | "statement" | "call" | null;
@@ -26,16 +39,40 @@ export function ActionSheets({ kind, onOpenChange, onSubmit }: Props) {
   return (
     <Sheet open={kind !== null} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md">
-        {kind === "ptp" && <PtpForm onCancel={() => onOpenChange(false)} onSubmit={(p) => onSubmit("ptp", p)} />}
-        {kind === "dispute" && <DisputeForm onCancel={() => onOpenChange(false)} onSubmit={(p) => onSubmit("dispute", p)} />}
-        {kind === "statement" && <StatementForm onCancel={() => onOpenChange(false)} onSubmit={(p) => onSubmit("statement", p)} />}
-        {kind === "call" && <CallForm onCancel={() => onOpenChange(false)} onSubmit={(p) => onSubmit("call", p)} />}
+        {kind === "ptp" && (
+          <PtpForm onCancel={() => onOpenChange(false)} onSubmit={(p) => onSubmit("ptp", p)} />
+        )}
+        {kind === "dispute" && (
+          <DisputeForm
+            onCancel={() => onOpenChange(false)}
+            onSubmit={(p) => onSubmit("dispute", p)}
+          />
+        )}
+        {kind === "statement" && (
+          <StatementForm
+            onCancel={() => onOpenChange(false)}
+            onSubmit={(p) => onSubmit("statement", p)}
+          />
+        )}
+        {kind === "call" && (
+          <CallForm onCancel={() => onOpenChange(false)} onSubmit={(p) => onSubmit("call", p)} />
+        )}
       </SheetContent>
     </Sheet>
   );
 }
 
-function FormShell({ title, desc, children, footer }: { title: string; desc: string; children: ReactNode; footer: ReactNode }) {
+function FormShell({
+  title,
+  desc,
+  children,
+  footer,
+}: {
+  title: string;
+  desc: string;
+  children: ReactNode;
+  footer: ReactNode;
+}) {
   return (
     <>
       <SheetHeader>
@@ -48,7 +85,13 @@ function FormShell({ title, desc, children, footer }: { title: string; desc: str
   );
 }
 
-function PtpForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: SubmitPayloads["ptp"]) => void }) {
+function PtpForm({
+  onCancel,
+  onSubmit,
+}: {
+  onCancel: () => void;
+  onSubmit: (p: SubmitPayloads["ptp"]) => void;
+}) {
   const [amount, setAmount] = useState("1000");
   const today = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
@@ -60,8 +103,15 @@ function PtpForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: S
       desc="Capture what the customer committed. It will show up in the PTP pipeline."
       footer={
         <div className="flex w-full justify-end gap-100">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button onClick={() => onSubmit({ amount: Number(amount), date, channel, notes })} disabled={!amount || !date}>Save PTP</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onSubmit({ amount: Number(amount), date, channel, notes })}
+            disabled={!amount || !date}
+          >
+            Save PTP
+          </Button>
         </div>
       }
     >
@@ -73,7 +123,9 @@ function PtpForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: S
       </Field>
       <Field label="Captured via">
         <Select value={channel} onValueChange={setChannel}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="voice">Voice call</SelectItem>
             <SelectItem value="whatsapp">WhatsApp</SelectItem>
@@ -82,13 +134,24 @@ function PtpForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: S
         </Select>
       </Field>
       <Field label="Notes">
-        <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional context…" />
+        <Textarea
+          rows={3}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional context…"
+        />
       </Field>
     </FormShell>
   );
 }
 
-function DisputeForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: SubmitPayloads["dispute"]) => void }) {
+function DisputeForm({
+  onCancel,
+  onSubmit,
+}: {
+  onCancel: () => void;
+  onSubmit: (p: SubmitPayloads["dispute"]) => void;
+}) {
   const [type, setType] = useState<DisputeType>("paid_already");
   const [amount, setAmount] = useState("0");
   const [notes, setNotes] = useState("");
@@ -98,8 +161,15 @@ function DisputeForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (
       desc="Log a new dispute for review. It will enter the Disputes queue."
       footer={
         <div className="flex w-full justify-end gap-100">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button onClick={() => onSubmit({ type, amount: Number(amount), notes })} disabled={!type}>Raise dispute</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onSubmit({ type, amount: Number(amount), notes })}
+            disabled={!type}
+          >
+            Raise dispute
+          </Button>
         </div>
       }
     >
@@ -107,10 +177,14 @@ function DisputeForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (
         {/* Canonical dispute_type values — the same vocabulary the Disputes queue
             and the DB CHECK use, so the chosen type survives the round-trip. */}
         <Select value={type} onValueChange={(v) => setType(v as DisputeType)}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             {(Object.keys(TYPE_LABELS) as DisputeType[]).map((key) => (
-              <SelectItem key={key} value={key}>{TYPE_LABELS[key]}</SelectItem>
+              <SelectItem key={key} value={key}>
+                {TYPE_LABELS[key]}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -119,13 +193,24 @@ function DisputeForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (
         <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </Field>
       <Field label="Customer statement">
-        <Textarea rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Quote or paraphrase what the customer said…" />
+        <Textarea
+          rows={4}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Quote or paraphrase what the customer said…"
+        />
       </Field>
     </FormShell>
   );
 }
 
-function StatementForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: SubmitPayloads["statement"]) => void }) {
+function StatementForm({
+  onCancel,
+  onSubmit,
+}: {
+  onCancel: () => void;
+  onSubmit: (p: SubmitPayloads["statement"]) => void;
+}) {
   const [docType, setDocType] = useState("6-month account statement");
   const [delivery, setDelivery] = useState<"email" | "whatsapp">("email");
   return (
@@ -134,14 +219,18 @@ function StatementForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit:
       desc="Generate a statement or letter and send it to the customer."
       footer={
         <div className="flex w-full justify-end gap-100">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
           <Button onClick={() => onSubmit({ docType, delivery })}>Send</Button>
         </div>
       }
     >
       <Field label="Document">
         <Select value={docType} onValueChange={setDocType}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="6-month account statement">6-month account statement</SelectItem>
             <SelectItem value="No-dues certificate">No-dues certificate</SelectItem>
@@ -152,7 +241,9 @@ function StatementForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit:
       </Field>
       <Field label="Delivery channel">
         <Select value={delivery} onValueChange={(v) => setDelivery(v as "email" | "whatsapp")}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="email">Email</SelectItem>
             <SelectItem value="whatsapp">WhatsApp</SelectItem>
@@ -163,7 +254,13 @@ function StatementForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit:
   );
 }
 
-function CallForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: SubmitPayloads["call"]) => void }) {
+function CallForm({
+  onCancel,
+  onSubmit,
+}: {
+  onCancel: () => void;
+  onSubmit: (p: SubmitPayloads["call"]) => void;
+}) {
   const [disposition, setDisposition] = useState("Query resolved");
   const [notes, setNotes] = useState("");
   return (
@@ -172,14 +269,18 @@ function CallForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: 
       desc="Manually log an outbound / offline call for this customer."
       footer={
         <div className="flex w-full justify-end gap-100">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
           <Button onClick={() => onSubmit({ disposition, notes })}>Log call</Button>
         </div>
       }
     >
       <Field label="Disposition">
         <Select value={disposition} onValueChange={setDisposition}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="Query resolved">Query resolved</SelectItem>
             <SelectItem value="PTP captured">PTP captured</SelectItem>
@@ -190,7 +291,12 @@ function CallForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: 
         </Select>
       </Field>
       <Field label="Notes">
-        <Textarea rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What did you discuss?" />
+        <Textarea
+          rows={4}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="What did you discuss?"
+        />
       </Field>
     </FormShell>
   );

@@ -28,9 +28,7 @@ export function WrapUpBar({
   const [disposition, setDisposition] = useState(dispositions[0] ?? "");
   const [notes, setNotes] = useState(defaultNotes);
   const [ptp, setPtp] = useState(false);
-  const [ptpAmount, setPtpAmount] = useState(
-    defaultPtpAmount ? String(defaultPtpAmount) : "",
-  );
+  const [ptpAmount, setPtpAmount] = useState(defaultPtpAmount ? String(defaultPtpAmount) : "");
   const [ptpDate, setPtpDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 7);
@@ -124,7 +122,9 @@ export function WrapUpBar({
         </div>
 
         <div>
-          <label className="text-body-small font-medium text-text-subtle">Notes (CRM writeback)</label>
+          <label className="text-body-small font-medium text-text-subtle">
+            Notes (CRM writeback)
+          </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

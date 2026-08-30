@@ -12,11 +12,7 @@ import { LatencyChart } from "@/components/bot-analytics/LatencyChart";
 import { TurnsHistogram } from "@/components/bot-analytics/TurnsHistogram";
 import { useBotAnalytics } from "@/api/bot-analytics";
 import { USE_MOCK } from "@/api/config";
-import {
-  computeKpis,
-  type ChannelKey,
-  type RangeKey,
-} from "@/data/bot-analytics-seed";
+import { computeKpis, type ChannelKey, type RangeKey } from "@/data/bot-analytics-seed";
 import { LoadingState } from "@/components/ui/loading-state";
 import { CardSkillAnalytics } from "@/components/bot-analytics/CardSkillAnalytics";
 
@@ -43,7 +39,12 @@ function BotAnalyticsPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        <BotAnalyticsHeader range={range} channel={channel} onRange={setRange} onChannel={setChannel} />
+        <BotAnalyticsHeader
+          range={range}
+          channel={channel}
+          onRange={setRange}
+          onChannel={setChannel}
+        />
 
         {isLoading && !data ? (
           <div className="flex flex-1 items-center justify-center">
@@ -70,7 +71,11 @@ function BotAnalyticsPage() {
             <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">
               <div className="grid gap-200">
                 <div className="grid gap-200 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                  <IntentDistribution intents={intentAggs} activeId={activeIntent} onSelect={setActiveIntent} />
+                  <IntentDistribution
+                    intents={intentAggs}
+                    activeId={activeIntent}
+                    onSelect={setActiveIntent}
+                  />
                   <DropOffFunnel stages={data?.funnelStages ?? []} />
                 </div>
                 <div className="grid gap-200 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">

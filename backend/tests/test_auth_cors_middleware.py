@@ -37,6 +37,26 @@ def test_middleware_order_cors_outermost(client: TestClient) -> None:
     assert names.index("ApiKeyMiddleware") > names.index("CORSMiddleware")
 
 
+def test_tts_headers_are_exposed_to_the_browser(client: TestClient) -> None:
+    """`allow_headers=["*"]` governs *request* headers and exposes no response
+    header at all, so a cross-origin `headers.get("X-Tts-Cache")` was null —
+    and the studio runs on :8080 against this API on :8000.
+
+    That made three headers unreadable for as long as they had existed. It
+    matters now because X-Tts-Cache is what tells the operator whether they are
+    hearing the same take as last time; without it the Voice tab silently
+    reports nothing about a preview it just played.
+    """
+    res = client.get("/health", headers={"Origin": "http://localhost:8080"})
+    exposed = {
+        h.strip().lower()
+        for h in res.headers.get("access-control-expose-headers", "").split(",")
+        if h.strip()
+    }
+    for header in ("x-tts-cache", "x-tts-voice", "x-tts-latency-ms", "x-tts-provider"):
+        assert header in exposed, f"{header} is set on responses but unreadable by a browser"
+
+
 def test_options_preflight_ok_with_api_key(client: TestClient, api_key: str) -> None:
     res = client.options(
         "/conversations",

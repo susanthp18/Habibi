@@ -1,11 +1,6 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -139,11 +134,16 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full max-w-[50rem] flex-col overflow-hidden p-0 sm:max-w-[50rem]">
+      <SheetContent
+        side="right"
+        className="flex w-full max-w-[50rem] flex-col overflow-hidden p-0 sm:max-w-[50rem]"
+      >
         <SheetHeader className="shrink-0 border-b border-border px-300 py-200">
-          <SheetTitle className="flex items-center gap-100 text-[0.875rem] font-semibold text-text">
+          <SheetTitle className="flex items-center gap-100 text-body font-semibold text-text">
             {endpoint.name}
-            <Badge variant="outline" className="text-body-small">{endpoint.target}</Badge>
+            <Badge variant="outline" className="text-body-small">
+              {endpoint.target}
+            </Badge>
           </SheetTitle>
           <p className="truncate font-mono text-body-small text-text-subtle">{endpoint.url}</p>
         </SheetHeader>
@@ -158,14 +158,31 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
           </TabsList>
 
           {/* Overview */}
-          <TabsContent value="overview" className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200">
+          <TabsContent
+            value="overview"
+            className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200"
+          >
             <div className="grid grid-cols-3 gap-150">
-              <SloTile label="Success · 24h" value={`${rate24}%`} tone={rate24 >= 98 ? "ok" : rate24 >= 90 ? "warn" : "bad"} />
-              <SloTile label="Success · 7d" value={`${rate7d}%`} tone={rate7d >= 98 ? "ok" : rate7d >= 90 ? "warn" : "bad"} />
-              <SloTile label="p95 latency" value={`${p95}ms`} tone={p95 < 500 ? "ok" : p95 < 1500 ? "warn" : "bad"} />
+              <SloTile
+                label="Success · 24h"
+                value={`${rate24}%`}
+                tone={rate24 >= 98 ? "ok" : rate24 >= 90 ? "warn" : "bad"}
+              />
+              <SloTile
+                label="Success · 7d"
+                value={`${rate7d}%`}
+                tone={rate7d >= 98 ? "ok" : rate7d >= 90 ? "warn" : "bad"}
+              />
+              <SloTile
+                label="p95 latency"
+                value={`${p95}ms`}
+                tone={p95 < 500 ? "ok" : p95 < 1500 ? "warn" : "bad"}
+              />
             </div>
             <div>
-              <div className="mb-050 text-body-small font-semibold text-text">Subscribed events</div>
+              <div className="mb-050 text-body-small font-semibold text-text">
+                Subscribed events
+              </div>
               <div className="flex flex-wrap gap-050">
                 {endpoint.events.map((e) => (
                   <span
@@ -180,7 +197,8 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
             <div>
               <div className="mb-050 text-body-small font-semibold text-text">Retry policy</div>
               <div className="text-body-small text-text-subtle">
-                {endpoint.retry.attempts} attempts · {endpoint.retry.backoff} backoff · max age {endpoint.retry.maxAgeHours}h
+                {endpoint.retry.attempts} attempts · {endpoint.retry.backoff} backoff · max age{" "}
+                {endpoint.retry.maxAgeHours}h
               </div>
             </div>
             <div className="flex gap-100 pt-100">
@@ -188,13 +206,20 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  onUpdate({ ...endpoint, status: endpoint.status === "paused" ? "active" : "paused" })
+                  onUpdate({
+                    ...endpoint,
+                    status: endpoint.status === "paused" ? "active" : "paused",
+                  })
                 }
               >
                 {endpoint.status === "paused" ? (
-                  <><Play className="mr-075 h-3.5 w-3.5" /> Resume</>
+                  <>
+                    <Play className="mr-075 h-3.5 w-3.5" /> Resume
+                  </>
                 ) : (
-                  <><Pause className="mr-075 h-3.5 w-3.5" /> Pause</>
+                  <>
+                    <Pause className="mr-075 h-3.5 w-3.5" /> Pause
+                  </>
                 )}
               </Button>
               <Button variant="outline" size="sm" onClick={() => onRotate(endpoint)}>
@@ -212,7 +237,10 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
           </TabsContent>
 
           {/* Events */}
-          <TabsContent value="events" className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200">
+          <TabsContent
+            value="events"
+            className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200"
+          >
             {EVENT_CATEGORIES.map((cat) => (
               <div key={cat} className="rounded-medium border border-border p-150">
                 <div className="mb-100 text-body-small font-semibold text-text">{cat}</div>
@@ -228,8 +256,12 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                         className="mt-025"
                       />
                       <span>
-                        <span className="block font-mono text-body-small text-text-brand">{e.key}</span>
-                        <span className="block text-body-small text-text-subtle">{e.description}</span>
+                        <span className="block font-mono text-body-small text-text-brand">
+                          {e.key}
+                        </span>
+                        <span className="block text-body-small text-text-subtle">
+                          {e.description}
+                        </span>
                       </span>
                     </label>
                   ))}
@@ -239,9 +271,14 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
           </TabsContent>
 
           {/* Delivery log */}
-          <TabsContent value="log" className="min-h-0 flex-1 space-y-075 overflow-y-auto px-300 py-200">
+          <TabsContent
+            value="log"
+            className="min-h-0 flex-1 space-y-075 overflow-y-auto px-300 py-200"
+          >
             {epDeliveries.length === 0 ? (
-              <div className="grid h-full place-items-center text-body-small text-text-subtlest">No deliveries yet.</div>
+              <div className="grid h-full place-items-center text-body-small text-text-subtlest">
+                No deliveries yet.
+              </div>
             ) : (
               epDeliveries.map((d) => (
                 <DeliveryRow key={d.id} delivery={d} endpoint={endpoint} onRetry={onRetry} />
@@ -250,7 +287,10 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
           </TabsContent>
 
           {/* Signing */}
-          <TabsContent value="signing" className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200">
+          <TabsContent
+            value="signing"
+            className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200"
+          >
             <div>
               <div className="mb-050 text-body-small font-semibold text-text">Algorithm</div>
               <Badge variant="outline">{endpoint.algo}</Badge>
@@ -260,7 +300,11 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 <span className="text-body-small font-semibold text-text">Signing secret</span>
                 <div className="flex gap-050">
                   <Button size="sm" variant="ghost" onClick={() => setRevealSecret((v) => !v)}>
-                    {revealSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    {revealSecret ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => copy(endpoint.secret, "Secret")}>
                     <Copy className="h-3.5 w-3.5" />
@@ -275,7 +319,9 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
               </code>
             </div>
             <div>
-              <div className="mb-050 text-body-small font-semibold text-text">Sample signature header</div>
+              <div className="mb-050 text-body-small font-semibold text-text">
+                Sample signature header
+              </div>
               <code className="block overflow-x-auto rounded bg-surface-sunken px-100 py-075 font-mono text-body-small">
                 {signatureLine}
               </code>
@@ -291,7 +337,7 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 </Button>
               </div>
               <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
-{nodeSnippet}
+                {nodeSnippet}
               </pre>
             </div>
             <div>
@@ -302,13 +348,16 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 </Button>
               </div>
               <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
-{pySnippet}
+                {pySnippet}
               </pre>
             </div>
           </TabsContent>
 
           {/* Test fire */}
-          <TabsContent value="test" className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200">
+          <TabsContent
+            value="test"
+            className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200"
+          >
             <div className="space-y-075">
               <span className="text-body-small font-semibold text-text">Event</span>
               <Select
@@ -319,10 +368,14 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                   setTestJson(JSON.stringify(EVENT_INDEX[k].sample, null, 2));
                 }}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {endpoint.events.map((e) => (
-                    <SelectItem key={e} value={e}>{e}</SelectItem>
+                    <SelectItem key={e} value={e}>
+                      {e}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -341,8 +394,7 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
               />
               {onTestFire && (
                 <p className="text-body-small text-text-subtlest">
-                  Sample only — the server builds the live test payload from the
-                  selected event.
+                  Sample only — the server builds the live test payload from the selected event.
                 </p>
               )}
             </div>
@@ -356,13 +408,21 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
   );
 }
 
-function SloTile({ label, value, tone }: { label: string; value: string; tone: "ok" | "warn" | "bad" }) {
+function SloTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "ok" | "warn" | "bad";
+}) {
   return (
     <div className="rounded-medium border border-border p-150">
       <div className="text-body-small font-medium text-text-subtlest">{label}</div>
       <div
         className={cn(
-          "mt-050 text-[1.25rem] font-semibold",
+          "mt-050 heading-medium font-semibold",
           tone === "ok" && "text-text-code-default",
           tone === "warn" && "text-text-warning",
           tone === "bad" && "text-text-danger",

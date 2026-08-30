@@ -19,11 +19,7 @@ import {
   type Dispute,
   type Filters,
 } from "@/data/disputes-seed";
-import {
-  assignDispute,
-  moveDispute,
-  useDisputes,
-} from "@/api/disputes";
+import { assignDispute, moveDispute, useDisputes } from "@/api/disputes";
 import { humanNames, useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
 import { useCustomers } from "@/api/customers";
@@ -43,7 +39,8 @@ export const Route = createFileRoute("/disputes")({
       { property: "og:title", content: "Disputes & Exceptions Queue" },
       {
         property: "og:description",
-        content: "Kanban of bot-captured disputes with SLA timers, assignment, evidence, and resolution.",
+        content:
+          "Kanban of bot-captured disputes with SLA timers, assignment, evidence, and resolution.",
       },
     ],
   }),
@@ -77,7 +74,7 @@ function DisputesPage() {
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
 
   // Derive the open sheet from fetched data so it stays fresh after invalidation.
-  const openDispute = openId ? disputesData.find((d) => d.id === openId) ?? null : null;
+  const openDispute = openId ? (disputesData.find((d) => d.id === openId) ?? null) : null;
 
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
 
@@ -138,7 +135,9 @@ function DisputesPage() {
           <div className="flex items-center gap-100">
             <AlertOctagon className="h-250 w-250 text-text-brand" />
             <div>
-              <h1 className="text-[1rem] font-semibold text-text leading-none">Disputes & exceptions</h1>
+              <h1 className="heading-small font-semibold text-text leading-none">
+                Disputes & exceptions
+              </h1>
               <p className="text-body-small text-text-subtle">
                 Bot captures, humans resolve. Drag between columns to progress a dispute.
               </p>
@@ -155,7 +154,12 @@ function DisputesPage() {
         </header>
 
         <MetricsStrip m={metrics} />
-        <FiltersBar filters={filters} onPatch={patchFilters} onReset={() => setFilters(defaultFilters)} assignees={assignees} />
+        <FiltersBar
+          filters={filters}
+          onPatch={patchFilters}
+          onReset={() => setFilters(defaultFilters)}
+          assignees={assignees}
+        />
 
         <DisputeBoard
           disputes={filtered}

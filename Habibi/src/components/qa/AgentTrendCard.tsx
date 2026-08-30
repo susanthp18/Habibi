@@ -46,11 +46,13 @@ export function AgentTrendCard({ stat }: { stat: AgentQaStat | null }) {
       </div>
 
       <div>
-        <div className="mb-100 text-body-small font-medium text-text-subtlest">Section breakdown</div>
+        <div className="mb-100 text-body-small font-medium text-text-subtlest">
+          Section breakdown
+        </div>
         <div className="space-y-075">
           {stat.sectionScores.map((s) => (
             <div key={s.section} className="grid grid-cols-[7rem_1fr_2.5rem] items-center gap-100">
-              <span className="truncate text-[11px] text-text-subtle">{s.section}</span>
+              <span className="truncate text-body-tiny text-text-subtle">{s.section}</span>
               <div className="h-2 overflow-hidden rounded-full bg-surface-sunken">
                 <div
                   className={cn(
@@ -64,7 +66,9 @@ export function AgentTrendCard({ stat }: { stat: AgentQaStat | null }) {
                   style={{ width: `${(s.value / maxSection) * 100}%` }}
                 />
               </div>
-              <span className="text-right text-[11px] font-semibold tabular-nums text-text">{s.value}</span>
+              <span className="text-right text-body-tiny font-semibold tabular-nums text-text">
+                {Math.round(s.value)}
+              </span>
             </div>
           ))}
         </div>

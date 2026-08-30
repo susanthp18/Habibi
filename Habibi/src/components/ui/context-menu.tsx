@@ -140,7 +140,11 @@ const ContextMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <ContextMenuPrimitive.Label
     ref={ref}
-    className={cn("px-100 py-075 text-sm font-semibold text-foreground", inset && "pl-400", className)}
+    className={cn(
+      "px-100 py-075 text-sm font-semibold text-foreground",
+      inset && "pl-400",
+      className,
+    )}
     {...props}
   />
 ));
@@ -159,12 +163,7 @@ const ContextMenuSeparator = React.forwardRef<
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName;
 
 const ContextMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => {
-  return (
-    <span
-      className={cn("ml-auto text-xs text-muted-foreground", className)}
-      {...props}
-    />
-  );
+  return <span className={cn("ml-auto text-xs text-muted-foreground", className)} {...props} />;
 };
 ContextMenuShortcut.displayName = "ContextMenuShortcut";
 

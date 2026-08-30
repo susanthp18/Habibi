@@ -2,7 +2,13 @@ import { useMemo, useState } from "react";
 import { Send, Save, UserPlus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCalls } from "@/api/audit";
-import { allCriteria, computeTotal, type Rubric, type Scorecard, type ScorecardEntry } from "@/data/qa-seed";
+import {
+  allCriteria,
+  computeTotal,
+  type Rubric,
+  type Scorecard,
+  type ScorecardEntry,
+} from "@/data/qa-seed";
 import { formatDateTime, formatDuration } from "@/data/audit-seed";
 import { ScoreBand } from "./ScoreBand";
 import { RubricScorer } from "./RubricScorer";
@@ -57,11 +63,16 @@ export function ScoringCanvas({
       <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
         <div className="flex flex-wrap items-center gap-100">
           <div className="min-w-0">
-            <div className="truncate text-[0.875rem] font-semibold text-text">{scorecard.customerName}</div>
+            <div className="truncate text-body font-semibold text-text">
+              {scorecard.customerName}
+            </div>
             <div className="text-body-small text-text-subtle">
-              {call ? `${formatDateTime(call.startedAt)} · ${formatDuration(call.duration)} · ${call.channel}` : "—"}
+              {call
+                ? `${formatDateTime(call.startedAt)} · ${formatDuration(call.duration)} · ${call.channel}`
+                : "—"}
               {" · "}
-              <span className="capitalize">{scorecard.handledBy.kind}</span> · {scorecard.handledBy.label} · {scorecard.disposition}
+              <span className="capitalize">{scorecard.handledBy.kind}</span> ·{" "}
+              {scorecard.handledBy.label} · {scorecard.disposition}
             </div>
           </div>
           <div className="ml-auto flex items-center gap-100">
@@ -78,7 +89,9 @@ export function ScoringCanvas({
               onClick={() => setTab(t)}
               className={cn(
                 "rounded-medium px-150 py-050 text-body-small capitalize",
-                tab === t ? "bg-background-brand-subtlest text-text-brand font-semibold" : "text-text-subtle hover:bg-surface-sunken",
+                tab === t
+                  ? "bg-background-brand-subtlest text-text-brand font-semibold"
+                  : "text-text-subtle hover:bg-surface-sunken",
               )}
             >
               {t === "transcript" ? "Transcript" : "Rubric"}
@@ -101,19 +114,30 @@ export function ScoringCanvas({
             </div>
             <div className="divide-y divide-border">
               {(call?.transcript ?? []).map((turn) => (
-                <div key={turn.id} className="grid grid-cols-[80px_60px_1fr] gap-150 px-150 py-100 text-body-small">
+                <div
+                  key={turn.id}
+                  className="grid grid-cols-[80px_60px_1fr] gap-150 px-150 py-100 text-body-small"
+                >
                   <span className="font-mono text-text-subtlest">{formatDuration(turn.t)}</span>
-                  <span className={cn(
-                    "capitalize",
-                    turn.speaker === "customer" ? "text-text-brand font-medium" :
-                    turn.speaker === "agent" || turn.speaker === "bot" ? "text-text font-medium" :
-                    "text-text-subtlest italic",
-                  )}>{turn.speaker}</span>
+                  <span
+                    className={cn(
+                      "capitalize",
+                      turn.speaker === "customer"
+                        ? "text-text-brand font-medium"
+                        : turn.speaker === "agent" || turn.speaker === "bot"
+                          ? "text-text font-medium"
+                          : "text-text-subtlest italic",
+                    )}
+                  >
+                    {turn.speaker}
+                  </span>
                   <span className="text-text">{turn.text}</span>
                 </div>
               ))}
               {(!call || call.transcript.length === 0) && (
-                <div className="p-200 text-center text-body-small text-text-subtlest">No transcript available.</div>
+                <div className="p-200 text-center text-body-small text-text-subtlest">
+                  No transcript available.
+                </div>
               )}
             </div>
           </div>
@@ -136,7 +160,9 @@ export function ScoringCanvas({
           </button>
           <div className="ml-auto flex items-center gap-100">
             <span className="text-body-small text-text-subtlest">
-              {allScored ? `Total ${total.toFixed(1)}/100` : `${scoredCount}/${totalCriteria} criteria scored`}
+              {allScored
+                ? `Total ${total.toFixed(1)}/100`
+                : `${scoredCount}/${totalCriteria} criteria scored`}
             </span>
             <button
               onClick={() => onPublish(scorecard.id)}

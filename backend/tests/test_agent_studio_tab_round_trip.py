@@ -238,3 +238,108 @@ def test_a_draft_patch_rejects_a_bot_id(cloned_bot: str) -> None:
     )
     assert rejected.status_code == 422
     assert rejected.json()["detail"][0]["loc"] == ["body", "botId"]
+
+
+# ---------------------------------------------------------------------------
+# JSON responses must state their encoding.
+#
+# Starlette only appends `charset` to `text/*` media types, so every response
+# went out as a bare `application/json`. RFC 8259 makes UTF-8 mandatory for JSON
+# exchanged between systems, so that was not wrong -- but a charset nobody
+# states is one every client is free to guess, and Windows PowerShell 5.1's
+# `Invoke-RestMethod` guesses ISO-8859-1.
+#
+# The cost was two rounds of a bug hunt. An audit of the skill catalog read the
+# three correct UTF-8 bytes of an em dash (E2 80 94) as three ISO-8859-1
+# characters (U+00E2 U+0080 U+0094), concluded that a signed first-party pack
+# held permanently corrupt text whose contentHash and signature covered the
+# corruption, and recommended a repair migration. The database, the disk and the
+# wire all held U+2014 throughout; only the reader disagreed.
+#
+# For a product serving Hindi, Tamil, Telugu, Kannada, Marathi and Bengali, a
+# client that silently mangles every non-ASCII character is not a curiosity.
+# ---------------------------------------------------------------------------
+
+
+def test_json_responses_declare_utf8() -> None:
+    from fastapi.testclient import TestClient
+
+    import main
+
+    with TestClient(main.app) as client:
+        res = client.get("/agent-studio/skills")
+    assert res.status_code == 200
+    assert "charset=utf-8" in res.headers["content-type"].lower(), (
+        "a charset-less application/json response is decoded as ISO-8859-1 by "
+        "several mainstream clients, which mangles every non-ASCII character"
+    )
+
+
+def test_a_non_ascii_body_survives_the_round_trip_byte_for_byte() -> None:
+    """What the API serves for a first-party pack IS that pack, byte for byte.
+
+    Compares the WHOLE body against the pack on disk rather than probing for one
+    character, so corruption in either direction fails here — a mangled decode
+    on the way in, a re-encode on the way out, or a stale row that stopped
+    matching its own SKILL.md. That is the actual claim the mojibake report
+    made, and nothing was asserting it.
+
+    The `.encode("utf-8")` comparison is deliberate: two strings that differ only
+    by normalisation form compare equal in some contexts and produce different
+    bytes on the wire, and the wire is what the reader gets.
+    """
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    from agent_core.skills.pack import split_skill_md
+    import main
+
+    slug = "verify-and-disclose"
+    disk_md = (
+        Path(main.__file__).resolve().parent
+        / "agent_core"
+        / "skills"
+        / "packs"
+        / slug
+        / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    _meta, disk_body = split_skill_md(disk_md)
+
+    em_dash = chr(0x2014)
+    assert em_dash in disk_body, "fixture no longer exercises a non-ASCII character"
+
+    with TestClient(main.app) as client:
+        served = client.get(f"/agent-studio/skills/{slug}").json()["body"]
+
+    assert served.encode("utf-8") == disk_body.encode("utf-8"), (
+        "the served body differs from the pack on disk; compare codepoints, not "
+        "rendered text, and check the reader's decoder before concluding the "
+        "stored data is corrupt"
+    )
+    # The specific signature the report chased: a UTF-8 em dash read as
+    # ISO-8859-1. Asserted absent by codepoint so no terminal or client encoding
+    # sits between the assertion and the truth.
+    assert chr(0x00E2) not in served
+
+
+def test_error_responses_declare_utf8_too() -> None:
+    """404s and 422s are JSON, and they carry the strings most likely to be non-ASCII.
+
+    `default_response_class` only covers route responses; FastAPI builds
+    HTTPException and validation bodies with its own JSONResponse. Those were
+    still going out charset-less after the app default was set, on the path that
+    echoes back customer names, KB titles and slugs.
+    """
+    from fastapi.testclient import TestClient
+
+    import main
+
+    with TestClient(main.app) as client:
+        missing = client.get("/agent-studio/skills/definitely-not-a-skill")
+        invalid = client.get("/agent-studio/cards?includeArchived=not-a-bool")
+
+    assert missing.status_code == 404
+    assert "charset=utf-8" in missing.headers["content-type"].lower()
+    assert invalid.status_code == 422
+    assert "charset=utf-8" in invalid.headers["content-type"].lower()

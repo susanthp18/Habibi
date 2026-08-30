@@ -1,0 +1,64 @@
+RULES:
+
+This is an unattended engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 567 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart services on ports 8000/7860/8080.
+Run real pytest suites and report actual output.
+
+
+TASK: fix TWO remaining high-value findings from the discovery audit
+(.loop/out/cycle10.txt findings 10 and 11), plus the vault key lead:
+
+--- FIX 1: contact-window rule drift — agent_core/skills/scripts.py:16 vs db.py ---
+CURRENT: scripts.py reimplements the preferred-contact-window check "so code-mode
+has no DB import" but drifted: its DEFAULT_WINDOW = "10:00-19:00 IST" (:11,:26)
+vs db.py:1823 _outside_preferred_window defaulting to 9-20 (verify the exact
+current values). Same promise date, two verdicts depending on which copy runs.
+REQUIRED: extract the pure decision function into a DB-free shared module (e.g.
+backend/contact_policy.py or similar leaf module consistent with how money_inr.py
+was done), have BOTH db._outside_preferred_window and skills/scripts.py call it,
+single source of defaults. Preserve each site's public behaviour except where they
+disagree on DEFAULTS — in that case the db.py version is authoritative (grep
+tests to confirm which default existing tests pin; if tests pin the scripts.py
+default instead, stop and report rather than silently choosing).
+Add a boundary test: a promise at 09:30 IST with no preferred_window gets ONE
+verdict from both entry points.
+
+--- FIX 2: bare-except strips connector tools on DB blip — agent_core/skills/intersect.py ~104-109 ---
+CURRENT: bound_tool_names(...) wrapped in `except Exception: pass`; a transient DB
+error silently compiles cards with every ext.* tool missing, and the compile
+issues list says nothing.
+REQUIRED: catch, logger.error with card/bot context, and APPEND a compile issue/warning
+entry so the studio UI surfaces "connector tools unavailable during compile" — follow
+the existing compile-issues mechanism you find in that module (look at how other
+warnings are appended). Do NOT fail the compile; degrade loudly.
+
+--- FIX 3: vault key fallback — backend/vault/seal.py:20 ---
+CURRENT: reads SKILL_PLATFORM_KEY as a fallback source for VAULT_MASTER_KEY.
+REQUIRED: remove the skill-key fallback so the vault master key comes only from
+VAULT_MASTER_KEY (+ whatever legitimate chain seal.py already documents). If no
+key source resolves, raise with a message naming VAULT_MASTER_KEY. Check tests +
+scripts referencing the old fallback and update them. Add/extend a test: unset
+both keys -> raises naming VAULT_MASTER_KEY; set VAULT_MASTER_KEY -> used;
+SKILL_PLATFORM_KEY alone -> NOT used.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2567. Report tail verbatim.
+2. Files changed limited to backend/db.py (only the refactor to call the shared
+   function), backend/contact_policy.py or equivalent NEW module,
+   backend/agent_core/skills/{scripts.py,intersect.py}, backend/vault/seal.py,
+   plus new/existing tests. Anything else: explain why explicitly.
+3. Report files changed + pytest tail + remaining issues.

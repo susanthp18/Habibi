@@ -87,11 +87,7 @@ export function LoadingState({
       role="status"
       aria-live="polite"
       aria-label={label}
-      className={cn(
-        "flex w-fit items-center gap-150",
-        center && "mx-auto",
-        className,
-      )}
+      className={cn("flex w-fit items-center gap-150", center && "mx-auto", className)}
     >
       <span aria-hidden className="grid grid-cols-[repeat(3,4px)] gap-[1.5px]">
         {delays.map((d, i) => (
@@ -110,7 +106,7 @@ export function LoadingState({
       </span>
       <span
         className={cn(
-          "text-[13px] font-medium",
+          "text-body-small font-medium",
           reducedMotion ? "text-text-subtlest" : "bg-clip-text text-transparent",
         )}
         style={
@@ -127,7 +123,7 @@ export function LoadingState({
         {label}
       </span>
       {showTimer && (
-        <span className="font-mono text-[12px] tabular-nums text-text-subtlest">{elapsed}</span>
+        <span className="font-mono text-body-small tabular-nums text-text-subtlest">{elapsed}</span>
       )}
     </div>
   );

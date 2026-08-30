@@ -1,5 +1,20 @@
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, Bot, Check, ChevronDown, ChevronRight, Mail, MessageCircle, MessageSquare, Minus, PhoneCall, Sparkles, User2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Mail,
+  MessageCircle,
+  MessageSquare,
+  Minus,
+  PhoneCall,
+  Sparkles,
+  User2,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { Channel, Customer, Interaction, Sentiment } from "@/data/customer360-seed";
 import { fmtDateTime, fmtRelative } from "@/data/customer360-seed";
@@ -50,7 +65,9 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-100 rounded-medium border border-border bg-surface p-100 text-xs">
         <FilterGroup label="Channel">
-          <Chip active={channel === "all"} onClick={() => setChannel("all")}>All</Chip>
+          <Chip active={channel === "all"} onClick={() => setChannel("all")}>
+            All
+          </Chip>
           {CHANNELS.map((c) => (
             <Chip key={c} active={channel === c} onClick={() => setChannel(c)}>
               {CHANNEL_LABEL[c]}
@@ -58,15 +75,41 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
           ))}
         </FilterGroup>
         <FilterGroup label="Handler">
-          <Chip active={handler === "all"} onClick={() => setHandler("all")}>All</Chip>
-          <Chip active={handler === "bot"} onClick={() => setHandler("bot")}>Bot</Chip>
-          <Chip active={handler === "human"} onClick={() => setHandler("human")}>Human</Chip>
+          <Chip active={handler === "all"} onClick={() => setHandler("all")}>
+            All
+          </Chip>
+          <Chip active={handler === "bot"} onClick={() => setHandler("bot")}>
+            Bot
+          </Chip>
+          <Chip active={handler === "human"} onClick={() => setHandler("human")}>
+            Human
+          </Chip>
         </FilterGroup>
         <FilterGroup label="Sentiment">
-          <Chip active={sentiment === "all"} onClick={() => setSentiment("all")}>All</Chip>
-          <Chip active={sentiment === "positive"} onClick={() => setSentiment("positive")} tone="success">Positive</Chip>
-          <Chip active={sentiment === "neutral"} onClick={() => setSentiment("neutral")} tone="warning">Neutral</Chip>
-          <Chip active={sentiment === "negative"} onClick={() => setSentiment("negative")} tone="danger">Negative</Chip>
+          <Chip active={sentiment === "all"} onClick={() => setSentiment("all")}>
+            All
+          </Chip>
+          <Chip
+            active={sentiment === "positive"}
+            onClick={() => setSentiment("positive")}
+            tone="success"
+          >
+            Positive
+          </Chip>
+          <Chip
+            active={sentiment === "neutral"}
+            onClick={() => setSentiment("neutral")}
+            tone="warning"
+          >
+            Neutral
+          </Chip>
+          <Chip
+            active={sentiment === "negative"}
+            onClick={() => setSentiment("negative")}
+            tone="danger"
+          >
+            Negative
+          </Chip>
         </FilterGroup>
       </div>
 
@@ -78,7 +121,12 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
       ) : (
         <ol className="relative space-y-150 border-l-2 border-border pl-300">
           {rows.map((i) => (
-            <InteractionCard key={i.id} i={i} open={openId === i.id} onToggle={() => setOpenId((cur) => (cur === i.id ? null : i.id))} />
+            <InteractionCard
+              key={i.id}
+              i={i}
+              open={openId === i.id}
+              onToggle={() => setOpenId((cur) => (cur === i.id ? null : i.id))}
+            />
           ))}
         </ol>
       )}
@@ -86,11 +134,20 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
   );
 }
 
-function InteractionCard({ i, open, onToggle }: { i: Interaction; open: boolean; onToggle: () => void }) {
+function InteractionCard({
+  i,
+  open,
+  onToggle,
+}: {
+  i: Interaction;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const Icon = CHANNEL_ICON[i.channel];
   const Chev = open ? ChevronDown : ChevronRight;
   const HandlerIcon = i.handler.kind === "bot" ? Bot : User2;
-  const Delta = i.sentimentDelta === "up" ? ArrowUp : i.sentimentDelta === "down" ? ArrowDown : ArrowRight;
+  const Delta =
+    i.sentimentDelta === "up" ? ArrowUp : i.sentimentDelta === "down" ? ArrowDown : ArrowRight;
 
   return (
     <li className="relative">
@@ -98,7 +155,10 @@ function InteractionCard({ i, open, onToggle }: { i: Interaction; open: boolean;
         <Icon className="h-3 w-3" />
       </span>
       <div className="rounded-large border border-border bg-surface">
-        <button onClick={onToggle} className="flex w-full items-start gap-150 px-200 py-150 text-left hover:bg-background-brand-subtlest/30">
+        <button
+          onClick={onToggle}
+          className="flex w-full items-start gap-150 px-200 py-150 text-left hover:bg-background-brand-subtlest/30"
+        >
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-100 text-sm">
               <span className="font-medium text-text">{CHANNEL_LABEL[i.channel]}</span>
@@ -157,7 +217,11 @@ function IntentPill({ label, active }: { label: string; active: boolean }) {
           : "border-border bg-surface text-text-subtlest",
       )}
     >
-      {active ? <Check aria-hidden="true" className="size-3" /> : <Minus aria-hidden="true" className="size-3" />}
+      {active ? (
+        <Check aria-hidden="true" className="size-3" />
+      ) : (
+        <Minus aria-hidden="true" className="size-3" />
+      )}
       {label}
     </span>
   );
@@ -187,16 +251,18 @@ function Chip({
     tone === "success"
       ? "bg-background-success-bold text-white border-border-success"
       : tone === "warning"
-      ? "bg-background-warning-bold text-text-warning-inverse border-border-warning"
-      : tone === "danger"
-      ? "bg-background-danger-bold text-white border-border-danger"
-      : "bg-background-brand-bold text-white border-border-brand";
+        ? "bg-background-warning-bold text-text-warning-inverse border-border-warning"
+        : tone === "danger"
+          ? "bg-background-danger-bold text-white border-border-danger"
+          : "bg-background-brand-bold text-white border-border-brand";
   return (
     <button
       onClick={onClick}
       className={cn(
         "rounded-medium border px-100 py-025 text-body-small font-medium",
-        active ? activeClass : "border-border bg-surface text-text-subtle hover:bg-background-brand-subtlest hover:text-text-brand",
+        active
+          ? activeClass
+          : "border-border bg-surface text-text-subtle hover:bg-background-brand-subtlest hover:text-text-brand",
       )}
     >
       {children}

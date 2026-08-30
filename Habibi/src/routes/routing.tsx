@@ -145,10 +145,10 @@ function RoutingPage() {
         <div className="shrink-0 border-b border-border bg-surface px-200 py-150">
           <div className="flex flex-wrap items-center justify-between gap-150">
             <div>
-              <h1 className="text-[1.25rem] font-semibold text-text">Routing & logic builder</h1>
+              <h1 className="heading-medium font-semibold text-text">Routing & logic builder</h1>
               <p className="text-body-small text-text-subtle">
-                Priority-ordered rules control what the bot does next — escalate, hand off, throttle or
-                comply.
+                Priority-ordered rules control what the bot does next — escalate, hand off, throttle
+                or comply.
               </p>
             </div>
             <div className="flex items-center gap-100">
@@ -156,7 +156,12 @@ function RoutingPage() {
                 <PlayCircle className="h-4 w-4" />
                 Simulate
               </Button>
-              <Button variant="outline" size="sm" className="gap-075" onClick={() => setTab("audit")}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-075"
+                onClick={() => setTab("audit")}
+              >
                 <History className="h-4 w-4" />
                 Audit log
               </Button>

@@ -49,7 +49,12 @@ export function TranscriptView({ turns, currentTime, onSeek }: Props) {
                 : "hover:bg-surface-sunken",
             )}
           >
-            <span className={cn("mt-025 inline-flex h-300 w-300 shrink-0 items-center justify-center rounded-full", meta.tone)}>
+            <span
+              className={cn(
+                "mt-025 inline-flex h-300 w-300 shrink-0 items-center justify-center rounded-full",
+                meta.tone,
+              )}
+            >
               <Icon className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0 flex-1">
@@ -57,7 +62,12 @@ export function TranscriptView({ turns, currentTime, onSeek }: Props) {
                 <span className="font-semibold text-text">{meta.label}</span>
                 <span className="font-mono text-text-subtlest">{formatDuration(turn.t)}</span>
               </div>
-              <div className={cn("text-body leading-snug", turn.speaker === "system" ? "italic text-text-subtlest" : "text-text")}>
+              <div
+                className={cn(
+                  "text-body leading-snug",
+                  turn.speaker === "system" ? "italic text-text-subtlest" : "text-text",
+                )}
+              >
                 {turn.text}
               </div>
             </div>

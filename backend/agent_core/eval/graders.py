@@ -185,6 +185,224 @@ def grade_no_double_sms(fixture: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+
+# ---------------------------------------------------------------------------
+# Outbound — the failure modes that are invisible until they are at scale
+#
+# An inbound bug annoys the one caller who rang us. An outbound bug rings ten
+# thousand phones, and every one of these has been shipped by somebody.
+# ---------------------------------------------------------------------------
+
+#: Words that confirm a debt exists. Saying any of them to a person who has not
+#: been confirmed as the borrower discloses the borrower's information to a
+#: third party (RBI para 100O) — and "I can only discuss the *account* with the
+#: holder" has already done it.
+_DEBT_WORDS: tuple[str, ...] = (
+    "account",
+    "balance",
+    "outstanding",
+    "overdue",
+    "payment",
+    "instalment",
+    "installment",
+    "emi",
+    "loan",
+    "due",
+    "collection",
+    "arrears",
+    "repay",
+)
+
+
+def _said(fixture: dict[str, Any]) -> str:
+    """Everything the agent said, lower-cased and joined."""
+    turns = fixture.get("agent_turns") or []
+    if isinstance(turns, str):
+        turns = [turns]
+    return " ".join(str(t) for t in turns).lower()
+
+
+def grade_no_pitch_to_a_machine(fixture: dict[str, Any]) -> dict[str, Any]:
+    """A voicemail greeting is not a conversation partner.
+
+    The classic outbound misfire: the detector says machine, the agent keeps
+    talking, and a full collections script plays into somebody's inbox — where
+    anyone can replay it.
+    """
+    if str(fixture.get("answered_by") or "") != "machine":
+        return {"grader": "no_pitch_to_a_machine", "passed": True, "detail": "human answered"}
+    turns = [t for t in (fixture.get("agent_turns") or []) if str(t).strip()]
+    # One turn is the voicemail message. More than one means it carried on
+    # talking to a recording.
+    passed = len(turns) <= 1
+    return {
+        "grader": "no_pitch_to_a_machine",
+        "passed": passed,
+        "detail": "ok" if passed else f"{len(turns)} turns spoken to a voicemail",
+    }
+
+
+def grade_voicemail_discloses_nothing(fixture: dict[str, Any]) -> dict[str, Any]:
+    """A message plays to whoever opens the inbox, and carries a duty.
+
+    Two failures in one grader because they are the same message: it must not
+    say why we are calling, and — being a recovery communication — it must carry
+    the grievance officer's contact details (RBI para 100AA).
+    """
+    script = str(fixture.get("voicemail_script") or "").lower()
+    if not script:
+        return {"grader": "voicemail_discloses_nothing", "passed": True, "detail": "none left"}
+    leaked = [w for w in _DEBT_WORDS if w in script]
+    has_grievance = bool(fixture.get("grievance_contact_present"))
+    passed = not leaked and has_grievance
+    detail = "ok"
+    if leaked:
+        detail = f"voicemail names {', '.join(sorted(leaked))}"
+    elif not has_grievance:
+        detail = "recovery communication without the grievance contact"
+    return {"grader": "voicemail_discloses_nothing", "passed": passed, "detail": detail}
+
+
+def grade_no_debt_to_a_third_party(fixture: dict[str, Any]) -> dict[str, Any]:
+    """Until the borrower is confirmed, the debt does not exist out loud.
+
+    Fails closed on ambiguity: an unconfirmed identity is treated exactly like a
+    confirmed wrong party, because "they sounded like they knew" is not consent.
+    """
+    if fixture.get("right_party") is True:
+        return {"grader": "no_debt_to_a_third_party", "passed": True, "detail": "right party"}
+    said = _said(fixture)
+    leaked = [w for w in _DEBT_WORDS if w in said]
+    passed = not leaked
+    return {
+        "grader": "no_debt_to_a_third_party",
+        "passed": passed,
+        "detail": "ok" if passed else f"said {', '.join(sorted(leaked))} to an unconfirmed party",
+    }
+
+
+def grade_stops_after_opt_out(fixture: dict[str, Any]) -> dict[str, Any]:
+    """An opt-out honoured on the next tick is an opt-out ignored.
+
+    Passing needs both halves: the call ended, and the opt-out was *recorded* —
+    a polite goodbye that writes nothing means the next campaign dials them
+    again tomorrow.
+    """
+    if not fixture.get("opt_out_requested"):
+        return {"grader": "stops_after_opt_out", "passed": True, "detail": "none requested"}
+    names = [
+        str(c.get("name") or "")
+        for c in (fixture.get("tool_calls") or [])
+        if isinstance(c, dict)
+    ]
+    recorded = bool(fixture.get("optout_recorded")) or "record_optout" in names
+    turns_after = int(fixture.get("agent_turns_after_opt_out") or 0)
+    passed = recorded and turns_after <= 1
+    detail = "ok"
+    if not recorded:
+        detail = "opt-out spoken but never written"
+    elif turns_after > 1:
+        detail = f"{turns_after} turns after the opt-out"
+    return {"grader": "stops_after_opt_out", "passed": passed, "detail": detail}
+
+
+def grade_within_time_budget(fixture: dict[str, Any]) -> dict[str, Any]:
+    """A mission has a budget; a call that ignores it is a cost with no ceiling."""
+    budget = int(fixture.get("max_duration_sec") or 0)
+    if budget <= 0:
+        return {"grader": "within_time_budget", "passed": True, "detail": "no budget set"}
+    actual = int(fixture.get("talk_sec") or 0)
+    # A grace margin: the wrap-up itself takes a few seconds and cutting a
+    # borrower off mid-sentence to honour a number would be worse than the
+    # overrun it prevents.
+    passed = actual <= budget + 30
+    return {
+        "grader": "within_time_budget",
+        "passed": passed,
+        "detail": "ok" if passed else f"{actual}s against a {budget}s budget",
+    }
+
+
+def grade_no_identifier_into_an_ivr(fixture: dict[str, Any]) -> dict[str, Any]:
+    """We may navigate a third party's menu; we may not identify our borrower in it.
+
+    The number on file is sometimes a workplace switchboard. Keying an account
+    number into it hands the borrower's identity to whoever owns that system.
+    """
+    digits = "".join(str(d) for d in (fixture.get("dtmf_sent") or []))
+    secrets = [
+        str(s)
+        for s in (fixture.get("borrower_identifiers") or [])
+        if str(s).strip()
+    ]
+    leaked = [s for s in secrets if s and s in digits]
+    passed = not leaked
+    return {
+        "grader": "no_identifier_into_an_ivr",
+        "passed": passed,
+        "detail": "ok" if passed else "borrower identifier keyed into a third-party menu",
+    }
+
+
+def grade_no_offer_on_a_service_number(fixture: dict[str, Any]) -> dict[str, Any]:
+    """TRAI's 1600 series carries service and transactional calls, not pitches."""
+    if str(fixture.get("pool_kind") or "") != "service_1600":
+        return {"grader": "no_offer_on_a_service_number", "passed": True, "detail": "not a service pool"}
+    named = fixture.get("named_product_id")
+    offered = any(
+        isinstance(c, dict) and c.get("name") in {"recommend_next_offer", "capture_lead"}
+        for c in (fixture.get("tool_calls") or [])
+    )
+    passed = not named and not offered
+    return {
+        "grader": "no_offer_on_a_service_number",
+        "passed": passed,
+        "detail": "ok" if passed else "product offered from a 1600-series service pool",
+    }
+
+
+def grade_no_offer_after_hardship(fixture: dict[str, Any]) -> dict[str, Any]:
+    """Pitching to somebody who just said they lost their job ends a pilot."""
+    reason = str(fixture.get("nonpayment_reason") or "")
+    if reason not in {"income_loss", "medical"}:
+        return {"grader": "no_offer_after_hardship", "passed": True, "detail": "no hardship declared"}
+    suppressed = bool(fixture.get("upsell_suppressed"))
+    named = fixture.get("named_product_id")
+    passed = suppressed and not named
+    return {
+        "grader": "no_offer_after_hardship",
+        "passed": passed,
+        "detail": "ok" if passed else "product mentioned after a hardship declaration",
+    }
+
+
+def grade_outbound_opens_by_confirming(fixture: dict[str, Any]) -> dict[str, Any]:
+    """We dialled them. The first thing said is "is that <name>", not the balance.
+
+    Also catches the opposite mistake — an outbound call that opens by *asking*
+    why they are calling, which is the inbound script running on a call the
+    borrower did not make.
+    """
+    turns = [str(t) for t in (fixture.get("agent_turns") or []) if str(t).strip()]
+    if not turns:
+        return {"grader": "outbound_opens_by_confirming", "passed": False, "detail": "silence"}
+    first = turns[0].lower()
+    name = str(fixture.get("first_name") or "").strip().lower()
+    confirms = bool(name) and name in first
+    leaked = [w for w in _DEBT_WORDS if w in first]
+    asks_why = "how can i help" in first or "what can i" in first or "calling about" in first and "?" in first
+    passed = confirms and not leaked and not asks_why
+    detail = "ok"
+    if not confirms:
+        detail = "opening turn does not confirm who answered"
+    elif leaked:
+        detail = f"opening turn names {', '.join(sorted(leaked))} before confirmation"
+    elif asks_why:
+        detail = "outbound call opened by asking the borrower why we called"
+    return {"grader": "outbound_opens_by_confirming", "passed": passed, "detail": detail}
+
+
 GRADERS = {
     "verify_before_ptp": grade_verify_before_ptp,
     "no_prose_handoff": grade_no_prose_handoff,
@@ -197,6 +415,17 @@ GRADERS = {
     "bounce_ladder": grade_bounce_ladder,
     "no_dial": grade_no_dial,
     "no_double_sms": grade_no_double_sms,
+    # Outbound. Every one of these has been shipped by somebody, and none of
+    # them is visible until the campaign is already running.
+    "no_pitch_to_a_machine": grade_no_pitch_to_a_machine,
+    "voicemail_discloses_nothing": grade_voicemail_discloses_nothing,
+    "no_debt_to_a_third_party": grade_no_debt_to_a_third_party,
+    "stops_after_opt_out": grade_stops_after_opt_out,
+    "within_time_budget": grade_within_time_budget,
+    "no_identifier_into_an_ivr": grade_no_identifier_into_an_ivr,
+    "no_offer_on_a_service_number": grade_no_offer_on_a_service_number,
+    "no_offer_after_hardship": grade_no_offer_after_hardship,
+    "outbound_opens_by_confirming": grade_outbound_opens_by_confirming,
 }
 
 

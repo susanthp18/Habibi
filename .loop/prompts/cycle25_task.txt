@@ -1,0 +1,58 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 594 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Cycle 24 audited the outbound decision core (report-only). Its top
+SAFE findings are this cycle's task — both in backend/cadence.py, plus tests:
+
+--- FIX 1: stranded ladder — cadence.py ~409-418 ---
+A retry that fails to place strands the case permanently: when the attempt to
+place/re-queue a cadence step fails, the case never returns to the queue and no
+error surfaces. Read the exact code first. Required: on placement failure,
+either requeue with backoff consistent with the existing ladder rules or mark
+the case with an explicit terminal/needs-attention state — pick whichever the
+surrounding design already uses for similar failures (look at how bot_worker
+logs and how other loops handle transient failure), and log it at WARNING/ERROR
+with case id. A silent strand is the bug; the resolution mechanism should match
+house style.
+
+--- FIX 2: pause does not stop open ladders — cadence.py ~304 ---
+Pausing a campaign does not prevent ladders it already opened from continuing
+to schedule attempts. Required: at the point a ladder decides to fire, check
+the campaign's current status (join/fetch as the code already does elsewhere)
+and stop/skip if paused — do not delete queued rows; just gate the firing so
+pause takes effect within one poll cycle. Log skipped firings at INFO with
+campaign id.
+
+--- TESTS: new backend/tests/test_cadence_pause_and_strand.py ---
+Use the same DB-fixture pattern as neighbouring outbound tests:
+1. campaign active -> ladder fires as today (control).
+2. campaign paused -> ladder does not place an attempt; case stays schedulable;
+   unpausing lets it fire again.
+3. placement failure injected (mock the dialer/place call to raise) -> case is
+   either requeued with a next_attempt or marked needs-attention; assert NOT
+   silently lost; assert log/em state whatever you chose.
+4. Existing cadence suite still green.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2764. Report tail verbatim.
+2. Files changed limited to backend/cadence.py + backend/tests/**. Anything
+   else: explain explicitly.
+3. Report files changed + pytest tail + remaining issues.

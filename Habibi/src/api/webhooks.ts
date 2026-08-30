@@ -169,7 +169,10 @@ export function useWebhookMutations() {
     update: useMutation({ mutationFn: updateWebhookEndpoint, onSuccess: invalidate }),
     remove: useMutation({ mutationFn: deleteWebhookEndpoint, onSuccess: invalidate }),
     rotate: useMutation({ mutationFn: rotateWebhookSecret, onSuccess: invalidate }),
-    testFire: useMutation({ mutationFn: ({ ep, event }: { ep: Endpoint; event?: EventKey }) => testFireWebhook(ep, event), onSuccess: invalidate }),
+    testFire: useMutation({
+      mutationFn: ({ ep, event }: { ep: Endpoint; event?: EventKey }) => testFireWebhook(ep, event),
+      onSuccess: invalidate,
+    }),
     retry: useMutation({ mutationFn: retryWebhookDelivery, onSuccess: invalidate }),
   };
 }

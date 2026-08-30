@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { PromiseCard } from "./PromiseCard";
-import { STATUS_LABELS, STATUS_ORDER, fmtMoney, type Promise, type PromiseStatus } from "@/data/promises-seed";
+import {
+  STATUS_LABELS,
+  STATUS_ORDER,
+  fmtMoney,
+  type Promise,
+  type PromiseStatus,
+} from "@/data/promises-seed";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -21,7 +27,15 @@ const columnAccent: Record<PromiseStatus, string> = {
   partial: "border-t-orange-500",
 };
 
-export function PromisePipeline({ promises, counts, subtotals, onOpen, onMark, onDropStatus, onResend }: Props) {
+export function PromisePipeline({
+  promises,
+  counts,
+  subtotals,
+  onOpen,
+  onMark,
+  onDropStatus,
+  onResend,
+}: Props) {
   const [dragOver, setDragOver] = useState<PromiseStatus | null>(null);
 
   return (
@@ -46,12 +60,16 @@ export function PromisePipeline({ promises, counts, subtotals, onOpen, onMark, o
             className={cn(
               "flex h-full w-[18.75rem] shrink-0 flex-col rounded-large border border-t-2 bg-surface-sunken/60 transition-colors",
               columnAccent[status],
-              dragOver === status ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40" : "border-border",
+              dragOver === status
+                ? "bg-background-brand-subtlest/40 ring-2 ring-border-brand/40"
+                : "border-border",
             )}
           >
             <div className="flex items-center justify-between border-b border-border px-150 py-100">
               <div>
-                <div className="text-body-small font-semibold text-text">{STATUS_LABELS[status]}</div>
+                <div className="text-body-small font-semibold text-text">
+                  {STATUS_LABELS[status]}
+                </div>
                 <div className="text-body-small text-text-subtlest tabular-nums">
                   {counts[status]} · {fmtMoney(subtotals[status])}
                 </div>
@@ -64,7 +82,13 @@ export function PromisePipeline({ promises, counts, subtotals, onOpen, onMark, o
                 </div>
               ) : (
                 items.map((p) => (
-                  <PromiseCard key={p.id} promise={p} onOpen={onOpen} onMark={onMark} onResend={onResend} />
+                  <PromiseCard
+                    key={p.id}
+                    promise={p}
+                    onOpen={onOpen}
+                    onMark={onMark}
+                    onResend={onResend}
+                  />
                 ))
               )}
             </div>

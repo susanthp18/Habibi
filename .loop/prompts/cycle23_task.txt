@@ -1,0 +1,60 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 593 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Core-agentic campaign, latency workstream follow-up. Cycle 22
+measured the sandbox turn pipeline and found the enrichment call
+(turn analysis / analyze_turn) takes ~1.15s and sits ON the reply critical
+path, while agent_core's analyze_turn already supports allow_llm=False.
+
+TASK: take the enrichment OFF the turn critical path without losing the data.
+
+--- FIX: overlap or defer the enrichment call in append_sandbox_turn ---
+backend/sandbox_runtime.py: find where analyze_turn (or equivalent enrichment)
+is awaited between retrieval and persisting the bot turn. Requirements:
+1. The customer-visible reply latency must no longer include the enrichment
+   time: retrieve -> chat -> PERSIST + RETURN the turn; run enrichment after
+   (or concurrently with) persistence.
+2. Enrichment results must still land: either (a) await it before the response
+   object's flags/analysis fields are serialised IF those fields are part of
+   the API contract for that same request — in which case document that the
+   contract forces inclusion and instead overlap enrichment WITH retrieval
+   (both are independent of the chat call? verify: if enrichment needs the bot
+   text it cannot start before chat completes; if it only needs the customer
+   text it can) — or (b) if the API response does not include enrichment
+   fields, fire it as a tracked background task (see voice/tools.py
+   spawn_session_task pattern for a task-registry precedent) and have the NEXT
+   turn / GET endpoint read whatever landed.
+3. Whichever design the code supports, implement it with a feature flag env
+   var (default ON for the new behaviour, e.g. SANDBOX_ENRICHMENT_ASYNC=1,
+   read via env_utils) so it can be reverted instantly, and log the time
+   saved per turn at INFO with the same greppable prefix style as cycle 22
+   ("turn-stage-timings:").
+4. Extend backend/tests/test_turn_latency_budget.py (or a sibling): assert the
+   reply path no longer waits on enrichment — e.g. mocked analyze_turn sleeps
+   500ms; with flag ON total turn time must not grow by more than ~100ms vs
+   enrichment disabled; with flag OFF behaviour identical to today.
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2758. Report tail verbatim.
+2. Files changed limited to backend/sandbox_runtime.py +
+   backend/tests/**. Anything else: explain explicitly.
+3. Report: which design (defer vs overlap), measured saving from the new test
+   output, files changed, pytest tail.

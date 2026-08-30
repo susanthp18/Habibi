@@ -81,66 +81,100 @@ export interface RuleConfig {
 export type RedactionRules = Record<PiiEntityType, RuleConfig>;
 
 export const DEFAULT_RULES: RedactionRules = {
-  card:    { enabled: true,  replacement: "**** **** **** ####", label: "Card number" },
-  pan:     { enabled: true,  replacement: "[REDACTED-PAN]",       label: "PAN / SSN" },
-  phone:   { enabled: true,  replacement: "+91 ••••••••##",       label: "Phone" },
-  email:   { enabled: true,  replacement: "[REDACTED-EMAIL]",     label: "Email" },
-  address: { enabled: false, replacement: "[REDACTED-ADDRESS]",   label: "Address" },
-  dob:     { enabled: true,  replacement: "[REDACTED-DOB]",       label: "Date of birth" },
-  account: { enabled: true,  replacement: "••••####",             label: "Account #" },
-  ifsc:    { enabled: false, replacement: "[REDACTED-IFSC]",      label: "IFSC" },
-  aadhaar: { enabled: true,  replacement: "•••• •••• ####",       label: "Aadhaar" },
-  custom:  { enabled: false, replacement: "[REDACTED]",           label: "Custom pattern" },
+  card: { enabled: true, replacement: "**** **** **** ####", label: "Card number" },
+  pan: { enabled: true, replacement: "[REDACTED-PAN]", label: "PAN / SSN" },
+  phone: { enabled: true, replacement: "+91 ••••••••##", label: "Phone" },
+  email: { enabled: true, replacement: "[REDACTED-EMAIL]", label: "Email" },
+  address: { enabled: false, replacement: "[REDACTED-ADDRESS]", label: "Address" },
+  dob: { enabled: true, replacement: "[REDACTED-DOB]", label: "Date of birth" },
+  account: { enabled: true, replacement: "••••####", label: "Account #" },
+  ifsc: { enabled: false, replacement: "[REDACTED-IFSC]", label: "IFSC" },
+  aadhaar: { enabled: true, replacement: "•••• •••• ####", label: "Aadhaar" },
+  custom: { enabled: false, replacement: "[REDACTED]", label: "Custom pattern" },
 };
 
 export const ENTITY_TYPES: PiiEntityType[] = [
-  "card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom",
+  "card",
+  "pan",
+  "phone",
+  "email",
+  "address",
+  "dob",
+  "account",
+  "ifsc",
+  "aadhaar",
+  "custom",
 ];
 
 // Design.md accent ramp, "-bolder" tier — one distinct hue per PII type.
 export const ENTITY_COLORS: Record<PiiEntityType, string> = {
-  card:    "#C9372C", // accent-red-bolder
-  pan:     "#1868DB", // accent-blue-bolder
-  phone:   "#227D9B", // accent-teal-bolder
-  email:   "#964AC0", // accent-purple-bolder
+  card: "#C9372C", // accent-red-bolder
+  pan: "#1868DB", // accent-blue-bolder
+  phone: "#227D9B", // accent-teal-bolder
+  email: "#964AC0", // accent-purple-bolder
   address: "#BD5B00", // accent-orange-bolder
-  dob:     "#946F00", // accent-yellow-bolder
+  dob: "#946F00", // accent-yellow-bolder
   account: "#1F845A", // accent-green-bolder
-  ifsc:    "#6B6E76", // accent-gray-bolder
+  ifsc: "#6B6E76", // accent-gray-bolder
   aadhaar: "#AE4787", // accent-magenta-bolder
-  custom:  "#5B7F24", // accent-lime-bolder
+  custom: "#5B7F24", // accent-lime-bolder
 };
 
 const AUDIO_ELIGIBLE: PiiEntityType[] = ["card", "phone", "account", "aadhaar", "dob"];
 
 const CUSTOMERS = [
-  { id: "vikram-rao",   name: "Vikram Rao",   handler: "BigBound v2.4",   channel: "voice"    as const },
-  { id: "anita-desai",  name: "Anita Desai",  handler: "Aarav K.",    channel: "voice"    as const },
-  { id: "priya-menon",  name: "Priya Menon",  handler: "BigBound v2.4",   channel: "whatsapp" as const },
-  { id: "rahul-shetty", name: "Rahul Shetty", handler: "Priya Nair",  channel: "voice"    as const },
-  { id: "kavya-iyer",   name: "Kavya Iyer",   handler: "BigBound v2.4",   channel: "voice"    as const },
-  { id: "sameer-khan",  name: "Sameer Khan",  handler: "Arjun Mehta", channel: "voice"    as const },
-  { id: "neha-gupta",   name: "Neha Gupta",   handler: "WebChatBot",  channel: "whatsapp" as const },
-  { id: "arjun-nair",   name: "Arjun Nair",   handler: "Sara Khan",   channel: "voice"    as const },
-  { id: "divya-shah",   name: "Divya Shah",   handler: "BigBound v2.4",   channel: "voice"    as const },
-  { id: "rohit-verma",  name: "Rohit Verma",  handler: "Meera Joshi", channel: "voice"    as const },
-  { id: "isha-kapoor",  name: "Isha Kapoor",  handler: "BigBound v2.4",   channel: "sms"      as const },
-  { id: "manoj-pillai", name: "Manoj Pillai", handler: "Aarav K.",    channel: "voice"    as const },
-  { id: "sneha-jain",   name: "Sneha Jain",   handler: "BigBound v2.4",   channel: "voice"    as const },
-  { id: "kunal-bose",   name: "Kunal Bose",   handler: "Priya Nair",  channel: "voice"    as const },
+  { id: "vikram-rao", name: "Vikram Rao", handler: "BigBound v2.4", channel: "voice" as const },
+  { id: "anita-desai", name: "Anita Desai", handler: "Aarav K.", channel: "voice" as const },
+  {
+    id: "priya-menon",
+    name: "Priya Menon",
+    handler: "BigBound v2.4",
+    channel: "whatsapp" as const,
+  },
+  { id: "rahul-shetty", name: "Rahul Shetty", handler: "Priya Nair", channel: "voice" as const },
+  { id: "kavya-iyer", name: "Kavya Iyer", handler: "BigBound v2.4", channel: "voice" as const },
+  { id: "sameer-khan", name: "Sameer Khan", handler: "Arjun Mehta", channel: "voice" as const },
+  { id: "neha-gupta", name: "Neha Gupta", handler: "WebChatBot", channel: "whatsapp" as const },
+  { id: "arjun-nair", name: "Arjun Nair", handler: "Sara Khan", channel: "voice" as const },
+  { id: "divya-shah", name: "Divya Shah", handler: "BigBound v2.4", channel: "voice" as const },
+  { id: "rohit-verma", name: "Rohit Verma", handler: "Meera Joshi", channel: "voice" as const },
+  { id: "isha-kapoor", name: "Isha Kapoor", handler: "BigBound v2.4", channel: "sms" as const },
+  { id: "manoj-pillai", name: "Manoj Pillai", handler: "Aarav K.", channel: "voice" as const },
+  { id: "sneha-jain", name: "Sneha Jain", handler: "BigBound v2.4", channel: "voice" as const },
+  { id: "kunal-bose", name: "Kunal Bose", handler: "Priya Nair", channel: "voice" as const },
 ];
 
 // Regex-driven synthetic detector — deterministic against the seeded transcript text.
 const DETECTORS: Array<{ type: PiiEntityType; re: RegExp; mask: (s: string) => string }> = [
-  { type: "card",    re: /\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, mask: (s) => `**** **** **** ${s.replace(/\D/g, "").slice(-4)}` },
-  { type: "aadhaar", re: /\b\d{4}\s\d{4}\s\d{4}\b/g,                 mask: (s) => `•••• •••• ${s.slice(-4)}` },
-  { type: "pan",     re: /\b[A-Z]{5}\d{4}[A-Z]\b/g,                  mask: () => "[REDACTED-PAN]" },
-  { type: "ifsc",    re: /\bHDFC0\d{6}\b/g,                          mask: () => "[REDACTED-IFSC]" },
-  { type: "phone",   re: /\+91[- ]?\d{5}[- ]?\d{5}\b/g,              mask: (s) => `+91 ••••••••${s.replace(/\D/g, "").slice(-2)}` },
-  { type: "email",   re: /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, mask: () => "[REDACTED-EMAIL]" },
-  { type: "dob",     re: /\b(0?[1-9]|[12]\d|3[01])[-/](0?[1-9]|1[0-2])[-/](19|20)\d{2}\b/g, mask: () => "[REDACTED-DOB]" },
-  { type: "account", re: /\bHDFC-(?:CC|PL|RL|AL)-\d{4}\b/g,           mask: (s) => `••••${s.slice(-4)}` },
-  { type: "address", re: /\b\d{1,4}\s(?:MG Road|Anna Salai|Brigade Road|Nehru Nagar|Sector \d{1,2})[^,.]*/g, mask: () => "[REDACTED-ADDRESS]" },
+  {
+    type: "card",
+    re: /\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g,
+    mask: (s) => `**** **** **** ${s.replace(/\D/g, "").slice(-4)}`,
+  },
+  { type: "aadhaar", re: /\b\d{4}\s\d{4}\s\d{4}\b/g, mask: (s) => `•••• •••• ${s.slice(-4)}` },
+  { type: "pan", re: /\b[A-Z]{5}\d{4}[A-Z]\b/g, mask: () => "[REDACTED-PAN]" },
+  { type: "ifsc", re: /\bHDFC0\d{6}\b/g, mask: () => "[REDACTED-IFSC]" },
+  {
+    type: "phone",
+    re: /\+91[- ]?\d{5}[- ]?\d{5}\b/g,
+    mask: (s) => `+91 ••••••••${s.replace(/\D/g, "").slice(-2)}`,
+  },
+  {
+    type: "email",
+    re: /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi,
+    mask: () => "[REDACTED-EMAIL]",
+  },
+  {
+    type: "dob",
+    re: /\b(0?[1-9]|[12]\d|3[01])[-/](0?[1-9]|1[0-2])[-/](19|20)\d{2}\b/g,
+    mask: () => "[REDACTED-DOB]",
+  },
+  { type: "account", re: /\bHDFC-(?:CC|PL|RL|AL)-\d{4}\b/g, mask: (s) => `••••${s.slice(-4)}` },
+  {
+    type: "address",
+    re: /\b\d{1,4}\s(?:MG Road|Anna Salai|Brigade Road|Nehru Nagar|Sector \d{1,2})[^,.]*/g,
+    mask: () => "[REDACTED-ADDRESS]",
+  },
 ];
 
 export function detectPii(turns: RedactionTurn[]): PiiFinding[] {
@@ -167,7 +201,9 @@ export function detectPii(turns: RedactionTurn[]): PiiFinding[] {
     }
   }
   // Sort per-turn by start offset — needed for stable rendering.
-  return out.sort((a, b) => (a.turnId === b.turnId ? a.start - b.start : a.turnId.localeCompare(b.turnId)));
+  return out.sort((a, b) =>
+    a.turnId === b.turnId ? a.start - b.start : a.turnId.localeCompare(b.turnId),
+  );
 }
 
 // ---- seed transcripts (embed realistic PII the detectors above will pick up) ----
@@ -176,20 +212,41 @@ function makeTranscript(seed: number): RedactionTurn[] {
   // Pool of turns; each record uses a rotating subset so different customers
   // exercise different combinations of PII types.
   const pool: Array<Omit<RedactionTurn, "id" | "t">> = [
-    { speaker: "agent",    text: "This call is recorded for compliance. May I confirm your card number ending 4487? Please read the full 16 digits." },
+    {
+      speaker: "agent",
+      text: "This call is recorded for compliance. May I confirm your card number ending 4487? Please read the full 16 digits.",
+    },
     { speaker: "customer", text: "Sure — it's 4485 1200 3390 4487, expiry March 2027." },
-    { speaker: "agent",    text: "Thank you. Could you also confirm your date of birth for verification?" },
+    {
+      speaker: "agent",
+      text: "Thank you. Could you also confirm your date of birth for verification?",
+    },
     { speaker: "customer", text: "Yes, 14/09/1988." },
-    { speaker: "agent",    text: "And your PAN, please — for tax record matching." },
+    { speaker: "agent", text: "And your PAN, please — for tax record matching." },
     { speaker: "customer", text: "BXPPK4471M. Do you also need my Aadhaar?" },
-    { speaker: "agent",    text: "Aadhaar isn't required today, but I do have 4821 6640 9912 on file — please tell me if the last four match." },
+    {
+      speaker: "agent",
+      text: "Aadhaar isn't required today, but I do have 4821 6640 9912 on file — please tell me if the last four match.",
+    },
     { speaker: "customer", text: "That's correct." },
-    { speaker: "agent",    text: "Your account HDFC-CC-4487 currently shows ₹48,720 outstanding. Would you like the statement on email or WhatsApp?" },
-    { speaker: "customer", text: "Email is fine — vikram.rao88@gmail.com. Also please update my number: +91 98221 04487." },
-    { speaker: "agent",    text: "Noted. For the refund we'll credit to HDFC0043221 branch, IFSC HDFC0000123. Your registered address is 402 MG Road, Bengaluru — still correct?" },
+    {
+      speaker: "agent",
+      text: "Your account HDFC-CC-4487 currently shows ₹48,720 outstanding. Would you like the statement on email or WhatsApp?",
+    },
+    {
+      speaker: "customer",
+      text: "Email is fine — vikram.rao88@gmail.com. Also please update my number: +91 98221 04487.",
+    },
+    {
+      speaker: "agent",
+      text: "Noted. For the refund we'll credit to HDFC0043221 branch, IFSC HDFC0000123. Your registered address is 402 MG Road, Bengaluru — still correct?",
+    },
     { speaker: "customer", text: "Yes, 402 MG Road Sector 4, Bengaluru works." },
-    { speaker: "system",   text: "— Compliance disclosure: Mini-Miranda read at 00:12 —" },
-    { speaker: "agent",    text: "One last thing — the callback number should be +91 87665 61102 or the primary?" },
+    { speaker: "system", text: "— Compliance disclosure: Mini-Miranda read at 00:12 —" },
+    {
+      speaker: "agent",
+      text: "One last thing — the callback number should be +91 87665 61102 or the primary?",
+    },
     { speaker: "customer", text: "Primary. Thanks." },
   ];
   const startIdx = seed % pool.length;
@@ -321,7 +378,11 @@ export function statsFor(records: RedactionRecord[], exports_: ExportJob[]) {
 
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
-    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 

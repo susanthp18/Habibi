@@ -33,12 +33,13 @@ from agent_core import default_context, default_tuning, load_active_bundle, voic
 from prompt_render import render_system_prompt, strip_unrendered_crm_tokens
 from voice import config as voice_config
 from voice.context_edit import replace_developer_block
-from voice.crm_sink import CrmSink, bind_session_start
+from voice.crm_sink import CrmSink, bind_session_start, mark_crm_degraded
 from voice.flows import build_collections_flow
 from voice.latency import KeepAliveAzureLLMService, prewarm_llm_connection
 from voice.natural import build_voice_system_prompt, filler_for_function_names
 from voice.recording import attach_recording_handlers
 from voice.session import VoiceSession
+from voice import budget
 from voice import log_bridge
 from voice.spoken_text import SpokenTextFilter
 from voice.turn_probe import SpokeThisResponseProbe
@@ -56,9 +57,29 @@ from voice.tuning_apply import (
 )
 
 
+def _persona_context(bundle: dict) -> dict[str, str]:
+    """Operator-token values this card implies, for the system-prompt render.
+
+    Only ``{language}`` is card-dependent; ``{agent_name}`` and ``{bank_name}``
+    are tenant environment and ``{time_of_day}`` is the clock. It exists as a
+    function because the previous arrangement — an optional ``context``
+    parameter that the one caller never passed — meant every voice call
+    substituted ``default_context``'s ``"English"`` no matter what the Persona
+    tab said. Deriving the context from the bundle removes the opportunity to
+    forget rather than adding a caller who must remember.
+    """
+    persona = bundle.get("persona") if isinstance(bundle.get("persona"), dict) else {}
+    name = str(persona.get("language") or "").strip()
+    return {"language": name} if name else {}
+
+
 def _system_instruction_from_bundle(bundle: dict, context: dict | None = None) -> str:
-    """Lean voice system prompt — authored prompt + guardrails + voice rules only."""
-    ctx = default_context(context)
+    """Lean voice system prompt — authored prompt + persona + guardrails + voice rules.
+
+    ``context`` overlays the card's own values, for callers (tests, the sandbox)
+    that need to pin a token.
+    """
+    ctx = default_context({**_persona_context(bundle), **(context or {})})
     # System policy takes operator tokens only. This used to call render_prompt,
     # which substitutes CRM fields straight into the system string — the one
     # thing prompt_render.py exists to prevent, and the reason the call-start
@@ -67,7 +88,11 @@ def _system_instruction_from_bundle(bundle: dict, context: dict | None = None) -
     # learns who it is talking to, so nothing is lost by leaving them out here.
     rendered = render_system_prompt(bundle.get("prompt") or "", ctx)
     rendered = strip_unrendered_crm_tokens(rendered)
-    prompt = build_voice_system_prompt(rendered, bundle.get("guardrails") or {})
+    prompt = build_voice_system_prompt(
+        rendered,
+        bundle.get("guardrails") or {},
+        persona=bundle.get("persona") if isinstance(bundle.get("persona"), dict) else None,
+    )
     from agent_core.skills.runtime import mouth_turn_state
 
     prefix = mouth_turn_state(bundle.get("agentCard") or {}).get("prefix") or ""
@@ -135,6 +160,25 @@ def _extract_tune_delta(message) -> dict | None:
 _MAX_CALL_DURATION_SECS = 10 * 60
 # Worker-level silence backstop under the aggregator idle ladder.
 _WORKER_IDLE_TIMEOUT_SECS = 180
+
+#: How long end-of-call bookkeeping may take before teardown proceeds without
+#: it. Generous — a healthy finalize is well under a second, and the slowest
+#: real one observed was six — but finite, which is the point: past this, the
+#: records lose and the worker gets cancelled. The alternative is what actually
+#: happened, which is that one drain that never returned kept a whole session
+#: alive and made every later call on the process fail.
+_FINALIZE_BUDGET_SECS = 20.0
+
+#: Above this, the caller has been holding a silent line long enough that the
+#: call is at risk. Healthy setup on a warm process is well under a second; the
+#: run that started this investigation took 16.5s and Twilio hung up at 0.5s
+#: past ready. Warned rather than enforced — refusing the call outright would
+#: turn a degraded call into no call.
+_SLOW_SETUP_WARN_SECS = 4.0
+
+#: Conversation + classifier LLM starts before the callee has said a real
+#: word. VS-4D8667B522 burned 46 turns on one "Hello." Six is already a loop.
+_LOOP_LLM_BUDGET = 6
 
 # Dead-air watchdog.
 #
@@ -430,6 +474,24 @@ async def run_bot(transport, runner_args) -> None:
             session.extra["from_number"] = session.extra.get("from_number") or body_params.get(
                 "from"
             )
+            # The mission has to be known *here*, not in on_client_connected:
+            # the flow graph is compiled further down this function and the
+            # objective is what chooses which node the call starts at. Reading
+            # it at connect time would mean every outbound mission compiled
+            # against the inbound entry and then arrived too late to matter.
+            if str(body_params.get("call_type") or "").strip().lower() == "outbound":
+                session.extra["attempt_id"] = (
+                    str(body_params.get("attempt_id") or "").strip() or None
+                )
+                session.extra["objective"] = (
+                    str(body_params.get("objective") or "").strip() or None
+                )
+                # Closes the arc: this id was already being written into the
+                # stream parameters and read by nothing, so an outcome could
+                # never attach to the decision that caused the call.
+                session.extra["treatment_decision_id"] = (
+                    str(body_params.get("treatment_decision_id") or "").strip() or None
+                )
     if is_twilio and session.extra.get("from_number"):
         try:
             from voice import twilio_ops
@@ -456,6 +518,53 @@ async def run_bot(transport, runner_args) -> None:
         simulated=is_simulated,
     )
     system_instruction = _system_instruction_from_bundle(bundle)
+
+    # The mission briefing. Appended to the persona rather than replacing it:
+    # who the agent *is* comes from the published card, and why they are on this
+    # particular call comes from the decision that placed it. Both are needed and
+    # neither is the other.
+    #
+    # Loaded here because the flow graph is compiled a few lines below and the
+    # briefing has to be in the system prompt before the first turn is built. A
+    # missing or unreadable mission degrades to the ordinary script, which is
+    # what an outbound call did until now anyway.
+    _mission: dict[str, Any] | None = None
+    if session.extra.get("attempt_id"):
+        try:
+            import mission as mission_mod
+
+            def _load_mission() -> dict[str, Any] | None:
+                import db as _db
+
+                with _db.engine.connect() as conn:
+                    return mission_mod.load(conn, str(session.extra["attempt_id"]))
+
+            _mission = await asyncio.to_thread(_load_mission)
+        except Exception:
+            logger.exception("mission load failed — continuing without a briefing")
+        if _mission:
+            session.extra["mission"] = _mission
+            # The card's entry node wins over the objective lookup when both
+            # exist; they agree unless someone edited one of them, and G-OB2
+            # blocks publishing that state.
+            if _mission.get("entryNode"):
+                session.extra["entry_node"] = _mission["entryNode"]
+            if _mission.get("allowedOffers") == []:
+                # Same latch the hardship interlock uses. A mission with no
+                # allowed offers must not be able to reach a product pitch by
+                # any route, prompt included.
+                session.extra["upsell_blocked"] = "mission_forbids_offers"
+            if _mission.get("maxDurationSec"):
+                session.extra["max_duration_sec"] = int(_mission["maxDurationSec"])
+            try:
+                system_instruction = (
+                    system_instruction.rstrip()
+                    + chr(10) * 2
+                    + mission_mod.briefing(_mission)
+                )
+            except Exception:
+                logger.exception("mission briefing render failed")
+
     vparams = voice_params_from_config(
         bundle.get("voiceConfig"),
         voice=bundle.get("voice"),
@@ -467,6 +576,13 @@ async def run_bot(transport, runner_args) -> None:
     tuning = resolve_session_tuning(
         bundle.get("tuning"),
         voice_name=vparams.get("voiceName"),
+        # The card's language, so the recogniser listens for what the Persona
+        # tab chose. An explicit AgentTuning.stt.language still wins.
+        persona_language=(
+            (bundle.get("persona") or {}).get("language")
+            if isinstance(bundle.get("persona"), dict)
+            else None
+        ),
     )
     session.extra["tuning"] = tuning
 
@@ -485,23 +601,73 @@ async def run_bot(transport, runner_args) -> None:
         tuning["interaction"].get("barge_in"),
     )
 
-    # Measured STT TTFB p50 ~1.18s (logs.txt). Not part of AgentTuning — network fact.
-    stt = AzureSTTService(
-        api_key=speech_key,
-        region=speech_region,
-        settings=build_stt_settings(tuning),
-        ttfs_p99_latency=1.15,
-    )
+    def _setup_trace(name: str, **fields: Any) -> None:
+        from voice.call_trace import event as _trace_event
+        from voice.call_trace import session_fields
 
-    tts = KeepAliveAzureTTSService(
-        api_key=speech_key,
-        region=speech_region,
-        settings=build_tts_settings(tuning),
-        text_aggregation_mode=text_aggregation_mode(tuning),
-        # Parentheses and markdown are unspeakable, and Azure's word-boundary
-        # events skip them — which made the sequencer emit the same span twice
-        # and duplicated it into the transcript. See voice/spoken_text.py.
-        text_filters=[SpokenTextFilter()],
+        started = getattr(runner_args, "setup_started_at", None)
+        _trace_event(
+            name,
+            **session_fields(session),
+            elapsed_s=round(time.monotonic() - started, 2) if started else None,
+            **fields,
+        )
+
+    # STT and TTS resolve through the provider registry, so a provider chosen in
+    # the Agent Studio is the provider that speaks. Each falls back to the Azure
+    # construction below when nothing is bound — see voice/provider_bind.py for
+    # why an unbound slot is a default rather than an error.
+    from agent_core.tuning import normalize_tuning as _normalize_tuning
+    from voice import provider_bind
+    from voice.tuning_apply import stt_settings_kwargs, tts_settings_kwargs
+
+    bind_locale = str(_normalize_tuning(tuning)["stt"].get("language") or "") or None
+
+    # Measured STT TTFB p50 ~1.18s (logs.txt). Not part of AgentTuning — network fact.
+    stt, stt_prov = provider_bind.bind(
+        "stt",
+        tenant_id=_db.current_tenant(),
+        bot_id=bot_id,
+        locale=bind_locale,
+        session_id=session.session_id,
+        settings=stt_settings_kwargs(tuning),
+        ctor={"ttfs_p99_latency": 1.15},
+        fallback=lambda: AzureSTTService(
+            api_key=speech_key,
+            region=speech_region,
+            settings=build_stt_settings(tuning),
+            ttfs_p99_latency=1.15,
+        ),
+    )
+    provider_bind.record(session, stt_prov)
+
+    tts, tts_prov = provider_bind.bind(
+        "tts",
+        tenant_id=_db.current_tenant(),
+        bot_id=bot_id,
+        locale=bind_locale,
+        session_id=session.session_id,
+        settings=tts_settings_kwargs(tuning),
+        ctor={
+            "text_aggregation_mode": text_aggregation_mode(tuning),
+            # Parentheses and markdown are unspeakable, and Azure's word-boundary
+            # events skip them — which made the sequencer emit the same span twice
+            # and duplicated it into the transcript. See voice/spoken_text.py.
+            "text_filters": [SpokenTextFilter()],
+        },
+        fallback=lambda: KeepAliveAzureTTSService(
+            api_key=speech_key,
+            region=speech_region,
+            settings=build_tts_settings(tuning),
+            text_aggregation_mode=text_aggregation_mode(tuning),
+            text_filters=[SpokenTextFilter()],
+        ),
+    )
+    provider_bind.record(session, tts_prov)
+    _setup_trace(
+        "setup.providers",
+        stt=(stt_prov or {}).get("provider") if isinstance(stt_prov, dict) else None,
+        tts=(tts_prov or {}).get("provider") if isinstance(tts_prov, dict) else None,
     )
     llm = KeepAliveAzureLLMService(
         api_key=voice_config.azure_openai_voice_api_key(),
@@ -619,6 +785,7 @@ async def run_bot(transport, runner_args) -> None:
     user_aggregator = context_aggregator.user()
     assistant_aggregator = context_aggregator.assistant()
     sink.attach_aggregators(user_aggregator, assistant_aggregator)
+    _setup_trace("setup.vad")
 
     from voice.kb_enrich import KbCache, KbEnrichProcessor, KbSpeculationProcessor
 
@@ -698,7 +865,14 @@ async def run_bot(transport, runner_args) -> None:
     # time would only fail once, on a real call, in the branch nobody tests.
     from voice.bot_turn_state import BotTurnStateObserver
 
-    bot_turn_state = BotTurnStateObserver()
+    def _on_first_speech() -> None:
+        session.extra["first_bot_speech_done"] = True
+        origin = getattr(runner_args, "setup_started_at", None) or bot_turn_state._call_started_at
+        waited = (time.monotonic() - origin) if origin else None
+        _setup_trace("first.speech", waited_s=round(waited, 3) if waited is not None else None)
+        _setup_trace("first.tts", waited_s=round(waited, 3) if waited is not None else None)
+
+    bot_turn_state = BotTurnStateObserver(on_first_speech=_on_first_speech)
     idle_ladder = list(tuning["interaction"].get("idle_ladder") or ["nudge", "direct", "close"])
     # Single-flight end: idle ladder / worker idle / max-duration must not stack
     # with each other or with Flows end_conversation (feedback #4).
@@ -979,22 +1153,51 @@ async def run_bot(transport, runner_args) -> None:
                 sink=sink,
                 allowed_tool_names=_allowed_tools,
                 attached_skills=_attached_skills,
+                objective=session.extra.get("objective") or None,
+                entry_node=session.extra.get("entry_node") or None,
             )
-            logger.info("voice flow: using authored graph from prompt version")
+            logger.info(
+                "voice flow: using authored graph · mission={}",
+                session.extra.get("objective") or "inbound",
+            )
         except Exception:
+            if voice_config.voice_flow_required():
+                # Under `required` the studio is the only source of truth, so a
+                # graph that will not compile is a broken deployment, not a call
+                # to serve some other way. Falling back here is what let a card
+                # be edited and published without changing anything the caller
+                # heard.
+                logger.exception(
+                    "authored flow failed to compile and VOICE_FLOW_GRAPH=required "
+                    "· bot={} · refusing the call",
+                    bot_id,
+                )
+                raise
             logger.exception(
                 "authored flow failed to compile — falling back to the built-in flow"
             )
+    elif voice_config.voice_flow_required():
+        # No published graph at all. Same reasoning: under `required` this is a
+        # configuration error with a name attached, not something to paper over.
+        raise RuntimeError(
+            f"voice_flow_required: bot {bot_id!r} has no published Agent Studio "
+            "flow (publish one, or set VOICE_FLOW_GRAPH=auto to allow the "
+            "built-in script)"
+        )
 
     _flow_holder["state"] = _tool_state
+    # The tool map too: the budget watchdog's hard stop needs `end_call`, and
+    # reaching for it through the holder keeps the watchdog from closing over a
+    # dict that the authored-graph branch above may have replaced.
+    _flow_holder["tools"] = _tools
 
     # Outbound Twilio only — VoicemailDetector between STT and user agg, gate after TTS.
     voicemail_detector = None
     try:
+        from voice import amd
         from voice.amd import attach_voicemail_handlers, should_enable_amd
 
         if should_enable_amd(session.extra, is_twilio=is_twilio):
-            from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 
             classifier_llm = KeepAliveAzureLLMService(
                 api_key=voice_config.azure_openai_voice_api_key(),
@@ -1011,8 +1214,24 @@ async def run_bot(transport, runner_args) -> None:
                     )
                 ),
             )
-            voicemail_detector = VoicemailDetector(llm=classifier_llm)
+            # Not `VoicemailDetector(...)` directly: the flow's context updates
+            # would reach the classifier branch and get read as evidence. See
+            # `amd._ClassifierContextGuard`.
+            voicemail_detector = amd.build_voicemail_detector(llm=classifier_llm, session=session)
             logger.info("AMD VoicemailDetector enabled · session={}", session.session_id)
+            _setup_trace("setup.amd", enabled=True)
+        else:
+            if amd.is_demo_call(session.extra):
+                from voice.call_trace import event as _trace
+
+                _trace(
+                    "amd.voicemail_skipped",
+                    session=session.session_id,
+                    reason="demo",
+                    attempt=session.extra.get("attempt_id"),
+                    objective=session.extra.get("objective"),
+                )
+            _setup_trace("setup.amd", enabled=False)
     except Exception:
         logger.exception("AMD setup failed — continuing without voicemail detection")
         voicemail_detector = None
@@ -1074,6 +1293,7 @@ async def run_bot(transport, runner_args) -> None:
         ]
     )
     pipeline = Pipeline(pipeline_stages)
+    _setup_trace("setup.pipeline", stages=len(pipeline_stages))
 
     observers = []
     metrics_obs = sink.build_observer()
@@ -1125,6 +1345,9 @@ async def run_bot(transport, runner_args) -> None:
                     session.session_id,
                     float(latency_seconds),
                 )
+                session.extra["first_bot_speech_done"] = True
+                # first.tts / first.speech are emitted by BotTurnStateObserver
+                # so they still fire when this observer is disabled.
 
             observers.append(latency_obs)
         except Exception:
@@ -1205,6 +1428,7 @@ async def run_bot(transport, runner_args) -> None:
                 # (the simulated caller) — the voicemail says who is calling.
                 persona=bundle.get("persona") if isinstance(bundle.get("persona"), dict) else None,
                 tuning=tuning,
+                bot_turn_state=bot_turn_state,
             )
         except Exception:
             logger.exception("AMD handlers failed")
@@ -1339,8 +1563,12 @@ async def run_bot(transport, runner_args) -> None:
             # re-trigger a switch that had already happened.
             lang = normalize_language(requested)
             try:
+                # The *bound* recogniser's Settings class, not Azure's. Once STT
+                # can be bound to Deepgram or Speechmatics, hardcoding Azure here
+                # would hand a foreign settings object to the running service and
+                # turn a language switch into a mid-call failure.
                 await worker.queue_frame(
-                    STTUpdateSettingsFrame(delta=AzureSTTService.Settings(language=lang))
+                    STTUpdateSettingsFrame(delta=type(stt).Settings(language=lang))
                 )
                 sink.set_stt_language(lang)
                 logger.info(
@@ -1423,7 +1651,9 @@ async def run_bot(transport, runner_args) -> None:
             worker,
             delta,
             llm_settings_cls=KeepAliveAzureLLMService.Settings,
-            tts_settings_cls=KeepAliveAzureTTSService.Settings,
+            # The bound synthesiser's own class — a live tuning delta must reach
+            # whichever provider is actually speaking, not Azure by assumption.
+            tts_settings_cls=type(tts).Settings,
         )
         if applied:
             # Keep session snapshot in sync for logging / next-call restart path.
@@ -1527,14 +1757,84 @@ async def run_bot(transport, runner_args) -> None:
     async def on_client_connected(transport, client):
         nonlocal idle_strikes, duration_task, deadair_task
         idle_strikes = 0
-        logger.info("Client connected · session={}", session.session_id)
+        started_at = getattr(runner_args, "setup_started_at", None)
+        if started_at is None:
+            logger.info("Client connected · session={}", session.session_id)
+        else:
+            setup_secs = time.monotonic() - started_at
+            # The caller has been holding an open line for this long with
+            # nothing on it. Twilio gives up well before the worst case we have
+            # measured (16.5s), so this is a warning, not a statistic.
+            log = logger.warning if setup_secs > _SLOW_SETUP_WARN_SECS else logger.info
+            log(
+                "Client connected · session={} · caller waited {:.1f}s for the "
+                "pipeline{}",
+                session.session_id,
+                setup_secs,
+                " — long enough that a carrier may already have hung up"
+                if setup_secs > _SLOW_SETUP_WARN_SECS
+                else "",
+            )
+            # The single number that decides whether a carrier waits. Traced
+            # with the ids so it joins the dial and the socket into one story.
+            from voice.call_trace import event as _trace
+
+            _trace(
+                "pipeline.ready",
+                session=session.session_id,
+                waited_s=round(setup_secs, 2),
+                objective=session.extra.get("objective") or "inbound",
+                attempt=session.extra.get("attempt_id"),
+                over_budget=setup_secs > _SLOW_SETUP_WARN_SECS,
+            )
         # Starts the silence clock. Until this, a call that never makes a sound
         # has no origin to measure from and the dead-air watchdog cannot see it
         # — which is exactly how VS-18FE21E37A stayed mute for 77 seconds.
         bot_turn_state.mark_call_started()
-        _spawn_bg(prewarm_llm_connection(force=True))
         duration_task = asyncio.create_task(_max_duration_watchdog())
         deadair_task = asyncio.create_task(_deadair_watchdog())
+
+        async def _loop_trip_watchdog() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(1.0)
+                    if ending or session.extra.get("ending"):
+                        return
+                    if bot_turn_state.callee_spoke():
+                        session.extra["amd_callee_speech"] = True
+                        return
+                    if bot_turn_state.llm_response_starts <= _LOOP_LLM_BUDGET:
+                        continue
+                    if session.extra.get("loop_tripped"):
+                        return
+                    session.extra["loop_tripped"] = True
+                    session.extra["amd_closed"] = True
+                    guard = getattr(voicemail_detector, "_habibi_guard", None)
+                    if guard is not None:
+                        guard.closed = True
+                    from voice.call_trace import event as _trace
+                    from voice.call_trace import session_fields
+
+                    _trace(
+                        "loop.trip",
+                        **session_fields(session),
+                        llm_starts=bot_turn_state.llm_response_starts,
+                        reason="llm_turns_before_callee_speech",
+                    )
+                    logger.warning(
+                        "loop.trip · session={} · {} LLM starts before callee speech",
+                        session.session_id,
+                        bot_turn_state.llm_response_starts,
+                    )
+                    return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("loop-trip watchdog failed")
+
+        from voice.tools import spawn_session_task
+
+        spawn_session_task(session.session_id, _loop_trip_watchdog())
 
         # The carrier's own id for this call, and which way it was placed.
         # ``voice_sessions.provider_call_id`` and its unique index have existed
@@ -1557,54 +1857,174 @@ async def run_bot(transport, runner_args) -> None:
         ).strip().lower()
         direction = "outbound" if call_type == "outbound" else "inbound"
 
-        try:
-            row = await asyncio.to_thread(
-                bind_session_start,
-                session,
-                deployment_id=bundle.get("deploymentId"),
-                transport=transport_name,
-                provider_call_id=provider_call_id,
-                direction=direction,
-                bot_id=bot_id,
-            )
-            await sink.start()
-            logger.info(
-                "CRM session live · interaction={} · customer={}",
-                row["interactionId"],
-                row["customerId"],
-            )
-            # Deep-link keys for Sandbox → Customer 360. voiceSessionId equals
-            # sessionId after unification; both written so clients can rely on
-            # either field without guessing.
-            if _store is not None and sandbox_session and sandbox_session.get("sessionId"):
+        # We chose this borrower, this number and this moment — and until now
+        # the call opened as UNKNOWN-CALLER anyway, because `customer_id` was a
+        # parameter `bind_session_start` accepted and nobody supplied. The
+        # consequence was not cosmetic: the agent re-verified identity from
+        # zero on a line it had dialled itself, and the interaction could not be
+        # joined to the decision that caused it.
+        mission_customer: str | None = None
+        attempt_id: str | None = session.extra.get("attempt_id")
+        from voice import persist as _persist
 
-                def _bind_ids(cur: dict[str, Any]) -> dict[str, Any]:
-                    return {
-                        **cur,
-                        "voiceSessionId": session.session_id,
-                        "interactionId": row["interactionId"],
-                        # A stop that landed first is terminal — re-marking the
-                        # session live would resurrect a closed run.
-                        "status": "live" if cur.get("status") != "stopped" else "stopped",
-                        "updatedAt": time.time(),
-                    }
-
-                try:
-                    # to_thread like bind_session_start above: the store is a
-                    # Postgres round-trip now, and this runs on the connect path
-                    # where blocking the loop delays the greeting.
-                    await asyncio.to_thread(
-                        _store.mutate, str(sandbox_session["sessionId"]), _bind_ids
-                    )
-                except Exception:
-                    logger.exception("sandbox session CRM id patch failed (non-fatal)")
-        except Exception:
-            logger.exception("Failed to start CRM persistence — call continues without DB")
-
-        await emitter.session_bound(
-            interaction_id=session.interaction_id,
-            customer_id=session.customer_id,
+        raw_customer = _persist.customer_id_for_bind(
+            direction=direction,
+            twilio_params=twilio_params if isinstance(twilio_params, dict) else None,
+            pstn_customer=(
+                session.extra.get("pstn_customer")
+                if isinstance(session.extra.get("pstn_customer"), dict)
+                else None
+            ),
         )
+        if raw_customer:
+            mission_customer = await asyncio.to_thread(
+                _persist.resolve_known_customer,
+                raw_customer,
+            )
+            if mission_customer:
+                logger.info(
+                    "{} customer bound · customer={} · objective={} · attempt={}",
+                    "Outbound mission" if direction == "outbound" else "Inbound ANI",
+                    mission_customer,
+                    session.extra.get("objective") or "?",
+                    attempt_id or "?",
+                )
+
+        # What this bind resolved, kept where teardown can reach it. If the bind
+        # below fails, CrmSink files the minimal row itself and has no other way
+        # to learn which bot answered or which way the call went — and a
+        # degraded row filed against the default bot as "inbound" is a second
+        # wrong record rather than a thin true one.
+        session.extra["bot_id"] = bot_id
+        session.extra["call_direction"] = direction
+
+        # The CRM bind runs *beside* the greeting, not in front of it.
+        #
+        # `bind_session_start` writes the interaction row, and `sink.start()`,
+        # the attempt→interaction bind and the sandbox id patch are three more
+        # round-trips behind it. Pipecat awaits this handler before the
+        # FlowManager initialises, so every one of those writes sat between the
+        # borrower answering and the bot's first word. Measured on a loaded
+        # host: 5.92s of silence on an answered call, with the greeting ready
+        # and waiting the whole time.
+        #
+        # None of it is needed to speak. The row is bookkeeping; the greeting is
+        # the product. So it runs as a task, and the things that genuinely need
+        # an interaction id — `session_bound`, and teardown — await the task
+        # rather than the caller awaiting the database.
+        async def _bind_crm_session() -> None:
+            try:
+                row = await asyncio.to_thread(
+                    bind_session_start,
+                    session,
+                    deployment_id=bundle.get("deploymentId"),
+                    transport=transport_name,
+                    provider_call_id=provider_call_id,
+                    customer_id=mission_customer,
+                    direction=direction,
+                    bot_id=bot_id,
+                )
+                await sink.start()
+                logger.info(
+                    "CRM session live · interaction={} · customer={}",
+                    row["interactionId"],
+                    row["customerId"],
+                )
+                # The mission's time budget. Started here rather than at pipeline
+                # build because the clock should run from the moment the borrower
+                # answered, not from the moment we started dialling — ring time is
+                # not their conversation.
+                _budget = budget.budget_for(session)
+                if _budget > 0:
+                    from voice.tools import spawn_session_task
+
+                    async def _nudge(textmsg: str) -> None:
+                        await _inject_developer([{"role": "developer", "content": textmsg}])
+
+                    async def _hard_stop() -> None:
+                        tools_map = (_flow_holder.get("tools") or {})
+                        ender = tools_map.get("end_call")
+                        if ender is not None:
+                            await ender(None)
+
+                    spawn_session_task(
+                        session.session_id,
+                        budget.watch(session, nudge=_nudge, end_call=_hard_stop),
+                    )
+                    logger.info("mission budget armed · {}s", _budget)
+
+                # Media connected: join the attempt to the conversation it produced.
+                # Without this the dial and the call sit in two tables with nothing
+                # between them, which is exactly the state the product was in.
+                if direction == "outbound" and (attempt_id or provider_call_id):
+
+                    def _bind_attempt() -> None:
+                        import db as _db
+                        import outbound as _outbound
+
+                        with _db.engine.begin() as conn:
+                            _outbound.bind_interaction(
+                                conn,
+                                attempt_id=attempt_id,
+                                provider_call_id=provider_call_id,
+                                interaction_id=row["interactionId"],
+                            )
+
+                    try:
+                        await asyncio.to_thread(_bind_attempt)
+                    except Exception:
+                        logger.exception("attempt→interaction bind failed (non-fatal)")
+                # Deep-link keys for Sandbox → Customer 360. voiceSessionId equals
+                # sessionId after unification; both written so clients can rely on
+                # either field without guessing.
+                if _store is not None and sandbox_session and sandbox_session.get("sessionId"):
+
+                    def _bind_ids(cur: dict[str, Any]) -> dict[str, Any]:
+                        return {
+                            **cur,
+                            "voiceSessionId": session.session_id,
+                            "interactionId": row["interactionId"],
+                            # A stop that landed first is terminal — re-marking the
+                            # session live would resurrect a closed run.
+                            "status": "live" if cur.get("status") != "stopped" else "stopped",
+                            "updatedAt": time.time(),
+                        }
+
+                    try:
+                        # to_thread like bind_session_start above: the store is a
+                        # Postgres round-trip now, and this runs on the connect path
+                        # where blocking the loop delays the greeting.
+                        await asyncio.to_thread(
+                            _store.mutate, str(sandbox_session["sessionId"]), _bind_ids
+                        )
+                    except Exception:
+                        logger.exception("sandbox session CRM id patch failed (non-fatal)")
+            except Exception as bind_exc:
+                # "The call continues without DB" was the bug, not the mitigation:
+                # session.interaction_id stayed None, every CRM job for the rest of
+                # the call was dropped by the interaction_id guards, and a
+                # collections call completed with no record that it ever happened.
+                #
+                # Degrade, do not abort — hanging up on a borrower mid-disclosure to
+                # protect a database is not a trade this call gets to make. The flag
+                # is read at teardown, where CrmSink.stop files a minimal
+                # interaction row (start, end, disposition=crm_degraded) so the call
+                # is at least auditable.
+                mark_crm_degraded(session, bind_exc)
+
+            # Emitted from in here, after the ids are real. Firing it on the
+            # connect path would have published interaction_id=None and given
+            # the studio a deep link to nothing.
+            await emitter.session_bound(
+                interaction_id=session.interaction_id,
+                customer_id=session.customer_id,
+            )
+
+        crm_bind_task = asyncio.create_task(_bind_crm_session())
+        # Teardown waits on this; see `_finalize_call`. Held on the session so
+        # the completion record cannot be filed before the row it belongs to.
+        session.extra['_crm_bind_task'] = crm_bind_task
+
         await emitter.lifecycle(phase="connected", reason=session.session_id)
 
         # A Live call that silently ran the production bundle looked identical
@@ -1685,76 +2105,128 @@ async def run_bot(transport, runner_args) -> None:
         logger.info(
             "Finalizing call · session={} · reason={}", session.session_id, reason
         )
-        # Every step is guarded, including the first two. The RTVI transport is
-        # usually already gone by the time this runs, so an unguarded lifecycle
-        # emit raised straight out of the handler and skipped worker.cancel() /
-        # release_worker() below — leaking a worker and a shared-runner registry
-        # entry on every disconnected call.
+        # Bookkeeping is bounded; teardown is not optional.
+        #
+        # Every step below is guarded against *raising*. None was guarded
+        # against *hanging*, and `worker.cancel()` sat at the end behind a CRM
+        # write and two background-task drains. One drain that never returned
+        # meant the worker was never cancelled: the session kept its STT, LLM
+        # and TTS attachments and its admission slot for the life of the
+        # process. A single leaked session pushed later call setup from 0.4s to
+        # 16.5s -- past the point where Twilio waits -- so every subsequent
+        # call connected and then heard silence.
+        #
+        # So: the records are best-effort and time-boxed, the teardown always
+        # runs. Losing a summary is a bad call; leaking a worker is a bad hour.
+        async def _bookkeeping() -> None:
+            # The CRM bind now runs beside the greeting rather than in front of
+            # it, so on a short call teardown can arrive first. Wait for it here
+            # — bounded, like everything else in this function — or the
+            # completion record is filed against an interaction id that does not
+            # exist yet and `crm_sink` drops it as "interaction_id unset".
+            task = session.extra.get("_crm_bind_task")
+            if task is not None and not task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=8.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "crm bind still running at teardown · session={}", session.session_id
+                    )
+                except Exception:
+                    logger.exception("crm bind failed before teardown")
+
+            # Every step is guarded, including the first two. The RTVI transport is
+            # usually already gone by the time this runs, so an unguarded lifecycle
+            # emit raised straight out of the handler and skipped worker.cancel() /
+            # release_worker() below — leaking a worker and a shared-runner registry
+            # entry on every disconnected call.
+            try:
+                await emitter.lifecycle(phase="ended", reason=reason)
+            except Exception:
+                logger.exception("lifecycle emit on disconnect failed")
+            try:
+                # Unbind this session from every key pool. The binding is sticky for
+                # the life of a call so one turn cannot be voiced by a different
+                # account than the next; without releasing it the map is append-only
+                # — one entry per call, per provider, for the life of the process.
+                from agent_core.providers import pool as _pool
+
+                _pool.release_session(session.session_id)
+            except Exception:
+                logger.debug("provider key release failed", exc_info=True)
+            try:
+                if duration_task is not None and not duration_task.done():
+                    duration_task.cancel()
+                if deadair_task is not None and not deadair_task.done():
+                    deadair_task.cancel()
+            except Exception:
+                logger.exception("duration task cancel failed")
+            try:
+                if getattr(audiobuffer, "is_recording", None) and audiobuffer.is_recording():
+                    await audiobuffer.stop_recording()
+                elif hasattr(audiobuffer, "stop_recording"):
+                    await audiobuffer.stop_recording()
+            except Exception:
+                logger.exception("stop_recording failed")
+            try:
+                # Hit rate is the only evidence that can justify flipping
+                # KB_ENRICH_FALLBACK to spec_only later, so log it per call.
+                logger.info(
+                    "kb speculation · session={} · {}", session.session_id, kb_cache.stats()
+                )
+            except Exception:
+                logger.debug("kb stats log failed", exc_info=True)
+            try:
+                await sink.stop(final_status="completed")
+            except Exception:
+                logger.exception("CRM sink stop failed")
+            try:
+                from voice.tools import drain_background_tasks, release_session_tasks
+
+                # Scoped to THIS call: an embedded host runs concurrent sessions in
+                # one process, and an unscoped drain cancelled the other call's
+                # in-flight emits.
+                await drain_background_tasks(session.session_id)
+                release_session_tasks(session.session_id)
+            except Exception:
+                logger.exception("rtvi emit drain failed")
+            try:
+                await _drain_tasks(bg_tasks, label="voice bg")
+            except Exception:
+                logger.exception("background task drain failed")
+            try:
+                from voice.mesh import release_session
+
+                release_session(session.session_id)
+            except Exception:
+                logger.exception("mesh session release failed")
+
         try:
-            await emitter.lifecycle(phase="ended", reason=reason)
-        except Exception:
-            logger.exception("lifecycle emit on disconnect failed")
-        try:
-            if duration_task is not None and not duration_task.done():
-                duration_task.cancel()
-            if deadair_task is not None and not deadair_task.done():
-                deadair_task.cancel()
-        except Exception:
-            logger.exception("duration task cancel failed")
-        try:
-            if getattr(audiobuffer, "is_recording", None) and audiobuffer.is_recording():
-                await audiobuffer.stop_recording()
-            elif hasattr(audiobuffer, "stop_recording"):
-                await audiobuffer.stop_recording()
-        except Exception:
-            logger.exception("stop_recording failed")
-        try:
-            # Hit rate is the only evidence that can justify flipping
-            # KB_ENRICH_FALLBACK to spec_only later, so log it per call.
-            logger.info(
-                "kb speculation · session={} · {}", session.session_id, kb_cache.stats()
+            await asyncio.wait_for(_bookkeeping(), timeout=_FINALIZE_BUDGET_SECS)
+        except asyncio.TimeoutError:
+            logger.error(
+                "finalize bookkeeping exceeded {}s -- tearing down anyway "
+                "(session={} reason={})",
+                _FINALIZE_BUDGET_SECS, session.session_id, reason,
             )
         except Exception:
-            logger.debug("kb stats log failed", exc_info=True)
-        try:
-            await sink.stop(final_status="completed")
-        except Exception:
-            logger.exception("CRM sink stop failed")
-        try:
-            from voice.tools import drain_background_tasks, release_session_tasks
-
-            # Scoped to THIS call: an embedded host runs concurrent sessions in
-            # one process, and an unscoped drain cancelled the other call's
-            # in-flight emits.
-            await drain_background_tasks(session.session_id)
-            release_session_tasks(session.session_id)
-        except Exception:
-            logger.exception("rtvi emit drain failed")
-        try:
-            await _drain_tasks(bg_tasks, label="voice bg")
-        except Exception:
-            logger.exception("background task drain failed")
-        try:
-            from voice.mesh import release_session
-
-            release_session(session.session_id)
-        except Exception:
-            logger.exception("mesh session release failed")
-        try:
-            await worker.cancel()
-        except Exception:
-            logger.exception("worker cancel failed")
-        # A shared runner keeps a registry entry per worker for its whole life
-        # and has no public detach, so an embedded host would accumulate one
-        # dead entry per call until the API process is restarted.
-        shared = getattr(runner_args, "shared_runner", None)
-        if shared is not None:
+            logger.exception("finalize bookkeeping failed -- tearing down anyway")
+        finally:
             try:
-                from voice.host import release_worker
-
-                await release_worker(shared, worker)
+                await worker.cancel()
             except Exception:
-                logger.exception("shared runner release failed")
+                logger.exception("worker cancel failed")
+            # A shared runner keeps a registry entry per worker for its whole life
+            # and has no public detach, so an embedded host would accumulate one
+            # dead entry per call until the API process is restarted.
+            shared = getattr(runner_args, "shared_runner", None)
+            if shared is not None:
+                try:
+                    from voice.host import release_worker
+
+                    await release_worker(shared, worker)
+                except Exception:
+                    logger.exception("shared runner release failed")
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
@@ -1806,6 +2278,21 @@ async def bot(runner_args):
         logger.warning("refusing call: {}", exc)
         await admission.refuse(runner_args, label="voice")
         return
+
+    # The socket is already accepted by the time we get here: the caller is
+    # connected and waiting while the pipeline is built. That readiness window
+    # is therefore a hard limit on whether the call works at all — Twilio tears
+    # the media stream down long before a slow build finishes, and the symptom
+    # is a call that connects and then plays silence, with every status callback
+    # still reporting success.
+    #
+    # Stamped here so `on_client_connected` can say how long the caller waited.
+    # It is the one number that distinguishes "the bot is broken" from "the bot
+    # was not ready in time", and nothing was measuring it.
+    try:
+        runner_args.setup_started_at = time.monotonic()
+    except Exception:
+        logger.debug("could not stamp setup start on runner_args", exc_info=True)
 
     try:
         await _bot_session(runner_args)
@@ -1871,9 +2358,141 @@ def _warm_before_serving() -> None:
 
         ms = azure_openai.prewarm(force=True)
         if ms:
-            logger.info("voice runner warm · azure %.0f ms · ready to take calls", ms)
+            logger.info("voice runner warm · azure {:.0f} ms · ready to take calls", ms)
     except Exception:
         logger.warning("startup warm failed — the first call pays it instead", exc_info=True)
+
+    # Silero VAD and Smart Turn v3 are ONNX models rebuilt per session, paid
+    # inside the window the caller is holding an open, silent line.
+    #
+    # They cannot simply be shared between sessions: both carry per-stream
+    # state, so two concurrent calls would analyse each other's audio. What *is*
+    # shareable is everything underneath — the onnxruntime library, its thread
+    # pools, and the model files in the OS page cache. Building one of each here
+    # and discarding it pays for that once, at boot, where it costs the operator
+    # a slower start and the caller nothing.
+    #
+    # Measured on this machine, cold build vs. warm rebuild:
+    #     silero-vad   1374 ms -> 327 ms
+    #     smart-turn    386 ms -> 215 ms
+    # so roughly 1.2s comes off every call's setup. That is not the difference
+    # between a fast call and a slow one; at the margin it is the difference
+    # between a call and a carrier hanging up on a pipeline that was not ready.
+    import time as _time
+
+    # Imports first: they are the largest single cost and the one that made the
+    # first call after every restart fail outright.
+    started = _time.monotonic()
+    warmed = _warm_run_bot_imports()
+    logger.info(
+        "voice runner warm · imports {}/{} modules {:.0f} ms",
+        warmed, len(_RUN_BOT_MODULES), (_time.monotonic() - started) * 1000,
+    )
+
+    for label, build in (
+        ("silero-vad", _warm_silero),
+        ("smart-turn", _warm_smart_turn),
+    ):
+        started = _time.monotonic()
+        try:
+            build()
+            # loguru, not stdlib logging: this module's logger formats with
+            # `{}`. A `%s` here does not raise, it just prints the format string
+            # — which is how the line above shipped reading "azure %.0f ms".
+            logger.info(
+                "voice runner warm · {} {:.0f} ms", label, (_time.monotonic() - started) * 1000
+            )
+        except Exception:
+            logger.warning(
+                "startup warm for {} failed — every call pays it instead", label
+            )
+
+
+#: Every module :func:`run_bot` imports on entry.
+#:
+#: They are function-local there on purpose — importing them at module scope
+#: pulls the whole pipeline runtime into anything that merely touches
+#: ``voice.bot`` — but the cost has to be paid *somewhere*, and the default was
+#: "inside the first caller's window". Measured on this machine that was **32.7
+#: seconds**, against a carrier that stops waiting after a few. The first call
+#: after every restart was therefore guaranteed to fail, and the second to
+#: succeed, which is exactly the shape that gets misdiagnosed as flakiness.
+#:
+#: Loading them here only populates ``sys.modules``; ``run_bot``'s own imports
+#: then hit the cache. It does not change what ``run_bot`` does, only when the
+#: bill arrives. ``test_voice_session_teardown`` reads ``run_bot``'s AST and
+#: fails if this list drifts behind it.
+_RUN_BOT_MODULES: tuple[str, ...] = (
+    "pipecat.audio.vad.silero",
+    "pipecat.extensions.voicemail.voicemail_detector",
+    "pipecat.flows",
+    "pipecat.flows.exceptions",
+    "pipecat.frames.frames",
+    "pipecat.observers.startup_timing_observer",
+    "pipecat.observers.user_bot_latency_observer",
+    "pipecat.pipeline.pipeline",
+    "pipecat.pipeline.worker",
+    "pipecat.processors.aggregators.llm_context",
+    "pipecat.processors.aggregators.llm_response_universal",
+    "pipecat.processors.audio.audio_buffer_processor",
+    "pipecat.processors.frameworks.rtvi",
+    "pipecat.services.azure.stt",
+    "pipecat.utils.context.llm_context_summarization",
+    "pipecat.workers.runner",
+    "agent_core.cards.handoff_policy",
+    "agent_core.context",
+    "agent_core.deployment",
+    "agent_core.providers",
+    "agent_core.skills.runtime",
+    "agent_core.tuning",
+    "db",
+    "mission",
+    "outbound",
+    "voice",
+    "voice.amd",
+    "voice.bot_turn_state",
+    "voice.call_trace",
+    "voice.flows_dynamic",
+    "voice.host",
+    "voice.ivr",
+    "voice.kb_enrich",
+    "voice.mesh",
+    "voice.rtvi_events",
+    "voice.tools",
+    "voice.tts_pool",
+    "voice.tuning_apply",
+    "voice_session_store",
+)
+
+
+def _warm_run_bot_imports() -> int:
+    """Import what the first call would otherwise import while someone waits.
+
+    Best-effort per module: a runner that cannot import one optional dependency
+    must still start and serve, and the call will pay for that one alone.
+    """
+    import importlib
+
+    warmed = 0
+    for name in _RUN_BOT_MODULES:
+        try:
+            importlib.import_module(name)
+            warmed += 1
+        except Exception:
+            logger.warning("startup warm: {} would not import", name)
+    return warmed
+
+
+def _warm_silero() -> None:
+    from pipecat.audio.vad.silero import SileroVADAnalyzer
+
+    SileroVADAnalyzer()
+
+
+def _warm_smart_turn() -> None:
+    from voice.tuning_apply import build_smart_turn_analyzer
+
+    build_smart_turn_analyzer({})
 
 
 if __name__ == "__main__":

@@ -11,7 +11,18 @@
 # Pinned, not floating: an unpinned `>=` means a Pipecat release can change the
 # voice runtime inside an image rebuild with no code change and no review.
 # Bump these deliberately, then re-run backend/scripts/run_voice_evals.py.
-pipecat-ai[azure,webrtc,runner,silero]==1.6.0
+# `deepgram` is here because the provider registry offers Deepgram STT for
+# binding. Without the extra the service class does not import, so binding it
+# fell back to Azure — the studio offering a provider the runtime cannot run.
+# Cartesia, ElevenLabs, Groq and Gladia need no extra: their Pipecat services
+# are plain HTTP/websocket clients with no vendor SDK behind them.
+#
+# `speechmatics` is deliberately NOT here. It pulls transformers + huggingface
+# _hub + tokenizers + safetensors — roughly a gigabyte of ML runtime — for the
+# bilingual ar/en recogniser. Add it when that model is actually being bound;
+# until then /providers/models reports it `runtime: unavailable` with the
+# reason, which is honest and costs nothing.
+pipecat-ai[azure,webrtc,runner,silero,deepgram]==1.6.0
 # Used directly by voice/recording.py for stereo PCM interleave (also a pipecat
 # transitive dep, but declared here so the import doesn't rely on that).
 numpy==2.4.6

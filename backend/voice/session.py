@@ -40,6 +40,17 @@ class VoiceSession:
     transport: str = "smallwebrtc"
     provider_call_id: str | None = None
     identity_verified: bool = False
+    # True when the CRM bind at connect failed and this call is running without
+    # an interaction row. Set once, on the connect path; read at teardown, where
+    # it makes the sink file a minimal row (start, end,
+    # disposition=crm_degraded) instead of letting the call end unrecorded.
+    #
+    # A collections call nobody can produce a record of is the worst outcome
+    # available here — worse than a thin record, and far worse than the
+    # alternative of hanging up on the borrower mid-disclosure, which this flag
+    # exists to avoid. Anything that discards CRM work because
+    # ``interaction_id`` is unset should say so rather than degrade quietly.
+    crm_degraded: bool = False
     outstanding: Decimal = Decimal("0.00")
     call_started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     turn_index: int = 0

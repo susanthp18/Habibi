@@ -29,10 +29,7 @@ export function ToolsTab({ calls }: { calls: LiveToolCall[] }) {
         {calls.length} tool {calls.length === 1 ? "call" : "calls"} this session
       </div>
       {ordered.map((c) => (
-        <div
-          key={c.id}
-          className="rounded-medium border border-border bg-surface-sunken p-150"
-        >
+        <div key={c.id} className="rounded-medium border border-border bg-surface-sunken p-150">
           <div className="flex items-center gap-100">
             <StatusIcon status={c.status} />
             <span className="font-mono text-body-small font-medium text-text">{c.name}</span>
@@ -77,9 +74,9 @@ function StatusIcon({ status }: { status: LiveToolCall["status"] }) {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtlest" />;
   }
   if (status === "error") {
-    return <TriangleAlert className="h-3.5 w-3.5 text-status-danger" />;
+    return <TriangleAlert className="h-3.5 w-3.5 text-text-danger" />;
   }
-  return <CheckCircle2 className="h-3.5 w-3.5 text-status-success" />;
+  return <CheckCircle2 className="h-3.5 w-3.5 text-text-success" />;
 }
 
 function Payload({ label, value }: { label: string; value: unknown }) {

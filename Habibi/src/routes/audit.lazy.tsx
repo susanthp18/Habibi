@@ -28,7 +28,10 @@ function AuditPage() {
   }, [id]);
 
   const rows = useMemo(() => filterCalls(calls, filters), [calls, filters]);
-  const openCall = useMemo(() => rows.find((r) => r.id === openId) ?? calls.find((c) => c.id === openId) ?? null, [calls, openId, rows]);
+  const openCall = useMemo(
+    () => rows.find((r) => r.id === openId) ?? calls.find((c) => c.id === openId) ?? null,
+    [calls, openId, rows],
+  );
 
   const handleExport = () => {
     const count = selected.size || rows.length;
@@ -42,13 +45,14 @@ function AuditPage() {
       <div className="flex h-full min-h-0 flex-col">
         <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
           <div className="flex items-center gap-100">
-            <h1 className="text-[1.25rem] font-semibold text-text">Audit trail</h1>
+            <h1 className="heading-medium font-semibold text-text">Audit trail</h1>
             <Lozenge tone="neutral">
               <Lock className="h-3 w-3" /> Immutable log
             </Lozenge>
           </div>
           <p className="text-body-small text-text-subtle">
-            Every historical interaction — bot and human — searchable with audio, transcript, and compliance evidence.
+            Every historical interaction — bot and human — searchable with audio, transcript, and
+            compliance evidence.
           </p>
         </header>
 

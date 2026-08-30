@@ -28,11 +28,7 @@ import { useAgentStudioCards, useAgentStudioSkills } from "@/api/agent-studio";
 import { useKbSnapshots } from "@/api/kb";
 import { mergeSandboxChunkMeta, type IntentKey, type SandboxTurn } from "@/data/sandbox-seed";
 import { LoadingState } from "@/components/ui/loading-state";
-import {
-  DEFAULT_AGENT_TUNING,
-  tuningFromVoiceConfig,
-  type AgentTuning,
-} from "@/data/agent-tuning";
+import { DEFAULT_AGENT_TUNING, tuningFromVoiceConfig, type AgentTuning } from "@/data/agent-tuning";
 
 export const Route = createLazyFileRoute("/sandbox")({
   component: SandboxPage,
@@ -43,10 +39,22 @@ function makeId() {
 }
 
 function SandboxPage() {
-  const { promptVersionId: searchPromptId, skillSlug: searchSkillSlug, botId: searchBotId } = Route.useSearch();
+  const {
+    promptVersionId: searchPromptId,
+    skillSlug: searchSkillSlug,
+    botId: searchBotId,
+  } = Route.useSearch();
   const cardsQuery = useAgentStudioCards();
   const skillsQuery = useAgentStudioSkills();
   const [botId, setBotId] = useState(searchBotId || "kaia-v2-4");
+  // useState seeds once. Navigating to /sandbox?botId=X from an already-mounted
+  // sandbox — which is what the fleet index's Sandbox button does when the tab
+  // is open — left the previous card selected and silently rehearsed the wrong
+  // agent. Only follows the URL when it names a card, so clearing the param
+  // does not yank a selection made here.
+  useEffect(() => {
+    if (searchBotId) setBotId(searchBotId);
+  }, [searchBotId]);
   const [skillSlug, setSkillSlug] = useState(searchSkillSlug || "");
   const versionsQuery = usePromptVersions(botId);
   const scenariosQuery = useSandboxScenarios();
@@ -62,8 +70,7 @@ function SandboxPage() {
     ];
   }, [snapshotsQuery.data]);
 
-  const publishedPrompt =
-    versions.find((v) => v.status === "published") ?? versions[0] ?? null;
+  const publishedPrompt = versions.find((v) => v.status === "published") ?? versions[0] ?? null;
 
   const [promptVersionId, setPromptVersionId] = useState<string>("");
   const [kbSnapshotId, setKbSnapshotId] = useState("current");
@@ -142,8 +149,7 @@ function SandboxPage() {
           id: makeId(),
           role: "bot",
           text:
-            opening ||
-            `Hello, this is Priya from HDFC Bank. Am I speaking with ${s.persona.name}?`,
+            opening || `Hello, this is Priya from HDFC Bank. Am I speaking with ${s.persona.name}?`,
           ts: Date.now(),
           chunkIds: [],
           latencyMs: 0,
@@ -365,7 +371,6 @@ function SandboxPage() {
       }
     })();
   }, [scenario, scriptIndex, awaiting, halted, handleCustomerText]);
-
 
   const exportTranscript = useCallback(() => {
     if (!scenario || !activePrompt) return;
@@ -602,6 +607,7 @@ function SandboxPage() {
           }}
           liveEnabled={liveEnabled}
           cardId={botId}
+          editBotId={botId}
           cards={(cardsQuery.data ?? []).map((c) => ({ id: c.botId, label: c.name }))}
           onCard={(id) => {
             setBotId(id);

@@ -43,7 +43,9 @@ export function navigateWorkItem(
   // Accept router navigate without fighting TanStack's branded search types.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   navigate: (opts: any) => unknown,
-  item: Pick<WorkItem, "id" | "entityType" | "customerId"> | { id: string; entityType: string; customerId?: string | null },
+  item:
+    | Pick<WorkItem, "id" | "entityType" | "customerId">
+    | { id: string; entityType: string; customerId?: string | null },
 ): void {
   const dest = workItemDestination(item.entityType, item.id, item.customerId);
   void navigate({ to: dest.to, search: dest.search, params: dest.params });
@@ -53,7 +55,8 @@ export function navigateWorkItem(
 export function entityTypeFromSlaLabel(label: string): WorkItemEntityType | null {
   const head = label.split("·")[0]?.trim().toLowerCase() ?? "";
   if (head.startsWith("dispute")) return "dispute";
-  if (head.startsWith("broken ptp") || head.startsWith("promise") || head.startsWith("ptp")) return "promise";
+  if (head.startsWith("broken ptp") || head.startsWith("promise") || head.startsWith("ptp"))
+    return "promise";
   if (head.startsWith("doc")) return "document_request";
   if (head.startsWith("callback")) return "callback";
   if (head.startsWith("follow")) return "followup";

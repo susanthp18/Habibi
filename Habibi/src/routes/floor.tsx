@@ -142,7 +142,9 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
           { interactionId: id, action: "listen_in" },
           { onError: (e) => toast.error(e instanceof Error ? e.message : "Listen failed") },
         );
-        toast.message("Listening logged — transcript is in the inspector. Live audio is not on this plane yet.");
+        toast.message(
+          "Listening logged — transcript is in the inspector. Live audio is not on this plane yet.",
+        );
       }
       return;
     }
@@ -179,8 +181,14 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
       { interactionId: id, action: "barge" },
       {
         onSuccess: (data) => {
-          const joined = Boolean(data && typeof data === "object" && "audioJoined" in data && data.audioJoined);
-          toast.success(joined ? "Taken over — you are on the live call" : "Handoff taken — CRM takeover (no Twilio leg)");
+          const joined = Boolean(
+            data && typeof data === "object" && "audioJoined" in data && data.audioJoined,
+          );
+          toast.success(
+            joined
+              ? "Taken over — you are on the live call"
+              : "Handoff taken — CRM takeover (no Twilio leg)",
+          );
           void navigate({
             to: "/handoff",
             search: { interactionId: id, customerId: call.customerId },
@@ -202,7 +210,8 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
       {!USE_MOCK && (
         <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
-          Live floor · Listen is the transcript. Whisper coaches the next bot turn. Barge takes over a live Twilio call.
+          Live floor · Listen is the transcript. Whisper coaches the next bot turn. Barge takes over
+          a live Twilio call.
         </div>
       )}
       <StatsStrip stats={liveStats} focus={focus} onFocus={setFocus} />

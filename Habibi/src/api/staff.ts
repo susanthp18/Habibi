@@ -20,14 +20,44 @@ export interface Staff {
 
 /** Mirrors the seeded DB roster so mock mode resolves the same names. */
 const MOCK_STAFF: Staff[] = [
-  { id: "arjun-mehta", name: "Arjun Mehta", kind: "human", team: "Card Collections", status: "active" },
+  {
+    id: "arjun-mehta",
+    name: "Arjun Mehta",
+    kind: "human",
+    team: "Card Collections",
+    status: "active",
+  },
   { id: "david-chen", name: "David Chen", kind: "human", team: "Supervisors", status: "active" },
-  { id: "meera-iyer", name: "Meera Iyer", kind: "human", team: "Card Collections", status: "active" },
+  {
+    id: "meera-iyer",
+    name: "Meera Iyer",
+    kind: "human",
+    team: "Card Collections",
+    status: "active",
+  },
   { id: "priya-nair", name: "Priya Nair", kind: "human", team: "Supervisors", status: "active" },
-  { id: "rahul-verma", name: "Rahul Verma", kind: "human", team: "Card Collections", status: "active" },
-  { id: "rohan-verma", name: "Rohan Verma", kind: "human", team: "Card Collections", status: "active" },
+  {
+    id: "rahul-verma",
+    name: "Rahul Verma",
+    kind: "human",
+    team: "Card Collections",
+    status: "active",
+  },
+  {
+    id: "rohan-verma",
+    name: "Rohan Verma",
+    kind: "human",
+    team: "Card Collections",
+    status: "active",
+  },
   { id: "sara-khan", name: "Sara Khan", kind: "human", team: "Card Collections", status: "active" },
-  { id: "collectionsbot-v2-4", name: "CollectionsBot v2.4", kind: "bot", team: null, status: "active" },
+  {
+    id: "collectionsbot-v2-4",
+    name: "CollectionsBot v2.4",
+    kind: "bot",
+    team: null,
+    status: "active",
+  },
   { id: "kaia-v2-4", name: "BigBound v2.4", kind: "bot", team: null, status: "active" },
   { id: "webchatbot", name: "WebChatBot", kind: "bot", team: null, status: "active" },
 ];

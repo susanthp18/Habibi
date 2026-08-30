@@ -41,7 +41,9 @@ export function QuickActionsRail({
 }) {
   const { contact, account, consent } = customer;
   const openPtp = customer.promises.filter((p) => p.status === "upcoming");
-  const openDisputes = customer.disputes.filter((d) => d.status !== "resolved" && d.status !== "rejected");
+  const openDisputes = customer.disputes.filter(
+    (d) => d.status !== "resolved" && d.status !== "rejected",
+  );
 
   const runAction = (action: NbaActionKind) => {
     if (handlers.onNbaAction) {
@@ -58,17 +60,50 @@ export function QuickActionsRail({
   const ranked = nba.length
     ? nba
     : ([
-        { id: "qa-ptp", rank: 1, title: "Create PTP", reason: "", action: "ptp" as const, priority: "medium" as const },
-        { id: "qa-call", rank: 2, title: "Log call", reason: "", action: "call" as const, priority: "medium" as const },
-        { id: "qa-dispute", rank: 3, title: "Raise dispute", reason: "", action: "dispute" as const, priority: "low" as const },
-        { id: "qa-stmt", rank: 4, title: "Send statement", reason: "", action: "statement" as const, priority: "low" as const },
+        {
+          id: "qa-ptp",
+          rank: 1,
+          title: "Create PTP",
+          reason: "",
+          action: "ptp" as const,
+          priority: "medium" as const,
+        },
+        {
+          id: "qa-call",
+          rank: 2,
+          title: "Log call",
+          reason: "",
+          action: "call" as const,
+          priority: "medium" as const,
+        },
+        {
+          id: "qa-dispute",
+          rank: 3,
+          title: "Raise dispute",
+          reason: "",
+          action: "dispute" as const,
+          priority: "low" as const,
+        },
+        {
+          id: "qa-stmt",
+          rank: 4,
+          title: "Send statement",
+          reason: "",
+          action: "statement" as const,
+          priority: "low" as const,
+        },
       ] satisfies NbaItem[]);
 
   return (
-    <aside className={cn("flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-surface", className)}>
+    <aside
+      className={cn(
+        "flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-surface",
+        className,
+      )}
+    >
       <div className="flex items-center gap-100 border-b border-border px-200 py-150">
         <PanelRight className="h-3.5 w-3.5 text-text-brand" />
-        <h2 className="text-[0.875rem] font-semibold text-text">Context</h2>
+        <h2 className="text-body font-semibold text-text">Context</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -105,21 +140,36 @@ export function QuickActionsRail({
           <Section title="Open items">
             <div className="space-y-100">
               {openPtp.slice(0, 2).map((p) => (
-                <div key={p.id} className="rounded-medium border border-border bg-surface-sunken px-150 py-100">
+                <div
+                  key={p.id}
+                  className="rounded-medium border border-border bg-surface-sunken px-150 py-100"
+                >
                   <div className="flex items-center justify-between gap-100">
-                    <span className="text-body-small font-semibold tabular text-text">{fmtMoney(p.amount)}</span>
+                    <span className="text-body-small font-semibold tabular text-text">
+                      {fmtMoney(p.amount)}
+                    </span>
                     <StatusChip label={p.status} tone={ptpStatusTone(p.status)} />
                   </div>
-                  <div className="mt-025 text-body-small text-text-subtlest">Due {fmtDate(p.promisedDate)}</div>
+                  <div className="mt-025 text-body-small text-text-subtlest">
+                    Due {fmtDate(p.promisedDate)}
+                  </div>
                 </div>
               ))}
               {openDisputes.slice(0, 2).map((d) => (
-                <div key={d.id} className="rounded-medium border border-border bg-surface-sunken px-150 py-100">
+                <div
+                  key={d.id}
+                  className="rounded-medium border border-border bg-surface-sunken px-150 py-100"
+                >
                   <div className="flex items-center justify-between gap-100">
                     <span className="truncate text-body-small font-medium text-text">{d.id}</span>
-                    <StatusChip label={d.status.replace(/_/g, " ")} tone={disputeStatusTone(d.status)} />
+                    <StatusChip
+                      label={d.status.replace(/_/g, " ")}
+                      tone={disputeStatusTone(d.status)}
+                    />
                   </div>
-                  <div className="mt-025 text-body-small text-text-subtlest tabular">{fmtMoney(d.amount)}</div>
+                  <div className="mt-025 text-body-small text-text-subtlest tabular">
+                    {fmtMoney(d.amount)}
+                  </div>
                 </div>
               ))}
             </div>
@@ -128,10 +178,18 @@ export function QuickActionsRail({
 
         <Section title="Contact snapshot">
           <ul className="space-y-100 text-xs">
-            <Row icon={PhoneCall} value={contact.phonePrimary} sub={contact.phoneAlt ? `Alt · ${contact.phoneAlt}` : undefined} />
+            <Row
+              icon={PhoneCall}
+              value={contact.phonePrimary}
+              sub={contact.phoneAlt ? `Alt · ${contact.phoneAlt}` : undefined}
+            />
             <Row icon={Mail} value={contact.email} />
             <Row icon={MapPin} value={contact.address} />
-            <Row icon={CalendarClock} value={contact.preferredWindow} sub={`${contact.timezone} · ${contact.language}`} />
+            <Row
+              icon={CalendarClock}
+              value={contact.preferredWindow}
+              sub={`${contact.timezone} · ${contact.language}`}
+            />
           </ul>
         </Section>
 
@@ -145,7 +203,9 @@ export function QuickActionsRail({
             <Fact
               k="DPD"
               v={`${account.dpd ?? 0} days`}
-              tone={(account.dpd ?? 0) > 60 ? "danger" : (account.dpd ?? 0) > 30 ? "warning" : "default"}
+              tone={
+                (account.dpd ?? 0) > 60 ? "danger" : (account.dpd ?? 0) > 30 ? "warning" : "default"
+              }
             />
             <Fact k="Risk score" v={account.riskScore != null ? String(account.riskScore) : "—"} />
             <Fact k="Assigned" v={customer.assignedTo} />
@@ -160,7 +220,13 @@ export function QuickActionsRail({
                 className="flex items-center justify-between rounded-medium border border-border bg-surface-sunken px-150 py-075"
               >
                 <span className="capitalize text-text">{c.channel}</span>
-                <span className={c.optedIn ? "inline-flex items-center gap-050 text-text-success" : "inline-flex items-center gap-050 text-text-danger"}>
+                <span
+                  className={
+                    c.optedIn
+                      ? "inline-flex items-center gap-050 text-text-success"
+                      : "inline-flex items-center gap-050 text-text-danger"
+                  }
+                >
                   {c.optedIn ? <Check className="h-3 w-3" /> : <Ban className="h-3 w-3" />}
                   {c.optedIn ? "In" : "Out"}
                 </span>
@@ -192,7 +258,15 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Row({ icon: Icon, value, sub }: { icon: ComponentType<{ className?: string }>; value: string; sub?: string }) {
+function Row({
+  icon: Icon,
+  value,
+  sub,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  value: string;
+  sub?: string;
+}) {
   return (
     <li className="flex items-start gap-100">
       <Icon className="mt-025 h-3.5 w-3.5 shrink-0 text-text-subtle" />
@@ -205,7 +279,8 @@ function Row({ icon: Icon, value, sub }: { icon: ComponentType<{ className?: str
 }
 
 function Fact({ k, v, tone }: { k: string; v: string; tone?: "default" | "warning" | "danger" }) {
-  const toneClass = tone === "danger" ? "text-text-danger" : tone === "warning" ? "text-text-warning" : "text-text";
+  const toneClass =
+    tone === "danger" ? "text-text-danger" : tone === "warning" ? "text-text-warning" : "text-text";
   return (
     <>
       <dt className="text-text-subtle">{k}</dt>

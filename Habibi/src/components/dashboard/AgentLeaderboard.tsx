@@ -15,7 +15,13 @@ function medalTone(rank: number) {
   return "text-text-subtlest";
 }
 
-export function AgentLeaderboard({ rows, onOpen }: { rows: LeaderRow[]; onOpen?: (r: LeaderRow) => void }) {
+export function AgentLeaderboard({
+  rows,
+  onOpen,
+}: {
+  rows: LeaderRow[];
+  onOpen?: (r: LeaderRow) => void;
+}) {
   const columns = useMemo<RecordsColumn<LeaderRow>[]>(
     () => [
       {
@@ -25,7 +31,12 @@ export function AgentLeaderboard({ rows, onOpen }: { rows: LeaderRow[]; onOpen?:
         sortValue: (r) => r.rank,
         className: "min-w-[3.5rem] whitespace-nowrap",
         cell: (r) => (
-          <span className={cn("inline-flex items-center gap-050 text-body-small font-semibold tabular", medalTone(r.rank))}>
+          <span
+            className={cn(
+              "inline-flex items-center gap-050 text-body-small font-semibold tabular",
+              medalTone(r.rank),
+            )}
+          >
             {r.rank <= 3 ? <Medal className="h-3.5 w-3.5" /> : null}
             {r.rank}
           </span>
@@ -63,7 +74,9 @@ export function AgentLeaderboard({ rows, onOpen }: { rows: LeaderRow[]; onOpen?:
         className: "min-w-[4.5rem] whitespace-nowrap",
         cell: (r) => <span className="tabular-nums text-text">{r.calls}</span>,
         footer: (visible) => (
-          <span className="tabular-nums">{visible.reduce((s, r) => s + r.calls, 0).toLocaleString("en-IN")}</span>
+          <span className="tabular-nums">
+            {visible.reduce((s, r) => s + r.calls, 0).toLocaleString("en-IN")}
+          </span>
         ),
       },
       {

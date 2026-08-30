@@ -11,7 +11,12 @@ export type FieldMeta = {
 };
 
 export const FIELDS: FieldMeta[] = [
-  { key: "sentiment", label: "Sentiment", type: "enum", options: ["angry", "frustrated", "neutral", "happy"] },
+  {
+    key: "sentiment",
+    label: "Sentiment",
+    type: "enum",
+    options: ["angry", "frustrated", "neutral", "happy"],
+  },
   {
     key: "intent",
     label: "Intent",
@@ -231,19 +236,83 @@ export const RULES_SEED: Rule[] = [
 ];
 
 export const AUDIT_SEED: AuditEntry[] = [
-  { id: cid(), at: "2026-07-20T09:12:00Z", author: "Priya Menon", ruleId: "r1", ruleName: "Abusive language → immediate supervisor", action: "created", summary: "Rule created" },
-  { id: cid(), at: "2026-07-20T09:35:00Z", author: "Priya Menon", ruleId: "r2", ruleName: "High-value angry customer → Tier 2", action: "created", summary: "Rule created" },
-  { id: cid(), at: "2026-07-20T11:02:00Z", author: "Rahul Verma", ruleId: "r2", ruleName: "High-value angry customer → Tier 2", action: "edited", summary: "overdue_amount > 20000 → > 25000" },
-  { id: cid(), at: "2026-07-20T14:20:00Z", author: "Priya Menon", ruleId: "r7", ruleName: "High DPD → priority Tier 2 queue", action: "toggled", summary: "Disabled" },
-  { id: cid(), at: "2026-07-21T08:11:00Z", author: "Rahul Verma", ruleId: "r5", ruleName: "DND active → SMS follow-up only", action: "created", summary: "Rule created" },
-  { id: cid(), at: "2026-07-21T08:44:00Z", author: "Priya Menon", ruleId: "r8", ruleName: "Frustrated caller → slow TTS pace", action: "created", summary: "Rule created" },
-  { id: cid(), at: "2026-07-21T09:15:00Z", author: "Priya Menon", ruleId: "r3", ruleName: "Hardship intent → human handoff", action: "reordered", summary: "priority 5 → 3" },
-  { id: cid(), at: "2026-07-21T10:02:00Z", author: "You", ruleId: "r6", ruleName: "Waiver request → disclosure + specialist", action: "edited", summary: "action → play_disclosure(waiver_policy_v3)" },
+  {
+    id: cid(),
+    at: "2026-07-20T09:12:00Z",
+    author: "Priya Menon",
+    ruleId: "r1",
+    ruleName: "Abusive language → immediate supervisor",
+    action: "created",
+    summary: "Rule created",
+  },
+  {
+    id: cid(),
+    at: "2026-07-20T09:35:00Z",
+    author: "Priya Menon",
+    ruleId: "r2",
+    ruleName: "High-value angry customer → Tier 2",
+    action: "created",
+    summary: "Rule created",
+  },
+  {
+    id: cid(),
+    at: "2026-07-20T11:02:00Z",
+    author: "Rahul Verma",
+    ruleId: "r2",
+    ruleName: "High-value angry customer → Tier 2",
+    action: "edited",
+    summary: "overdue_amount > 20000 → > 25000",
+  },
+  {
+    id: cid(),
+    at: "2026-07-20T14:20:00Z",
+    author: "Priya Menon",
+    ruleId: "r7",
+    ruleName: "High DPD → priority Tier 2 queue",
+    action: "toggled",
+    summary: "Disabled",
+  },
+  {
+    id: cid(),
+    at: "2026-07-21T08:11:00Z",
+    author: "Rahul Verma",
+    ruleId: "r5",
+    ruleName: "DND active → SMS follow-up only",
+    action: "created",
+    summary: "Rule created",
+  },
+  {
+    id: cid(),
+    at: "2026-07-21T08:44:00Z",
+    author: "Priya Menon",
+    ruleId: "r8",
+    ruleName: "Frustrated caller → slow TTS pace",
+    action: "created",
+    summary: "Rule created",
+  },
+  {
+    id: cid(),
+    at: "2026-07-21T09:15:00Z",
+    author: "Priya Menon",
+    ruleId: "r3",
+    ruleName: "Hardship intent → human handoff",
+    action: "reordered",
+    summary: "priority 5 → 3",
+  },
+  {
+    id: cid(),
+    at: "2026-07-21T10:02:00Z",
+    author: "You",
+    ruleId: "r6",
+    ruleName: "Waiver request → disclosure + specialist",
+    action: "edited",
+    summary: "action → play_disclosure(waiver_policy_v3)",
+  },
 ];
 
 // ---------- Evaluation ----------
 
-function coerce(a: unknown, b: Condition["value"]): [any, any] {
+function coerce(a: unknown, b: Condition["value"]): [unknown, unknown] {
   if (typeof a === "number" || typeof b === "number") {
     const nb = typeof b === "string" ? Number(b) : b;
     return [Number(a), nb];
@@ -252,7 +321,7 @@ function coerce(a: unknown, b: Condition["value"]): [any, any] {
 }
 
 function evalCondition(c: Condition, ctx: SimContext): boolean {
-  const raw = (ctx as any)[c.field];
+  const raw = ctx[c.field as keyof SimContext];
   const [av, bv] = coerce(raw, c.value);
   switch (c.op) {
     case "=":
@@ -268,7 +337,12 @@ function evalCondition(c: Condition, ctx: SimContext): boolean {
     case "<=":
       return Number(av) <= Number(bv);
     case "in":
-      return Array.isArray(bv) ? bv.includes(String(av)) : String(bv).split(",").map(s => s.trim()).includes(String(av));
+      return Array.isArray(bv)
+        ? bv.includes(String(av))
+        : String(bv)
+            .split(",")
+            .map((s) => s.trim())
+            .includes(String(av));
     case "contains":
       return String(av).toLowerCase().includes(String(bv).toLowerCase());
   }
@@ -289,15 +363,19 @@ export type RuleEval = {
 };
 
 function labelCondition(c: Condition) {
-  const f = FIELDS.find(f => f.key === c.field);
+  const f = FIELDS.find((f) => f.key === c.field);
   return `${f?.label ?? c.field} ${c.op} ${String(c.value)}`;
 }
 
 export function evaluateRule(rule: Rule, ctx: SimContext): RuleEval {
-  const nodes: NodeEval[] = rule.when.map(n => {
+  const nodes: NodeEval[] = rule.when.map((n) => {
     if ("or" in n) {
-      const conds = n.or.map(c => ({ id: c.id, matched: evalCondition(c, ctx), label: labelCondition(c) }));
-      return { nodeId: n.id, matched: conds.some(c => c.matched), conditions: conds, isOr: true };
+      const conds = n.or.map((c) => ({
+        id: c.id,
+        matched: evalCondition(c, ctx),
+        label: labelCondition(c),
+      }));
+      return { nodeId: n.id, matched: conds.some((c) => c.matched), conditions: conds, isOr: true };
     }
     const matched = evalCondition(n, ctx);
     return {
@@ -307,37 +385,92 @@ export function evaluateRule(rule: Rule, ctx: SimContext): RuleEval {
       isOr: false,
     };
   });
-  const matched = nodes.every(n => n.matched) && nodes.length > 0;
+  const matched = nodes.every((n) => n.matched) && nodes.length > 0;
   const latencyMs = Math.round((0.15 + Math.random() * 0.4) * 100) / 100;
   return { rule, matched, nodes, latencyMs };
 }
 
 export function evaluateRules(rules: Rule[], ctx: SimContext) {
-  const results = rules.filter(r => r.enabled).map(r => evaluateRule(r, ctx));
-  const firing = results.find(r => r.matched);
+  const results = rules.filter((r) => r.enabled).map((r) => evaluateRule(r, ctx));
+  const firing = results.find((r) => r.matched);
   return { results, firing };
 }
 
 export const PRESET_CONTEXTS: { label: string; ctx: SimContext }[] = [
   {
     label: "Angry waiver dispute",
-    ctx: { sentiment: "angry", intent: "waiver_request", overdue_amount: 42000, dpd: 45, verification_status: "verified", consent_dnd: false, channel: "voice", product: "PL", turn_count: 6, guardrail_flag: "waiver-blocked" },
+    ctx: {
+      sentiment: "angry",
+      intent: "waiver_request",
+      overdue_amount: 42000,
+      dpd: 45,
+      verification_status: "verified",
+      consent_dnd: false,
+      channel: "voice",
+      product: "PL",
+      turn_count: 6,
+      guardrail_flag: "waiver-blocked",
+    },
   },
   {
     label: "Hardship — job loss",
-    ctx: { sentiment: "frustrated", intent: "hardship", overdue_amount: 18500, dpd: 33, verification_status: "verified", consent_dnd: false, channel: "voice", product: "HL", turn_count: 5, guardrail_flag: "none" },
+    ctx: {
+      sentiment: "frustrated",
+      intent: "hardship",
+      overdue_amount: 18500,
+      dpd: 33,
+      verification_status: "verified",
+      consent_dnd: false,
+      channel: "voice",
+      product: "HL",
+      turn_count: 5,
+      guardrail_flag: "none",
+    },
   },
   {
     label: "Legal-threat caller",
-    ctx: { sentiment: "angry", intent: "escalation", overdue_amount: 60000, dpd: 92, verification_status: "verified", consent_dnd: false, channel: "voice", product: "PL", turn_count: 3, guardrail_flag: "legal-threat" },
+    ctx: {
+      sentiment: "angry",
+      intent: "escalation",
+      overdue_amount: 60000,
+      dpd: 92,
+      verification_status: "verified",
+      consent_dnd: false,
+      channel: "voice",
+      product: "PL",
+      turn_count: 3,
+      guardrail_flag: "legal-threat",
+    },
   },
   {
     label: "Happy path — balance query",
-    ctx: { sentiment: "neutral", intent: "balance_query", overdue_amount: 5000, dpd: 3, verification_status: "verified", consent_dnd: false, channel: "voice", product: "CC", turn_count: 2, guardrail_flag: "none" },
+    ctx: {
+      sentiment: "neutral",
+      intent: "balance_query",
+      overdue_amount: 5000,
+      dpd: 3,
+      verification_status: "verified",
+      consent_dnd: false,
+      channel: "voice",
+      product: "CC",
+      turn_count: 2,
+      guardrail_flag: "none",
+    },
   },
   {
     label: "DND-active whatsapp lead",
-    ctx: { sentiment: "neutral", intent: "payment_intent", overdue_amount: 12000, dpd: 15, verification_status: "verified", consent_dnd: true, channel: "voice", product: "CC", turn_count: 1, guardrail_flag: "none" },
+    ctx: {
+      sentiment: "neutral",
+      intent: "payment_intent",
+      overdue_amount: 12000,
+      dpd: 15,
+      verification_status: "verified",
+      consent_dnd: true,
+      channel: "voice",
+      product: "CC",
+      turn_count: 1,
+      guardrail_flag: "none",
+    },
   },
 ];
 

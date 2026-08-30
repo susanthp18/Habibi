@@ -328,6 +328,25 @@ export function isIntentKey(value: string): value is IntentKey {
   return (INTENT_KEYS as readonly string[]).includes(value);
 }
 
+/** The one list of grounding sources a bot turn is rendered from.
+ *
+ * The turn card used to build its "N chunks" counter from `chunkIds` and its
+ * "grounded in …" chips from `chunks`, which are two different fields. A turn
+ * that matched only FAQ rows therefore showed three chips above a footer that
+ * read "0 chunks" (rehearsal 2026-08-25). Counter, chips and the expanded id
+ * list all read this, so they cannot disagree.
+ *
+ * `chunkIds` is a fallback, not a second opinion: paths that send ids only
+ * (the mock reply) still get chips, labelled by id via {@link groundedLabel}.
+ */
+export function groundedSources(turn: {
+  chunks?: SandboxChunkHit[] | null;
+  chunkIds?: string[] | null;
+}): SandboxChunkHit[] {
+  if (turn.chunks?.length) return turn.chunks;
+  return (turn.chunkIds ?? []).map((chunkId) => ({ chunkId }));
+}
+
 /** Doc-title chip label for grounded retrieval. */
 export function groundedLabel(chunk: SandboxChunkHit): string {
   const title = (chunk.docTitle || "").trim();

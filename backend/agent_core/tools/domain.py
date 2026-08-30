@@ -133,6 +133,24 @@ def _parse_promise_date(raw: str) -> str | None:
     return s
 
 
+def _promise_date_is_past(date_s: str) -> bool:
+    """Is this promised day already behind us, in the tenant's own timezone?
+
+    The pay link generated for a promise expires at the promised day + 1,
+    23:59 IST. A date in the past therefore mints a link that is already dead —
+    the customer receives a URL the next settle tick breaks, and the CRM
+    records a promise that was unkeepable the moment it was written. Today is
+    still a real promise: the link lives until tomorrow night.
+    """
+    from agent_core import clock
+
+    try:
+        promised = date.fromisoformat(date_s)
+    except ValueError:
+        return False
+    return promised < clock.now_local().date()
+
+
 def _parse_scheduled_at(raw: str) -> str | None:
     """Accept an ISO datetime; return a canonical UTC instant, or None.
 
@@ -703,6 +721,8 @@ def create_promise_to_pay(
     date_s = _parse_promise_date(str(promised_date or ""))
     if not date_s:
         return ToolResult(ok=False, error="invalid_promise_date")
+    if _promise_date_is_past(date_s):
+        return ToolResult(ok=False, error="promise_date_in_past")
 
     ch = channel if channel in {"voice", "whatsapp", "sms", "email", "chat"} else "voice"
     payload: dict[str, Any] = {

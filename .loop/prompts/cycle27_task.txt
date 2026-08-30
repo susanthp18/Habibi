@@ -1,0 +1,49 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 595 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Core-agentic campaign. Inbound (cycles 18-23) and outbound decision
+core (24-26) hardened. This cycle: INBOUND EDGE CASES in the live voice path —
+the areas the sandbox cannot reach: barge-in, dead air, turn taking, DTMF,
+and mid-call provider failures.
+
+TASK: REPORT-ONLY AUDIT of backend/voice/ live-call resilience. For each area
+below state: what handles it today (file:line), whether a test covers it
+(test file), and a severity-ranked gap list:
+
+1. BARGE-IN: caller talks over the bot mid-TTS. Where is interruption detected
+   and how far does it unwind (TTS only? LLM call cancelled? tool call
+   in-flight?). What happens to a tool whose side effect committed (promise
+   created) if its announce was interrupted?
+2. DEAD AIR: caller silent after bot question. Timers? Re-prompt limit?
+   Call-end policy? What stops an infinite silence loop or premature hangup?
+3. MID-CALL PROVIDER FAILURE: Azure STT/TTS/OpenAI socket dies mid-conversation.
+   Retry? Degrade to text? Hangup with disposition? What does the borrower hear?
+4. TWILIO MEDIA STREAM drop / reconnect (voice/ws_proxy.py): state recovery,
+   duplicate event handling on reconnect.
+5. TOOL CALL EDGE CASES during live calls: concurrent tool invocations from one
+   utterance; tool raising; tool returning malformed ToolResult; session task
+   registry overflow (spawn_session_task).
+6. IDENTITY/VERIFICATION edge: verification succeeded then account changes
+   mid-call (e.g. another verify attempt fails); not_account_holder after
+   disclosure.
+
+Rank the top 8 gaps by severity x confidence with concrete fix suggestions, and
+mark each SAFE-AUTO-FIX vs NEEDS-HUMAN. Write the full audit as your final
+report text (structured, no files created). No implementation this cycle.

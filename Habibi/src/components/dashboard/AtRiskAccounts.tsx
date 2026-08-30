@@ -14,7 +14,13 @@ function fmtMoney(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
-export function AtRiskAccounts({ accounts, onOpen }: { accounts: AtRiskAccount[]; onOpen?: (a: AtRiskAccount) => void }) {
+export function AtRiskAccounts({
+  accounts,
+  onOpen,
+}: {
+  accounts: AtRiskAccount[];
+  onOpen?: (a: AtRiskAccount) => void;
+}) {
   return (
     <div className="flex h-full flex-col rounded-large border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-200 py-150">
@@ -32,7 +38,11 @@ export function AtRiskAccounts({ accounts, onOpen }: { accounts: AtRiskAccount[]
               className="flex w-full items-center gap-150 px-200 py-150 text-left transition-colors hover:bg-background-brand-subtlest/40"
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background-brand-subtlest text-xs font-semibold text-text-brand">
-                {a.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                {a.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .slice(0, 2)}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-100">
@@ -50,7 +60,9 @@ export function AtRiskAccounts({ accounts, onOpen }: { accounts: AtRiskAccount[]
                 </div>
               </div>
               <div className="shrink-0 text-right">
-                <div className="text-sm font-semibold text-text tabular">{fmtMoney(a.outstanding)}</div>
+                <div className="text-sm font-semibold text-text tabular">
+                  {fmtMoney(a.outstanding)}
+                </div>
                 <div className="text-body-small text-text-subtlest">Last: {a.lastContact}</div>
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-text-subtlest" />

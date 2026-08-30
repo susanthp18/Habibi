@@ -49,6 +49,32 @@ def now_local() -> datetime:
     return datetime.now(tenant_tz())
 
 
+#: Inclusive start hours for the spoken parts of a day, in the tenant's own
+#: zone, ascending. Indian retail collections greets on these four: morning from
+#: 05:00, afternoon from noon, evening from 17:00, night from 21:00. Anything
+#: before the first entry is night too — a call at 02:00 must not be greeted as
+#: morning, which is the whole reason this is not just ``"day"``.
+_PARTS_OF_DAY = ((5, "morning"), (12, "afternoon"), (17, "evening"), (21, "night"))
+
+
+def part_of_day(at: datetime | None = None) -> str:
+    """The word a person would use for the current time of day, tenant-local.
+
+    Backs the ``{time_of_day}`` prompt variable. That token used to substitute
+    the hardcoded string ``"day"`` from ``default_context`` — nothing anywhere
+    computed it — so a prompt reading "Greet the caller, it is {time_of_day}"
+    said "it is day" at 2 AM and at 6 PM alike. The clock this module already
+    owns is the answer; there was never a second source to reconcile with.
+    """
+    now = at or now_local()
+    hour = now.hour
+    label = "night"
+    for start, name in _PARTS_OF_DAY:
+        if hour >= start:
+            label = name
+    return label
+
+
 def describe_now() -> str:
     """One line for a prompt: what time it is where the customer is.
 

@@ -55,7 +55,9 @@ export function NotesTab({
                 key={n.id}
                 className={cn(
                   "rounded-large border p-150 text-sm",
-                  n.pinned ? "border-border-brand/30 bg-background-brand-subtlest/30" : "border-border bg-surface",
+                  n.pinned
+                    ? "border-border-brand/30 bg-background-brand-subtlest/30"
+                    : "border-border bg-surface",
                 )}
               >
                 <div className="mb-050 flex items-center gap-100 text-xs text-text-subtle">

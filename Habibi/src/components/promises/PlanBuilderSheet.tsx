@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   buildSchedule,
   fmtDate,
@@ -40,7 +52,13 @@ const startDefault = () => {
   return d.toISOString().slice(0, 10);
 };
 
-export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, customers: customersProp }: Props) {
+export function PlanBuilderSheet({
+  open,
+  onOpenChange,
+  onSubmit,
+  owners,
+  customers: customersProp,
+}: Props) {
   const customers = useMemo<CustomerOption[]>(
     () => (customersProp && customersProp.length ? customersProp : listCustomerSlim()),
     [customersProp],
@@ -68,13 +86,22 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
 
   const cust = customers.find((c) => c.id === customerId);
   useEffect(() => {
-    if (cust) setTotal(String(Math.max(15000, Math.round((cust.outstanding || 30000) / 100) * 100)));
+    if (cust)
+      setTotal(String(Math.max(15000, Math.round((cust.outstanding || 30000) / 100) * 100)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
   const totalN = Number(total) || 0;
   const schedule = useMemo(
-    () => (totalN > 0 ? buildSchedule({ total: totalN, installments, startDate: new Date(`${startDate}T10:00:00`).toISOString(), cadence }) : []),
+    () =>
+      totalN > 0
+        ? buildSchedule({
+            total: totalN,
+            installments,
+            startDate: new Date(`${startDate}T10:00:00`).toISOString(),
+            cadence,
+          })
+        : [],
     [totalN, installments, startDate, cadence],
   );
 
@@ -98,35 +125,53 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[37.5rem]">
         <SheetHeader>
           <SheetTitle>Build payment plan</SheetTitle>
-          <SheetDescription>Split the outstanding into installments. First installment auto-becomes a promise.</SheetDescription>
+          <SheetDescription>
+            Split the outstanding into installments. First installment auto-becomes a promise.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="mt-200 space-y-150">
           <Field label="Customer">
             <Select value={customerId} onValueChange={setCustomerId}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent className="max-h-[17.5rem]">
                 {customers.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name} · #{c.accountId.slice(-4)}</SelectItem>
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} · #{c.accountId.slice(-4)}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {cust && (
               <div className="mt-050 text-body-small text-text-subtlest">
-                Outstanding on file: <span className="font-medium text-text">{fmtMoney(cust.outstanding)}</span>
+                Outstanding on file:{" "}
+                <span className="font-medium text-text">{fmtMoney(cust.outstanding)}</span>
               </div>
             )}
           </Field>
 
           <div className="grid grid-cols-2 gap-150">
             <Field label="Plan total (₹)">
-              <Input type="number" value={total} onChange={(e) => setTotal(e.target.value)} className="h-9" />
+              <Input
+                type="number"
+                value={total}
+                onChange={(e) => setTotal(e.target.value)}
+                className="h-9"
+              />
             </Field>
             <Field label="Owner">
               <Select value={owner} onValueChange={setOwner}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  {owners.map((o) => (<SelectItem key={o} value={o}>{o}</SelectItem>))}
+                  {owners.map((o) => (
+                    <SelectItem key={o} value={o}>
+                      {o}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
@@ -144,11 +189,18 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
 
           <div className="grid grid-cols-2 gap-150">
             <Field label="Start date">
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9" />
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="h-9"
+              />
             </Field>
             <Field label="Cadence">
               <Select value={cadence} onValueChange={(v) => setCadence(v as PlanCadence)}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="biweekly">Bi-weekly</SelectItem>
@@ -160,14 +212,19 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
 
           <div className="rounded-large border border-border bg-surface-sunken/60 p-150">
             <div className="mb-100 flex items-center justify-between">
-              <div className="text-body-small font-semibold text-text-subtlest">Preview schedule</div>
+              <div className="text-body-small font-semibold text-text-subtlest">
+                Preview schedule
+              </div>
               <div className="text-body-small text-text-subtlest tabular-nums">
                 {installments} × ≈{fmtMoney(Math.round(totalN / installments))}
               </div>
             </div>
             <ol className="max-h-[15rem] space-y-050 overflow-y-auto">
               {schedule.map((r) => (
-                <li key={r.index} className="flex items-center justify-between rounded bg-surface px-100 py-075 text-body-small">
+                <li
+                  key={r.index}
+                  className="flex items-center justify-between rounded bg-surface px-100 py-075 text-body-small"
+                >
                   <span className="tabular-nums text-text-subtle">#{r.index}</span>
                   <span className="text-text">{fmtDate(r.dueDate)}</span>
                   <span className="tabular-nums font-medium text-text">{fmtMoney(r.amount)}</span>
@@ -178,7 +235,9 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
         </div>
 
         <div className="mt-300 flex justify-end gap-100">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={submit}>Create plan</Button>
         </div>
       </SheetContent>

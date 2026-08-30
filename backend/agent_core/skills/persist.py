@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import text
 
 import db
+from agent_core.skills.lint import assert_pack_lints
 from agent_core.skills.pack import SkillPack, approx_tokens, dumps_skill_md, parse_skill_md
 from agent_core.skills.sign import sign_hash, verify_signature
 
@@ -110,13 +111,27 @@ def list_skills(*, _synced: bool = False) -> list[dict[str, Any]]:
                              SELECT 1 FROM skill_versions svs
                               WHERE svs.skill_id = s.id AND svs.status = 'signed'
                            ) AS has_signed,
+                           -- Archived cards are not attachments.
+                           --
+                           -- The status filter kept only published versions but
+                           -- said nothing about whether the CARD is still in
+                           -- service, so the library's "Attached: ..." line
+                           -- cited retired cards — e2e-audit-card-8216c4,
+                           -- archived on 2026-08-19, listed as a live consumer
+                           -- of a first-party skill. That is the number an
+                           -- operator checks before deleting or re-signing a
+                           -- skill, so an inflated one is the kind that stops
+                           -- work that should have gone ahead.
                            COALESCE((
                              SELECT json_agg(DISTINCT pv.bot_id)
                                FROM skill_attachments sa
                                JOIN skill_versions sv ON sv.id = sa.skill_version_id
                                JOIN prompt_versions pv ON pv.id = sa.prompt_version_id
+                               LEFT JOIN bots b ON b.id = pv.bot_id
+                                                AND b.tenant_id = pv.tenant_id
                               WHERE sv.skill_id = s.id
                                 AND pv.status = 'published'
+                                AND b.archived_at IS NULL
                            ), '[]'::json) AS attached_cards
                       FROM skills s
                      WHERE s.tenant_id = :tenant
@@ -211,6 +226,11 @@ def upsert_skill_from_pack(
     set_latest: bool | None = None,
 ) -> dict[str, Any]:
     origin = origin or pack.origin
+    # Every write into the skill catalog funnels through here — the studio POST,
+    # the editor PATCH, the .md/.zip import, gardener drafts, first-party
+    # seeding. Linting at this choke point is what stops an unknown allowed-tool
+    # becoming a stored version that can only ever fail G9.
+    warnings = assert_pack_lints(pack)
     sid = skill_id or f"skill-{pack.slug}"
     stored_version = _stored_version(pack.version)
     signature = sign_hash(pack.content_hash) if signed else None
@@ -291,7 +311,11 @@ def upsert_skill_from_pack(
                 text("UPDATE skills SET latest_version_id = :vid, signature_status = :sig WHERE id = :id"),
                 {"vid": vid, "sig": sig_status, "id": sid},
             )
-    return get_skill(sid) or {"id": sid, "slug": pack.slug}
+    saved = get_skill(sid) or {"id": sid, "slug": pack.slug}
+    if warnings:
+        logger.warning("skill %s saved with lint warnings: %s", pack.slug, warnings)
+        saved["lintWarnings"] = warnings
+    return saved
 
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -347,6 +371,10 @@ def create_draft_skill(payload: dict[str, Any]) -> dict[str, Any]:
     pack = parse_skill_md(md, slug_hint=slug)
     pack.origin = str(payload.get("origin") or "tenant")
     pack.signed = False
+    # Refuse an unknown or malformed allowed-tools list before the write. The
+    # upsert lints too; running it here keeps the rejection on the payload the
+    # caller sent rather than on a stored version.
+    assert_pack_lints(pack)
     return upsert_skill_from_pack(pack, origin=pack.origin, signed=False)
 
 
@@ -612,7 +640,16 @@ def detach_skill_from_prompt(prompt_version_id: str, skill_id: str) -> None:
 
 
 def packs_for_slugs(slugs: list[str]) -> list[SkillPack]:
-    """Latest signed DB pack per slug. Disk first-party packs fill gaps so G9 cannot disable a mouth."""
+    """Latest signed DB pack per slug. Disk first-party packs fill gaps so G9 cannot disable a mouth.
+
+    "Gaps" means *no signed version exists* — a first-party bot the tenant has
+    never edited. A signed version that exists but will not parse is not a gap,
+    and serving the platform default in its place published platform content
+    under the tenant's slug: the tool grants the tenant signed away came back,
+    with the corrupt row still sitting in the DB unnoticed. Such a slug is
+    dropped, so ``intersect.effective_tools`` denies the skill-gated writes
+    instead of restoring them.
+    """
     if not slugs:
         return []
     from agent_core.skills.pack import pack_for_slug
@@ -630,9 +667,9 @@ def packs_for_slugs(slugs: list[str]) -> list[SkillPack]:
                             signed=True,
                         )
                     )
-                    continue
                 except Exception:
                     logger.exception("signed skill pack %s failed to parse", slug)
+                continue
             try:
                 packs.append(pack_for_slug(slug))
             except KeyError:

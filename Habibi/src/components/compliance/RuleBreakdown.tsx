@@ -19,7 +19,10 @@ export function RuleBreakdown({
       subtitle="Click to filter · open / total"
       action={
         selectedRuleId !== "all" ? (
-          <button className="text-body-small text-text-brand hover:underline" onClick={() => onSelect("all")}>
+          <button
+            className="text-body-small text-text-brand hover:underline"
+            onClick={() => onSelect("all")}
+          >
             Clear
           </button>
         ) : (
@@ -41,7 +44,9 @@ export function RuleBreakdown({
               >
                 <div className="flex items-baseline justify-between gap-100">
                   <div className="min-w-0">
-                    <div className="truncate text-body-small font-medium text-text">{rule.label}</div>
+                    <div className="truncate text-body-small font-medium text-text">
+                      {rule.label}
+                    </div>
                     <div className="font-mono text-body-small text-text-subtlest">{rule.code}</div>
                   </div>
                   <div className="shrink-0 text-body-small text-text-subtle">
@@ -58,7 +63,9 @@ export function RuleBreakdown({
             </li>
           );
         })}
-        {rows.length === 0 && <li className="text-body-small text-text-subtlest">No violations in scope.</li>}
+        {rows.length === 0 && (
+          <li className="text-body-small text-text-subtlest">No violations in scope.</li>
+        )}
       </ul>
     </ChartCard>
   );

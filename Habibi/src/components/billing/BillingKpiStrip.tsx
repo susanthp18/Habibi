@@ -11,7 +11,9 @@ function DeltaChip({ pct }: { pct: number }) {
     <span
       className={cn(
         "inline-flex items-center gap-025 rounded px-075 py-025 text-body-small font-semibold",
-        up ? "bg-background-danger-subtler text-text-danger-bolder" : "bg-background-success-subtler text-text-success-bolder",
+        up
+          ? "bg-background-danger-subtler text-text-danger-bolder"
+          : "bg-background-success-subtler text-text-success-bolder",
       )}
     >
       {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
@@ -38,7 +40,9 @@ function KpiCard({
         {icon}
       </div>
       <div className="mt-050">{children}</div>
-      <div className="mt-auto min-h-[2.25rem] pt-100 text-body-small text-text-subtlest">{footer}</div>
+      <div className="mt-auto min-h-[2.25rem] pt-100 text-body-small text-text-subtlest">
+        {footer}
+      </div>
     </div>
   );
 }
@@ -66,7 +70,8 @@ export function BillingKpiStrip({
   budgetCap: number;
 }) {
   const spendDelta = spendPrev > 0 ? ((spendMtd - spendPrev) / spendPrev) * 100 : 0;
-  const cpcDelta = costPerCallPrev > 0 ? ((costPerCall - costPerCallPrev) / costPerCallPrev) * 100 : 0;
+  const cpcDelta =
+    costPerCallPrev > 0 ? ((costPerCall - costPerCallPrev) / costPerCallPrev) * 100 : 0;
   // Only claim a measured unit cost when calls were actually metered; a window
   // that predates metering has attributedCalls === 0, which is not a real ₹0.
   const measured = attributedCalls > 0;
@@ -76,9 +81,17 @@ export function BillingKpiStrip({
   const spark = daily.map((d) => Object.values(d.values).reduce((a, b) => a + b, 0));
 
   const budgetTone =
-    budgetPct < 70 ? "text-text-success" : budgetPct < 90 ? "text-text-warning" : "text-text-danger";
+    budgetPct < 70
+      ? "text-text-success"
+      : budgetPct < 90
+        ? "text-text-warning"
+        : "text-text-danger";
   const forecastTone =
-    forecastPct < 100 ? "text-text-success" : forecastPct < 115 ? "text-text-warning" : "text-text-danger";
+    forecastPct < 100
+      ? "text-text-success"
+      : forecastPct < 115
+        ? "text-text-warning"
+        : "text-text-danger";
 
   return (
     <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
@@ -88,7 +101,7 @@ export function BillingKpiStrip({
         footer={<span>vs prior {inrCompact(spendPrev)}</span>}
       >
         <div className="flex items-baseline gap-100">
-          <span className="text-[1.5rem] font-semibold text-text">{inrCompact(spendMtd)}</span>
+          <span className="heading-large font-semibold text-text">{inrCompact(spendMtd)}</span>
           <DeltaChip pct={spendDelta} />
         </div>
         <div className="mt-050 overflow-hidden rounded-medium bg-surface-sunken">
@@ -116,7 +129,7 @@ export function BillingKpiStrip({
         }
       >
         <div className="flex items-baseline gap-100">
-          <span className="text-[1.5rem] font-semibold text-text">
+          <span className="heading-large font-semibold text-text">
             ₹{(measured ? attributedCostPerCall : costPerCall).toFixed(2)}
           </span>
           {!measured && <DeltaChip pct={cpcDelta} />}
@@ -133,7 +146,9 @@ export function BillingKpiStrip({
         }
       >
         <div className="flex items-baseline gap-100">
-          <span className={cn("text-[1.5rem] font-semibold", forecastTone)}>{inrCompact(forecast)}</span>
+          <span className={cn("heading-large font-semibold", forecastTone)}>
+            {inrCompact(forecast)}
+          </span>
         </div>
       </KpiCard>
 
@@ -147,7 +162,7 @@ export function BillingKpiStrip({
         }
       >
         <div className="flex items-baseline gap-100">
-          <span className={cn("text-[1.5rem] font-semibold", budgetTone)}>{budgetPct}%</span>
+          <span className={cn("heading-large font-semibold", budgetTone)}>{budgetPct}%</span>
         </div>
         <div className="mt-100 h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
           <div

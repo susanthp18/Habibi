@@ -20,20 +20,30 @@ import {
 } from "@/api/webhooks";
 import { USE_MOCK } from "@/api/config";
 import type { Endpoint, EventKey } from "@/data/webhooks-seed";
+import { useConfirm } from "@/components/ui/use-confirm";
 
 export const Route = createFileRoute("/webhooks")({
   head: () => ({
     meta: [
       { title: "Webhooks & Event Subscriptions — BigBound AI" },
-      { name: "description", content: "Register downstream endpoints, subscribe them to CRM events, and monitor delivery, retries and signing." },
+      {
+        name: "description",
+        content:
+          "Register downstream endpoints, subscribe them to CRM events, and monitor delivery, retries and signing.",
+      },
       { property: "og:title", content: "Webhooks & Event Subscriptions — BigBound AI" },
-      { property: "og:description", content: "How the Pipecat backend and the client's legacy banking systems stay in sync with the bot." },
+      {
+        property: "og:description",
+        content:
+          "How the Pipecat backend and the client's legacy banking systems stay in sync with the bot.",
+      },
     ],
   }),
   component: WebhooksPage,
 });
 
 function WebhooksPage() {
+  const { confirm, confirmDialog } = useConfirm();
   const { data: endpoints = [], isLoading: loadingEp } = useWebhookEndpoints();
   const { data: deliveries = [], isLoading: loadingDlv } = useWebhookDeliveries();
   const mut = useWebhookMutations();
@@ -99,9 +109,7 @@ function WebhooksPage() {
   };
 
   const testFire = async (ep: Endpoint, event?: EventKey) => {
-    const d = await mut.testFire.mutateAsync(
-      event ? { ep, event } : { ep },
-    );
+    const d = await mut.testFire.mutateAsync(event ? { ep, event } : { ep });
     if (d.status === "success") toast.success(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
     else toast.error(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
     return d;
@@ -134,7 +142,10 @@ function WebhooksPage() {
         onSuccess: () => {
           toast.success(`Saved ${merged.name}`);
           setSheetOpen(false);
-          if (andTest) void testFire(merged).catch((e) => toast.error(e instanceof Error ? e.message : "Test failed"));
+          if (andTest)
+            void testFire(merged).catch((e) =>
+              toast.error(e instanceof Error ? e.message : "Test failed"),
+            );
         },
         onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
       });
@@ -154,7 +165,10 @@ function WebhooksPage() {
               : undefined,
           });
           setSheetOpen(false);
-          if (andTest) void testFire(created).catch((e) => toast.error(e instanceof Error ? e.message : "Test failed"));
+          if (andTest)
+            void testFire(created).catch((e) =>
+              toast.error(e instanceof Error ? e.message : "Test failed"),
+            );
         },
         onError: (e) => toast.error(e instanceof Error ? e.message : "Create failed"),
       });
@@ -164,7 +178,12 @@ function WebhooksPage() {
   const retryDelivery = (d: (typeof deliveries)[number]) => {
     mut.retry.mutate(d, {
       onSuccess: (next) => {
-        if (next.status === "success") toast.success(`Retry succeeded · ${next.httpStatus}`);
+        // A live retry re-queues the original payload for the delivery worker,
+        // so there is no status yet. Reporting "Retry failed · 0" for a send
+        // that has not been attempted would be the same lie the simulated
+        // delivery log used to tell, pointing the other way.
+        if (next.status === "pending") toast.success("Retry queued · delivering shortly");
+        else if (next.status === "success") toast.success(`Retry succeeded · ${next.httpStatus}`);
         else toast.error(`Retry failed · ${next.httpStatus}`);
       },
       onError: (e) => toast.error(e instanceof Error ? e.message : "Retry failed"),
@@ -174,10 +193,8 @@ function WebhooksPage() {
   const selectedEndpoints = endpoints.filter((e) => selectedIds.has(e.id));
 
   const bulkPause = (pause: boolean) => {
-    void runSequential(
-      pause ? "Paused" : "Resumed",
-      selectedEndpoints,
-      (ep) => mut.update.mutateAsync({ ...ep, status: pause ? "paused" : "active" }),
+    void runSequential(pause ? "Paused" : "Resumed", selectedEndpoints, (ep) =>
+      mut.update.mutateAsync({ ...ep, status: pause ? "paused" : "active" }),
     );
   };
   // Bulk actions run one at a time and report a summary. forEach fired N
@@ -217,10 +234,19 @@ function WebhooksPage() {
     return failed;
   };
 
+  // Asked in the product's own surface rather than through `window.confirm`,
+  // which paints as browser chrome titled "localhost:8080 says" and blocks the
+  // renderer. `useConfirm` is awaitable, so these three handlers keep the shape
+  // they had — the browser dialog's one-liner ergonomics were the only reason
+  // it was still here.
   const confirmRotate = (count: number) =>
-    window.confirm(
-      `Rotate the signing secret for ${count} endpoint(s)? Each receiver stops verifying deliveries until it is redeployed with the new secret.`,
-    );
+    confirm({
+      title: `Rotate the signing secret for ${count} endpoint${count === 1 ? "" : "s"}?`,
+      description:
+        "Each receiver stops verifying deliveries until it is redeployed with the new secret.",
+      confirmLabel: "Rotate",
+      cancelLabel: "Leave them",
+    });
 
   const rotateSequential = async (ep: Endpoint) => {
     const res = await mut.rotate.mutateAsync(ep);
@@ -228,29 +254,35 @@ function WebhooksPage() {
   };
 
   const bulkRotate = () => {
-    if (!confirmRotate(selectedEndpoints.length)) return;
-    void runSequential("Rotated", selectedEndpoints, rotateSequential);
+    void (async () => {
+      if (!(await confirmRotate(selectedEndpoints.length))) return;
+      await runSequential("Rotated", selectedEndpoints, rotateSequential);
+    })();
   };
 
   const bulkDelete = () => {
-    if (
-      !window.confirm(
-        `Delete ${selectedEndpoints.length} endpoint(s)? This cannot be undone.`,
-      )
-    )
-      return;
-    const ids = selectedEndpoints.map((e) => e.id);
-    void runSequential("Deleted", selectedEndpoints, (ep) => mut.remove.mutateAsync(ep)).then(
-      () => {
-        if (activeId && ids.includes(activeId)) setDrawerOpen(false);
-        setSelectedIds(new Set());
-      },
-    );
+    void (async () => {
+      const count = selectedEndpoints.length;
+      const ok = await confirm({
+        title: `Delete ${count} endpoint${count === 1 ? "" : "s"}?`,
+        description:
+          "This cannot be undone. Deliveries already recorded are kept; nothing further is sent to them.",
+        confirmLabel: "Delete",
+        cancelLabel: "Keep them",
+      });
+      if (!ok) return;
+      const ids = selectedEndpoints.map((e) => e.id);
+      await runSequential("Deleted", selectedEndpoints, (ep) => mut.remove.mutateAsync(ep));
+      if (activeId && ids.includes(activeId)) setDrawerOpen(false);
+      setSelectedIds(new Set());
+    })();
   };
 
   const rotateAll = () => {
-    if (!confirmRotate(endpoints.length)) return;
-    void runSequential("Rotated", endpoints, rotateSequential);
+    void (async () => {
+      if (!(await confirmRotate(endpoints.length))) return;
+      await runSequential("Rotated", endpoints, rotateSequential);
+    })();
   };
 
   if (loadingEp && endpoints.length === 0) {
@@ -268,7 +300,8 @@ function WebhooksPage() {
       <div className="flex h-full min-h-0 flex-col">
         {!USE_MOCK && (
           <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-300 py-075 text-body-small text-text-brand">
-            Live webhooks · test-fire is simulated (no real egress). Secrets returned once on create/rotate.
+            Live webhooks · test-fire is simulated (no real egress). Secrets returned once on
+            create/rotate.
           </div>
         )}
         <WebhooksHeader
@@ -280,9 +313,7 @@ function WebhooksPage() {
 
         {selectedIds.size > 0 && (
           <div className="flex shrink-0 items-center gap-100 border-b border-border bg-background-brand-subtlest/60 px-300 py-100 text-body-small">
-            <span className="font-semibold text-text-brand">
-              {selectedIds.size} selected
-            </span>
+            <span className="font-semibold text-text-brand">{selectedIds.size} selected</span>
             <div className="ml-auto flex gap-100">
               <Button size="sm" variant="outline" onClick={() => bulkPause(true)}>
                 <Pause className="mr-050 h-3.5 w-3.5" /> Pause
@@ -370,6 +401,7 @@ function WebhooksPage() {
       />
 
       <EventCatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} />
+      {confirmDialog}
     </AppShell>
   );
 }

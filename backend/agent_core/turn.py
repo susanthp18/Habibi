@@ -12,7 +12,7 @@ from prompt_render import (
 
 from agent_core.compaction import RAW_LAST_N, bound_history
 from agent_core.prompt import build_system_prompt, default_context
-from agent_core.understanding import analyze_turn
+from agent_core.understanding import TurnUnderstanding, analyze_turn
 
 CHAT_TEMPERATURE = 0.2
 DEFAULT_TOP_K = 3
@@ -38,11 +38,19 @@ def assemble_turn_messages(
     prior_summary: str | None = None,
     skill_catalog: str = "",
     active_skill_message: dict[str, str] | None = None,
+    understanding: TurnUnderstanding | None = None,
 ) -> dict[str, Any]:
     """Build chat messages + intent/sentiment for one customer turn.
 
     Returns keys: messages, rendered_prompt, intent, intent_scores, sentiment,
     sentiment_label, context.
+
+    ``understanding`` lets a caller hand in a *already computed* analysis
+    instead of paying for one here. The enrichment needs the customer text and
+    nothing else — not the KB context, not the reply — so a caller on a latency
+    budget can start it earlier and run it alongside its retrieval, then pass
+    the result in (see ``sandbox_runtime.append_sandbox_turn``). Left unset,
+    the call happens inline exactly as before.
     """
     ctx = default_context(context if isinstance(context, dict) else None)
     # System policy: static tokens only. CRM fields ride a delimited developer card.
@@ -54,7 +62,8 @@ def assemble_turn_messages(
     # the surface where the Inspector's Intent and Sentiment tabs are read, so
     # a Hinglish turn shown as out_of_scope / 0.00 here is the most visible
     # form of the bug this replaces. Degrades to the keyword classifiers.
-    understanding = analyze_turn(customer_text, channel="sandbox_text")
+    if understanding is None:
+        understanding = analyze_turn(customer_text, channel="sandbox_text")
     intent = understanding.intent
     intent_scores = understanding.intent_scores
     sentiment = understanding.sentiment

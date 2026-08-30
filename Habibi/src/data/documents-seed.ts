@@ -1,14 +1,19 @@
 // Document Fulfillment Desk seed data
 // Mutable in-memory store — mirrors the promises/disputes-seed pattern.
 
-import { customers as _customers, fmtMoney as _fmtMoney, fmtDate as _fmtDate } from "./customer360-seed";
+import {
+  customers as _customers,
+  fmtMoney as _fmtMoney,
+  fmtDate as _fmtDate,
+} from "./customer360-seed";
 
 export const fmtMoney = _fmtMoney;
 export const fmtDate = _fmtDate;
 
 export type DocStatus = "requested" | "generating" | "sent" | "failed";
 export type DocChannel = "whatsapp" | "email" | "sms";
-export type RequestedVia = "bot_voice" | "bot_chat" | "agent" | "mcp" | "clerk" | "vision" | "inbox";
+export type RequestedVia =
+  "bot_voice" | "bot_chat" | "agent" | "mcp" | "clerk" | "vision" | "inbox";
 export type DocSource = "crm" | "vision" | "clerk" | "mcp";
 export type DocType =
   | "account_statement"
@@ -83,10 +88,25 @@ export const CHANNEL_LABELS: Record<DocChannel, string> = {
   sms: "SMS link",
 };
 
+/**
+ * Every origin a document request can have. Mirrors the backend's own list —
+ * `schemas.py` `requestedVia` and the `document_requests_requested_via_check`
+ * constraint — which has carried all seven since Phase 4.
+ *
+ * Four were missing here, and this map is not just labels: `FiltersBar` builds
+ * the "Requested via" dropdown from `Object.keys(VIA_LABELS)`. So requests
+ * arriving from MCP, the clerk card, the vision pipeline, and the inbox were
+ * unfilterable — the rows existed and the column rendered, but there was no way
+ * to select them, and no way to tell from the UI that the list was partial.
+ */
 export const VIA_LABELS: Record<RequestedVia, string> = {
   bot_voice: "Bot · Voice",
   bot_chat: "Bot · Chat",
   agent: "Agent",
+  mcp: "MCP agent",
+  clerk: "Clerk",
+  vision: "Vision scan",
+  inbox: "Inbox",
 };
 
 // ---- templates ----
@@ -214,19 +234,61 @@ const CUST_POOL = _customers.map((c) => ({
   email: c.contact.email,
 }));
 
-
 const EXTRA = [
-  { id: "aditya-verma", name: "Aditya Verma", accountId: "AC-99201", phone: "+91 98•••• ••11", email: "aditya.v@mail.co.in" },
-  { id: "meera-joshi", name: "Meera Joshi", accountId: "AC-99202", phone: "+91 98•••• ••22", email: "meera.j@mail.co.in" },
-  { id: "nikhil-bansal", name: "Nikhil Bansal", accountId: "AC-99203", phone: "+91 98•••• ••33", email: "nikhil.b@mail.co.in" },
-  { id: "riya-chawla", name: "Riya Chawla", accountId: "AC-99204", phone: "+91 98•••• ••44", email: "riya.c@mail.co.in" },
-  { id: "sneha-pillai", name: "Sneha Pillai", accountId: "AC-99205", phone: "+91 98•••• ••55", email: "sneha.p@mail.co.in" },
-  { id: "farhan-khan", name: "Farhan Khan", accountId: "AC-99206", phone: "+91 98•••• ••66", email: "farhan.k@mail.co.in" },
+  {
+    id: "aditya-verma",
+    name: "Aditya Verma",
+    accountId: "AC-99201",
+    phone: "+91 98•••• ••11",
+    email: "aditya.v@mail.co.in",
+  },
+  {
+    id: "meera-joshi",
+    name: "Meera Joshi",
+    accountId: "AC-99202",
+    phone: "+91 98•••• ••22",
+    email: "meera.j@mail.co.in",
+  },
+  {
+    id: "nikhil-bansal",
+    name: "Nikhil Bansal",
+    accountId: "AC-99203",
+    phone: "+91 98•••• ••33",
+    email: "nikhil.b@mail.co.in",
+  },
+  {
+    id: "riya-chawla",
+    name: "Riya Chawla",
+    accountId: "AC-99204",
+    phone: "+91 98•••• ••44",
+    email: "riya.c@mail.co.in",
+  },
+  {
+    id: "sneha-pillai",
+    name: "Sneha Pillai",
+    accountId: "AC-99205",
+    phone: "+91 98•••• ••55",
+    email: "sneha.p@mail.co.in",
+  },
+  {
+    id: "farhan-khan",
+    name: "Farhan Khan",
+    accountId: "AC-99206",
+    phone: "+91 98•••• ••66",
+    email: "farhan.k@mail.co.in",
+  },
 ];
 
 const POOL = [...CUST_POOL, ...EXTRA];
 
-const AGENTS = ["Priya Nair", "Rohan Sethi", "Ananya Iyer", "Kabir Rao", "Sana Kapoor", "Unassigned"];
+const AGENTS = [
+  "Priya Nair",
+  "Rohan Sethi",
+  "Ananya Iyer",
+  "Kabir Rao",
+  "Sana Kapoor",
+  "Unassigned",
+];
 
 export const CURRENT_AGENT = "Priya Nair";
 
@@ -244,49 +306,248 @@ interface Blueprint {
 
 const BLUEPRINTS: Blueprint[] = [
   // Fresh requests — bias here
-  { docType: "account_statement", templateId: "T-STMT-6M", period: "May–Oct 2026", via: "bot_voice", channel: "whatsapp", hoursAgo: 1, status: "requested" },
-  { docType: "account_statement", templateId: "T-STMT-6M", period: "May–Oct 2026", via: "bot_chat", channel: "email", hoursAgo: 2, status: "requested" },
-  { docType: "interest_certificate", templateId: "T-INTCERT", period: "FY 2025-26", via: "bot_voice", channel: "email", hoursAgo: 3, status: "requested" },
-  { docType: "foreclosure_letter", templateId: "T-FORECLOSE", via: "agent", channel: "email", hoursAgo: 4, status: "requested" },
-  { docType: "no_dues_certificate", templateId: "T-NODUES", via: "bot_voice", channel: "whatsapp", hoursAgo: 6, status: "requested" },
-  { docType: "loan_schedule", templateId: "T-SCHEDULE", via: "bot_chat", channel: "email", hoursAgo: 12, status: "requested" },
-  { docType: "payment_receipt", templateId: "T-RECEIPT", via: "bot_voice", channel: "whatsapp", hoursAgo: 20, status: "requested" },
-  { docType: "kyc_letter", templateId: "T-KYC", via: "agent", channel: "email", hoursAgo: 28, status: "requested" },
+  {
+    docType: "account_statement",
+    templateId: "T-STMT-6M",
+    period: "May–Oct 2026",
+    via: "bot_voice",
+    channel: "whatsapp",
+    hoursAgo: 1,
+    status: "requested",
+  },
+  {
+    docType: "account_statement",
+    templateId: "T-STMT-6M",
+    period: "May–Oct 2026",
+    via: "bot_chat",
+    channel: "email",
+    hoursAgo: 2,
+    status: "requested",
+  },
+  {
+    docType: "interest_certificate",
+    templateId: "T-INTCERT",
+    period: "FY 2025-26",
+    via: "bot_voice",
+    channel: "email",
+    hoursAgo: 3,
+    status: "requested",
+  },
+  {
+    docType: "foreclosure_letter",
+    templateId: "T-FORECLOSE",
+    via: "agent",
+    channel: "email",
+    hoursAgo: 4,
+    status: "requested",
+  },
+  {
+    docType: "no_dues_certificate",
+    templateId: "T-NODUES",
+    via: "bot_voice",
+    channel: "whatsapp",
+    hoursAgo: 6,
+    status: "requested",
+  },
+  {
+    docType: "loan_schedule",
+    templateId: "T-SCHEDULE",
+    via: "bot_chat",
+    channel: "email",
+    hoursAgo: 12,
+    status: "requested",
+  },
+  {
+    docType: "payment_receipt",
+    templateId: "T-RECEIPT",
+    via: "bot_voice",
+    channel: "whatsapp",
+    hoursAgo: 20,
+    status: "requested",
+  },
+  {
+    docType: "kyc_letter",
+    templateId: "T-KYC",
+    via: "agent",
+    channel: "email",
+    hoursAgo: 28,
+    status: "requested",
+  },
 
   // Generating (in-flight)
-  { docType: "account_statement", templateId: "T-STMT-12M", period: "Nov 2025–Oct 2026", via: "bot_voice", channel: "whatsapp", hoursAgo: 1, status: "generating", assignee: "Priya Nair" },
-  { docType: "interest_certificate", templateId: "T-INTCERT", period: "FY 2025-26", via: "bot_chat", channel: "email", hoursAgo: 2, status: "generating", assignee: "Rohan Sethi" },
-  { docType: "foreclosure_letter", templateId: "T-FORECLOSE", via: "agent", channel: "whatsapp", hoursAgo: 1, status: "generating", assignee: "Ananya Iyer" },
+  {
+    docType: "account_statement",
+    templateId: "T-STMT-12M",
+    period: "Nov 2025–Oct 2026",
+    via: "bot_voice",
+    channel: "whatsapp",
+    hoursAgo: 1,
+    status: "generating",
+    assignee: "Priya Nair",
+  },
+  {
+    docType: "interest_certificate",
+    templateId: "T-INTCERT",
+    period: "FY 2025-26",
+    via: "bot_chat",
+    channel: "email",
+    hoursAgo: 2,
+    status: "generating",
+    assignee: "Rohan Sethi",
+  },
+  {
+    docType: "foreclosure_letter",
+    templateId: "T-FORECLOSE",
+    via: "agent",
+    channel: "whatsapp",
+    hoursAgo: 1,
+    status: "generating",
+    assignee: "Ananya Iyer",
+  },
 
   // Sent today
-  { docType: "account_statement", templateId: "T-STMT-6M", period: "Apr–Sep 2026", via: "bot_voice", channel: "email", hoursAgo: 5, status: "sent", assignee: "Priya Nair" },
-  { docType: "no_dues_certificate", templateId: "T-NODUES", via: "bot_chat", channel: "whatsapp", hoursAgo: 8, status: "sent", assignee: "Sana Kapoor" },
-  { docType: "payment_receipt", templateId: "T-RECEIPT", via: "bot_voice", channel: "whatsapp", hoursAgo: 10, status: "sent", assignee: "Kabir Rao" },
-  { docType: "loan_schedule", templateId: "T-SCHEDULE", via: "agent", channel: "email", hoursAgo: 14, status: "sent", assignee: "Ananya Iyer" },
-  { docType: "interest_certificate", templateId: "T-INTCERT", period: "FY 2024-25", via: "bot_chat", channel: "email", hoursAgo: 20, status: "sent", assignee: "Rohan Sethi" },
+  {
+    docType: "account_statement",
+    templateId: "T-STMT-6M",
+    period: "Apr–Sep 2026",
+    via: "bot_voice",
+    channel: "email",
+    hoursAgo: 5,
+    status: "sent",
+    assignee: "Priya Nair",
+  },
+  {
+    docType: "no_dues_certificate",
+    templateId: "T-NODUES",
+    via: "bot_chat",
+    channel: "whatsapp",
+    hoursAgo: 8,
+    status: "sent",
+    assignee: "Sana Kapoor",
+  },
+  {
+    docType: "payment_receipt",
+    templateId: "T-RECEIPT",
+    via: "bot_voice",
+    channel: "whatsapp",
+    hoursAgo: 10,
+    status: "sent",
+    assignee: "Kabir Rao",
+  },
+  {
+    docType: "loan_schedule",
+    templateId: "T-SCHEDULE",
+    via: "agent",
+    channel: "email",
+    hoursAgo: 14,
+    status: "sent",
+    assignee: "Ananya Iyer",
+  },
+  {
+    docType: "interest_certificate",
+    templateId: "T-INTCERT",
+    period: "FY 2024-25",
+    via: "bot_chat",
+    channel: "email",
+    hoursAgo: 20,
+    status: "sent",
+    assignee: "Rohan Sethi",
+  },
 
   // Sent earlier
-  { docType: "account_statement", templateId: "T-STMT-12M", period: "FY 2024-25", via: "bot_voice", channel: "email", hoursAgo: 40, status: "sent", assignee: "Priya Nair" },
-  { docType: "kyc_letter", templateId: "T-KYC", via: "agent", channel: "email", hoursAgo: 60, status: "sent", assignee: "Kabir Rao" },
+  {
+    docType: "account_statement",
+    templateId: "T-STMT-12M",
+    period: "FY 2024-25",
+    via: "bot_voice",
+    channel: "email",
+    hoursAgo: 40,
+    status: "sent",
+    assignee: "Priya Nair",
+  },
+  {
+    docType: "kyc_letter",
+    templateId: "T-KYC",
+    via: "agent",
+    channel: "email",
+    hoursAgo: 60,
+    status: "sent",
+    assignee: "Kabir Rao",
+  },
 
   // Failed
-  { docType: "account_statement", templateId: "T-STMT-6M", period: "May–Oct 2026", via: "bot_voice", channel: "whatsapp", hoursAgo: 3, status: "failed", failedReason: "WhatsApp opt-in expired — falling back to Email", assignee: "Priya Nair" },
-  { docType: "foreclosure_letter", templateId: "T-FORECLOSE", via: "bot_chat", channel: "email", hoursAgo: 6, status: "failed", failedReason: "Email bounced · mailbox full", assignee: "Sana Kapoor" },
-  { docType: "interest_certificate", templateId: "T-INTCERT", period: "FY 2025-26", via: "agent", channel: "email", hoursAgo: 18, status: "failed", failedReason: "PDF generator timed out", assignee: "Rohan Sethi" },
-  { docType: "payment_receipt", templateId: "T-RECEIPT", via: "bot_voice", channel: "sms", hoursAgo: 22, status: "failed", failedReason: "SMS gateway 5xx", assignee: "Ananya Iyer" },
+  {
+    docType: "account_statement",
+    templateId: "T-STMT-6M",
+    period: "May–Oct 2026",
+    via: "bot_voice",
+    channel: "whatsapp",
+    hoursAgo: 3,
+    status: "failed",
+    failedReason: "WhatsApp opt-in expired — falling back to Email",
+    assignee: "Priya Nair",
+  },
+  {
+    docType: "foreclosure_letter",
+    templateId: "T-FORECLOSE",
+    via: "bot_chat",
+    channel: "email",
+    hoursAgo: 6,
+    status: "failed",
+    failedReason: "Email bounced · mailbox full",
+    assignee: "Sana Kapoor",
+  },
+  {
+    docType: "interest_certificate",
+    templateId: "T-INTCERT",
+    period: "FY 2025-26",
+    via: "agent",
+    channel: "email",
+    hoursAgo: 18,
+    status: "failed",
+    failedReason: "PDF generator timed out",
+    assignee: "Rohan Sethi",
+  },
+  {
+    docType: "payment_receipt",
+    templateId: "T-RECEIPT",
+    via: "bot_voice",
+    channel: "sms",
+    hoursAgo: 22,
+    status: "failed",
+    failedReason: "SMS gateway 5xx",
+    assignee: "Ananya Iyer",
+  },
 ];
 
 function eventsFor(bp: Blueprint, requestedAt: string): DocEvent[] {
-  const evts: DocEvent[] = [{ at: requestedAt, label: `Captured by ${VIA_LABELS[bp.via]}`, tone: "info" }];
+  const evts: DocEvent[] = [
+    { at: requestedAt, label: `Captured by ${VIA_LABELS[bp.via]}`, tone: "info" },
+  ];
   if (bp.status !== "requested") {
-    evts.push({ at: requestedAt, label: `Assigned to ${bp.assignee ?? "queue"}`, actor: "System", tone: "info" });
+    evts.push({
+      at: requestedAt,
+      label: `Assigned to ${bp.assignee ?? "queue"}`,
+      actor: "System",
+      tone: "info",
+    });
     evts.push({ at: requestedAt, label: "Generation started", actor: "System", tone: "info" });
   }
   if (bp.status === "sent") {
-    evts.push({ at: requestedAt, label: `Delivered via ${CHANNEL_LABELS[bp.channel]}`, actor: "System", tone: "success" });
+    evts.push({
+      at: requestedAt,
+      label: `Delivered via ${CHANNEL_LABELS[bp.channel]}`,
+      actor: "System",
+      tone: "success",
+    });
   }
   if (bp.status === "failed") {
-    evts.push({ at: requestedAt, label: bp.failedReason ?? "Delivery failed", actor: "System", tone: "danger" });
+    evts.push({
+      at: requestedAt,
+      label: bp.failedReason ?? "Delivery failed",
+      actor: "System",
+      tone: "danger",
+    });
   }
   return evts;
 }
@@ -295,7 +556,8 @@ const _docs: DocRequest[] = BLUEPRINTS.map((bp, i) => {
   const c = POOL[i % POOL.length];
   const requestedAt = hoursISO(-bp.hoursAgo);
   const target = bp.channel === "email" ? maskEmail(c.email) : c.phone;
-  const assignee = bp.assignee ?? (bp.status === "requested" ? "Unassigned" : AGENTS[i % (AGENTS.length - 1)]);
+  const assignee =
+    bp.assignee ?? (bp.status === "requested" ? "Unassigned" : AGENTS[i % (AGENTS.length - 1)]);
   return {
     id: `DOC-${(7001 + i).toString()}`,
     customerId: c.id,
@@ -364,7 +626,13 @@ export const defaultFilters: Filters = {
 export function filterDocs(list: DocRequest[], f: Filters): DocRequest[] {
   const now = Date.now();
   const cutoff =
-    f.range === "today" ? now - 86400000 : f.range === "7d" ? now - 7 * 86400000 : f.range === "30d" ? now - 30 * 86400000 : 0;
+    f.range === "today"
+      ? now - 86400000
+      : f.range === "7d"
+        ? now - 7 * 86400000
+        : f.range === "30d"
+          ? now - 30 * 86400000
+          : 0;
   return list.filter((d) => {
     if (f.assignee !== "all" && d.assignee !== f.assignee) return false;
     if (f.docTypes.length && !f.docTypes.includes(d.docType)) return false;
@@ -374,7 +642,8 @@ export function filterDocs(list: DocRequest[], f: Filters): DocRequest[] {
     if (cutoff && new Date(d.requestedAt).getTime() < cutoff) return false;
     if (f.search) {
       const q = f.search.toLowerCase();
-      const hay = `${d.customerName} ${d.accountId} ${d.id} ${DOC_TYPE_LABELS[d.docType]} ${d.period ?? ""}`.toLowerCase();
+      const hay =
+        `${d.customerName} ${d.accountId} ${d.id} ${DOC_TYPE_LABELS[d.docType]} ${d.period ?? ""}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -390,13 +659,17 @@ export function computeMetrics(list: DocRequest[]) {
   const dayAgo = Date.now() - 86400000;
   const open = list.filter((d) => d.status === "requested" || d.status === "generating");
   const generating = list.filter((d) => d.status === "generating");
-  const sentToday = list.filter((d) => d.status === "sent" && new Date(d.sentAt ?? d.requestedAt).getTime() >= dayAgo);
+  const sentToday = list.filter(
+    (d) => d.status === "sent" && new Date(d.sentAt ?? d.requestedAt).getTime() >= dayAgo,
+  );
   const failed = list.filter((d) => d.status === "failed");
 
   const sentSpans = list
     .filter((d) => d.status === "sent" && d.sentAt)
     .map((d) => (new Date(d.sentAt!).getTime() - new Date(d.requestedAt).getTime()) / 60000);
-  const avgFulfilMins = sentSpans.length ? Math.round(sentSpans.reduce((a, b) => a + b, 0) / sentSpans.length) : 0;
+  const avgFulfilMins = sentSpans.length
+    ? Math.round(sentSpans.reduce((a, b) => a + b, 0) / sentSpans.length)
+    : 0;
 
   const counts: Record<DocStatus, number> = { requested: 0, generating: 0, sent: 0, failed: 0 };
   list.forEach((d) => (counts[d.status] += 1));
@@ -478,7 +751,12 @@ export function markGenerating(id: string) {
   d.generatedAt = new Date().toISOString();
   d.failedReason = undefined;
   d.attempts += 1;
-  appendEvent(d, { at: d.generatedAt, label: "Generation started", actor: CURRENT_AGENT, tone: "info" });
+  appendEvent(d, {
+    at: d.generatedAt,
+    label: "Generation started",
+    actor: CURRENT_AGENT,
+    tone: "info",
+  });
 }
 
 export function markSent(id: string) {
@@ -501,7 +779,12 @@ export function markFailed(id: string, reason: string) {
   if (!d) return;
   d.status = "failed";
   d.failedReason = reason;
-  appendEvent(d, { at: new Date().toISOString(), label: `Failed · ${reason}`, actor: "System", tone: "danger" });
+  appendEvent(d, {
+    at: new Date().toISOString(),
+    label: `Failed · ${reason}`,
+    actor: "System",
+    tone: "danger",
+  });
 }
 
 export function retry(id: string) {
@@ -509,7 +792,12 @@ export function retry(id: string) {
   if (!d) return;
   d.status = "requested";
   d.failedReason = undefined;
-  appendEvent(d, { at: new Date().toISOString(), label: "Retry queued", actor: CURRENT_AGENT, tone: "info" });
+  appendEvent(d, {
+    at: new Date().toISOString(),
+    label: "Retry queued",
+    actor: CURRENT_AGENT,
+    tone: "info",
+  });
 }
 
 export interface NewRequestInput {

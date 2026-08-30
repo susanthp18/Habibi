@@ -28,10 +28,7 @@ export type FlowOperator =
   | "not_exists";
 
 /** Operators that ignore the right-hand side. Mirrors UNARY_OPERATORS. */
-export const UNARY_OPERATORS: ReadonlySet<FlowOperator> = new Set([
-  "exists",
-  "not_exists",
-]);
+export const UNARY_OPERATORS: ReadonlySet<FlowOperator> = new Set(["exists", "not_exists"]);
 
 export const OPERATOR_LABELS: Record<FlowOperator, string> = {
   equals: "is",
@@ -57,6 +54,26 @@ export type FlowNodeData = {
   instructionType: FlowInstructionType;
   instructions: string;
   isStart: boolean;
+  /**
+   * Outbound missions that *begin* at this step. Mirrors
+   * `flow_graph.FlowNodeData.entryFor`, which this type had simply omitted —
+   * and an omitted field is not a neutral one here. The Outbound tab reads the
+   * graph's entries back and renders "card says dpd_reminder · flow says
+   * nothing" in red when they disagree, so the studio could state the problem
+   * precisely and offer nowhere to fix it: `entryFor` is set on the node, and
+   * the Flow tab is the only place a node is edited.
+   *
+   * Deliberately additive to `isStart` rather than a replacement. `isStart` is
+   * where an *inbound* caller lands and a graph has exactly one; an outbound
+   * mission is not the inbound script with a different greeting — we chose the
+   * borrower, the moment and the reason, so asking them why they called is
+   * absurd. Each mission therefore gets its own door into a shared spine.
+   *
+   * Optional because versions authored before this field exists have no such
+   * key, and `??`-ing it to `[]` on read must not be mistaken for the author
+   * having cleared it.
+   */
+  entryFor?: string[];
   /** False makes the bot listen first instead of speaking. */
   respondImmediately: boolean;
   /**
@@ -131,8 +148,24 @@ export type FlowTool = {
   locked?: boolean;
 };
 
+/**
+ * True only for the built-in-script sentinel: no nodes AND no edges.
+ *
+ * Mirrors `flow_graph.is_unauthored`, and the "and no edges" half is the whole
+ * point. This used to key on nodes alone, so a stored graph with edges and no
+ * nodes — a corrupted row, not an unauthored card — was classified "empty"
+ * everywhere it was asked about: the canvas skipped validation on it, the
+ * studio forced `flowValid = true`, and the tab rendered "No authored flow"
+ * over a graph whose validator, when finally run against it by hand, reported
+ * `dangling_target` on every edge.
+ *
+ * A card that genuinely has no flow stores `{nodes: [], edges: []}`, and that
+ * still answers true here. The two rows were indistinguishable to the old test
+ * and are not to this one.
+ */
 export function isEmptyGraph(graph: FlowGraph | null | undefined): boolean {
-  return !graph || !graph.nodes || graph.nodes.length === 0;
+  if (!graph) return true;
+  return (graph.nodes?.length ?? 0) === 0 && (graph.edges?.length ?? 0) === 0;
 }
 
 /** Matches flow_graph.empty_graph() so a new draft starts identically. */
@@ -214,10 +247,7 @@ export function defaultCondition(type: FlowConditionType): FlowCondition {
     type,
     prompt: type === "prompt" ? "Describe when this transition fires" : "",
     match: "all",
-    clauses:
-      type === "expression"
-        ? [{ variable: "", operator: "equals", value: "" }]
-        : [],
+    clauses: type === "expression" ? [{ variable: "", operator: "equals", value: "" }] : [],
   };
 }
 

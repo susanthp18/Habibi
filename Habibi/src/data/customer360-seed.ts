@@ -2,6 +2,8 @@
 // One rich file so every tab in the detail view reads from the same source
 // and the numbers stay internally consistent.
 
+import { mockDisputeSla, type DisputeSla } from "./dispute-sla";
+
 export type RiskLevel = "critical" | "high" | "medium" | "low";
 export type Channel = "voice" | "whatsapp" | "chat" | "email" | "sms";
 export type Sentiment = "positive" | "neutral" | "negative";
@@ -58,13 +60,17 @@ export interface Promise {
   reminderStatus: "queued" | "sent" | "acknowledged" | "off";
 }
 
-export interface Dispute {
+/**
+ * The 360 contract for a dispute. `sla`/`slaLabel`/`slaMinutes` are the same
+ * server-computed fields the disputes board renders (see data/dispute-sla.ts),
+ * which is what keeps the two screens word-for-word identical.
+ */
+export interface Dispute extends DisputeSla {
   id: string;
   type: string;
   amount: number;
   transcriptSnippet: string;
   status: DisputeStatus;
-  slaLabel: string;
   filedAt: string;
   assignee?: string;
 }
@@ -102,6 +108,12 @@ export interface Contact {
   timezone: string;
   language: string;
   preferredWindow: string; // e.g. "10:00–19:00 IST"
+  /**
+   * Days the borrower consented to be contacted on, e.g. "Mon–Sat".
+   * Mirrors consent_records.allowed_days, which the live API resolves
+   * server-side — mock-only, so optional and absent from CustomerResponse.
+   */
+  allowedDays?: string;
   dnd: boolean;
 }
 
@@ -146,6 +158,18 @@ function iso(daysAgo: number, hour = 10) {
 }
 function isoFuture(daysAhead: number, hour = 10) {
   return iso(-daysAhead, hour);
+}
+function hoursFromNow(hours: number) {
+  return new Date(now.getTime() + hours * 3_600_000).toISOString();
+}
+
+/**
+ * Mock stand-in for the server's dispute SLA. The 360 tab renders whatever the
+ * API sends; in USE_MOCK the seed has to produce the same three fields, from
+ * the same rule — see data/dispute-sla.ts.
+ */
+function disputeSla(filedAt: string, slaDueAt: string, status: DisputeStatus): DisputeSla {
+  return mockDisputeSla({ capturedAt: filedAt, slaDueAt, status });
 }
 
 // ---- ledger builder ----
@@ -198,10 +222,12 @@ function buildLedger(seed: number, monthly: number): LedgerEntry[] {
 
   rows.sort((a, b) => a.date.localeCompare(b.date));
   let running = 0;
-  return rows.map((r) => {
-    running += r.amount;
-    return { ...r, balance: running };
-  }).reverse(); // newest first for display
+  return rows
+    .map((r) => {
+      running += r.amount;
+      return { ...r, balance: running };
+    })
+    .reverse(); // newest first for display
 }
 
 function buildEmi(seed: number, monthly: number): EmiRow[] {
@@ -288,7 +314,8 @@ const _customers: Customer[] = [
         disposition: "PTP captured",
         sentiment: "positive",
         sentimentDelta: "up",
-        summary: "Customer confirmed EMI 5 shortfall. Committed to pay ₹1,240 by Fri via UPI. Agreed to consolidation callback next week.",
+        summary:
+          "Customer confirmed EMI 5 shortfall. Committed to pay ₹1,240 by Fri via UPI. Agreed to consolidation callback next week.",
         intents: { queryResolved: true, upsellPresented: true, ptpCaptured: true },
       },
       {
@@ -312,7 +339,8 @@ const _customers: Customer[] = [
         disposition: "Escalated → human",
         sentiment: "negative",
         sentimentDelta: "down",
-        summary: "Customer disputed late fee. Bot captured dispute D-4821 and routed to Priya Nair.",
+        summary:
+          "Customer disputed late fee. Bot captured dispute D-4821 and routed to Priya Nair.",
         intents: { queryResolved: false },
       },
       {
@@ -341,30 +369,91 @@ const _customers: Customer[] = [
       },
     ],
     promises: [
-      { id: "p1", amount: 1240, promisedDate: isoFuture(3), createdAt: iso(0), channel: "voice", handler: "Priya Nair", status: "upcoming", reminderStatus: "queued" },
-      { id: "p2", amount: 2200, promisedDate: iso(11), createdAt: iso(21), channel: "voice", handler: "Arjun Mehta", status: "broken", reminderStatus: "sent" },
-      { id: "p3", amount: 1500, promisedDate: iso(45), createdAt: iso(60), channel: "whatsapp", handler: "CollectionsBot", status: "kept", reminderStatus: "acknowledged" },
-      { id: "p4", amount: 800, promisedDate: iso(75), createdAt: iso(90), channel: "voice", handler: "Sara Khan", status: "partial", reminderStatus: "sent" },
+      {
+        id: "p1",
+        amount: 1240,
+        promisedDate: isoFuture(3),
+        createdAt: iso(0),
+        channel: "voice",
+        handler: "Priya Nair",
+        status: "upcoming",
+        reminderStatus: "queued",
+      },
+      {
+        id: "p2",
+        amount: 2200,
+        promisedDate: iso(11),
+        createdAt: iso(21),
+        channel: "voice",
+        handler: "Arjun Mehta",
+        status: "broken",
+        reminderStatus: "sent",
+      },
+      {
+        id: "p3",
+        amount: 1500,
+        promisedDate: iso(45),
+        createdAt: iso(60),
+        channel: "whatsapp",
+        handler: "CollectionsBot",
+        status: "kept",
+        reminderStatus: "acknowledged",
+      },
+      {
+        id: "p4",
+        amount: 800,
+        promisedDate: iso(75),
+        createdAt: iso(90),
+        channel: "voice",
+        handler: "Sara Khan",
+        status: "partial",
+        reminderStatus: "sent",
+      },
     ],
     disputes: [
       {
         id: "D-4821",
         type: "Late fee waiver",
         amount: 110,
-        transcriptSnippet: "\"…I paid on time, why is there a late fee? Please waive this off.\"",
+        transcriptSnippet: '"…I paid on time, why is there a late fee? Please waive this off."',
         status: "under_review",
-        slaLabel: "1h 12m left",
+        ...disputeSla(iso(5), hoursFromNow(1.2), "under_review"),
         filedAt: iso(5),
         assignee: "Priya Nair",
       },
     ],
     documents: [
-      { id: "doc1", type: "6-month account statement", requestedVia: "voice", requestedAt: iso(2), deliveryChannel: "email", status: "sent" },
-      { id: "doc2", type: "No-dues certificate", requestedVia: "whatsapp", requestedAt: iso(30), deliveryChannel: "whatsapp", status: "sent" },
+      {
+        id: "doc1",
+        type: "6-month account statement",
+        requestedVia: "voice",
+        requestedAt: iso(2),
+        deliveryChannel: "email",
+        status: "sent",
+      },
+      {
+        id: "doc2",
+        type: "No-dues certificate",
+        requestedVia: "whatsapp",
+        requestedAt: iso(30),
+        deliveryChannel: "whatsapp",
+        status: "sent",
+      },
     ],
     notes: [
-      { id: "n1", author: "Priya Nair", at: iso(0, 9), text: "Customer prefers WhatsApp for reminders. Salary credit on 5th — align reminders accordingly.", pinned: true },
-      { id: "n2", author: "Arjun Mehta", at: iso(21), text: "Discussed debt consolidation. Interested but wants to see numbers first — send offer sheet." },
+      {
+        id: "n1",
+        author: "Priya Nair",
+        at: iso(0, 9),
+        text: "Customer prefers WhatsApp for reminders. Salary credit on 5th — align reminders accordingly.",
+        pinned: true,
+      },
+      {
+        id: "n2",
+        author: "Arjun Mehta",
+        at: iso(21),
+        text: "Discussed debt consolidation. Interested but wants to see numbers first — send offer sheet.",
+      },
     ],
   },
   {
@@ -383,6 +472,9 @@ const _customers: Customer[] = [
       timezone: "Asia/Kolkata (IST)",
       language: "English",
       preferredWindow: "11:00–18:00 IST",
+      // Asked not to be called on Sundays. The pill used to ignore this and
+      // show green all Sunday afternoon; the veto blocks it.
+      allowedDays: "Mon–Sat",
       dnd: false,
     },
     account: {
@@ -412,7 +504,8 @@ const _customers: Customer[] = [
         disposition: "Escalated → human",
         sentiment: "negative",
         sentimentDelta: "down",
-        summary: "Customer expressed hardship (job loss). Bot escalated to Meera Iyer for restructuring conversation.",
+        summary:
+          "Customer expressed hardship (job loss). Bot escalated to Meera Iyer for restructuring conversation.",
         intents: { queryResolved: false },
       },
       {
@@ -441,16 +534,54 @@ const _customers: Customer[] = [
       },
     ],
     promises: [
-      { id: "ap1", amount: 5000, promisedDate: isoFuture(9), createdAt: iso(2), channel: "voice", handler: "Meera Iyer", status: "upcoming", reminderStatus: "queued" },
-      { id: "ap2", amount: 3400, promisedDate: iso(30), createdAt: iso(40), channel: "voice", handler: "Meera Iyer", status: "broken", reminderStatus: "sent" },
+      {
+        id: "ap1",
+        amount: 5000,
+        promisedDate: isoFuture(9),
+        createdAt: iso(2),
+        channel: "voice",
+        handler: "Meera Iyer",
+        status: "upcoming",
+        reminderStatus: "queued",
+      },
+      {
+        id: "ap2",
+        amount: 3400,
+        promisedDate: iso(30),
+        createdAt: iso(40),
+        channel: "voice",
+        handler: "Meera Iyer",
+        status: "broken",
+        reminderStatus: "sent",
+      },
     ],
     disputes: [],
     documents: [
-      { id: "adoc1", type: "6-month account statement", requestedVia: "whatsapp", requestedAt: iso(9), deliveryChannel: "whatsapp", status: "sent" },
-      { id: "adoc2", type: "Restructuring quote", requestedVia: "voice", requestedAt: iso(2), deliveryChannel: "email", status: "generating" },
+      {
+        id: "adoc1",
+        type: "6-month account statement",
+        requestedVia: "whatsapp",
+        requestedAt: iso(9),
+        deliveryChannel: "whatsapp",
+        status: "sent",
+      },
+      {
+        id: "adoc2",
+        type: "Restructuring quote",
+        requestedVia: "voice",
+        requestedAt: iso(2),
+        deliveryChannel: "email",
+        status: "generating",
+      },
     ],
     notes: [
-      { id: "an1", author: "Meera Iyer", at: iso(2), text: "Job loss (Jun). Wife earning. Requested 3-month EMI break — awaiting credit review.", pinned: true },
+      {
+        id: "an1",
+        author: "Meera Iyer",
+        at: iso(2),
+        text: "Job loss (Jun). Wife earning. Requested 3-month EMI break — awaiting credit review.",
+        pinned: true,
+      },
     ],
   },
   {
@@ -498,12 +629,22 @@ const _customers: Customer[] = [
         disposition: "PTP captured (bot)",
         sentiment: "positive",
         sentimentDelta: "up",
-        summary: "Customer promised ₹620 by 25th via UPI. Bot upsold consolidation — not interested.",
+        summary:
+          "Customer promised ₹620 by 25th via UPI. Bot upsold consolidation — not interested.",
         intents: { queryResolved: true, upsellPresented: true, ptpCaptured: true },
       },
     ],
     promises: [
-      { id: "np1", amount: 620, promisedDate: isoFuture(4), createdAt: iso(1), channel: "whatsapp", handler: "CollectionsBot", status: "upcoming", reminderStatus: "queued" },
+      {
+        id: "np1",
+        amount: 620,
+        promisedDate: isoFuture(4),
+        createdAt: iso(1),
+        channel: "whatsapp",
+        handler: "CollectionsBot",
+        status: "upcoming",
+        reminderStatus: "queued",
+      },
     ],
     disputes: [],
     documents: [],
@@ -559,22 +700,38 @@ const _customers: Customer[] = [
       },
     ],
     promises: [
-      { id: "jp1", amount: 10000, promisedDate: isoFuture(12), createdAt: iso(3), channel: "voice", handler: "David Chen", status: "upcoming", reminderStatus: "queued" },
+      {
+        id: "jp1",
+        amount: 10000,
+        promisedDate: isoFuture(12),
+        createdAt: iso(3),
+        channel: "voice",
+        handler: "David Chen",
+        status: "upcoming",
+        reminderStatus: "queued",
+      },
     ],
     disputes: [
       {
         id: "D-4805",
         type: "Incorrect EMI",
         amount: 7200,
-        transcriptSnippet: "\"…the EMI got debited twice in October — please refund the extra one.\"",
+        transcriptSnippet: '"…the EMI got debited twice in October — please refund the extra one."',
         status: "awaiting_customer",
-        slaLabel: "6h 40m left",
+        ...disputeSla(iso(19), hoursFromNow(6 + 40 / 60), "awaiting_customer"),
         filedAt: iso(19),
         assignee: "David Chen",
       },
     ],
     documents: [
-      { id: "jdoc1", type: "Payment schedule", requestedVia: "voice", requestedAt: iso(3), deliveryChannel: "email", status: "sent" },
+      {
+        id: "jdoc1",
+        type: "Payment schedule",
+        requestedVia: "voice",
+        requestedAt: iso(3),
+        deliveryChannel: "email",
+        status: "sent",
+      },
     ],
     notes: [],
   },
@@ -628,12 +785,27 @@ const _customers: Customer[] = [
       },
     ],
     promises: [
-      { id: "fp1", amount: 480, promisedDate: iso(0), createdAt: iso(0), channel: "whatsapp", handler: "CollectionsBot", status: "kept", reminderStatus: "acknowledged" },
+      {
+        id: "fp1",
+        amount: 480,
+        promisedDate: iso(0),
+        createdAt: iso(0),
+        channel: "whatsapp",
+        handler: "CollectionsBot",
+        status: "kept",
+        reminderStatus: "acknowledged",
+      },
     ],
     disputes: [],
     documents: [],
     notes: [
-      { id: "fn1", author: "Sara Khan", at: iso(10), text: "Customer opted out of calls after complaint. WhatsApp-only.", pinned: true },
+      {
+        id: "fn1",
+        author: "Sara Khan",
+        at: iso(10),
+        text: "Customer opted out of calls after complaint. WhatsApp-only.",
+        pinned: true,
+      },
     ],
   },
   {
@@ -712,24 +884,140 @@ const _customers: Customer[] = [
       { channel: "email", optedIn: false, source: "self-serve", capturedAt: iso(90) },
     ],
     ledger: [
-      { id: "LED-SUSANTH-1", date: iso(90), description: "EMI due #1", type: "charge", amount: 4800, balance: 72000 },
-      { id: "LED-SUSANTH-2", date: iso(85), description: "UPI payment", type: "payment", amount: -4800, balance: 67200 },
-      { id: "LED-SUSANTH-3", date: iso(60), description: "EMI due #2", type: "charge", amount: 4800, balance: 72000 },
-      { id: "LED-SUSANTH-4", date: iso(55), description: "UPI payment", type: "payment", amount: -4800, balance: 67200 },
-      { id: "LED-SUSANTH-5", date: iso(40), description: "EMI due", type: "charge", amount: 4800, balance: 72000 },
-      { id: "LED-SUSANTH-6", date: iso(37), description: "UPI payment", type: "payment", amount: -4800, balance: 67200 },
-      { id: "LED-SUSANTH-7", date: iso(35), description: "Late fee", type: "fee", amount: 350, balance: 67550 },
-      { id: "LED-SUSANTH-8", date: iso(32), description: "Goodwill late-fee waiver", type: "waiver", amount: -350, balance: 67200 },
-      { id: "LED-SUSANTH-9", date: iso(10), description: "EMI due (current)", type: "charge", amount: 4800, balance: 72000 },
-      { id: "LED-SUSANTH-10", date: iso(8), description: "Partial UPI", type: "payment", amount: -4800, balance: 67200 },
-      { id: "LED-SUSANTH-11", date: iso(5), description: "Interest capitalization", type: "adjustment", amount: 200, balance: 67400 },
-      { id: "LED-SUSANTH-12", date: iso(2), description: "Goodwill adjustment settle", type: "payment", amount: -1000, balance: 62400 },
+      {
+        id: "LED-SUSANTH-1",
+        date: iso(90),
+        description: "EMI due #1",
+        type: "charge",
+        amount: 4800,
+        balance: 72000,
+      },
+      {
+        id: "LED-SUSANTH-2",
+        date: iso(85),
+        description: "UPI payment",
+        type: "payment",
+        amount: -4800,
+        balance: 67200,
+      },
+      {
+        id: "LED-SUSANTH-3",
+        date: iso(60),
+        description: "EMI due #2",
+        type: "charge",
+        amount: 4800,
+        balance: 72000,
+      },
+      {
+        id: "LED-SUSANTH-4",
+        date: iso(55),
+        description: "UPI payment",
+        type: "payment",
+        amount: -4800,
+        balance: 67200,
+      },
+      {
+        id: "LED-SUSANTH-5",
+        date: iso(40),
+        description: "EMI due",
+        type: "charge",
+        amount: 4800,
+        balance: 72000,
+      },
+      {
+        id: "LED-SUSANTH-6",
+        date: iso(37),
+        description: "UPI payment",
+        type: "payment",
+        amount: -4800,
+        balance: 67200,
+      },
+      {
+        id: "LED-SUSANTH-7",
+        date: iso(35),
+        description: "Late fee",
+        type: "fee",
+        amount: 350,
+        balance: 67550,
+      },
+      {
+        id: "LED-SUSANTH-8",
+        date: iso(32),
+        description: "Goodwill late-fee waiver",
+        type: "waiver",
+        amount: -350,
+        balance: 67200,
+      },
+      {
+        id: "LED-SUSANTH-9",
+        date: iso(10),
+        description: "EMI due (current)",
+        type: "charge",
+        amount: 4800,
+        balance: 72000,
+      },
+      {
+        id: "LED-SUSANTH-10",
+        date: iso(8),
+        description: "Partial UPI",
+        type: "payment",
+        amount: -4800,
+        balance: 67200,
+      },
+      {
+        id: "LED-SUSANTH-11",
+        date: iso(5),
+        description: "Interest capitalization",
+        type: "adjustment",
+        amount: 200,
+        balance: 67400,
+      },
+      {
+        id: "LED-SUSANTH-12",
+        date: iso(2),
+        description: "Goodwill adjustment settle",
+        type: "payment",
+        amount: -1000,
+        balance: 62400,
+      },
     ],
     emi: [
-      { id: "EMI-SUSANTH-1", index: 1, dueDate: iso(60), amount: 4800, paidOn: iso(55), paidAmount: 4800, status: "paid", balanceCarried: 0 },
-      { id: "EMI-SUSANTH-2", index: 2, dueDate: iso(30), amount: 4800, paidOn: iso(28), paidAmount: 4800, status: "paid", balanceCarried: 0 },
-      { id: "EMI-SUSANTH-3", index: 3, dueDate: iso(0), amount: 4800, status: "overdue", balanceCarried: 4800 },
-      { id: "EMI-SUSANTH-4", index: 4, dueDate: isoFuture(30), amount: 4800, status: "upcoming", balanceCarried: 9600 },
+      {
+        id: "EMI-SUSANTH-1",
+        index: 1,
+        dueDate: iso(60),
+        amount: 4800,
+        paidOn: iso(55),
+        paidAmount: 4800,
+        status: "paid",
+        balanceCarried: 0,
+      },
+      {
+        id: "EMI-SUSANTH-2",
+        index: 2,
+        dueDate: iso(30),
+        amount: 4800,
+        paidOn: iso(28),
+        paidAmount: 4800,
+        status: "paid",
+        balanceCarried: 0,
+      },
+      {
+        id: "EMI-SUSANTH-3",
+        index: 3,
+        dueDate: iso(0),
+        amount: 4800,
+        status: "overdue",
+        balanceCarried: 4800,
+      },
+      {
+        id: "EMI-SUSANTH-4",
+        index: 4,
+        dueDate: isoFuture(30),
+        amount: 4800,
+        status: "upcoming",
+        balanceCarried: 9600,
+      },
     ],
     interactions: [
       {
@@ -765,14 +1053,42 @@ const _customers: Customer[] = [
         disposition: "PTP captured (broken)",
         sentiment: "negative",
         sentimentDelta: "down",
-        summary: "Outbound call — Susanth committed ₹4,800 by month-end then missed. Prefers WhatsApp follow-ups.",
+        summary:
+          "Outbound call — Susanth committed ₹4,800 by month-end then missed. Prefers WhatsApp follow-ups.",
         intents: { ptpCaptured: true },
       },
     ],
     promises: [
-      { id: "PTP-SUSANTH-1", amount: 4800, promisedDate: isoFuture(5), createdAt: iso(0), channel: "whatsapp", handler: "CollectionsBot v2.4", status: "upcoming", reminderStatus: "queued" },
-      { id: "PTP-SUSANTH-2", amount: 4800, promisedDate: iso(20), createdAt: iso(28), channel: "voice", handler: "Priya Nair", status: "broken", reminderStatus: "sent" },
-      { id: "PTP-SUSANTH-3", amount: 2400, promisedDate: iso(45), createdAt: iso(52), channel: "whatsapp", handler: "CollectionsBot v2.4", status: "kept", reminderStatus: "acknowledged" },
+      {
+        id: "PTP-SUSANTH-1",
+        amount: 4800,
+        promisedDate: isoFuture(5),
+        createdAt: iso(0),
+        channel: "whatsapp",
+        handler: "CollectionsBot v2.4",
+        status: "upcoming",
+        reminderStatus: "queued",
+      },
+      {
+        id: "PTP-SUSANTH-2",
+        amount: 4800,
+        promisedDate: iso(20),
+        createdAt: iso(28),
+        channel: "voice",
+        handler: "Priya Nair",
+        status: "broken",
+        reminderStatus: "sent",
+      },
+      {
+        id: "PTP-SUSANTH-3",
+        amount: 2400,
+        promisedDate: iso(45),
+        createdAt: iso(52),
+        channel: "whatsapp",
+        handler: "CollectionsBot v2.4",
+        status: "kept",
+        reminderStatus: "acknowledged",
+      },
     ],
     disputes: [
       {
@@ -781,7 +1097,7 @@ const _customers: Customer[] = [
         amount: 350,
         transcriptSnippet: "Can you waive the late fee from last month?",
         status: "under_review",
-        slaLabel: "2d left",
+        ...disputeSla(iso(10), hoursFromNow(48), "under_review"),
         filedAt: iso(10),
         assignee: "Priya Nair",
       },
@@ -832,14 +1148,23 @@ export function fmtDate(iso: string | null | undefined, opts?: Intl.DateTimeForm
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", ...(opts ?? { month: "short", day: "numeric", year: "numeric" }) });
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    ...(opts ?? { month: "short", day: "numeric", year: "numeric" }),
+  });
 }
 
 export function fmtDateTime(iso: string | null | undefined) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export function fmtRelative(iso: string | null | undefined) {

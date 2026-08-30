@@ -54,22 +54,17 @@ export const LIVE_QA_STATUS_LABEL: Record<string, string> = {
   flagged: "QA flag",
 };
 
-export const LIVE_QA_STATUS_TONE: Record<string, "warning" | "danger" | "discovery" | "selected"> = {
-  would_barge: "warning",
-  barge: "danger",
-  whisper: "discovery",
-  inbox: "selected",
-  flagged: "warning",
-};
-
+export const LIVE_QA_STATUS_TONE: Record<string, "warning" | "danger" | "discovery" | "selected"> =
+  {
+    would_barge: "warning",
+    barge: "danger",
+    whisper: "discovery",
+    inbox: "selected",
+    flagged: "warning",
+  };
 
 export type AlertKind =
-  | "sentiment_drop"
-  | "compliance"
-  | "long_hold"
-  | "escalation"
-  | "silence"
-  | "loop_detected";
+  "sentiment_drop" | "compliance" | "long_hold" | "escalation" | "silence" | "loop_detected";
 
 export type FloorAlert = {
   id: string;
@@ -390,7 +385,8 @@ const _rawCalls: SeedCall[] = [
     sentiment: 0.08,
     sentimentTrend: 0.04,
     risk: "low",
-    lastLine: "I've logged a fee-waiver review against the authority ceiling — I won't quote an amount until that's back.",
+    lastLine:
+      "I've logged a fee-waiver review against the authority ceiling — I won't quote an amount until that's back.",
     language: "TE-IN",
     authorityPolicy: {
       status: "shadow",
@@ -401,7 +397,8 @@ const _rawCalls: SeedCall[] = [
       capAmount: 500,
       reason: "cap_available",
       reasonLabel: "In-policy goodwill ceiling",
-      talkTrack: "Goodwill ceiling is ₹500. You may reverse up to that. If they insist on more, escalate without quoting a larger number.",
+      talkTrack:
+        "Goodwill ceiling is ₹500. You may reverse up to that. If they insist on more, escalate without quoting a larger number.",
       reasonCodes: ["cap_available"],
     },
   },
@@ -488,15 +485,81 @@ export const initialAlerts: FloorAlert[] = [
 ];
 
 export const seedAgents: FloorAgent[] = [
-  { userId: "aarav", name: "Aarav K.", initials: "AK", status: "on_call", sinceAt: new Date().toISOString(), interactionId: "c-01", customer: "Priya Menon" },
-  { userId: "meera", name: "Meera D.", initials: "MD", status: "on_call", sinceAt: new Date().toISOString(), interactionId: "c-04", customer: "Anil Kapoor" },
-  { userId: "karan", name: "Karan S.", initials: "KS", status: "on_call", sinceAt: new Date().toISOString(), interactionId: "c-06", customer: "Vikram Rathi" },
-  { userId: "ritu", name: "Ritu B.", initials: "RB", status: "on_call", sinceAt: new Date().toISOString(), interactionId: "c-09", customer: "Farhan Qureshi" },
-  { userId: "aisha", name: "Aisha P.", initials: "AP", status: "on_call", sinceAt: new Date().toISOString(), interactionId: "c-12", customer: "Reena Joshi" },
-  { userId: "nikhil", name: "Nikhil V.", initials: "NV", status: "on_call", sinceAt: new Date().toISOString(), interactionId: "c-15", customer: "Ajay Malhotra" },
-  { userId: "sara", name: "Sara Khan", initials: "SK", status: "available", sinceAt: new Date().toISOString() },
-  { userId: "arjun", name: "Arjun Mehta", initials: "AM", status: "wrap_up", sinceAt: new Date().toISOString() },
-  { userId: "neha", name: "Neha Iyer", initials: "NI", status: "on_break", sinceAt: new Date().toISOString() },
+  {
+    userId: "aarav",
+    name: "Aarav K.",
+    initials: "AK",
+    status: "on_call",
+    sinceAt: new Date().toISOString(),
+    interactionId: "c-01",
+    customer: "Priya Menon",
+  },
+  {
+    userId: "meera",
+    name: "Meera D.",
+    initials: "MD",
+    status: "on_call",
+    sinceAt: new Date().toISOString(),
+    interactionId: "c-04",
+    customer: "Anil Kapoor",
+  },
+  {
+    userId: "karan",
+    name: "Karan S.",
+    initials: "KS",
+    status: "on_call",
+    sinceAt: new Date().toISOString(),
+    interactionId: "c-06",
+    customer: "Vikram Rathi",
+  },
+  {
+    userId: "ritu",
+    name: "Ritu B.",
+    initials: "RB",
+    status: "on_call",
+    sinceAt: new Date().toISOString(),
+    interactionId: "c-09",
+    customer: "Farhan Qureshi",
+  },
+  {
+    userId: "aisha",
+    name: "Aisha P.",
+    initials: "AP",
+    status: "on_call",
+    sinceAt: new Date().toISOString(),
+    interactionId: "c-12",
+    customer: "Reena Joshi",
+  },
+  {
+    userId: "nikhil",
+    name: "Nikhil V.",
+    initials: "NV",
+    status: "on_call",
+    sinceAt: new Date().toISOString(),
+    interactionId: "c-15",
+    customer: "Ajay Malhotra",
+  },
+  {
+    userId: "sara",
+    name: "Sara Khan",
+    initials: "SK",
+    status: "available",
+    sinceAt: new Date().toISOString(),
+  },
+  {
+    userId: "arjun",
+    name: "Arjun Mehta",
+    initials: "AM",
+    status: "wrap_up",
+    sinceAt: new Date().toISOString(),
+  },
+  {
+    userId: "neha",
+    name: "Neha Iyer",
+    initials: "NI",
+    status: "on_break",
+    sinceAt: new Date().toISOString(),
+  },
 ];
 
 export const channelLabel: Record<Channel, string> = {

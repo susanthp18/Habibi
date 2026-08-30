@@ -128,7 +128,11 @@ export function TestRetrievalPanel() {
               disabled={loading}
             />
             <Button onClick={() => void run()} size="sm" disabled={loading || !query.trim()}>
-              {loading ? <Loader2 className="mr-050 h-3.5 w-3.5 animate-spin" /> : <Search className="mr-050 h-3.5 w-3.5" />}
+              {loading ? (
+                <Loader2 className="mr-050 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Search className="mr-050 h-3.5 w-3.5" />
+              )}
               Run
             </Button>
           </div>
@@ -158,9 +162,7 @@ export function TestRetrievalPanel() {
           Generate drafted answer (Azure chat)
         </label>
         <div>
-          <div className="mb-075 text-body-small font-medium text-text-subtlest">
-            Try one
-          </div>
+          <div className="mb-075 text-body-small font-medium text-text-subtlest">Try one</div>
           <div className="flex flex-wrap gap-075">
             {SAMPLES.map((s) => (
               <button
@@ -180,7 +182,12 @@ export function TestRetrievalPanel() {
               <span className="inline-flex items-center gap-050">
                 <Clock className="h-3 w-3" /> {latency} ms · {results.length} hits
               </span>
-              <Button size="sm" variant="ghost" onClick={copyPayload} disabled={results.length === 0}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={copyPayload}
+                disabled={results.length === 0}
+              >
                 <Copy className="mr-050 h-3 w-3" /> Copy payload
               </Button>
             </div>
@@ -198,11 +205,10 @@ export function TestRetrievalPanel() {
         {!ran ? (
           <div className="flex h-full min-h-[18.75rem] flex-col items-center justify-center gap-100 rounded-large border border-dashed border-border p-500 text-center">
             <Sparkles className="h-300 w-300 text-text-brand" />
-            <div className="text-body font-medium text-text">
-              Type a query and hit Run
-            </div>
+            <div className="text-body font-medium text-text">Type a query and hit Run</div>
             <div className="max-w-sm text-body-small text-text-subtlest">
-              Results are ranked by Azure embedding cosine similarity across enabled documents + FAQs.
+              Results are ranked by Azure embedding cosine similarity across enabled documents +
+              FAQs.
             </div>
           </div>
         ) : (

@@ -153,9 +153,25 @@ class Costs:
     legal_notice: float
     represent_mandate: float
     emi_date_change: float
+    self_service_plan: float
 
     def for_action(self, action: str) -> float:
-        return float(getattr(self, action, 0.0))
+        """Rupees to attempt this action, ledger price plus today's scarcity.
+
+        The second term is Layer 3's dual price and it is zero until somebody
+        turns dual pricing on, so this is the same constant it has always been
+        on a deployment that has not opted in.
+
+        Where it is on, the arithmetic is the whole of the design note's
+        book-allocation argument in one line: a field visit costs its ledger
+        price on a quiet Tuesday and several times that when the vans are full,
+        so the ladder throttles itself and nobody has to write down the expected
+        value below which a visit stops being worth making. The optimiser
+        discovers that number daily, and it is different on a Tuesday.
+        """
+        from agent_core.treatment import allocate
+
+        return float(getattr(self, action, 0.0)) + allocate.price_for_action(action)
 
 
 def costs() -> Costs:
@@ -187,6 +203,10 @@ def costs() -> Costs:
         # An LMS work item and a schedule rewrite. Cheap, but not free: it is
         # somebody's ten minutes, and it changes the borrower's contract.
         emi_date_change=env_float("TREATMENT_COST_EMI_DATE_CHANGE", 15.0),
+        # Cheaper than a date change: no schedule to rebuild, no
+        # amortisation to redo. The cost is the servicing tail of a
+        # borrower who half-completes one.
+        self_service_plan=env_float("TREATMENT_COST_SELF_SERVICE_PLAN", 8.0),
     )
 
 
@@ -268,6 +288,11 @@ _GRACE_DEFAULTS: dict[str, float] = {
     "represent_mandate": 72.0,
     # A schedule change proves itself at the next due date, not before.
     "emi_date_change": 24.0 * 35,
+    # A plan the borrower has to notice and act on. Five weeks is the
+    # window in which an offer that is going to be taken up is taken up;
+    # after that it is an open plan nobody started, which the veto reads
+    # as a reason not to offer another.
+    "self_service_plan": 24.0 * 35,
 }
 
 _GRACE_ENV = {
@@ -279,6 +304,7 @@ _GRACE_ENV = {
     "legal_notice": "TREATMENT_GRACE_LEGAL_HOURS",
     "represent_mandate": "TREATMENT_GRACE_MANDATE_HOURS",
     "emi_date_change": "TREATMENT_GRACE_SCHEDULE_HOURS",
+    "self_service_plan": "TREATMENT_GRACE_SCHEDULE_HOURS",
 }
 
 

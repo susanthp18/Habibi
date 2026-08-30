@@ -173,7 +173,12 @@ export async function patchKbDocument(
   if (USE_MOCK) {
     const doc = seedDocs.find((d) => d.id === id);
     if (!doc) throw new Error("kb_document_not_found");
-    const next = { ...doc, ...patch, chunkSize: patch.chunkSize ?? doc.chunkSize, overlap: patch.overlap ?? doc.overlap };
+    const next = {
+      ...doc,
+      ...patch,
+      chunkSize: patch.chunkSize ?? doc.chunkSize,
+      overlap: patch.overlap ?? doc.overlap,
+    };
     const idx = seedDocs.findIndex((d) => d.id === id);
     if (idx >= 0) seedDocs[idx] = next;
     return mockDelay({ document: next, jobId: patch.enabled ? `mock-job-${Date.now()}` : null });
@@ -269,9 +274,7 @@ export async function deleteKbDocument(id: string): Promise<KbDeleteDocumentResu
   return apiDelete<KbDeleteDocumentResult>(`/kb/documents/${id}`);
 }
 
-export async function purgeKbDocuments(
-  scope: KbPurgeScope,
-): Promise<KbPurgeResult> {
+export async function purgeKbDocuments(scope: KbPurgeScope): Promise<KbPurgeResult> {
   if (USE_MOCK) {
     let removed: typeof seedDocs = [];
     let faqsDeleted = 0;
@@ -539,7 +542,8 @@ export async function patchKbFaq(
     const next = {
       ...seedFaqs[idx],
       ...patch,
-      linkedDocId: patch.linkedDocId === null ? undefined : (patch.linkedDocId ?? seedFaqs[idx].linkedDocId),
+      linkedDocId:
+        patch.linkedDocId === null ? undefined : (patch.linkedDocId ?? seedFaqs[idx].linkedDocId),
       updatedAt: new Date().toISOString(),
     };
     seedFaqs[idx] = next;
@@ -606,9 +610,15 @@ export async function linkKbGap(
   return apiPost<KbGap>(`/kb/gaps/${gapId}/link`, link);
 }
 
-export async function promoteGapToSkill(gapId: string): Promise<{ id: string; slug: string; signatureStatus?: string }> {
+export async function promoteGapToSkill(
+  gapId: string,
+): Promise<{ id: string; slug: string; signatureStatus?: string }> {
   if (USE_MOCK) {
-    return mockDelay({ id: `skill-gardener-${gapId}`, slug: `gardener-${gapId}`, signatureStatus: "unsigned" });
+    return mockDelay({
+      id: `skill-gardener-${gapId}`,
+      slug: `gardener-${gapId}`,
+      signatureStatus: "unsigned",
+    });
   }
   return apiPost(`/kb/gaps/${gapId}/promote-skill`, {});
 }

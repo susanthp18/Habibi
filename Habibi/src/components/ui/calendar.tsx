@@ -76,13 +76,13 @@ function Calendar({
         table: "w-full border-collapse",
         weekdays: cn("flex", defaultClassNames.weekdays),
         weekday: cn(
-          "text-muted-foreground flex-1 select-none rounded-medium text-[0.8rem] font-normal",
+          "text-muted-foreground flex-1 select-none rounded-medium text-body-small font-normal",
           defaultClassNames.weekday,
         ),
         week: cn("mt-100 flex w-full", defaultClassNames.week),
         week_number_header: cn("w-(--cell-size) select-none", defaultClassNames.week_number_header),
         week_number: cn(
-          "text-muted-foreground select-none text-[0.8rem]",
+          "text-muted-foreground select-none text-body-small",
           defaultClassNames.week_number,
         ),
         day: cn(

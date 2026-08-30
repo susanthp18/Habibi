@@ -16,6 +16,7 @@ import {
 } from "@/api/inbox";
 import type { Thread } from "@/data/inbox-seed";
 import { LoadingState } from "@/components/ui/loading-state";
+import { useConfirm } from "@/components/ui/use-confirm";
 
 export type InboxSearch = {
   conversationId?: string;
@@ -69,9 +70,11 @@ function friendlyInboxError(raw: string): string {
   return raw;
 }
 
-function lastCustomerFingerprint(thread: {
-  messages: Array<{ id?: string; sender?: string; text?: string; kind?: string }>;
-} | null) {
+function lastCustomerFingerprint(
+  thread: {
+    messages: Array<{ id?: string; sender?: string; text?: string; kind?: string }>;
+  } | null,
+) {
   if (!thread) return "";
   for (let i = thread.messages.length - 1; i >= 0; i--) {
     const m = thread.messages[i];
@@ -95,9 +98,16 @@ function useWideLayout(minPx = 1440) {
 
 function InboxPage() {
   const queryClient = useQueryClient();
+  const { confirm, confirmDialog } = useConfirm();
   const navigate = useNavigate({ from: "/inbox" });
   const { conversationId } = Route.useSearch();
-  const { data: threads = [], isLoading, isError, error } = useConversations();
+  // `isPending`, not `isLoading`. They differ exactly when the fetch is paused
+  // — the tab is in the background, or the browser reports itself offline —
+  // and in that state `isLoading` is false while no response has ever arrived.
+  // The empty branch then rendered "No conversations yet." about an inbox
+  // nobody had managed to read: the same graceful-degradation lie as a failed
+  // canned-response load claiming none are configured.
+  const { data: threads = [], isPending, isError, error, fetchStatus } = useConversations();
   const [activeId, setActiveId] = useState<string | null>(conversationId ?? null);
   const wideLayout = useWideLayout(1440);
   const railUserToggled = useRef(false);
@@ -130,13 +140,18 @@ function InboxPage() {
     setRagError(null);
     setLocalSuggestions(null);
     setLocalDraft(undefined);
+    // A refresh issued for the previous thread can no longer clear this flag
+    // (it is not "current" any more), so without resetting it here the spinner
+    // stayed up from the moment you switched until the next request settled.
+    setRagLoading(false);
     lastFp.current = "";
   }, [activeId]);
 
-  const active = useMemo(
-    () => threads.find((t) => t.id === activeId) ?? threads[0] ?? null,
-    [threads, activeId],
-  );
+  // No `?? threads[0]` fallback. A ?conversationId that matches nothing used to
+  // render the first thread in the list instead — same URL, different customer,
+  // no indication anything had been substituted.
+  const active = useMemo(() => threads.find((t) => t.id === activeId) ?? null, [threads, activeId]);
+  const deadLink = Boolean(activeId) && active === null && threads.length > 0;
 
   const displayThread = useMemo(() => {
     if (!active) return null;
@@ -251,6 +266,19 @@ function InboxPage() {
 
   const handleTakeOver = async () => {
     if (!active || pending) return;
+    // The backend puts no ownership check on takeover, so claiming a thread a
+    // colleague is holding silently reassigns it to you and they find out by
+    // being rejected. Offering the button is the fix for the dead-end; asking
+    // first is what keeps it from being a silent steal.
+    if (!active.isMine && active.status === "assigned") {
+      const ok = await confirm({
+        title: "Take over from another agent?",
+        description: `${active.customer}'s conversation is assigned to a colleague. Taking over reassigns it to you, and they will not be able to reply until you hand it back.`,
+        confirmLabel: "Take over anyway",
+        cancelLabel: "Leave it with them",
+      });
+      if (!ok) return;
+    }
     setPending(true);
     setSendError(null);
     try {
@@ -299,77 +327,125 @@ function InboxPage() {
   const dockedRail = railOpen && wideLayout;
   const overlayRail = railOpen && !wideLayout;
 
+  // The inbox polls every 1.5–4s. Gating the whole screen on `isError` meant a
+  // single failed poll replaced a working inbox — cached threads, open thread,
+  // half-typed reply — with one line of red text, and the next successful poll
+  // put it back. An error with nothing behind it is fatal; an error with
+  // cached data is a stale-data warning.
+  const fatalError = isError && threads.length === 0;
+  const staleWarning = isError && threads.length > 0;
+
   return (
     <AppShell>
-      <div className="flex h-full min-h-0 w-full overflow-hidden">
-        {isLoading && (
-          <div className="grid flex-1 place-items-center">
-            <LoadingState label="Loading conversations" />
-          </div>
-        )}
-        {isError && (
-          <div className="grid flex-1 place-items-center text-body text-text-danger">
-            Failed to load inbox: {(error as Error)?.message ?? "unknown error"}
-          </div>
-        )}
-        {!isLoading && !isError && displayThread && (
-          <SplitPanes
-            storageKey={dockedRail ? "bigbound.inbox.split.3" : "bigbound.inbox.split.2"}
-            defaultWidths={dockedRail ? [20, 58, 22] : [24, 76]}
-            minWidthsPx={dockedRail ? [240, 420, 280] : [240, 420]}
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+        {staleWarning && (
+          <div
+            role="status"
+            className="shrink-0 border-b border-border-warning-subtle bg-background-warning-subtler px-250 py-075 text-body-small text-text-warning-bolder"
           >
-            {[
-              <ConversationList
-                key="list"
-                threads={threads}
-                activeId={displayThread.id}
-                onSelect={(id) => {
-                  setActiveId(id);
-                  void navigate({ search: { conversationId: id }, replace: true });
-                }}
-              />,
-              <div key="chat" className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-                <ChatThread
-                  thread={displayThread}
-                  onToggleRail={toggleRail}
-                  railOpen={railOpen}
-                  onTakeOver={handleTakeOver}
-                  onReturnToBot={handleReturnToBot}
-                  busy={pending}
-                />
-                <Composer
-                  key={displayThread.id}
-                  thread={displayThread}
-                  onSend={handleSend}
-                  onRefreshRag={(withDraft) =>
-                    runRagRefresh(displayThread.id, Boolean(withDraft))
-                  }
-                  onSuggestReply={handleSuggestReply}
-                  busy={pending}
-                  errorMessage={sendError}
-                  ragLoading={ragLoading}
-                  ragError={ragError}
-                />
-                {overlayRail && (
-                  <div className="absolute inset-y-0 right-0 z-20 flex w-[20rem] max-w-[85%] flex-col border-l border-border bg-surface shadow-overlay">
+            Live updates interrupted ({(error as Error)?.message ?? "unknown error"}). Showing the
+            last state received — new messages may be missing.
+          </div>
+        )}
+        <div className="flex min-h-0 w-full flex-1 overflow-hidden">
+          {isPending && !isError && (
+            <div className="grid flex-1 place-items-center">
+              <LoadingState
+                label={fetchStatus === "paused" ? "Waiting to reconnect" : "Loading conversations"}
+              />
+            </div>
+          )}
+          {fatalError && (
+            <div className="grid flex-1 place-items-center text-body text-text-danger">
+              Failed to load inbox: {(error as Error)?.message ?? "unknown error"}
+            </div>
+          )}
+          {!isPending && !fatalError && deadLink && (
+            <div className="grid flex-1 place-items-center px-300 text-center">
+              <div className="max-w-[28rem]">
+                <p className="text-body font-semibold text-text">No conversation with this id</p>
+                <p className="mt-075 text-body-small text-text-subtle">
+                  Nothing in this inbox is registered as “{activeId}”. It may have been deleted, or
+                  belong to another tenant.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const first = threads[0];
+                    if (!first) return;
+                    setActiveId(first.id);
+                    void navigate({ search: { conversationId: first.id }, replace: true });
+                  }}
+                  className="focus-ring mt-150 inline-flex h-400 items-center rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered"
+                >
+                  Open the most recent conversation
+                </button>
+              </div>
+            </div>
+          )}
+          {!isPending && !fatalError && !deadLink && displayThread && (
+            <SplitPanes
+              storageKey={dockedRail ? "bigbound.inbox.split.3" : "bigbound.inbox.split.2"}
+              defaultWidths={dockedRail ? [20, 58, 22] : [24, 76]}
+              minWidthsPx={dockedRail ? [240, 420, 280] : [240, 420]}
+            >
+              {[
+                <ConversationList
+                  key="list"
+                  threads={threads}
+                  activeId={displayThread.id}
+                  onSelect={(id) => {
+                    setActiveId(id);
+                    void navigate({ search: { conversationId: id }, replace: true });
+                  }}
+                />,
+                <div
+                  key="chat"
+                  className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+                >
+                  <ChatThread
+                    thread={displayThread}
+                    onToggleRail={toggleRail}
+                    railOpen={railOpen}
+                    onTakeOver={handleTakeOver}
+                    onReturnToBot={handleReturnToBot}
+                    busy={pending}
+                  />
+                  <Composer
+                    key={displayThread.id}
+                    thread={displayThread}
+                    onSend={handleSend}
+                    onRefreshRag={(withDraft) =>
+                      runRagRefresh(displayThread.id, Boolean(withDraft))
+                    }
+                    onSuggestReply={handleSuggestReply}
+                    busy={pending}
+                    errorMessage={sendError}
+                    ragLoading={ragLoading}
+                    ragError={ragError}
+                  />
+                  {overlayRail && (
+                    <div className="absolute inset-y-0 right-0 z-20 flex w-[20rem] max-w-[85%] flex-col border-l border-border bg-surface shadow-overlay">
+                      <ContextRail thread={displayThread} onClose={closeRail} />
+                    </div>
+                  )}
+                </div>,
+                dockedRail ? (
+                  <div key="rail" className="h-full min-h-0 border-l border-border">
                     <ContextRail thread={displayThread} onClose={closeRail} />
                   </div>
-                )}
-              </div>,
-              dockedRail ? (
-                <div key="rail" className="h-full min-h-0 border-l border-border">
-                  <ContextRail thread={displayThread} onClose={closeRail} />
-                </div>
-              ) : null,
-            ]}
-          </SplitPanes>
-        )}
-        {!isLoading && !isError && !displayThread && (
-          <div className="grid flex-1 place-items-center text-body text-text-subtle">
-            No conversations yet.
-          </div>
-        )}
+                ) : null,
+              ]}
+            </SplitPanes>
+          )}
+          {!isPending && !fatalError && !deadLink && !displayThread && (
+            <div className="grid flex-1 place-items-center text-body text-text-subtle">
+              No conversations yet.
+            </div>
+          )}
+        </div>
       </div>
+      {confirmDialog}
     </AppShell>
   );
 }

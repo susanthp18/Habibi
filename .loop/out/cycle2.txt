@@ -1,0 +1,54 @@
+All nine endpoints are wired end to end and verified against the live backend.
+
+## Verification output
+
+```
+$ npm run typecheck
+npm notice run tsc --noEmit
+                                    (clean — no output)
+
+$ npm run lint
+✖ 62 problems (0 errors, 62 warnings)      ← all 62 pre-existing, in other files
+check-spacing-scale: clean (14 defined steps)
+check-type-scale: clean (16 defined tokens)
+
+$ npm run build
+[nitro] ✔ You can preview this build using npx vite preview
+EXIT=0
+```
+
+## The nine endpoints, with their frontend caller
+
+| Endpoint | Client call site | Route consumer |
+|---|---|---|
+| `GET /treatment/next` | `treatment.ts:883` `apiGet<TreatmentNext>(\`/treatment/next?${params.toString()}\`)` | `treatment.lazy.tsx:1037` `const next = useTreatmentNext(...)` |
+| `GET /treatment/insights` | `treatment.ts:888` `apiGet<TreatmentInsights>(\`/treatment/insights?days=${days}\`)` | `treatment.lazy.tsx:342` `const insights = useTreatmentInsights(days)` |
+| `GET /treatment/metrics` | `treatment.ts:897` `` `/treatment/metrics?days=${days}&includeSimulated=${includeSimulated}` `` | `treatment.lazy.tsx:343` `const metrics = useTreatmentMetrics(days)` |
+| `GET /treatment/model-health` | `treatment.ts:907` `` `/treatment/model-health?days=${days}&includeSimulated=${includeSimulated}` `` | `treatment.lazy.tsx:611` `const health = useTreatmentModelHealth(days)` |
+| `GET /treatment/models` | `treatment.ts:924` `apiGet<TreatmentModels>(\`/treatment/models?${params.toString()}\`)` | `treatment.lazy.tsx:612` `const models = useTreatmentModels()` |
+| `GET /treatment/holds` | `treatment.ts:946` `apiGet<TreatmentHold[]>(\`/treatment/holds?${params.toString()}\`)` | `treatment.lazy.tsx:1155` `const holds = useTreatmentHolds({ activeOnly })` |
+| `POST /treatment/holds` | `treatment.ts:993` `apiPost<TreatmentHold>("/treatment/holds", body)` | `treatment.lazy.tsx:1285` `const create = useCreateTreatmentHold()` |
+| `POST /treatment/holds/{id}/release` | `treatment.ts:1013` `` `/treatment/holds/${encodeURIComponent(holdId)}/release` `` | `treatment.lazy.tsx:1450` `const release = useReleaseTreatmentHold()` |
+| `GET /treatment/cases` | `treatment.ts:1037` `apiGet<TreatmentCase[]>(\`/treatment/cases?${params.toString()}\`)` | `treatment.lazy.tsx:924` `const cases = useTreatmentCases({ openOnly })` |
+
+## Sidebar placement
+
+**CRM & resolution**, after "Upsell & leads". It's the group whose job is deciding what to do about a specific borrower's account — Promise to pay, Disputes, Callbacks, Upsell are all "what happens next on this account". Decision intelligence answers exactly that question, one layer up. It's not Compliance & QA (that group audits what already happened) and not Bot configuration (it configures nothing).
+
+## What I saw on screen
+
+Dev server on 8080 is running **live**, not mock, so everything below is real backend data. I drove headless Chrome via playwright-core installed in a temp dir — the project's `node_modules` and `package.json` are untouched.
+
+- **Insights, light + dark** — 26 decisions, 15 actionable, coverage 57.7%, ₹966 expected value, 193 ms avg latency; suppression mix bars (shadow mode 53.8%, no eligible action 42.3%), action mix table, mode split 92.3% shadow. The causal panel correctly refuses to report a number, printing the backend's own reason about control arms holding 0 labelled cases. Dark theme flips every token cleanly — the amber warning panel darkens, borders and body copy stay legible, no raw hex leaks.
+- **Model health** — challenger `uplift 202608211146`, AUC 0.7191, 14,331 samples, and all three targets flagged **Unregistered** ("a file is serving that no promotion produced"). Null handling is the important bit here: Reach ECE renders **"—" with `n = 0`**, not "0%", and the reach/uplift model tiles render "—" rather than inventing a version.
+- **Cases** — live rows with real borrowers (Arjun Nair, Irfan Siddiqui, Neha Kapoor…), tabular numerals aligned in the Decisions/Attempts columns, "nothing tried" where the ladder is empty. Clicking a row calls `/treatment/next` and renders the panel: **Hold** / Live mode / Null treatment / No eligible action, rationale "reviewed, 32 DPD, ₹4,800 at stake", EV ₹0.00, propensity 20.0%, latency 81 ms, and nine vetoed-before-scoring chips.
+- **Holds** — genuinely empty on this backend, and it renders the empty panel ("No active holds — nothing is vetoing outreach right now"), not a spinner and not fabricated rows. The place-a-hold dialog opens correctly in dark mode; Place hold stays disabled until a borrower id is typed.
+- **Loading** — I delayed every `/treatment/*` response by 12 s via devtools request interception. Each section independently shows the house pixel-grid loader with its own label ("Loading shadow-mode report", "Loading scoreboard") and a live elapsed timer. No numbers appear while pending.
+- **Error** — I aborted `**/treatment/**`. Both sections replace their content with "Couldn't load this section / Failed to fetch" plus a **Try again** button. Critically, **zero numbers render** — no fallback to mock-looking data, which was the explicit requirement.
+
+Two style bugs the screenshots caught that reasoning would not have: my `humanise()` was rendering `whatsapp` as "Whatsapp" (the app spells it **WhatsApp** in 81 places and "Whatsapp" in none) and `dpd_tick` as "Dpd tick". I added a proper-noun table (WhatsApp, SMS, DPD, PTP, EMI, AUC, PSI, ECE, ATE…) so sentence case doesn't flatten acronyms and brands. I also normalised the action lozenge, which was showing a lowercase "hold" next to "Live mode".
+
+One scope note: the mock seed lives inline in `src/api/treatment.ts` rather than `src/data/`. Both are house patterns — `disputes.ts` and `promises.ts` import from `src/data/*-seed.ts`, while `offer-health.ts` keeps `mockOfferHealth` inline — and I chose the inline one because your scope said new files under `src/api/` and `src/routes/` only. The seed is a realistic Indian collections fortnight: hardship/dispute/bereavement/legal holds on Priya Sharma, Rakesh Menon, Lakshmi Venkatesan, Irfan Siddiqui, a thin control arm that can't support a causal number, and a serving check that disagrees with the registry.
+
+I did not commit — say the word and I'll commit to `greptile-review/local-wip`.
+CYCLE2_EXIT=0

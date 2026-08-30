@@ -32,22 +32,21 @@ export function TranscriptRedactor({ record, onToggleFinding }: Props) {
         );
       })}
       {record.transcript.length === 0 && (
-        <div className="py-400 text-center text-body-small text-text-subtlest">No transcript available</div>
+        <div className="py-400 text-center text-body-small text-text-subtlest">
+          No transcript available
+        </div>
       )}
     </div>
   );
 }
 
-function renderWithMarks(
-  text: string,
-  findings: PiiFinding[],
-  onToggle: (id: string) => void,
-) {
+function renderWithMarks(text: string, findings: PiiFinding[], onToggle: (id: string) => void) {
   if (findings.length === 0) return text;
   const parts: React.ReactNode[] = [];
   let cursor = 0;
   findings.forEach((f, i) => {
-    if (f.start > cursor) parts.push(<Fragment key={`t-${i}`}>{text.slice(cursor, f.start)}</Fragment>);
+    if (f.start > cursor)
+      parts.push(<Fragment key={`t-${i}`}>{text.slice(cursor, f.start)}</Fragment>);
     parts.push(
       <button
         key={f.id}

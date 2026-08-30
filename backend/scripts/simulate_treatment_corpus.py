@@ -55,19 +55,20 @@ draw outcomes. A simulated customer who accepted exactly what the shipped
 scorer already ranks first would teach a model trained on the corpus to imitate
 the baseline, and the exercise would prove only that the code runs.
 
-What it does not simulate
--------------------------
-
-Reach is drawn per channel and per hour, but there is no delivery-receipt
-ledger in this stack, so the WhatsApp "reach" it generates is the same
-reply-shaped proxy the real feature builder uses. That is a faithful copy of a
-real gap rather than a fix for it, and a reach model trained on this corpus
-inherits the gap honestly.
+**Reachability that varies by borrower.** Added after the first reach model
+fitted on this corpus scored an AUC of 0.497 — a coin flip, and correctly so:
+reach had been a per-channel constant, so there was nothing about a borrower
+for a model to learn. A simulator whose latent truth has no heterogeneity
+cannot demonstrate that an estimator beats a prior, because the prior is
+already optimal. Each borrower now carries a private reachability drawn once,
+and it correlates with the segment: an avoidant borrower is genuinely harder to
+get hold of, which is most of why they are avoidant.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import os
 import random
@@ -107,15 +108,30 @@ GUARD_ENV = "TREATMENT_SIMULATION_OK"
 #: on their own most of the time and our contact adds almost nothing, while
 #: ``squeezed`` borrowers rarely cure alone and respond strongly. A response
 #: model ranks forgetful first and books their self-cures as its own success.
+#: ``reach`` is the segment's mean probability that an attempt gets through;
+#: each borrower draws their own around it. Avoidant borrowers are hard to
+#: reach because avoiding is what they are doing, which makes reach and uplift
+#: correlated in a way a naive engine will misread as "contact works here".
 SEGMENTS: dict[str, dict[str, float]] = {
     # Salary landed late, mandate presented on the wrong day. Cures itself.
-    "forgetful": {"self_cure": 0.72, "uplift": 0.04, "share": 0.35},
+    "forgetful": {"self_cure": 0.72, "uplift": 0.04, "share": 0.35, "reach": 0.62},
     # Genuinely short this month, will pay if reminded and given a route.
-    "squeezed": {"self_cure": 0.18, "uplift": 0.34, "share": 0.30},
+    "squeezed": {"self_cure": 0.18, "uplift": 0.34, "share": 0.30, "reach": 0.55},
     # Avoiding it. Moves only for a person, and not always then.
-    "avoidant": {"self_cure": 0.06, "uplift": 0.22, "share": 0.20},
+    "avoidant": {"self_cure": 0.06, "uplift": 0.22, "share": 0.20, "reach": 0.22},
     # In real difficulty. Contact does very little and costs goodwill.
-    "distressed": {"self_cure": 0.04, "uplift": 0.05, "share": 0.15},
+    "distressed": {"self_cure": 0.04, "uplift": 0.05, "share": 0.15, "reach": 0.38},
+}
+
+#: Per-channel multiplier on a borrower's own reachability. A borrower who
+#: dodges calls still reads WhatsApp, which is the single most useful thing a
+#: reach model can discover and the reason it is worth fitting one per channel
+#: rather than one per borrower.
+CHANNEL_REACH: dict[str, float] = {
+    "sms": 0.60,
+    "whatsapp": 1.15,
+    "voice": 0.75,
+    "field": 1.00,
 }
 
 #: How much of a segment's uplift each action actually realises. Deliberately
@@ -128,6 +144,9 @@ ACTION_EFFICACY: dict[str, dict[str, float]] = {
     "forgetful": {
         A.REPRESENT_MANDATE: 1.00,
         A.EMI_DATE_CHANGE: 0.80,
+        # A plan is over-engineering for someone who simply forgot; the debit
+        # going through again solves it and they never had to do anything.
+        A.SELF_SERVICE_PLAN: 0.20,
         A.SMS: 0.55,
         A.WHATSAPP: 0.70,
         A.VOICE_BOT: 0.60,
@@ -138,6 +157,10 @@ ACTION_EFFICACY: dict[str, dict[str, float]] = {
     "squeezed": {
         A.REPRESENT_MANDATE: 0.95,
         A.EMI_DATE_CHANGE: 0.90,
+        # The strongest instrument for this segment after the mandate itself:
+        # genuinely short this month, willing, and what they need is a route
+        # rather than a reminder.
+        A.SELF_SERVICE_PLAN: 0.85,
         A.SMS: 0.35,
         A.WHATSAPP: 0.60,
         A.VOICE_BOT: 0.70,
@@ -148,6 +171,9 @@ ACTION_EFFICACY: dict[str, dict[str, float]] = {
     "avoidant": {
         A.REPRESENT_MANDATE: 0.45,
         A.EMI_DATE_CHANGE: 0.25,
+        # Anything requiring the borrower to act does nothing here. Not acting
+        # is what they are doing.
+        A.SELF_SERVICE_PLAN: 0.15,
         A.SMS: 0.10,
         A.WHATSAPP: 0.20,
         A.VOICE_BOT: 0.35,
@@ -158,6 +184,10 @@ ACTION_EFFICACY: dict[str, dict[str, float]] = {
     "distressed": {
         A.REPRESENT_MANDATE: 0.30,
         A.EMI_DATE_CHANGE: 0.60,
+        # Helps, but a catch-up plan is not the instrument someone in real
+        # difficulty needs -- that is a restructure, and it is not the engine's
+        # to grant.
+        A.SELF_SERVICE_PLAN: 0.45,
         A.SMS: 0.10,
         A.WHATSAPP: 0.25,
         A.VOICE_BOT: 0.20,
@@ -167,15 +197,58 @@ ACTION_EFFICACY: dict[str, dict[str, float]] = {
     },
 }
 
-#: Return-code mix on a bounce. Insufficient funds dominates, which is what
-#: makes salary-timed re-presentment the highest-value action in the book.
-RETURN_MIX: list[tuple[str, float]] = [
-    ("insufficient_funds", 0.68),
-    ("technical", 0.12),
-    ("mandate_expired", 0.11),
-    ("account_closed", 0.06),
-    ("unknown", 0.03),
-]
+#: Return-code mix on a bounce, **per segment**, because the return code is the
+#: observable trace the borrower's type leaves behind.
+#:
+#: This was one mix for everybody, and that made the corpus unfittable: the
+#: segment determined self-cure and uplift while leaving no signal in any
+#: feature, so a model asked to tell two borrowers apart had nothing to do it
+#: with and every fit came back at AUC 0.50. Which was the right answer — there
+#: was genuinely nothing there.
+#:
+#: The correlation is also just true. A forgetful borrower bounces because the
+#: money arrived late; someone in real difficulty has a closed account or a
+#: mandate they cancelled to stop the debits.
+RETURN_MIX: dict[str, list[tuple[str, float]]] = {
+    "forgetful": [
+        ("insufficient_funds", 0.82),
+        ("technical", 0.14),
+        ("mandate_expired", 0.02),
+        ("account_closed", 0.01),
+        ("unknown", 0.01),
+    ],
+    "squeezed": [
+        ("insufficient_funds", 0.86),
+        ("technical", 0.06),
+        ("mandate_expired", 0.05),
+        ("account_closed", 0.02),
+        ("unknown", 0.01),
+    ],
+    "avoidant": [
+        ("insufficient_funds", 0.40),
+        ("technical", 0.05),
+        ("mandate_expired", 0.38),
+        ("account_closed", 0.14),
+        ("unknown", 0.03),
+    ],
+    "distressed": [
+        ("insufficient_funds", 0.46),
+        ("technical", 0.04),
+        ("mandate_expired", 0.18),
+        ("account_closed", 0.29),
+        ("unknown", 0.03),
+    ],
+}
+
+#: Promise-keeping by segment. The other observable a type leaves behind, and
+#: the one a collections floor already trusts: ``ptp_keep_rate`` has been in the
+#: feature vector since the engine shipped.
+PTP_KEEP: dict[str, float] = {
+    "forgetful": 0.82,
+    "squeezed": 0.55,
+    "avoidant": 0.18,
+    "distressed": 0.24,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +270,35 @@ def _segment(rng: random.Random) -> str:
     return _pick(rng, [(k, v["share"]) for k, v in SEGMENTS.items()])
 
 
-def build_book(conn: Any, *, tenant: str, product_id: str, count: int, rng: random.Random) -> int:
+def latent_reach(customer_id: str, segment: str) -> float:
+    """This borrower's true reachability, stable across simulated days.
+
+    Hashed from the id rather than drawn, because a borrower who is hard to
+    reach on Tuesday is hard to reach on Wednesday. Redrawing each day would
+    make reach pure noise and no estimator could ever beat the channel prior —
+    which is exactly the state that produced an AUC of 0.497 the first time
+    this corpus was fitted.
+    """
+    digest = hashlib.blake2b(
+        customer_id.encode("utf-8"), digest_size=8, person=b"simreach"
+    ).digest()
+    unit = int.from_bytes(digest, "big") / float(1 << 64)
+    # Box-Muller-ish: two hashed uniforms would be better, but a triangular
+    # draw around the segment mean is enough spread for a linear model to find
+    # and keeps this to one hash.
+    spread = (unit + (unit * 7919 % 1.0)) / 2.0 - 0.5
+    return _clamp01(SEGMENTS[segment]["reach"] + spread * 0.55)
+
+
+def build_book(
+    conn: Any,
+    *,
+    tenant: str,
+    product_id: str,
+    count: int,
+    rng: random.Random,
+    bot_id: str | None = None,
+) -> int:
     """Create synthetic borrowers, accounts, EMIs, mandates and bounces.
 
     Written straight to the tables the feature builder reads, rather than
@@ -216,6 +317,12 @@ def build_book(conn: Any, *, tenant: str, product_id: str, count: int, rng: rand
         # produces a uniform spread would over-represent exactly the buckets
         # where the engine has fewest options.
         dpd = int(min(150, max(1, rng.lognormvariate(2.6, 0.9))))
+
+        # This borrower's own reachability. Derived from their id rather than
+        # drawn from the shared generator, so ``_settle`` can recover exactly
+        # the same value on a later day without a column to store it in —
+        # reachability is a property of the person, not of the decision.
+        reachability = latent_reach(customer_id, segment)
         instalment = round(rng.lognormvariate(8.3, 0.55), 2)
         outstanding = round(instalment * rng.uniform(3, 30), 2)
 
@@ -250,7 +357,15 @@ def build_book(conn: Any, *, tenant: str, product_id: str, count: int, rng: rand
                 "email": f"sim{index:06d}@example.invalid",
                 "segment": segment,
                 "risk": "high" if segment in {"avoidant", "distressed"} else "medium",
-                "score": rng.randint(300, 800),
+                # A *noisy proxy* for reachability, not a copy of it. Bureau
+                # score and contactability really do correlate — a borrower
+                # whose file is thin is usually a borrower whose number is
+                # stale — and the noise is what stops the reach model
+                # recovering the latent variable exactly and reporting an AUC
+                # no real deployment will ever see.
+                "score": max(
+                    300, min(850, int(300 + 500 * reachability + rng.gauss(0, 55)))
+                ),
             },
         )
         conn.execute(
@@ -330,7 +445,7 @@ def build_book(conn: Any, *, tenant: str, product_id: str, count: int, rng: rand
                 },
             )
 
-        reason = _pick(rng, RETURN_MIX)
+        reason = _pick(rng, RETURN_MIX[segment])
         conn.execute(
             text(
                 """
@@ -361,8 +476,67 @@ def build_book(conn: Any, *, tenant: str, product_id: str, count: int, rng: rand
                 "occurred": today - timedelta(days=min(dpd, 45)),
             },
         )
+        if bot_id:
+            _seed_promises(
+                conn,
+                index=index,
+                customer_id=customer_id,
+                account_id=account_id,
+                bot_id=bot_id,
+                keep_rate=PTP_KEEP[segment],
+                amount=instalment,
+                now=today,
+                rng=rng,
+            )
         made += 1
     return made
+
+
+def _seed_promises(
+    conn: Any,
+    *,
+    index: int,
+    customer_id: str,
+    account_id: str,
+    bot_id: str,
+    keep_rate: float,
+    amount: float,
+    now: datetime,
+    rng: random.Random,
+) -> None:
+    """A short promise history, so ``ptp_keep_rate`` is a real feature.
+
+    Four promises each, kept or broken by the segment's rate. Four rather than
+    one because ``MIN_ATTEMPTS_FOR_RATE`` gates the feature at three: below the
+    floor the engine reports the rate as unknown, which is correct behaviour
+    and would have left the column empty for every simulated borrower.
+    """
+    for n in range(4):
+        kept = rng.random() < keep_rate
+        conn.execute(
+            text(
+                """
+                INSERT INTO promises (
+                  id, customer_id, account_id, owner_kind, owner_bot_id,
+                  amount, promised_at, status, reminder_status, paid_amount, channel
+                ) VALUES (
+                  :id, :cid, :aid, 'bot', :bot,
+                  :amount, :at, :status, 'off', :paid, 'whatsapp'
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {
+                "id": f"{TAG}PR{index:06d}-{n}",
+                "cid": customer_id,
+                "aid": account_id,
+                "bot": bot_id,
+                "amount": amount,
+                "at": now - timedelta(days=30 * (n + 1)),
+                "status": "kept" if kept else "broken",
+                "paid": amount if kept else 0,
+            },
+        )
 
 
 def _month_day(base: datetime, day: int) -> datetime:
@@ -406,26 +580,69 @@ def sweep_day(
     ).mappings().all()
 
     made = cured = 0
+    failed = 0
     ref = day.date().isoformat()
     for account in accounts:
-        result = recommend_treatment(
-            customer_id=account["customer_id"],
-            account_id=account["id"],
-            trigger=Trigger(kind="dpd_tick", at=day, ref=ref),
-            now=day,
-            conn=conn,
-            force_mode=config.MODE_SIMULATED,
-        )
-        if result.decision_id is None:
+        # A savepoint per account, exactly as sweep.py does and for the same
+        # reason. Without one, a single account whose decision raises poisons
+        # the enclosing transaction and every account after it fails with
+        # "current transaction is aborted" -- so one transient lock timeout
+        # costs the rest of the run.
+        #
+        # Learned the expensive way: a concurrent test run held FOR UPDATE on
+        # an accounts row, the decision log's foreign-key check waited past the
+        # statement timeout, and a corpus generation that was ten thousand
+        # accounts from finishing produced ten thousand identical tracebacks
+        # instead.
+        savepoint = conn.begin_nested()
+        try:
+            result = recommend_treatment(
+                customer_id=account["customer_id"],
+                account_id=account["id"],
+                trigger=Trigger(kind="dpd_tick", at=day, ref=ref),
+                now=day,
+                conn=conn,
+                force_mode=config.MODE_SIMULATED,
+            )
+            if result.decision_id is None:
+                savepoint.rollback()
+                continue
+            settled = _settle(
+                conn,
+                result,
+                segment=str(account["segment"]),
+                customer_id=str(account["customer_id"]),
+                account_id=str(account["id"]),
+                rng=rng,
+                day=day,
+            )
+            savepoint.commit()
+        except Exception:
+            savepoint.rollback()
+            failed += 1
+            if failed <= 3:
+                logger.exception("simulating %s failed; skipping it", account["id"])
             continue
         made += 1
-        if _settle(conn, result, segment=str(account["segment"]), rng=rng, day=day):
+        if settled:
             cured += 1
+    if failed:
+        logger.warning(
+            "%s of %s accounts could not be simulated on %s and were skipped",
+            failed, len(accounts), day.date(),
+        )
     return made, cured
 
 
 def _settle(
-    conn: Any, result: Any, *, segment: str, rng: random.Random, day: datetime
+    conn: Any,
+    result: Any,
+    *,
+    segment: str,
+    customer_id: str,
+    account_id: str,
+    rng: random.Random,
+    day: datetime,
 ) -> bool:
     """Draw the outcome from the latent truth and write it to the decision.
 
@@ -438,33 +655,140 @@ def _settle(
     profile = SEGMENTS.get(segment, SEGMENTS["squeezed"])
     action = result.action
 
+    reachability = latent_reach(customer_id, segment)
+
     self_cured = rng.random() < profile["self_cure"] * _window_factor(action)
     incremental = 0.0
     if action != A.WAIT and not result.suppressed:
         efficacy = ACTION_EFFICACY.get(segment, {}).get(action, 0.2)
-        incremental = profile["uplift"] * efficacy
+        # An intervention only has its effect if it lands. Multiplying the
+        # uplift by reach here rather than treating them as independent is what
+        # makes the two estimable separately: reach is observable from the
+        # outcome label, uplift only from the arm comparison.
+        incremental = profile["uplift"] * efficacy * _reach_probability(
+            action, reachability
+        )
     treated_cure = self_cured or (rng.random() < incremental)
 
     if action == A.WAIT or result.suppressed:
-        # Nothing was done. A cure here is a self-cure and is recorded as one —
-        # this is the control observation, and it is the only row in the corpus
-        # that can say what would have happened anyway.
-        outcome = "paid" if self_cured else None
-        if outcome:
-            decisions.record_outcome(result.decision_id, outcome, conn=conn)
-        return bool(outcome)
+        # Nothing was done. The cure is a self-cure and the non-cure is just as
+        # informative — together they are the control observation, and they are
+        # the only rows in the corpus that can say what would have happened
+        # anyway.
+        #
+        # Recording only the cures is what produced a control arm with a 100%
+        # cure rate and an estimated treatment effect of −0.455. The negative is
+        # the half that makes it a measurement.
+        outcome = "paid" if self_cured else "unresolved"
+        decisions.record_outcome(result.decision_id, outcome, conn=conn)
+        if self_cured:
+            _record_payment(conn, customer_id=customer_id, account_id=account_id,
+                            decision_id=result.decision_id, day=day)
+        return self_cured
 
     decisions.mark_enacted(
         result.decision_id, ref=f"{TAG}SIM", conn=conn, enacted_by="treatment_executor"
     )
     if treated_cure:
         outcome = "paid"
-    elif rng.random() < _reach_probability(action):
+    elif rng.random() < _reach_probability(action, reachability):
         outcome = rng.choice(["reached", "ptp", "refused"])
     else:
         outcome = "no_answer"
     decisions.record_outcome(result.decision_id, outcome, conn=conn)
+    if outcome == "paid":
+        _record_payment(conn, customer_id=customer_id, account_id=account_id,
+                        decision_id=result.decision_id, day=day)
     return outcome in {"paid", "ptp"}
+
+
+def _record_payment(
+    conn: Any, *, customer_id: str, account_id: str, decision_id: str, day: datetime
+) -> None:
+    """The money behind a cure: a ledger entry and a settled instalment.
+
+    Added after the S17 scoreboard reported an incremental recovery of zero
+    rupees on a corpus where a fifth of the book had cured. The decisions were
+    labelled ``paid`` and no money existed anywhere, so every rupee-denominated
+    metric divided by nothing -- including the headline one, incremental
+    recovery per rupee.
+
+    **Not ``payment_events``.** The name misleads: that table's ``kind`` is
+    CHECK-constrained to ``'bounce'``, so it is a returns ledger and cannot hold
+    a payment at all. The first version of this function wrote there, every
+    insert raised a check violation, and the per-account savepoint rolled back
+    the decision along with it -- which is how a run finished reporting a
+    control arm with a cure rate of exactly 0.000. Every self-cure had been
+    deleted, and the remaining rows were all the ones where nothing happened.
+
+    A zero and a one are equally impossible as a measured cure rate, and both
+    mean the same thing: the corpus is not recording what it thinks it is.
+    """
+    row = conn.execute(
+        text(
+            """
+            SELECT (SELECT e.id FROM emi_installments e
+                     WHERE e.account_id = a.id AND e.status <> 'paid'
+                     ORDER BY e.due_date ASC LIMIT 1) AS emi_id,
+                   (SELECT e.amount FROM emi_installments e
+                     WHERE e.account_id = a.id AND e.status <> 'paid'
+                     ORDER BY e.due_date ASC LIMIT 1) AS emi_amount,
+                   a.outstanding
+            FROM accounts a WHERE a.id = :aid
+            """
+        ),
+        {"aid": account_id},
+    ).mappings().first()
+    if not row:
+        return
+    amount = float(row["emi_amount"] or 0.0) or float(row["outstanding"] or 0.0)
+    if amount <= 0:
+        return
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO ledger_entries (
+              id, account_id, type, description, amount, posted_at
+            ) VALUES (
+              :id, :aid, 'payment', :note, :amount, :occurred
+            )
+            ON CONFLICT (id) DO NOTHING
+            """
+        ),
+        {
+            "id": f"{TAG}LE{decision_id[-10:]}",
+            "aid": account_id,
+            "note": f"simulated cure attributed to {decision_id}",
+            "amount": round(amount, 2),
+            # Wall clock, not the simulated day.
+            #
+            # ``treatment_decisions.created_at`` is ``clock_timestamp()`` by
+            # design -- it is an append-only log and records when the row was
+            # written, not when the simulation pretends it happened. Posting the
+            # payment at the simulated date puts it *before* the decision that
+            # caused it, and every attribution join of the form "a payment after
+            # the decision" then matches nothing. S17's incremental recovery
+            # read zero rupees on a corpus holding three hundred million of
+            # them, while the un-joined total read correctly -- which is what
+            # made the mismatch visible at all.
+            "occurred": datetime.now(timezone.utc),
+        },
+    )
+    if row["emi_id"]:
+        # The instalment settles too. A ledger payment with the EMI still
+        # overdue is a book that disagrees with itself, and the next day's
+        # sweep would decide the same arrears again.
+        conn.execute(
+            text(
+                """
+                UPDATE emi_installments
+                SET status = 'paid', paid_amount = :amount, paid_on = :occurred
+                WHERE id = :eid
+                """
+            ),
+            {"eid": row["emi_id"], "amount": round(amount, 2), "occurred": day.date()},
+        )
 
 
 def _window_factor(action: str) -> float:
@@ -479,13 +803,21 @@ def _window_factor(action: str) -> float:
     return 1.0
 
 
-def _reach_probability(action: str) -> float:
+def _reach_probability(action: str, reachability: float) -> float:
+    """Whether this attempt gets through, for this borrower on this channel.
+
+    A product rather than a lookup, and that is the whole change: a constant
+    per channel means the best possible reach model is the channel prior, and
+    an estimator that cannot beat a constant proves nothing when it does not.
+    """
     spec = A.spec(action)
     if spec.channel is None:
         return 1.0
-    return {"sms": 0.30, "whatsapp": 0.50, "voice": 0.28, "field": 0.55}.get(
-        spec.channel, 0.3
-    )
+    return _clamp01(reachability * CHANNEL_REACH.get(spec.channel, 1.0))
+
+
+def _clamp01(value: float) -> float:
+    return max(0.02, min(0.97, value))
 
 
 # ---------------------------------------------------------------------------
@@ -500,12 +832,29 @@ def purge(conn: Any) -> dict[str, int]:
     cleanup that could reach a real borrower is a worse bug than the mess it
     tidies.
     """
+    # The cascade from customers reaches accounts, EMIs, mandates,
+    # presentations, payment events, promises and promise reminders. On a book
+    # of a few hundred that is one quick statement; on eighteen thousand it is
+    # minutes of cascading deletes, and the application's statement timeout kills
+    # it partway through every time.
+    #
+    # So the timeout is lifted for this transaction only. Not raised globally
+    # and not removed from the engine: an unbounded statement timeout is a
+    # reasonable thing for a maintenance script that deletes its own rows and a
+    # very unreasonable one for a service on the audio path of a live call.
+    conn.execute(text("SET LOCAL statement_timeout = 0"))
+
     counts: dict[str, int] = {}
     counts["decisions"] = conn.execute(
-        text("DELETE FROM treatment_decisions WHERE mode = 'simulated'")
+        text(
+            # Both predicates. Tagged customers with a non-simulated decision
+            # would otherwise survive the first delete and then block the second
+            # one on a foreign key.
+            "DELETE FROM treatment_decisions"
+            " WHERE mode = 'simulated' OR customer_id LIKE :tag"
+        ),
+        {"tag": f"{TAG}%"},
     ).rowcount
-    # Customers cascade to accounts, EMIs, mandates, presentations and payment
-    # events, so the tagged delete is one statement rather than six.
     counts["customers"] = conn.execute(
         text("DELETE FROM customers WHERE id LIKE :tag"), {"tag": f"{TAG}%"}
     ).rowcount
@@ -571,8 +920,27 @@ def main() -> None:
         if not product_id:
             logger.error("tenant %s has no product to attach accounts to", tenant)
             raise SystemExit(1)
+        bot_id = conn.execute(
+            text("SELECT id FROM bots WHERE tenant_id = :t ORDER BY id LIMIT 1"),
+            {"t": tenant},
+        ).scalar()
+        if not bot_id:
+            # promises.CHECK requires an owner, and inventing a bot row to
+            # satisfy it would put a fake agent in the fleet screen. Without one
+            # the promise history is skipped and ptp_keep_rate stays unknown,
+            # which is the correct "absent, not zero" outcome.
+            logger.warning(
+                "tenant %s has no bot — skipping promise history, so ptp_keep_rate "
+                "will be unknown for every simulated borrower",
+                tenant,
+            )
         made = build_book(
-            conn, tenant=tenant, product_id=product_id, count=args.accounts, rng=rng
+            conn,
+            tenant=tenant,
+            product_id=product_id,
+            count=args.accounts,
+            rng=rng,
+            bot_id=str(bot_id) if bot_id else None,
         )
     logger.info("book: %s accounts under tenant %s", made, tenant)
 

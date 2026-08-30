@@ -38,7 +38,11 @@ export function PaymentPlansTable({ plans, onOpen }: Props) {
         sortValue: (p) => p.customerName,
         className: "min-w-[12rem]",
         cell: (p) => (
-          <button type="button" onClick={() => onOpen(p)} className="flex min-w-0 items-center gap-100 text-left">
+          <button
+            type="button"
+            onClick={() => onOpen(p)}
+            className="flex min-w-0 items-center gap-100 text-left"
+          >
             <RecordsAvatarMark label={p.customerName || "?"} />
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium text-text-brand hover:underline">
@@ -64,7 +68,9 @@ export function PaymentPlansTable({ plans, onOpen }: Props) {
         sortable: true,
         sortValue: (p) => p.total ?? 0,
         align: "right",
-        cell: (p) => <span className="tabular-nums font-semibold text-text">{fmtMoney(p.total)}</span>,
+        cell: (p) => (
+          <span className="tabular-nums font-semibold text-text">{fmtMoney(p.total)}</span>
+        ),
         footer: (visible) => {
           const sum = visible.reduce((s, p) => s + (Number(p.total) || 0), 0);
           return <span className="font-semibold tabular text-text">{fmtMoney(sum)}</span>;
@@ -151,8 +157,9 @@ export function PaymentPlansTable({ plans, onOpen }: Props) {
         <div>
           <div className="text-body font-semibold text-text">Payment plans</div>
           <div className="mt-025 text-body-small text-text-subtlest">
-            {plans.length} plan{plans.length === 1 ? "" : "s"} · {plans.filter((p) => p.status === "on_track").length}{" "}
-            on-track · {plans.filter((p) => p.status === "slipped").length} slipped
+            {plans.length} plan{plans.length === 1 ? "" : "s"} ·{" "}
+            {plans.filter((p) => p.status === "on_track").length} on-track ·{" "}
+            {plans.filter((p) => p.status === "slipped").length} slipped
           </div>
         </div>
       </div>

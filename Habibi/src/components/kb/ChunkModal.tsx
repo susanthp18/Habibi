@@ -1,13 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { KbChunk } from "@/data/kb-seed";
 
-export function ChunkModal({
-  chunk,
-  onClose,
-}: {
-  chunk: KbChunk | null;
-  onClose: () => void;
-}) {
+export function ChunkModal({ chunk, onClose }: { chunk: KbChunk | null; onClose: () => void }) {
   return (
     <Dialog open={!!chunk} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl">

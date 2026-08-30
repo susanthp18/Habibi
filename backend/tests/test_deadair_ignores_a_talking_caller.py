@@ -25,6 +25,7 @@ import pytest
 pytest.importorskip("pipecat.frames.frames")
 
 from pipecat.frames.frames import (  # noqa: E402
+    BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -44,6 +45,14 @@ def _feed(observer: BotTurnStateObserver, *frames) -> None:
             await observer.on_push_frame(_Processed(f))
 
     asyncio.run(_run())
+
+
+def test_first_speech_callback_fires_once() -> None:
+    hits: list[int] = []
+    obs = BotTurnStateObserver(on_first_speech=lambda: hits.append(1))
+    _feed(obs, BotStartedSpeakingFrame(), BotStartedSpeakingFrame())
+    assert hits == [1]
+    assert obs.has_spoken() is True
 
 
 def test_a_talking_caller_is_never_silence() -> None:

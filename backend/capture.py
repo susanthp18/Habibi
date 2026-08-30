@@ -377,26 +377,67 @@ def account_snapshot(conn: Connection, customer_id: str) -> dict[str, Any]:
     }
 
 
-def latest_consent_by_channel(conn: Connection, customer_id: str) -> dict[str, str]:
-    """Latest consent status per channel. A stale opt-out on one channel must
-    not outrank a fresh opt-in on the same channel."""
+def latest_consent_by_channel(
+    conn: Connection, customer_id: str, purpose: str = "servicing"
+) -> dict[str, str]:
+    """Latest consent status per channel, for one purpose.
+
+    A stale opt-out on one channel must not outrank a fresh opt-in on the same
+    channel — hence the DISTINCT ON.
+
+    The ``purpose`` filter is not optional cosmetics. Without it the DISTINCT ON
+    would collapse a servicing row and a promotional row for the same channel
+    into whichever happened to be captured later, so a customer who agreed to
+    marketing on WhatsApp in March could silently unblock — or block — the
+    servicing messages that keep their loan on the rails. Every existing caller
+    means ``servicing``, which is why that is the default.
+    """
     rows = conn.execute(
         text(
             """
             SELECT DISTINCT ON (cc.channel) cc.channel, cc.status
             FROM consent_records cr
             JOIN channel_consents cc ON cc.consent_id = cr.id
-            WHERE cr.customer_id = :cid
+            WHERE cr.customer_id = :cid AND cc.purpose = :purpose
             ORDER BY cc.channel, cc.captured_at DESC NULLS LAST, cc.id DESC
             """
         ),
-        {"cid": customer_id},
+        {"cid": customer_id, "purpose": purpose},
     ).mappings().all()
     return {str(r["channel"]): str(r["status"] or "").lower() for r in rows}
 
 
+def promotional_consent(conn: Connection, customer_id: str, channel: str) -> str | None:
+    """The promotional consent status for one channel, or None if never asked.
+
+    ``None`` and ``"opted_out"`` are different facts and callers must treat them
+    the same way — as a refusal. They are kept distinct anyway because the
+    operational answers differ: never-asked is a consent to go and collect,
+    opted-out is a decision to respect.
+    """
+    row = conn.execute(
+        text(
+            """
+            SELECT cc.status
+            FROM consent_records cr
+            JOIN channel_consents cc ON cc.consent_id = cr.id
+            WHERE cr.customer_id = :cid AND cc.channel = :ch
+              AND cc.purpose = 'promotional'
+            ORDER BY cc.captured_at DESC NULLS LAST, cc.id DESC
+            LIMIT 1
+            """
+        ),
+        {"cid": customer_id, "ch": channel},
+    ).mappings().first()
+    return str(row["status"] or "").lower() if row else None
+
+
 def _promo_consent_flag(
-    *, dnd: bool, consent: dict[str, str], channel: str | None
+    *,
+    dnd: bool,
+    consent: dict[str, str],
+    channel: str | None,
+    promotional: dict[str, str] | None = None,
 ) -> tuple[bool, str, str]:
     """(passed, status, detail) for the promotional-consent gate.
 
@@ -409,9 +450,35 @@ def _promo_consent_flag(
     follow-up channel is not yet known) we block only when DND is set or when
     every recorded channel is closed, and otherwise report ``unknown`` — which,
     per this module's standing rule, never blocks.
+
+    Purpose, and the one thing this function deliberately does not decide
+    ----------------------------------------------------------------------
+    ``promotional`` is the channel map for the *promotional* purpose, separate
+    from the servicing consent in ``consent``. An explicit promotional opt-out
+    fails here, which is unambiguous.
+
+    A **missing** promotional consent reports ``unknown`` and does not block,
+    and that is a deliberate refusal to answer a question that is not ours.
+    Section 18.1 of the outbound design doc records it as open: whether folding
+    an offer into a servicing conversation the borrower is already having makes
+    that conversation promotional is a question for the client's compliance
+    officer. Failing closed here would answer it by switching every offer in the
+    product off; passing silently would answer it the other way. Reporting
+    ``unknown`` puts the fact on the eligibility panel where a human can see it
+    and leaves the decision where it belongs.
+
+    A contact placed *for* marketing is a different matter and has no such
+    ambiguity — ``contact_policy.admit(data_purpose="promotional")`` fails closed
+    on exactly this map.
     """
     if dnd:
         return False, "fail", "Customer DND is on - promotional offers suppressed"
+
+    promo = promotional or {}
+    if channel:
+        promo_status = promo.get(channel)
+        if promo_status in _CONSENT_BLOCKING_STATUSES:
+            return False, "fail", f"{channel} promotional consent is {promo_status}"
 
     # An unknown carries passed=False alongside status="unknown", matching the
     # KYC/bureau/income flags above. eligibility_blocks_capture skips on the
@@ -456,6 +523,10 @@ def customer_eligibility_facts(conn: Connection, customer_id: str) -> dict[str, 
         "snapshot": snapshot,
         "dnd": bool(customer.get("dnd")),
         "consent": latest_consent_by_channel(conn, customer_id),
+        # Servicing consent answers "may we message them"; promotional consent
+        # answers "may we message them about something to sell". DPDP purpose
+        # limitation says the first does not imply the second.
+        "promotional": latest_consent_by_channel(conn, customer_id, "promotional"),
         "segment": customer.get("segment"),
         "risk": customer.get("risk"),
         "relationship_months": _relationship_months(snapshot["accounts"]),
@@ -545,6 +616,7 @@ def evaluate_product_eligibility(
         dnd=bool(facts["dnd"]),
         consent=consent,
         channel=(channel or "").strip().lower() or None,
+        promotional=facts.get("promotional") or {},
     )
 
     rules = conn.execute(
@@ -1269,6 +1341,37 @@ def _insert_next_transcript_turn(
         .mappings()
         .first()
     )
+
+
+def elapsed_seconds(started_at: datetime | None, at: datetime | None) -> int:
+    """Whole seconds from an interaction's start to `at`, floored at zero.
+
+    `interaction_transcript.at_sec` is the offset every timing view is keyed
+    on. Voice computes it from the call clock; the WhatsApp bridge passed a
+    literal 0 for both turns of every exchange, so the whole channel looked
+    like it happened in one instant.
+
+    Degrades rather than guesses: a missing start (or a missing instant) is 0,
+    which is what the column held before, and a back-dated seed row or a
+    skewed clock clamps to 0 rather than storing a negative offset.
+    """
+    if started_at is None or at is None:
+        return 0
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    delta = (at - started_at).total_seconds()
+    return int(delta) if delta > 0 else 0
+
+
+def interaction_started_at(conn: Connection, interaction_id: str) -> datetime | None:
+    """When this interaction began, or None if it was never stamped."""
+    row = conn.execute(
+        text("SELECT started_at FROM interactions WHERE id = :id"),
+        {"id": interaction_id},
+    ).first()
+    return row[0] if row else None
 
 
 def insert_transcript_turn(

@@ -1,0 +1,60 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 587 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+PAGE: Call Simulation Sandbox (/sandbox) — Prompt rehearsal inbound conversation
+ELEMENT: POST /sandbox/runs/{run_id}/turns — every customer turn fails 422
+
+REPRODUCTION (live, against http://localhost:8000 on 2026-08-25 ~00:50 IST):
+1. Create a run: POST /sandbox/runs {"promptVersionId":"v1_4","scenarioId":"angry-waiver"} -> 200 with run id.
+2. POST /sandbox/runs/{id}/turns {"text":"Yes this is Rahul speaking...","history":[],"context":null,"topK":3,"skillSlug":null}
+   -> HTTP 422:
+   [{"type":"extra_forbidden","loc":["body","skillSlug"],"msg":"Extra inputs are not permitted","input":null}]
+The browser UI hits exactly this: the customer types a reply to the greeting and gets NO bot response — the rehearsal conversation is dead at turn 1.
+
+EXPECTED: A turn with text/history/context/topK/skillSlug creates the customer+bot turns and returns SandboxTurnResponse (200).
+
+ACTUAL: 422 extra_forbidden on body.skillSlug — the request never reaches the runtime.
+
+EVIDENCE / ROOT CAUSE (contract drift between three layers):
+- Habibi/src/api/sandbox.ts (~line 321): appendSandboxTurn ALWAYS posts skillSlug (input.skillSlug ?? null).
+- sandbox_runtime.py line 442: `payload.get("skillSlug") ... -> mouth_turn_state(active_slug=...)` and line 521 pass it on — the runtime EXPECTS and USES it.
+- schemas.py line 2556 `class SandboxTurnCreateRequest(BaseModel): model_config = ConfigDict(extra="forbid")` declares ONLY text/history/context/topK — skillSlug missing -> rejected before the handler runs.
+- No test in backend/tests/ references SandboxTurnCreateRequest or posts skillSlug, so nothing caught the drift.
+
+REQUIRED FIX (root cause):
+1. Add `skillSlug: str | None = None` to SandboxTurnCreateRequest in schemas.py.
+2. Add regression tests (new file tests/test_sandbox_turn_schema.py or an existing
+   sandbox-related suite if you find a better home) using fastapi.testClient style
+   consistent with neighbouring tests, covering:
+   a. POST turn WITHOUT skillSlug -> 200/expected shape (or the documented error
+      for an unknown run id — use whatever fixture pattern exists);
+   b. POST turn WITH skillSlug set -> accepted, and the value reaches
+      append_sandbox_turn's payload (assert via monkeypatching
+      sandbox_runtime.append_sandbox_turn OR via the persisted turn rows,
+      whichever the existing test patterns support);
+   c. POST turn with a junk extra field still -> 422 (extra=forbid stays).
+3. Do NOT change the frontend. Do NOT touch sandbox_runtime.py logic.
+
+ACCEPTANCE CRITERIA:
+- Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed >= 2658.
+  Report tail verbatim.
+- Files changed limited to backend/schemas.py + new/existing tests. Anything else:
+  explain why explicitly.
+- Report files changed + pytest tail.

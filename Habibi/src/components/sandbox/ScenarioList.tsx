@@ -27,9 +27,7 @@ export function ScenarioList({ scenarios, activeId, onSelect }: Props) {
   return (
     <aside className="hidden h-full min-h-0 w-[17.5rem] shrink-0 flex-col border-r border-border bg-surface lg:flex">
       <div className="shrink-0 border-b border-border p-150">
-        <div className="text-body-small font-semibold text-text-subtlest">
-          Scenarios
-        </div>
+        <div className="text-body-small font-semibold text-text-subtlest">Scenarios</div>
         <div className="relative mt-075">
           <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
           <input
@@ -57,13 +55,12 @@ export function ScenarioList({ scenarios, activeId, onSelect }: Props) {
           >
             <div className="flex items-start gap-100">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[0.75rem] font-medium text-text">{s.title}</div>
-                <div className="mt-025 line-clamp-2 text-body-small text-text-subtlest">{s.summary}</div>
+                <div className="truncate text-body-small font-medium text-text">{s.title}</div>
+                <div className="mt-025 line-clamp-2 text-body-small text-text-subtlest">
+                  {s.summary}
+                </div>
               </div>
-              <Lozenge
-                tone={DIFF_COLOR[s.difficulty]}
-                className="capitalize"
-              >
+              <Lozenge tone={DIFF_COLOR[s.difficulty]} className="capitalize">
                 {s.difficulty}
               </Lozenge>
             </div>

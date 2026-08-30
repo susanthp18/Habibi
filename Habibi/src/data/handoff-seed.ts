@@ -78,17 +78,73 @@ export const customerContext = {
 
 export const transcriptScript: TranscriptTurn[] = [
   { id: "t1", speaker: "system", text: "Call transferred from bot — reason: dispute", at: 0 },
-  { id: "t2", speaker: "agent", text: "Hi Priya, this is Aarav from HDFC Collections. This call is recorded for quality. How can I help you today?", at: 2 },
-  { id: "t3", speaker: "customer", text: "Yes hi. I paid 15,000 rupees on the 12th but your system is still showing it as unpaid. I've been going in circles with the bot.", at: 8, sentimentDelta: -0.35 },
-  { id: "t4", speaker: "agent", text: "I understand, that's frustrating. Let me pull up your account — can you confirm the last 4 digits of your registered mobile?", at: 18 },
+  {
+    id: "t2",
+    speaker: "agent",
+    text: "Hi Priya, this is Aarav from HDFC Collections. This call is recorded for quality. How can I help you today?",
+    at: 2,
+  },
+  {
+    id: "t3",
+    speaker: "customer",
+    text: "Yes hi. I paid 15,000 rupees on the 12th but your system is still showing it as unpaid. I've been going in circles with the bot.",
+    at: 8,
+    sentimentDelta: -0.35,
+  },
+  {
+    id: "t4",
+    speaker: "agent",
+    text: "I understand, that's frustrating. Let me pull up your account — can you confirm the last 4 digits of your registered mobile?",
+    at: 18,
+  },
   { id: "t5", speaker: "customer", text: "3421.", at: 25, sentimentDelta: 0.05 },
-  { id: "t6", speaker: "system", text: "Identity verified · OTP not required (voice-match confidence 94%)", at: 27 },
-  { id: "t7", speaker: "agent", text: "Thanks. I can see a payment attempt on the 12th but it looks like it failed at the gateway — no debit on your side. Do you have a UTR or bank reference?", at: 33 },
-  { id: "t8", speaker: "customer", text: "Wait, so I was not actually charged? Let me check my statement… hmm, yeah nothing on my side either.", at: 45, sentimentDelta: 0.2 },
-  { id: "t9", speaker: "agent", text: "Right — good news, no money was lost. I can raise a formal dispute closure note and, if you'd like, set up a fresh payment right now for 15,000 or your full overdue of 12,180.", at: 55, sentimentDelta: 0.15 },
-  { id: "t10", speaker: "customer", text: "Okay yes let's do the 12,180 today, and I'll clear the rest by month end.", at: 68, sentimentDelta: 0.3 },
-  { id: "t11", speaker: "agent", text: "Perfect. I'm capturing a Promise-to-Pay: 12,180 now, remainder by 31 July. You'll get an SMS link in a minute.", at: 78, sentimentDelta: 0.1 },
-  { id: "t12", speaker: "customer", text: "Great, thank you for actually helping.", at: 88, sentimentDelta: 0.25 },
+  {
+    id: "t6",
+    speaker: "system",
+    text: "Identity verified · OTP not required (voice-match confidence 94%)",
+    at: 27,
+  },
+  {
+    id: "t7",
+    speaker: "agent",
+    text: "Thanks. I can see a payment attempt on the 12th but it looks like it failed at the gateway — no debit on your side. Do you have a UTR or bank reference?",
+    at: 33,
+  },
+  {
+    id: "t8",
+    speaker: "customer",
+    text: "Wait, so I was not actually charged? Let me check my statement… hmm, yeah nothing on my side either.",
+    at: 45,
+    sentimentDelta: 0.2,
+  },
+  {
+    id: "t9",
+    speaker: "agent",
+    text: "Right — good news, no money was lost. I can raise a formal dispute closure note and, if you'd like, set up a fresh payment right now for 15,000 or your full overdue of 12,180.",
+    at: 55,
+    sentimentDelta: 0.15,
+  },
+  {
+    id: "t10",
+    speaker: "customer",
+    text: "Okay yes let's do the 12,180 today, and I'll clear the rest by month end.",
+    at: 68,
+    sentimentDelta: 0.3,
+  },
+  {
+    id: "t11",
+    speaker: "agent",
+    text: "Perfect. I'm capturing a Promise-to-Pay: 12,180 now, remainder by 31 July. You'll get an SMS link in a minute.",
+    at: 78,
+    sentimentDelta: 0.1,
+  },
+  {
+    id: "t12",
+    speaker: "customer",
+    text: "Great, thank you for actually helping.",
+    at: 88,
+    sentimentDelta: 0.25,
+  },
 ];
 
 export const suggestions: Suggestion[] = [

@@ -3,32 +3,14 @@
 from __future__ import annotations
 
 import math
-import re
-from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-IST = timezone(timedelta(hours=5, minutes=30))
-DEFAULT_WINDOW = "10:00-19:00 IST"
+# The window rule is shared with ``db._outside_preferred_window`` via a leaf
+# module that imports nothing from this repo, so code-mode still has no DB
+# import. Holding a second copy here is what let the two defaults drift apart.
+from contact_window import DEFAULT_WINDOW, outside_preferred_window
 
 ScriptFn = Callable[[dict[str, Any]], dict[str, Any]]
-
-
-def _outside_preferred_window(scheduled_at: str, preferred_window: str | None) -> bool:
-    """Same rule as db._outside_preferred_window — kept here so code-mode has no DB import."""
-    try:
-        at = datetime.fromisoformat(scheduled_at)
-    except ValueError:
-        return False
-    if at.tzinfo is None:
-        at = at.replace(tzinfo=timezone.utc)
-    local = at.astimezone(IST)
-    hour = local.hour
-    window = preferred_window or DEFAULT_WINDOW
-    match = re.search(r"(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})", window)
-    if not match:
-        return hour < 9 or hour >= 20
-    start_h, end_h = int(match.group(1)), int(match.group(3))
-    return hour < start_h or hour >= end_h
 
 
 def emi_remaining(payload: dict[str, Any]) -> dict[str, Any]:
@@ -55,7 +37,7 @@ def promise_date_in_window(payload: dict[str, Any]) -> dict[str, Any]:
     if not date:
         return {"ok": False, "error": "promise_date_required"}
     window = payload.get("preferred_window") or DEFAULT_WINDOW
-    outside = _outside_preferred_window(date, str(window))
+    outside = outside_preferred_window(date, str(window))
     return {
         "ok": True,
         "in_window": not outside,

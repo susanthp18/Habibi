@@ -9,10 +9,20 @@ unmigrated cards keep PTP.
 
 from __future__ import annotations
 
-from typing import Iterable
+import logging
+from typing import Any, Iterable
 
 from agent_core.cards.schema import LOCKED_MOUTH_TOOLS, AgentCard
 from agent_core.skills.pack import SkillPack, approx_tokens
+
+logger = logging.getLogger(__name__)
+
+#: Issue key raised when the card declares connectors but the registry could not
+#: be read, so every ``ext.*`` name is missing from the compiled tool set. The
+#: compile still succeeds — a connector outage is not an authoring error — but
+#: it must not succeed *quietly*, because the resulting card looks exactly like
+#: one whose author never added a connector.
+CONNECTOR_BIND_FAILED = "connector_tools_unavailable"
 
 # Writes (and late-call offer tools) that only exist while a signed skill
 # listing them is attached. Reads and locked engines stay on the idle turn.
@@ -20,6 +30,15 @@ SKILL_GATED_TOOLS: frozenset[str] = frozenset(
     {
         "create_promise_to_pay",
         "flag_dispute",
+        # Same family as the two above, and gated for the same reason: it is a
+        # write the mouth performs only once a collections conversation is
+        # actually happening, and an idle tool is one that sits in the prompt of
+        # every node on every turn. G6 caps that count because the cost is real.
+        "capture_nonpayment_reason",
+        # A write, and one the borrower triggers rather than the script — it
+        # belongs with the family above and not in the idle prompt of every node
+        # on every turn, which G6 caps for a reason.
+        "set_contact_preference",
         "capture_lead",
         "request_documents",
         "apply_goodwill",
@@ -69,12 +88,18 @@ def effective_tools(
     catalog_names: set[str],
     channel_tools: set[str] | None = None,
     attached_skills: list[SkillPack] | None = None,
+    issues: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Card include ∩ catalog, plus locked mouth tools.
 
     When the card lists skills, skill-gated names survive only if they appear
     on an attached pack. Detaching ``ptp-negotiate`` drops ``create_promise_to_pay``
     even if it remains on ``tools.include``.
+
+    ``issues`` is an optional sink the caller passes when the result is going to
+    be reported to an author (the card compiler does). Connector binding that
+    fails appends :data:`CONNECTOR_BIND_FAILED` to it rather than dropping the
+    ``ext.*`` names in silence.
     """
     locked_mouth = _locked_mouth(card, catalog_names)
     platform = PLATFORM_SKILL_TOOLS & catalog_names
@@ -96,8 +121,28 @@ def effective_tools(
 
             if mcp_client_enabled():
                 names |= set(bound_tool_names([c.model_dump() for c in card.connectors]))
-        except Exception:
-            pass
+        except Exception as exc:
+            # A transient registry read failure used to strip every ext.* tool
+            # from the compiled card with nothing written down anywhere. Degrade
+            # loudly: the card still compiles, but the author is told why the
+            # connector tools are not on it.
+            connector_ids = [c.connector_id for c in card.connectors]
+            logger.error(
+                "connector tool binding failed for card %s (connectors=%s) — "
+                "compiling without ext.* tools: %s",
+                card.identity.bot_id or card.identity.slug,
+                connector_ids,
+                exc,
+                exc_info=True,
+            )
+            if issues is not None:
+                issues.append(
+                    {
+                        "problem": CONNECTOR_BIND_FAILED,
+                        "connectors": connector_ids,
+                        "detail": str(exc) or exc.__class__.__name__,
+                    }
+                )
     return _order(card, names)
 
 

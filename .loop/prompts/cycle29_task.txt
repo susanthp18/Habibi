@@ -1,0 +1,61 @@
+RULES:
+
+This is an unattended overnight engineering session.
+
+Do not ask the human any question.
+Do not wait for approval or permission.
+Do not stop for confirmation.
+
+Never git stash. Never git reset --hard. Never git clean.
+Never git checkout -- . Never git restore . Never push. Never commit.
+
+Approximately 596 uncommitted files are expected. Do not destroy unrelated work.
+Never delete a test. Never skip a test. Never weaken an assertion.
+Never add eslint-disable merely to hide a problem.
+Never widen an ignore list to make the gate green.
+Never print .env or credentials.
+Do not restart or kill services listening on 8000, 7860, 8080.
+Run real pytest suites and report actual output.
+
+
+CONTEXT: Core-agentic campaign. The remaining SAFE, mechanical improvement
+from the cycle-27 audit is G3 part (a): the promise-to-pay idempotency key
+embeds session.interaction_id, so the one carrier event that most needs
+idempotency — a Twilio media-stream reconnect producing a second interaction —
+defeats it and inserts a duplicate money-relevant row.
+
+TASK: make the PTP write idempotent per CARRIER CALL, not per interaction row.
+Scope: exactly two files + tests.
+
+--- FIX: backend/voice/tools.py _create_ptp_handler (~1088-1170) ---
+CURRENT (~1116-1120): idempotency key = f"voice-ptp:{interaction_id}:{cid}:{amount}:{date}".
+On a reconnect, start_voice_call mints a NEW interaction (persist.py plain INSERT),
+so the same borrower commitment after reconnect gets a different key -> duplicate row.
+
+REQUIRED:
+1. Derive the key from `session.provider_call_id` when present (Twilio CallSid /
+   SmallWebRTC call id — session already stores it), falling back to
+   interaction_id only for sessions with no provider id (tests/local).
+   e.g. "voice-ptp:{provider_call_id or interaction_id}:{cid}:{amt}:{date}".
+2. Confirm against agent_core/tools/domain.create_promise_to_pay how the key is
+   consumed (its dedupe lookup) so the new prefix cannot collide with keys minted
+   under the old scheme mid-flight; document in a comment that old-format rows
+   keep their keys (no migration).
+3. Keep everything else about the handler identical.
+
+--- TESTS: extend backend/tests/test_voice_verify_reentry_and_transcript_pii.py
+or add backend/tests/test_voice_ptp_idempotency.py ---
+1. Same provider_call_id + same commitment details across TWO different
+   interaction ids -> second create is deduped (one promises row).
+2. Different provider_call_ids (genuinely separate calls) -> both insert.
+3. No provider_call_id (local/sandbox shape) -> falls back to interaction_id,
+   behaviour unchanged.
+4. The domain-layer dedupe lookup is exercised through the handler path used by
+   production (whichever entry point existing voice tool tests use).
+
+ACCEPTANCE CRITERIA:
+1. Full suite .venv/Scripts/python -m pytest tests/ -q ends 0 failed, passed
+   >= 2791. Report tail verbatim.
+2. Files changed limited to backend/voice/tools.py +
+   backend/tests/**. Anything else: explain explicitly.
+3. Report files changed + pytest tail + remaining issues.

@@ -61,6 +61,11 @@ def _parse_scalar(raw: str) -> Any:
     value = raw.strip()
     if value in {"[]", ""}:
         return [] if value == "[]" else ""
+    # `null` / `~` are how `_emit_scalar` writes None, and how YAML spells it.
+    # Without this, a null came back as the four-character string "None" — see
+    # the note on `_emit_scalar`.
+    if value.lower() in {"null", "~"}:
+        return None
     if value.lower() in {"true", "false"}:
         return value.lower() == "true"
     if (value.startswith('"') and value.endswith('"')) or (
@@ -192,6 +197,28 @@ def pack_for_slug(slug: str) -> SkillPack:
     return load_pack_dir(path, origin="first_party", signed=True)
 
 
+def _emit_scalar(value: Any) -> str:
+    """Render one frontmatter scalar in YAML, not in Python's repr.
+
+    Every scalar used to go out through `f"{key}: {value}"`, which means
+    `str(value)` — so `None` was written as the four characters `None` and read
+    back by `_parse_scalar` as the STRING "None". Gardener sets
+    `metadata.eval_suite = None` on every draft it creates, meaning "there is no
+    eval suite for this", and each of those drafts stored, hashed, signed and
+    exported a claim to have an eval suite named `None`.
+
+    Booleans had the same defect and got away with it: `str(True)` is `True`,
+    which only round-trips because `_parse_scalar` lowercases before comparing.
+    Relying on that is how the None case survived unnoticed, so both are written
+    explicitly here.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 def dumps_skill_md(frontmatter: dict[str, Any], body: str) -> str:
     """Serialize frontmatter + body. Used by gardener drafts and the editor save path."""
     lines = ["---"]
@@ -209,9 +236,9 @@ def dumps_skill_md(frontmatter: dict[str, Any], body: str) -> str:
                     else:
                         lines.append(f"{pad}{key}:")
                         for item in value:
-                            lines.append(f"{pad}  - {item}")
+                            lines.append(f"{pad}  - {_emit_scalar(item)}")
                 else:
-                    lines.append(f"{pad}{key}: {value}")
+                    lines.append(f"{pad}{key}: {_emit_scalar(value)}")
 
     emit(frontmatter, 0)
     lines.append("---")
