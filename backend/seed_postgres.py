@@ -91,6 +91,30 @@ def load_json(filename: str) -> Any:
     return json.loads((SEED_DIR / filename).read_text(encoding="utf-8"))
 
 
+def builtin_flow() -> dict[str, Any]:
+    """The authored collections graph, for the demo card's published version.
+
+    Nothing seeded a flow, so on any database built the documented way --
+    sql/*.sql, `alembic stamp head`, seed_demo.py -- every card's flow was
+    unauthored. G-OB2 refuses an outbound card with no entry door ("it will dial
+    and then guess"), so a freshly provisioned Habibi could not publish an
+    outbound card at all, and roughly twenty tests that clone the demo card and
+    compile it failed on any machine that had not hand-authored one. This one
+    had: its published kaia-v2-4 flow carries 14 nodes because a migration was
+    once *run* here rather than stamped.
+
+    backend/builtin_graph.json is that graph. It was written as a snapshot of
+    `GET /flow/built-in`, referenced by nothing since, and its 14 node keys and
+    the `entryFor` claims on confirm_identity match the hand-authored rows here
+    exactly -- so it is not a stale artifact, it is the seed data that was never
+    wired up.
+
+    Read from disk rather than through `voice.flow_export`, which would import
+    Pipecat into the seeder for a value that does not change between runs.
+    """
+    return json.loads((BASE / "builtin_graph.json").read_text(encoding="utf-8"))
+
+
 def read_env(key: str) -> str | None:
     env_file = BASE / ".env"
     if not env_file.exists():
@@ -1063,6 +1087,9 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             **row,
             "bot_id": "kaia-v2-4",
             "agent_card": _card_dump("kaia-v2-4"),
+            # Without this the card cannot pass G-OB2 and no outbound mission on
+            # it can be published. See builtin_flow().
+            "flow": builtin_flow(),
         }
         upsert(conn, "prompt_versions", row)
 

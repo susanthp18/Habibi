@@ -773,7 +773,7 @@ def test_g12_accepts_a_canary_guarded_only_by_outbound_triggers() -> None:
     assert [t for t in triggers if t in _ROLLBACK_TRIGGERS] == triggers
 
 
-def test_missions_answer_for_the_card_you_asked_about() -> None:
+def test_missions_answer_for_the_card_you_asked_about(api_headers) -> None:
     """`/outbound/missions` read `db.DEFAULT_BOT_ID` and ignored the caller.
 
     The Outbound tab lives inside `/agent-studio/{botId}` and says "No missions
@@ -791,7 +791,7 @@ def test_missions_answer_for_the_card_you_asked_about() -> None:
     import db
     import main as app_main
 
-    client = TestClient(app_main.app)
+    client = TestClient(app_main.app, headers=api_headers)
     other = "intake-v1"
     assert other != db.DEFAULT_BOT_ID
 

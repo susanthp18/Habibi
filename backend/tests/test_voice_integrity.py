@@ -31,6 +31,35 @@ ARABIC_FISH_VOICE = "fish:7e4fa512aa564e198f8659b466f6ff70"
 ENGLISH_VOICE = "en-IN-AartiNeural"
 
 
+@pytest.fixture(autouse=True)
+def _the_arabic_voice_is_in_the_catalog(db_tx):
+    """Seed the row G15 is asked to judge, instead of hoping somebody synced it.
+
+    ``voice_locale_facts`` resolves a locale from ``tts_voice_catalog``, and this
+    file's whole subject is that G15 judges the *resolved* voice. But the Fish
+    catalogue only reaches that table via ``scripts/sync_tts_voices.py``, which
+    calls a live provider API -- so these tests passed on machines where somebody
+    had run the sync (2,267 rows here) and failed on a freshly provisioned one
+    (763 rows, none of them Fish), which is what CI builds every run.
+
+    A test about gate logic should not depend on a network sync having happened
+    once, months ago. Written inside db_tx, so it is rolled back with everything
+    else and does not become another row whose origin nobody can explain.
+    """
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO tts_voice_catalog (
+              short_name, display_name, gender, locale, locale_name, provider_id
+            ) VALUES (:sn, 'AboFlah', 'Male', 'ar', 'ar', 'fish')
+            ON CONFLICT (short_name) DO UPDATE
+              SET locale = EXCLUDED.locale, provider_id = EXCLUDED.provider_id
+            """
+        ),
+        {"sn": ARABIC_FISH_VOICE},
+    )
+
+
 def _g15(report: dict) -> dict:
     return next(g for g in report["gates"] if g["gate"] == "G15")
 

@@ -28,6 +28,11 @@ FIRST_IMPORTS = [
     "agent_core.cards.schema",
     "agent_core.cards.compile",
     "agent_core.cards",
+    # The tool grant sits on top of both halves of that cycle — it reaches the
+    # card schema, the skill packs and the catalog — so it is exactly the shape
+    # that would close the loop again. Its imports are deferred into the
+    # functions that need them; this is what proves that stayed true.
+    "agent_core.tools.grant",
 ]
 
 

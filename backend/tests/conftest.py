@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 
 import pytest
@@ -119,3 +120,25 @@ def _treatment_is_deterministic_unless_a_test_says_otherwise(monkeypatch):
     monkeypatch.delenv("TREATMENT_AB_SPLIT", raising=False)
     monkeypatch.delenv("TREATMENT_SWEEP", raising=False)
     monkeypatch.setenv("TREATMENT_SCORER", "ev")
+
+
+@pytest.fixture(scope="session")
+def api_headers() -> dict[str, str]:
+    """Auth headers, but only when the environment is enforcing them.
+
+    ``authz.enforcement_enabled()`` keys off API_KEY / API_KEY_MAP. A dev machine
+    sets neither, so every request is answered and a bare ``client.get(...)``
+    reads as a pass. CI sets API_KEY -- and several test modules built a
+    TestClient and sent no key at all, so they returned 401 on the first CI run
+    that ever reached pytest, having looked green locally since they were
+    written.
+
+    Reading the ambient key rather than monkeypatching one keeps this usable from
+    module- and session-scoped fixtures, and keeps the tests honest in both
+    environments: enforcing where enforcement is on, silent where it is off.
+    """
+    key = (os.getenv("API_KEY") or "").strip()
+    if not key:
+        return {}
+    actor = (os.getenv("ACTOR_USER_ID") or "priya-nair").strip()
+    return {"X-API-Key": key, "X-Actor-User-Id": actor}

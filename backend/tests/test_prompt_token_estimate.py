@@ -39,8 +39,10 @@ PROMPT = "You are {agent_name}, a collections agent for {bank_name}. Speak in {l
 
 
 @pytest.fixture(scope="module")
-def client() -> TestClient:
-    return TestClient(main.app)
+def client(api_headers: dict[str, str]) -> TestClient:
+    # api_headers is empty when nothing is enforcing, so this is a no-op on a
+    # dev machine and the difference that made these eight tests 401 in CI.
+    return TestClient(main.app, headers=api_headers)
 
 
 def _estimate(client: TestClient, **body: object) -> dict:

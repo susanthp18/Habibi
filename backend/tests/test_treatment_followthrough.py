@@ -69,6 +69,44 @@ def account(db_tx):
         ),
         {"a": row["id"]},
     )
+
+    # And the same problem one table over, for the same reason.
+    #
+    # `_reached_since` reads a connected voice interaction or an inbound message
+    # as "a person actually engaged", so a seeded conversation inside the window
+    # makes attribution answer "reached" for a decision this file meant to be
+    # labelled "no_answer". That is attribution being right about the data and
+    # the fixture being wrong about the borrower.
+    #
+    # It did not show up while the only databases anyone ran this against were
+    # ones seeded months ago: the offsets `seed_recent_activity` uses put the
+    # interaction outside the window on an old seed and inside it on a fresh
+    # one. CI builds a fresh one every run, so it failed there first -- seven
+    # tests, on the calendar rather than on the code.
+    db_tx.execute(
+        text(
+            """
+            DELETE FROM interactions
+             WHERE customer_id = :c
+               AND channel = 'voice'
+               AND started_at > now() - interval '30 days'
+            """
+        ),
+        {"c": row["customer_id"]},
+    )
+    db_tx.execute(
+        text(
+            """
+            DELETE FROM messages
+             WHERE sender = 'customer'
+               AND created_at > now() - interval '30 days'
+               AND conversation_id IN (
+                     SELECT id FROM conversations WHERE customer_id = :c
+                   )
+            """
+        ),
+        {"c": row["customer_id"]},
+    )
     return dict(row)
 
 

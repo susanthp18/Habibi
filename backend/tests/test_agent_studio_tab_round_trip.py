@@ -217,7 +217,7 @@ def test_archiving_still_refuses_the_entry_card(cloned_bot: str, monkeypatch) ->
 # --- Autosave ---------------------------------------------------------------
 
 
-def test_a_draft_patch_rejects_a_bot_id(cloned_bot: str) -> None:
+def test_a_draft_patch_rejects_a_bot_id(cloned_bot: str, api_headers) -> None:
     """PromptVersionPatchRequest forbids extras and a version's bot is not
     patchable. The client shared one body object between create and patch, so
     every autosave PATCH carried botId and came back 422 — the editor showed
@@ -229,7 +229,7 @@ def test_a_draft_patch_rejects_a_bot_id(cloned_bot: str) -> None:
     import main
 
     version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
-    client = TestClient(main.app)
+    client = TestClient(main.app, headers=api_headers)
     body = {"prompt": "edited", "summary": "draft autosave"}
 
     assert client.patch(f"/prompt-versions/{version_id}", json=body).status_code == 200
@@ -261,12 +261,12 @@ def test_a_draft_patch_rejects_a_bot_id(cloned_bot: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_json_responses_declare_utf8() -> None:
+def test_json_responses_declare_utf8(api_headers) -> None:
     from fastapi.testclient import TestClient
 
     import main
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=api_headers) as client:
         res = client.get("/agent-studio/skills")
     assert res.status_code == 200
     assert "charset=utf-8" in res.headers["content-type"].lower(), (
@@ -275,7 +275,7 @@ def test_json_responses_declare_utf8() -> None:
     )
 
 
-def test_a_non_ascii_body_survives_the_round_trip_byte_for_byte() -> None:
+def test_a_non_ascii_body_survives_the_round_trip_byte_for_byte(api_headers) -> None:
     """What the API serves for a first-party pack IS that pack, byte for byte.
 
     Compares the WHOLE body against the pack on disk rather than probing for one
@@ -309,7 +309,7 @@ def test_a_non_ascii_body_survives_the_round_trip_byte_for_byte() -> None:
     em_dash = chr(0x2014)
     assert em_dash in disk_body, "fixture no longer exercises a non-ASCII character"
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=api_headers) as client:
         served = client.get(f"/agent-studio/skills/{slug}").json()["body"]
 
     assert served.encode("utf-8") == disk_body.encode("utf-8"), (
@@ -323,7 +323,7 @@ def test_a_non_ascii_body_survives_the_round_trip_byte_for_byte() -> None:
     assert chr(0x00E2) not in served
 
 
-def test_error_responses_declare_utf8_too() -> None:
+def test_error_responses_declare_utf8_too(api_headers) -> None:
     """404s and 422s are JSON, and they carry the strings most likely to be non-ASCII.
 
     `default_response_class` only covers route responses; FastAPI builds
@@ -335,7 +335,7 @@ def test_error_responses_declare_utf8_too() -> None:
 
     import main
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=api_headers) as client:
         missing = client.get("/agent-studio/skills/definitely-not-a-skill")
         invalid = client.get("/agent-studio/cards?includeArchived=not-a-bool")
 

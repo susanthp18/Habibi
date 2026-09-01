@@ -64,6 +64,33 @@ def _reserve(conn, **kw) -> dict:
     return attempt
 
 
+def _an_interaction_for_the_dialled_borrower(conn) -> str:
+    """A seeded interaction belonging to the same borrower the attempt dials.
+
+    These tests used ``SELECT id FROM interactions ORDER BY created_at DESC
+    LIMIT 1`` -- the newest interaction in the database, whoever it belonged to.
+    The closer then gathered its facts from the *attempt's* borrower while
+    reading a transcript from somebody else's call, so what it derived depended
+    on which rows the seed happened to produce last. On a fresh database that
+    mismatch returns ``ptp_captured`` and the assertions about hardship and
+    callbacks fail, on data rather than on code.
+
+    ``_a_customer`` is deterministic (ORDER BY c.id), so this is the borrower
+    ``_reserve`` dials.
+    """
+    cust = _a_customer(conn)
+    row = conn.execute(
+        text(
+            "SELECT id FROM interactions WHERE customer_id = :c"
+            " ORDER BY created_at DESC LIMIT 1"
+        ),
+        {"c": cust["id"]},
+    ).scalar()
+    if not row:
+        pytest.skip("seeded borrower has no interaction")
+    return row
+
+
 def _state(conn, attempt_id: str) -> str:
     return conn.execute(
         text("SELECT state FROM call_attempts WHERE id = :id"), {"id": attempt_id}
@@ -228,11 +255,7 @@ def test_media_connecting_joins_the_dial_to_the_conversation(db_tx) -> None:
     """Without this the call and the attempt sit in two tables with no join."""
     attempt = _reserve(db_tx)
     _place(db_tx, attempt, "CA-TEST-BIND")
-    interaction_id = db_tx.execute(
-        text("SELECT id FROM interactions ORDER BY created_at DESC LIMIT 1")
-    ).scalar()
-    if not interaction_id:
-        pytest.skip("no seeded interaction")
+    interaction_id = _an_interaction_for_the_dialled_borrower(db_tx)
     assert outbound.bind_interaction(
         db_tx, attempt_id=attempt["id"], interaction_id=interaction_id
     )
@@ -386,11 +409,7 @@ def test_the_reason_the_borrower_gave_survives_the_call(db_tx, monkeypatch) -> N
     on opposite sides of a gap.
     """
     monkeypatch.setenv("CLOSER_LLM_ENABLED", "false")
-    interaction_id = db_tx.execute(
-        text("SELECT id FROM interactions ORDER BY created_at DESC LIMIT 1")
-    ).scalar()
-    if not interaction_id:
-        pytest.skip("no seeded interaction")
+    interaction_id = _an_interaction_for_the_dialled_borrower(db_tx)
     attempt = _reserve(db_tx)
     _place(db_tx, attempt, "CA-TEST-CLOSE-REASON")
     outbound.apply_provider_status(
@@ -428,11 +447,7 @@ def test_hardship_is_derived_from_the_reason_not_only_the_intent(
     db_tx, monkeypatch
 ) -> None:
     monkeypatch.setenv("CLOSER_LLM_ENABLED", "false")
-    interaction_id = db_tx.execute(
-        text("SELECT id FROM interactions ORDER BY created_at DESC LIMIT 1")
-    ).scalar()
-    if not interaction_id:
-        pytest.skip("no seeded interaction")
+    interaction_id = _an_interaction_for_the_dialled_borrower(db_tx)
     attempt = _reserve(db_tx)
     _place(db_tx, attempt, "CA-TEST-CLOSE-HARD")
     outbound.apply_provider_status(
@@ -465,11 +480,7 @@ def test_a_callback_we_offered_becomes_something_somebody_owes(
 ) -> None:
     """"I'll call you Tuesday at six" used to be spoken and forgotten."""
     monkeypatch.setenv("CLOSER_LLM_ENABLED", "false")
-    interaction_id = db_tx.execute(
-        text("SELECT id FROM interactions ORDER BY created_at DESC LIMIT 1")
-    ).scalar()
-    if not interaction_id:
-        pytest.skip("no seeded interaction")
+    interaction_id = _an_interaction_for_the_dialled_borrower(db_tx)
     attempt = _reserve(db_tx)
     _place(db_tx, attempt, "CA-TEST-CLOSE-CB")
     outbound.apply_provider_status(

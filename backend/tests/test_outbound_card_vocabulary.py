@@ -26,8 +26,8 @@ import main
 
 
 @pytest.fixture(scope="module")
-def vocab() -> dict:
-    with TestClient(main.app) as client:
+def vocab(api_headers: dict[str, str]) -> dict:
+    with TestClient(main.app, headers=api_headers) as client:
         response = client.get("/outbound/card-vocabulary")
         assert response.status_code == 200, response.text
         return response.json()
