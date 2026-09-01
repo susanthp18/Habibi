@@ -69,10 +69,24 @@ VOICE_FLOW_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-#: In the catalog and voice-only, but on no card's include list: the built-in
-#: flow captures the caller's goal before identity is confirmed, so no author
-#: chose it and the grant must supply it.
-VOICE_ALWAYS: frozenset[str] = VOICE_FLOW_TOOLS | {"capture_call_goal"}
+#: The full floor the voice runtime keeps regardless of what a card granted.
+#:
+#: Two catalog tools join the nine above. ``capture_call_goal`` is voice-only and
+#: on no card's include list — the built-in flow captures the caller's goal
+#: before identity is confirmed, so no author chose it. ``verify_identity`` is
+#: here because a call that cannot verify anybody is not a narrower call: every
+#: write sits behind ``identity_verified``, and the two verification nodes have
+#: no other exit, so a card whose grant omitted it published cleanly and
+#: produced a call that verified nobody on the regulated channel.
+#:
+#: **This must equal ``voice.tools.ALWAYS_ON``**, which is the live filter today.
+#: It cannot be imported from there: that module imports pipecat, and the API
+#: process — which runs the publish compiler, and therefore ``static_scope`` —
+#: deliberately does not have it. The same constraint is why
+#: ``flow_graph._FLOW_CONTROL_TOOLS`` exists as a third statement. Until the
+#: voice runtime migrates onto this module and its literal is deleted, the two
+#: are pinned together by the characterization suite rather than left to drift.
+VOICE_ALWAYS: frozenset[str] = VOICE_FLOW_TOOLS | {"capture_call_goal", "verify_identity"}
 
 
 def _channel_tools(channel: str) -> set[str]:

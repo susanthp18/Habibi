@@ -93,8 +93,7 @@ def test_voice_grant_is_todays_answer_plus_the_tools_voice_always_keeps(bot_id) 
     already unions in by hand, so no voice call gains or loses a tool."""
     mouth = _mouth(bot_id)
     grant = ToolGrant._build(mouth.card, mouth.packs, channel=VOICE)
-    assert grant.allowed - _today_grant(mouth) == VOICE_ALWAYS
-    assert not _today_grant(mouth) - grant.allowed
+    assert grant.allowed == _today_grant(mouth) | VOICE_ALWAYS
 
 
 @pytest.mark.parametrize("bot_id", BOTS)
@@ -108,8 +107,7 @@ def test_text_grant_drops_exactly_the_voice_only_tools(bot_id) -> None:
     """
     mouth = _mouth(bot_id)
     grant = ToolGrant._build(mouth.card, mouth.packs, channel=TEXT)
-    assert _today_grant(mouth) - grant.allowed == _voice_only_on(mouth)
-    assert not grant.allowed - _today_grant(mouth)
+    assert grant.allowed == _today_grant(mouth) - _voice_only_on(mouth)
 
 
 # --- 2 and 3. the offers ----------------------------------------------------
@@ -130,7 +128,7 @@ def test_idle_offer_matches_todays_idle_offer(bot_id) -> None:
     assert not text_offer - today
 
     voice_offer = set(ToolGrant._build(mouth.card, mouth.packs, channel=VOICE).offer())
-    assert voice_offer - today == VOICE_ALWAYS
+    assert voice_offer == today | VOICE_ALWAYS
 
 
 @pytest.mark.parametrize("bot_id", BOTS)
@@ -180,7 +178,10 @@ def test_static_scope_against_the_publish_gates_formula(bot_id) -> None:
     g9 = set(card.tools.include) | set(card.tools.locked) | PLATFORM_SKILL_TOOLS
     static = ToolGrant.static_scope(card, mouth.packs)
 
-    assert static - g9 == VOICE_ALWAYS
+    # Everything the grant adds over G9 is the always-on floor, and nothing
+    # else. Written as a difference on both sides because three of the four
+    # cards already include verify_identity, which is part of that floor.
+    assert static - g9 == VOICE_ALWAYS - g9
 
     unreachable = g9 - static
     locked_without_a_mouth_tool = {"evaluate_live_qa", "recommend_treatment"}
@@ -217,11 +218,43 @@ def test_the_flow_tools_match_the_voice_registry_contract() -> None:
     the keep-set in the voice runtime.
     """
     assert VOICE_FLOW_TOOLS == _pinned_voice_control_tools()
-    assert VOICE_ALWAYS - VOICE_FLOW_TOOLS == {"capture_call_goal"}
-    # The tenth is a real catalog tool, voice-only, on no card's include list:
-    # the built-in flow captures the caller's goal before identity is confirmed.
-    assert "capture_call_goal" in CATALOG_NAMES
     assert not VOICE_FLOW_TOOLS & CATALOG_NAMES
+    # The other two are real catalog tools the runtime keeps anyway: the flow
+    # captures the caller's goal before identity is confirmed, and a card that
+    # dropped verify_identity would publish a call that verifies nobody.
+    assert VOICE_ALWAYS - VOICE_FLOW_TOOLS == {"capture_call_goal", "verify_identity"}
+    assert {"capture_call_goal", "verify_identity"} <= CATALOG_NAMES
+
+
+def test_the_always_on_floor_matches_the_voice_runtimes_live_set() -> None:
+    """Two statements of one set, pinned together for as long as both exist.
+
+    ``voice.tools.ALWAYS_ON`` is the live filter; this module restates it
+    because it cannot import that module — ``voice.tools`` imports pipecat, and
+    the API process that runs the publish compiler does not have it. That
+    constraint is also why ``flow_graph`` carries a third copy.
+
+    This test runs in the voice container, so it can import what the API cannot,
+    and it fails the moment the two drift. #9 makes the voice runtime read this
+    module and deletes its literal, at which point this test goes too.
+    """
+    from voice.tools import ALWAYS_ON
+
+    assert VOICE_ALWAYS == ALWAYS_ON
+
+
+def test_the_authoring_catalog_differs_only_where_it_should() -> None:
+    """``flow_graph._FLOW_CONTROL_TOOLS`` is the third statement, and it is the
+    Studio's, not the runtime's: it names the non-catalog verbs an author can
+    put on a node. It may legitimately omit a catalog tool, because the catalog
+    supplies that half — but it must not omit a verb the runtime keeps and the
+    catalog does not, which would be a tool no author could see.
+    """
+    from flow_graph import _FLOW_CONTROL_TOOLS
+
+    authoring = set(_FLOW_CONTROL_TOOLS)
+    assert VOICE_ALWAYS - authoring <= CATALOG_NAMES
+    assert VOICE_FLOW_TOOLS <= authoring
 
 
 @pytest.mark.parametrize("bot_id", BOTS)
