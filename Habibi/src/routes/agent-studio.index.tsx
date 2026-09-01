@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell/AppShell";
 import {
@@ -15,8 +15,16 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  archiveAvailability,
+  changeVerb,
+  groupRoster,
+  sandboxAvailability,
+  type ActionAvailability,
+} from "@/lib/agent-roster";
 import { cn } from "@/lib/utils";
-import { Bot } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -116,16 +124,94 @@ function EvalTrend({ reports }: { reports: EvalReport[] }) {
   );
 }
 
-/** Past tense, because the log records what happened rather than what to do. */
-const CHANGE_VERBS: Record<string, string> = {
-  "agent.publish": "published",
-  "agent.rollback": "rolled back",
-  "agent.archive": "archived",
-  "agent.restore": "restored",
-};
+/**
+ * An action that may be unavailable, and says so where it can be read.
+ *
+ * `buttonVariants` sets `disabled:pointer-events-none`, so the pointer never
+ * reaches a disabled <Button> and its native `title` never fires. Six buttons
+ * on this screen were dead rectangles with the explanation sitting in an
+ * attribute nobody could reach — verified in the browser, where
+ * `document.elementFromPoint` at each button's centre returned some other
+ * element. The reason existed; the operator saw a greyed-out control and no
+ * account of it.
+ *
+ * So a blocked action here is not `disabled`. It is `aria-disabled`, which
+ * keeps it hoverable and focusable, dims it the same way, ignores the click,
+ * and — through `aria-describedby` onto an off-screen sentence — reaches a
+ * screen reader, which `title` alone does not and never does on keyboard
+ * focus. `aria-disabled:opacity-50` is already generated for `ui/calendar`.
+ *
+ * `busy` is the other thing and keeps the real `disabled` attribute: a
+ * mutation in flight is transient and has nothing to explain.
+ */
+function ReasonedAction({
+  availability,
+  busy = false,
+  onClick,
+  children,
+}: {
+  availability: ActionAvailability;
+  busy?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const describedBy = useId();
+  const blocked = !availability.allowed;
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        loading={busy}
+        disabled={busy}
+        aria-disabled={blocked || undefined}
+        aria-describedby={blocked ? describedBy : undefined}
+        title={availability.reason}
+        className={cn(
+          blocked &&
+            "aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-background-neutral-subtle",
+        )}
+        onClick={() => {
+          if (blocked || busy) return;
+          onClick();
+        }}
+      >
+        {children}
+      </Button>
+      {blocked ? (
+        <span id={describedBy} className="sr-only">
+          {availability.reason}
+        </span>
+      ) : null}
+    </>
+  );
+}
 
-function changeVerb(action: string): string {
-  return CHANGE_VERBS[action] ?? action.replace(/^agent\./, "").replace(/_/g, " ");
+/**
+ * Whether the change log is open, remembered across visits.
+ *
+ * Read in an effect and never during render: the server has no localStorage,
+ * so a value read on the way to the first paint is a hydration mismatch. The
+ * sidebar's collapse preference solved this the same way — render the default,
+ * then restore.
+ */
+const CHANGE_LOG_OPEN_KEY = "bigbound.agent-studio.change-log-open";
+
+function readChangeLogOpen(): boolean {
+  try {
+    return window.localStorage.getItem(CHANGE_LOG_OPEN_KEY) === "1";
+  } catch {
+    // Private mode, or storage disabled. Closed is the safe default.
+    return false;
+  }
+}
+
+function writeChangeLogOpen(next: boolean): void {
+  try {
+    window.localStorage.setItem(CHANGE_LOG_OPEN_KEY, next ? "1" : "0");
+  } catch {
+    // A preference that cannot be saved is not worth failing a click over.
+  }
 }
 
 /**
@@ -140,110 +226,166 @@ function changeVerb(action: string): string {
 function RecentChanges() {
   // Tenant-wide, so no botId. Note chain.checked is tenant-scoped whether or
   // not entries are filtered — see the note on fetchChangeLog.
-  const { data, isLoading, isError, error } = useChangeLog(undefined, 10);
+  const { data, isLoading, isError, error, refetch, isFetching } = useChangeLog(undefined, 10);
   const entries = data?.entries ?? [];
   const chain = data?.chain;
+  // Newest first — read_entries orders by the chain's own seq, descending.
+  const latest = entries[0];
 
-  // An audit log that removes itself when its request fails is worse than one
-  // that is down: the screen looks the same as a tenant that has never
-  // published, so nobody goes looking. `isError` used to return null with
-  // `isLoading`, which is exactly the fallback that hides a 500.
-  if (isError) {
-    return (
-      <section className="mt-300 rounded-large border border-border-danger bg-surface p-250">
-        <h2 className="text-body font-semibold">Recent changes</h2>
-        <p className="mt-150 text-body-small text-text-danger">
-          The change log could not be read, so this is not a record of nothing happening — it is a
-          record that could not be shown.{" "}
-          {error instanceof Error ? error.message : "Request failed"}
-        </p>
-      </section>
-    );
-  }
-  if (isLoading) return null;
+  // Closed on first paint, always, for two reasons and the second is the one
+  // that matters.
+  //
+  // It is the state that leaves the roster any room. This section is a
+  // non-shrinking sibling of the card grid, so it takes its height first: 317px
+  // of a 747px column, which left 3.2 of 9 cards reachable on a 1440x900
+  // laptop. Nine cards behind a scrollbar, under a log almost nobody reads on
+  // every visit.
+  //
+  // And it is the only state whose height does not change when the request
+  // lands. `if (isLoading) return null` used to render nothing, then 317px,
+  // and every card jumped up a third of a screen on load.
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    setOpen(readChangeLogOpen());
+  }, []);
+  const toggle = () =>
+    setOpen((prev) => {
+      writeChangeLogOpen(!prev);
+      return !prev;
+    });
+
+  // Collapsing the rows must not collapse the verdict. The log is hash-chained
+  // server-side and a broken chain means an entry was rewritten or removed —
+  // the one thing an audit log exists to make visible — so it belongs in the
+  // header, where a closed panel still shows it.
+  const verdict = isError ? (
+    <Lozenge tone="danger">could not be read</Lozenge>
+  ) : isLoading ? (
+    <span className="text-body-small text-text-subtlest">checking…</span>
+  ) : chain && !chain.ok ? (
+    <Lozenge
+      tone="danger"
+      title={`The audit chain does not verify${chain.brokenAt ? ` at ${chain.brokenAt}` : ""}. An entry has been rewritten or removed.`}
+    >
+      audit chain broken{chain.reason ? ` · ${chain.reason}` : ""}
+    </Lozenge>
+  ) : chain ? (
+    <Lozenge tone="neutral" title="Every entry hashes to its predecessor.">
+      chain verified · {chain.checked}
+    </Lozenge>
+  ) : null;
 
   return (
-    <section className="mt-300 rounded-large border border-border bg-surface p-250">
-      <div className="flex flex-wrap items-center gap-100">
-        <h2 className="text-body font-semibold">Recent changes</h2>
-        {chain && !chain.ok ? (
-          <Lozenge
-            tone="danger"
-            title={`The audit chain does not verify${chain.brokenAt ? ` at ${chain.brokenAt}` : ""}. An entry has been rewritten or removed.`}
+    <section className="shrink-0 border-t border-border bg-surface">
+      <div className="flex flex-wrap items-center gap-100 pr-400">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          className="focus-ring flex flex-1 flex-wrap items-center gap-100 px-400 py-150 text-left hover:bg-surface-sunken"
+        >
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5 text-text-subtlest" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 text-text-subtlest" />
+          )}
+          <span className="text-body font-semibold">Recent changes</span>
+          {verdict}
+          {!open && !isLoading && !isError ? (
+            // The newest entry, not a count. A count next to `chain verified ·
+            // 7` is two different sevens side by side — one is every entry in
+            // the tenant, the other is how many this request asked for — and
+            // neither answers the question someone glances at a change log to
+            // ask, which is whether anything moved recently and who moved it.
+            <span className="truncate text-body-small text-text-subtle">
+              {latest
+                ? `${latest.actorUserId ?? "unknown"} ${changeVerb(latest.action)} ${latest.botId}${
+                    latest.at
+                      ? ` · ${new Date(latest.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                      : ""
+                  }`
+                : "nothing published, rolled back, archived or restored yet"}
+            </span>
+          ) : null}
+        </button>
+        {isError ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            loading={isFetching}
+            disabled={isFetching}
+            onClick={() => void refetch()}
           >
-            audit chain broken{chain.reason ? ` · ${chain.reason}` : ""}
-          </Lozenge>
-        ) : chain ? (
-          <Lozenge tone="neutral" title="Every entry hashes to its predecessor.">
-            chain verified · {chain.checked}
-          </Lozenge>
+            Retry
+          </Button>
         ) : null}
       </div>
 
-      {entries.length === 0 ? (
-        <p className="mt-150 text-body-small text-text-subtle">
-          Nothing published, rolled back, archived or restored yet.
-        </p>
-      ) : (
-        <ul className="mt-150 divide-y divide-border">
-          {entries.map((entry) => (
-            <li key={entry.id} className="flex flex-wrap items-baseline gap-100 py-100">
-              <span className="text-body-small font-medium">{entry.actorUserId ?? "unknown"}</span>
-              <span className="text-body-small text-text-subtle">{changeVerb(entry.action)}</span>
-              <span className="font-mono text-body-tiny text-text-subtle">{entry.botId}</span>
-              {entry.versionLabel ? <Lozenge tone="neutral">{entry.versionLabel}</Lozenge> : null}
-              {entry.changed?.length ? (
-                <span
-                  className="text-body-tiny text-text-subtlest"
-                  title="Components that differ from the version before it"
-                >
-                  {entry.changed.join(", ")}
-                </span>
-              ) : null}
-              <span className="ml-auto text-body-tiny text-text-subtlest">
-                {entry.at
-                  ? new Date(entry.at).toLocaleString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "—"}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* An error shows whether or not the panel is open. An audit log that
+          removes itself when its request fails is worse than one that is down:
+          the screen looks the same as a tenant that has never published, so
+          nobody goes looking. Requiring a click to find that out is the same
+          failure with an extra step. */}
+      {open || isError ? (
+        <div className="max-h-[14rem] overflow-y-auto border-t border-border px-400 py-150">
+          {isError ? (
+            <p className="text-body-small text-text-danger">
+              The change log could not be read, so this is not a record of nothing happening — it is
+              a record that could not be shown.{" "}
+              {error instanceof Error ? error.message : "Request failed"}
+            </p>
+          ) : entries.length === 0 ? (
+            <p className="text-body-small text-text-subtle">
+              Nothing published, rolled back, archived or restored yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {entries.map((entry) => (
+                <li key={entry.id} className="flex flex-wrap items-baseline gap-100 py-100">
+                  <span className="text-body-small font-medium">
+                    {entry.actorUserId ?? "unknown"}
+                  </span>
+                  <span className="text-body-small text-text-subtle">
+                    {changeVerb(entry.action)}
+                  </span>
+                  <span className="font-mono text-body-tiny text-text-subtle">{entry.botId}</span>
+                  {entry.versionLabel ? (
+                    <Lozenge tone="neutral">{entry.versionLabel}</Lozenge>
+                  ) : null}
+                  {entry.changed?.length ? (
+                    <span
+                      className="text-body-tiny text-text-subtlest"
+                      title="Components that differ from the version before it"
+                    >
+                      {entry.changed.join(", ")}
+                    </span>
+                  ) : null}
+                  <span className="ml-auto text-body-tiny text-text-subtlest">
+                    {entry.at
+                      ? new Date(entry.at).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </section>
   );
-}
-
-function canArchive(card: AgentCardSummary): boolean {
-  if (card.archivedAt) return true;
-  // Mirrors db.archive_agent_studio_card so the button never offers a 409.
-  // `isFirstParty` comes from the server: inferring it from cardSource was
-  // wrong, because a first-party card with a published row reports "published",
-  // so its button enabled and then failed.
-  //
-  // A live deployment is no longer a blocker. It used to be, on both sides, and
-  // that made the button dead for every card that had ever shipped — archiving
-  // now retires the deployment, which is what taking a card out of service means.
-  return !card.isFirstParty && card.botId !== card.entryBotId;
-}
-
-function archiveReason(card: AgentCardSummary): string | undefined {
-  if (card.archivedAt) return "Bring this card back onto the roster";
-  if (card.isFirstParty) return "First-party cards are re-seeded on API boot";
-  if (card.botId === card.entryBotId) return "This card takes inbound traffic";
-  if (card.deploymentStatus === "live")
-    return "Retires the live deployment and takes the card off the roster";
-  return undefined;
 }
 
 function FleetIndex() {
   const navigate = Route.useNavigate();
   const [showArchived, setShowArchived] = useState(false);
-  const { data, isLoading, isError, error } = useAgentStudioCards(showArchived);
+  const { data, isLoading, isError, error, refetch, isFetching } =
+    useAgentStudioCards(showArchived);
   const templates = useAgentStudioTemplates();
   // One request for the whole fleet's eval history; grouped per card below.
   // Reports with a null botId are tenant-wide suite runs, not this card's.
@@ -308,11 +450,10 @@ function FleetIndex() {
             </p>
           </div>
           <div className="flex items-center gap-100">
-            <label className="mr-100 flex items-center gap-050 text-body-small text-text-subtle">
-              <input
-                type="checkbox"
+            <label className="mr-100 flex items-center gap-075 text-body-small text-text-subtle">
+              <Checkbox
                 checked={showArchived}
-                onChange={(e) => setShowArchived(e.target.checked)}
+                onCheckedChange={(v) => setShowArchived(v === true)}
               />
               Show archived
             </label>
@@ -384,8 +525,20 @@ function FleetIndex() {
             <LoadingState label="Loading fleet" />
           </div>
         ) : isError ? (
-          <div className="p-400 text-text-danger">
-            {error instanceof Error ? error.message : "Failed to load cards"}
+          <div className="flex flex-1 flex-col items-center justify-center gap-100 p-400">
+            <p className="text-body text-text-subtle">Couldn’t load the fleet.</p>
+            <p className="text-body-small text-text-danger">
+              {error instanceof Error ? error.message : "Failed to load cards"}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              loading={isFetching}
+              disabled={isFetching}
+              onClick={() => void refetch()}
+            >
+              Retry
+            </Button>
           </div>
         ) : (
           <div className="grid min-h-0 flex-1 content-start gap-200 overflow-y-auto p-400 md:grid-cols-2">
@@ -399,153 +552,163 @@ function FleetIndex() {
                 flex child shrink below its content; `content-start` keeps the
                 rows at natural height when there are only a few cards. */}
 
-            {(data ?? []).map((card) => (
-              // A div, not a button: Archive and Sandbox live inside it.
-              <div
-                key={card.botId}
-                className={cn(
-                  "rounded-large border bg-surface p-250 text-left focus-within:border-border-brand hover:border-border-brand",
-                  card.archivedAt ? "border-dashed border-border opacity-70" : "border-border",
-                )}
-              >
-                <div className="flex items-start justify-between gap-200">
-                  <div className="flex items-center gap-150">
-                    <span className="grid h-8 w-8 place-items-center rounded-full bg-background-brand-subtlest text-text-brand">
-                      <Bot className="h-4 w-4" />
-                    </span>
-                    <div>
-                      <button
-                        type="button"
-                        className="text-body font-semibold hover:text-text-brand"
-                        onClick={() =>
-                          void navigate({
-                            to: "/agent-studio/$botId",
-                            params: { botId: card.botId },
-                          })
-                        }
-                      >
-                        {card.name}
-                      </button>
-                      <div className="font-mono text-body-tiny text-text-subtle">{card.botId}</div>
+            {groupRoster(data ?? []).map((group) => (
+              <Fragment key={group.key}>
+                {/* Headings are grid children spanning the row, not wrappers:
+                    one grid and one scroll container, so the columns still line
+                    up across a group boundary. */}
+                <h2 className="col-span-full mt-100 flex items-baseline gap-100 text-body-small font-semibold text-text-subtle first:mt-0">
+                  {group.label}
+                  <span className="font-normal text-text-subtlest">{group.cards.length}</span>
+                </h2>
+                {group.cards.map((card) => (
+                  // A div, not a button: Archive and Sandbox live inside it.
+                  <div
+                    key={card.botId}
+                    className={cn(
+                      "rounded-large border bg-surface p-250 text-left focus-within:border-border-brand hover:border-border-brand",
+                      card.archivedAt ? "border-dashed border-border opacity-70" : "border-border",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-200">
+                      <div className="flex items-center gap-150">
+                        <span className="grid h-8 w-8 place-items-center rounded-full bg-background-brand-subtlest text-text-brand">
+                          <Bot className="h-4 w-4" />
+                        </span>
+                        <div>
+                          <button
+                            type="button"
+                            className="text-body font-semibold hover:text-text-brand"
+                            onClick={() =>
+                              void navigate({
+                                to: "/agent-studio/$botId",
+                                params: { botId: card.botId },
+                              })
+                            }
+                          >
+                            {card.name}
+                          </button>
+                          <div className="font-mono text-body-tiny text-text-subtle">
+                            {card.botId}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-050">
+                        <Lozenge tone={routing(card).tone}>{routing(card).label}</Lozenge>
+                        <Lozenge
+                          tone={
+                            card.deploymentStatus === "live"
+                              ? "success"
+                              : card.deploymentStatus === "empty"
+                                ? "danger"
+                                : "neutral"
+                          }
+                        >
+                          {card.deploymentStatus === "live"
+                            ? `deployed · ${card.trafficPct ?? 100}%`
+                            : card.deploymentStatus === "published"
+                              ? "published, not deployed"
+                              : card.deploymentStatus === "draft"
+                                ? "draft only"
+                                : "no version"}
+                        </Lozenge>
+                      </div>
+                    </div>
+                    <p className="mt-150 text-body-small text-text-subtle">{card.purpose}</p>
+                    <div className="mt-100 text-body-tiny text-text-subtlest">
+                      {routing(card).help(card.entryBotId)}
+                    </div>
+                    <div className="mt-150 flex flex-wrap gap-100">
+                      {card.channels.map((ch) => (
+                        <Lozenge key={ch} tone="neutral">
+                          {ch}
+                        </Lozenge>
+                      ))}
+                      <Lozenge tone="neutral">{card.toolCount} tools</Lozenge>
+                      <Lozenge tone="neutral">{card.skills.length} skills</Lozenge>
+                      <EvalTrend reports={reportsByBot.get(card.botId) ?? []} />
+                      {card.deploymentStatus === "live" && card.evalStatus === "skipped" ? (
+                        <Lozenge
+                          tone="warning"
+                          title="Carrying production traffic with no eval suite on record. The publish gate allows this; nothing has verified the card behaves."
+                        >
+                          live without evals
+                        </Lozenge>
+                      ) : (
+                        <Lozenge
+                          tone={card.evalStatus === "pass" ? "success" : "neutral"}
+                          title="Eval suite result. 'skipped' means the suite has not run — not a failure."
+                        >
+                          evals: {card.evalStatus}
+                        </Lozenge>
+                      )}
+                      {card.hasDraft ? (
+                        <button
+                          type="button"
+                          title="Open the editor on this card — it resumes the newest draft"
+                          onClick={() =>
+                            void navigate({
+                              to: "/agent-studio/$botId",
+                              params: { botId: card.botId },
+                            })
+                          }
+                          className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-brand"
+                        >
+                          <Lozenge tone="warning">unpublished draft →</Lozenge>
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-150 flex flex-wrap items-center justify-between gap-100">
+                      <span className="text-body-tiny text-text-subtlest">
+                        {card.lastPublish
+                          ? `Last published ${new Date(card.lastPublish).toLocaleDateString(
+                              undefined,
+                              {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              },
+                            )}`
+                          : "Never published"}
+                      </span>
+                      <div className="flex gap-100">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            void navigate({
+                              to: "/agent-studio/$botId",
+                              params: { botId: card.botId },
+                            })
+                          }
+                        >
+                          Edit
+                        </Button>
+                        {card.reachability !== "archived" ? (
+                          <ReasonedAction
+                            availability={sandboxAvailability(card)}
+                            onClick={() =>
+                              void navigate({ to: "/sandbox", search: { botId: card.botId } })
+                            }
+                          >
+                            Sandbox
+                          </ReasonedAction>
+                        ) : null}
+                        <ReasonedAction
+                          availability={archiveAvailability(card)}
+                          // Per card, not per page. `archive.isPending` on its own
+                          // is one mutation shared by every card, so archiving one
+                          // greyed out the Archive button on all the others.
+                          busy={archive.isPending && archive.variables?.botId === card.botId}
+                          onClick={() => void onArchive(card)}
+                        >
+                          {card.archivedAt ? "Restore" : "Archive"}
+                        </ReasonedAction>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-050">
-                    <Lozenge tone={routing(card).tone}>{routing(card).label}</Lozenge>
-                    <Lozenge
-                      tone={
-                        card.deploymentStatus === "live"
-                          ? "success"
-                          : card.deploymentStatus === "empty"
-                            ? "danger"
-                            : "neutral"
-                      }
-                    >
-                      {card.deploymentStatus === "live"
-                        ? `deployed · ${card.trafficPct ?? 100}%`
-                        : card.deploymentStatus === "published"
-                          ? "published, not deployed"
-                          : card.deploymentStatus === "draft"
-                            ? "draft only"
-                            : "no version"}
-                    </Lozenge>
-                  </div>
-                </div>
-                <p className="mt-150 text-body-small text-text-subtle">{card.purpose}</p>
-                <div className="mt-100 text-body-tiny text-text-subtlest">
-                  {routing(card).help(card.entryBotId)}
-                </div>
-                <div className="mt-150 flex flex-wrap gap-100">
-                  {card.channels.map((ch) => (
-                    <Lozenge key={ch} tone="neutral">
-                      {ch}
-                    </Lozenge>
-                  ))}
-                  <Lozenge tone="neutral">{card.toolCount} tools</Lozenge>
-                  <Lozenge tone="neutral">{card.skills.length} skills</Lozenge>
-                  <EvalTrend reports={reportsByBot.get(card.botId) ?? []} />
-                  {card.deploymentStatus === "live" && card.evalStatus === "skipped" ? (
-                    <Lozenge
-                      tone="warning"
-                      title="Carrying production traffic with no eval suite on record. The publish gate allows this; nothing has verified the card behaves."
-                    >
-                      live without evals
-                    </Lozenge>
-                  ) : (
-                    <Lozenge
-                      tone={card.evalStatus === "pass" ? "success" : "neutral"}
-                      title="Eval suite result. 'skipped' means the suite has not run — not a failure."
-                    >
-                      evals: {card.evalStatus}
-                    </Lozenge>
-                  )}
-                  {card.hasDraft ? (
-                    <button
-                      type="button"
-                      title="Open the editor on this card — it resumes the newest draft"
-                      onClick={() =>
-                        void navigate({
-                          to: "/agent-studio/$botId",
-                          params: { botId: card.botId },
-                        })
-                      }
-                      className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-brand"
-                    >
-                      <Lozenge tone="warning">unpublished draft →</Lozenge>
-                    </button>
-                  ) : null}
-                </div>
-                <div className="mt-150 flex flex-wrap items-center justify-between gap-100">
-                  <span className="text-body-tiny text-text-subtlest">
-                    {card.lastPublish
-                      ? `Last published ${new Date(card.lastPublish).toLocaleDateString(undefined, {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}`
-                      : "Never published"}
-                  </span>
-                  <div className="flex gap-100">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        void navigate({ to: "/agent-studio/$botId", params: { botId: card.botId } })
-                      }
-                    >
-                      Edit
-                    </Button>
-                    {card.reachability !== "archived" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        // A card with no prompt version has nothing to rehearse:
-                        // the sandbox would open and fall back to its default
-                        // bot, which is a different card than the one clicked.
-                        disabled={card.deploymentStatus === "empty"}
-                        title={
-                          card.deploymentStatus === "empty"
-                            ? "No version to run — author and save a draft first"
-                            : undefined
-                        }
-                        onClick={() =>
-                          void navigate({ to: "/sandbox", search: { botId: card.botId } })
-                        }
-                      >
-                        Sandbox
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={archive.isPending || !canArchive(card)}
-                      title={archiveReason(card)}
-                      onClick={() => void onArchive(card)}
-                    >
-                      {card.archivedAt ? "Restore" : "Archive"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+                ))}
+              </Fragment>
             ))}
           </div>
         )}
