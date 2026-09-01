@@ -75,7 +75,6 @@ def _kb_model_path_off(monkeypatch):
     ``azure_openai.chat_with_tools``.
     """
     monkeypatch.setenv("KB_PLANNER_ENABLED", "false")
-    monkeypatch.setenv("KB_JUDGE_ENABLED", "false")
 
 
 @pytest.fixture(autouse=True)

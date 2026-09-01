@@ -135,15 +135,74 @@ def test_call_trace_joins_session_attempt_and_demo() -> None:
     assert fields["demo"] == 1
 
 
+def test_call_trace_preview_strips_digit_runs() -> None:
+    from voice.call_trace import preview
+
+    assert preview("Yeah, last four is 2324.") == "Yeah, last four is ***."
+    assert preview("") is None
+    long = "A" * 100
+    assert preview(long, limit=20).endswith("…")
+    assert len(preview(long, limit=20)) == 20
+
+
 def test_bot_traces_the_hops_the_demo_log_was_missing() -> None:
     src = (_BACKEND / "voice" / "bot.py").read_text(encoding="utf-8")
     assert "first.speech" in src
     assert "first.tts" in src
+    assert "deadair.nudge" in src
+    assert "call.ended" in src
     assert "loop.trip" in src
     assert "setup.amd" in src
+    sink = (_BACKEND / "voice" / "crm_sink.py").read_text(encoding="utf-8")
+    assert '"user.turn"' in sink
+    assert '"bot.tts"' in sink
+    assert '"critique"' in sink
+    tools = (_BACKEND / "voice" / "tools.py").read_text(encoding="utf-8")
+    assert '"tool.called"' in tools
+    assert '"tool.result"' in tools
+    assert '"flow.node"' in tools
     assert "_LOOP_LLM_BUDGET" in src
     assert "prewarm_llm_connection(force=True)" not in src
     assert "customer_id_for_bind" in src
+
+
+def test_first_names_match_accepts_outbound_variants() -> None:
+    from voice.names import first_names_match
+
+    assert first_names_match("Yeah, Sushant here.", "Susanth")
+    assert first_names_match("Susanth", "Sushant Kumar")
+    assert not first_names_match("yes speaking", "Susanth")
+    assert not first_names_match("Priya", "Susanth")
+
+
+def test_demo_call_product_fixes_are_wired() -> None:
+    """Source locks so the next demo cannot silently lose the VS-2E3096 fixes."""
+    tools = (_BACKEND / "voice" / "tools.py").read_text(encoding="utf-8")
+    kb = (_BACKEND / "agent_core" / "tools" / "kb.py").read_text(encoding="utf-8")
+    natural = (_BACKEND / "voice" / "natural.py").read_text(encoding="utf-8")
+    bot = (_BACKEND / "voice" / "bot.py").read_text(encoding="utf-8")
+    flows = (_BACKEND / "voice" / "flows.py").read_text(encoding="utf-8")
+
+    # The VS-2E3096 invariant: an empty retrieve is never reported as
+    # confident, which is how a travel-insurance question got a fabricated
+    # follow-up instead of a refusal. Was two statements guarding a numeric
+    # gate; the gate is gone (measured at AUC 0.548 — a coin flip) and
+    # emptiness is now the whole rule, so it reads as one expression.
+    # Behaviour is covered directly by
+    # test_kb_plan.py::test_empty_results_are_never_confident.
+    assert "confident = bool(results)" in kb
+    assert "query_looks_product(query)" in tools
+    assert 'session.extra["upsell_blocked"] = reason' in tools
+    assert 'blocked = session.extra.get("upsell_blocked")' in tools
+    assert 'session.extra.pop("upsell_blocked", None)' in tools
+    assert "first_names_match" in tools
+    assert "AFTER the caller has spoken" in natural
+    assert "first words of the call" in natural
+    assert "outbound collections voice agent" in bot
+    assert "garbled STT fragments" in bot
+    assert "on_user_turn_stopped_rearm_idle" in bot
+    assert "Never open with a tool acknowledgement" in flows
+    assert "search_knowledge_base" in flows
 
 
 def test_frontend_create_campaign_sends_bot_id() -> None:

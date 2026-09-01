@@ -273,6 +273,20 @@ def _rate_limit_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
         yield ("rate_limit_throttled", {"key": str(key)}, float(count))
 
 
+def _kb_cache_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
+    """Shared KB retrieval-result cache.
+
+    A cache nobody measures is a cache that gets switched off blind, or left on
+    while silently serving nothing. Hits are the whole justification for it:
+    every miss is an Azure embed round trip (~330ms p50) on the audio path.
+    """
+    import kb_retrieve
+
+    stats = kb_retrieve.result_cache_stats() or {}
+    for key in ("hits", "misses", "size"):
+        yield ("kb_result_cache", {"kind": key}, float(stats.get(key, 0)))
+
+
 _COLLECTORS_REGISTERED = False
 
 
@@ -286,6 +300,7 @@ def register_collectors() -> None:
     REGISTRY.register(_SnapshotCollector("voice_admission", "Voice concurrency admission control.", _voice_samples))
     REGISTRY.register(_SnapshotCollector("job_queues", "SKIP LOCKED job queue depth, dead letters and backlog age.", _job_queue_samples))
     REGISTRY.register(_SnapshotCollector("rate_limits", "Rate-limit throttles since process start.", _rate_limit_samples))
+    REGISTRY.register(_SnapshotCollector("kb_result_cache", "Shared KB retrieval-result cache hits, misses and size.", _kb_cache_samples))
     _COLLECTORS_REGISTERED = True
 
 

@@ -600,9 +600,31 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     conn.execute("UPDATE teams SET supervisor_user_id = %s WHERE id = %s", ("priya-nair", "card-collections"))
     conn.execute("UPDATE teams SET supervisor_user_id = %s WHERE id = %s", ("david-chen", "supervisors"))
 
+    # Retired on the way in. `collectionsbot-v2-4` and `webchatbot` hold no
+    # prompt version and no deployment -- they cannot take a call and never
+    # could. They exist because the seeded history names them: 28 interactions,
+    # 24 interaction_participants, 29 violations, 9 qa_scorecards, 5 promises
+    # and 3 activity_events resolve their handler to one of the two, and
+    # `db.bot_analytics` groups its per-card table on `handler_bot_id`, so
+    # dropping them would blank two of that table's three rows. They are not
+    # roster entries though, and shipping them onto the Agent Studio fleet
+    # index as live cards was the whole reason the page read as filler.
+    # Archived is what they are: scaffolds, kept for the history they own.
+    retired_bots = {"collectionsbot-v2-4", "webchatbot"}
+
     for bot_id, name in ctx["bots"].items():
         version = "2.4" if "2.4" in name else "1.0"
-        upsert(conn, "bots", {"id": bot_id, "tenant_id": TENANT_ID, "name": name, "version": version})
+        upsert(
+            conn,
+            "bots",
+            {
+                "id": bot_id,
+                "tenant_id": TENANT_ID,
+                "name": name,
+                "version": version,
+                "archived_at": "2026-08-17T10:00:00Z" if bot_id in retired_bots else None,
+            },
+        )
 
     # Permissions and grants come from authz rather than a second list kept
     # here. The hand-written version had 5 of the 28 permissions and granted 6
@@ -1088,6 +1110,69 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "shadow": False,
             },
         )
+
+    # The tenant clone. Created through the API rather than seeded, which meant
+    # a fresh database showed four first-party mouths and nothing else -- and
+    # the page's own subtitle promises "first-party mouths plus tenant clones".
+    # It is also the card `demo/SUSANTH_VOICE_DEMO_SCRIPT.md` was recorded on.
+    #
+    # Only the published version and its active deployment are seeded. The live
+    # database also carries two superseded versions and two retired
+    # deployments; that is one afternoon's editing history, not part of the
+    # roster, and reproducing it would seed a story rather than a state.
+    upsert(
+        conn,
+        "bots",
+        {
+            "id": "collections-clone-9ff4b6",
+            "tenant_id": TENANT_ID,
+            "name": "Collections-clone",
+            "version": "1.0",
+            "archived_at": None,
+        },
+    )
+    upsert(
+        conn,
+        "prompt_versions",
+        {
+            "id": "v1_1-0e5322",
+            "author_user_id": "priya-nair",
+            "status": "published",
+            "label": "v1.1",
+            "summary": "voice changed",
+            "prompt": _emp_prompt,
+            "persona": _persona({**_emp_traits, "empathy": 75}),
+            # A clone that speaks in a different voice from the card it came
+            # from -- which is the point of cloning, and what the Voice tab is
+            # demonstrated with.
+            "voice": {**_voice, "azureVoiceName": "en-AU-WilliamNeural", "voiceId": "en-AU-WilliamNeural"},
+            "guardrails": {**_guardrails},
+            "bot_id": "collections-clone-9ff4b6",
+            "agent_card": _card_dump("kaia-v2-4"),
+            "created_at": "2026-08-20T06:46:00Z",
+            "updated_at": "2026-08-20T06:46:59Z",
+        },
+    )
+    upsert(
+        conn,
+        "bot_deployments",
+        {
+            "id": "DEP-49F6658EF6",
+            "bot_id": "collections-clone-9ff4b6",
+            "prompt_version_id": "v1_1-0e5322",
+            "kb_snapshot_id": None,
+            "tts_voice_id": "en-AU-WilliamNeural",
+            "environment": "production",
+            "status": "active",
+            "published_by_user_id": "priya-nair",
+            "published_at": "2026-08-20T06:46:59Z",
+            "rollback_deployment_id": None,
+            "voice_config": {**_voice, "azureVoiceName": "en-AU-WilliamNeural", "voiceId": "en-AU-WilliamNeural"},
+            "tuning": {"tts": {"voice": "en-AU-WilliamNeural"}},
+            "traffic_pct": 100,
+            "shadow": False,
+        },
+    )
 
     upsert(conn, "kb_documents", {"id": "kb-rbi-disclosures", "updated_by_user_id": "priya-nair", "type": "policy", "version": "2026.07", "status": "indexed", "enabled": True, "chunk_size": 800, "chunk_overlap": 120, "title": "RBI Collections Disclosure Guide"})
     upsert(conn, "kb_source_files", {"id": "file-kb-rbi-disclosures", "document_id": "kb-rbi-disclosures", "storage_ref": "minio://kb-sources/hdfc.retail/rbi-disclosures.pdf", "filename": "rbi-disclosures.pdf", "mime_type": "application/pdf", "size_bytes": 284000, "hash": stable_hash("rbi-disclosures")})

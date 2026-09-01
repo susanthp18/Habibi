@@ -244,7 +244,9 @@ def _tool_search_knowledge_base(ctx: ToolContext, args: dict[str, Any]) -> dict[
         "results": data["results"],
         "confident": confident,
         "answer_policy": (
-            "Answer ONLY from these snippets."
+            "Answer ONLY from these snippets. If they do not actually answer "
+            "what the customer asked, say so and offer request_callback rather "
+            "than stretching a related passage into an answer."
             if confident
             else (
                 "Retrieval was weak — do NOT answer from these snippets. Tell "
