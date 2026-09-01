@@ -1,0 +1,80 @@
+{"id": "seed-001", "query": "does my travel plan cover trip cancellation if i fall sick", "product": "travel", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-002", "query": "my baggage was delayed at the airport, what can i claim", "product": "travel", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-003", "query": "am i covered if my flight gets cancelled because of a strike", "product": "travel", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-004", "query": "what is the excess i pay on a car accident claim", "product": "car", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-005", "query": "is my car covered if someone else was driving it", "product": "car", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-006", "query": "is my maid covered for hospital bills", "product": "maid", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-007", "query": "what happens if my helper runs away", "product": "maid", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-008", "query": "how much do i get for daily hospital cash", "product": "hospital", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-009", "query": "is pre existing condition excluded", "product": "hospital", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-010", "query": "am i covered if someone breaks into my house", "product": "home", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-011", "query": "does it cover water damage from a burst pipe", "product": "home", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-012", "query": "what happens if my credit card gets used fraudulently", "product": "fraud", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-013", "query": "someone phished me and took money from my account, am i covered", "product": "fraud", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-014", "query": "does it cover cancer diagnosis at an early stage", "product": "early", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-015", "query": "what is the waiting period before i can claim", "product": "early", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-016", "query": "what is the payout if i lose a limb in an accident", "product": "personal_accident", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-017", "query": "am i covered for accidents at work", "product": "personal_accident", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-018", "query": "can i pick which benefits i want in the plan", "product": "choice", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-019", "query": "what is the late payment fee on my statement", "product": "collections", "gold_ids": [], "origin": "handwritten"}
+{"id": "seed-020", "query": "how do i set up a payment plan for what i owe", "product": "collections", "gold_ids": [], "origin": "handwritten"}
+{"id": "faq-020", "query": "Can I choose my preferred workshop for accident repairs?", "product": "car", "gold_ids": ["faq-car-001"], "origin": "faq"}
+{"id": "faq-021", "query": "If I am not at fault for the accident but make an own damage claim, will my NCD be affected?", "product": "car", "gold_ids": ["faq-car-002"], "origin": "faq"}
+{"id": "faq-022", "query": "If I make a claim for Windscreen, do I have to reinstate my windscreen cover after a claim? Will my NCD be affected?", "product": "car", "gold_ids": ["faq-car-003"], "origin": "faq"}
+{"id": "faq-023", "query": "If the other party offers private settlement, should I agree?", "product": "car", "gold_ids": ["faq-car-004"], "origin": "faq"}
+{"id": "faq-024", "query": "What is market value? How is this determined?", "product": "car", "gold_ids": ["faq-car-005"], "origin": "faq"}
+{"id": "faq-025", "query": "What is the No Claim Discount (NCD) Protector? How does it work?", "product": "car", "gold_ids": ["faq-car-006"], "origin": "faq"}
+{"id": "faq-026", "query": "Who can buy Choice Protect360?", "product": "choice", "gold_ids": ["faq-choice-001"], "origin": "faq"}
+{"id": "faq-027", "query": "Does this policy have age restrictions?", "product": "choice", "gold_ids": ["faq-choice-002"], "origin": "faq"}
+{"id": "faq-028", "query": "What does Choice Protect360 cover?", "product": "choice", "gold_ids": ["faq-choice-003"], "origin": "faq"}
+{"id": "faq-029", "query": "How does No Claim Discount(NCD) work?", "product": "choice", "gold_ids": ["faq-choice-004"], "origin": "faq"}
+{"id": "faq-030", "query": "Does Choice Protect360 cover Child(ren)?", "product": "choice", "gold_ids": ["faq-choice-005"], "origin": "faq"}
+{"id": "faq-031", "query": "Is there a discount if I choose a family plan?", "product": "choice", "gold_ids": ["faq-choice-006"], "origin": "faq"}
+{"id": "faq-032", "query": "What happens if I miss my payment due date?", "product": "collections", "gold_ids": ["faq-collections-001"], "origin": "faq"}
+{"id": "faq-033", "query": "Is there a grace period after the due date?", "product": "collections", "gold_ids": ["faq-collections-002"], "origin": "faq"}
+{"id": "faq-034", "query": "My EMI auto-debit bounced. What should I do?", "product": "collections", "gold_ids": ["faq-collections-003"], "origin": "faq"}
+{"id": "faq-035", "query": "Can you waive the late fee?", "product": "collections", "gold_ids": ["faq-collections-004"], "origin": "faq"}
+{"id": "faq-036", "query": "Can I restructure my loan or settle for less?", "product": "collections", "gold_ids": ["faq-collections-005"], "origin": "faq"}
+{"id": "faq-037", "query": "I lost my job / I am in financial hardship. What are my options?", "product": "collections", "gold_ids": ["faq-collections-006"], "origin": "faq"}
+{"id": "faq-038", "query": "What is the difference between Early Protect360 Plus and Early Protect360?", "product": "early", "gold_ids": ["faq-early-001"], "origin": "faq"}
+{"id": "faq-039", "query": "Who is eligible to be insured under Early Protect360 Plus?", "product": "early", "gold_ids": ["faq-early-002"], "origin": "faq"}
+{"id": "faq-040", "query": "Is Early Protect360 Plus a renewable plan?", "product": "early", "gold_ids": ["faq-early-003"], "origin": "faq"}
+{"id": "faq-041", "query": "What is the maximum coverage I can purchase under Early Protect360 Plus?", "product": "early", "gold_ids": ["faq-early-004"], "origin": "faq"}
+{"id": "faq-042", "query": "Is there a free-look period?", "product": "early", "gold_ids": ["faq-early-005"], "origin": "faq"}
+{"id": "faq-043", "query": "Do I need to go for a medical check-up?", "product": "early", "gold_ids": ["faq-early-006"], "origin": "faq"}
+{"id": "faq-044", "query": "Can I purchase more than one Fraud Protect360 Plus plan?", "product": "fraud", "gold_ids": ["faq-fraud-001"], "origin": "faq"}
+{"id": "faq-045", "query": "Who is covered under Fraud Protect360 Plus?", "product": "fraud", "gold_ids": ["faq-fraud-002"], "origin": "faq"}
+{"id": "faq-046", "query": "Who is eligible to be insured under Fraud Protect360 Plus?", "product": "fraud", "gold_ids": ["faq-fraud-003"], "origin": "faq"}
+{"id": "faq-047", "query": "What is covered under Fraud Protect360 Plus?", "product": "fraud", "gold_ids": ["faq-fraud-004"], "origin": "faq"}
+{"id": "faq-048", "query": "What is not covered under Fraud Protect360 Plus?", "product": "fraud", "gold_ids": ["faq-fraud-005"], "origin": "faq"}
+{"id": "faq-049", "query": "What are the policy wordings for Fraud Protect360 Plus?", "product": "fraud", "gold_ids": ["faq-fraud-006"], "origin": "faq"}
+{"id": "faq-050", "query": "Who is eligible for Home Protect360 Insurance?", "product": "home", "gold_ids": ["faq-home-001"], "origin": "faq"}
+{"id": "faq-051", "query": "Why should I enrol for Home Protect360 Insurance?", "product": "home", "gold_ids": ["faq-home-002"], "origin": "faq"}
+{"id": "faq-052", "query": "Following household contents’ damage arising from fire, can I claim for the Removal of Debris?", "product": "home", "gold_ids": ["faq-home-003"], "origin": "faq"}
+{"id": "faq-053", "query": "Can I claim for the loss of my jewellery?", "product": "home", "gold_ids": ["faq-home-004"], "origin": "faq"}
+{"id": "faq-054", "query": "Can I claim if my television insured under this policy accidentally fell and damaged?", "product": "home", "gold_ids": ["faq-home-005"], "origin": "faq"}
+{"id": "faq-055", "query": "How do I make a claim for my home contents?", "product": "home", "gold_ids": ["faq-home-006"], "origin": "faq"}
+{"id": "faq-056", "query": "Who can apply for this Hospital Income Policy?", "product": "hospital", "gold_ids": ["faq-hospital-001"], "origin": "faq"}
+{"id": "faq-057", "query": "Can I claim under both Section 1 and Section 2 for the same day of hospitalization?", "product": "hospital", "gold_ids": ["faq-hospital-002"], "origin": "faq"}
+{"id": "faq-058", "query": "How many days of hospitalization is covered?", "product": "hospital", "gold_ids": ["faq-hospital-003"], "origin": "faq"}
+{"id": "faq-059", "query": "Does this policy cover me while I am overseas?", "product": "hospital", "gold_ids": ["faq-hospital-004"], "origin": "faq"}
+{"id": "faq-060", "query": "Does this policy premium increase with age?", "product": "hospital", "gold_ids": ["faq-hospital-005"], "origin": "faq"}
+{"id": "faq-061", "query": "Does this policy cover hospitalization in a rehabilitation centre or a community hospital?", "product": "hospital", "gold_ids": ["faq-hospital-006"], "origin": "faq"}
+{"id": "faq-062", "query": "What does Maid Protect360 PRO cover?", "product": "maid", "gold_ids": ["faq-maid-001"], "origin": "faq"}
+{"id": "faq-063", "query": "Does Maid Protect360 PRO fulfil MOM’s latest requirements, and which plan should I buy?", "product": "maid", "gold_ids": ["faq-maid-002"], "origin": "faq"}
+{"id": "faq-064", "query": "What is so special about Maid Protect360 PRO?", "product": "maid", "gold_ids": ["faq-maid-003"], "origin": "faq"}
+{"id": "faq-065", "query": "Is there a Free-Look period?", "product": "maid", "gold_ids": ["faq-maid-004"], "origin": "faq"}
+{"id": "faq-066", "query": "How does security bond works?", "product": "maid", "gold_ids": ["faq-maid-005"], "origin": "faq"}
+{"id": "faq-067", "query": "What do Medical Expenses benefit and Hospital & Surgical Expenses benefit cover?", "product": "maid", "gold_ids": ["faq-maid-006"], "origin": "faq"}
+{"id": "faq-068", "query": "Who can apply for this Policy?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-001"], "origin": "faq"}
+{"id": "faq-069", "query": "Can my children be included in the Family Protect360?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-002"], "origin": "faq"}
+{"id": "faq-070", "query": "What are the general exclusions for Family Protect360?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-003"], "origin": "faq"}
+{"id": "faq-071", "query": "How does this Policy pay out for Income Protector?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-004"], "origin": "faq"}
+{"id": "faq-072", "query": "Does this Policy premium increase with age?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-005"], "origin": "faq"}
+{"id": "faq-073", "query": "Do I need to inform HDFC Assurance upon the annual renewal of this Policy?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-006"], "origin": "faq"}
+{"id": "faq-074", "query": "What does Travel Protect360 Insurance cover?", "product": "travel", "gold_ids": ["faq-travel-001"], "origin": "faq"}
+{"id": "faq-075", "query": "How to buy travel insurance from HDFC Assurance?", "product": "travel", "gold_ids": ["faq-travel-002"], "origin": "faq"}
+{"id": "faq-076", "query": "Annual Trip Insurance vs Single Trip Insurance - Which is better?", "product": "travel", "gold_ids": ["faq-travel-003"], "origin": "faq"}
+{"id": "faq-077", "query": "Does Travel Protect360 Insurance cover me if I travel to multiple countries?", "product": "travel", "gold_ids": ["faq-travel-004"], "origin": "faq"}
+{"id": "faq-078", "query": "Can I buy travel insurance after departure?", "product": "travel", "gold_ids": ["faq-travel-005"], "origin": "faq"}
+{"id": "faq-079", "query": "Can I cancel my travel insurance policy if my plans change?", "product": "travel", "gold_ids": ["faq-travel-006"], "origin": "faq"}

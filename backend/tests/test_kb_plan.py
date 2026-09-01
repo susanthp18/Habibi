@@ -33,7 +33,6 @@ def _tool_response(name, **payload):
 @pytest.fixture
 def model_on(monkeypatch):
     monkeypatch.setenv("KB_PLANNER_ENABLED", "true")
-    monkeypatch.setenv("KB_JUDGE_ENABLED", "true")
 
 
 @pytest.fixture
@@ -95,10 +94,11 @@ def test_a_corpus_that_has_the_answer_is_not_refused_at_0_667(
 ):
     """0.667 against a 0.70 gate refused a caller four times over ten products.
 
-    Whether passages answer a question is a judgment about their content. The
-    number the gate compared had already been through a stack of BOOST_*/
-    PENALTY_* deltas, so the threshold was applied to a quantity with no stable
-    meaning.
+    The gate is gone entirely now, not merely overridable. Measured over the
+    golden set the absolute score predicts retrieval success at AUC 0.548 --
+    a coin flip -- and it refused 5 of 46 correct answers while admitting 12 of
+    14 wrong ones. Passages come back and the answering model is instructed to
+    abstain when they do not answer the question.
     """
     import kb_retrieve
 
@@ -106,9 +106,6 @@ def test_a_corpus_that_has_the_answer_is_not_refused_at_0_667(
     monkeypatch.setattr(kb_retrieve, "catalog", lambda **kw: [])
     fake_azure.state["plan"] = _tool_response(
         kb_plan._PLAN_TOOL_NAME, mode="passage", query="travel cover", prefer_policy=False
-    )
-    fake_azure.state["judge"] = _tool_response(
-        kb_plan._JUDGE_TOOL_NAME, keep=[1, 0], answerable=True, reason="states the benefit"
     )
 
     result = kb.search_knowledge_base(
@@ -119,14 +116,21 @@ def test_a_corpus_that_has_the_answer_is_not_refused_at_0_667(
     )
 
     assert result.data["confident"] is True
-    assert result.data["judgeSource"] == "llm"
     assert result.data["unvetted"] is False
-    # Reranked into the judge's order, with chunkIds kept index-aligned.
-    assert result.data["chunkIds"] == ["c1", "c0", "c2"]
+    assert result.data["judgeSource"] == "removed"
+    # Retrieval order is preserved: nothing reorders these any more.
+    assert result.data["chunkIds"] == ["c0", "c1", "c2"]
 
 
-def test_the_judge_can_still_refuse(model_on, fake_azure, monkeypatch):
-    """Removing the threshold must not remove the check."""
+def test_a_high_score_is_not_treated_as_an_answer(model_on, fake_azure, monkeypatch):
+    """The check moved, it did not vanish -- but it is no longer numeric.
+
+    A confident-looking cosine says nothing about whether the passages address
+    the question; on this corpus a high score often means the query matched
+    shared policy boilerplate. Retrieval therefore reports the score and stays
+    out of the judgment, and the answer_policy handed to the model carries the
+    instruction to abstain.
+    """
     import kb_retrieve
 
     monkeypatch.setattr(kb_retrieve, "retrieve", _FakeRetrieve(rows=_rows(3, top=0.95)))
@@ -134,27 +138,15 @@ def test_the_judge_can_still_refuse(model_on, fake_azure, monkeypatch):
     fake_azure.state["plan"] = _tool_response(
         kb_plan._PLAN_TOOL_NAME, mode="passage", query="scuba", prefer_policy=True
     )
-    fake_azure.state["judge"] = _tool_response(
-        kb_plan._JUDGE_TOOL_NAME,
-        keep=[0],
-        answerable=False,
-        reason="exclusions listed but scuba diving is not among them",
-    )
 
     result = kb.search_knowledge_base(
         query="scuba", channel="voice", customer_text="is scuba covered",
         apply_intent_gate=False,
     )
 
-    # A high vector score does not make it answerable.
     assert result.data["topScore"] >= 0.9
-    assert result.data["confident"] is False
-    assert "scuba diving is not among them" in result.data["judgeReason"]
-
-
-# ---------------------------------------------------------------------------
-# Catalog questions
-# ---------------------------------------------------------------------------
+    # Reported, never gated on.
+    assert "margin" in result.data
 
 
 def test_what_products_do_you_have_is_answered_from_the_corpus(
@@ -301,11 +293,13 @@ def test_no_budget_means_no_call(model_on, fake_azure):
     assert fake_azure.calls == []
 
 
-def test_judge_unavailable_fails_open_and_says_so(model_on, fake_azure, monkeypatch):
-    """A busy analysis lane must not become a refused caller.
+def test_no_judge_call_is_made(model_on, fake_azure, monkeypatch):
+    """The judge is removed, not merely disabled.
 
-    Deliberate product decision, so the compensating requirement is that it is
-    never silent: `unvetted` rides along in the payload.
+    It carried a guaranteed 3.5s floor on every voice turn
+    and failed *open* whenever the analysis lane saturated -- so the latency was
+    paid every time and the check was skipped exactly under the load that made
+    it worth having.
     """
     import kb_retrieve
 
@@ -314,28 +308,52 @@ def test_judge_unavailable_fails_open_and_says_so(model_on, fake_azure, monkeypa
     fake_azure.state["plan"] = _tool_response(
         kb_plan._PLAN_TOOL_NAME, mode="passage", query="q", prefer_policy=False
     )
-    fake_azure.state["judge"] = {"content": "", "toolCalls": []}  # no verdict
+    # Deliberately left unset: nothing may consult it.
+    fake_azure.state.pop("judge", None)
 
     result = kb.search_knowledge_base(
         query="q", channel="voice", customer_text="q", apply_intent_gate=False
     )
 
     assert result.data["confident"] is True
-    assert result.data["unvetted"] is True
-    assert result.data["judgeSource"] == "fallback"
+    assert result.data["unvetted"] is False
+    assert result.data["judgeSource"] == "removed"
+    assert result.data["judgeReason"] == "judge_removed"
 
 
-def test_judge_disabled_uses_the_legacy_threshold(fake_azure, monkeypatch):
-    """Switched off on purpose is not the same as broken.
+def test_empty_results_are_never_confident(model_on, fake_azure, monkeypatch):
+    """The one structural gate that survived, and the one that carries signal.
 
-    Disabling the judge falls back to the documented numeric rule rather than
-    to no check at all — otherwise turning the feature off would silently make
-    every retrieval answerable.
+    An empty retrieve has nothing to speak from. Telling the model it is
+    confident is how a travel-insurance question got a fabricated follow-up
+    instead of a refusal.
+    """
+    import kb_retrieve
+
+    monkeypatch.setattr(kb_retrieve, "retrieve", _FakeRetrieve(rows=[]))
+    monkeypatch.setattr(kb_retrieve, "catalog", lambda **kw: [])
+    fake_azure.state["plan"] = _tool_response(
+        kb_plan._PLAN_TOOL_NAME, mode="passage", query="q", prefer_policy=False
+    )
+
+    result = kb.search_knowledge_base(
+        query="q", channel="voice", customer_text="q", apply_intent_gate=False
+    )
+
+    assert result.data["results"] == []
+    assert result.data["confident"] is False
+
+
+def test_a_weak_score_no_longer_refuses_the_caller(fake_azure, monkeypatch):
+    """The legacy numeric rule is gone, including as a fallback.
+
+    It used to apply whenever the judge was switched off -- which, via
+    conftest, was every test run and therefore the only path the suite ever
+    exercised. A 0.42 retrieval now returns its passages.
     """
     import kb_retrieve
 
     monkeypatch.setenv("KB_PLANNER_ENABLED", "false")
-    monkeypatch.setenv("KB_JUDGE_ENABLED", "false")
     monkeypatch.setattr(kb_retrieve, "retrieve", _FakeRetrieve(rows=_rows(2, top=0.42)))
     monkeypatch.setattr(kb_retrieve, "catalog", lambda **kw: [])
 
@@ -343,26 +361,8 @@ def test_judge_disabled_uses_the_legacy_threshold(fake_azure, monkeypatch):
         query="premium", channel="voice", apply_intent_gate=False
     )
 
-    assert result.data["confident"] is False
+    assert result.data["confident"] is True
     assert result.data["unvetted"] is False
-
-
-def test_an_empty_keep_list_cannot_be_answerable(model_on, fake_azure):
-    """Otherwise the model is handed an empty context and told to answer from it."""
-    verdict = kb_plan.judge_passages(
-        question="q",
-        passages=[{"docTitle": "D", "snippet": "s"}],
-        budget=5.0,
-    )
-    fake_azure.state["judge"] = _tool_response(
-        kb_plan._JUDGE_TOOL_NAME, keep=[], answerable=True
-    )
-    verdict = kb_plan.judge_passages(
-        question="q", passages=[{"docTitle": "D", "snippet": "s"}], budget=5.0
-    )
-
-    assert verdict.keep == []
-    assert verdict.answerable is False
 
 
 def test_voice_budget_is_tighter_than_text(monkeypatch):

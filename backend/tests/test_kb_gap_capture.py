@@ -26,16 +26,22 @@ from agent_core.tools import kb
 
 
 class _FakeRetrieve:
-    def __init__(self, rows=None, raises=None):
+    def __init__(self, rows=None, raises=None, margin=0.0):
         self.calls: list[dict] = []
         self._rows = [] if rows is None else rows
         self._raises = raises
+        self._margin = margin
 
     def __call__(self, **kwargs):
         self.calls.append(kwargs)
         if self._raises is not None:
             raise self._raises
-        return {"results": self._rows, "latencyMs": 5, "logId": "LOG-1"}
+        return {
+            "results": self._rows,
+            "margin": self._margin,
+            "latencyMs": 5,
+            "logId": "LOG-1",
+        }
 
 
 def _rows(top: float):
@@ -94,20 +100,38 @@ def test_no_results_records_a_gap(monkeypatch, gap_enabled, captured):
 
     assert result.ok is True
     assert result.data["results"] == []
+    assert result.data["confident"] is False
     assert len(captured) == 1
     assert captured[0]["question"] == "does the policy cover a cracked windscreen"
     assert captured[0]["interaction_id"] == "IX-1"
 
 
-def test_weak_results_record_a_gap(monkeypatch, gap_enabled, captured):
-    """Hits exist but score below the threshold — the corpus nearly has it."""
+def test_an_ambiguous_retrieval_records_a_gap(monkeypatch, gap_enabled, captured):
+    """Passages came back but nothing stood out — record it for review.
+
+    The gate is the retrieval *margin* now, not the absolute score. A small gap
+    between the best passage and the runner-up is the cheap observable proxy for
+    "we could not tell what answers this"; the absolute score is not, at AUC
+    0.548 against 0.975 for margin over the golden set.
+
+    Note the caller is still `confident` here: passages exist, so the model gets
+    them along with an instruction to abstain if they do not answer. Recording a
+    possible content gap and refusing the caller are no longer the same act.
+    """
     import kb_retrieve
 
-    monkeypatch.setattr(kb_retrieve, "retrieve", _FakeRetrieve(rows=_rows(0.41)))
+    # Two passages a hair apart: nothing distinguished the best from the next.
+    # A margin needs a runner-up, so a one-hit retrieval is deliberately not
+    # treated as ambiguous.
+    rows = _rows(0.41) + [dict(_rows(0.405)[0], chunkId="CH-2")]
+    monkeypatch.setattr(
+        kb_retrieve, "retrieve", _FakeRetrieve(rows=rows, margin=0.005)
+    )
 
     result = _search()
 
-    assert result.data["confident"] is False
+    assert result.data["confident"] is True
+    assert result.data["margin"] == 0.005
     assert len(captured) == 1
 
 

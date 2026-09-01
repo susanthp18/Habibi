@@ -1,0 +1,1685 @@
+{
+  "n": 80,
+  "productP@1": 0.925,
+  "productRecall@3": 0.9625,
+  "productRecall@5": 0.9625,
+  "strictCases": 60,
+  "recall@1": 0.7667,
+  "recall@3": 0.9,
+  "recall@5": 0.9667,
+  "mrr": 0.8439,
+  "topScoreMean": 0.7407,
+  "topScoreMax": 0.914,
+  "scoreWhenProductCorrect": 0.7463,
+  "scoreWhenProductWrong": 0.6712,
+  "aboveLegacy0_70": 58,
+  "cases": 80,
+  "ran": 80,
+  "errors": 0,
+  "topK": 5,
+  "scoped": false,
+  "latencyMs": {
+    "p50": 569.5,
+    "p95": 1106.7,
+    "p99": 2346.0,
+    "max": 22919.2
+  },
+  "stageMs": {
+    "ann_ms": {
+      "p50": 95.7,
+      "p95": 369.0
+    },
+    "draft_ms": {
+      "p50": 0.0,
+      "p95": 0.0
+    },
+    "embed_ms": {
+      "p50": 331.5,
+      "p95": 481.4
+    },
+    "rank_ms": {
+      "p50": 12.4,
+      "p95": 47.5
+    },
+    "rate_ms": {
+      "p50": 32.3,
+      "p95": 601.7
+    }
+  },
+  "byOrigin": {
+    "faq": {
+      "n": 60,
+      "productP@1": 0.9667,
+      "productRecall@3": 0.9833,
+      "productRecall@5": 0.9833,
+      "strictCases": 60,
+      "recall@1": 0.7667,
+      "recall@3": 0.9,
+      "recall@5": 0.9667,
+      "mrr": 0.8439,
+      "topScoreMean": 0.7802,
+      "topScoreMax": 0.914,
+      "scoreWhenProductCorrect": 0.7803,
+      "scoreWhenProductWrong": 0.7776,
+      "aboveLegacy0_70": 53
+    },
+    "handwritten": {
+      "n": 20,
+      "productP@1": 0.8,
+      "productRecall@3": 0.9,
+      "productRecall@5": 0.9,
+      "strictCases": 0,
+      "recall@1": 0.0,
+      "recall@3": 0.0,
+      "recall@5": 0.0,
+      "mrr": 0.0,
+      "topScoreMean": 0.6221,
+      "topScoreMax": 0.8029,
+      "scoreWhenProductCorrect": 0.6232,
+      "scoreWhenProductWrong": 0.618,
+      "aboveLegacy0_70": 5
+    }
+  },
+  "perCase": [
+    {
+      "id": "seed-001",
+      "origin": "handwritten",
+      "query": "does my travel plan cover trip cancellation if i fall sick",
+      "goldProduct": "travel",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.7436,
+      "topProduct": "travel",
+      "wallMs": 22919.2,
+      "retrieveMs": 22804,
+      "stages": {
+        "rate_ms": 209.84,
+        "embed_ms": 22037.31,
+        "ann_ms": 536.53,
+        "rank_ms": 21.18,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-002",
+      "origin": "handwritten",
+      "query": "my baggage was delayed at the airport, what can i claim",
+      "goldProduct": "travel",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.7358,
+      "topProduct": "travel",
+      "wallMs": 582.7,
+      "retrieveMs": 582,
+      "stages": {
+        "rate_ms": 23.22,
+        "embed_ms": 491.72,
+        "ann_ms": 52.74,
+        "rank_ms": 14.65,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-003",
+      "origin": "handwritten",
+      "query": "am i covered if my flight gets cancelled because of a strike",
+      "goldProduct": "travel",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.7115,
+      "topProduct": "travel",
+      "wallMs": 281.4,
+      "retrieveMs": 281,
+      "stages": {
+        "rate_ms": 12.67,
+        "embed_ms": 168.78,
+        "ann_ms": 88.2,
+        "rank_ms": 11.42,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "seed-004",
+      "origin": "handwritten",
+      "query": "what is the excess i pay on a car accident claim",
+      "goldProduct": "car",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.504,
+      "topProduct": "car",
+      "wallMs": 345.9,
+      "retrieveMs": 345,
+      "stages": {
+        "rate_ms": 11.8,
+        "embed_ms": 270.9,
+        "ann_ms": 54.67,
+        "rank_ms": 7.97,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-005",
+      "origin": "handwritten",
+      "query": "is my car covered if someone else was driving it",
+      "goldProduct": "car",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.6589,
+      "topProduct": "car",
+      "wallMs": 569.5,
+      "retrieveMs": 569,
+      "stages": {
+        "rate_ms": 10.47,
+        "embed_ms": 505.03,
+        "ann_ms": 48.78,
+        "rank_ms": 4.77,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-006",
+      "origin": "handwritten",
+      "query": "is my maid covered for hospital bills",
+      "goldProduct": "maid",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.8029,
+      "topProduct": "maid",
+      "wallMs": 401.6,
+      "retrieveMs": 401,
+      "stages": {
+        "rate_ms": 17.58,
+        "embed_ms": 306.31,
+        "ann_ms": 69.45,
+        "rank_ms": 7.98,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "seed-007",
+      "origin": "handwritten",
+      "query": "what happens if my helper runs away",
+      "goldProduct": "maid",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.363,
+      "topProduct": "maid",
+      "wallMs": 468.5,
+      "retrieveMs": 468,
+      "stages": {
+        "rate_ms": 9.16,
+        "embed_ms": 378.99,
+        "ann_ms": 70.99,
+        "rank_ms": 8.87,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-008",
+      "origin": "handwritten",
+      "query": "how much do i get for daily hospital cash",
+      "goldProduct": "hospital",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.7888,
+      "topProduct": "hospital",
+      "wallMs": 398.0,
+      "retrieveMs": 397,
+      "stages": {
+        "rate_ms": 11.91,
+        "embed_ms": 337.58,
+        "ann_ms": 40.46,
+        "rank_ms": 7.57,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-009",
+      "origin": "handwritten",
+      "query": "is pre existing condition excluded",
+      "goldProduct": "hospital",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 3,
+      "topScore": 0.6782,
+      "topProduct": "travel",
+      "wallMs": 407.0,
+      "retrieveMs": 406,
+      "stages": {
+        "rate_ms": 10.68,
+        "embed_ms": 333.35,
+        "ann_ms": 52.41,
+        "rank_ms": 9.93,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-010",
+      "origin": "handwritten",
+      "query": "am i covered if someone breaks into my house",
+      "goldProduct": "home",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.607,
+      "topProduct": "home",
+      "wallMs": 414.3,
+      "retrieveMs": 413,
+      "stages": {
+        "rate_ms": 16.41,
+        "embed_ms": 326.7,
+        "ann_ms": 65.01,
+        "rank_ms": 5.72,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "seed-011",
+      "origin": "handwritten",
+      "query": "does it cover water damage from a burst pipe",
+      "goldProduct": "home",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.5421,
+      "topProduct": "home",
+      "wallMs": 590.4,
+      "retrieveMs": 589,
+      "stages": {
+        "rate_ms": 18.48,
+        "embed_ms": 407.54,
+        "ann_ms": 147.45,
+        "rank_ms": 16.49,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-012",
+      "origin": "handwritten",
+      "query": "what happens if my credit card gets used fraudulently",
+      "goldProduct": "fraud",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.484,
+      "topProduct": "fraud",
+      "wallMs": 376.4,
+      "retrieveMs": 375,
+      "stages": {
+        "rate_ms": 25.66,
+        "embed_ms": 290.58,
+        "ann_ms": 48.58,
+        "rank_ms": 11.12,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-013",
+      "origin": "handwritten",
+      "query": "someone phished me and took money from my account, am i covered",
+      "goldProduct": "fraud",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.6485,
+      "topProduct": "fraud",
+      "wallMs": 359.4,
+      "retrieveMs": 302,
+      "stages": {
+        "rate_ms": 10.07,
+        "embed_ms": 162.62,
+        "ann_ms": 109.43,
+        "rank_ms": 20.01,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-014",
+      "origin": "handwritten",
+      "query": "does it cover cancer diagnosis at an early stage",
+      "goldProduct": "early",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.6163,
+      "topProduct": "early",
+      "wallMs": 714.5,
+      "retrieveMs": 714,
+      "stages": {
+        "rate_ms": 49.83,
+        "embed_ms": 435.21,
+        "ann_ms": 208.94,
+        "rank_ms": 20.19,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-015",
+      "origin": "handwritten",
+      "query": "what is the waiting period before i can claim",
+      "goldProduct": "early",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": null,
+      "topScore": 0.5825,
+      "topProduct": "hospital",
+      "wallMs": 596.2,
+      "retrieveMs": 595,
+      "stages": {
+        "rate_ms": 41.91,
+        "embed_ms": 445.82,
+        "ann_ms": 95.67,
+        "rank_ms": 12.44,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-016",
+      "origin": "handwritten",
+      "query": "what is the payout if i lose a limb in an accident",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 2,
+      "topScore": 0.5743,
+      "topProduct": "choice",
+      "wallMs": 305.7,
+      "retrieveMs": 304,
+      "stages": {
+        "rate_ms": 16.08,
+        "embed_ms": 167.32,
+        "ann_ms": 105.27,
+        "rank_ms": 15.84,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-017",
+      "origin": "handwritten",
+      "query": "am i covered for accidents at work",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": null,
+      "topScore": 0.6369,
+      "topProduct": "maid",
+      "wallMs": 462.4,
+      "retrieveMs": 461,
+      "stages": {
+        "rate_ms": 31.49,
+        "embed_ms": 312.51,
+        "ann_ms": 101.28,
+        "rank_ms": 16.64,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-018",
+      "origin": "handwritten",
+      "query": "can i pick which benefits i want in the plan",
+      "goldProduct": "choice",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.6176,
+      "topProduct": "choice",
+      "wallMs": 595.8,
+      "retrieveMs": 595,
+      "stages": {
+        "rate_ms": 21.55,
+        "embed_ms": 328.34,
+        "ann_ms": 155.01,
+        "rank_ms": 90.57,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-019",
+      "origin": "handwritten",
+      "query": "what is the late payment fee on my statement",
+      "goldProduct": "collections",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.6702,
+      "topProduct": "collections",
+      "wallMs": 459.3,
+      "retrieveMs": 456,
+      "stages": {
+        "rate_ms": 75.17,
+        "embed_ms": 187.28,
+        "ann_ms": 192.34,
+        "rank_ms": 1.42,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "seed-020",
+      "origin": "handwritten",
+      "query": "how do i set up a payment plan for what i owe",
+      "goldProduct": "collections",
+      "hasGoldIds": false,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.4764,
+      "topProduct": "collections",
+      "wallMs": 597.8,
+      "retrieveMs": 597,
+      "stages": {
+        "rate_ms": 41.63,
+        "embed_ms": 354.65,
+        "ann_ms": 184.37,
+        "rank_ms": 16.52,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-020",
+      "origin": "faq",
+      "query": "Can I choose my preferred workshop for accident repairs?",
+      "goldProduct": "car",
+      "hasGoldIds": true,
+      "rank": 3,
+      "productRank": 1,
+      "topScore": 0.6482,
+      "topProduct": "car",
+      "wallMs": 641.9,
+      "retrieveMs": 641,
+      "stages": {
+        "rate_ms": 63.26,
+        "embed_ms": 352.05,
+        "ann_ms": 194.57,
+        "rank_ms": 31.62,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-021",
+      "origin": "faq",
+      "query": "If I am not at fault for the accident but make an own damage claim, will my NCD be affected?",
+      "goldProduct": "car",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.914,
+      "topProduct": "car",
+      "wallMs": 996.2,
+      "retrieveMs": 894,
+      "stages": {
+        "rate_ms": 101.94,
+        "embed_ms": 470.66,
+        "ann_ms": 286.56,
+        "rank_ms": 35.39,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-022",
+      "origin": "faq",
+      "query": "If I make a claim for Windscreen, do I have to reinstate my windscreen cover after a claim? Will my NCD be affected?",
+      "goldProduct": "car",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8549,
+      "topProduct": "car",
+      "wallMs": 890.9,
+      "retrieveMs": 883,
+      "stages": {
+        "rate_ms": 68.66,
+        "embed_ms": 210.88,
+        "ann_ms": 545.34,
+        "rank_ms": 58.35,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-023",
+      "origin": "faq",
+      "query": "If the other party offers private settlement, should I agree?",
+      "goldProduct": "car",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7698,
+      "topProduct": "car",
+      "wallMs": 790.5,
+      "retrieveMs": 789,
+      "stages": {
+        "rate_ms": 145.46,
+        "embed_ms": 481.41,
+        "ann_ms": 145.21,
+        "rank_ms": 17.83,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-024",
+      "origin": "faq",
+      "query": "What is market value? How is this determined?",
+      "goldProduct": "car",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7362,
+      "topProduct": "car",
+      "wallMs": 862.7,
+      "retrieveMs": 861,
+      "stages": {
+        "rate_ms": 310.87,
+        "embed_ms": 331.48,
+        "ann_ms": 175.14,
+        "rank_ms": 43.93,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-025",
+      "origin": "faq",
+      "query": "What is the No Claim Discount (NCD) Protector? How does it work?",
+      "goldProduct": "car",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8534,
+      "topProduct": "car",
+      "wallMs": 753.3,
+      "retrieveMs": 752,
+      "stages": {
+        "rate_ms": 237.0,
+        "embed_ms": 415.04,
+        "ann_ms": 78.18,
+        "rank_ms": 22.71,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-026",
+      "origin": "faq",
+      "query": "Who can buy Choice Protect360?",
+      "goldProduct": "choice",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7236,
+      "topProduct": "choice",
+      "wallMs": 819.6,
+      "retrieveMs": 819,
+      "stages": {
+        "rate_ms": 495.64,
+        "embed_ms": 277.12,
+        "ann_ms": 40.2,
+        "rank_ms": 6.4,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-027",
+      "origin": "faq",
+      "query": "Does this policy have age restrictions?",
+      "goldProduct": "choice",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7106,
+      "topProduct": "choice",
+      "wallMs": 2346.0,
+      "retrieveMs": 1823,
+      "stages": {
+        "rate_ms": 1133.06,
+        "embed_ms": 280.0,
+        "ann_ms": 381.4,
+        "rank_ms": 29.33,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-028",
+      "origin": "faq",
+      "query": "What does Choice Protect360 cover?",
+      "goldProduct": "choice",
+      "hasGoldIds": true,
+      "rank": 2,
+      "productRank": 1,
+      "topScore": 0.8431,
+      "topProduct": "choice",
+      "wallMs": 1198.0,
+      "retrieveMs": 1197,
+      "stages": {
+        "rate_ms": 601.68,
+        "embed_ms": 478.85,
+        "ann_ms": 108.94,
+        "rank_ms": 8.2,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-029",
+      "origin": "faq",
+      "query": "How does No Claim Discount(NCD) work?",
+      "goldProduct": "choice",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8827,
+      "topProduct": "choice",
+      "wallMs": 803.4,
+      "retrieveMs": 803,
+      "stages": {
+        "rate_ms": 422.04,
+        "embed_ms": 321.17,
+        "ann_ms": 50.94,
+        "rank_ms": 8.9,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-030",
+      "origin": "faq",
+      "query": "Does Choice Protect360 cover Child(ren)?",
+      "goldProduct": "choice",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8623,
+      "topProduct": "choice",
+      "wallMs": 996.3,
+      "retrieveMs": 995,
+      "stages": {
+        "rate_ms": 701.4,
+        "embed_ms": 235.38,
+        "ann_ms": 47.68,
+        "rank_ms": 11.31,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-031",
+      "origin": "faq",
+      "query": "Is there a discount if I choose a family plan?",
+      "goldProduct": "choice",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7547,
+      "topProduct": "choice",
+      "wallMs": 1088.6,
+      "retrieveMs": 1088,
+      "stages": {
+        "rate_ms": 753.17,
+        "embed_ms": 267.93,
+        "ann_ms": 51.72,
+        "rank_ms": 15.26,
+        "draft_ms": 0.03
+      }
+    },
+    {
+      "id": "faq-032",
+      "origin": "faq",
+      "query": "What happens if I miss my payment due date?",
+      "goldProduct": "collections",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.772,
+      "topProduct": "collections",
+      "wallMs": 1516.5,
+      "retrieveMs": 624,
+      "stages": {
+        "rate_ms": 274.78,
+        "embed_ms": 273.04,
+        "ann_ms": 51.91,
+        "rank_ms": 24.68,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-033",
+      "origin": "faq",
+      "query": "Is there a grace period after the due date?",
+      "goldProduct": "collections",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8044,
+      "topProduct": "collections",
+      "wallMs": 1106.7,
+      "retrieveMs": 1106,
+      "stages": {
+        "rate_ms": 610.58,
+        "embed_ms": 426.47,
+        "ann_ms": 58.07,
+        "rank_ms": 11.25,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-034",
+      "origin": "faq",
+      "query": "My EMI auto-debit bounced. What should I do?",
+      "goldProduct": "collections",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8096,
+      "topProduct": "collections",
+      "wallMs": 768.4,
+      "retrieveMs": 768,
+      "stages": {
+        "rate_ms": 312.85,
+        "embed_ms": 320.49,
+        "ann_ms": 133.58,
+        "rank_ms": 1.18,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-035",
+      "origin": "faq",
+      "query": "Can you waive the late fee?",
+      "goldProduct": "collections",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7748,
+      "topProduct": "collections",
+      "wallMs": 513.1,
+      "retrieveMs": 512,
+      "stages": {
+        "rate_ms": 149.72,
+        "embed_ms": 325.22,
+        "ann_ms": 36.81,
+        "rank_ms": 1.1,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-036",
+      "origin": "faq",
+      "query": "Can I restructure my loan or settle for less?",
+      "goldProduct": "collections",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8034,
+      "topProduct": "collections",
+      "wallMs": 983.0,
+      "retrieveMs": 982,
+      "stages": {
+        "rate_ms": 451.29,
+        "embed_ms": 327.39,
+        "ann_ms": 188.63,
+        "rank_ms": 14.94,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-037",
+      "origin": "faq",
+      "query": "I lost my job / I am in financial hardship. What are my options?",
+      "goldProduct": "collections",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7854,
+      "topProduct": "collections",
+      "wallMs": 565.3,
+      "retrieveMs": 564,
+      "stages": {
+        "rate_ms": 26.09,
+        "embed_ms": 311.33,
+        "ann_ms": 207.38,
+        "rank_ms": 20.11,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-038",
+      "origin": "faq",
+      "query": "What is the difference between Early Protect360 Plus and Early Protect360?",
+      "goldProduct": "early",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7788,
+      "topProduct": "early",
+      "wallMs": 673.7,
+      "retrieveMs": 636,
+      "stages": {
+        "rate_ms": 43.69,
+        "embed_ms": 333.26,
+        "ann_ms": 248.12,
+        "rank_ms": 11.66,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-039",
+      "origin": "faq",
+      "query": "Who is eligible to be insured under Early Protect360 Plus?",
+      "goldProduct": "early",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7601,
+      "topProduct": "early",
+      "wallMs": 580.4,
+      "retrieveMs": 580,
+      "stages": {
+        "rate_ms": 20.93,
+        "embed_ms": 300.39,
+        "ann_ms": 248.02,
+        "rank_ms": 10.68,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-040",
+      "origin": "faq",
+      "query": "Is Early Protect360 Plus a renewable plan?",
+      "goldProduct": "early",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8396,
+      "topProduct": "early",
+      "wallMs": 467.3,
+      "retrieveMs": 466,
+      "stages": {
+        "rate_ms": 46.23,
+        "embed_ms": 370.03,
+        "ann_ms": 44.11,
+        "rank_ms": 6.57,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-041",
+      "origin": "faq",
+      "query": "What is the maximum coverage I can purchase under Early Protect360 Plus?",
+      "goldProduct": "early",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7926,
+      "topProduct": "early",
+      "wallMs": 381.0,
+      "retrieveMs": 380,
+      "stages": {
+        "rate_ms": 11.11,
+        "embed_ms": 326.38,
+        "ann_ms": 35.41,
+        "rank_ms": 7.75,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-042",
+      "origin": "faq",
+      "query": "Is there a free-look period?",
+      "goldProduct": "early",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7813,
+      "topProduct": "early",
+      "wallMs": 477.1,
+      "retrieveMs": 476,
+      "stages": {
+        "rate_ms": 10.54,
+        "embed_ms": 353.35,
+        "ann_ms": 91.99,
+        "rank_ms": 20.93,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-043",
+      "origin": "faq",
+      "query": "Do I need to go for a medical check-up?",
+      "goldProduct": "early",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.6865,
+      "topProduct": "early",
+      "wallMs": 561.0,
+      "retrieveMs": 557,
+      "stages": {
+        "rate_ms": 49.4,
+        "embed_ms": 308.71,
+        "ann_ms": 160.82,
+        "rank_ms": 38.72,
+        "draft_ms": 0.13
+      }
+    },
+    {
+      "id": "faq-044",
+      "origin": "faq",
+      "query": "Can I purchase more than one Fraud Protect360 Plus plan?",
+      "goldProduct": "fraud",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7871,
+      "topProduct": "fraud",
+      "wallMs": 523.4,
+      "retrieveMs": 402,
+      "stages": {
+        "rate_ms": 26.94,
+        "embed_ms": 288.9,
+        "ann_ms": 71.8,
+        "rank_ms": 15.29,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-045",
+      "origin": "faq",
+      "query": "Who is covered under Fraud Protect360 Plus?",
+      "goldProduct": "fraud",
+      "hasGoldIds": true,
+      "rank": 2,
+      "productRank": 1,
+      "topScore": 0.8785,
+      "topProduct": "fraud",
+      "wallMs": 425.6,
+      "retrieveMs": 425,
+      "stages": {
+        "rate_ms": 32.79,
+        "embed_ms": 331.63,
+        "ann_ms": 51.69,
+        "rank_ms": 9.08,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-046",
+      "origin": "faq",
+      "query": "Who is eligible to be insured under Fraud Protect360 Plus?",
+      "goldProduct": "fraud",
+      "hasGoldIds": true,
+      "rank": 2,
+      "productRank": 1,
+      "topScore": 0.7746,
+      "topProduct": "fraud",
+      "wallMs": 381.6,
+      "retrieveMs": 381,
+      "stages": {
+        "rate_ms": 10.25,
+        "embed_ms": 321.08,
+        "ann_ms": 38.84,
+        "rank_ms": 10.93,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-047",
+      "origin": "faq",
+      "query": "What is covered under Fraud Protect360 Plus?",
+      "goldProduct": "fraud",
+      "hasGoldIds": true,
+      "rank": 2,
+      "productRank": 1,
+      "topScore": 0.8916,
+      "topProduct": "fraud",
+      "wallMs": 393.9,
+      "retrieveMs": 393,
+      "stages": {
+        "rate_ms": 10.28,
+        "embed_ms": 336.03,
+        "ann_ms": 36.8,
+        "rank_ms": 10.44,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-048",
+      "origin": "faq",
+      "query": "What is not covered under Fraud Protect360 Plus?",
+      "goldProduct": "fraud",
+      "hasGoldIds": true,
+      "rank": null,
+      "productRank": 1,
+      "topScore": 0.7122,
+      "topProduct": "fraud",
+      "wallMs": 412.8,
+      "retrieveMs": 412,
+      "stages": {
+        "rate_ms": 12.83,
+        "embed_ms": 339.56,
+        "ann_ms": 52.26,
+        "rank_ms": 7.81,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-049",
+      "origin": "faq",
+      "query": "What are the policy wordings for Fraud Protect360 Plus?",
+      "goldProduct": "fraud",
+      "hasGoldIds": true,
+      "rank": 5,
+      "productRank": 1,
+      "topScore": 0.8457,
+      "topProduct": "fraud",
+      "wallMs": 480.3,
+      "retrieveMs": 465,
+      "stages": {
+        "rate_ms": 118.38,
+        "embed_ms": 303.79,
+        "ann_ms": 33.32,
+        "rank_ms": 9.94,
+        "draft_ms": 0.03
+      }
+    },
+    {
+      "id": "faq-050",
+      "origin": "faq",
+      "query": "Who is eligible for Home Protect360 Insurance?",
+      "goldProduct": "home",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7742,
+      "topProduct": "home",
+      "wallMs": 280.8,
+      "retrieveMs": 279,
+      "stages": {
+        "rate_ms": 11.18,
+        "embed_ms": 211.39,
+        "ann_ms": 47.19,
+        "rank_ms": 9.59,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-051",
+      "origin": "faq",
+      "query": "Why should I enrol for Home Protect360 Insurance?",
+      "goldProduct": "home",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.6851,
+      "topProduct": "home",
+      "wallMs": 397.1,
+      "retrieveMs": 396,
+      "stages": {
+        "rate_ms": 15.91,
+        "embed_ms": 267.94,
+        "ann_ms": 101.35,
+        "rank_ms": 11.44,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-052",
+      "origin": "faq",
+      "query": "Following household contents\u2019 damage arising from fire, can I claim for the Removal of Debris?",
+      "goldProduct": "home",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8954,
+      "topProduct": "home",
+      "wallMs": 381.6,
+      "retrieveMs": 381,
+      "stages": {
+        "rate_ms": 15.21,
+        "embed_ms": 320.22,
+        "ann_ms": 38.54,
+        "rank_ms": 7.35,
+        "draft_ms": 0.01
+      }
+    },
+    {
+      "id": "faq-053",
+      "origin": "faq",
+      "query": "Can I claim for the loss of my jewellery?",
+      "goldProduct": "home",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.6836,
+      "topProduct": "home",
+      "wallMs": 432.0,
+      "retrieveMs": 431,
+      "stages": {
+        "rate_ms": 7.87,
+        "embed_ms": 368.76,
+        "ann_ms": 45.06,
+        "rank_ms": 9.9,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-054",
+      "origin": "faq",
+      "query": "Can I claim if my television insured under this policy accidentally fell and damaged?",
+      "goldProduct": "home",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7652,
+      "topProduct": "home",
+      "wallMs": 370.9,
+      "retrieveMs": 370,
+      "stages": {
+        "rate_ms": 11.38,
+        "embed_ms": 287.12,
+        "ann_ms": 62.54,
+        "rank_ms": 9.46,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-055",
+      "origin": "faq",
+      "query": "How do I make a claim for my home contents?",
+      "goldProduct": "home",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7116,
+      "topProduct": "home",
+      "wallMs": 383.4,
+      "retrieveMs": 383,
+      "stages": {
+        "rate_ms": 12.02,
+        "embed_ms": 311.33,
+        "ann_ms": 51.4,
+        "rank_ms": 8.36,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-056",
+      "origin": "faq",
+      "query": "Who can apply for this Hospital Income Policy?",
+      "goldProduct": "hospital",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7607,
+      "topProduct": "hospital",
+      "wallMs": 573.0,
+      "retrieveMs": 572,
+      "stages": {
+        "rate_ms": 22.72,
+        "embed_ms": 428.72,
+        "ann_ms": 111.9,
+        "rank_ms": 9.32,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-057",
+      "origin": "faq",
+      "query": "Can I claim under both Section 1 and Section 2 for the same day of hospitalization?",
+      "goldProduct": "hospital",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7893,
+      "topProduct": "hospital",
+      "wallMs": 457.0,
+      "retrieveMs": 456,
+      "stages": {
+        "rate_ms": 37.11,
+        "embed_ms": 334.42,
+        "ann_ms": 76.8,
+        "rank_ms": 7.94,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-058",
+      "origin": "faq",
+      "query": "How many days of hospitalization is covered?",
+      "goldProduct": "hospital",
+      "hasGoldIds": true,
+      "rank": 5,
+      "productRank": 1,
+      "topScore": 0.7902,
+      "topProduct": "hospital",
+      "wallMs": 483.6,
+      "retrieveMs": 482,
+      "stages": {
+        "rate_ms": 26.84,
+        "embed_ms": 403.36,
+        "ann_ms": 44.17,
+        "rank_ms": 7.71,
+        "draft_ms": 0.03
+      }
+    },
+    {
+      "id": "faq-059",
+      "origin": "faq",
+      "query": "Does this policy cover me while I am overseas?",
+      "goldProduct": "hospital",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.732,
+      "topProduct": "hospital",
+      "wallMs": 385.6,
+      "retrieveMs": 385,
+      "stages": {
+        "rate_ms": 13.44,
+        "embed_ms": 280.45,
+        "ann_ms": 76.12,
+        "rank_ms": 15.2,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-060",
+      "origin": "faq",
+      "query": "Does this policy premium increase with age?",
+      "goldProduct": "hospital",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.851,
+      "topProduct": "hospital",
+      "wallMs": 388.1,
+      "retrieveMs": 387,
+      "stages": {
+        "rate_ms": 24.8,
+        "embed_ms": 268.78,
+        "ann_ms": 75.34,
+        "rank_ms": 18.62,
+        "draft_ms": 0.03
+      }
+    },
+    {
+      "id": "faq-061",
+      "origin": "faq",
+      "query": "Does this policy cover hospitalization in a rehabilitation centre or a community hospital?",
+      "goldProduct": "hospital",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8466,
+      "topProduct": "hospital",
+      "wallMs": 297.6,
+      "retrieveMs": 296,
+      "stages": {
+        "rate_ms": 31.17,
+        "embed_ms": 175.36,
+        "ann_ms": 79.53,
+        "rank_ms": 10.53,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-062",
+      "origin": "faq",
+      "query": "What does Maid Protect360 PRO cover?",
+      "goldProduct": "maid",
+      "hasGoldIds": true,
+      "rank": 5,
+      "productRank": 1,
+      "topScore": 0.7707,
+      "topProduct": "maid",
+      "wallMs": 448.2,
+      "retrieveMs": 424,
+      "stages": {
+        "rate_ms": 12.55,
+        "embed_ms": 328.45,
+        "ann_ms": 71.25,
+        "rank_ms": 11.82,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-063",
+      "origin": "faq",
+      "query": "Does Maid Protect360 PRO fulfil MOM\u2019s latest requirements, and which plan should I buy?",
+      "goldProduct": "maid",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7619,
+      "topProduct": "maid",
+      "wallMs": 603.4,
+      "retrieveMs": 602,
+      "stages": {
+        "rate_ms": 11.01,
+        "embed_ms": 504.19,
+        "ann_ms": 75.41,
+        "rank_ms": 12.2,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-064",
+      "origin": "faq",
+      "query": "What is so special about Maid Protect360 PRO?",
+      "goldProduct": "maid",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7219,
+      "topProduct": "maid",
+      "wallMs": 695.3,
+      "retrieveMs": 693,
+      "stages": {
+        "rate_ms": 14.16,
+        "embed_ms": 417.32,
+        "ann_ms": 245.12,
+        "rank_ms": 17.33,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-065",
+      "origin": "faq",
+      "query": "Is there a Free-Look period?",
+      "goldProduct": "maid",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7283,
+      "topProduct": "maid",
+      "wallMs": 438.1,
+      "retrieveMs": 437,
+      "stages": {
+        "rate_ms": 23.0,
+        "embed_ms": 304.46,
+        "ann_ms": 97.91,
+        "rank_ms": 12.39,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-066",
+      "origin": "faq",
+      "query": "How does security bond works?",
+      "goldProduct": "maid",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.5781,
+      "topProduct": "maid",
+      "wallMs": 600.7,
+      "retrieveMs": 600,
+      "stages": {
+        "rate_ms": 32.28,
+        "embed_ms": 358.49,
+        "ann_ms": 187.34,
+        "rank_ms": 22.14,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-067",
+      "origin": "faq",
+      "query": "What do Medical Expenses benefit and Hospital & Surgical Expenses benefit cover?",
+      "goldProduct": "maid",
+      "hasGoldIds": true,
+      "rank": null,
+      "productRank": null,
+      "topScore": 0.7318,
+      "topProduct": "hospital",
+      "wallMs": 654.1,
+      "retrieveMs": 653,
+      "stages": {
+        "rate_ms": 90.38,
+        "embed_ms": 389.31,
+        "ann_ms": 161.53,
+        "rank_ms": 12.51,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-068",
+      "origin": "faq",
+      "query": "Who can apply for this Policy?",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.6668,
+      "topProduct": "personal_accident",
+      "wallMs": 582.2,
+      "retrieveMs": 581,
+      "stages": {
+        "rate_ms": 73.43,
+        "embed_ms": 416.53,
+        "ann_ms": 78.12,
+        "rank_ms": 13.77,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-069",
+      "origin": "faq",
+      "query": "Can my children be included in the Family Protect360?",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7807,
+      "topProduct": "personal_accident",
+      "wallMs": 511.3,
+      "retrieveMs": 508,
+      "stages": {
+        "rate_ms": 14.23,
+        "embed_ms": 190.62,
+        "ann_ms": 286.91,
+        "rank_ms": 16.87,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-070",
+      "origin": "faq",
+      "query": "What are the general exclusions for Family Protect360?",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": true,
+      "rank": 5,
+      "productRank": 1,
+      "topScore": 0.6665,
+      "topProduct": "personal_accident",
+      "wallMs": 561.9,
+      "retrieveMs": 561,
+      "stages": {
+        "rate_ms": 41.36,
+        "embed_ms": 401.11,
+        "ann_ms": 104.14,
+        "rank_ms": 14.96,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-071",
+      "origin": "faq",
+      "query": "How does this Policy pay out for Income Protector?",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7934,
+      "topProduct": "personal_accident",
+      "wallMs": 647.3,
+      "retrieveMs": 589,
+      "stages": {
+        "rate_ms": 35.02,
+        "embed_ms": 422.34,
+        "ann_ms": 120.61,
+        "rank_ms": 11.45,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-072",
+      "origin": "faq",
+      "query": "Does this Policy premium increase with age?",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": true,
+      "rank": 2,
+      "productRank": 2,
+      "topScore": 0.8235,
+      "topProduct": "hospital",
+      "wallMs": 744.7,
+      "retrieveMs": 743,
+      "stages": {
+        "rate_ms": 58.31,
+        "embed_ms": 431.4,
+        "ann_ms": 202.25,
+        "rank_ms": 51.88,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-073",
+      "origin": "faq",
+      "query": "Do I need to inform HDFC Assurance upon the annual renewal of this Policy?",
+      "goldProduct": "personal_accident",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8809,
+      "topProduct": "personal_accident",
+      "wallMs": 602.9,
+      "retrieveMs": 602,
+      "stages": {
+        "rate_ms": 68.53,
+        "embed_ms": 295.46,
+        "ann_ms": 199.11,
+        "rank_ms": 39.41,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-074",
+      "origin": "faq",
+      "query": "What does Travel Protect360 Insurance cover?",
+      "goldProduct": "travel",
+      "hasGoldIds": true,
+      "rank": 2,
+      "productRank": 1,
+      "topScore": 0.7519,
+      "topProduct": "travel",
+      "wallMs": 849.8,
+      "retrieveMs": 849,
+      "stages": {
+        "rate_ms": 91.46,
+        "embed_ms": 361.61,
+        "ann_ms": 369.03,
+        "rank_ms": 27.31,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-075",
+      "origin": "faq",
+      "query": "How to buy travel insurance from HDFC Assurance?",
+      "goldProduct": "travel",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8835,
+      "topProduct": "travel",
+      "wallMs": 624.7,
+      "retrieveMs": 624,
+      "stages": {
+        "rate_ms": 32.22,
+        "embed_ms": 351.45,
+        "ann_ms": 197.3,
+        "rank_ms": 43.36,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-076",
+      "origin": "faq",
+      "query": "Annual Trip Insurance vs Single Trip Insurance - Which is better?",
+      "goldProduct": "travel",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8521,
+      "topProduct": "travel",
+      "wallMs": 489.6,
+      "retrieveMs": 489,
+      "stages": {
+        "rate_ms": 68.29,
+        "embed_ms": 289.98,
+        "ann_ms": 111.26,
+        "rank_ms": 19.41,
+        "draft_ms": 0.2
+      }
+    },
+    {
+      "id": "faq-077",
+      "origin": "faq",
+      "query": "Does Travel Protect360 Insurance cover me if I travel to multiple countries?",
+      "goldProduct": "travel",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.8486,
+      "topProduct": "travel",
+      "wallMs": 653.7,
+      "retrieveMs": 649,
+      "stages": {
+        "rate_ms": 32.91,
+        "embed_ms": 421.75,
+        "ann_ms": 147.22,
+        "rank_ms": 47.52,
+        "draft_ms": 0.02
+      }
+    },
+    {
+      "id": "faq-078",
+      "origin": "faq",
+      "query": "Can I buy travel insurance after departure?",
+      "goldProduct": "travel",
+      "hasGoldIds": true,
+      "rank": 1,
+      "productRank": 1,
+      "topScore": 0.7265,
+      "topProduct": "travel",
+      "wallMs": 685.9,
+      "retrieveMs": 684,
+      "stages": {
+        "rate_ms": 53.34,
+        "embed_ms": 361.89,
+        "ann_ms": 237.56,
+        "rank_ms": 31.47,
+        "draft_ms": 0.03
+      }
+    },
+    {
+      "id": "faq-079",
+      "origin": "faq",
+      "query": "Can I cancel my travel insurance policy if my plans change?",
+      "goldProduct": "travel",
+      "hasGoldIds": true,
+      "rank": 2,
+      "productRank": 1,
+      "topScore": 0.727,
+      "topProduct": "travel",
+      "wallMs": 1031.9,
+      "retrieveMs": 927,
+      "stages": {
+        "rate_ms": 63.28,
+        "embed_ms": 381.37,
+        "ann_ms": 430.71,
+        "rank_ms": 52.4,
+        "draft_ms": 0.02
+      }
+    }
+  ]
+}

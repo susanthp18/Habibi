@@ -10,6 +10,8 @@ import re
 import threading
 import time
 import uuid
+from collections import OrderedDict
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -89,6 +91,117 @@ def flush_chunk_hits() -> int:
 
 
 atexit.register(flush_chunk_hits)
+
+
+# --- Buffered retrieval_logs -----------------------------------------------
+# A single KB call used to take six or seven pooled connections (rate limit,
+# snapshot, the ANN transaction, the hit flush, this INSERT, and the caller's
+# catalog query) against a voice pool of DB_POOL_SIZE=3 + max_overflow=2. This
+# row is analytics: nothing reads it inside the turn, so it does not get to
+# hold a connection on the audio path. Batched and flushed exactly the way the
+# hit counters above are.
+_LOG_FLUSH_INTERVAL_S = 5.0
+_LOG_FLUSH_MAX_ROWS = 100
+_log_buffer: list[dict[str, Any]] = []
+_log_lock = threading.Lock()
+_log_last_flush = 0.0
+
+
+def _log_buffering_enabled() -> bool:
+    return (os.getenv("KB_LOG_BUFFERING") or "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _write_retrieval_logs(rows: list[dict[str, Any]]) -> None:
+    """One executemany INSERT for a batch of buffered rows."""
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO retrieval_logs (
+                  id, tenant_id, interaction_id, sandbox_run_id, transcript_turn_id,
+                  query, top_chunks, latency_ms, selected_answer_source, created_at
+                ) VALUES (
+                  :id, :tenant_id, :interaction_id, :sandbox_run_id, :transcript_turn_id,
+                  :query, CAST(:top_chunks AS jsonb),
+                  :latency_ms, :selected_answer_source, :created_at
+                )
+                """
+            ),
+            rows,
+        )
+
+
+# Only these sources are on a latency-critical path and worth deferring for.
+# Everything else writes inline, which keeps the row inside the caller's own
+# transaction: deferring past that boundary changes what the foreign keys see
+# (a sandbox_run_id is valid when the retrieval happens and gone by the time a
+# rolled-back run's buffer drains), and no operator panel needs the microsecond.
+_DEFERRED_LOG_SOURCES = ("voice", "bot")
+
+
+def record_retrieval_log(row: dict[str, Any], *, defer: bool = True) -> None:
+    """Persist one retrieval_logs row, batched when the caller is latency-bound."""
+    if not defer or not _log_buffering_enabled():
+        try:
+            _write_retrieval_logs([row])
+        except Exception:
+            logger.warning("retrieval log write failed id=%s", row.get("id"), exc_info=True)
+        return
+    global _log_last_flush
+    now = time.monotonic()
+    with _log_lock:
+        _log_buffer.append(row)
+        due = (
+            len(_log_buffer) >= _LOG_FLUSH_MAX_ROWS
+            or (now - _log_last_flush) >= _LOG_FLUSH_INTERVAL_S
+        )
+        if not due:
+            return
+        _log_last_flush = now
+    flush_retrieval_logs()
+
+
+def flush_retrieval_logs() -> int:
+    """Persist buffered retrieval log rows. Returns the number written."""
+    with _log_lock:
+        if not _log_buffer:
+            return 0
+        batch = list(_log_buffer)
+        _log_buffer.clear()
+    try:
+        _write_retrieval_logs(batch)
+        return len(batch)
+    except Exception:
+        logger.debug("retrieval log batch failed; retrying row by row", exc_info=True)
+
+    # One unusable row must not discard the rest of the batch. Batching made
+    # that possible for the first time: a single sandbox_run_id whose run was
+    # rolled away violates the foreign key, and in one transaction it takes
+    # every other row with it. Per-row retry isolates the bad one.
+    #
+    # Rows that fail on their own are dropped, not requeued. These are analytics;
+    # a row that cannot be written now will not become writable later, and
+    # requeueing it forever would wedge the buffer behind permanent poison.
+    written = 0
+    for row in batch:
+        try:
+            _write_retrieval_logs([row])
+            written += 1
+        except Exception:
+            logger.warning(
+                "dropping unwritable retrieval log row id=%s source=%s",
+                row.get("id"),
+                row.get("selected_answer_source"),
+            )
+    return written
+
+
+atexit.register(flush_retrieval_logs)
 
 
 STOP = {
@@ -232,6 +345,151 @@ def _draft_system_prompt() -> str:
     )
 
 
+# --- Shared retrieval result cache -----------------------------------------
+# The explicit `search_knowledge_base` tool path had no cache at all: two
+# identical questions in one call cost two full embed + ANN + judge stacks. The
+# speculative enricher had one, but it was constructed per bot session, capped
+# at 32 entries, and never shared with the tool — so the two voice paths could
+# not reuse each other's work even when they ran on the same utterance.
+#
+# This sits in kb_retrieve so every caller gets it: voice tool, voice enricher,
+# WhatsApp bot, inbox suggestions, sandbox and the operator panel. Keyed on
+# everything that changes the answer; a query alone is not a key, because the
+# same words scoped to a different product are a different question.
+_RESULT_CACHE_MAX = 256
+_result_cache: OrderedDict[tuple, tuple[float, dict[str, Any]]] = OrderedDict()
+_result_cache_lock = threading.Lock()
+_RESULT_CACHE_HITS = 0
+_RESULT_CACHE_MISSES = 0
+
+
+def _result_cache_ttl_s() -> float:
+    """TTL in seconds; 0 disables the cache entirely."""
+    try:
+        return max(0.0, min(3600.0, float((os.getenv("KB_RESULT_CACHE_TTL_S") or "120").strip())))
+    except (TypeError, ValueError):
+        return 120.0
+
+
+def _result_cache_key(
+    q: str,
+    *,
+    top_k: int,
+    product_keys: list[str] | None,
+    kb_snapshot_id: str | None,
+    prefer_policy: bool,
+    include_draft_answer: bool,
+) -> tuple:
+    normalized = " ".join((q or "").lower().split())
+    scope = tuple(sorted(product_keys)) if product_keys else None
+    # tenant_id is part of the key, not an afterthought. This cache returns
+    # passages without touching Postgres, so it is the one place in the read
+    # path that cannot inherit whatever tenant scoping the SQL applies. Two
+    # tenants asking the same question must not share an entry, and the day a
+    # second tenant exists that would otherwise be a silent cross-tenant read.
+    return (
+        db.current_tenant(),
+        normalized,
+        scope,
+        kb_snapshot_id,
+        top_k,
+        prefer_policy,
+        include_draft_answer,
+    )
+
+
+def _result_cache_get(key: tuple) -> dict[str, Any] | None:
+    global _RESULT_CACHE_HITS, _RESULT_CACHE_MISSES
+    ttl = _result_cache_ttl_s()
+    if ttl <= 0:
+        return None
+    with _result_cache_lock:
+        hit = _result_cache.get(key)
+        if not hit:
+            _RESULT_CACHE_MISSES += 1
+            return None
+        stored_at, payload = hit
+        if (time.monotonic() - stored_at) > ttl:
+            _result_cache.pop(key, None)
+            _RESULT_CACHE_MISSES += 1
+            return None
+        _result_cache.move_to_end(key)
+        _RESULT_CACHE_HITS += 1
+        return payload
+
+
+def _result_cache_put(key: tuple, payload: dict[str, Any]) -> None:
+    if _result_cache_ttl_s() <= 0:
+        return
+    with _result_cache_lock:
+        _result_cache[key] = (time.monotonic(), payload)
+        _result_cache.move_to_end(key)
+        while len(_result_cache) > _RESULT_CACHE_MAX:
+            _result_cache.popitem(last=False)
+
+
+def result_cache_stats() -> dict[str, int]:
+    """Hit/miss counters for /metrics. Uncounted caches get switched off blind."""
+    with _result_cache_lock:
+        return {
+            "hits": _RESULT_CACHE_HITS,
+            "misses": _RESULT_CACHE_MISSES,
+            "size": len(_result_cache),
+        }
+
+
+def prewarm() -> float:
+    """Prime the ANN path so the first real question does not pay for it.
+
+    ``azure_openai.prewarm`` already warms the embedding deployment, but the
+    Postgres side is cold on a fresh process: the first vector query pays a plan
+    build plus reading the HNSW index and the TOASTed vectors off disk. Measured
+    on the live corpus that is 182ms cold against 0.84ms warm — small in
+    absolute terms, and entirely inside the silence after the caller stops
+    speaking, which is exactly where it is most audible.
+
+    Runs one throwaway top-1 query with a zero vector. Best-effort: a failure
+    here means the first turn is a little slower, never that it breaks.
+    """
+    t0 = time.perf_counter()
+    try:
+        dims = azure_openai.get_embedding_dims()
+        zero = _vector_literal([0.0] * dims)
+        with db.engine.begin() as conn:
+            _try_set_local(conn, "hnsw.ef_search = 64")
+            _try_set_local(conn, "enable_seqscan = off")
+            conn.execute(
+                text(
+                    """
+                    SELECT c.id
+                    FROM kb_chunks c
+                    WHERE c.embedding IS NOT NULL
+                    ORDER BY c.embedding <=> CAST(:q AS vector)
+                    LIMIT 1
+                    """
+                ),
+                {"q": zero},
+            ).first()
+            conn.execute(
+                text(
+                    """
+                    SELECT f.id
+                    FROM faq_pairs f
+                    WHERE f.embedding IS NOT NULL
+                    ORDER BY f.embedding <=> CAST(:q AS vector)
+                    LIMIT 1
+                    """
+                ),
+                {"q": zero},
+            ).first()
+    except Exception:
+        logger.debug("kb ANN prewarm failed; first retrieval will be cold", exc_info=True)
+        return 0.0
+    ms = (time.perf_counter() - t0) * 1000.0
+    logger.info("kb ANN prewarm OK · %.0f ms", ms)
+    return ms
+
+
 def retrieve(
     *,
     query: str,
@@ -243,6 +501,10 @@ def retrieve(
     prefer_policy: bool = False,
     kb_snapshot_id: str | None = None,
     product_keys: list[str] | None = None,
+    # Derive a product scope from the query when the caller supplies none.
+    # On by default: every caller benefits, and the empty-result retry makes it
+    # safe. Off for callers that deliberately want the whole corpus.
+    scope_from_query: bool = True,
     # Which turn asked. interaction_id alone is session-grained, so "which
     # retrieval backed turn 4's answer" was unanswerable. Optional: the
     # speculative prefetch and the operator's test panel have no turn.
@@ -256,12 +518,64 @@ def retrieve(
 
     import kb_rate_limit
 
+    # The clock starts here, not after check_rate. `latencyMs` used to begin
+    # after the rate-limit round trip, so the number reported to the model and
+    # to the Inspector systematically understated what the caller waited for.
+    t0 = time.perf_counter()
+    stage_ms: dict[str, float] = {}
+
+    def _stage(name: str, started: float) -> float:
+        now = time.perf_counter()
+        stage_ms[name] = round((now - started) * 1000.0, 2)
+        return now
+
     bucket = "inbox_suggestions" if source == "inbox" else "retrieve"
     kb_rate_limit.check_rate(bucket)
+    mark = _stage("rate_ms", t0)
 
-    t0 = time.perf_counter()
+    cache_key = _result_cache_key(
+        q,
+        top_k=top_k,
+        product_keys=product_keys,
+        kb_snapshot_id=kb_snapshot_id,
+        prefer_policy=prefer_policy,
+        include_draft_answer=include_draft_answer,
+    )
+    cached = _result_cache_get(cache_key)
+    if cached is not None:
+        # Still logged, so retrieval analytics stay complete and a cached turn is
+        # distinguishable from one that never happened. The log write is buffered,
+        # so saying so costs nothing.
+        payload = dict(cached)
+        payload["latencyMs"] = int((time.perf_counter() - t0) * 1000)
+        payload["stageMs"] = dict(stage_ms)
+        payload["cached"] = True
+        record_retrieval_log(
+            {
+                "id": f"retrieval-{uuid.uuid4().hex[:12]}",
+                "tenant_id": db.current_tenant(),
+                "interaction_id": interaction_id,
+                "sandbox_run_id": sandbox_run_id,
+                "transcript_turn_id": transcript_turn_id,
+                "query": pii_redact.redact_text(q),
+                "top_chunks": json.dumps(
+                    [
+                        {"chunkId": r.get("chunkId"), "docId": r.get("docId"),
+                         "score": r.get("score"), "kind": r.get("docType")}
+                        for r in payload.get("results") or []
+                    ]
+                ),
+                "latency_ms": payload["latencyMs"],
+                "selected_answer_source": f"{source}:cached",
+                "created_at": datetime.now(timezone.utc),
+            },
+            defer=source in _DEFERRED_LOG_SOURCES,
+        )
+        return payload
+
     query_vec = azure_openai.embed_texts([q])[0]
     q_lit = _vector_literal(query_vec)
+    mark = _stage("embed_ms", mark)
     # Bot / policy questions need a wider candidate pool so FAQ stubs don't crowd out
     # the actual policy document chunks.
     overfetch = max(top_k * 6, top_k, 24 if prefer_policy or source == "bot" else top_k * 4)
@@ -270,6 +584,25 @@ def retrieve(
     product_key_filter = [
         str(k).strip().lower() for k in (product_keys or []) if str(k).strip()
     ]
+    # No caller scope? Derive one from the question itself. The ten insurance
+    # corpora are near-identical boilerplate under different product names, so an
+    # unscoped search returns the right *kind* of passage from the wrong product:
+    # measured cross-product chunk cosine 0.428 vs 0.475 same-product, with 140
+    # pairs above 0.95. Naming the product is the only reliable discriminator,
+    # and it is sitting in the caller's own words.
+    #
+    # Never fatal: `_derived_scope` is retried without the filter below if it
+    # comes back empty, so a wrong guess costs one extra query, not an answer.
+    derived_scope: str | None = None
+    if not product_key_filter and scope_from_query:
+        try:
+            from agent_core.context import product_key_from_text
+
+            derived_scope = product_key_from_text(q)
+        except Exception:
+            logger.debug("product scope derivation failed", exc_info=True)
+        if derived_scope:
+            product_key_filter = [derived_scope]
     wants_exclusions = prefer_policy or any(
         k in q_l
         for k in (
@@ -322,17 +655,25 @@ def retrieve(
 
     snap_doc_ids: set[str] | None = None
     snap_faq_ids: set[str] | None = None
-    if kb_snapshot_id:
-        with db.engine.connect() as snap_conn:
-            snap = snap_conn.execute(
-                text(
-                    """
-                    SELECT document_ids, faq_ids
-                    FROM kb_snapshots WHERE id = :id
-                    """
-                ),
-                {"id": kb_snapshot_id},
-            ).mappings().first()
+
+    with db.engine.begin() as conn:
+        # The snapshot lookup shares this transaction rather than opening its
+        # own connection: it is a single-row read the ANN queries immediately
+        # depend on, and the voice pool is five connections wide in total.
+        if kb_snapshot_id:
+            snap = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT document_ids, faq_ids
+                        FROM kb_snapshots WHERE id = :id
+                        """
+                    ),
+                    {"id": kb_snapshot_id},
+                )
+                .mappings()
+                .first()
+            )
             if not snap:
                 raise ValueError(f"kb_snapshot_not_found: {kb_snapshot_id}")
             docs = snap.get("document_ids") or []
@@ -344,7 +685,6 @@ def retrieve(
             snap_doc_ids = {str(x) for x in docs if x}
             snap_faq_ids = {str(x) for x in faqs if x}
 
-    with db.engine.begin() as conn:
         # Each optional pgvector tuning knob runs inside its own SAVEPOINT: an
         # unsupported GUC must not abort the surrounding transaction (Postgres
         # marks the whole txn as failed otherwise and every later query 25P02s).
@@ -356,6 +696,19 @@ def retrieve(
         except (TypeError, ValueError):
             ef_search = 64
         _try_set_local(conn, f"hnsw.ef_search = {ef_search}")
+        # The planner will not choose the HNSW index at this corpus size: a seq
+        # scan over ~500 rows costs 100 units against the index's 1468, and the
+        # cost model does not price detoasting a 1536-dim vector out of TOAST
+        # for every row. Measured on the live corpus: seq scan 182ms cold /
+        # 4ms warm, HNSW 0.84ms warm. Disabled outright rather than hinted,
+        # because the point is that the estimate itself is wrong here.
+        if (os.getenv("KB_FORCE_INDEX_SCAN") or "1").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            _try_set_local(conn, "enable_seqscan = off")
 
         chunk_sql = """
                 SELECT
@@ -440,6 +793,31 @@ def retrieve(
                 LIMIT :overfetch
                 """
             faq_rows = conn.execute(text(faq_sql), faq_params).mappings().all()
+
+        # A scope we inferred rather than were told must never be the reason a
+        # caller gets nothing back. If the guess emptied the result set, drop it
+        # and ask again over the whole corpus — one extra ANN query (single-digit
+        # ms warm) against silently answering "I don't know" about a documented
+        # product.
+        if derived_scope and not chunk_rows and not faq_rows:
+            logger.debug("derived product scope %r returned nothing; retrying wide", derived_scope)
+            chunk_params.pop("product_keys", None)
+            faq_params.pop("faq_product_keys", None)
+            wide_chunk_sql = chunk_sql.replace(
+                " AND lower(coalesce(d.product_key, '')) = ANY(CAST(:product_keys AS text[]))",
+                "",
+            )
+            wide_faq_sql = faq_sql.replace(
+                " AND lower(regexp_replace(f.id, '^faq-(.*)-[0-9]+$', '\1'))"
+                " = ANY(CAST(:faq_product_keys AS text[]))",
+                "",
+            )
+            chunk_rows = conn.execute(text(wide_chunk_sql), chunk_params).mappings().all()
+            faq_rows = conn.execute(text(wide_faq_sql), faq_params).mappings().all()
+            derived_scope = None
+            product_key_filter = []
+
+    mark = _stage("ann_ms", mark)
 
     scored: list[dict[str, Any]] = []
     for row in chunk_rows:
@@ -534,6 +912,24 @@ def retrieve(
 
     scored.sort(key=lambda r: r["score"], reverse=True)
 
+    # Cross-encoder rerank, off unless KB_RERANK_ENABLED. Placed here — after
+    # cosine ordering and the heuristic nudges, before top_k is cut — because a
+    # reranker is only worth running on a candidate list that is already roughly
+    # right, and only the head of it can reach the final slots.
+    #
+    # Scoped first, then reranked: on an unscoped list this measurably *hurt*
+    # product discrimination (handwritten product-P@1 0.800 -> 0.550), since ten
+    # near-identical corpora all look relevant to a question that names none.
+    rerank_info: dict[str, Any] = {"applied": False}
+    if scored:
+        try:
+            from agent_core.tools import kb_rerank
+
+            scored, rerank_info = kb_rerank.rerank(q, scored)
+        except Exception:
+            logger.debug("kb rerank stage skipped", exc_info=True)
+    stage_ms["rerank_ms"] = float(rerank_info.get("elapsed_ms") or 0.0)
+
     # Diversify: for policy questions, ensure at least half the slots are policy chunks
     # when available (don't let FAQs monopolize top_k).
     top: list[dict[str, Any]] = []
@@ -552,6 +948,8 @@ def retrieve(
                 break
     else:
         top = scored[:top_k]
+
+    mark = _stage("rank_ms", mark)
 
     draft_answer: str | None = None
     chat_model: str | None = None
@@ -589,6 +987,36 @@ def retrieve(
             chat_model = None
             selected_source = "snippets"
 
+    mark = _stage("draft_ms", mark)
+
+    # Retrieval margin: the gap between the best passage and the runner-up.
+    #
+    # This is the confidence signal the absolute score never was. Measured on
+    # the 60 golden cases with a known correct passage, predicting "did
+    # retrieval actually succeed" (AUC 0.5 = coin flip):
+    #
+    #     top1 absolute score   0.548 scoped / 0.364 unscoped
+    #     top1 - top2 margin    0.975 scoped / 0.790 unscoped
+    #
+    # The absolute score is a coin flip, and unscoped it is *worse* than random
+    # -- a high cosine often means the query matched shared policy boilerplate,
+    # which is precisely a failed retrieval on a ten-product corpus. The gap
+    # asks a different and better question: was one passage clearly the best, or
+    # were the top few interchangeable?
+    #
+    # Reported, not enforced. A threshold needs calibrating against real spoken
+    # queries, and margin is not scale-free across query types: verbatim FAQ
+    # questions average 0.160 here where spoken paraphrases average 0.028, so a
+    # threshold fitted to the easy half would refuse most of the real traffic.
+    # It is logged on every retrieval so that calibration set can be built from
+    # live calls instead of guessed at.
+    margin = 0.0
+    if len(top) >= 2:
+        try:
+            margin = max(0.0, float(top[0]["score"]) - float(top[1]["score"]))
+        except (TypeError, ValueError):
+            margin = 0.0
+
     latency_ms = int((time.perf_counter() - t0) * 1000)
     log_id = f"retrieval-{uuid.uuid4().hex[:12]}"
     top_payload = [
@@ -597,40 +1025,35 @@ def retrieve(
             "docId": r["docId"],
             "score": round(r["score"], 4),
             "kind": r["_kind"],
+            # Stamped on the first row only: retrieval_logs has no column for
+            # it, and a labeller reading these rows back needs the margin next
+            # to the passages it describes.
+            **({"margin": round(margin, 4)} if r is top[0] else {}),
         }
         for r in top
     ]
 
     record_chunk_hits([item["chunkId"] for item in top if item["_kind"] == "chunk"])
 
-    with db.engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO retrieval_logs (
-                  id, tenant_id, interaction_id, sandbox_run_id, transcript_turn_id,
-                  query, top_chunks, latency_ms, selected_answer_source, created_at
-                ) VALUES (
-                  :id, :tenant_id, :interaction_id, :sandbox_run_id, :transcript_turn_id, :query,
-                  CAST(:top_chunks AS jsonb),
-                  :latency_ms, :selected_answer_source, now()
-                )
-                """
-            ),
-            {
-                "id": log_id,
-                "tenant_id": db.current_tenant(),
-                "interaction_id": interaction_id,
-                "sandbox_run_id": sandbox_run_id,
-                "transcript_turn_id": transcript_turn_id,
-                # The caller's own words, kept for retrieval analytics — mask
-                # any PII before it becomes a permanent row.
-                "query": pii_redact.redact_text(q),
-                "top_chunks": json.dumps(top_payload),
-                "latency_ms": latency_ms,
-                "selected_answer_source": f"{source}:{selected_source}",
-            },
-        )
+    record_retrieval_log(
+        {
+            "id": log_id,
+            "tenant_id": db.current_tenant(),
+            "interaction_id": interaction_id,
+            "sandbox_run_id": sandbox_run_id,
+            "transcript_turn_id": transcript_turn_id,
+            # The caller's own words, kept for retrieval analytics — mask
+            # any PII before it becomes a permanent row.
+            "query": pii_redact.redact_text(q),
+            "top_chunks": json.dumps(top_payload),
+            "latency_ms": latency_ms,
+            "selected_answer_source": f"{source}:{selected_source}",
+            # Stamped now, not by now() at flush time: the row records when the
+            # retrieval happened, not when the buffer happened to drain.
+            "created_at": datetime.now(timezone.utc),
+        },
+        defer=source in _DEFERRED_LOG_SOURCES,
+    )
 
     results = [
         {
@@ -646,14 +1069,23 @@ def retrieve(
         for r in top
     ]
 
-    return {
+    payload = {
         "results": results,
         "draftAnswer": draft_answer,
+        "margin": round(margin, 4),
         "latencyMs": latency_ms,
+        # Per-stage split. One aggregate number could not separate a slow embed
+        # from a slow ANN scan from a slow draft, so every "why was that turn
+        # slow" question ended in a guess.
+        "stageMs": stage_ms,
+        "reranked": bool(rerank_info.get("applied")),
         "embeddingModel": azure_openai.get_embedding_deployment(),
         "chatModel": chat_model,
         "logId": log_id,
+        "cached": False,
     }
+    _result_cache_put(cache_key, payload)
+    return payload
 
 
 def catalog(

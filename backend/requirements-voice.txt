@@ -26,3 +26,11 @@ pipecat-ai[azure,webrtc,runner,silero,deepgram]==1.6.0
 # Used directly by voice/recording.py for stereo PCM interleave (also a pipecat
 # transitive dep, but declared here so the import doesn't rely on that).
 numpy==2.4.6
+
+# Cross-encoder reranking (agent_core/tools/kb_rerank.py), off by default behind
+# KB_RERANK_ENABLED. Pulls no torch: it runs on the onnxruntime that Pipecat's
+# Silero VAD already brings in, so the marginal cost is the tokenizer plus the
+# ~80MB model file. Pinned even though the feature is disabled, because without
+# it the module cannot be measured inside the container -- which is the only
+# place its latency budget can honestly be decided.
+fastembed==0.8.0

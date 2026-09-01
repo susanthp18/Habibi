@@ -237,20 +237,27 @@ def test_bad_snapshot_never_widens_to_whole_corpus(monkeypatch):
     assert result.spoken_summary
 
 
-def test_confidence_threshold_gates_answering(monkeypatch):
+def test_a_weak_score_no_longer_gates_answering(monkeypatch):
+    """The 0.70 gate is gone; only "did anything come back" still gates.
+
+    The old rule refused 5 of 46 correct answers over the golden set while
+    admitting 12 of 14 wrong ones, because the absolute top score does not
+    predict retrieval success (AUC 0.548). Whether these passages answer this
+    question is now asked of the model that reads them.
+    """
     import kb_retrieve
 
     monkeypatch.setattr(kb_retrieve, "retrieve", _FakeRetrieve(rows=_rows(2, top=0.42)))
     result = kb.search_knowledge_base(
         query="premium", channel="voice", apply_intent_gate=False
     )
-    assert result.data["confident"] is False
+    assert result.data["confident"] is True
 
-    monkeypatch.setattr(kb_retrieve, "retrieve", _FakeRetrieve(rows=_rows(2, top=0.88)))
+    monkeypatch.setattr(kb_retrieve, "retrieve", _FakeRetrieve(rows=[]))
     result = kb.search_knowledge_base(
         query="premium", channel="voice", apply_intent_gate=False
     )
-    assert result.data["confident"] is True
+    assert result.data["confident"] is False
 
 
 def test_chunk_ids_line_up_with_returned_results(fake_retrieve):
@@ -278,6 +285,7 @@ def test_empty_query_is_a_soft_failure(fake_retrieve):
     [
         ("is scuba diving covered", True),
         ("what does my travel insurance cover", True),
+        ("what are the travel insurance exclusions", True),
         ("i want a payment plan", False),
         ("i claim i already paid the terms", False),
         ("the terms of my insurance policy", True),

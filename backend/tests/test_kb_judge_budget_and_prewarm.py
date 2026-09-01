@@ -28,21 +28,20 @@ import pytest
 from agent_core.tools import kb_plan
 
 
-# --- a reserve must be large enough for the call it reserves for ------------
-
-
-def test_the_judge_floor_covers_the_measured_call() -> None:
-    """Measured on the real payload (8 passages): 2.10s median, 2.41s max."""
-    assert kb_plan.judge_reserve_s() >= 2.41
+# --- Deadline.guaranteed still behaves, and the judge is really gone --------
 
 
 def test_the_floor_is_a_floor_not_a_remainder() -> None:
-    """An expired deadline must still fund the judge."""
+    """`Deadline.guaranteed` still owes its floor on an expired deadline.
+
+    The judge it was built for is gone, but the mechanism is the generic one any
+    future guaranteed-budget call would use, and its whole point is the case
+    where nothing is left. Asserted against a literal rather than
+    judge_reserve_s(), which no longer exists.
+    """
     spent = kb_plan.Deadline(0.0)
     assert spent.remaining() == 0.0
-    assert spent.guaranteed(kb_plan.judge_reserve_s()) == pytest.approx(
-        kb_plan.judge_reserve_s()
-    )
+    assert spent.guaranteed(2.5) == pytest.approx(2.5)
 
 
 def test_the_floor_never_shrinks_a_healthy_budget() -> None:
@@ -50,29 +49,33 @@ def test_the_floor_never_shrinks_a_healthy_budget() -> None:
     assert fresh.guaranteed(1.0) > 25.0
 
 
-def test_the_floor_clears_the_minimum_call_budget() -> None:
-    """Below _MIN_CALL_BUDGET_S the judge is skipped before it even dials."""
-    assert kb_plan.judge_reserve_s() > kb_plan._MIN_CALL_BUDGET_S
+def test_the_judge_is_not_called_at_all() -> None:
+    """The judge is removed from the retrieval path, not just re-budgeted.
 
-
-def test_the_planner_no_longer_pays_for_the_judge() -> None:
-    """Reserving in both places starves the planner to fund something already funded."""
+    It reserved a guaranteed 3.5s floor on every voice turn and failed open
+    whenever the analysis lane saturated, so the cost was unconditional and the
+    protection was not. Asserted against the source because the point is that
+    the call site is gone -- a mock would pass just as happily with it present
+    and disabled.
+    """
     from agent_core.tools import kb
 
     src = inspect.getsource(kb)
-    assert "budget=deadline.guaranteed(kb_plan.judge_reserve_s())" in src
+    assert "judge_passages" not in src
+    assert "judge_reserve_s" not in src
     assert "deadline.remaining(reserve=" not in src
 
 
 @pytest.mark.parametrize("channel", ["voice", "text"])
 def test_worst_case_retrieval_stays_within_the_dead_air_watchdog(channel: str) -> None:
-    """Voice: budget + floor must not outlast the silence the caller will tolerate.
+    """Worst-case retrieval must not outlast the silence a caller will tolerate.
 
-    Not the same as 6s of silence — search_knowledge_base speaks a ~2.5s
-    acknowledgement as the call starts — but the total is worth holding down.
+    Used to be budget + the judge's 3.5s floor, and the voice limit was 6.0s.
+    Removing the judge removes the second term, so the same guard now holds
+    against a much tighter limit — which is the point of keeping the test.
     """
-    worst = kb_plan.budget_for(channel) + kb_plan.judge_reserve_s()
-    limit = 6.0 if channel == "voice" else 8.0
+    worst = kb_plan.budget_for(channel)
+    limit = 2.5 if channel == "voice" else 4.0
     assert worst <= limit, f"{channel} worst-case retrieval {worst}s exceeds {limit}s"
 
 

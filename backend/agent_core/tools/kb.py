@@ -40,18 +40,17 @@ logger = logging.getLogger(__name__)
 # Collections money questions must use CRM tools, not HL Assurance chunks.
 KB_ALLOWED_INTENTS = frozenset({"product_faq", "upsell_opportunity"})
 
-# Score below which the model must not answer from the snippets at all.
+# Retained only so existing imports keep working; nothing gates on it. The
+# answerability decision moved to the answering model (see the answer_policy the
+# voice and text adapters build) after the 0.70 rule was measured at AUC 0.548 —
+# a coin flip — and found to refuse 5 of 46 correct answers while admitting 12
+# of 14 wrong ones.
 KB_CONFIDENCE_THRESHOLD = 0.70
 
-# Score below which the question is recorded as a KB *content gap*.
-#
-# Deliberately a separate knob from KB_CONFIDENCE_THRESHOLD even though it
-# defaults to the same value. They answer different questions: 0.70 is "may the
-# model speak from these snippets", which is a safety call. Whether the corpus
-# is missing something is a content call, and a near-miss at 0.68 is arguably
-# the most interesting gap there is — the corpus almost has the answer. Tune
-# KB_GAP_THRESHOLD down (~0.55) once the table has real traffic in it.
-KB_GAP_THRESHOLD = KB_CONFIDENCE_THRESHOLD
+# Retrieval *margin* (top1 - top2) below which a question is recorded as a
+# possible KB content gap. See _gap_margin_threshold() for why this is a margin
+# and not a score.
+KB_GAP_MARGIN = 0.02
 
 
 def _gap_capture_enabled() -> bool:
@@ -64,15 +63,30 @@ def _gap_capture_enabled() -> bool:
     }
 
 
-def _gap_threshold() -> float:
-    raw = (os.getenv("KB_GAP_THRESHOLD") or "").strip()
+def _gap_margin_threshold() -> float:
+    """Margin below which a retrieval is treated as a possible content gap.
+
+    Was a threshold on the absolute top score, which does not carry the signal:
+    over the golden set, absolute score predicts retrieval success at AUC 0.548
+    (coin flip), while the top1-top2 margin reaches 0.975. Feeding the learning
+    loop off the weaker signal filled the gap screen with retrievals that were
+    fine and missed ones that were not.
+
+    Provisional value, and deliberately tight. A small margin means "the top few
+    passages were interchangeable", which is the cheap observable proxy for "we
+    could not tell what answers this". It is not the same claim as "the corpus
+    does not cover it", so this over-reports by design: a false gap costs one
+    row on a review screen, a missed one costs a permanently unanswered question.
+    Retune once live margins have been labelled -- every retrieval now logs one.
+    """
+    raw = (os.getenv("KB_GAP_MARGIN") or "").strip()
     if not raw:
-        return KB_GAP_THRESHOLD
+        return KB_GAP_MARGIN
     try:
         value = float(raw)
     except ValueError:
-        logger.warning("KB_GAP_THRESHOLD is not a number: %r — using default", raw)
-        return KB_GAP_THRESHOLD
+        logger.warning("KB_GAP_MARGIN is not a number: %r — using default", raw)
+        return KB_GAP_MARGIN
     return min(1.0, max(0.0, value))
 
 
@@ -507,6 +521,8 @@ def search_knowledge_base(
     prefer_policy: bool | None = None,
     top_k: int | None = None,
     snippet_chars: int | None = None,
+    # Accepted and ignored: callers still pass it. Kept rather than removed so
+    # this is one change, not a signature break across six call sites.
     confidence_threshold: float = KB_CONFIDENCE_THRESHOLD,
     record_offer: bool = True,
     gap_sink: Callable[[dict[str, Any]], None] | None = None,
@@ -663,56 +679,56 @@ def search_knowledge_base(
     # can never report passages the model was not shown.
     chunk_ids = [str(r.get("chunkId") or r.get("id") or "") for r in rows]
 
-    # Whether these passages answer the question is a judgment about their
-    # content, not arithmetic on a cosine distance. The number this used to
-    # compare had already been through a stack of hand-tuned BOOST_*/PENALTY_*
-    # deltas, so "0.70" was a threshold on a quantity with no stable meaning —
-    # and it refused a caller at 0.667 over a corpus that documented all ten
-    # products they were asking about.
-    verdict = kb_plan.judge_passages(
-        question=customer_text or q,
-        passages=results,
-        # Guaranteed, not whatever the planner and the embed happened to leave.
-        # Reserving out of the planner's timeout alone left this at 0.0s on
-        # every measured call, so the answerability check never ran once and
-        # every reply was built from unvetted passages.
-        budget=deadline.guaranteed(kb_plan.judge_reserve_s()),
-    )
-    if verdict.source == kb_plan.SOURCE_LLM and verdict.keep:
-        order = verdict.keep + [i for i in range(len(results)) if i not in verdict.keep]
-        results = [results[i] for i in order]
-        chunk_ids = [chunk_ids[i] for i in order]
-
     # A non-numeric score (driver quirk, hand-written FAQ row) must not raise
     # out of the turn loop. Reported for observability only — nothing gates on
-    # it any more.
+    # it.
     try:
         top = float(results[0]["score"] or 0) if results else 0.0
     except (TypeError, ValueError):
         logger.warning("unusable retrieval score %r — treating as 0", results[0].get("score"))
         top = 0.0
+    try:
+        margin = float(raw.get("margin") or 0.0)
+    except (TypeError, ValueError):
+        margin = 0.0
 
-    # Three distinct situations, three different right answers. Collapsing them
-    # into one blanket "answer anyway" would either refuse callers whenever the
-    # judge is switched off, or silently stop applying any check at all.
-    if verdict.source == kb_plan.SOURCE_LLM:
-        confident = verdict.answerable
-    elif verdict.reason == "judge_disabled":
-        # Switched off deliberately: fall back to the documented legacy rule
-        # rather than to no check at all.
-        confident = top >= confidence_threshold
-    else:
-        # Judge could not run (saturated, out of budget, malformed reply).
-        # Fail OPEN by product decision — a busy analysis lane must not turn
-        # into a refused caller. It does mean the model may speak from passages
-        # nothing vetted, so surface it in the payload and log it rather than
-        # letting it look like a clean pass.
-        confident = True
-        logger.warning(
-            "kb answerability degraded (%s) — passages unvetted · interaction=%s",
-            verdict.reason,
-            interaction_id,
-        )
+    # There is no longer a numeric answerability gate here, and that is a
+    # deliberate removal of two things that did not work.
+    #
+    # The LLM judge is gone. It carried a guaranteed 3.5s floor
+    # (KB_JUDGE_RESERVE_S) on every voice turn, and it failed *open* whenever
+    # the analysis lane was saturated — so the check was skipped precisely when
+    # load made it most likely to be needed, while the latency was paid every
+    # time regardless.
+    #
+    # The 0.70 score threshold is gone too, because it was measurably worse
+    # than a coin flip. Predicting "did retrieval succeed" over the 60 golden
+    # cases with a known correct passage, the absolute top score scores AUC
+    # 0.548 scoped and 0.364 unscoped — i.e. unscoped, a *higher* score weakly
+    # predicts a *worse* retrieval, since matching shared policy boilerplate
+    # scores well and answers nothing. In practice it refused 5 of 46 correct
+    # answers while admitting 12 of 14 wrong ones. It also thresholded a number
+    # that is not a similarity: _apply_rank_rules has already moved it by up to
+    # +0.47/-0.39 in hand-tuned BOOST_*/PENALTY_* deltas by this point, so the
+    # same cosine maps to different gate values depending on whether a heading
+    # happened to contain "exclu".
+    #
+    # What remains are the gates that carry real information and cost nothing:
+    # the intent allow-list above, the product scope, and whether anything came
+    # back at all. Judging whether these specific passages answer this specific
+    # question now happens where the passages are actually read — see the
+    # answer_policy the voice and text adapters build, which instructs the model
+    # to say so when they do not. That follows the Sufficient Context result
+    # (Google, ICLR 2025): extra context makes a model *less* willing to
+    # abstain, so abstention has to be asked for explicitly at generation time
+    # rather than inferred from a retrieval score.
+    #
+    # `margin` (top1 - top2) is the signal that does separate success from
+    # failure here — AUC 0.975 scoped, for zero latency. It is reported and
+    # logged but deliberately not enforced yet: it is not scale-free across
+    # query types (verbatim FAQ questions average 0.160, spoken paraphrases
+    # 0.028), so a threshold has to be calibrated on real call traffic first.
+    confident = bool(results)
 
     # The learning loop. This is the only place in the system that knows the bot
     # was asked something it could not answer, and until now that fact was
@@ -730,7 +746,11 @@ def search_knowledge_base(
     # kb_retrieve.retrieve directly and never come through here: the speculative
     # prefetch in voice/kb_enrich.py and the operator's POST /kb/retrieve test
     # panel. Neither is a customer failing to get an answer.
-    if interaction_id and _gap_capture_enabled() and (not results or top < _gap_threshold()):
+    # A margin needs a runner-up to measure against. With a single passage there
+    # is nothing to compare, and reading the resulting 0.0 as "ambiguous" would
+    # log a gap for every one-hit retrieval.
+    ambiguous = len(results) >= 2 and margin < _gap_margin_threshold()
+    if interaction_id and _gap_capture_enabled() and (not results or ambiguous):
         _emit_gap(
             gap_sink,
             # q, not `expanded` — the customer's own words are what an operator
@@ -772,6 +792,8 @@ def search_knowledge_base(
             "results": results,
             "chunkIds": chunk_ids,
             "topScore": round(top, 3),
+            # The confidence signal worth watching. Not enforced — see above.
+            "margin": round(margin, 4),
             "confident": confident,
             "preferPolicy": prefer_policy,
             "snapshotId": kb_snapshot_id,
@@ -779,10 +801,14 @@ def search_knowledge_base(
             "logId": raw.get("logId"),
             "mode": kb_plan.MODE_PASSAGE,
             "planSource": plan.source,
-            "judgeSource": verdict.source,
-            # True only when the judge could not run *and* we answered anyway.
-            "unvetted": verdict.degraded and verdict.reason != "judge_disabled",
-            "judgeReason": verdict.reason,
+            # judgeSource / judgeReason / unvetted are retained as constants for
+            # payload stability (the Inspector and the RTVI event shape read
+            # them). The judge itself is gone: it cost a guaranteed 3.5s floor
+            # per voice turn and failed open under exactly the load that made it
+            # worth having.
+            "judgeSource": "removed",
+            "judgeReason": "judge_removed",
+            "unvetted": False,
         },
         analytics=analytics,
     )
