@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from agent_core.treatment import config, models, scoring
+from agent_core.treatment import models, scoring
 from agent_core.treatment import actions as A
 from agent_core.treatment.features import SCHEMA_VERSION
 

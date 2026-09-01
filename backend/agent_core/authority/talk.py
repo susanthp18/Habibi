@@ -21,7 +21,6 @@ from agent_core.authority.matrix import (
     TENURE_TOO_SHORT,
     VERDICT_AUTO,
     VERDICT_CAP,
-    VERDICT_ESCALATE,
     MatrixDecision,
 )
 

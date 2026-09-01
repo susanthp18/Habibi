@@ -23,3 +23,8 @@ prometheus-client==0.26.0
 sentry-sdk==2.66.1
 # Dev / regression (auth CORS lock + readiness)
 pytest==9.1.1
+# Linting. ruff.toml has existed since July and ruff was never installed, so the
+# per-file E402 ignores protecting the modules that must set env before
+# importing db were documentation rather than configuration. Pinned because an
+# unpinned linter turns somebody else's release into your red build.
+ruff==0.6.9

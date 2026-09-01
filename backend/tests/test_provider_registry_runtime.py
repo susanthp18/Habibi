@@ -10,7 +10,6 @@ Binding one produced a call that quietly ran Azure instead.
 
 from __future__ import annotations
 
-import importlib
 
 import pytest
 

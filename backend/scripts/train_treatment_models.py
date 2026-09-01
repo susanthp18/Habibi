@@ -871,8 +871,8 @@ def fit_segments(
             })
             continue
 
-        p_t = sum(l for _, l in rows_t) / len(rows_t)
-        p_c = sum(l for _, l in rows_c) / len(rows_c)
+        p_t = sum(label for _, label in rows_t) / len(rows_t)
+        p_c = sum(label for _, label in rows_c) / len(rows_c)
         ate = p_t - p_c
         se = _ate_stderr(p_t, len(rows_t), p_c, len(rows_c))
         z = abs(ate - population_ate) / se if se > 0 else 0.0
@@ -910,7 +910,7 @@ def fit_segments(
             [float(v[n]) if v.get(n) is not None else means[n] for n in names]
             for v, _ in held
         ]
-        y = [l for _, l in held]
+        y = [label for _, label in held]
         loss_pop = logloss(
             [_predict(x, w, b, cal) for x, (w, b) in zip(X, held_pop)], y
         )

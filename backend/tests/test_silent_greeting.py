@@ -109,11 +109,12 @@ def test_disclose_recording_speaks_when_the_model_did_not() -> None:
 
 def test_the_fallback_greeting_carries_the_disclosure_and_a_question() -> None:
     """It replaces the whole opening turn, so it has to do the whole job."""
+    import inspect
     import re
 
     from voice import tools
 
-    src = inspect.getsource(tools) if False else __import__("inspect").getsource(tools)
+    src = inspect.getsource(tools)
     match = re.search(r"_FALLBACK_GREETING = \(\s*(.*?)\s*\)\n", src, re.S)
     assert match, "fallback greeting not found"
     line = " ".join(re.findall(r'"([^"]*)"', match.group(1)))

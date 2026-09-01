@@ -30,7 +30,7 @@ rupee figure is something a collections head can argue with.
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping
+from typing import Any
 
 from agent_core.treatment import actions as A
 

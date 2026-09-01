@@ -753,10 +753,8 @@ class EstimatorScorer:
         policy: Any,
         costs: Any,
     ) -> list[Any]:
-        from dataclasses import replace
 
         from agent_core.treatment import actions as A
-        from agent_core.treatment import scoring
 
         scored = self._base.score(
             features, trigger, candidates, now=now, policy=policy, costs=costs

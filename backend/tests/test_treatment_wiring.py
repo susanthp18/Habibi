@@ -12,7 +12,7 @@ where a second copy of a rule could grow.
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import text

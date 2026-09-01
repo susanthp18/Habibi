@@ -206,7 +206,6 @@ def test_demo_call_product_fixes_are_wired() -> None:
 
 
 def test_frontend_create_campaign_sends_bot_id() -> None:
-    from pathlib import Path
 
     tab = _HABIBI / "src" / "components" / "prompt-studio" / "OutboundTab.tsx"
     text = tab.read_text(encoding="utf-8")

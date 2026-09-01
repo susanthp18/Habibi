@@ -26,7 +26,6 @@ import re
 from datetime import datetime
 from typing import Sequence
 
-from agent_core.treatment import actions as A
 from agent_core.treatment.config import Costs, Policy
 from agent_core.treatment.features import AccountFeatures, Trigger
 from agent_core.treatment.scoring import Candidate, Recommender, ScoredAction

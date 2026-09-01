@@ -238,7 +238,6 @@ def build_nba(
     treatment: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
-    account = customer.get("account") or {}
 
     engine_item = _treatment_nba(treatment)
     if engine_item:

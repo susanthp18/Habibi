@@ -40,6 +40,16 @@ jobs:
       ALLOW_ACTOR_HEADER: "true"
       # Schema-only migrate; demo rows via scripts/seed_demo.py (not Alembic).
       ALEMBIC_SEED_DEMO: ""
+      # seed_susanth._test_phone() refuses a hard-coded fallback, and it is right
+      # to: that number receives real WhatsApp during testing, so a default either
+      # points at a person's handset or seeds an undeliverable number that looks
+      # configured. But the refusal is fatal — seed_demo.py calls seed_postgres,
+      # which calls seed_susanth unguarded — so with this unset the "Seed demo
+      # graph" step raises and **Pytest never runs at all**. Every test in this
+      # repository was decorative until this line existed. CI needs no real
+      # recipient (nothing sends here: platform_switches seeds no row and absence
+      # is off), so a non-routable placeholder keeps the seed honest.
+      WHATSAPP_TEST_TO: "910000000000"
 
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +64,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # Before the database steps on purpose: ruff needs no Postgres, so a lint
+      # failure costs ten seconds instead of the ninety it takes to build and
+      # seed a schema that is about to be thrown away.
+      - name: Ruff
+        run: ruff check .
 
       - name: Apply base SQL schema
         run: |

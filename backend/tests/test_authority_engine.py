@@ -8,7 +8,6 @@ looks like it works until the first out-of-policy quote hits a recording.
 
 from __future__ import annotations
 
-import pytest
 
 from agent_core.authority import config
 from agent_core.authority.engine import recommend_authority

@@ -9,7 +9,7 @@ from agent_core.eval.graders import grade_hardship_hold, grade_ptp_row, grade_sk
 from agent_core.skills.defaults import COLLECTIONS_SKILLS, all_first_party_packs, packs_for_slugs
 from agent_core.skills.gardener import assert_unsigned, draft_from_gap
 from agent_core.skills.intersect import SKILL_GATED_TOOLS, effective_tools, offered_tools
-from agent_core.skills.pack import approx_tokens, iter_first_party_packs
+from agent_core.skills.pack import approx_tokens
 from agent_core.skills.runtime import description_block, mouth_turn_state, tools_after_references
 from agent_core.skills.scripts import run_script
 from agent_core.skills.sign import sign_hash, verify_signature

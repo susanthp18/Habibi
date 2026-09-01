@@ -29,7 +29,6 @@ from agent_core.authority.features import (
 from agent_core.authority.matrix import (
     ENGINE_ERROR,
     ENGINE_OFF,
-    UNKNOWN_FEE,
     VERDICT_ESCALATE,
     MatrixDecision,
     decide,

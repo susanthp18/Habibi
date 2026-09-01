@@ -31,3 +31,21 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
+
+      # Both of these were already written, already passing, and gated by
+      # nothing. `test` is 11 vitest suites / 107 assertions covering the pure
+      # functions this app makes decisions with; `lint` is eslint plus two
+      # hand-written scanners that check every spacing and type value against
+      # the design scale — check-spacing-scale.mjs exists because a 1000px
+      # padding shipped. Running them costs ~25s and retroactively activates all
+      # of it.
+      #
+      # `lint` currently emits 62 react-hooks warnings and zero errors, so it
+      # passes as-is. Deliberately NOT --max-warnings 0: gate what passes today,
+      # then drive the count down. A gate introduced red is a gate people learn
+      # to ignore.
+      - name: Vitest
+        run: npx vitest run
+
+      - name: Lint
+        run: npm run lint

@@ -889,7 +889,7 @@ def _fit(train, treated, control):
         [float(v[n]) if v.get(n) is not None else means[n] for n in names]
         for v, _ in control
     ]
-    y_c = [l for _, l in control]
+    y_c = [label for _, label in control]
     mu = [means[n] for n in names]
     scales = train._scales(X_t + X_c, mu)
     pop_ate = sum(y_t) / len(y_t) - sum(y_c) / len(y_c)
@@ -952,8 +952,8 @@ def test_underpowered_strata_are_skipped_not_rejected() -> None:
     train = _trainer()
     treated, control = _two_strata()
     # Starve one stratum below the control-arm floor.
-    thin = [(v, l) for v, l in control if v["dpd"] < 60][:5]
-    fat = [(v, l) for v, l in control if v["dpd"] >= 60]
+    thin = [(v, label) for v, label in control if v["dpd"] < 60][:5]
+    fat = [(v, label) for v, label in control if v["dpd"] >= 60]
     _, report, _ = _fit(train, treated, thin + fat)
 
     row = report["b0030/open/timing"]

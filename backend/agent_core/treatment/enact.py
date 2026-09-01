@@ -655,7 +655,6 @@ def _submit_to_rail(
     ``present(presentation_id, mandate_id, rail, amount, cycle) -> str``.
     """
     import importlib
-    import os
 
     module_name = (os.getenv("TREATMENT_MANDATE_RAIL_MODULE") or "").strip()
     if not module_name:

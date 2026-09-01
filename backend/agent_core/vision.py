@@ -7,7 +7,6 @@ analysis Azure profile; creating the row does not wait on a human.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from agent_core.platform_flags import vision_ingest_enabled
 from agent_core.tools.catalog import DOCUMENT_TYPES

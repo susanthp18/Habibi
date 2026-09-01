@@ -139,8 +139,15 @@ function OutboundGates({ botId, card, flow }: { botId: string; card: AgentCard; 
  *  `campaign_runs.selector` has been a stored, validated jsonb column since the
  *  table was created and nothing ever read it; a cohort could only be built by
  *  POSTing a list of customer ids. This is the screen that column was for.
+ *
+ *  @param botId The card being edited. The same omission `OutboundTab` records
+ *  below happened again here: the create call already passed `botId` in its
+ *  shorthand, but the prop was never declared, so this did not compile and
+ *  every run this panel created would have been filed against the default bot
+ *  regardless of which card was open. `tsc --noEmit` was red on it at HEAD and
+ *  nothing ran that check.
  */
-function CohortBuilder({ objectives }: { objectives: string[] }) {
+function CohortBuilder({ botId, objectives }: { botId: string; objectives: string[] }) {
   const [name, setName] = useState("");
   const [objective, setObjective] = useState(objectives[0] ?? "");
   const [dpdMin, setDpdMin] = useState("1");
@@ -533,7 +540,9 @@ export function OutboundTab({
             </ul>
           )}
 
-          {objectiveKeys.length > 0 ? <CohortBuilder objectives={objectiveKeys} /> : null}
+          {objectiveKeys.length > 0 ? (
+            <CohortBuilder botId={botId} objectives={objectiveKeys} />
+          ) : null}
 
           <div className="rounded-medium border border-border bg-surface">
             <div className="flex items-center justify-between border-b border-border px-150 py-100">

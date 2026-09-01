@@ -28,18 +28,26 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never executed at runtime
-    from agent_core.cards.compile import CompileError, CompileReport, compile_card
-    from agent_core.cards.defaults import (
-        COLLECTIONS_BOT_ID,
-        FIRST_PARTY_BOT_IDS,
-        FIRST_PARTY_BOTS,
-        INSURANCE_BOT_ID,
-        INTAKE_BOT_ID,
-        SUPERVISOR_BOT_ID,
-        card_dump,
-        card_for,
-    )
-    from agent_core.cards.schema import AgentCard, parse_card
+    # `import X as X` is PEP 484's explicit re-export form. These names are
+    # resolved at runtime by __getattr__ below, so nothing here is "used" in the
+    # ordinary sense and a plain import reads as 13 dead lines to any linter.
+    # The alias says what is actually meant: this module deliberately publishes
+    # them. Do not delete them to quiet F401 — a type checker needs them to
+    # resolve `agent_core.cards.compile_card`, which the lazy path cannot
+    # advertise on its own.
+    from agent_core.cards.compile import CompileError as CompileError
+    from agent_core.cards.compile import CompileReport as CompileReport
+    from agent_core.cards.compile import compile_card as compile_card
+    from agent_core.cards.defaults import COLLECTIONS_BOT_ID as COLLECTIONS_BOT_ID
+    from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS as FIRST_PARTY_BOT_IDS
+    from agent_core.cards.defaults import FIRST_PARTY_BOTS as FIRST_PARTY_BOTS
+    from agent_core.cards.defaults import INSURANCE_BOT_ID as INSURANCE_BOT_ID
+    from agent_core.cards.defaults import INTAKE_BOT_ID as INTAKE_BOT_ID
+    from agent_core.cards.defaults import SUPERVISOR_BOT_ID as SUPERVISOR_BOT_ID
+    from agent_core.cards.defaults import card_dump as card_dump
+    from agent_core.cards.defaults import card_for as card_for
+    from agent_core.cards.schema import AgentCard as AgentCard
+    from agent_core.cards.schema import parse_card as parse_card
 
 _EXPORTS: dict[str, str] = {
     "AgentCard": "agent_core.cards.schema",

@@ -9,7 +9,7 @@ overwrite empty soft cells; it must not clobber a ``[live]`` note.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Any
 
 from sqlalchemy import text
