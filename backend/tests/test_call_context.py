@@ -132,10 +132,21 @@ def test_dnd_is_surfaced_when_set():
 
 def test_open_work_is_summarised_into_the_card():
     ctx = _ctx()
-    ctx.open_work = {"promises": [{"id": "PR-9", "promisedDate": "2026-08-01"}]}
+    ctx.open_work = {
+        "promises": [
+            {
+                "id": "PR-9",
+                "promisedDate": "2026-08-01T05:04:18",
+                "amount": 4800,
+            }
+        ]
+    }
     card = ctx.crm_card()
     assert "Open promises" in card
     assert "PR-9" in card
+    assert "2026-08-01" in card
+    assert "4800" in card
+    assert "05:04:18" not in card
 
 
 def test_persona_message_only_when_persona_present():

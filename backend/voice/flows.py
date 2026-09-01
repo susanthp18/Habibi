@@ -717,12 +717,25 @@ def build_collections_flow(
                 {
                     "role": "developer",
                     "content": (
-                        "Briefly reassure that a human agent will follow up; avoid "
-                        "further negotiation. Do not ask further questions."
+                        "If they asked a product or policy question, call "
+                        "search_knowledge_base. When the result is confident with "
+                        "passages, answer in at most two sentences from those "
+                        "passages, then call end_call. When it is not confident, "
+                        "say a specialist will follow up and call end_call. Never "
+                        "ask which insurer or policy type they have. Do not ask "
+                        "further questions."
                     ),
                 }
             ],
-            "functions": [],
+            "functions": [
+                t
+                for t in (
+                    tools.get("search_knowledge_base"),
+                    tools.get("end_call"),
+                    tools.get("request_callback"),
+                )
+                if t
+            ],
             "respond_immediately": True,
             "post_actions": [{"type": "end_conversation"}],
         }
@@ -756,6 +769,11 @@ def build_collections_flow(
                         "about before confirming, say it is a personal matter "
                         "regarding their account with the bank and repeat the "
                         "confirmation question once.\n"
+                        "Do not call any tool until they have spoken and confirmed "
+                        "they are the account holder. Your first utterance is ONLY "
+                        "the greeting, your name, the bank, and the confirmation "
+                        "question. Never open with a tool acknowledgement such as "
+                        "'Sure, I can set that up.'\n"
                         "They confirm it is them → verify_identity to complete the "
                         "check, then continue.\n"
                         "They say it is not them, they are a relative or colleague, "

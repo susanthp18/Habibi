@@ -67,6 +67,25 @@ def redact_phone(number: str | None) -> str:
     return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
 
 
+_DIGITS = re.compile(r"\d{2,}")
+
+
+def preview(text: str | None, *, limit: int = 80) -> str | None:
+    """A short log-safe snippet of spoken text.
+
+    Digit runs of two or more are stripped so a last-four or an account tail
+    cannot leak at WARNING. The remaining words are enough to reconstruct
+    what was said without opening a 30k-token context dump.
+    """
+    raw = " ".join(str(text or "").split())
+    if not raw:
+        return None
+    scrubbed = _DIGITS.sub("***", raw)
+    if len(scrubbed) <= limit:
+        return scrubbed
+    return scrubbed[: limit - 1] + "…"
+
+
 def session_fields(session: Any | None = None, extra: dict[str, Any] | None = None) -> dict[str, Any]:
     """The ids that join every hop of one call.
 

@@ -174,6 +174,90 @@ def test_the_heavy_models_are_warmed_at_startup() -> None:
     assert callable(bot._warm_smart_turn)
 
 
+def test_the_llm_service_is_warmed_at_startup() -> None:
+    """2.46s of one-time init, and nothing was paying it before the caller did.
+
+    ``KeepAliveAzureLLMService(...)`` costs 2.46s to construct the first time in
+    a process and 0.00s every time after — lazy setup under the OpenAI SDK, keyed
+    to the process, not the instance. ``azure_openai.prewarm`` warms the HTTP
+    path and never touches this constructor, so the first call after every
+    restart wore the full 2.46s inside its setup window.
+
+    On session VS-BEDB3F54D7 that was the single largest item in an 8.38s
+    time-to-greeting — bigger than the Silero and Smart Turn model builds
+    combined, and those already had warmers.
+    """
+    import inspect
+
+    import voice.bot as bot
+
+    src = inspect.getsource(bot._warm_before_serving)
+    assert "_warm_llm_service" in src, (
+        "the LLM service constructor is the largest one-time cost in call setup "
+        "and _warm_before_serving does not pay it"
+    )
+    assert callable(bot._warm_llm_service)
+    # It must build the real class — warming anything else warms nothing.
+    warm_src = inspect.getsource(bot._warm_llm_service)
+    assert "KeepAliveAzureLLMService(" in warm_src
+
+
+# --- speaking after the caller has gone -------------------------------------
+
+
+def test_the_idle_watchdog_is_disarmed_once_the_call_is_finalized() -> None:
+    """The bot must not answer a caller who has already hung up.
+
+    On VS-BEDB3F54D7 the caller disconnected at 12:20:54. `_finalize_call` ran,
+    but the user-idle watchdog stayed armed: at 12:21:01 it fired `strike=1
+    step=nudge`, which generated a full LLM completion and synthesised
+    "Are you still there? What would you like to do about the due payment?"
+    into a socket with nobody on it — eight seconds after the call ended.
+
+    Three costs, none of them visible to the caller who caused them: billed LLM
+    and TTS spend on speech nobody could hear, a CRM sink that then drained past
+    its timeout, and an admission slot held 121.1s for a 103.3s call.
+
+    `finalized` already exists and already means exactly this. The watchdog just
+    never consulted it.
+    """
+    import ast
+    import inspect
+
+    import voice.bot as bot
+
+    tree = ast.parse(inspect.getsource(bot.run_bot))
+    handler = next(
+        (
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "on_user_turn_idle"
+        ),
+        None,
+    )
+    assert handler is not None, "on_user_turn_idle not found in run_bot"
+
+    # The guard has to sit before any awaited work: a nudge that is generated
+    # and then discarded still costs the tokens and still delays teardown.
+    guards = [
+        n
+        for n in ast.walk(handler)
+        if isinstance(n, ast.Name) and n.id == "finalized"
+    ]
+    assert guards, (
+        "on_user_turn_idle never reads `finalized`, so a caller who hangs up "
+        "still gets a generated, synthesised nudge"
+    )
+
+    first_await = next(
+        (n.lineno for n in ast.walk(handler) if isinstance(n, ast.Await)), None
+    )
+    assert first_await is not None
+    assert min(g.lineno for g in guards) < first_await, (
+        "the finalized guard must run before the handler awaits anything"
+    )
+
+
 # --- the first call after a restart -----------------------------------------
 
 

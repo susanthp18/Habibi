@@ -189,6 +189,67 @@ def test_thinking_is_not_silence_the_caller_should_be_nudged_out_of() -> None:
     assert observer.busy() is True
 
 
+def test_an_interruption_ends_the_bot_turn_it_cancelled() -> None:
+    """A barge-in cancels the response — so the bot no longer owes that turn.
+
+    `_generating` is raised by LLMFullResponseStartFrame and lowered by
+    LLMFullResponseEndFrame. An interruption cancels the in-flight response
+    *without* ever emitting the End frame, so the flag latched on and `busy()`
+    answered True for the rest of the call.
+
+    That flag is what the idle ladder consults before nudging. On call
+    VS-F93E3B2133 the caller barged in 326ms into "Great, let me verify that
+    quick…", the response was cancelled, the tool result landed in a dead
+    context, and no further inference ever ran. The dead-air watchdog — the one
+    safety net that would have re-engaged them — was suppressed on every tick
+    because `busy()` still claimed a turn was in flight. The caller heard 30
+    seconds of silence and hung up.
+
+    An interruption is precisely the event that ends a bot turn. The observer
+    has to treat it as one.
+    """
+    from pipecat.frames.frames import (
+        InterruptionFrame,
+        LLMFullResponseStartFrame,
+    )
+
+    from voice.bot_turn_state import BotTurnStateObserver
+
+    observer = BotTurnStateObserver()
+    asyncio.run(observer.on_push_frame(_Processed(LLMFullResponseStartFrame())))
+    assert observer.busy() is True, "a generating bot owes a turn"
+
+    asyncio.run(observer.on_push_frame(_Processed(InterruptionFrame())))
+    assert observer.busy(grace_seconds=0.0) is False, (
+        "after a barge-in the cancelled turn is not still owed — leaving it "
+        "owed suppresses the dead-air watchdog for the rest of the call"
+    )
+
+
+def test_an_interruption_clears_a_tool_call_that_will_never_return() -> None:
+    """The same latch, reached through the tool counter.
+
+    `_tool_calls` is decremented by FunctionCallResultFrame. A barge-in during a
+    tool call can cancel the turn before any result arrives, and an outstanding
+    count keeps `busy()` True exactly as a stuck `_generating` does.
+    """
+    from pipecat.frames.frames import FunctionCallInProgressFrame, InterruptionFrame
+
+    from voice.bot_turn_state import BotTurnStateObserver
+
+    observer = BotTurnStateObserver()
+    frame = FunctionCallInProgressFrame(
+        function_name="verify_identity",
+        tool_call_id="call_1",
+        arguments={},
+    )
+    asyncio.run(observer.on_push_frame(_Processed(frame)))
+    assert observer.busy() is True
+
+    asyncio.run(observer.on_push_frame(_Processed(InterruptionFrame())))
+    assert observer.busy(grace_seconds=0.0) is False
+
+
 # --- the balance, twice -----------------------------------------------------
 
 
@@ -245,18 +306,24 @@ def test_the_planner_cannot_spend_the_judges_budget() -> None:
     it too, so the judge was still offered 0.0s. The guarantee is a floor now —
     see :meth:`kb_plan.Deadline.guaranteed`.
     """
-    reserve = kb_plan.judge_reserve_s()
-    assert reserve >= kb_plan._MIN_CALL_BUDGET_S
+    # The bug is now unreachable by construction: there is no judge to starve.
+    # kb.py is asserted judge-free in
+    # test_kb_judge_budget_and_prewarm.py::test_the_judge_is_not_called_at_all.
+    assert not hasattr(kb_plan, "judge_passages")
+    assert not hasattr(kb_plan, "judge_reserve_s")
 
-    # The case that mattered: the retrieval overran and there is nothing left.
+    # The guarantee mechanism itself still holds for whatever uses it next.
     exhausted = kb_plan.Deadline(0.0)
     assert exhausted.remaining() == 0.0
-    assert exhausted.guaranteed(reserve) == pytest.approx(reserve)
+    assert exhausted.guaranteed(2.5) == pytest.approx(2.5)
 
 
-def test_the_voice_budget_fits_both_calls() -> None:
-    """Planning and judging each need room; the floor is additive, not a slice."""
+def test_the_voice_budget_covers_the_planner() -> None:
+    """Worst-case retrieval is the planner budget now, not planner + judge.
+
+    It was 2.5 + 3.5 = 6.0s. Removing the judge removes the second term
+    outright, which is the single largest latency change on the voice KB path.
+    """
     observed_planner_secs = 1.8
     assert kb_plan.voice_budget_s() >= observed_planner_secs
-    # And the judge's own floor covers the call it funds (2.41s measured max).
-    assert kb_plan.judge_reserve_s() >= 2.41
+    assert kb_plan.voice_budget_s() <= 3.0

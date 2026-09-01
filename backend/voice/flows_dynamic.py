@@ -434,6 +434,35 @@ def build_authored_flow(
 
             config["functions"] = functions
 
+            if node.key == "confirm_identity":
+                config.setdefault("task_messages", []).append(
+                    {
+                        "role": "developer",
+                        "content": (
+                            "Do not call any tool until the caller has spoken and "
+                            "confirmed they are the account holder. Your first "
+                            "utterance is ONLY the greeting, your name, the bank, "
+                            "and the confirmation question. Never open with a tool "
+                            "acknowledgement such as 'Sure, I can set that up.'"
+                        ),
+                    }
+                )
+            if node.key in {"escalate_close", "pre_close"}:
+                config.setdefault("task_messages", []).append(
+                    {
+                        "role": "developer",
+                        "content": (
+                            "If they ask a product or policy question, call "
+                            "search_knowledge_base. When the result is confident "
+                            "with passages, answer in at most two sentences from "
+                            "those passages, then call end_call. When it is not "
+                            "confident, say a specialist will follow up and call "
+                            "end_call. Never ask which insurer or policy type they "
+                            "have. Do not ask further questions."
+                        ),
+                    }
+                )
+
             # "Listen first" is a claim about whose turn it is, and the graph
             # cannot know that — only the call can. A step entered because the
             # CALLER just spoke owes them a reply: waiting produces silence
@@ -495,4 +524,11 @@ def build_authored_flow(
         entry.key,
         len(global_functions),
     )
+    if not graph.edges:
+        logger.warning(
+            "authored flow has zero compiled edges · nodes=%s · entry=%s — "
+            "transitions will only happen when a tool returns a node",
+            len(graph.nodes),
+            entry.key,
+        )
     return state, tools, nodes[entry.key], global_functions

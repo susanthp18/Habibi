@@ -212,9 +212,27 @@ def kb_spec_match_min() -> float:
     return _number("KB_SPEC_MATCH_MIN", 0.8, minimum=0.5, maximum=1.0)
 
 
+def kb_spec_shape_gate() -> bool:
+    """Require an utterance to look like a KB question before spending an embed.
+
+    Off only as a kill-switch. With it off, the speculator fires on every stable
+    interim, which is how one interaction reached 32 retrievals — three quarters
+    of them on fragments no passage could answer.
+    """
+    return _flag_default_on("KB_SPEC_SHAPE_GATE")
+
+
 def kb_enrich_wait_ms() -> float:
-    """How long the final transcript waits on an in-flight speculation."""
-    return _number("KB_ENRICH_WAIT_MS", 120, minimum=0, maximum=1000)
+    """How long the final transcript waits on an in-flight speculation.
+
+    Raised from 120ms: a query embed measures 290-410ms warm against Azure (and
+    ~1.2s on a cold connection), so a 120ms wait could not win even once — call
+    VS-92CDE3F088 recorded 0 speculation hits in 6 attempts. A wait that always
+    expires is not a safety valve, it is a guaranteed inline retrieval plus a
+    wasted concurrent embed. 400ms covers the warm case; anything slower still
+    falls through to the inline path.
+    """
+    return _number("KB_ENRICH_WAIT_MS", 400, minimum=0, maximum=2000)
 
 
 def kb_enrich_fallback() -> str:

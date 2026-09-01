@@ -64,8 +64,17 @@ from voice.context_edit import replace_developer_block
 
 logger = logging.getLogger(__name__)
 
-# Same confidence gate as the KB tool (flow_improve §3.2B).
-_KB_CONFIDENCE = 0.70
+# Was 0.70, "the same confidence gate as the KB tool". It was never the same
+# gate: the tool's threshold sat behind an LLM judge that could overrule it,
+# while this one was an unconditional filter on raw cosine that nothing could
+# overrule. Live voice retrievals average 0.356, so it silently discarded
+# roughly nine passages in ten — which is why the always-on enricher injected
+# nothing on most turns while appearing to work.
+#
+# 0.0 keeps the parameter (callers and tests pass it) without filtering. The
+# absolute score does not predict retrieval success anyway: AUC 0.548 over the
+# golden set, against 0.975 for the top1-top2 margin.
+_KB_CONFIDENCE = 0.0
 _PRODUCT_KEYS = ("collections",)
 # Enriching on literally every user turn burns an embed + ANN query per turn on
 # the audio critical path (optimization.md §2.6). After an explicit
@@ -93,6 +102,64 @@ _SKIP_INTENTS = frozenset(
         "dispute",
     }
 )
+
+# --- Is this utterance worth an embed? -------------------------------------
+# The speculator fires on interim transcripts, so it sees every fragment of
+# every turn. On call VS-92CDE3F088 that meant 8.55 retrievals per interaction
+# (worst: 32) of which only a quarter were questions at all — the rest were
+# "Um, I just wanted to.", "Are you there?", "hi uh i got a message". Each one
+# cost a ~330ms Azure embed and a retrieval_logs row, and none of them could
+# ever have produced a useful passage.
+#
+# The length, digit and intent gates below do not catch these: the fragments
+# are long enough, have no digits, and classify as no particular intent. What
+# separates them from a real KB question is shape, so test for shape.
+_INTERROGATIVE_RE = re.compile(
+    r"\b("
+    r"what|why|how|when|where|which|who|whose|whats"
+    r"|can i|could i|may i|do i|did i|does it|do they|is it|is my|is there"
+    r"|are there|am i|will i|would i|should i|have i|has it"
+    r"|tell me about|explain|difference between"
+    r")\b"
+)
+# Deliberately narrow: coverage/claims/policy vocabulary only. Generic account
+# words ("loan", "message", "account", "payment") are excluded on purpose —
+# they appear in every collections opening line and would wave the whole
+# problem straight back through.
+_KB_TERM_RE = re.compile(
+    r"\b("
+    r"cover|covers|covered|coverage|claim|claims|claimable|premium|premiums"
+    r"|policy|policies|benefit|benefits|exclusion|exclusions|excluded|excludes"
+    r"|deductible|excess|payout|pay ?out|sum insured|insured|insurance|insure"
+    r"|waiting period|pre.?existing|renew|renewal|refund|cancellation"
+    r"|late fee|late payment|penalty|interest rate|charges"
+    r"|hospital|hospitalisation|hospitalization|medical|surgery|diagnosis"
+    r"|baggage|luggage|flight|trip|travel|delay|theft|stolen|burglary"
+    r"|accident|accidental|disability|fraud|phish|unauthorised|unauthorized"
+    r"|maid|helper|domestic|protect360|plan|eligible|eligibility|limit|limits"
+    r")\b"
+)
+
+
+def _shape_gate_enabled() -> bool:
+    try:
+        return voice_config.kb_spec_shape_gate()
+    except Exception:  # config is best-effort; never fail a turn on a flag read
+        logger.debug("kb shape gate flag read failed", exc_info=True)
+        return True
+
+
+def looks_like_kb_question(text: str | None) -> bool:
+    """True when an utterance is shaped like something the KB could answer.
+
+    Either it asks something outright, or it names coverage/claims vocabulary.
+    A greeting, a backchannel or a half-finished clause satisfies neither.
+    """
+    t = canon(text)
+    if not t:
+        return False
+    return bool(_INTERROGATIVE_RE.search(t) or _KB_TERM_RE.search(t))
+
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 # Deliberately small. A larger list would strip domain words ("charge", "late")
@@ -222,6 +289,11 @@ class KbCache:
                 return f"intent:{intent}"
         except Exception:
             logger.debug("kb enrich intent skip failed", exc_info=True)
+        # Last gate, and the one that stops the fragment storm: an utterance
+        # that neither asks anything nor names any coverage vocabulary has no
+        # passage waiting for it, so it does not get an embed.
+        if _shape_gate_enabled() and not looks_like_kb_question(text):
+            return "not_a_question"
         return None
 
     def resolve_product_keys(self) -> list[str] | None:

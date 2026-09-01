@@ -78,10 +78,18 @@ block: the handler is expected to enqueue, not to do work."""
 class SpokeThisResponseProbe(FrameProcessor):
     """Tracks the in-flight LLM response and reports each completed bot turn."""
 
-    def __init__(self, *, on_bot_turn: BotTurnHandler | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        *,
+        on_bot_turn: BotTurnHandler | None = None,
+        on_first_tts: Callable[[str], None] | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self._spoke = False
         self._on_bot_turn = on_bot_turn
+        self._on_first_tts = on_first_tts
+        self._first_tts_emitted = False
         self._parts: list[str] = []
         self._open = False
         self._interrupted = False
@@ -118,6 +126,14 @@ class SpokeThisResponseProbe(FrameProcessor):
                 text = getattr(frame, "text", "") or ""
                 if text.strip():
                     self._spoke = True
+                    if not self._first_tts_emitted:
+                        self._first_tts_emitted = True
+                        cb = self._on_first_tts
+                        if cb is not None:
+                            try:
+                                cb(text.strip())
+                            except Exception:
+                                logger.debug("first-tts callback failed", exc_info=True)
                 if self._open and text:
                     self._parts.append(text)
         except Exception:

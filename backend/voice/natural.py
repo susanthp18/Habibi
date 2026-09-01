@@ -53,12 +53,14 @@ VOICE_NATURALNESS_OVERLAY = (
     "Never stall with contentless filler like 'one moment', 'please hold', or "
     "'let me check' — those say nothing and the system already handles waiting "
     "sounds. "
-    "When you call a tool, do say one short clause in the SAME reply as the "
-    "call, before it, naming what you are doing for them — 'Sure, I can set "
-    "that up.', 'Right, let's look at that dispute.' That is an "
-    "acknowledgement, not a stall: it tells the caller you heard them, and it "
-    "starts your reply while the tool runs. One clause only, then call the "
-    "tool. Keep the conversation moving."
+    "When you call a tool AFTER the caller has spoken, do say one short clause "
+    "in the SAME reply as the call, before it, naming what you are doing for "
+    "them — 'Sure, I can set that up.', 'Right, let's look at that dispute.' "
+    "That is an acknowledgement, not a stall: it tells the caller you heard "
+    "them, and it starts your reply while the tool runs. One clause only, then "
+    "call the tool. Keep the conversation moving. Never speak a tool "
+    "acknowledgement as the first words of the call — they have not asked for "
+    "anything yet."
 )
 
 

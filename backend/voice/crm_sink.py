@@ -218,6 +218,16 @@ class CrmSink:
         if fallback_languages is not None:
             self._fallback_languages = list(fallback_languages)
 
+    def _trace(self, name: str, **fields: Any) -> None:
+        """A WARNING hop that joins this CRM event back to the dial."""
+        try:
+            from voice.call_trace import event as _trace_event
+            from voice.call_trace import session_fields
+
+            _trace_event(name, **session_fields(self.session), **fields)
+        except Exception:
+            logger.debug("crm sink trace failed", exc_info=True)
+
     def _note_dropped(self, kind: str) -> None:
         """Record one CRM job lost to a missing ``interaction_id``.
 
@@ -645,6 +655,14 @@ class CrmSink:
             self._corrections_sent,
             turn_critic.MAX_CORRECTIONS_PER_CALL,
         )
+        flags = ",".join(correction.flags) if getattr(correction, "flags", None) else None
+        self._trace(
+            "critique",
+            kind=correction.kind,
+            severity=correction.severity,
+            flags=flags,
+            n=self._corrections_sent,
+        )
         try:
             await self._on_correction(correction)
         except Exception:
@@ -845,6 +863,17 @@ class CrmSink:
             text = str(content).strip()
             self._last_customer_text = text
             self._customer_exchanges += 1
+            try:
+                from voice.call_trace import preview as _preview
+
+                self._trace(
+                    "user.turn",
+                    n=self._customer_exchanges,
+                    preview=_preview(text),
+                    strategy=type(strategy).__name__ if strategy is not None else None,
+                )
+            except Exception:
+                logger.debug("user.turn trace failed", exc_info=True)
             turn_index = self.session.next_turn_index()
             score, label = persist.score_customer_text(text)
             intent, intent_scores = classify_intent(text)
@@ -962,6 +991,16 @@ class CrmSink:
         text = (text or "").strip()
         if not text:
             return
+        try:
+            from voice.call_trace import preview as _preview
+
+            self._trace(
+                "bot.tts",
+                preview=_preview(text),
+                interrupted=1 if interrupted else None,
+            )
+        except Exception:
+            logger.debug("bot.tts trace failed", exc_info=True)
         turn_index = self.session.next_turn_index()
         # Both halves of the exchange, so the analyser can see that the
         # caller's next turn repeats a request this reply did not satisfy.

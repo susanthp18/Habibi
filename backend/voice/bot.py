@@ -223,6 +223,7 @@ _CONTEXT_SUMMARY_PROMPT = (
     "and your text must not compete with them.\n"
     "If a tool result appears later in the conversation than something you are "
     "summarising, the tool result wins.\n"
+    "Drop one-word or garbled STT fragments — they are not facts.\n"
     "Be factual and brief. Do not add advice or next steps."
 )
 
@@ -556,6 +557,8 @@ async def run_bot(transport, runner_args) -> None:
                 session.extra["upsell_blocked"] = "mission_forbids_offers"
             if _mission.get("maxDurationSec"):
                 session.extra["max_duration_sec"] = int(_mission["maxDurationSec"])
+            if _mission.get("customerName"):
+                session.extra["expected_customer_name"] = _mission["customerName"]
             try:
                 system_instruction = (
                     system_instruction.rstrip()
@@ -564,6 +567,10 @@ async def run_bot(transport, runner_args) -> None:
                 )
             except Exception:
                 logger.exception("mission briefing render failed")
+            system_instruction = system_instruction.replace(
+                "inbound collections voice agent",
+                "outbound collections voice agent",
+            )
 
     vparams = voice_params_from_config(
         bundle.get("voiceConfig"),
@@ -698,7 +705,21 @@ async def run_bot(transport, runner_args) -> None:
     #
     # record_bot_turn only enqueues, so awaiting it on the pipeline task is
     # safe; the CRM write happens on the sink's own drain.
-    spoke_probe = SpokeThisResponseProbe(on_bot_turn=sink.record_bot_turn)
+    def _on_first_tts_text(text: str) -> None:
+        from voice.call_trace import preview as _preview
+
+        origin = getattr(runner_args, "setup_started_at", None)
+        waited = (time.monotonic() - origin) if origin else None
+        _setup_trace(
+            "first.tts",
+            preview=_preview(text),
+            waited_s=round(waited, 3) if waited is not None else None,
+        )
+
+    spoke_probe = SpokeThisResponseProbe(
+        on_bot_turn=sink.record_bot_turn,
+        on_first_tts=_on_first_tts_text,
+    )
 
     # Mask CRM/tool latency with a short spoken filler (plan §6) — but only when
     # the model did NOT already acknowledge in this same response. The role
@@ -870,7 +891,6 @@ async def run_bot(transport, runner_args) -> None:
         origin = getattr(runner_args, "setup_started_at", None) or bot_turn_state._call_started_at
         waited = (time.monotonic() - origin) if origin else None
         _setup_trace("first.speech", waited_s=round(waited, 3) if waited is not None else None)
-        _setup_trace("first.tts", waited_s=round(waited, 3) if waited is not None else None)
 
     bot_turn_state = BotTurnStateObserver(on_first_speech=_on_first_speech)
     idle_ladder = list(tuning["interaction"].get("idle_ladder") or ["nudge", "direct", "close"])
@@ -903,7 +923,14 @@ async def run_bot(transport, runner_args) -> None:
     @user_aggregator.event_handler("on_user_turn_idle")
     async def on_user_turn_idle(aggregator):
         nonlocal idle_strikes, last_idle_fired
-        if ending or session.extra.get("ending"):
+        # `ending` covers a call the *bot* is winding down. `finalized` covers a
+        # call that is already over — chiefly the caller hanging up, which is the
+        # ending this handler used to talk straight through. On VS-BEDB3F54D7 the
+        # caller disconnected at 12:20:54 and this watchdog fired seven seconds
+        # later, generating and synthesising "Are you still there?" into a dead
+        # socket: billed LLM and TTS spend nobody could hear, a CRM drain pushed
+        # past its timeout, and an admission slot held 121.1s for a 103.3s call.
+        if finalized or ending or session.extra.get("ending"):
             return
         # Two timers, one ladder. The aggregator's timer and the dead-air
         # watchdog cover different silences and overlap in the middle; without
@@ -1190,6 +1217,9 @@ async def run_bot(transport, runner_args) -> None:
     # reaching for it through the holder keeps the watchdog from closing over a
     # dict that the authored-graph branch above may have replaced.
     _flow_holder["tools"] = _tools
+    expected_name = session.extra.get("expected_customer_name")
+    if expected_name and not _tool_state.customer_name:
+        _tool_state.customer_name = str(expected_name)
 
     # Outbound Twilio only — VoicemailDetector between STT and user agg, gate after TTS.
     voicemail_detector = None
@@ -1643,6 +1673,23 @@ async def run_bot(transport, runner_args) -> None:
             except Exception:
                 logger.debug("restore idle timeout failed", exc_info=True)
 
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped_rearm_idle(aggregator, strategy, message=None):
+        # Local Smart Turn can hand back strategy=None after a barge. The idle
+        # controller only arms on BotStoppedSpeaking, so that silence never
+        # starts a timer. Re-arm here so the ladder can see the gap.
+        if strategy is not None:
+            return
+        if ending or session.extra.get("ending") or session.extra.get("on_hold"):
+            return
+        from pipecat.frames.frames import UserIdleTimeoutUpdateFrame
+
+        restore = idle_timeout if idle_timeout is not None else 6.0
+        try:
+            await worker.queue_frame(UserIdleTimeoutUpdateFrame(timeout=float(restore)))
+        except Exception:
+            logger.debug("rearm idle after unstrategied user turn failed", exc_info=True)
+
     async def _handle_tune_message(message) -> None:
         delta = _extract_tune_delta(message)
         if not delta:
@@ -1742,10 +1789,18 @@ async def run_bot(transport, runner_args) -> None:
                     continue
                 if bot_turn_state.silent_for() < threshold:
                     continue
+                silent_s = bot_turn_state.silent_for()
                 logger.info(
                     "Dead air · session={} · silent={:.1f}s · no idle timer was armed",
                     session.session_id,
-                    bot_turn_state.silent_for(),
+                    silent_s,
+                )
+                _setup_trace(
+                    "deadair.nudge",
+                    silent_s=round(silent_s, 2),
+                    generating=bot_turn_state._generating,
+                    tool_calls=bot_turn_state._tool_calls,
+                    user_speaking=bot_turn_state._user_speaking,
                 )
                 await on_user_turn_idle(user_aggregator)
         except asyncio.CancelledError:
@@ -2105,6 +2160,12 @@ async def run_bot(transport, runner_args) -> None:
         logger.info(
             "Finalizing call · session={} · reason={}", session.session_id, reason
         )
+        _setup_trace(
+            "call.ended",
+            reason=reason,
+            ending_reason=session.extra.get("ending_reason"),
+            node=session.extra.get("flow_node"),
+        )
         # Bookkeeping is bounded; teardown is not optional.
         #
         # Every step below is guarded against *raising*. None was guarded
@@ -2362,6 +2423,28 @@ def _warm_before_serving() -> None:
     except Exception:
         logger.warning("startup warm failed — the first call pays it instead", exc_info=True)
 
+    # The Postgres side of retrieval is cold too, and nothing warmed it: the
+    # first vector query of a process builds a plan and pulls the HNSW index and
+    # the TOASTed vectors off disk (182ms cold vs 0.84ms warm on the live
+    # corpus). Separately, the cross-encoder — when it is switched on at all —
+    # holds a one-off ONNX graph load that must not land inside a turn.
+    try:
+        import kb_retrieve
+
+        kb_ms = kb_retrieve.prewarm()
+        if kb_ms:
+            logger.info("kb retrieval warm · {:.0f} ms", kb_ms)
+    except Exception:
+        logger.warning("kb warm failed — the first question pays it instead", exc_info=True)
+
+    try:
+        from agent_core.tools import kb_rerank
+
+        if kb_rerank.prewarm():
+            logger.info("kb reranker warm · model={}", kb_rerank.model_name())
+    except Exception:
+        logger.debug("kb reranker warm skipped", exc_info=True)
+
     # Silero VAD and Smart Turn v3 are ONNX models rebuilt per session, paid
     # inside the window the caller is holding an open, silent line.
     #
@@ -2390,6 +2473,7 @@ def _warm_before_serving() -> None:
     )
 
     for label, build in (
+        ("llm-service", _warm_llm_service),
         ("silero-vad", _warm_silero),
         ("smart-turn", _warm_smart_turn),
     ):
@@ -2481,6 +2565,35 @@ def _warm_run_bot_imports() -> int:
         except Exception:
             logger.warning("startup warm: {} would not import", name)
     return warmed
+
+
+def _warm_llm_service() -> None:
+    """Pay the LLM service's one-time class init at boot, not in a call.
+
+    ``KeepAliveAzureLLMService(...)`` costs **2.46s on the first construction of
+    the process and 0.00s on every one after it** -- measured, three builds in a
+    row. The cost is lazy setup underneath the OpenAI SDK (client plumbing, TLS
+    trust store), keyed to the process rather than the instance, so it is paid
+    exactly once and then never again.
+
+    Nothing warmed it. ``azure_openai.prewarm`` above warms the *HTTP* path, not
+    this constructor, so the first caller after every restart wore the whole
+    2.46s inside their setup window -- it was the single largest item in an
+    8.38s time-to-greeting on session VS-BEDB3F54D7, larger than the VAD and
+    Smart Turn model builds put together.
+
+    Constructed with throwaway settings and discarded: only the process-wide
+    initialisation is wanted, and no call is placed.
+    """
+    KeepAliveAzureLLMService(
+        api_key=voice_config.azure_openai_voice_api_key(),
+        endpoint=voice_config.azure_openai_voice_endpoint(),
+        api_version=voice_config.azure_openai_voice_api_version(),
+        settings=KeepAliveAzureLLMService.Settings(
+            model=voice_config.azure_openai_voice_deployment(),
+            system_instruction="warm",
+        ),
+    )
 
 
 def _warm_silero() -> None:

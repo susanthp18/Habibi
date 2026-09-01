@@ -38,6 +38,7 @@ from agent_core.tools import domain
 from agent_core.tools import kb as kb_tool
 from agent_core.reco import talk as reco_talk
 from voice import persist
+from voice.names import first_names_match
 from voice.rtvi_events import RtviEmitter
 from voice.session import VoiceSession, to_money
 
@@ -52,6 +53,11 @@ logger = logging.getLogger(__name__)
 # single-session/legacy bucket.
 _session_tasks: dict[str | None, set[asyncio.Task[Any]]] = {}
 _session_tasks_lock = threading.Lock()
+
+# Reasons that latch the offer engine. Pitching after a medical / income-loss
+# declaration is the conduct failure; a later successful PTP may clear this
+# latch. ``mission_forbids_offers`` is a different key and must stay.
+HARDSHIP_UPSELL_REASONS = frozenset({"income_loss", "medical"})
 
 
 def spawn_session_task(session_id: str | None, coro: Any) -> asyncio.Task[Any]:
@@ -331,13 +337,38 @@ def build_tools(
             # unpacking: a handler signature change must break the handler, not
             # silently break the audit trail with it.
             call_args = args[0] if args and isinstance(args[0], dict) else None
+            result: Any = None
             try:
-                return await handler(*args, **kwargs)
+                from voice.call_trace import event as _trace_event
+                from voice.call_trace import session_fields
+
+                arg_keys = ",".join(sorted(call_args)) if call_args else None
+                _trace_event(
+                    "tool.called",
+                    **session_fields(session),
+                    tool=name,
+                    node=state.current_node,
+                    arg_keys=arg_keys,
+                )
+            except Exception:
+                logger.debug("tool.called trace failed", exc_info=True)
+            try:
+                result = await handler(*args, **kwargs)
+                return result
             except Exception as exc:
                 ok = False
                 error = type(exc).__name__
                 raise
             finally:
+                latency_ms = int((time.perf_counter() - started) * 1000)
+                payload = result[0] if isinstance(result, tuple) and result else result
+                next_node = result[1] if isinstance(result, tuple) and len(result) > 1 else None
+                if isinstance(payload, dict):
+                    if payload.get("ok") is False or payload.get("error"):
+                        ok = False
+                        error = str(payload.get("error") or error or "failed")
+                    elif payload.get("suppressed"):
+                        error = str(payload.get("reason") or "suppressed")
                 if sink is not None:
                     try:
                         sink.enqueue_tool_call(
@@ -345,11 +376,37 @@ def build_tools(
                             turn_index=session.turn_index,
                             result_ok=ok,
                             error=error,
-                            latency_ms=int((time.perf_counter() - started) * 1000),
+                            latency_ms=latency_ms,
                             args=call_args,
                         )
                     except Exception:
                         logger.debug("tool call audit enqueue failed", exc_info=True)
+                try:
+                    from voice.call_trace import event as _trace_event
+                    from voice.call_trace import session_fields
+
+                    next_name = next_node if isinstance(next_node, str) else None
+                    extra: dict[str, Any] = {}
+                    if isinstance(payload, dict):
+                        if "confident" in payload:
+                            extra["confident"] = 1 if payload.get("confident") else 0
+                        if "topScore" in payload:
+                            extra["topScore"] = payload.get("topScore")
+                        results = payload.get("results")
+                        if isinstance(results, list):
+                            extra["n"] = len(results)
+                    _trace_event(
+                        "tool.result",
+                        **session_fields(session),
+                        tool=name,
+                        ok=1 if ok else 0,
+                        error=error,
+                        next=next_name,
+                        ms=latency_ms,
+                        **extra,
+                    )
+                except Exception:
+                    logger.debug("tool.result trace failed", exc_info=True)
 
         return _wrapper
 
@@ -368,9 +425,24 @@ def build_tools(
             return None
         if name in _TERMINAL_NODES:
             session.extra["ending"] = True
-            session.extra.setdefault("ending_reason", f"flow_node:{name}")
+            # Last terminal wins. setdefault kept the first hop (often
+            # escalate_close) even after the caller later asked to hang up.
+            session.extra["ending_reason"] = f"flow_node:{name}"
         previous = state.current_node
         state.current_node = name
+        session.extra["flow_node"] = name
+        try:
+            from voice.call_trace import event as _trace_event
+            from voice.call_trace import session_fields
+
+            _trace_event(
+                "flow.node",
+                **session_fields(session),
+                from_node=previous,
+                to=name,
+            )
+        except Exception:
+            logger.debug("flow.node trace failed", exc_info=True)
         # Fire-and-forget: the transition must not wait on the data channel.
         spawn_session_task(session.session_id, rtvi.flow_node(name=name, previous=previous))
         return factory()
@@ -651,16 +723,44 @@ def build_tools(
 
         raw = value.strip()
         digits = "".join(ch for ch in raw if ch.isdigit())
+        lookup_method = method_n
+        lookup_value = value
         # Reject hallucinated / placeholder values before burning an attempt.
         if method_n == "phone_match":
             if len(digits) < 4:
-                return {
-                    "ok": False,
-                    "error": "need_digits",
-                    "hint": "ask_caller_for_last_4_mobile_digits",
-                    "say": "ask only for the last 4 digits of their registered mobile",
-                }, None
-            value = digits[-10:] if len(digits) > 10 else digits
+                # Outbound we already dialled this number. A first-name confirm
+                # against the mission / bound customer is enough — last-4 is
+                # the inbound second factor, not a ceremony we invented for
+                # someone we called.
+                outbound = session.extra.get("call_direction") == "outbound" or bool(
+                    session.extra.get("attempt_id")
+                )
+                mission = session.extra.get("mission")
+                mission = mission if isinstance(mission, dict) else {}
+                expected = (
+                    state.customer_name
+                    or session.extra.get("expected_customer_name")
+                    or mission.get("customerName")
+                    or mission.get("firstName")
+                )
+                bound_id = session.customer_id or mission.get("customerId")
+                if (
+                    outbound
+                    and expected
+                    and bound_id
+                    and first_names_match(raw, str(expected))
+                ):
+                    lookup_method = "manual"
+                    lookup_value = str(bound_id)
+                else:
+                    return {
+                        "ok": False,
+                        "error": "need_digits",
+                        "hint": "ask_caller_for_last_4_mobile_digits",
+                        "say": "ask only for the last 4 digits of their registered mobile",
+                    }, None
+            else:
+                lookup_value = digits[-10:] if len(digits) > 10 else digits
         elif method_n == "account_tail":
             if len(digits) < 4 and len(raw) < 4:
                 return {
@@ -669,13 +769,13 @@ def build_tools(
                     "hint": "ask_caller_for_last_4_of_account",
                     "say": "ask for the last 4 digits of their account number",
                 }, None
-            value = digits[-4:] if len(digits) >= 4 else raw
+            lookup_value = digits[-4:] if len(digits) >= 4 else raw
 
         state.verify_attempts += 1
         match = await asyncio.to_thread(
             persist.lookup_customer_for_verify,
-            method=method_n,
-            value=value,
+            method=lookup_method,
+            value=lookup_value,
         )
         if not match:
             await asyncio.to_thread(
@@ -1186,6 +1286,11 @@ def build_tools(
             # gated_upsell reachable only from here; under hub the flag is the
             # enforcement (see _check_eligibility_handler).
             state.commitment_secured = True
+            # Hardship still latches the pitch until they commit — that is the
+            # conduct rule. Once a PTP is on the book the offer node may run.
+            # Mission-level forbids stay; those are not hardship.
+            if session.extra.get("upsell_blocked") in HARDSHIP_UPSELL_REASONS:
+                session.extra.pop("upsell_blocked", None)
             return (
                 {
                     "ok": True,
@@ -1521,10 +1626,10 @@ def build_tools(
 
     # ------------------------------------------------- why they have not paid
 
-    #: Reasons that make any product offer inappropriate for the rest of the
-    #: call. Pitching to somebody who has just declared hardship is the conduct
+    #: Reasons that make any product offer inappropriate until a PTP lands.
+    #: Pitching to somebody who has just declared hardship is the conduct
     #: failure that ends a bank pilot, and it costs nothing to make impossible.
-    _HARDSHIP_REASONS = frozenset({"income_loss", "medical"})
+    _HARDSHIP_REASONS = HARDSHIP_UPSELL_REASONS
 
     async def _capture_nonpayment_reason_handler(
         args: dict[str, Any],
@@ -2292,18 +2397,19 @@ def build_tools(
             except Exception:
                 logger.debug("kb enrich suppress failed", exc_info=True)
 
-        # Corpus scope follows the node: the upsell node talks insurance
-        # products, every other node is collections policy. Previously this was
-        # hard-coded to collections, so an upsell FAQ could never be answered.
+        # Corpus scope follows the node, unless the query is clearly about a
+        # product. escalate_close / pre_close used to hard-filter to
+        # ``collections``, so a travel-insurance exclusions question retrieved
+        # nothing and the judge then fail-opened as confident.
         product_keys = product_keys_for_node(state.current_node)
+        if kb_tool.query_looks_product(query):
+            product_keys = None
         snapshot = kb_snapshot_id
         # Collections FAQs *are* policy text, so bias retrieval that way. On the
-        # product corpus, let kb_retrieve's own query analysis decide — forcing
-        # prefer_policy there drags every answer toward exclusions even when the
-        # caller asked what a product covers. Passed explicitly rather than
-        # derived, because on voice the corpus is chosen by the Flows node, not
-        # by the sentence.
-        prefer_policy = product_keys is not None
+        # product corpus, let the query decide — exclusions stay exclusions.
+        prefer_policy = (
+            kb_tool.wants_policy_detail(query) if product_keys is None else True
+        )
 
         result = await asyncio.to_thread(
             partial(
@@ -2379,7 +2485,20 @@ def build_tools(
                     "Answer ONLY from these snippets, in at most two short "
                     "spoken sentences — give the headline and the two or three "
                     "most relevant items, then ask whether they want the rest. "
-                    "Never read a list out in full."
+                    "Never read a list out in full. "
+                    # Abstention is asked for here, explicitly, because
+                    # nothing upstream decides it any more: the LLM judge is
+                    # removed, and the 0.70 score gate it replaced was
+                    # measurably worse than a coin flip (AUC 0.548 over the
+                    # golden set). This follows the Sufficient Context result —
+                    # handing a model more context makes it *less* willing to
+                    # abstain, so abstention has to be requested rather than
+                    # assumed. The model reading these snippets is the only
+                    # thing in the loop that can actually judge whether they
+                    # answer the question, and it costs no extra round trip.
+                    "If these snippets do not actually answer what the caller "
+                    "asked, say so plainly and offer request_callback — do not "
+                    "stretch a related passage into an answer."
                     if confident
                     else (
                         "Retrieval was weak — do NOT answer from these; tell "
@@ -2460,6 +2579,8 @@ def build_tools(
         # because they are angry or have threatened legal action — turns a
         # complaint into a regulatory one.
         state.escalated = True
+        if "hardship" in reason.lower():
+            session.extra["upsell_blocked"] = "hardship"
         ix = session.interaction_id
         assignee_name: str | None = None
         team_name: str | None = None

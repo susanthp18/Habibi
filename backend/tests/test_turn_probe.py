@@ -135,3 +135,17 @@ def test_spoke_flag_tracks_the_in_flight_response() -> None:
         assert probe.spoke_this_response is False
 
     asyncio.run(drive())
+
+
+def test_first_tts_callback_fires_once_on_the_first_text_frame() -> None:
+    seen: list[str] = []
+    probe = SpokeThisResponseProbe(on_first_tts=seen.append)
+    probe.push_frame = _noop  # type: ignore[method-assign]
+
+    async def drive():
+        await probe.process_frame(LLMFullResponseStartFrame(), FrameDirection.DOWNSTREAM)
+        await probe.process_frame(TextFrame("Sure—I can set that up."), FrameDirection.DOWNSTREAM)
+        await probe.process_frame(TextFrame(" Hello."), FrameDirection.DOWNSTREAM)
+
+    asyncio.run(drive())
+    assert seen == ["Sure—I can set that up."]

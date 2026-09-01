@@ -28,6 +28,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
+    InterruptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     TranscriptionFrame,
@@ -42,6 +43,18 @@ from pipecat.observers.base_observer import BaseObserver, FrameProcessed
 #: caller reading out a long reference number is a real turn, a flag latched on
 #: by a dropped frame is not, and only the second one should be overridden.
 _MAX_USER_TURN_SECONDS = 120.0
+
+#: Longest a bot turn is believed to stay in flight. Past this, `_generating` or
+#: an outstanding tool call is treated as latched rather than live — the same
+#: judgement :data:`_MAX_USER_TURN_SECONDS` makes for the caller, and for the
+#: same reason: a stuck flag and a real turn look identical from a single event.
+#:
+#: The interruption handler below is the fix for the latch we actually saw. This
+#: is the backstop for the ones we have not: whatever strands a turn, the idle
+#: ladder must not stay muted for the rest of the call because of it. Generous
+#: on purpose — a slow tool behind a summarisation is a real turn, and only a
+#: turn that has plainly stopped progressing should be overridden.
+_MAX_BOT_TURN_SECONDS = 30.0
 
 
 class BotTurnStateObserver(BaseObserver):
@@ -89,6 +102,27 @@ class BotTurnStateObserver(BaseObserver):
             # Never below zero: a result can arrive for a call that started
             # before this observer was attached.
             self._tool_calls = max(0, self._tool_calls - 1)
+            self._touch()
+        elif isinstance(frame, InterruptionFrame):
+            # A barge-in ends the turn it interrupted. Nothing else does.
+            #
+            # `_generating` is lowered by LLMFullResponseEndFrame and
+            # `_tool_calls` by FunctionCallResultFrame — neither of which is
+            # guaranteed to arrive once the caller talks over the bot: the
+            # response is cancelled where it stands. Both counters then latch,
+            # `busy()` answers True forever, and the idle ladder — which asks
+            # `busy()` before every nudge — goes quiet for the rest of the call.
+            #
+            # That is what happened on VS-F93E3B2133. The caller barged in 326ms
+            # into "Great, let me verify that quick…", the cancelled response
+            # never re-ran, and the dead-air watchdog that would have re-engaged
+            # them was suppressed on every tick. They heard 30 seconds of
+            # silence and hung up.
+            #
+            # After an interruption the bot owes nothing: whatever it was going
+            # to say has been thrown away.
+            self._generating = False
+            self._tool_calls = 0
             self._touch()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_speaking = False
@@ -187,6 +221,14 @@ class BotTurnStateObserver(BaseObserver):
         silence that belongs to the bot, not the caller.
         """
         if self._generating or self._tool_calls > 0:
+            # ...unless the turn has plainly stopped progressing. See
+            # _MAX_BOT_TURN_SECONDS: a latched flag must not mute the idle
+            # ladder for the rest of the call.
+            if (
+                self._last_activity
+                and (time.monotonic() - self._last_activity) > _MAX_BOT_TURN_SECONDS
+            ):
+                return False
             return True
         if not self._last_activity:
             return False
