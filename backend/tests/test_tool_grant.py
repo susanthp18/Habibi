@@ -1,0 +1,166 @@
+"""The Tool Grant's own guarantees. Permanent — outlives the migration.
+
+Split from ``test_tool_grant_characterization.py``, which compares the module
+against the seven formulas it replaces and is deleted with them in #13. These
+assertions are not about the old formulas at all: they are the properties
+ADR-0001 and ADR-0002 require the grant to hold forever, and ADR-0001 in
+particular rejects a two-module design *because* "the relationship between them
+is asserted by a test". That test cannot be scaffolding.
+
+One pin here has an ordering hazard worth naming: ``VOICE_ALWAYS`` restates
+``voice.tools.ALWAYS_ON``, and the voice literal is deleted by a different
+ticket (#9) than the characterization suite (#13). Had the pin stayed in the
+scaffolding file, running #13 first would have unpinned the pair silently.
+
+Packs come from the ``card_and_packs`` fixture, which reads them off disk, so
+nothing here needs a database — see the fixture for why that matters.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS, card_dump
+from agent_core.cards.schema import LOCKED_MOUTH_TOOLS
+from agent_core.tools.catalog import CATALOG
+from agent_core.tools.grant import (
+    TEXT,
+    VOICE,
+    VOICE_ALWAYS,
+    VOICE_FLOW_TOOLS,
+    ToolGrant,
+)
+
+CATALOG_NAMES = set(CATALOG.specs)
+BOTS = sorted(FIRST_PARTY_BOT_IDS)
+CHANNELS = [VOICE, TEXT]
+
+
+# --- ADR-0001: one owner, and the offer can never widen the grant -----------
+
+
+@pytest.mark.parametrize("bot_id", BOTS)
+def test_the_static_grant_is_the_union_of_every_dynamic_answer(bot_id, card_and_packs) -> None:
+    """A gate passing must imply the runtime permits.
+
+    ADR-0001 keeps the publish and runtime questions in one module because the
+    static answer is definitionally the union of the dynamic ones. It is built
+    that way rather than restated, and this asserts it stays so — a future
+    private formula would have to break this test to exist.
+    """
+    card, packs = card_and_packs(bot_id)
+    union: set[str] = set()
+    for channel in CHANNELS:
+        union |= ToolGrant.for_card(card, packs, channel=channel).allowed
+    assert ToolGrant.static_grant(card, packs) == union
+
+
+@pytest.mark.parametrize("bot_id", BOTS)
+def test_an_offer_is_always_inside_the_grant(bot_id, card_and_packs) -> None:
+    """Narrowing what the model is shown must never widen what it may run.
+
+    Checked for every attached skill, not just the idle case, because
+    activating a skill is exactly where an offer grows.
+    """
+    card, packs = card_and_packs(bot_id)
+    for channel in CHANNELS:
+        grant = ToolGrant.for_card(card, packs, channel=channel)
+        assert set(grant.offer()) <= grant.allowed
+        for pack in packs:
+            offered = set(grant.offer(active_skill=pack.slug))
+            assert offered <= grant.allowed
+            assert all(grant.may_execute(name) for name in offered)
+
+
+@pytest.mark.parametrize("bot_id", BOTS)
+def test_the_grant_is_frozen(bot_id, card_and_packs) -> None:
+    """ADR-0001: a caller holding a mutable set is free to union onto it, and
+    six competing formulas is what that produced."""
+    card, packs = card_and_packs(bot_id)
+    assert isinstance(ToolGrant.for_card(card, packs, channel=VOICE).allowed, frozenset)
+    assert isinstance(ToolGrant.static_grant(card, packs), frozenset)
+
+
+@pytest.mark.parametrize("bot_id", BOTS)
+def test_locked_engines_survive_losing_every_pack(bot_id, card_and_packs) -> None:
+    """A locked engine cannot be unbound by detaching a skill. Checked with no
+    packs at all, which is the state a pack-resolution failure produces."""
+    card, _ = card_and_packs(bot_id)
+    for channel in CHANNELS:
+        allowed = ToolGrant.for_card(card, (), channel=channel).allowed
+        renderable = {s.name for s in CATALOG.for_channel(channel)}
+        assert {n for n in LOCKED_MOUTH_TOOLS if n in renderable} <= allowed
+
+
+# --- ADR-0002: a cardless mouth is granted nothing --------------------------
+
+
+@pytest.mark.parametrize("channel", CHANNELS)
+def test_a_cardless_mouth_is_granted_nothing(channel) -> None:
+    grant = ToolGrant.for_card(None, (), channel=channel)
+    assert grant.is_cardless
+    assert grant.allowed == frozenset()
+    assert grant.offer() == ()
+    assert not grant.may_execute("create_promise_to_pay")
+    assert not grant.may_execute("end_call")
+
+
+def test_for_bundle_reads_the_card_off_a_deployment_bundle() -> None:
+    """The runtime constructor. Taking a bundle rather than a card is what lets
+    a handoff hand the receiving agent's bundle straight in."""
+    grant = ToolGrant.for_bundle({"agentCard": card_dump(BOTS[0])}, channel=VOICE)
+    assert not grant.is_cardless
+    assert ToolGrant.for_bundle({}, channel=VOICE).is_cardless
+    assert ToolGrant.for_bundle({"agentCard": {}}, channel=TEXT).is_cardless
+    assert ToolGrant.for_bundle(None, channel=TEXT).is_cardless
+
+
+# --- the always-on floor, pinned against its other two statements -----------
+
+
+def test_the_always_on_floor_matches_the_voice_runtimes_live_set() -> None:
+    """Two statements of one set, pinned for as long as both exist.
+
+    ``voice.tools.ALWAYS_ON`` is the live filter; this module restates it
+    because it cannot import that module — ``voice.tools`` imports pipecat, and
+    the API process that runs the publish compiler does not have it.
+
+    This test therefore only runs where pipecat does. It is skipped rather than
+    dropped so the pin holds wherever it can be checked.
+    """
+    voice_tools = pytest.importorskip("voice.tools")
+
+    assert VOICE_ALWAYS == voice_tools.ALWAYS_ON
+
+
+def test_the_authoring_catalog_omits_nothing_the_runtime_keeps() -> None:
+    """``flow_graph._FLOW_CONTROL_TOOLS`` is the third statement, and it is the
+    Studio's: it names the non-catalog verbs an author can put on a node. It may
+    omit a catalog tool, because the catalog supplies that half — but never a
+    verb the runtime keeps that the catalog does not, which would be a tool no
+    author could see and no card could reach.
+    """
+    from flow_graph import _FLOW_CONTROL_TOOLS
+
+    authoring = set(_FLOW_CONTROL_TOOLS)
+    assert VOICE_FLOW_TOOLS <= authoring
+    assert VOICE_ALWAYS - authoring <= CATALOG_NAMES
+
+
+def test_the_flow_tools_are_outside_the_catalog_and_the_rest_are_in_it() -> None:
+    """Why the floor is split in two: nine verbs have no ToolSpec because they
+    have no arguments and no second channel, and two are ordinary catalog tools
+    the runtime keeps anyway."""
+    assert not VOICE_FLOW_TOOLS & CATALOG_NAMES
+    assert VOICE_ALWAYS - VOICE_FLOW_TOOLS == {"capture_call_goal", "verify_identity"}
+    assert {"capture_call_goal", "verify_identity"} <= CATALOG_NAMES
+
+
+@pytest.mark.parametrize("bot_id", BOTS)
+def test_the_floor_is_granted_on_voice_and_absent_on_text(bot_id, card_and_packs) -> None:
+    card, packs = card_and_packs(bot_id)
+    assert VOICE_ALWAYS <= ToolGrant.for_card(card, packs, channel=VOICE).allowed
+    text = ToolGrant.for_card(card, packs, channel=TEXT).allowed
+    # verify_identity is a real text tool on cards that include it; the nine
+    # flow verbs and capture_call_goal are the voice-only half of the floor.
+    assert not (VOICE_FLOW_TOOLS | {"capture_call_goal"}) & text

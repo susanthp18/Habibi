@@ -19,7 +19,7 @@ call and nothing else.
 
 **An offer is only ever a subset of the grant.** :meth:`offer` narrows what the
 model is shown, for prompt cost. It cannot widen what :meth:`may_execute`
-permits, and nothing here lets it: the offer is filtered out of the grant.
+permits, and nothing here lets it: the offer is filtered through the grant.
 Loading a skill is therefore not a permission change — the permission boundary
 is pack *attachment*, decided when the card is published.
 
@@ -34,7 +34,7 @@ migrated one at a time; see the parent issue for the sequence.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # Runtime imports stay inside functions: agent_core.cards and
@@ -43,18 +43,17 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from agent_core.cards.schema import AgentCard
     from agent_core.skills.pack import SkillPack
 
-#: Catalog channel names. Not the card's ``identity.channels`` vocabulary,
-#: which spells the text channel "whatsapp" and also carries channels no tool
-#: is rendered for.
+#: Catalog channel names. Not the card's ``identity.channels`` vocabulary, which
+#: spells the text channel "whatsapp" and carries channels no tool renders for.
 VOICE = "voice"
 TEXT = "text"
 
+#: Two values, so it is a type rather than a bare string a caller can misspell.
+Channel = Literal["voice", "text"]
+
 #: Zero-argument voice flow control. Deliberately outside the shared tool
 #: catalog — a ToolSpec exists to stop argument-name drift *between* channels,
-#: and these have no arguments and no second channel. The voice runtime keeps
-#: them by unioning a hand-written literal onto whatever set it was handed,
-#: which is one of the seven formulas; owning them here is what lets that
-#: literal be deleted without silently breaking every call.
+#: and these have no arguments and no second channel.
 VOICE_FLOW_TOOLS: frozenset[str] = frozenset(
     {
         "disclose_recording",
@@ -81,11 +80,12 @@ VOICE_FLOW_TOOLS: frozenset[str] = frozenset(
 #:
 #: **This must equal ``voice.tools.ALWAYS_ON``**, which is the live filter today.
 #: It cannot be imported from there: that module imports pipecat, and the API
-#: process — which runs the publish compiler, and therefore ``static_scope`` —
-#: deliberately does not have it. The same constraint is why
-#: ``flow_graph._FLOW_CONTROL_TOOLS`` exists as a third statement. Until the
-#: voice runtime migrates onto this module and its literal is deleted, the two
-#: are pinned together by the characterization suite rather than left to drift.
+#: process — which runs the publish compiler, and therefore :meth:`static_grant`
+#: — deliberately does not have it. The same constraint is why
+#: ``flow_graph._FLOW_CONTROL_TOOLS`` exists as a third statement. The three are
+#: pinned together by ``tests/test_tool_grant.py``, which is permanent: the pin
+#: must outlive the characterization suite, because the voice literal is deleted
+#: by a different ticket than the one that deletes the characterization.
 VOICE_ALWAYS: frozenset[str] = VOICE_FLOW_TOOLS | {"capture_call_goal", "verify_identity"}
 
 
@@ -107,8 +107,11 @@ def _channel_tools(channel: str) -> set[str]:
 class ToolGrant:
     """What one mouth may execute on one channel, and what to offer it."""
 
-    channel: str
-    #: Frozen on purpose. See the module docstring and ADR-0001.
+    channel: Channel
+    #: Frozen, and read rather than passed around: :meth:`may_execute` is the
+    #: enforcement point, so a caller copying this set cannot widen what the
+    #: runtime permits. Exposed because the publish gate compares grants and
+    #: because a characterization test has to see one.
     allowed: frozenset[str]
     card: "AgentCard | None"
     packs: tuple["SkillPack", ...]
@@ -132,18 +135,13 @@ class ToolGrant:
 
         from agent_core.skills.intersect import offered_tools
 
-        names = offered_tools(
-            self.card,
-            catalog_names=set(self.catalog),
-            attached_skills=list(self.packs) or None,
-            active_slug=active_skill,
-            channel_tools=_channel_tools(self.channel),
-        )
+        names = offered_tools(self.card, active_slug=active_skill, **self._inputs())
         ordered = [n for n in names if n in self.allowed]
         if self.channel == VOICE:
-            # Order is part of what the model sees; the flow tools go last so
-            # an authored card's own tools keep the positions they had.
-            ordered += sorted(n for n in VOICE_ALWAYS & self.allowed if n not in ordered)
+            # Order is part of what the model sees; the flow tools go last so an
+            # authored card's own tools keep the positions they had. They are in
+            # `allowed` by construction, so this only ever appends.
+            ordered += sorted(VOICE_ALWAYS - set(ordered))
         return tuple(ordered)
 
     @property
@@ -156,16 +154,19 @@ class ToolGrant:
         """
         return self.card is None
 
+    def _inputs(self) -> dict[str, Any]:
+        """The arguments both tool computations take. Stated once so the grant
+        and the offer cannot be computed against different inputs."""
+        return {
+            "catalog_names": set(self.catalog),
+            "attached_skills": list(self.packs) or None,
+            "channel_tools": _channel_tools(self.channel),
+        }
+
     # -- constructors -------------------------------------------------------
 
     @classmethod
-    def for_bundle(
-        cls,
-        bundle: Any,
-        *,
-        channel: str,
-        catalog_names: set[str] | None = None,
-    ) -> "ToolGrant":
+    def for_bundle(cls, bundle: Any, *, channel: Channel) -> "ToolGrant":
         """The grant for a resolved deployment bundle on one channel.
 
         ``bundle`` is what ``agent_core.deployment.load_active_bundle`` returns.
@@ -177,70 +178,70 @@ class ToolGrant:
 
         raw = bundle.get("agentCard") if isinstance(bundle, dict) else None
         mouth = resolve_mouth(raw or {})
-        return cls._build(
-            mouth.card, mouth.packs, channel=channel, catalog_names=catalog_names
-        )
+        return cls.for_card(mouth.card, mouth.packs, channel=channel)
 
     @classmethod
-    def _build(
+    def for_card(
         cls,
         card: "AgentCard | None",
-        packs: tuple["SkillPack", ...],
+        packs: tuple["SkillPack", ...] | list["SkillPack"],
         *,
-        channel: str,
-        catalog_names: set[str] | None = None,
+        channel: Channel,
+        catalog: set[str] | None = None,
     ) -> "ToolGrant":
+        """The grant for an already-resolved card and its packs.
+
+        Public because it is the real constructor: :meth:`for_bundle` is an
+        adapter over it, :meth:`static_grant` unions two of them, and the
+        publish gate has a card in hand without a deployment bundle to resolve.
+        """
         from agent_core.tools.catalog import CATALOG
 
-        catalog = frozenset(catalog_names or set(CATALOG.specs))
+        names = frozenset(catalog or set(CATALOG.specs))
+        packs = tuple(packs)
         if card is None:
             return cls(
-                channel=channel,
-                allowed=frozenset(),
-                card=None,
-                packs=(),
-                catalog=catalog,
+                channel=channel, allowed=frozenset(), card=None, packs=(), catalog=names
             )
 
         from agent_core.skills.intersect import effective_tools
 
-        allowed = set(
-            effective_tools(
-                card,
-                catalog_names=set(catalog),
-                attached_skills=list(packs) or None,
-                channel_tools=_channel_tools(channel),
-            )
+        grant = cls(
+            channel=channel, allowed=frozenset(), card=card, packs=packs, catalog=names
         )
+        allowed = set(effective_tools(card, **grant._inputs()))
         if channel == VOICE:
             allowed |= VOICE_ALWAYS
         return cls(
             channel=channel,
             allowed=frozenset(allowed),
             card=card,
-            packs=tuple(packs),
-            catalog=catalog,
+            packs=packs,
+            catalog=names,
         )
 
     @classmethod
-    def static_scope(
+    def static_grant(
         cls,
         card: "AgentCard | None",
         packs: tuple["SkillPack", ...] | list["SkillPack"],
-        *,
         catalog: set[str] | None = None,
     ) -> frozenset[str]:
         """Everything this card could grant on any channel, for the publish gate.
 
         Definitionally the union of every reachable dynamic answer, and built
         that way rather than restated — a gate computing its own version is how
-        the connector omission happened. A test pins the relationship, so a
-        future private formula would have to break it to exist.
+        the connector omission happened. ``tests/test_tool_grant.py`` pins the
+        relationship permanently, as ADR-0001 requires, so a future private
+        formula would have to break that test to exist.
+
+        Named ``static_grant`` and not ``static_scope``: CONTEXT.md lists
+        *scope* under what to avoid for a Tool Grant.
         """
         packs = tuple(packs)
         return frozenset().union(
             *(
-                cls._build(card, packs, channel=ch, catalog_names=catalog).allowed
+                cls.for_card(card, packs, channel=ch, catalog=catalog).allowed
                 for ch in (VOICE, TEXT)
             )
         )

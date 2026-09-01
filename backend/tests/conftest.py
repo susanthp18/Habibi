@@ -123,6 +123,33 @@ def _treatment_is_deterministic_unless_a_test_says_otherwise(monkeypatch):
 
 
 @pytest.fixture(scope="session")
+def card_and_packs():
+    """A first-party card and its skill packs, read from disk. Never empty.
+
+    ``skills.runtime.packs_from_card`` is the runtime resolver and it fails
+    *closed* to an empty list when the database is unreachable — correctly, but
+    it means a suite that resolved packs the normal way passes by comparing
+    empty sets to empty sets wherever pack gating is the thing under test. This
+    reads the packs the card names straight off the filesystem instead, so the
+    tool-grant tests characterise something whether or not Postgres is up.
+
+    The emptiness assertion is the point of the fixture: without it, an
+    environment that resolved nothing would still go green.
+    """
+    from agent_core.cards.defaults import card_dump
+    from agent_core.cards.schema import parse_card
+    from agent_core.skills.pack import pack_for_slug
+
+    def _resolve(bot_id: str):
+        card = parse_card(card_dump(bot_id))
+        packs = tuple(pack_for_slug(ref.skill_id) for ref in card.skills)
+        assert packs, f"{bot_id} declares no skill packs — these tests would go vacuous"
+        return card, packs
+
+    return _resolve
+
+
+@pytest.fixture(scope="session")
 def api_headers() -> dict[str, str]:
     """Auth headers, but only when the environment is enforcing them.
 
