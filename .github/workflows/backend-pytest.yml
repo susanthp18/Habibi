@@ -50,6 +50,21 @@ jobs:
       # recipient (nothing sends here: platform_switches seeds no row and absence
       # is off), so a non-routable placeholder keeps the seed honest.
       WHATSAPP_TEST_TO: "910000000000"
+      # Placeholders, not credentials. `azure_openai.get_client()` calls
+      # `_require` on these at construction, and the tests that failed without
+      # them are about connection pooling and timeout inheritance -- they build a
+      # client and inspect it, they never call Azure. Without values the config
+      # error is raised before the thing under test exists, so the suite reported
+      # a missing env var where it meant to report a pool.
+      #
+      # A non-routable endpoint keeps that honest: anything that does try to
+      # reach the network fails loudly here rather than quietly talking to
+      # something real.
+      AZURE_OPENAI_API_KEY: "ci-not-a-real-key"
+      AZURE_OPENAI_API_VERSION: "2024-10-21"
+      AZURE_OPENAI_ENDPOINT: "https://ci.invalid/"
+      AZURE_OPENAI_CHAT_DEPLOYMENT: "ci-chat"
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: "ci-embedding"
 
     steps:
       - uses: actions/checkout@v4

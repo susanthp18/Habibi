@@ -14,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
+
+import pii_redact
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
@@ -396,6 +398,22 @@ def record_tool_call(
     """
     if not job_id and not interaction_id:
         raise ValueError("record_tool_call requires job_id or interaction_id")
+
+    # Redaction happens here, not at the call sites.
+    #
+    # It used to live in voice/persist._audit_args and was applied on the voice
+    # path alone, so WhatsApp (bot_runtime), MCP (its own raw INSERT) and the
+    # sandbox wrote arguments and results verbatim. `identify_customer` is a
+    # text-channel-only spec taking `phone` and `account_tail` -- exactly what
+    # voice withholds -- and it landed in a column the Inbox renders.
+    #
+    # Four executors each remembering to call a helper is how that happened. One
+    # function writes this row; putting it here means a fifth channel cannot get
+    # it wrong, and `result_preview` -- which is bigger and leakier than the
+    # arguments, being what the CRM sent back -- is covered by construction too.
+    args = pii_redact.audit_args(tool_name, args)
+    result_preview = pii_redact.audit_preview(result_preview)
+
     tid = f"BTC-{uuid.uuid4().hex[:12].upper()}"
     conn.execute(
         text(

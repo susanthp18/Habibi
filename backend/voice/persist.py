@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+import pii_redact
 import db
 from agent_core import estimate_sentiment, evaluate_guardrails, sentiment_label
 from agent_core import lexicon
@@ -357,53 +358,11 @@ def append_sentiment_point(
         )
 
 
-#: Tools whose arguments are never stored. Both exist to receive digits the
-#: caller spoke — a mobile tail, an account tail — and an audit row is not a
-#: place to keep them. The *fact* that verification ran is the auditable thing;
-#: the digits are what the verification was protecting.
-_ARGS_WITHHELD: frozenset[str] = frozenset({"verify_identity", "identify_customer"})
-
-#: Argument names that carry free-form caller speech. Kept, but through the same
-#: redactor the transcript uses, so a spoken card number in a dispute summary
-#: does not survive in a column nobody thinks of as a transcript.
-_ARGS_REDACTED: frozenset[str] = frozenset(
-    {"summary", "text", "note", "reason", "verbatim", "context", "question", "detail"}
-)
-
-#: Arguments never exceed this once serialised. A model that emits a wall of
-#: text into a tool argument should not be able to grow this table without
-#: bound, and nothing downstream reads past the useful fields.
-_MAX_ARGS_CHARS = 4000
-
-
-def _audit_args(tool_name: str, args: dict[str, Any] | None) -> dict[str, Any]:
-    """What of a tool's arguments is safe to keep on the audit row.
-
-    The voice path recorded no arguments at all, which is why the Closer could
-    see *that* ``capture_nonpayment_reason`` ran and not *what* it captured —
-    the structured field and the row that proves it were on opposite sides of a
-    gap. Keeping them is the fix; keeping them unfiltered would have traded one
-    defect for a worse one.
-    """
-    if not isinstance(args, dict) or not args:
-        return {}
-    if tool_name in _ARGS_WITHHELD:
-        return {"_withheld": True}
-    import pii_redact
-
-    out: dict[str, Any] = {}
-    for key, value in args.items():
-        if isinstance(value, str):
-            cleaned = pii_redact.redact_text(value) if key in _ARGS_REDACTED else value
-            out[key] = cleaned[:1000]
-        elif isinstance(value, (int, float, bool)) or value is None:
-            out[key] = value
-        else:
-            out[key] = str(value)[:500]
-    serialised = json.dumps(out, default=str)
-    if len(serialised) > _MAX_ARGS_CHARS:
-        return {"_truncated": True}
-    return out
+#: Kept as an alias so the name in this module's older comments still resolves.
+#: The implementation moved to ``pii_redact.audit_args`` and is now applied
+#: inside ``bot_jobs.record_tool_call`` -- every channel gets it, not just this
+#: one. See the note there.
+_audit_args = pii_redact.audit_args
 
 
 def record_voice_tool_call(

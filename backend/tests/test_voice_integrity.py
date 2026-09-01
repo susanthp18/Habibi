@@ -46,18 +46,27 @@ def _the_arabic_voice_is_in_the_catalog(db_tx):
     once, months ago. Written inside db_tx, so it is rolled back with everything
     else and does not become another row whose origin nobody can explain.
     """
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO tts_voice_catalog (
-              short_name, display_name, gender, locale, locale_name, provider_id
-            ) VALUES (:sn, 'AboFlah', 'Male', 'ar', 'ar', 'fish')
-            ON CONFLICT (short_name) DO UPDATE
-              SET locale = EXCLUDED.locale, provider_id = EXCLUDED.provider_id
-            """
-        ),
-        {"sn": ARABIC_FISH_VOICE},
-    )
+    for short_name, display, gender, locale, provider in (
+        (ARABIC_FISH_VOICE, "AboFlah", "Male", "ar", "fish"),
+        # The English voice the card actually speaks. It is not synced -- it
+        # arrives as a side effect of app startup in whichever test happens to
+        # build a TestClient first -- so whether G15 could resolve it depended on
+        # collection order. CI resolved it to None and the gate reported
+        # "skipped" where this file asserts "pass".
+        (ENGLISH_VOICE, "Aarti", "Female", "en-IN", "azure"),
+    ):
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO tts_voice_catalog (
+                  short_name, display_name, gender, locale, locale_name, provider_id
+                ) VALUES (:sn, :dn, :g, :loc, :loc, :prov)
+                ON CONFLICT (short_name) DO UPDATE
+                  SET locale = EXCLUDED.locale, provider_id = EXCLUDED.provider_id
+                """
+            ),
+            {"sn": short_name, "dn": display, "g": gender, "loc": locale, "prov": provider},
+        )
 
 
 def _g15(report: dict) -> dict:

@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-__all__ = ["redact_text", "PII_DETECTORS"]
+__all__ = ["redact_text", "PII_DETECTORS", "audit_args", "audit_preview", "ARGS_WITHHELD"]
 
 
 def _mask_card(s: str) -> str:
@@ -66,3 +66,70 @@ def redact_text(text: str | None) -> str:
     for _kind, pattern, mask in PII_DETECTORS:
         out = pattern.sub(lambda m, _mask=mask: _mask(m.group(0)), out)
     return out
+
+
+# --- tool-call audit rows ----------------------------------------------------
+#
+# These lived in voice/persist.py and were applied only on the voice path, so
+# WhatsApp, MCP and the sandbox wrote tool arguments and results verbatim. The
+# sharpest case: `identify_customer` is a TEXT-channel-only spec taking `phone`
+# and `account_tail` -- precisely the shape voice withholds -- landing in a
+# column the Inbox renders. Moved here, and applied inside
+# `bot_jobs.record_tool_call`, so the redaction is a property of writing the row
+# rather than of remembering to call it.
+
+#: Tools whose arguments are never stored. Both exist to receive digits the
+#: caller spoke -- a mobile tail, an account tail -- and an audit row is not a
+#: place to keep them. The *fact* that verification ran is the auditable thing;
+#: the digits are what the verification was protecting.
+ARGS_WITHHELD: frozenset[str] = frozenset({"verify_identity", "identify_customer"})
+
+#: Argument names that carry free-form caller speech. Kept, but through the same
+#: redactor the transcript uses, so a spoken card number in a dispute summary
+#: does not survive in a column nobody thinks of as a transcript.
+ARGS_REDACTED: frozenset[str] = frozenset(
+    {"summary", "text", "note", "reason", "verbatim", "context", "question", "detail"}
+)
+
+#: Arguments never exceed this once serialised. A model that emits a wall of
+#: text into a tool argument should not be able to grow this table without
+#: bound, and nothing downstream reads past the useful fields.
+MAX_ARGS_CHARS = 4000
+
+#: Result previews are longer than arguments and are stored whole, so they get
+#: the same ceiling and the same redactor.
+MAX_PREVIEW_CHARS = 1500
+
+
+def audit_args(tool_name: str, args: "dict[str, object] | None") -> dict:
+    """What of a tool's arguments is safe to keep on the audit row."""
+    import json
+
+    if not isinstance(args, dict) or not args:
+        return {}
+    if tool_name in ARGS_WITHHELD:
+        return {"_withheld": True}
+    out: dict = {}
+    for key, value in args.items():
+        if isinstance(value, str):
+            cleaned = redact_text(value) if key in ARGS_REDACTED else value
+            out[key] = cleaned[:1000]
+        elif isinstance(value, (int, float, bool)) or value is None:
+            out[key] = value
+        else:
+            out[key] = str(value)[:500]
+    if len(json.dumps(out, default=str)) > MAX_ARGS_CHARS:
+        return {"_truncated": True}
+    return out
+
+
+def audit_preview(preview: str | None) -> str | None:
+    """A tool's result, masked and bounded, for `bot_tool_calls.result_preview`.
+
+    bot_runtime set this to ``json.dumps(payload)[:1500]`` verbatim. A result is
+    where a balance, a phone number or an address actually comes *back* from the
+    CRM, so it leaked more than the arguments did.
+    """
+    if preview is None:
+        return None
+    return redact_text(str(preview))[:MAX_PREVIEW_CHARS]

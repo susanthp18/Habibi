@@ -18,11 +18,9 @@ surface with no audit trail is not shippable.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
-import uuid
 from typing import Any, Callable
 
 from agent_core.tools import domain, kb
@@ -221,42 +219,47 @@ def _audit(
     """Write the call to ``bot_tool_calls``. Never raises into the caller.
 
     Rows carry ``channel='mcp'`` with no job or conversation — exactly the shape
-    migration 0055 enabled. ``interaction_id`` is a synthetic per-call id so the
-    CHECK constraint is satisfied and the rows are still greppable.
+    migration 0055 enabled. ``interaction_id`` is the customer's most recent
+    interaction so the CHECK constraint is satisfied and the rows are greppable.
+
+    This used to be a hand-written INSERT, which is why MCP was one of the three
+    channels storing tool arguments verbatim: the redaction lived at a different
+    writer. Going through ``bot_jobs.record_tool_call`` -- the function this
+    module's docstring already claimed it audited through -- means the masking
+    applies here by construction rather than by being remembered.
     """
     try:
+        import bot_jobs
         import db
         from sqlalchemy import text
 
         with db.engine.begin() as conn:
-            conn.execute(
+            interaction_id = conn.execute(
                 text(
                     """
-                    INSERT INTO bot_tool_calls
-                      (id, channel, tool_name, args, result_ok, error, latency_ms,
-                       interaction_id, conversation_id, job_id)
-                    SELECT :id, 'mcp', :tool, CAST(:args AS jsonb), :ok, :err, :ms,
-                           i.id, NULL, NULL
-                      FROM interactions i
+                    SELECT i.id FROM interactions i
                      WHERE i.customer_id = :cid
                      ORDER BY i.started_at DESC NULLS LAST
                      LIMIT 1
                     """
                 ),
-                {
-                    "id": f"MCP-{uuid.uuid4().hex[:12].upper()}",
-                    "tool": name,
-                    "args": json.dumps(args),
-                    "ok": ok,
-                    "err": error,
-                    "ms": latency_ms,
-                    "cid": customer_id,
-                },
-            )
-        # Deliberately quiet when the SELECT matches nothing: a customer with no
-        # interactions has nothing to attribute the call to, and the CHECK
-        # forbids a row with neither key. The structured log below is the
-        # record in that case.
+                {"cid": customer_id},
+            ).scalar()
+            # Deliberately quiet when nothing matches: a customer with no
+            # interactions has nothing to attribute the call to, and the CHECK
+            # forbids a row with neither key. The structured log below is the
+            # record in that case.
+            if interaction_id:
+                bot_jobs.record_tool_call(
+                    conn,
+                    interaction_id=interaction_id,
+                    channel="mcp",
+                    tool_name=name,
+                    args=args,
+                    result_ok=ok,
+                    error=error,
+                    latency_ms=latency_ms,
+                )
     except Exception:
         logger.warning("mcp audit write failed · %s", name, exc_info=True)
 

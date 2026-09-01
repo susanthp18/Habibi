@@ -300,6 +300,7 @@ def _run_sandbox_tool_loop(
             except Exception as exc:
                 logger.exception("sandbox tool %s failed", name)
                 ok = False
+                tool_ms = 0
                 result = {"error": f"tool_failed:{type(exc).__name__}"}
             # Serialize once, and bound what goes into the prompt. An unbounded
             # tool result (a wide KB hit, a long payment history) was appended
@@ -313,6 +314,32 @@ def _run_sandbox_tool_loop(
             # The Inspector keeps the structured result; only the model-visible
             # copy is bounded (the response shape is part of the sandbox API).
             tool_trace.append({"name": name, "ok": ok, "result": result})
+            # And audit it. The sandbox executes the *real* catalog tools against
+            # a real customer_id -- a rehearsal here can create a promise-to-pay
+            # on a live borrower -- and it was the one executor of the four that
+            # wrote no bot_tool_calls row at all. So the least supervised path in
+            # the product was also the only unlogged one.
+            #
+            # Never raises into the run: an audit failure must not take out the
+            # rehearsal, and record_tool_call redacts the arguments itself.
+            try:
+                import bot_jobs
+
+                with db.engine.begin() as audit_conn:
+                    bot_jobs.record_tool_call(
+                        audit_conn,
+                        job_id=ctx.job_id,
+                        conversation_id=ctx.conversation_id,
+                        channel="sandbox",
+                        tool_name=name,
+                        args=json.loads(args_json) if isinstance(args_json, str) else {},
+                        result_ok=bool(ok),
+                        error=None if ok else str((result or {}).get("error") or "")[:200],
+                        result_preview=serialized,
+                        latency_ms=int(tool_ms or 0),
+                    )
+            except Exception:
+                logger.warning("sandbox audit write failed · %s", name, exc_info=True)
             working.append(
                 {
                     "role": "tool",
