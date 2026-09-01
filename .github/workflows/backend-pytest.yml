@@ -65,6 +65,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 26 test files import pipecat at module scope and cannot even be
+      # collected without it -- every one of them covering the voice runtime,
+      # which is the regulated channel. requirements-voice.txt is kept out of
+      # requirements.txt so a CRM API upgrade is not coupled to Pipecat's
+      # transitive graph; that separation is about the app image, not about what
+      # CI is allowed to know. Skipping them here would leave the highest-risk
+      # code in the product as the only code with no gate on it.
+      #
+      # It is pinned and deliberately narrow -- speechmatics and its ~1GB of ML
+      # runtime are excluded on purpose -- so this costs install time, not a
+      # dependency argument.
+      - name: Install voice dependencies
+        run: pip install -r requirements-voice.txt
+
       # Before the database steps on purpose: ruff needs no Postgres, so a lint
       # failure costs ten seconds instead of the ninety it takes to build and
       # seed a schema that is about to be thrown away.

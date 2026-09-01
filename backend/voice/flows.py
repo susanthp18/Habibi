@@ -42,6 +42,29 @@ AsyncStartRecording = Callable[[], Awaitable[None]]
 # after a bare statement read as a call going nowhere rather than a bot waiting.
 # The cure is at the language layer: never hand back a turn that has not asked
 # for something.
+def _fns(tools: dict[str, Any], *names: str) -> list[Any]:
+    """The node's functions, minus any the card did not grant.
+
+    ``build_tools`` filters its registry down to the card's grant plus a small
+    always-on set, so a node that subscripts a name the card excluded raises
+    KeyError while the flow is being built -- which happens per node, mid-call,
+    *after* the caller has been verified. 33 of the 42 subscripts in this file
+    could reach a card that legitimately excludes them: ``create_promise_to_pay``
+    and ``capture_nonpayment_reason`` are skill-gated, and the Skills tab offers
+    detaching the pack that grants them.
+
+    Dropping the tool is the only safe answer. The node still runs; the model is
+    simply not offered a verb it was never granted. ``global_functions`` below
+    has always done this with ``if name in tools`` -- this is that, given a name
+    so the 42 call sites can say it in one line.
+
+    Not ``tools.get(name)``: that puts ``None`` into a functions list, which
+    fails later and further away. See ``escalate_close``, which filters them out
+    again immediately afterwards.
+    """
+    return [tools[n] for n in names if n in tools]
+
+
 _NO_DEAD_AIR = (
     "Never end your turn on a bare statement of fact. Unless the call is "
     "closing, finish with ONE short, specific question that moves things "
@@ -217,7 +240,7 @@ def build_collections_flow(
                     ),
                 }
             ],
-            "functions": [tools["disclose_recording"]],
+            "functions": _fns(tools, "disclose_recording"),
             "respond_immediately": True,
         }
 
@@ -267,7 +290,7 @@ def build_collections_flow(
                     ),
                 }
             ],
-            "functions": [tools["capture_call_goal"]],
+            "functions": _fns(tools, "capture_call_goal"),
             "respond_immediately": False,
         }
 
@@ -308,11 +331,12 @@ def build_collections_flow(
                     ),
                 }
             ],
-            "functions": [
-                tools["verify_identity"],
-                tools["refuse_verification"],
-                tools["not_account_holder"],
-            ],
+            "functions": _fns(
+                tools,
+                "verify_identity",
+                "refuse_verification",
+                "not_account_holder",
+            ),
             # Ask once via LLM, then listen — user may need a moment for digits.
             "respond_immediately": True,
         }
@@ -358,15 +382,16 @@ def build_collections_flow(
             # they owe, which is where they say why they have not paid — so a
             # node-local grant buys nearly all of the coverage for none of the
             # standing cost.
-            "functions": [
-                tools["get_account_position"],
-                tools["create_promise_to_pay"],
-                tools["capture_nonpayment_reason"],
-                tools["request_callback"],
-                tools["begin_negotiate"],
-                tools["begin_dispute"],
-                tools["begin_wrap_up"],
-            ],
+            "functions": _fns(
+                tools,
+                "get_account_position",
+                "create_promise_to_pay",
+                "capture_nonpayment_reason",
+                "request_callback",
+                "begin_negotiate",
+                "begin_dispute",
+                "begin_wrap_up",
+            ),
             "respond_immediately": True,
         }
 
@@ -466,16 +491,17 @@ def build_collections_flow(
             # Six node-local tools plus the nine globals. Above the "≤5-6"
             # heuristic once globals are counted — accepted consciously, with
             # the precedence rules above doing the work the graph used to.
-            "functions": [
-                tools["get_account_position"],
-                tools["create_promise_to_pay"],
-                tools["capture_nonpayment_reason"],
-                tools["request_callback"],
-                tools["recommend_next_offer"],
-                tools["capture_lead"],
-                tools["decline_offer"],
-                tools["begin_dispute"],
-            ],
+            "functions": _fns(
+                tools,
+                "get_account_position",
+                "create_promise_to_pay",
+                "capture_nonpayment_reason",
+                "request_callback",
+                "recommend_next_offer",
+                "capture_lead",
+                "decline_offer",
+                "begin_dispute",
+            ),
             "respond_immediately": True,
         }
 
@@ -520,13 +546,14 @@ def build_collections_flow(
                     ),
                 }
             ],
-            "functions": [
-                tools["get_account_position"],
-                tools["create_promise_to_pay"],
-                tools["request_callback"],
-                tools["begin_wrap_up"],
-                tools["return_to_position"],
-            ],
+            "functions": _fns(
+                tools,
+                "get_account_position",
+                "create_promise_to_pay",
+                "request_callback",
+                "begin_wrap_up",
+                "return_to_position",
+            ),
             "pre_actions": [
                 {
                     "type": "tts_say",
@@ -554,12 +581,13 @@ def build_collections_flow(
                     ),
                 }
             ],
-            "functions": [
-                tools["flag_dispute"],
-                tools["evaluate_authority"],
-                tools["apply_goodwill"],
-                tools["return_to_position"],
-            ],
+            "functions": _fns(
+                tools,
+                "flag_dispute",
+                "evaluate_authority",
+                "apply_goodwill",
+                "return_to_position",
+            ),
             # APPEND (default): keep the dispute the caller already stated on the hub.
             # respond_immediately=True: act on that existing statement — False left a
             # dead air gap until the idle ladder (logs: bridge → 6s silence → nudge).
@@ -617,13 +645,14 @@ def build_collections_flow(
             # never called the knowledge base that had the answer, and never
             # reached pre_close, so the call had no ending. The caller hung up on
             # a question.
-            "functions": [
-                tools["recommend_next_offer"],
-                tools["capture_lead"],
-                tools["decline_offer"],
-                tools["return_to_position"],
-                tools["begin_wrap_up"],
-            ],
+            "functions": _fns(
+                tools,
+                "recommend_next_offer",
+                "capture_lead",
+                "decline_offer",
+                "return_to_position",
+                "begin_wrap_up",
+            ),
             # Topic hop: collapse the collections negotiation into a summary before
             # loading product context, so the upsell turn isn't reasoning over the
             # full PTP haggle. Registered in bot.py via FlowManager.register_action.
@@ -662,13 +691,14 @@ def build_collections_flow(
             # open question and then waits. Granting it on the hub as well would
             # buy a little more coverage for a standing latency cost on the
             # busiest node in the call, which is the trade G6 exists to police.
-            "functions": [
-                tools["capture_lead"],
-                tools["decline_offer"],
-                tools["set_contact_preference"],
-                tools["return_to_position"],
-                tools["end_call"],
-            ],
+            "functions": _fns(
+                tools,
+                "capture_lead",
+                "decline_offer",
+                "set_contact_preference",
+                "return_to_position",
+                "end_call",
+            ),
             "respond_immediately": True,
         }
 
@@ -785,11 +815,12 @@ def build_collections_flow(
                     ),
                 }
             ],
-            "functions": [
-                tools["verify_identity"],
-                tools["not_account_holder"],
-                tools["refuse_verification"],
-            ],
+            "functions": _fns(
+                tools,
+                "verify_identity",
+                "not_account_holder",
+                "refuse_verification",
+            ),
             # We speak first. The borrower answered a call they did not expect
             # and heard nothing — the single most common reason an outbound
             # dial ends in the first two seconds.
