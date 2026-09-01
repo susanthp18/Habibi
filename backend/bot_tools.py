@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Set as AbstractSet
 from typing import Any, Callable
 
 from sqlalchemy import text
@@ -156,7 +157,9 @@ class ToolContext:
         self.offers_presented = 0
         self.authority_decision_id: str | None = None
         # Phase 2 skill intersection. None = legacy unrestricted catalog.
-        self.allowed_tools: set[str] | None = None
+        # Frozen on purpose: the grant arrives from one owner and a caller that
+        # could union onto it is how six competing tool formulas happened.
+        self.allowed_tools: AbstractSet[str] | None = None
         self.active_skill: str | None = None
         self.attached_skills: list[Any] = []
         # The card this turn is actually running, straight from the deployed

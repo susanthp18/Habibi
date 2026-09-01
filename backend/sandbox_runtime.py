@@ -223,13 +223,15 @@ def _run_sandbox_tool_loop(
     agent_card: dict[str, Any] | None = None,
 ) -> tuple[str, int, int, list[dict[str, Any]]]:
     """Shared catalog tools under a max-iteration budget (unification Phase D)."""
-    from agent_core.skills.runtime import mouth_turn_state
+    from agent_core.skills.runtime import resolve_mouth
     from agent_core.tools.catalog import CATALOG
     from bot_tools import ToolContext, execute_tool
 
-    skill_state = mouth_turn_state(agent_card or {}, intent=intent)
-    offered = skill_state["offered"]
-    tools = CATALOG.openai_tools(list(offered) if offered is not None else list(_SANDBOX_TOOL_NAMES))
+    mouth = resolve_mouth(agent_card or {}, intent=intent)
+    tool_state = mouth.tools()
+    tools = CATALOG.openai_tools(
+        list(tool_state.offered) if tool_state.has_grant else list(_SANDBOX_TOOL_NAMES)
+    )
     ctx = ToolContext(
         job_id=f"sandbox-{run_id}",
         conversation_id=f"sandbox-{run_id}",
@@ -239,9 +241,9 @@ def _run_sandbox_tool_loop(
         customer_text=customer_text,
         intent=intent or "general",
     )
-    ctx.allowed_tools = skill_state["allowed"]
-    ctx.attached_skills = skill_state["packs"]
-    ctx.active_skill = skill_state["active_slug"]
+    ctx.allowed_tools = tool_state.allowed
+    ctx.attached_skills = list(mouth.packs)
+    ctx.active_skill = mouth.active_slug
     working = list(messages)
     tool_trace: list[dict[str, Any]] = []
     total_tokens = 0
@@ -703,10 +705,14 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"sandbox_max_turns:{effective_max}")
 
     persona = version["persona"] if isinstance(version.get("persona"), dict) else {}
-    from agent_core.skills.runtime import mouth_turn_state
+    from agent_core.skills.runtime import resolve_mouth
 
     skill_slug = str(payload.get("skillSlug") or payload.get("skill_slug") or "").strip() or None
-    skill_state = mouth_turn_state(version.get("agentCard") or {}, active_slug=skill_slug)
+    # Prompt only. Intent is not known until the messages below are assembled,
+    # so the active skill body is resolved separately once it is.
+    skill_prefix = resolve_mouth(
+        version.get("agentCard") or {}, active_slug=skill_slug
+    ).prompt().prefix
     # Server-authoritative history — prefer DB turns over client payload.
     history: list[dict[str, Any]] = []
     with db.engine.connect() as hist_conn:
@@ -802,20 +808,20 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         history=history,
         context_blocks=context_blocks,
         prior_summary=prior_summary,
-        skill_catalog=skill_state["prefix"],
+        skill_catalog=skill_prefix,
         active_skill_message=None,
         understanding=prefetched_understanding,
     )
     _t_understanding_end = time.perf_counter()
     messages = assembled["messages"]
     intent = assembled["intent"]
-    skill_state = mouth_turn_state(
+    skill_body = resolve_mouth(
         version.get("agentCard") or {},
         intent=str(intent or ""),
         active_slug=skill_slug,
-    )
-    if skill_state["body_message"]:
-        messages.insert(min(2, len(messages)), skill_state["body_message"])
+    ).prompt().body_message
+    if skill_body:
+        messages.insert(min(2, len(messages)), skill_body)
     intent_scores = assembled["intent_scores"]
     sentiment = assembled["sentiment"]
     sent_label = assembled["sentiment_label"]

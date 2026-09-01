@@ -20,6 +20,7 @@ import threading
 import time
 from decimal import Decimal
 from functools import partial, wraps
+from collections.abc import Set as AbstractSet
 from typing import Any, Awaitable, Callable
 
 from pipecat.flows import NO_RESPONSE, flows_tool_options
@@ -258,7 +259,9 @@ class ToolState:
         self.dispute_opened = False
         self.authority_decision_id: str | None = None
         self.authority_cap: float | None = None
-        self.allowed_tools: set[str] | None = None
+        # Frozen on purpose: the grant arrives from one owner and a caller that
+        # could union onto it is how six competing tool formulas happened.
+        self.allowed_tools: AbstractSet[str] | None = None
         self.attached_skills: list[Any] = []
         self.active_skill: str | None = None
         # --- close probe ----------------------------------------------------

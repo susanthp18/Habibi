@@ -93,9 +93,9 @@ def _system_instruction_from_bundle(bundle: dict, context: dict | None = None) -
         bundle.get("guardrails") or {},
         persona=bundle.get("persona") if isinstance(bundle.get("persona"), dict) else None,
     )
-    from agent_core.skills.runtime import mouth_turn_state
+    from agent_core.skills.runtime import resolve_mouth
 
-    prefix = mouth_turn_state(bundle.get("agentCard") or {}).get("prefix") or ""
+    prefix = resolve_mouth(bundle.get("agentCard") or {}).prompt().prefix
     if prefix:
         prompt = prompt.rstrip() + "\n\n" + prefix
     return prompt
@@ -1127,11 +1127,14 @@ async def run_bot(transport, runner_args) -> None:
 
         spawn_session_task(session.session_id, _run())
 
-    from agent_core.skills.runtime import mouth_turn_state as _mouth_turn_state
+    from agent_core.skills.runtime import resolve_mouth as _resolve_mouth
 
-    _skill_state = _mouth_turn_state(bundle.get("agentCard") or {})
-    _allowed_tools = _skill_state.get("allowed")
-    _attached_skills = _skill_state.get("packs") or []
+    _mouth = _resolve_mouth(bundle.get("agentCard") or {})
+    # Not `_tool_state`: build_collections_flow returns its own turn state under
+    # that name a few lines below, and they are unrelated types.
+    _grant = _mouth.tools()
+    _allowed_tools = _grant.allowed
+    _attached_skills = list(_mouth.packs)
 
     _tool_state, _tools, initial_node, global_fns = build_collections_flow(
         session,

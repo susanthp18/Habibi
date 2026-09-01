@@ -906,10 +906,12 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         # If the reset window is empty (race), still answer the latest ask alone.
         if not history:
             history = [{"role": "user", "content": customer_text}]
-        from agent_core.skills.runtime import mouth_turn_state
+        from agent_core.skills.runtime import resolve_mouth
         from agent_core.tools.catalog import CATALOG
 
-        skill_state = mouth_turn_state(bundle.get("agentCard") or {}, intent=intent)
+        mouth = resolve_mouth(bundle.get("agentCard") or {}, intent=intent)
+        skill_prompt = mouth.prompt()
+        tool_state = mouth.tools()
         messages = _build_messages(
             bundle=bundle,
             conv=conv,
@@ -917,8 +919,8 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             customer_text=customer_text,
             intent=intent,
             prior_summary=summary,
-            skill_prefix=skill_state["prefix"],
-            active_skill_message=skill_state["body_message"],
+            skill_prefix=skill_prompt.prefix,
+            active_skill_message=skill_prompt.body_message,
         )
 
         tool_ctx = bot_tools.ToolContext(
@@ -936,15 +938,15 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             # being pitched a product because an English lexicon scored 0.00.
             sentiment=sentiment,
         )
-        tool_ctx.allowed_tools = skill_state["allowed"]
-        tool_ctx.attached_skills = skill_state["packs"]
-        tool_ctx.active_skill = skill_state["active_slug"]
+        tool_ctx.allowed_tools = tool_state.allowed
+        tool_ctx.attached_skills = list(mouth.packs)
+        tool_ctx.active_skill = mouth.active_slug
         # The handoff allowlist belongs to the card this turn is running, not
         # to whatever BOT_ID the process was started with.
         tool_ctx.agent_card = bundle.get("agentCard") or None
         turn_tools = (
-            CATALOG.openai_tools(skill_state["offered"])
-            if skill_state["offered"] is not None
+            CATALOG.openai_tools(list(tool_state.offered))
+            if tool_state.has_grant
             else bot_tools.TOOL_DEFINITIONS
         )
 
@@ -1021,21 +1023,19 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                     }
                 )
                 if ok and tc["name"] == "load_skill" and tool_ctx.active_skill:
-                    from agent_core.skills.intersect import offered_tools as _offered
+                    from dataclasses import replace as _replace
+
                     from agent_core.skills.runtime import body_developer_message as _skill_body
 
                     pack = next((p for p in tool_ctx.attached_skills if getattr(p, "slug", None) == tool_ctx.active_skill), None)
                     if pack:
                         messages.append(_skill_body(pack))
-                    if skill_state.get("card") is not None:
-                        turn_tools = CATALOG.openai_tools(
-                            _offered(
-                                skill_state["card"],
-                                catalog_names=set(CATALOG.specs),
-                                attached_skills=tool_ctx.attached_skills,
-                                active_slug=tool_ctx.active_skill,
-                            )
-                        )
+                    if mouth.card is not None:
+                        # Only the offer widens. The grant on tool_ctx is
+                        # deliberately untouched: activating a skill changes
+                        # what the model is shown, never what it may run.
+                        activated = _replace(mouth, active_slug=tool_ctx.active_skill)
+                        turn_tools = CATALOG.openai_tools(list(activated.tools().offered))
                 if tool_ctx.escalated:
                     with engine.begin() as conn:
                         bot_jobs.mark_succeeded(conn, job_id)

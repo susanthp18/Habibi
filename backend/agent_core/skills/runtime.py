@@ -8,10 +8,19 @@ block and is dropped on switch. References never grant tools.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from agent_core.skills.intersect import tools_after_references
 from agent_core.skills.pack import SkillPack
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # Never import this at runtime. ``agent_core.cards`` and
+    # ``agent_core.skills`` are mutually dependent, and this module is the one
+    # voice/bot.py touches first; a module-level import here closes the cycle
+    # and every call dies assembling its prompt. ``from __future__ import
+    # annotations`` keeps the reference below a string.
+    from agent_core.cards.schema import AgentCard
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +105,130 @@ def resolve_intent_skill(intent: str | None, attached: list[SkillPack]) -> Skill
     return next((s for s in attached if s.slug == slug), None)
 
 
+@dataclass(frozen=True)
+class SkillPrompt:
+    """The Skill text that belongs in one turn's prompt. No tool facts."""
+
+    #: Skill descriptions for the stable system prefix. Empty when the mouth
+    #: has no usable card or no attached packs.
+    prefix: str
+    #: The active Skill's body, as a developer message, or None.
+    body_message: dict[str, str] | None
+
+
+@dataclass(frozen=True)
+class ToolState:
+    """What one mouth turn may execute, and what it is offered. No prompt text."""
+
+    allowed: frozenset[str] | None
+    offered: tuple[str, ...] | None
+
+    @property
+    def has_grant(self) -> bool:
+        """Whether a tool grant could be derived for this mouth at all.
+
+        The single place the ``None`` sentinel is interpreted. ``None`` means
+        the mouth has no usable agent card, so no grant exists — and today
+        every caller reads that as *no filtering*, falling back to a default
+        tool list. That is the fail-open ADR-0002 decides to retire; the
+        decision is accepted but not yet implemented, and doing so is the whole
+        of the deny-all ticket, which is deliberately the last change in this
+        sequence and lands alone.
+
+        Four callers each used to spell this ``allowed is not None`` and each
+        had to know what None meant. Asking here is what lets that ticket
+        change one branch instead of four call sites.
+
+        Not named ``is_gated``: CONTEXT.md reserves *Gate* for a publish-time
+        check, and this is a per-turn question about a *Tool Grant*.
+        """
+        return self.allowed is not None
+
+
+@dataclass(frozen=True)
+class MouthTurn:
+    """A mouth's card, its attached skill packs, and which skill is active.
+
+    The shared root of the two questions that used to be answered together:
+    ``prompt()`` for the text, ``tools()`` for the grant. Pack resolution is
+    the expensive half and happens once per ``MouthTurn``, so asking both
+    questions of one costs no more than asking either. A caller that resolves
+    twice still pays twice — the sandbox does, once for the prefix and again
+    for the body after intent is known, which its own migration ticket closes.
+
+    ``card is None`` covers both "no card was authored" and "the card would not
+    parse". Neither can be filtered against, so both yield an empty prompt and
+    no grant. They are also indistinguishable in ``packs``: pack resolution
+    parses the same card, so an unparseable one resolves to no packs by the
+    same failure — verified against the pre-split implementation rather than
+    assumed, because the reverse looked plausible and is not true.
+    """
+
+    card: "AgentCard | None"
+    packs: tuple[SkillPack, ...]
+    active_slug: str | None
+
+    def prompt(self) -> SkillPrompt:
+        """The Skill prefix and active body for this turn."""
+        if self.card is None or not self.packs:
+            return SkillPrompt(prefix="", body_message=None)
+        body = None
+        if self.active_slug:
+            pack = next((p for p in self.packs if p.slug == self.active_slug), None)
+            if pack:
+                body = body_developer_message(pack)
+        return SkillPrompt(prefix=description_block(list(self.packs)), body_message=body)
+
+    def tools(self, *, catalog_names: set[str] | None = None) -> ToolState:
+        """What this turn may execute, and what to put in front of the model."""
+        if self.card is None:
+            return ToolState(allowed=None, offered=None)
+
+        from agent_core.skills.intersect import effective_tools, offered_tools
+        from agent_core.tools.catalog import CATALOG
+
+        names = catalog_names or set(CATALOG.specs)
+        attached = list(self.packs) if self.packs else None
+        return ToolState(
+            allowed=frozenset(
+                effective_tools(self.card, catalog_names=names, attached_skills=attached)
+            ),
+            offered=tuple(
+                offered_tools(
+                    self.card,
+                    catalog_names=names,
+                    attached_skills=attached,
+                    active_slug=self.active_slug,
+                )
+            ),
+        )
+
+
+def resolve_mouth(
+    card_raw: Any,
+    *,
+    intent: str | None = None,
+    active_slug: str | None = None,
+) -> MouthTurn:
+    """Resolve a mouth's card, packs and active skill once, for both questions."""
+    from agent_core.cards.schema import is_authored, parse_card
+
+    if not is_authored(card_raw):
+        return MouthTurn(card=None, packs=(), active_slug=None)
+    packs = packs_from_card(card_raw)
+    try:
+        card = parse_card(card_raw)
+    except Exception:
+        # Packs resolved, card did not parse. Reported as ungated, same as an
+        # absent card: there is nothing to filter against either way.
+        return MouthTurn(card=None, packs=tuple(packs), active_slug=None)
+    resolved = active_slug
+    if not resolved:
+        hit = resolve_intent_skill(intent, packs)
+        resolved = hit.slug if hit else None
+    return MouthTurn(card=card, packs=tuple(packs), active_slug=resolved)
+
+
 def mouth_turn_state(
     card_raw: Any,
     *,
@@ -103,61 +236,23 @@ def mouth_turn_state(
     active_slug: str | None = None,
     catalog_names: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Allowed tools, offered tools, prefix, and active body for one mouth turn."""
-    from agent_core.cards.schema import is_authored, parse_card
-    from agent_core.skills.intersect import effective_tools, offered_tools
-    from agent_core.tools.catalog import CATALOG
+    """Both halves in one untyped dict — the shape callers used before the split.
 
-    names = catalog_names or set(CATALOG.specs)
-    packs = packs_from_card(card_raw)
-    if not is_authored(card_raw):
-        return {
-            "card": None,
-            "packs": [],
-            "allowed": None,
-            "offered": None,
-            "prefix": "",
-            "active_slug": None,
-            "body_message": None,
-        }
-    try:
-        card = parse_card(card_raw)
-    except Exception:
-        return {
-            "card": None,
-            "packs": packs,
-            "allowed": None,
-            "offered": None,
-            "prefix": "",
-            "active_slug": None,
-            "body_message": None,
-        }
-    use_skills = bool(packs)
-    attached = packs if use_skills else None
-    allowed = set(effective_tools(card, catalog_names=names, attached_skills=attached))
-    resolved = active_slug
-    if not resolved:
-        hit = resolve_intent_skill(intent, packs)
-        resolved = hit.slug if hit else None
-    offered = offered_tools(
-        card,
-        catalog_names=names,
-        attached_skills=attached,
-        active_slug=resolved,
-    )
-    body = None
-    if resolved:
-        pack = next((p for p in packs if p.slug == resolved), None)
-        if pack:
-            body = body_developer_message(pack)
+    Kept only for the tests that pin fail-closed pack resolution through it. No
+    runtime calls this; they ask ``resolve_mouth`` for the half they need.
+    Retired with the other legacy tool formulas.
+    """
+    mouth = resolve_mouth(card_raw, intent=intent, active_slug=active_slug)
+    prompt = mouth.prompt()
+    tools = mouth.tools(catalog_names=catalog_names)
     return {
-        "card": card,
-        "packs": packs,
-        "allowed": allowed,
-        "offered": offered,
-        "prefix": description_block(packs) if use_skills else "",
-        "active_slug": resolved,
-        "body_message": body,
+        "card": mouth.card,
+        "packs": list(mouth.packs),
+        "allowed": set(tools.allowed) if tools.allowed is not None else None,
+        "offered": list(tools.offered) if tools.offered is not None else None,
+        "prefix": prompt.prefix,
+        "active_slug": mouth.active_slug,
+        "body_message": prompt.body_message,
     }
 
 
