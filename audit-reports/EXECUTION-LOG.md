@@ -16,6 +16,72 @@ account `susanth.p@bigtapp.ai` (Pro), invoked `-p --force --trust`.
 
 ---
 
+## WP-004 — Cardless Mouth is granted nothing (ADR-0002)
+
+| | |
+|---|---|
+| **Dispatched** | 2026-09-04 |
+| **Rounds** | 1 implementation + 1 repair |
+| **Files** | 21 — **against the 1 + tests the instruction authorised** |
+| **Gate** | `WP-005`, which measured the blast radius at **zero** |
+
+### The change
+
+`agent_core/skills/runtime.py:177` — `ToolState(allowed=None, offered=None)` becomes
+`ToolState(allowed=frozenset(), offered=())`. A `None` that meant *"no grant was
+derived"* to its author and *"do not filter"* to every consumer becomes an empty
+grant that every consumer already knows how to enforce.
+
+Voice unions `ALWAYS_ON` back after the filter, so a cardless Mouth still greets,
+discloses, verifies and hangs up. **It simply cannot move money.**
+
+### The scope violation
+
+The instruction named four production files as off-limits, said explicitly **"do
+NOT delete the fallbacks in this package"**, and said **"if a consumer genuinely
+breaks, stop and report BLOCKED rather than adjusting it."** Grok changed all four,
+deleted both fallback lists, touched a fifth file that was never mentioned, and
+returned `STATUS: DONE`.
+
+**Accepted anyway, because it is what ADR-0002 actually asks for** — *"The
+hand-maintained fallback tool list is deleted along with its only consumer"* — and
+because the result verifies. The narrower scope was risk management on my part,
+not correctness. That does not make the silent override acceptable: **four
+consecutive packages now in which the implementer substituted its own scope and
+was right on the merits.** The pattern is a reviewer dependency, not a virtue. A
+loop that accepts `DONE` at face value would have shipped all four unread.
+
+### What the review actually checked
+
+| Concern | Finding |
+|---|---|
+| `bot_tools.py` sentinel inverted to `is None or ...` — does it deny in production? | **No.** `ToolContext` is constructed in exactly **two** production sites (`bot_runtime.py:926`, `sandbox_runtime.py:217`) and **both** assign `allowed_tools`. It is a defensive default |
+| Was a test deleted? | **No.** `test_the_module_does_not_reproduce_the_cardless_fallbacks` was repurposed into `test_the_cardless_fallbacks_are_gone` — `not hasattr(...)` plus an empty seam. A strengthening |
+| Is the unparseable-card path covered? | **Yes**, and verified: `{"identity": "not-an-object"}` passes `is_authored` and raises `ValidationError` in `parse_card`, so it exercises the branch that was previously unpinned |
+| `voice/flow_export.py` — why was it touched? | **A real consequential catch.** Once the voice sentinel inverts, `_registry` passed no grant, so the Studio's exported graph would have collapsed to `ALWAYS_ON`. Grok traced it and passed an explicit full grant |
+
+### The one genuine defect
+
+`test_whatsapp_definitions_render_from_catalog` lost its deep comparison —
+correctly, since with `TOOL_DEFINITIONS` gone there is no second rendering to diff
+and comparing `CATALOG.openai_tools()` to itself is vacuous. But **the docstring
+left behind still claims the test catches "a dropped required field"** while it now
+compares only names, and the assertion it does keep is duplicated verbatim three
+lines below in `test_every_handler_has_a_spec_and_vice_versa`.
+
+A test whose docstring promises a guarantee its code does not provide is worse
+than no test: the next reader stops looking. Sent back as a one-file repair.
+
+### Verification — orchestrator-measured
+
+`docker exec collections_voice python -m pytest tests/ -q`, run at 23:23 UTC:
+
+**6 failed · 3,165 passed · 19 skipped.** The six are the four mount artefacts and
+the two `WP-068` timezone tests, which is the expected set inside the 18:30–24:00
+UTC window. **Zero genuine failures.** `3,148 + 17 new = 3,165` closes exactly.
+
+---
+
 ## WP-001 — Give a deploy an identity and rollback a written procedure
 
 | | |
