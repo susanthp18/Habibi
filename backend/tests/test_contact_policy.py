@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -284,7 +284,7 @@ def test_due_reminder_blocked_when_capped(db_tx, monkeypatch: pytest.MonkeyPatch
     result = create_promise_to_pay(
         customer_id=cid,
         amount=50.0,
-        promised_date="2026-09-01",
+        promised_date=(date.today() + timedelta(days=5)).isoformat(),
         account_id=acct,
         channel="voice",
         idempotency_key="ptp-cap-reminder",

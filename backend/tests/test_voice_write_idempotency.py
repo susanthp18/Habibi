@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Any, Callable
 
 import pytest
@@ -33,7 +34,7 @@ import db
 from voice import tools as voice_tools
 from voice.session import VoiceSession
 
-PROMISE_DATE = "2026-09-14"
+PROMISE_DATE = (date.today() + timedelta(days=14)).isoformat()
 
 
 @pytest.fixture
