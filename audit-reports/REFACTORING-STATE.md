@@ -116,13 +116,33 @@ The raw container run reported **five** failures. **Four of them are the measure
 
 **All four pass on the host** — re-run directly, 4 passed in 3.32s.
 
+**A third artefact class, found 2026-09-03 at 22:23 UTC.** Two more tests fail in
+the container and pass on the host, and the cause is neither the mount nor the
+code:
+
+| Test | Reads "today" from |
+|---|---|
+| `test_conversation_trace_regressions.py::test_a_promise_for_today_is_still_allowed` | `date.today()` — the **process** timezone |
+| `test_promise_fulfillment.py::test_settle_due_today` | `days=0`, likewise |
+
+The guard they exercise, `_promise_date_is_past`, reads it from the **tenant's**
+— IST. Measured in `collections_voice` at that moment: `date.today()` returned
+**2026-09-03** while IST today was **2026-09-04**. A promise dated "today" is
+therefore already yesterday to the guard, and is refused `promise_date_in_past`.
+
+This is a **real latent defect**, not a mount artefact: it makes the suite red
+between **18:30 and 24:00 UTC** every day, on any UTC runner, with no commit
+involved. Filed as **`WP-068`**. It is the same family as `WP-011` — a test that
+is only correct while two clocks agree — which is why it surfaced the night
+`WP-011` landed and not before.
+
 > Had the raw container output been recorded as the baseline, five "pre-existing failures" would now be on file, four of them fictional. An implementation agent would eventually "fix" a test that was never broken — most likely by deleting the cross-tree assertion, which is precisely the contract these four exist to hold. This is the same failure mode the whole corpus is about: **a conclusion drawn from an absence, produced by a search that could not have found the evidence.**
 
 ---
 
 ### The line between pre-existing and modernization-introduced
 
-**A failure is PRE-EXISTING if and only if** it is `test_due_reminder_blocked_when_capped`, or — after 2026-09-15 — one of the four `PROMISE_DATE` tests, or it reproduces at `14377f1` with a clean tree. **Everything else is introduced, and belongs to the work package that introduced it.**
+**A failure is PRE-EXISTING if and only if** it reproduces at `14377f1` with a clean tree, **or** it is one of the six known artefacts — the four cross-tree mount failures, or either of the two `WP-068` timezone failures when the run straddles 18:30–24:00 UTC. *(The original two entries here, `test_due_reminder_blocked_when_capped` and the four `PROMISE_DATE` tests, were closed by `WP-011` in `b30fa8f`.)* **Everything else is introduced, and belongs to the work package that introduced it.**
 
 Three traps stand between that rule and its correct application:
 
@@ -268,28 +288,31 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 65. Status: 1 completed, 64 open.**
+**Total: 68. Status: 4 completed, 64 open.** *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **31** |
-| **BLOCKED** — has an unmet prerequisite | **32** |
-| **BLOCKED (runtime)** — needs a database read first | **1** |
-| **IN PROGRESS** | **0** |
-| **COMPLETED** | **1** |
+| **READY** — no unmet prerequisite; can begin today | **30** |
+| **BLOCKED** — has an unmet prerequisite | **31** |
+| **BLOCKED (runtime)** — needs a database read first | **0** |
+| **IN PROGRESS** | **1** — `WP-004` |
+| **COMPLETED** | **4** |
 
-### COMPLETED (1)
+### COMPLETED (4)
 
 | WP | Commit | Verified by | Residual |
 |---|---|---|---|
-| **`WP-011`** the two date bombs | `b30fa8f` (2026-09-03) | Container suite **3,148 passed · 19 skipped · 4 failed**, the four being the known mount artefacts. Baseline was 3,141 / 19 / 5. Arithmetic closes exactly: 3,141 + 1 fixed + 6 new = 3,148. `ruff` clean | **`WP-066`** — the expiry scanner ships with a blanket `VERSION` name exemption and no allowlist |
+| **`WP-011`** the two date bombs | `b30fa8f` (2026-09-03) | Container suite **3,148 passed · 19 skipped · 4 failed**, the four being the known mount artefacts. Baseline was 3,141 / 19 / 5. Arithmetic closes exactly: 3,141 + 1 fixed + 6 new = 3,148. `ruff` clean | closed by `WP-066` |
+| **`WP-066`** allowlist the expiry scanner | `52712ff` (2026-09-04) | 8/8 in the file, `ruff` clean, suite passed count unchanged at 3,148 | none |
+| **`WP-005`** cardless inventory | — *(no code; an answer)* | Live query: **0 of 18** prompt versions cardless, all 18 parse; the 2 cardless bots have **no deployment rows** and are archived on purpose | none — **it unblocked `WP-004`** |
+| **`WP-001`** deploy identity + rollback | `06e90b1` (2026-09-04) | `compose config --images` unchanged by default and SHA-resolving when set; `npm run build` PASS; every factual claim in `rollback.md` checked against migration source | first rollback not executable until one SHA is published |
 
 ### READY (31)
 
 Nothing prevents any of these starting today.
 
 **Band 0–1 — regulated, under 60 lines total:**
-`WP-001` deploy identity · `WP-002` stop the consent write-back · **`WP-005` inventory empty Agent Cards** *(unblocked 2026-09-03 — the database is up)* · `WP-006` contact Gate fails closed · `WP-007` webhook exemption · `WP-008` bounce notice guard · `WP-009` classify the carrier exception · `WP-010` coalescing vs frequency caps
+`WP-002` stop the consent write-back · `WP-006` contact Gate fails closed · `WP-007` webhook exemption · `WP-008` bounce notice guard · `WP-009` classify the carrier exception · `WP-010` coalescing vs frequency caps
 
 **Band 2 — envelope:**
 `WP-012` `load_env()` ordering · `WP-014` require the WS secret and the Twilio signature · `WP-015` revocation means empty · `WP-016` provision `NOBYPASSRLS` and enable RLS · `WP-018` guard every `bot_worker` stage
@@ -586,5 +609,6 @@ Consolidation put `WP-001` first, on the reasoning that nothing has a rollback u
 |---|---|---|
 | 2026-09-01 → 09-03 | Reports `01`–`41` | ~23,850 lines of read-only forensics. Reports `32` and `33` were never produced |
 | **2026-09-03** | **Consolidation** | 40 report files read in full · **129** MASTER findings from ~700+ · **15** conflicts adjudicated at source · **21** claims re-verified · **65** work packages · **10** runtime questions left open. **No application file modified.** |
+| **2026-09-04** | **`WP-005`, `WP-066`, `WP-001` · `WP-004` dispatched** | `WP-005` answered with one read-only query: **0 of 18** prompt versions are cardless and all 18 parse, so `WP-004`'s blast radius is **empty** and its gate opened. `WP-066` landed the allowlist Grok had twice declined (`52712ff`). `WP-001` landed SHA-tagged images, a GHCR publish workflow, `npm run build` in CI and `docs/ops/rollback.md` (`06e90b1`) — every factual claim in that document verified against migration source. **`WP-068` filed**: two tests read "today" from the process timezone against an IST guard and go red for 5½ hours a day on any UTC runner. `WP-067` filed: the frontend roster calls an archived bot active. |
 | **2026-09-03** | **`WP-011` implemented** | First turn of the supervised loop. Dispatched to Grok 4.6 High via Cursor CLI under `AGENTS.md`; **two review rounds rejected** before acceptance. Two aged-out date fixtures made relative; `tests/test_dated_constants.py` added as a 30-day expiry net. Committed `b30fa8f`. Suite moved 5 failed → 4 (mount artefacts only), 3,141 → 3,148 passed, skips unchanged at 19. **Residual debt recorded as `WP-066`.** |
 | **2026-09-03** | **Baseline measurement** | Frontend typecheck/lint/test/build and backend ruff/collection/`alembic heads` run on the host; full `pytest` run in `collections_voice`. **1 genuine pre-existing failure**, 3,141 passed, 19 skipped. Four container-only failures identified as mount artefacts and re-run green on the host. Five inherited numbers corrected. First five work packages selected. **No application file modified.** |

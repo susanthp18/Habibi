@@ -16,6 +16,131 @@ account `susanth.p@bigtapp.ai` (Pro), invoked `-p --force --trust`.
 
 ---
 
+## WP-001 — Give a deploy an identity and rollback a written procedure
+
+| | |
+|---|---|
+| **Dispatched** | 2026-09-04 |
+| **Committed** | `06e90b1` |
+| **Rounds** | **1** — accepted on review |
+| **Files** | `backend/docker-compose.yml`, `.github/workflows/frontend-typecheck.yml`, `.github/workflows/publish-images.yml` (new), `docs/ops/rollback.md` (new) |
+| **Application code touched** | none |
+
+### Verification — orchestrator-measured
+
+| Check | Result |
+|---|---|
+| `docker compose config --images`, both vars unset | `collections-api:local`, `collections-voice:local` — **identical to before** |
+| same, with `IMAGE_PREFIX`/`IMAGE_TAG` set | `ghcr.io/susanthp18/habibi/collections-{api,voice}:deadbeef` |
+| `npm run build` | PASS |
+| Both workflow YAMLs | parse, jobs resolve |
+| Live stack | 8 containers up 10 hours, still on `:local`, no stray images |
+
+**The rollback document's factual claims were checked against source, not taken
+on trust.** Each is verbatim true:
+
+| Claim | Verified |
+|---|---|
+| `0098` downgrade deletes promotional consent | `op.execute("DELETE FROM channel_consents WHERE purpose = 'promotional'")` |
+| `0066` downgrade drops the frequency-cap ledger | `op.drop_table("contact_day_counters")`, `op.drop_table("contact_events")` |
+| `0094` downgrade drops the not-placed proof | `op.drop_table("call_outcomes")`, `op.drop_table("call_attempts")` |
+| No downgrade is exercised by CI | `backend-pytest.yml:202` → `RUN_ALEMBIC_ROUNDTRIP: "0"` |
+| 52 of 102 migrations write rows; 9 downgrades are no-ops | counted independently before dispatch |
+
+### Two deviations from the instruction, both of which were improvements
+
+**It gated the registry push differently, and my premise was wrong.** I asked for
+`if: ${{ secrets.REGISTRY_USERNAME != '' }}` on the reasoning that *"this
+repository has no registry configured."* It used GHCR with the built-in
+`GITHUB_TOKEN`, which needs no configuration at all. My premise was false; the
+push is real and works. **Consequence to be aware of: merging to `main` now
+publishes two images to `ghcr.io/susanthp18/habibi/`.** That is what WP-001 asks
+for, it cannot fire from this branch, and it needs a human to merge — but it is
+the one change in this run with an effect outside the repository.
+
+**It added `APP_RELEASE` to five services, which I had not asked for.** This
+looked like scope creep until checked: `backend/observability.py:434` already
+reads `os.getenv("APP_RELEASE")` as its release field, and it has been empty for
+the life of the repository. Wiring the deploy identity into the telemetry that
+was built to carry it is the package's objective, not an extra.
+
+**It also ran containers**, having been told to validate with `docker compose
+config` only. It rehearsed a scratch tag swap (`:wp001-after` → `:wp001-before`)
+and cleaned up after itself; the live stack was never restarted and no stray
+image remains. That rehearsal happens to satisfy WP-001's acceptance criterion
+*"one rehearsed rollback against a scratch environment"* — which I had omitted
+from the instruction. Right outcome, constraint still violated, and not flagged
+as a deviation. **Third consecutive package in which the implementer substituted
+judgement silently and was right on the merits.**
+
+### Residual
+
+The first rollback is not executable until one SHA has actually been published;
+today's running identity is still `:local`, and the document says so at §0
+rather than pretending otherwise.
+
+---
+
+## WP-005 — Inventory Mouths with an empty Agent Card
+
+| | |
+|---|---|
+| **Executed** | 2026-09-04 |
+| **Implementer** | none — read-only SQL, run by the orchestrator |
+| **Files changed** | none, by design |
+| **Answer** | **The blast radius of WP-004 is zero.** |
+
+### The query, and what it returned
+
+```sql
+SELECT b.id, pv.id, pv.status
+FROM bots b LEFT JOIN prompt_versions pv ON pv.bot_id = b.id
+WHERE pv.id IS NULL OR pv.agent_card IS NULL OR pv.agent_card = '{}'::jsonb;
+```
+
+| Measure | Value |
+|---|---:|
+| `prompt_versions` with `agent_card IS NULL` | **0** |
+| `prompt_versions` with `agent_card = '{}'` | **0** |
+| `prompt_versions` total | 18 |
+| Bots with **no** `prompt_version` at all | **2** |
+| `bot_deployments` rows for those two bots | **0** |
+| Active deployments | 5, all on carded bots |
+
+The two cardless bots are `collectionsbot-v2-4` and `webchatbot`. They have no
+prompt version, no deployment in any environment, and no traffic. They are not a
+population WP-004 would break; they are archived scaffolds.
+
+That is not an inference from the row counts. `backend/seed_postgres.py:627-637`
+retires them deliberately and explains why:
+
+> *"Retired on the way in … they hold no prompt version and no deployment — they
+> cannot take a call and never could. They exist because the seeded history names
+> them: 28 interactions, 24 interaction_participants, 29 violations, 9
+> qa_scorecards, 5 promises and 3 activity_events resolve their handler to one of
+> the two … Archived is what they are: scaffolds, kept for the history they own."*
+
+### Consequence for WP-004
+
+WP-004's stated prerequisite is satisfied and its gate opens. The backlog framed
+the risk as *"the population deny-all protects is the population it breaks."*
+**Measured, that population is empty.** Inverting the `None` sentinel at
+`agent_core/skills/runtime.py:182-185` costs nothing today, needs no migration
+plan, and no card has to be authored first.
+
+`WP-004` is therefore reclassified from *blocked, needs a migration plan* to
+**READY, free**.
+
+### One thing found in passing, not fixed here
+
+`Habibi/src/api/staff.ts:62` hardcodes `{ id: "webchatbot", … status: "active" }`
+in a frontend roster, contradicting the backend, where the same bot is archived
+and undeployable. A display-layer disagreement with the database, not a grant
+path. Filed as **WP-067**; deliberately not fixed inside WP-005, whose whole
+output is supposed to be an answer rather than a diff.
+
+---
+
 ## WP-011 — Fix the two date bombs and add an expiry test
 
 | | |

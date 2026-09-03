@@ -1066,6 +1066,40 @@ The brief's default order is correctness → security → data integrity → arc
 
 ---
 
+### WP-067 — The frontend roster calls an archived bot active
+
+| | |
+|---|---|
+| **Category** | Correctness (display) · **Severity** P3 · **Confidence** Certain |
+| **Root cause** | Found while executing `WP-005`. `Habibi/src/api/staff.ts:62` hardcodes `{ id: "webchatbot", name: "WebChatBot", kind: "bot", team: null, status: "active" }`. In the database that bot holds **no prompt version and no deployment row**, and `backend/seed_postgres.py:637` archives it on purpose: *"they cannot take a call and never could."* The frontend asserts a liveness the backend denies. |
+| **Objective** | The roster does not describe a bot as active when nothing can route to it. |
+| **Affected files** | `Habibi/src/api/staff.ts:62` (and `collectionsbot-v2-4` if it appears in the same list) |
+| **Dependencies** | none · **Prerequisites** none |
+| **Implementation strategy** | Decide first whether this list should be hardcoded at all — the same seed comment records that *"shipping them onto the Agent Studio fleet index as live cards was the whole reason the page read as filler."* The minimum fix is to mark both archived. The better fix is to source the roster from the API that already knows. |
+| **Acceptance criteria** | No bot renders as `active` unless it has a deployment. |
+| **Risk** | **none** — display only · **Rollback** `git revert` · **Atomic?** Yes |
+
+> A hardcoded status is a claim nobody re-checks. This one has already been wrong for as long as the bot has been archived.
+
+---
+
+### WP-068 — Two tests read "today" in the wrong timezone
+
+| | |
+|---|---|
+| **Category** | Testing · **Severity** P1 · **Confidence** Certain (reproduced both ways) |
+| **Root cause** | `tests/test_conversation_trace_regressions.py:252` asserts `_promise_date_is_past(date.today().isoformat()) is False`, and `tests/test_promise_fulfillment.py:240` creates a promise with `days=0`. Both take "today" from the **process** timezone. The guard they are testing, `agent_core/tools/domain.py::_promise_date_is_past`, takes it from the **tenant's** — IST. Between **18:30 and 24:00 UTC** the two disagree by one day, so a promise dated "today" is already yesterday to the guard and is refused with `promise_date_in_past`. |
+| **Objective** | A test of an IST rule reckons the day in IST. |
+| **Affected files** | `tests/test_conversation_trace_regressions.py:252` · `tests/test_promise_fulfillment.py:240` (the `days=0` case only) |
+| **Dependencies** | none · **Prerequisites** none |
+| **Implementation strategy** | Take today from the same clock the guard uses — `datetime.now(ZoneInfo("Asia/Kolkata")).date()`, the shape `test_contact_policy.py::_today_ist` already uses — rather than `date.today()`. Do **not** "fix" this by widening the guard: the guard is correct and the tests are wrong. |
+| **Acceptance criteria** | Both pass inside `collections_voice` (UTC) at any hour, including between 18:30 and 24:00 UTC. |
+| **Risk** | **none** — tests only · **Rollback** `git revert` · **Atomic?** Yes |
+
+> **Measured 2026-09-03 at 22:23 UTC**, with the container reporting `date.today() = 2026-09-03` against an IST today of `2026-09-04`: both tests **fail in the container and pass on the host**, on identical code. This is the same family as `WP-011` — a test that is only correct while two clocks happen to agree — and it is why the baseline's *NOT FAILURES* section now has a third entry. CI running in UTC goes red for 5½ hours a day for no reason.
+
+---
+
 ### WP-066 — Give the expiry scanner a named allowlist
 
 | | |

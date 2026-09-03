@@ -166,11 +166,11 @@ The backend suite takes **~10 minutes**. Run it in the background; do not poll i
 | `npx vitest run` | 107 passed / 107 |
 | `npm run build` | PASS |
 | `ruff check .` | All checks passed, exit 0 |
-| `pytest tests/` | **1 failed · 3,141 passed · 19 skipped** |
+| `pytest tests/` | **0 genuine failures.** Four artefacts always fail in the container; two more fail there between 18:30 and 24:00 UTC. See below |
 
-**The one expected failure** is `tests/test_contact_policy.py::test_due_reminder_blocked_when_capped` — a stale date literal, red since 2026-09-02, owned by `WP-011`. If you are not doing `WP-011`, leave it alone and say it was already red.
+**There is no longer any genuinely-red test.** `WP-011` (`b30fa8f`) closed the two stale date fixtures, and the calendar bomb that would have fired on 2026-09-15 is defused — both constants are now relative.
 
-**On 2026-09-15 four more tests start failing on the calendar**, not on a commit: the four in `tests/test_voice_write_idempotency.py` that reach `PROMISE_DATE = "2026-09-14"` through the `_book` helper. If today is on or after that date and `WP-011` has not landed, the expected count is 5, not 1.
+**Two tests fail in the container between 18:30 and 24:00 UTC and are NOT defects of yours** — `test_conversation_trace_regressions.py::test_a_promise_for_today_is_still_allowed` and `test_promise_fulfillment.py::test_settle_due_today`. They read "today" from the process timezone while the guard they test reads it from the tenant's (IST), so for 5½ hours a day the two disagree by one day. Owned by `WP-068`. Outside that window they pass. On the host they always pass.
 
 **Four tests always fail inside the container and are NOT defects.** Only `backend/` is bind-mounted at `/app`, so tests that read the frontend tree resolve `/Habibi/...` and raise `FileNotFoundError`:
 
