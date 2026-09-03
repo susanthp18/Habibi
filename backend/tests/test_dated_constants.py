@@ -13,6 +13,12 @@ class is a test failure rather than a red baseline. An ISO assignment
 that has already slipped into the past stays loud too — that is the
 shape of both bombs, and a lookahead that goes quiet on D-day is how
 the class recurs.
+
+An exception is a written, reviewed decision: ``_ALLOWLIST`` keyed by
+``(relative_path, identifier)``. A name that happens to contain
+``VERSION`` is not an exemption. The lapsed Fish TTS free-tier date is
+owned by WP-032; expiry comments are future-lookahead only so that
+already-fired date does not re-red this suite.
 """
 
 from __future__ import annotations
@@ -34,12 +40,17 @@ _SKIP_DIRS = {
     "htmlcov",
 }
 
-# Frozen corpus clocks (``NOW = datetime(2026, 8, 14, ...)``) are a
-# point in the past the tests pin, not a value that will age through a
-# wall-clock guard. Protocol/API version strings happen to look like
-# dates (``PROTOCOL_VERSION = "2025-11-25"``) and are not expiries.
-_SKIP_ASSIGN_NAMES = {"NOW"}
-_VERSION_NAME = re.compile(r"VERSION", re.I)
+# Consulted only when ``hits_in(..., rel=...)`` is supplied, so a
+# synthetic snippet cannot hide behind a path it does not have.
+_ALLOWLIST: dict[tuple[str, str], str] = {
+    (
+        "agent_core/mcp_http/protocol.py",
+        "PROTOCOL_VERSION",
+    ): (
+        "MCP specification revision shaped like a date; it is a protocol "
+        "identity, not an expiry, and will never lapse."
+    ),
+}
 
 # Leading whitespace is required: the original PROMISE_DATE bomb was
 # column-0, but the next one will not be, and ``^`` without ``\s*``
@@ -90,17 +101,27 @@ def _already_stale_or_upcoming(when: date, today: date, horizon: int) -> bool:
     return when <= today + timedelta(days=horizon)
 
 
-def _skip_assign(name: str) -> bool:
-    return name in _SKIP_ASSIGN_NAMES or bool(_VERSION_NAME.search(name))
+def _allowlisted(rel: str | None, name: str) -> bool:
+    return rel is not None and (rel, name) in _ALLOWLIST
 
 
-def hits_in(source: str, *, today: date, horizon: int = HORIZON_DAYS) -> list[str]:
-    """Return human-readable hits for one file's contents."""
+def hits_in(
+    source: str,
+    *,
+    today: date,
+    horizon: int = HORIZON_DAYS,
+    rel: str | None = None,
+) -> list[str]:
+    """Return human-readable hits for one file's contents.
+
+    ``rel`` is the path relative to ``backend/``. The allowlist is
+    consulted only when it is supplied.
+    """
     found: list[str] = []
 
     for match in _ASSIGN_ISO.finditer(source):
         name, raw = match.group(1), match.group(2)
-        if _skip_assign(name):
+        if _allowlisted(rel, name):
             continue
         when = _parse_iso(raw)
         # ISO assignments are the PROMISE_DATE bomb: they fail the
@@ -112,7 +133,7 @@ def hits_in(source: str, *, today: date, horizon: int = HORIZON_DAYS) -> list[st
 
     for match in _ASSIGN_CTOR.finditer(source):
         name = match.group(1)
-        if _skip_assign(name):
+        if _allowlisted(rel, name):
             continue
         when = date(int(match.group(2)), int(match.group(3)), int(match.group(4)))
         if _in_lookahead(when, today, horizon):
@@ -206,6 +227,21 @@ def test_the_live_fish_tts_sources_are_caught_inside_the_horizon() -> None:
     )
 
 
+def test_lapsed_fish_tts_is_owned_by_wp032_not_this_scanner() -> None:
+    """Expiry comments are future-lookahead only. WP-032 owns the flip."""
+    today = date(2026, 9, 3)
+    fish = (BACKEND / "agent_core" / "providers" / "fish_tts.py").read_text(
+        encoding="utf-8"
+    )
+    assert hits_in(fish, today=today) == [], (
+        "already-lapsed Fish TTS must not re-red this suite; WP-032 owns it"
+    )
+    env = (BACKEND / ".env.example").read_text(encoding="utf-8")
+    assert hits_in(env, today=today) == [], (
+        "already-lapsed .env.example free-through must not re-red this suite"
+    )
+
+
 def test_the_live_policy_rule_set_cliff_is_caught_inside_the_horizon() -> None:
     seed = (BACKEND / "scripts" / "seed_policy_rules.py").read_text(encoding="utf-8")
     hits = hits_in(seed, today=date(2026, 12, 10))
@@ -215,9 +251,45 @@ def test_the_live_policy_rule_set_cliff_is_caught_inside_the_horizon() -> None:
     )
 
 
-def test_the_scan_ignores_versions_frozen_clocks_and_far_dates() -> None:
+def test_the_allowlist_not_a_version_name_regex_exempts_protocol_version() -> None:
+    """Without rel the snippet is a hit; with it, only the named path is clean.
+
+    That is what proves the allowlist, not a name regex, is doing the work.
+    A real expiry whose identifier contains VERSION must stay loud.
+    """
     today = date(2026, 9, 3)
-    assert hits_in('PROTOCOL_VERSION = "2025-11-25"\n', today=today) == []
+    snippet = 'PROTOCOL_VERSION = "2025-11-25"\n'
+    assert hits_in(snippet, today=today), (
+        "without rel, PROTOCOL_VERSION is a dated constant — the allowlist "
+        "is path-keyed and cannot fire on a snippet"
+    )
+    assert hits_in(
+        snippet,
+        today=today,
+        rel="agent_core/mcp_http/protocol.py",
+    ) == [], "the one allowlisted (path, name) pair must be clean"
+    assert hits_in(
+        snippet,
+        today=today,
+        rel="agent_core/other.py",
+    ), "a different path must not inherit the PROTOCOL_VERSION exemption"
+    assert hits_in(
+        'LICENSE_VERSION_VALID_UNTIL = "2026-09-10"\n',
+        today=today,
+    ), "a real expiry whose name contains VERSION must stay loud"
+
+    rel = "agent_core/mcp_http/protocol.py"
+    source = (BACKEND / rel).read_text(encoding="utf-8")
+    assert hits_in(source, today=today), (
+        "without rel, the live PROTOCOL_VERSION assignment is a hit"
+    )
+    assert hits_in(source, today=today, rel=rel) == []
+
+
+def test_the_scan_ignores_frozen_clocks_and_far_dates() -> None:
+    today = date(2026, 9, 3)
+    # Frozen corpus clocks are constructors in the past; the constructor
+    # scan is future-lookahead only, so they are origins, not bombs.
     assert hits_in(
         "NOW = datetime(2026, 8, 14, 6, 0, tzinfo=timezone.utc)\n",
         today=today,
@@ -253,7 +325,7 @@ def test_dated_constants_are_not_within_30_days_of_expiry() -> None:
         except OSError:
             continue
         rel = path.relative_to(BACKEND).as_posix()
-        for hit in hits_in(source, today=today):
+        for hit in hits_in(source, today=today, rel=rel):
             offenders.append(f"{rel}:{hit}")
     assert offenders == [], (
         "dated constant(s) within "
