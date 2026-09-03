@@ -16,13 +16,12 @@ The seven, and where each lives today:
 2. ``intersect.idle_offered_tools``         the offer, no skill active
 3. ``intersect.offered_tools``              the offer, a skill active
 4. the publish gate's private scope formula (``cards/compile.py``, G9)
-5. ``bot_tools.TOOL_DEFINITIONS``           text runtime's cardless fallback
+5. ~~``bot_tools.TOOL_DEFINITIONS``~~       deleted — text cardless is deny-all
 6. the voice runtime's ``ALWAYS_ON``        pinned in test_tool_grant.py
-7. ``sandbox_runtime._SANDBOX_TOOL_NAMES``  sandbox's cardless fallback
+7. ~~``sandbox_runtime._SANDBOX_TOOL_NAMES``~~ deleted — sandbox cardless is deny-all
 
-5 and 7 are asserted as a *difference*: ADR-0002 makes the module deny-all
-where those fall open. A characterization test that quietly absorbed an
-intended change would be worse than none.
+5 and 7 used to be asserted as a *difference*: ADR-0002 made the module deny-all
+where those fell open. The lists are gone; the pin now is that they stay gone.
 
 Packs come from the ``card_and_packs`` fixture, which reads them off disk.
 ``packs_from_card`` fails *closed* to an empty list when the database is
@@ -161,22 +160,24 @@ def test_static_grant_against_the_publish_gates_formula(bot_id, card_and_packs) 
         assert not any(name in p.allowed_tools for p in packs)
 
 
-# --- 5 and 7. the two cardless fallbacks ------------------------------------
+# --- 5 and 7. the two cardless fallbacks are gone ---------------------------
 
 
-def test_the_module_does_not_reproduce_the_cardless_fallbacks() -> None:
-    """The text and sandbox runtimes use these when no card resolves. Both
-    contain skill-gated writes, which is the fail-open ADR-0002 retires, so the
-    module grants nothing there instead. They stay reachable through
-    ``is_cardless`` until #14 deletes the branches that read them.
+def test_the_cardless_fallbacks_are_gone() -> None:
+    """The text and sandbox runtimes used these when no card resolved. Both
+    contained skill-gated writes. ADR-0002 deleted the lists; a cardless mouth
+    is granted nothing at the live seam, not only inside ToolGrant.
     """
     import bot_tools
-    from sandbox_runtime import _SANDBOX_TOOL_NAMES
+    import sandbox_runtime
+    from agent_core.skills.runtime import resolve_mouth
 
-    text_fallback = {t["function"]["name"] for t in bot_tools.TOOL_DEFINITIONS}
-    sandbox_fallback = set(_SANDBOX_TOOL_NAMES)
-    assert "create_promise_to_pay" in text_fallback
-    assert "create_promise_to_pay" in sandbox_fallback
+    assert not hasattr(bot_tools, "TOOL_DEFINITIONS")
+    assert not hasattr(sandbox_runtime, "_SANDBOX_TOOL_NAMES")
+
+    tools = resolve_mouth({}).tools()
+    assert tools.allowed == frozenset()
+    assert tools.offered == ()
 
     for channel in CHANNELS:
         assert ToolGrant.for_card(None, (), channel=channel).allowed == frozenset()

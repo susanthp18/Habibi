@@ -944,11 +944,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         # The handoff allowlist belongs to the card this turn is running, not
         # to whatever BOT_ID the process was started with.
         tool_ctx.agent_card = bundle.get("agentCard") or None
-        turn_tools = (
-            CATALOG.openai_tools(list(tool_state.offered))
-            if tool_state.has_grant
-            else bot_tools.TOOL_DEFINITIONS
-        )
+        turn_tools = CATALOG.openai_tools(list(tool_state.offered or ()))
 
         tool_failures = 0
         for _ in range(_max_tool_iterations()):

@@ -192,12 +192,18 @@ def _node_json(
 def _registry(
     graph: str | None, session: VoiceSession
 ) -> tuple[dict[str, Callable[[], dict[str, Any]]], dict[str, Any], list[Any]]:
+    from agent_core.tools.catalog import CATALOG
     from voice.flows import build_collections_flow
+    from voice.tools import ALWAYS_ON
 
+    # The export is the built-in script's full surface, not a card's grant.
+    # The card filters at call time (ADR-0002); omitting a grant here would
+    # ship a graph that only contained ALWAYS_ON.
     state, tools, _initial, globals_ = build_collections_flow(
         session,
         role_message="",
         graph=graph or "legacy",
+        allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
     )
     # ToolState.nodes is the live node registry the builder populates, and the
     # one the built-in transitions resolve node names against.

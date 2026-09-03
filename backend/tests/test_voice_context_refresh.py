@@ -129,6 +129,7 @@ def test_flag_dispute_refreshes_the_card_without_blocking_its_result(
             start_recording=None,
             nodes={},
             replace_developer=replace_developer,
+            allowed_tool_names=set(voice_tools.CATALOG.specs) | set(voice_tools.ALWAYS_ON),
         )
         state.call_context = ctx
 
@@ -157,7 +158,8 @@ def test_refresh_is_a_noop_without_a_replacer() -> None:
     async def scenario() -> None:
         session = VoiceSession(session_id="VS-NOREPL001", customer_id="C1")
         state, _tools = voice_tools.build_tools(
-            session, bot_id=None, start_recording=None, nodes={}
+            session, bot_id=None, start_recording=None, nodes={},
+            allowed_tool_names=set(voice_tools.CATALOG.specs) | set(voice_tools.ALWAYS_ON),
         )
         assert state.call_context is None
 

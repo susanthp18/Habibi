@@ -55,35 +55,8 @@ _classify_kb_intent = kb_tool.classify_kb_intent
 # drift apart again (they previously disagreed on promise_date/promisedDate,
 # dispute_type/type, scheduled_at/scheduledAt, summary/transcriptSnippet).
 # execute_tool() normalizes incoming args, so a model that still emits the old
-# camelCase names keeps working.
-TOOL_DEFINITIONS: list[dict[str, Any]] = CATALOG.openai_tools(
-    [
-        "get_customer_context",
-        "get_payment_history",
-        "get_emi_schedule",
-        "search_knowledge_base",
-        "create_promise_to_pay",
-        "flag_dispute",
-        "evaluate_authority",
-        "apply_goodwill",
-        "request_callback",
-        "add_customer_note",
-        "capture_nonpayment_reason",
-        "set_contact_preference",
-        "escalate_to_human",
-        "handoff_to_agent",
-        "recommend_next_offer",
-        "check_product_eligibility",
-        "capture_lead",
-        "decline_offer",
-        "request_documents",
-        "ingest_customer_document",
-        "identify_customer",
-        "load_skill",
-        "run_skill_script",
-    ]
-)
-
+# camelCase names keeps working. The offer is the card's grant (ADR-0002:
+# cardless → nothing); HANDLERS is every name this channel can run.
 
 
 def _compact_customer(customer: dict[str, Any]) -> dict[str, Any]:
@@ -156,7 +129,7 @@ class ToolContext:
         self.offer_declined = False
         self.offers_presented = 0
         self.authority_decision_id: str | None = None
-        # Phase 2 skill intersection. None = legacy unrestricted catalog.
+        # The grant for this turn. None = no grant derived = deny (ADR-0002).
         # Frozen on purpose: the grant arrives from one owner and a caller that
         # could union onto it is how six competing tool formulas happened.
         self.allowed_tools: AbstractSet[str] | None = None
@@ -828,7 +801,7 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
         latency = int((time.perf_counter() - t0) * 1000)
         return False, {"error": f"invalid_json_args: {exc}"}, latency
 
-    if ctx.allowed_tools is not None and name not in ctx.allowed_tools:
+    if ctx.allowed_tools is None or name not in ctx.allowed_tools:
         latency = int((time.perf_counter() - t0) * 1000)
         return False, {"error": "tool_not_on_card_or_skill", "tool": name}, latency
 

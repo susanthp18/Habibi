@@ -125,6 +125,7 @@ def test_whatsapp_flag_dispute_returns_allowed_no_traceback(
         customer_text="",
         intent="dispute",
     )
+    ctx.allowed_tools = frozenset({"flag_dispute"})
     with caplog.at_level(logging.WARNING):
         ok, payload, _latency = bot_tools.execute_tool(
             ctx, "flag_dispute", '{"type":"bogus"}'

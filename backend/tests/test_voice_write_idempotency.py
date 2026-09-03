@@ -111,6 +111,7 @@ def _call(
         bot_id=_bot_id(db_tx),
         start_recording=None,
         nodes={},
+        allowed_tool_names=set(voice_tools.CATALOG.specs) | set(voice_tools.ALWAYS_ON),
     )
 
     async def scenario():

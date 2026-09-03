@@ -21,8 +21,10 @@ import asyncio
 
 import pytest
 
+from agent_core.tools.catalog import CATALOG
 from voice.flows import build_collections_flow
 from voice.session import VoiceSession
+from voice.tools import ALWAYS_ON
 
 LEGACY_NODES = {
     "greet_disclose",
@@ -61,6 +63,7 @@ HUB_NODES = {
 
 def _flow(graph: str, **kw):
     session = kw.pop("session", None) or VoiceSession(session_id="VS-GRAPHTEST1")
+    kw.setdefault("allowed_tool_names", set(CATALOG.specs) | set(ALWAYS_ON))
     return build_collections_flow(session, role_message="role", graph=graph, **kw)
 
 

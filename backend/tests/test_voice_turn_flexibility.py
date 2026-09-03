@@ -67,9 +67,15 @@ def test_transitioning_tools_do_not_use_no_response() -> None:
     session = VoiceSession(session_id="VS-TURNTEST1")
     session.identity_verified = True
     nodes: dict = {}
-    from voice.tools import build_tools
+    from voice.tools import ALWAYS_ON, CATALOG, build_tools
 
-    state, tools = build_tools(session, bot_id=None, start_recording=None, nodes=nodes)
+    state, tools = build_tools(
+        session,
+        bot_id=None,
+        start_recording=None,
+        nodes=nodes,
+        allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
+    )
     nodes.update(
         {
             "negotiate_ptp": lambda: {"name": "negotiate_ptp"},
@@ -101,7 +107,7 @@ def test_add_customer_note_is_silent_only_when_already_spoken(
 
     session = VoiceSession(session_id="VS-TURNTEST1", customer_id="C1")
     session.identity_verified = True
-    from voice.tools import build_tools
+    from voice.tools import ALWAYS_ON, CATALOG, build_tools
 
     def _run(spoke: bool):
         _state, tools = build_tools(
@@ -110,6 +116,7 @@ def test_add_customer_note_is_silent_only_when_already_spoken(
             start_recording=None,
             nodes={},
             spoke_this_response=lambda: spoke,
+            allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
         )
         return asyncio.run(tools["add_customer_note"].handler({"text": "note body"}, None))
 
@@ -130,9 +137,15 @@ def test_add_customer_note_without_a_probe_still_speaks() -> None:
     try:
         session = VoiceSession(session_id="VS-TURNTEST1", customer_id="C1")
         session.identity_verified = True
-        from voice.tools import build_tools
+        from voice.tools import ALWAYS_ON, CATALOG, build_tools
 
-        _state, tools = build_tools(session, bot_id=None, start_recording=None, nodes={})
+        _state, tools = build_tools(
+            session,
+            bot_id=None,
+            start_recording=None,
+            nodes={},
+            allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
+        )
         _res, next_slot = asyncio.run(
             tools["add_customer_note"].handler({"text": "note"}, None)
         )

@@ -2908,7 +2908,8 @@ def build_tools(
         "run_skill_script": run_skill_script,
         "end_call": end_call,
     }
-    if allowed_tool_names is not None:
-        keep = set(allowed_tool_names) | ALWAYS_ON
-        tools = {k: v for k, v in tools.items() if k in keep}
+    # ADR-0002: a missing grant is deny-all. ALWAYS_ON is unioned back so a
+    # cardless mouth can still greet, disclose, verify and hang up.
+    keep = set(allowed_tool_names or ()) | ALWAYS_ON
+    tools = {k: v for k, v in tools.items() if k in keep}
     return state, tools

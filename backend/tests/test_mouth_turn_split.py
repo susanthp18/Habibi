@@ -100,8 +100,8 @@ _OFFERED_WITH_PTP = _OFFERED_IDLE + ["create_promise_to_pay", "capture_nonpaymen
 _CARDLESS = {
     "card_is_none": True,
     "pack_slugs": [],
-    "allowed": None,
-    "offered": None,
+    "allowed": [],
+    "offered": [],
     "prefix_sha": _EMPTY_SHA,
     "prefix_len": 0,
     "active_slug": None,
@@ -214,11 +214,18 @@ def test_the_grant_is_frozen() -> None:
 
 
 def test_has_grant_is_the_only_reading_of_the_sentinel() -> None:
-    """A cardless mouth has no grant; an authored one has. Callers ask this
-    instead of testing ``allowed is not None``, so the deny-all ticket changes
-    one branch rather than four call sites."""
-    assert resolve_mouth({}).tools().has_grant is False
-    assert resolve_mouth(card_dump(COLLECTIONS_BOT_ID)).tools().has_grant is True
+    """A cardless mouth is granted nothing; an authored one has a real grant.
+
+    Callers used to read ``allowed is not None`` as "do not filter". ADR-0002
+    inverts that: the empty frozenset *is* a grant, of nothing.
+    """
+    cardless = resolve_mouth({}).tools()
+    assert cardless.has_grant is True
+    assert cardless.allowed == frozenset()
+    assert cardless.offered == ()
+    authored = resolve_mouth(card_dump(COLLECTIONS_BOT_ID)).tools()
+    assert authored.has_grant is True
+    assert authored.allowed
 
 
 def test_both_questions_come_off_one_resolution() -> None:

@@ -25,6 +25,10 @@ from voice.flows_dynamic import (  # noqa: E402
 
 
 def _build(graph: fg.FlowGraph, **kw):
+    from agent_core.tools.catalog import CATALOG
+    from voice.tools import ALWAYS_ON
+
+    kw.setdefault("allowed_tool_names", set(CATALOG.specs) | set(ALWAYS_ON))
     return build_authored_flow(
         VoiceSession(session_id="VS-FLOWDYN001"),
         graph.model_dump(),

@@ -49,7 +49,11 @@ def _flow(*, allowed: frozenset[str] | None, graph: str = "legacy"):
 
 
 def _all_tool_names() -> set[str]:
-    _state, tools, _initial, _globals = _flow(allowed=None)
+    from agent_core.tools.catalog import CATALOG
+
+    _state, tools, _initial, _globals = _flow(
+        allowed=frozenset(set(CATALOG.specs) | ALWAYS_ON)
+    )
     return set(tools)
 
 

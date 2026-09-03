@@ -175,22 +175,6 @@ def _collect_enrichment(future: Future, customer_text: str) -> tuple[Any, float,
     wait_ms = round((time.perf_counter() - wait_start) * 1000.0, 2)
     return result, float(wall_ms), wait_ms
 
-_SANDBOX_TOOL_NAMES = (
-    "get_customer_context",
-    "get_payment_history",
-    "get_emi_schedule",
-    "search_knowledge_base",
-    "create_promise_to_pay",
-    "flag_dispute",
-    "evaluate_authority",
-    "apply_goodwill",
-    "request_callback",
-    "check_product_eligibility",
-    "capture_lead",
-    "request_documents",
-    "load_skill",
-    "run_skill_script",
-)
 _SANDBOX_MAX_TOOL_ITERS = 4
 # Ceiling on a single tool result as handed back to the model. Generous enough
 # for a full KB passage, bounded so one wide result cannot dominate the context
@@ -229,9 +213,7 @@ def _run_sandbox_tool_loop(
 
     mouth = resolve_mouth(agent_card or {}, intent=intent)
     tool_state = mouth.tools()
-    tools = CATALOG.openai_tools(
-        list(tool_state.offered) if tool_state.has_grant else list(_SANDBOX_TOOL_NAMES)
-    )
+    tools = CATALOG.openai_tools(list(tool_state.offered or ()))
     ctx = ToolContext(
         job_id=f"sandbox-{run_id}",
         conversation_id=f"sandbox-{run_id}",

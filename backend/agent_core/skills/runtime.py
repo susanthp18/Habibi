@@ -125,19 +125,12 @@ class ToolState:
 
     @property
     def has_grant(self) -> bool:
-        """Whether a tool grant could be derived for this mouth at all.
+        """Whether a tool grant was derived for this mouth.
 
-        The single place the ``None`` sentinel is interpreted. ``None`` means
-        the mouth has no usable agent card, so no grant exists — and today
-        every caller reads that as *no filtering*, falling back to a default
-        tool list. That is the fail-open ADR-0002 decides to retire; the
-        decision is accepted but not yet implemented, and doing so is the whole
-        of the deny-all ticket, which is deliberately the last change in this
-        sequence and lands alone.
-
-        Four callers each used to spell this ``allowed is not None`` and each
-        had to know what None meant. Asking here is what lets that ticket
-        change one branch instead of four call sites.
+        ``None`` used to mean "no card, skip filtering". ADR-0002 retired that:
+        :meth:`MouthTurn.tools` returns an empty frozenset for a cardless mouth,
+        so this is True and callers offer nothing. Enforcement sentinels treat
+        any remaining ``None`` as deny-all as well.
 
         Not named ``is_gated``: CONTEXT.md reserves *Gate* for a publish-time
         check, and this is a per-turn question about a *Tool Grant*.
@@ -158,10 +151,10 @@ class MouthTurn:
 
     ``card is None`` covers both "no card was authored" and "the card would not
     parse". Neither can be filtered against, so both yield an empty prompt and
-    no grant. They are also indistinguishable in ``packs``: pack resolution
-    parses the same card, so an unparseable one resolves to no packs by the
-    same failure — verified against the pre-split implementation rather than
-    assumed, because the reverse looked plausible and is not true.
+    an empty grant (ADR-0002). They are also indistinguishable in ``packs``:
+    pack resolution parses the same card, so an unparseable one resolves to no
+    packs by the same failure — verified against the pre-split implementation
+    rather than assumed, because the reverse looked plausible and is not true.
     """
 
     card: "AgentCard | None"
@@ -182,7 +175,9 @@ class MouthTurn:
     def tools(self, *, catalog_names: set[str] | None = None) -> ToolState:
         """What this turn may execute, and what to put in front of the model."""
         if self.card is None:
-            return ToolState(allowed=None, offered=None)
+            # ADR-0002: a cardless mouth is granted nothing. Empty, not None —
+            # None was read as "do not filter" by every runtime.
+            return ToolState(allowed=frozenset(), offered=())
 
         from agent_core.skills.intersect import effective_tools, offered_tools
         from agent_core.tools.catalog import CATALOG
@@ -219,8 +214,8 @@ def resolve_mouth(
     try:
         card = parse_card(card_raw)
     except Exception:
-        # Packs resolved, card did not parse. Reported as ungated, same as an
-        # absent card: there is nothing to filter against either way.
+        # Packs resolved, card did not parse. Same as an absent card: there is
+        # nothing to filter against, so the grant is empty (ADR-0002).
         return MouthTurn(card=None, packs=tuple(packs), active_slug=None)
     resolved = active_slug
     if not resolved:

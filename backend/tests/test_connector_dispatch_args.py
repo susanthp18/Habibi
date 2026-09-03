@@ -156,6 +156,7 @@ def test_execute_tool_forwards_the_models_arguments(monkeypatch: pytest.MonkeyPa
         customer_text="which invoice is open?",
         intent="payment_intent",
     )
+    ctx.allowed_tools = frozenset({"ext.vendor.get_invoice"})
     ok, result, _latency = bot_tools.execute_tool(
         ctx, "ext.vendor.get_invoice", '{"invoice_id": "INV-9"}'
     )

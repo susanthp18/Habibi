@@ -25,7 +25,11 @@ from pipecat.flows import FlowsFunctionSchema
 
 from agent_core.tools.catalog import CATALOG
 from voice.session import VoiceSession
-from voice.tools import build_tools
+from voice.tools import ALWAYS_ON, build_tools
+
+# After ADR-0002, omitting allowed_tool_names is deny-all. Tests that need the
+# full handler surface pass this so the filter keeps every catalogued verb.
+_FULL_GRANT = set(CATALOG.specs) | set(ALWAYS_ON)
 
 # Zero-arg, voice-only flow control. Adding a name here must be a conscious act.
 VOICE_CONTROL_TOOLS = frozenset(
@@ -50,6 +54,7 @@ def tools() -> dict:
         bot_id=None,
         start_recording=None,
         nodes={},
+        allowed_tool_names=_FULL_GRANT,
     )
     return built
 

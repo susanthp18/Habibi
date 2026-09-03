@@ -23,13 +23,15 @@ pytest.importorskip("pipecat.flows")
 
 
 def _live_tool_keys() -> set[str]:
-    from voice.tools import build_tools
+    from agent_core.tools.catalog import CATALOG
+    from voice.tools import ALWAYS_ON, build_tools
 
     _state, tools = build_tools(
         VoiceSession(session_id="VS-CATALOGTEST"),
         bot_id=None,
         start_recording=None,
         nodes={},
+        allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
     )
     return set(tools)
 

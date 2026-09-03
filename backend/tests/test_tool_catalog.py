@@ -43,31 +43,74 @@ def test_shared_tools_are_exposed_on_both_channels(tool_name):
     assert CHANNEL_TEXT in spec.channels
 
 
+# Semantic required args on the text-channel OpenAI rendering. Strict mode
+# lists every property as required (optionality is a nullable type); this map
+# is the ArgSpec.required set, so dropping ``required=True`` from a money tool
+# is a test failure rather than a silent catalog edit.
+EXPECTED_TEXT_REQUIRED: dict[str, tuple[str, ...]] = {
+    "get_customer_context": (),
+    "get_payment_history": (),
+    "get_emi_schedule": (),
+    "identify_customer": (),
+    "create_promise_to_pay": ("amount", "promise_date"),
+    "flag_dispute": ("dispute_type",),
+    "capture_nonpayment_reason": ("reason",),
+    "set_contact_preference": (),
+    "evaluate_authority": (),
+    "apply_goodwill": ("decision_id",),
+    "request_callback": ("scheduled_at",),
+    "add_customer_note": ("text",),
+    "escalate_to_human": ("reason",),
+    "handoff_to_agent": ("target_bot_id", "reason"),
+    "load_skill": ("slug",),
+    "run_skill_script": ("name",),
+    "request_documents": ("document_type",),
+    "ingest_customer_document": ("filename", "mime_type"),
+    "recommend_next_offer": (),
+    "decline_offer": (),
+    "check_product_eligibility": ("product_id",),
+    "capture_lead": ("product_id",),
+    "search_knowledge_base": ("query",),
+}
+
+
 def test_whatsapp_definitions_render_from_catalog():
-    """bot_tools.TOOL_DEFINITIONS must be exactly what the catalog renders.
+    """The text-channel OpenAI rendering is the WhatsApp wire contract.
 
-    Compares the *whole* definition set — every tool, property, required list
-    and default — against CATALOG's own rendering path. Spot-checking a few
-    names and one property let schema drift (a re-added hand-rolled entry, a
-    dropped required field, a changed enum) through unnoticed, which is the
-    exact regression this module exists to prevent.
+    ``TOOL_DEFINITIONS`` is gone — WhatsApp offers ``CATALOG.openai_tools()``
+    directly — so there is no second list to deep-equal. Handler names are
+    pinned by ``test_every_handler_has_a_spec_and_vice_versa``. This test
+    pins what a name check cannot: required fields, and the rule that
+    camelCase aliases stay off the published schema.
     """
-    import bot_tools
+    rendered = {t["function"]["name"]: t for t in CATALOG.openai_tools()}
+    specs = {s.name: s for s in CATALOG.for_channel(CHANNEL_TEXT)}
 
-    # Full text-channel set, not just the names bot_tools happens to list —
-    # a spec added to the catalog for text must reach the WhatsApp runtime.
-    by_name = {t["function"]["name"]: t for t in CATALOG.openai_tools()}
-    actual_by_name = {t["function"]["name"]: t for t in bot_tools.TOOL_DEFINITIONS}
-
-    assert set(actual_by_name) == set(by_name), (
-        f"only in bot_tools: {set(actual_by_name) - set(by_name)}; "
-        f"only in catalog: {set(by_name) - set(actual_by_name)}"
+    assert set(rendered) == set(EXPECTED_TEXT_REQUIRED), (
+        f"only in rendering: {set(rendered) - set(EXPECTED_TEXT_REQUIRED)}; "
+        f"only in pin: {set(EXPECTED_TEXT_REQUIRED) - set(rendered)}"
     )
-    for name, definition in by_name.items():
-        assert actual_by_name[name] == definition, f"{name} drifted from the catalog"
+    assert set(rendered) == set(specs)
 
-    # The canonical name is snake_case on BOTH channels.
-    ptp_props = actual_by_name["create_promise_to_pay"]["function"]["parameters"]["properties"]
+    for name, definition in rendered.items():
+        spec = specs[name]
+        params = definition["function"]["parameters"]
+        props = params["properties"]
+        required = params.get("required", [])
+        aliases = {alias for arg in spec.args for alias in arg.aliases}
+
+        assert tuple(spec.required_names()) == EXPECTED_TEXT_REQUIRED[name], name
+        for field in EXPECTED_TEXT_REQUIRED[name]:
+            assert field in required, f"{name} dropped required field {field}"
+            assert field in props, f"{name} dropped required property {field}"
+        assert aliases.isdisjoint(props), (
+            f"{name} re-published aliases {aliases & set(props)}"
+        )
+        for prop in props:
+            assert prop == prop.lower(), f"{name}.{prop} is not snake_case"
+
+    # The unification regression this module exists to prevent.
+    ptp_props = rendered["create_promise_to_pay"]["function"]["parameters"]["properties"]
     assert "promise_date" in ptp_props
     assert "promisedDate" not in ptp_props
 
@@ -76,7 +119,7 @@ def test_every_handler_has_a_spec_and_vice_versa():
     """A handler without a spec can never be called; a spec without a handler lies to the model."""
     import bot_tools
 
-    declared = {t["function"]["name"] for t in bot_tools.TOOL_DEFINITIONS}
+    declared = {t["function"]["name"] for t in CATALOG.openai_tools()}
     handled = set(bot_tools.HANDLERS)
     assert declared - handled == set(), f"declared but unhandled: {declared - handled}"
     assert handled - declared == set(), f"handled but undeclared: {handled - declared}"

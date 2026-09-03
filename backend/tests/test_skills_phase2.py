@@ -243,7 +243,8 @@ def test_idle_offered_hides_gated_writes() -> None:
 
 def test_mouth_turn_state_legacy_empty_card() -> None:
     state = mouth_turn_state({})
-    assert state["allowed"] is None
+    assert state["allowed"] == set()
+    assert state["offered"] == []
     assert state["prefix"] == ""
 
 
