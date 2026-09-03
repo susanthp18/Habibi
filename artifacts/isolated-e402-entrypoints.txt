@@ -1,0 +1,41 @@
+$ check voice/bot.py worker.py bot_worker.py voice/spike.py --isolated --select E402 --target-version py312 --output-format=concise
+exit=1
+
+bot_worker.py:33:1: E402 Module level import not at top of file
+bot_worker.py:34:1: E402 Module level import not at top of file
+bot_worker.py:35:1: E402 Module level import not at top of file
+bot_worker.py:36:1: E402 Module level import not at top of file
+bot_worker.py:37:1: E402 Module level import not at top of file
+bot_worker.py:38:1: E402 Module level import not at top of file
+bot_worker.py:39:1: E402 Module level import not at top of file
+bot_worker.py:40:1: E402 Module level import not at top of file
+bot_worker.py:41:1: E402 Module level import not at top of file
+bot_worker.py:42:1: E402 Module level import not at top of file
+bot_worker.py:43:1: E402 Module level import not at top of file
+bot_worker.py:44:1: E402 Module level import not at top of file
+bot_worker.py:45:1: E402 Module level import not at top of file
+bot_worker.py:46:1: E402 Module level import not at top of file
+voice\bot.py:26:1: E402 Module level import not at top of file
+voice\bot.py:30:1: E402 Module level import not at top of file
+voice\bot.py:32:1: E402 Module level import not at top of file
+voice\bot.py:33:1: E402 Module level import not at top of file
+voice\bot.py:34:1: E402 Module level import not at top of file
+voice\bot.py:35:1: E402 Module level import not at top of file
+voice\bot.py:36:1: E402 Module level import not at top of file
+voice\bot.py:37:1: E402 Module level import not at top of file
+voice\bot.py:38:1: E402 Module level import not at top of file
+voice\bot.py:39:1: E402 Module level import not at top of file
+voice\bot.py:40:1: E402 Module level import not at top of file
+voice\bot.py:41:1: E402 Module level import not at top of file
+voice\bot.py:42:1: E402 Module level import not at top of file
+voice\bot.py:43:1: E402 Module level import not at top of file
+voice\bot.py:44:1: E402 Module level import not at top of file
+voice\bot.py:45:1: E402 Module level import not at top of file
+voice\bot.py:46:1: E402 Module level import not at top of file
+voice\spike.py:38:1: E402 Module level import not at top of file
+voice\spike.py:40:1: E402 Module level import not at top of file
+voice\spike.py:41:1: E402 Module level import not at top of file
+voice\spike.py:42:1: E402 Module level import not at top of file
+worker.py:26:1: E402 Module level import not at top of file
+worker.py:27:1: E402 Module level import not at top of file
+Found 37 errors.

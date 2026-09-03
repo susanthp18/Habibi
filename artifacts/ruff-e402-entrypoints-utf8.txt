@@ -1,0 +1,3 @@
+$ check voice/bot.py worker.py bot_worker.py voice/spike.py --select E402 --statistics
+exit=0
+

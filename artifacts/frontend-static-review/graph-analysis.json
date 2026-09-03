@@ -1,0 +1,804 @@
+{
+  "totals": {
+    "srcTsFiles": 474,
+    "nodes": 474,
+    "appNodes": 473,
+    "edges": 1692,
+    "appEdges": 1646,
+    "orphans": 41,
+    "appOrphans": 41,
+    "leaves": 50,
+    "appLeaves": 50,
+    "sccs": 1,
+    "simpleCycles": 1,
+    "unresolved": 1,
+    "aliasImports": 1483,
+    "relativeInternal": 239
+  },
+  "byDir": {
+    "api": 48,
+    "components": 331,
+    "data": 28,
+    "hooks": 2,
+    "lib": 15,
+    "registry": 1,
+    "router.tsx": 1,
+    "routes": 44,
+    "routeTree.gen.ts": 1,
+    "server.ts": 1,
+    "start.ts": 1,
+    "types": 1
+  },
+  "componentDirs": {
+    "audit": 7,
+    "billing": 11,
+    "bot-analytics": 10,
+    "brand": 2,
+    "callbacks": 9,
+    "charts": 9,
+    "compliance": 8,
+    "consent": 10,
+    "customer360": 19,
+    "dashboard": 11,
+    "disputes": 7,
+    "documents": 8,
+    "floor": 11,
+    "flow": 5,
+    "handoff": 9,
+    "inbox": 8,
+    "integrations": 7,
+    "kb": 12,
+    "offers": 2,
+    "platform": 1,
+    "promises": 8,
+    "prompt-studio": 22,
+    "qa": 12,
+    "records": 4,
+    "redaction": 8,
+    "routing": 9,
+    "sandbox": 17,
+    "shell": 8,
+    "trace": 1,
+    "ui": 55,
+    "upsell": 9,
+    "webhooks": 8,
+    "workspace": 4
+  },
+  "cycles": [
+    "routeTree.gen.ts → router.tsx → routeTree.gen.ts"
+  ],
+  "sccs": [
+    [
+      "routeTree.gen.ts",
+      "router.tsx"
+    ]
+  ],
+  "fanInTop20": [
+    {
+      "file": "lib/utils.ts",
+      "in": 213,
+      "out": 0
+    },
+    {
+      "file": "components/ui/lozenge.tsx",
+      "in": 107,
+      "out": 1
+    },
+    {
+      "file": "components/ui/button.tsx",
+      "in": 89,
+      "out": 2
+    },
+    {
+      "file": "api/config.ts",
+      "in": 67,
+      "out": 0
+    },
+    {
+      "file": "components/ui/input.tsx",
+      "in": 42,
+      "out": 1
+    },
+    {
+      "file": "components/shell/AppShell.tsx",
+      "in": 30,
+      "out": 4
+    },
+    {
+      "file": "components/ui/loading-state.tsx",
+      "in": 28,
+      "out": 1
+    },
+    {
+      "file": "components/charts/index.ts",
+      "in": 25,
+      "out": 8
+    },
+    {
+      "file": "data/customer360-seed.ts",
+      "in": 25,
+      "out": 1
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "in": 21,
+      "out": 1
+    },
+    {
+      "file": "components/records/RecordsTable.tsx",
+      "in": 20,
+      "out": 3
+    },
+    {
+      "file": "components/ui/label.tsx",
+      "in": 17,
+      "out": 1
+    },
+    {
+      "file": "api/agent-studio.ts",
+      "in": 16,
+      "out": 2
+    },
+    {
+      "file": "components/ui/sheet.tsx",
+      "in": 16,
+      "out": 1
+    },
+    {
+      "file": "data/billing-seed.ts",
+      "in": 15,
+      "out": 0
+    },
+    {
+      "file": "api/prompt-studio.ts",
+      "in": 14,
+      "out": 4
+    },
+    {
+      "file": "api/staff.ts",
+      "in": 14,
+      "out": 1
+    },
+    {
+      "file": "components/ui/switch.tsx",
+      "in": 14,
+      "out": 1
+    },
+    {
+      "file": "components/ui/textarea.tsx",
+      "in": 13,
+      "out": 1
+    },
+    {
+      "file": "data/disputes-seed.ts",
+      "in": 13,
+      "out": 2
+    }
+  ],
+  "fanOutTop20": [
+    {
+      "file": "routeTree.gen.ts",
+      "in": 1,
+      "out": 45
+    },
+    {
+      "file": "routes/prompt-studio.lazy.tsx",
+      "in": 2,
+      "out": 27
+    },
+    {
+      "file": "routes/knowledge-base.lazy.tsx",
+      "in": 1,
+      "out": 21
+    },
+    {
+      "file": "routes/sandbox.lazy.tsx",
+      "in": 1,
+      "out": 20
+    },
+    {
+      "file": "routes/customers.$customerId.lazy.tsx",
+      "in": 1,
+      "out": 19
+    },
+    {
+      "file": "routes/handoff.lazy.tsx",
+      "in": 1,
+      "out": 18
+    },
+    {
+      "file": "routes/callbacks.tsx",
+      "in": 1,
+      "out": 17
+    },
+    {
+      "file": "routes/upsell.tsx",
+      "in": 1,
+      "out": 17
+    },
+    {
+      "file": "routes/qa.tsx",
+      "in": 1,
+      "out": 16
+    },
+    {
+      "file": "routes/bot-analytics.lazy.tsx",
+      "in": 1,
+      "out": 15
+    },
+    {
+      "file": "routes/documents.tsx",
+      "in": 1,
+      "out": 15
+    },
+    {
+      "file": "routes/promises.tsx",
+      "in": 1,
+      "out": 15
+    },
+    {
+      "file": "routes/treatment.lazy.tsx",
+      "in": 1,
+      "out": 15
+    },
+    {
+      "file": "routes/billing.tsx",
+      "in": 1,
+      "out": 14
+    },
+    {
+      "file": "routes/compliance.tsx",
+      "in": 1,
+      "out": 14
+    },
+    {
+      "file": "routes/disputes.tsx",
+      "in": 1,
+      "out": 14
+    },
+    {
+      "file": "routes/webhooks.tsx",
+      "in": 1,
+      "out": 14
+    },
+    {
+      "file": "routes/dashboard.tsx",
+      "in": 1,
+      "out": 13
+    },
+    {
+      "file": "components/prompt-studio/OutboundTab.tsx",
+      "in": 1,
+      "out": 12
+    },
+    {
+      "file": "components/prompt-studio/VoiceCatalogBrowser.tsx",
+      "in": 2,
+      "out": 12
+    }
+  ],
+  "orphans": [
+    "api/contact-policy.test.ts",
+    "api/inbox.test.ts",
+    "api/outbound.test.ts",
+    "api/sandbox.test.ts",
+    "components/brand/BigBoundMark.tsx",
+    "components/customer360/ContactabilityPill.test.ts",
+    "components/documents/StatusPill.tsx",
+    "components/floor/AlertLane.tsx",
+    "components/floor/CallTile.tsx",
+    "components/inbox/meta.test.ts",
+    "components/records/index.ts",
+    "components/sandbox/ScenarioList.tsx",
+    "components/ui/aspect-ratio.tsx",
+    "components/ui/avatar.tsx",
+    "components/ui/breadcrumb.tsx",
+    "components/ui/calendar.tsx",
+    "components/ui/card.tsx",
+    "components/ui/carousel.tsx",
+    "components/ui/chart.tsx",
+    "components/ui/confirm-gate.test.ts",
+    "components/ui/context-menu.tsx",
+    "components/ui/drawer.tsx",
+    "components/ui/form.tsx",
+    "components/ui/hover-card.tsx",
+    "components/ui/input-otp.tsx",
+    "components/ui/link.tsx",
+    "components/ui/menubar.tsx",
+    "components/ui/navigation-menu.tsx",
+    "components/ui/pagination.tsx",
+    "components/ui/progress.tsx",
+    "components/ui/radio-group.tsx",
+    "components/ui/scroll-area.tsx",
+    "components/ui/toggle-group.tsx",
+    "components/ui/tooltip.tsx",
+    "data/billing-seed.test.ts",
+    "data/dispute-sla.test.ts",
+    "hooks/use-mobile.tsx",
+    "lib/agent-roster.test.ts",
+    "routes/agent-studio.skills.index.test.ts",
+    "server.ts",
+    "types/view-transitions.d.ts"
+  ],
+  "orphanClass": {
+    "test": [
+      "api/contact-policy.test.ts",
+      "api/inbox.test.ts",
+      "api/outbound.test.ts",
+      "api/sandbox.test.ts",
+      "components/customer360/ContactabilityPill.test.ts",
+      "components/inbox/meta.test.ts",
+      "components/ui/confirm-gate.test.ts",
+      "data/billing-seed.test.ts",
+      "data/dispute-sla.test.ts",
+      "lib/agent-roster.test.ts",
+      "routes/agent-studio.skills.index.test.ts"
+    ],
+    "unreferenced": [
+      "components/brand/BigBoundMark.tsx",
+      "components/documents/StatusPill.tsx",
+      "components/floor/AlertLane.tsx",
+      "components/floor/CallTile.tsx",
+      "components/records/index.ts",
+      "components/sandbox/ScenarioList.tsx",
+      "components/ui/aspect-ratio.tsx",
+      "components/ui/avatar.tsx",
+      "components/ui/breadcrumb.tsx",
+      "components/ui/calendar.tsx",
+      "components/ui/card.tsx",
+      "components/ui/carousel.tsx",
+      "components/ui/chart.tsx",
+      "components/ui/context-menu.tsx",
+      "components/ui/drawer.tsx",
+      "components/ui/form.tsx",
+      "components/ui/hover-card.tsx",
+      "components/ui/input-otp.tsx",
+      "components/ui/link.tsx",
+      "components/ui/menubar.tsx",
+      "components/ui/navigation-menu.tsx",
+      "components/ui/pagination.tsx",
+      "components/ui/progress.tsx",
+      "components/ui/radio-group.tsx",
+      "components/ui/scroll-area.tsx",
+      "components/ui/toggle-group.tsx",
+      "components/ui/tooltip.tsx",
+      "hooks/use-mobile.tsx"
+    ],
+    "entry": [
+      "server.ts"
+    ],
+    "ambient-types": [
+      "types/view-transitions.d.ts"
+    ]
+  },
+  "leavesSample": [
+    "api/agent-card.ts",
+    "api/config.ts",
+    "api/outbound.test.ts",
+    "api/treatment.ts",
+    "components/charts/points.ts",
+    "components/charts/use-dark-mode.ts",
+    "components/flow/zoom.ts",
+    "components/sandbox/voice/liveEvents.ts",
+    "components/shell/sidebar-ui.tsx",
+    "components/ui/aspect-ratio.tsx",
+    "components/ui/collapsible.tsx",
+    "components/ui/confirm-gate.ts",
+    "data/agent-tuning.ts",
+    "data/audit-seed.ts",
+    "data/billing-seed.ts",
+    "data/bot-analytics-seed.ts",
+    "data/consent-seed.ts",
+    "data/dashboard-seed.ts",
+    "data/dispute-sla.ts",
+    "data/handoff-seed.ts",
+    "data/inbox-seed.ts",
+    "data/integrations-seed.ts",
+    "data/kb-seed.ts",
+    "data/redaction-seed.ts",
+    "data/routing-seed.ts",
+    "data/upsell-seed.ts",
+    "data/webhooks-seed.ts",
+    "data/workspace-seed.ts",
+    "hooks/use-min-width.ts",
+    "hooks/use-mobile.tsx",
+    "lib/brand.ts",
+    "lib/error-capture.ts",
+    "lib/error-page.ts",
+    "lib/lovable-error-reporting.ts",
+    "lib/offer-policy.ts",
+    "lib/stable-stringify.ts",
+    "lib/theme.ts",
+    "lib/tts-voice-prefs.ts",
+    "lib/utils.ts",
+    "routes/agent-studio.$botId.tsx"
+  ],
+  "leafCount": 50,
+  "layerEdges": {
+    "components→components": 575,
+    "routes→components": 285,
+    "components→lib": 231,
+    "components→data": 191,
+    "components→api": 115,
+    "routes→api": 76,
+    "api→api": 57,
+    "generated→routes": 43,
+    "api→data": 34,
+    "routes→data": 26,
+    "routes→lib": 18,
+    "data→data": 12,
+    "api→lib": 6,
+    "lib→lib": 3,
+    "api→components": 2,
+    "data→lib": 2,
+    "lib→api": 2,
+    "other→lib": 2,
+    "entry→lib": 2,
+    "components→other": 1,
+    "data→components": 1,
+    "data→api": 1,
+    "lib→data": 1,
+    "lib→components": 1,
+    "entry→generated": 1,
+    "routes→routes": 1,
+    "routes→hooks": 1,
+    "generated→entry": 1,
+    "generated→other": 1
+  },
+  "violations": [
+    {
+      "kind": "api importing components",
+      "from": "api/promises.ts",
+      "to": "components/promises/PromiseSheet.tsx"
+    },
+    {
+      "kind": "api importing components",
+      "from": "api/promises.ts",
+      "to": "components/promises/PlanBuilderSheet.tsx"
+    },
+    {
+      "kind": "data importing components",
+      "from": "data/callbacks-seed.ts",
+      "to": "components/ui/lozenge.tsx"
+    },
+    {
+      "kind": "data importing api (circular api↔data)",
+      "from": "data/prompt-studio-seed.ts",
+      "to": "api/flow.ts"
+    },
+    {
+      "kind": "lib importing api",
+      "from": "lib/agent-roster.ts",
+      "to": "api/agent-studio.ts"
+    },
+    {
+      "kind": "lib importing components",
+      "from": "lib/gate-status.ts",
+      "to": "components/ui/lozenge.tsx"
+    },
+    {
+      "kind": "lib importing api",
+      "from": "lib/workspace-nav.ts",
+      "to": "api/workspace.ts"
+    }
+  ],
+  "violationCounts": {
+    "api importing components": 2,
+    "data importing components": 1,
+    "data importing api (circular api↔data)": 1,
+    "lib importing api": 2,
+    "lib importing components": 1
+  },
+  "barrels": {
+    "components/charts/index.ts": {
+      "importers": [
+        "components/audit/SentimentTimeline.tsx",
+        "components/billing/BillingKpiStrip.tsx",
+        "components/billing/ServiceDonut.tsx",
+        "components/billing/ServiceDrawer.tsx",
+        "components/billing/SpendTrendChart.tsx",
+        "components/bot-analytics/CardSkillAnalytics.tsx",
+        "components/bot-analytics/DropOffFunnel.tsx",
+        "components/bot-analytics/EscalationReasons.tsx",
+        "components/bot-analytics/HeroStrip.tsx",
+        "components/bot-analytics/IntentDistribution.tsx",
+        "components/bot-analytics/LatencyChart.tsx",
+        "components/bot-analytics/SentimentByIntentHeatmap.tsx",
+        "components/bot-analytics/TurnsHistogram.tsx",
+        "components/compliance/RuleBreakdown.tsx",
+        "components/compliance/RuleCoverageCard.tsx",
+        "components/compliance/ViolationTrendChart.tsx",
+        "components/dashboard/BotVsHumanDonut.tsx",
+        "components/dashboard/CallVolumeChart.tsx",
+        "components/dashboard/RecoveryTrendChart.tsx",
+        "components/dashboard/SentimentDistribution.tsx",
+        "components/dashboard/Sparkline.tsx",
+        "components/integrations/ProviderCard.tsx",
+        "components/integrations/ProviderDrawer.tsx",
+        "components/qa/AgentTrendCard.tsx",
+        "components/sandbox/inspector/SentimentTab.tsx"
+      ],
+      "importerCount": 25,
+      "reexports": [
+        "components/charts/chart-shell.tsx",
+        "components/charts/liveline-spark.tsx",
+        "components/charts/liveline-trend.tsx",
+        "components/charts/modern-bars.tsx",
+        "components/charts/modern-donut.tsx",
+        "components/charts/points.ts",
+        "components/charts/segmented-bar.tsx",
+        "components/charts/use-dark-mode.ts"
+      ],
+      "reexportCount": 8,
+      "inCycle": false
+    },
+    "components/records/index.ts": {
+      "importers": [],
+      "importerCount": 0,
+      "reexports": [
+        "components/records/FilterTable.tsx",
+        "components/records/RecordsTable.tsx",
+        "components/records/RecordsTag.tsx"
+      ],
+      "reexportCount": 3,
+      "inCycle": false
+    }
+  },
+  "chartsDirectImporters": [
+    "components/flow/FlowCanvas.tsx → components/charts/use-dark-mode.ts",
+    "components/ui/sonner.tsx → components/charts/use-dark-mode.ts"
+  ],
+  "recordsDirectImporters": [
+    "components/audit/CallsTable.tsx → components/records/RecordsTable.tsx",
+    "components/audit/CallsTable.tsx → components/records/RecordsTag.tsx",
+    "components/billing/InvoiceList.tsx → components/records/FilterTable.tsx",
+    "components/billing/ModelCostTable.tsx → components/records/RecordsTable.tsx",
+    "components/billing/ServiceCostTable.tsx → components/records/RecordsTable.tsx",
+    "components/billing/ServiceCostTable.tsx → components/records/RecordsTag.tsx",
+    "components/billing/TenantTable.tsx → components/records/RecordsTable.tsx",
+    "components/bot-analytics/UnansweredTable.tsx → components/records/RecordsTable.tsx",
+    "components/bot-analytics/UnansweredTable.tsx → components/records/RecordsTag.tsx",
+    "components/callbacks/CallbackList.tsx → components/records/FilterTable.tsx",
+    "components/consent/ConsentTable.tsx → components/records/RecordsTable.tsx",
+    "components/consent/ConsentTable.tsx → components/records/RecordsTag.tsx",
+    "components/customer360/DocumentsTab.tsx → components/records/FilterTable.tsx",
+    "components/customer360/EmiTab.tsx → components/records/FilterTable.tsx",
+    "components/customer360/LedgerTab.tsx → components/records/FilterTable.tsx",
+    "components/dashboard/AgentLeaderboard.tsx → components/records/RecordsTable.tsx",
+    "components/documents/RequestsTable.tsx → components/records/FilterTable.tsx",
+    "components/floor/LiveTable.tsx → components/records/RecordsTable.tsx",
+    "components/integrations/McpConsole.tsx → components/records/RecordsTable.tsx",
+    "components/kb/AnalyticsGapsTable.tsx → components/records/RecordsTable.tsx",
+    "components/kb/AnalyticsGapsTable.tsx → components/records/RecordsTag.tsx",
+    "components/kb/DocumentsTable.tsx → components/records/RecordsTable.tsx",
+    "components/kb/DocumentsTable.tsx → components/records/RecordsTag.tsx",
+    "components/kb/FaqTable.tsx → components/records/RecordsTable.tsx",
+    "components/kb/FaqTable.tsx → components/records/RecordsTag.tsx",
+    "components/promises/PaymentPlansTable.tsx → components/records/RecordsTable.tsx",
+    "components/promises/PaymentPlansTable.tsx → components/records/RecordsTag.tsx",
+    "components/qa/AgentTrendsTable.tsx → components/records/RecordsTable.tsx",
+    "components/upsell/LeadTable.tsx → components/records/RecordsTable.tsx",
+    "components/upsell/LeadTable.tsx → components/records/RecordsTag.tsx",
+    "components/webhooks/EndpointTable.tsx → components/records/RecordsTable.tsx",
+    "components/webhooks/EndpointTable.tsx → components/records/RecordsTag.tsx",
+    "components/workspace/AssignedQueue.tsx → components/records/RecordsTable.tsx",
+    "components/workspace/NeedsAttention.tsx → components/records/RecordsTable.tsx",
+    "routes/customers.index.tsx → components/records/RecordsTable.tsx",
+    "routes/customers.index.tsx → components/records/RecordsTag.tsx"
+  ],
+  "unresolved": [
+    {
+      "from": "routes/__root.tsx",
+      "spec": "../styles.css?url"
+    }
+  ],
+  "externalTop": [
+    [
+      "lucide-react",
+      223
+    ],
+    [
+      "react",
+      215
+    ],
+    [
+      "sonner",
+      74
+    ],
+    [
+      "@tanstack/react-router",
+      71
+    ],
+    [
+      "@tanstack/react-query",
+      66
+    ],
+    [
+      "class-variance-authority",
+      12
+    ],
+    [
+      "vitest",
+      11
+    ],
+    [
+      "@xyflow/react",
+      4
+    ],
+    [
+      "@radix-ui/react-slot",
+      3
+    ],
+    [
+      "@radix-ui/react-dialog",
+      3
+    ],
+    [
+      "node:fs",
+      2
+    ],
+    [
+      "node:path",
+      2
+    ],
+    [
+      "node:url",
+      2
+    ],
+    [
+      "@tanstack/react-virtual",
+      2
+    ],
+    [
+      "@radix-ui/react-label",
+      2
+    ],
+    [
+      "@tanstack/react-start",
+      2
+    ],
+    [
+      "@pipecat-ai/client-js",
+      1
+    ],
+    [
+      "@pipecat-ai/small-webrtc-transport",
+      1
+    ],
+    [
+      "@radix-ui/react-accordion",
+      1
+    ],
+    [
+      "@radix-ui/react-alert-dialog",
+      1
+    ]
+  ],
+  "hubs": [
+    {
+      "file": "lib/utils.ts",
+      "in": 213,
+      "out": 0
+    },
+    {
+      "file": "components/ui/lozenge.tsx",
+      "in": 107,
+      "out": 1
+    },
+    {
+      "file": "components/ui/button.tsx",
+      "in": 89,
+      "out": 2
+    },
+    {
+      "file": "api/config.ts",
+      "in": 67,
+      "out": 0
+    },
+    {
+      "file": "components/ui/input.tsx",
+      "in": 42,
+      "out": 1
+    },
+    {
+      "file": "components/shell/AppShell.tsx",
+      "in": 30,
+      "out": 4
+    },
+    {
+      "file": "components/ui/loading-state.tsx",
+      "in": 28,
+      "out": 1
+    },
+    {
+      "file": "components/charts/index.ts",
+      "in": 25,
+      "out": 8
+    },
+    {
+      "file": "data/customer360-seed.ts",
+      "in": 25,
+      "out": 1
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "in": 21,
+      "out": 1
+    },
+    {
+      "file": "components/records/RecordsTable.tsx",
+      "in": 20,
+      "out": 3
+    },
+    {
+      "file": "components/ui/label.tsx",
+      "in": 17,
+      "out": 1
+    },
+    {
+      "file": "api/agent-studio.ts",
+      "in": 16,
+      "out": 2
+    },
+    {
+      "file": "components/ui/sheet.tsx",
+      "in": 16,
+      "out": 1
+    },
+    {
+      "file": "data/billing-seed.ts",
+      "in": 15,
+      "out": 0
+    },
+    {
+      "file": "api/prompt-studio.ts",
+      "in": 14,
+      "out": 4
+    },
+    {
+      "file": "api/staff.ts",
+      "in": 14,
+      "out": 1
+    },
+    {
+      "file": "components/ui/switch.tsx",
+      "in": 14,
+      "out": 1
+    },
+    {
+      "file": "components/ui/textarea.tsx",
+      "in": 13,
+      "out": 1
+    },
+    {
+      "file": "data/disputes-seed.ts",
+      "in": 13,
+      "out": 2
+    },
+    {
+      "file": "data/prompt-studio-seed.ts",
+      "in": 13,
+      "out": 1
+    },
+    {
+      "file": "data/qa-seed.ts",
+      "in": 13,
+      "out": 1
+    },
+    {
+      "file": "data/sandbox-seed.ts",
+      "in": 13,
+      "out": 2
+    },
+    {
+      "file": "components/records/RecordsTag.tsx",
+      "in": 12,
+      "out": 1
+    },
+    {
+      "file": "components/ui/badge.tsx",
+      "in": 12,
+      "out": 1
+    }
+  ]
+}

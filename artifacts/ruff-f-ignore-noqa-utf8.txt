@@ -1,0 +1,4 @@
+$ check . --select F401,F841,F811 --ignore-noqa --statistics
+exit=1
+
+[1m6[0m	[1;31mF401[0m	[[36m*[0m] unused-import

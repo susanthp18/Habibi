@@ -1,0 +1,11 @@
+$ check . --select F401,F841,F811 --ignore-noqa --output-format=concise
+exit=1
+
+agent_core\cards\compile.py:260:41: F401 [*] `agent_core.cards.schema.PoolKind` imported but unused
+agent_core\eval\graders.py:125:40: F401 [*] `agent_core.cards.compile` imported but unused
+bot_jobs.py:22:23: F401 [*] `pg_errors.PG_UNIQUE_VIOLATION` imported but unused
+schemas.py:10:35: F401 [*] `flow_graph.FlowIssue` imported but unused
+schemas.py:10:46: F401 [*] `flow_graph.FlowValidation` imported but unused
+tests\test_kb_shared_handler.py:69:12: F401 [*] `voice.tools` imported but unused
+Found 6 errors.
+[*] 6 fixable with the `--fix` option.
