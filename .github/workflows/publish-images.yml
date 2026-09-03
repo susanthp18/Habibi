@@ -1,0 +1,105 @@
+name: Publish images
+
+# Gives a deploy an identity: every published image is tagged with the
+# 40-char commit SHA that built it. There is no `latest` tag — rolling
+# back means naming the SHA, not hoping a moving tag still points at it.
+#
+# This workflow builds and pushes. It does not SSH anywhere, does not run
+# Alembic, and does not place a call. Promotion is `docs/ops/rollback.md`.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/publish-images.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image namespace
+        run: |
+          ns="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE_NS=${REGISTRY}/${ns}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: API image tags
+        uses: docker/metadata-action@v5
+        id: api
+        with:
+          images: ${{ env.IMAGE_NS }}/collections-api
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ github.sha }}
+
+      - name: Voice image tags
+        uses: docker/metadata-action@v5
+        id: voice
+        with:
+          images: ${{ env.IMAGE_NS }}/collections-voice
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ github.sha }}
+
+      - name: Build and push collections-api
+        uses: docker/build-push-action@v6
+        id: api-build
+        with:
+          context: backend
+          file: backend/Dockerfile
+          target: base
+          push: true
+          tags: ${{ steps.api.outputs.tags }}
+          labels: ${{ steps.api.outputs.labels }}
+          cache-from: type=gha,scope=collections-api
+          cache-to: type=gha,mode=max,scope=collections-api
+
+      - name: Build and push collections-voice
+        uses: docker/build-push-action@v6
+        id: voice-build
+        with:
+          context: backend
+          file: backend/Dockerfile
+          target: voice
+          push: true
+          tags: ${{ steps.voice.outputs.tags }}
+          labels: ${{ steps.voice.outputs.labels }}
+          cache-from: type=gha,scope=collections-voice
+          cache-to: type=gha,mode=max,scope=collections-voice
+
+      - name: Record identity
+        run: |
+          {
+            echo "### Release identity"
+            echo ""
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- api: \`${{ env.IMAGE_NS }}/collections-api:${{ github.sha }}\`"
+            echo "- api digest: \`${{ steps.api-build.outputs.digest }}\`"
+            echo "- voice: \`${{ env.IMAGE_NS }}/collections-voice:${{ github.sha }}\`"
+            echo "- voice digest: \`${{ steps.voice-build.outputs.digest }}\`"
+            echo ""
+            echo "Rollback: \`docs/ops/rollback.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"

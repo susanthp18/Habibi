@@ -49,3 +49,11 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # CI never built the console. `nitro` is pinned to the dated beta
+      # `3.0.260603-beta` (package.json), so a Vite/Nitro break that typecheck
+      # and vitest do not see is currently invisible until someone runs
+      # `npm run build` by hand. The measured baseline (2026-09-03) is green;
+      # keep it that way.
+      - name: Build
+        run: npm run build

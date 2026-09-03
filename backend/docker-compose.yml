@@ -14,6 +14,13 @@
 #   docker compose up -d --build
 #   docker compose exec api alembic upgrade head
 #   docker compose exec api python scripts/seed_demo.py   # optional demo rows
+#
+# Release identity (WP-001). Defaults keep today's local names
+# (`collections-api:local`, `collections-voice:local`). A published deploy
+# sets both:
+#   IMAGE_PREFIX=ghcr.io/<owner>/<repo>/   # trailing slash required
+#   IMAGE_TAG=<40-char commit SHA>
+# Rollback is two commands; see docs/ops/rollback.md. Do not `alembic downgrade`.
 
 services:
   redis:
@@ -74,7 +81,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: base
-    image: collections-api:local
+    image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
     container_name: collections_api
     restart: unless-stopped
     env_file:
@@ -93,6 +100,7 @@ services:
       SOURCE_DB_ROOT: /source_db
       # Single worker — connection budget assumes 1× pool.
       UVICORN_WORKERS: "1"
+      APP_RELEASE: ${IMAGE_TAG:-local}
     volumes:
       - ../source_db:/source_db:ro
       # Only used when voice_session_store falls back to the filesystem (no
@@ -135,7 +143,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: base
-    image: collections-api:local
+    image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
     container_name: collections_kb_worker
     restart: unless-stopped
     env_file:
@@ -148,6 +156,7 @@ services:
       DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${WORKER_DB_MAX_OVERFLOW:-2}
       SOURCE_DB_ROOT: /source_db
+      APP_RELEASE: ${IMAGE_TAG:-local}
     volumes:
       - ../source_db:/source_db:ro
     command: ["python", "-m", "worker"]
@@ -164,7 +173,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: base
-    image: collections-api:local
+    image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
     container_name: collections_bot_worker
     restart: unless-stopped
     env_file:
@@ -176,6 +185,7 @@ services:
       DB_PROCESS_ROLE: bot_worker
       DB_POOL_SIZE: ${BOT_WORKER_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${BOT_WORKER_DB_MAX_OVERFLOW:-2}
+      APP_RELEASE: ${IMAGE_TAG:-local}
     command: ["python", "-m", "bot_worker"]
     depends_on:
       db:
@@ -188,7 +198,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: voice
-    image: collections-voice:local
+    image: "${IMAGE_PREFIX:-}collections-voice:${IMAGE_TAG:-local}"
     container_name: collections_voice
     restart: unless-stopped
     env_file:
@@ -202,6 +212,7 @@ services:
       DB_MAX_OVERFLOW: ${VOICE_DB_MAX_OVERFLOW:-2}
       REDIS_URL: redis://redis:6379/0
       VOICE_MULTI_AGENT_ENABLED: "true"
+      APP_RELEASE: ${IMAGE_TAG:-local}
     volumes:
       # See the api service — filesystem fallback for voice_session_store only.
       - voice_sessions:/app/.cache/voice_sandbox_sessions
@@ -222,7 +233,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: voice
-    image: collections-voice:local
+    image: "${IMAGE_PREFIX:-}collections-voice:${IMAGE_TAG:-local}"
     container_name: collections_voice_insurance
     restart: unless-stopped
     env_file:
@@ -236,6 +247,7 @@ services:
       DB_MAX_OVERFLOW: "1"
       REDIS_URL: redis://redis:6379/0
       VOICE_MULTI_AGENT_ENABLED: "true"
+      APP_RELEASE: ${IMAGE_TAG:-local}
     command: ["python", "-m", "voice.workers.insurance"]
     depends_on:
       redis:
