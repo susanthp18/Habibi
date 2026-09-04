@@ -3,7 +3,12 @@
 fastapi==0.139.2
 uvicorn==0.51.0
 sqlalchemy==2.0.51
-psycopg[binary]==3.3.4
+# Two packages, not psycopg[binary]: this file is also the voice-layer
+# constraint (`Dockerfile` `pip install -c requirements.txt`). pip 25
+# rejects extras in constraint files, so the extra form makes the voice
+# image unbuildable. Same versions the extra would have pulled.
+psycopg==3.3.4
+psycopg-binary==3.3.4
 alembic==1.18.5
 openai==2.46.0
 tiktoken==0.13.0

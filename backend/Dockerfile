@@ -37,8 +37,14 @@ RUN apt-get update \
         ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# Constrain the voice layer to the base pins. Without -c, pipecat's
+# transitive graph can upgrade httpx, openai, websockets or ruff inside
+# this image only; the api and voice images from one commit then
+# disagree, and nothing records what either got. A conflict
+# (ruff==0.6.9 vs pipecat's cli extra ruff>=0.12.1, if evals is added)
+# must fail the build — do not drop the flag to make the install green.
 COPY requirements-voice.txt .
-RUN pip install -r requirements-voice.txt
+RUN pip install -r requirements-voice.txt -c requirements.txt
 
 # Pipecat's sentence splitter (pipecat.utils.string) calls
 # nltk.download("punkt_tab") at import if the data is missing. Bake it

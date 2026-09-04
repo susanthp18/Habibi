@@ -90,9 +90,10 @@ jobs:
       #
       # It is pinned and deliberately narrow -- speechmatics and its ~1GB of ML
       # runtime are excluded on purpose -- so this costs install time, not a
-      # dependency argument.
+      # dependency argument. -c requirements.txt is the same gate as the
+      # voice Dockerfile: pipecat must not silently move the base pins.
       - name: Install voice dependencies
-        run: pip install -r requirements-voice.txt
+        run: pip install -r requirements-voice.txt -c requirements.txt
 
       # Before the database steps on purpose: ruff needs no Postgres, so a lint
       # failure costs ten seconds instead of the ninety it takes to build and

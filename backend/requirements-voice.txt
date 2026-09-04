@@ -1,5 +1,5 @@
 # Voice / Pipecat deps — install into the SAME backend/.venv:
-#   .\.venv\Scripts\pip install -r requirements-voice.txt
+#   .\.venv\Scripts\pip install -r requirements-voice.txt -c requirements.txt
 #
 # Kept separate from requirements.txt so CRM API upgrades are not coupled to
 # Pipecat's transitive graph (onnxruntime, aiortc, av, silero).
