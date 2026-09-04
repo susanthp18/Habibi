@@ -695,3 +695,58 @@ the worse trade.
   plausible-sounding regression.
 
 ---
+
+---
+
+## Batch eleven — 2026-09-05
+
+Four packages dispatched in parallel on disjoint files, plus one after a slot freed.
+Verified serially by the orchestrator on the voice container. Suite after all four:
+**3,311 passed · 22 skipped · 6 failed**, the six being 4 known `/Habibi` mount artefacts
+and the 2 known `WP-068` timezone tests (run 20:23 UTC, inside their window). Zero genuine
+failures. `ruff check .` clean full-tree. Baseline moved 3,291 → 3,311 passed.
+
+### The board was the defect
+
+`READY` had read **2** since batch two. It was never recomputed as prerequisites landed, so
+packages whose only gate had closed stayed marked BLOCKED. Recomputed from
+`git log 14377f1..HEAD`: **15 ready**. `WP-042` is the case that mattered — it *blocks*
+`WP-036`, its prerequisite `WP-024` landed in batch three, and `WP-036` was queued to run
+ahead of it. That is exactly the ordering the audit warns rewrites the public API silently.
+`WP-046` read as done only because its number appears in `WP-052`'s commit message as a
+mention. Corrected on the board with the reasoning, and the two plan-era `READY (31)` /
+`BLOCKED (32)` sections marked as filed evidence rather than live state.
+
+| WP | Commit | What was claimed | What I measured |
+|---|---|---|---|
+| `WP-042` | `726d624` | "matches the dict already on the wire" | Deviated from the instruction — used `extra="forbid"` where I mandated `extra="allow"`. Measured both on this stack: default/`ignore` **silently drops** an undeclared key, `forbid` returns **500**. Loud beats silent, and it shipped a test comparing HTTP body to mapper output key-for-key (nothing dropped *and* nothing added) guarded by `assert cards`/`assert skills` so it cannot pass vacuously. Stronger than my rule. **Accepted.** Residual risk checked: `clone_card` returns `db.get_agent_studio_card(...)`, the producer the test validates. 26 routes intact, `scripts` still above `{skill_id}` |
+| `WP-036` | `2f9a6a1` | peels 1–2 done | `db.py` 17,908 → 16,559. `db.engine is db_core.engine` → True; one `create_engine`; `__module__` correct on both; TTS functions correctly left behind. **No module binds `from db_core import engine`** — matches are docstrings warning against it; reach-back is `_mod = _db()` then `engine = _mod.engine`. Re-exports at the bottom with `# noqa: E402` rather than the head as instructed — following the existing `followups_db` precedent, which was the better call |
+| `WP-022`/`WP-023` | `86c32a9` | "53 passed" | Production tree confirmed untouched. **The mutation proof was not performed by the implementer, so I performed it**: an inert `contact_policy.admit` reference above the reserve call in `cadence.py` turns the contract red; reverted and verified byte-identical to HEAD. Deviation accepted — used `db_tx` not the `db_real` I specified, and was right to: the setup nulls a seeded borrower's windows and `db_real` rolls nothing back |
+| `WP-046` | `42125d3` | 29 files, 22 deps | All verified independently. Four config-loaded deps kept — the build proves it, spending time in `vite-tsconfig-paths` and generating `wrangler.json` via `nitro`. CSS cut at the corrected `1638-1670`; `pulse-ring` intact, `.bb-mark` gone. **Tailwind hazard settled empirically**: `aria-disabled\:opacity-50` is present in CSS built *after* deleting `ui/calendar`, generated from live usage at `agent-studio.index.tsx:172` — the comment claiming otherwise was wrong. `tsc` 0, `vitest` 133/133, build exit 0 |
+
+### Findings recorded against the backlog
+
+* **`WP-029` piece (b) cleared to ship.** The entry demands a callback count first. Measured:
+  `callbacks` has no `preferred_window` column (it is on `customers`); joined, **7 callbacks,
+  0 with a NULL window, 0 in either affected hour band.** Blast radius zero.
+* **`WP-033` as filed is wrong.** Its two branches are not alternatives:
+  `seed_policy_rules.py:92-99` publishes a `calling_window` for **voice only**, deliberately,
+  so wiring the seeder does not bound digital at all. Digital is not unbounded either —
+  `contact_policy.py:519-524` applies `_preferred_hours` to every channel. The real hole is
+  the fallback: `None` means *no check*. **Measured: 20 customers, exactly 1 with neither
+  `allowed_hours` nor `preferred_window`** — messageable at any hour on digital. Same shape
+  as `WP-029`: `contact_window.window_hours` answers the identical question the other way.
+* **A real hole found by `WP-023` that nothing had named**: `payment_events._try_voice_now`
+  runs `admit → reserve → place` with **no `suppress` anywhere in the module**. Now pinned,
+  so it is visible rather than merely absent. `WP-028` owns closing it.
+* 6 of 20 `customers.preferred_window` values carry an en-dash and one is the empty string.
+  Not a live defect — `contact_window._WINDOW_RE` is dash-agnostic and guards `''` like
+  `None` — but any canonicalization replacing that regex with a literal `-` split
+  reclassifies 6 of 20 borrowers.
+
+### Method note
+
+The five `inspect.getsource` failures `WP-036` reported were **not** regressions. `main.py`
+was mid-edit by `WP-042` when it ran. Re-run after `WP-042` finished: 75 passed. Same artefact
+class as batch one. The protection remains the orchestrator's serial re-run, never the
+agent's report — and never reading a file another agent still holds.

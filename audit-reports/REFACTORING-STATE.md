@@ -288,17 +288,38 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 72. Status: 41 completed, 31 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 72. Status: 45 completed, 27 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **2** — `WP-036`, `WP-045` |
-| **BLOCKED** — has an unmet prerequisite | **30** |
+| **READY** — no unmet prerequisite; can begin today | **11** — `WP-029`, `WP-030`, `WP-031`, `WP-033`, `WP-036` *(peels 3-13)*, `WP-037`, `WP-038`, `WP-041`, `WP-043`, `WP-045`, `WP-047`/`WP-048` |
+| **BLOCKED** — has an unmet prerequisite | **16** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
 | **IN PROGRESS** | **0** |
-| **COMPLETED** | **41** |
+| **COMPLETED** | **45** |
 
-### COMPLETED (41)
+> **Correction (2026-09-05).** The `READY` count above stood at **2** for nine batches and was
+> wrong. It was never recomputed after each batch landed, so packages whose only gate had
+> already been closed stayed marked BLOCKED. `WP-042` is the clearest case: it blocks `WP-036`,
+> its own prerequisite `WP-024` landed in batch three, and it sat unlisted while `WP-036` was
+> queued to run ahead of it — which is the exact ordering the audit says rewrites the public
+> API silently. `WP-046` was similarly readable as done because its number appears in `WP-052`'s
+> commit message as a *mention*, not a completion.
+>
+> The two sections below (`READY (31)` / `BLOCKED (32)`) are the **original plan's** snapshot and
+> still list completed packages as ready. They are kept as filed evidence. **The table above is
+> the live count**; derive status from `git log 14377f1..HEAD`, not from those two lists.
+>
+> \* `WP-030` and `WP-027` are ready on prerequisites but each waits on a file another package
+> holds (`db.py`, and `WP-022`'s new test respectively).
+
+### COMPLETED (45)
+
+Batch eleven added: `WP-042` **the 26 `/agent-studio` routes declare what they return** · `WP-036` *(PARTIAL — peels 1 and 2 of 13)* Billing and Treatment holds are their own modules · `WP-022` the opt-out writer is finally checked against the enforcer · `WP-023` the outbound gate sequence is executed and contracted across all seven `place` sites · `WP-046` **29 dead frontend files and 22 npm dependencies deleted**.
+
+**Batch eleven is the one where the board itself was the defect.** `READY` had said **2** for nine batches because it was never recomputed as prerequisites landed. Recomputed from `git log`: **15**. `WP-042` was the sharp case — it *blocks* `WP-036`, its own gate closed in batch three, and `WP-036` was queued to run ahead of it, which is precisely the ordering the audit says rewrites the public API silently.
+
+**Two measurements changed what the work was.** `response_model` is a filter: measured on this stack, a model missing one key silently deletes it from the wire, and `extra="forbid"` returns 500 instead. And `WP-033` as filed is wrong — its two branches are not alternatives, because the seeder publishes a `calling_window` for voice only, on purpose.
 
 Batches nine and ten added: `WP-035` `db_core` extracted so `db.py` can ever be split · `WP-016` RLS coverage walks the plan instead of sampling 2 of 112 tables *(PARTIAL — `enable` needs a maintenance window)* · `WP-059` the C toolchain is out of the voice image *(PARTIAL — non-root `USER` deferred)* · **`WP-021` deleting a statutory refusal now turns the suite red** · `WP-019` `db_real`, so concurrency is testable at all · `WP-020` an empty seed fails loudly instead of skipping 284 tests.
 

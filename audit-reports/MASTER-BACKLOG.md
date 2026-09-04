@@ -565,6 +565,23 @@ The brief's default order is correctness → security → data integrity → arc
 | **Verification before shipping (b)** | Count callbacks with `NULL preferred_window` scheduled in those two hour-bands. |
 | **Rollback** | `git revert` · **Atomic?** Per piece |
 
+> **Measured 2026-09-05, before shipping (b) — the verification this entry demands.**
+> `callbacks` has **no** `preferred_window` column; it lives on `customers`. Joined:
+> **7 callbacks total, 0 whose customer has a NULL `preferred_window`, 0 in the 09:00–10:00
+> band, 0 in the 19:00–20:00 band.** The default substitution at `db.py:1938` therefore
+> fires for no live row, and piece (b)'s blast radius on current data is **zero**. Ship it.
+>
+> Two things the audit did not have, found in the same read of `customers.preferred_window`
+> (20 rows): **6 carry an en-dash** (`10:00–19:00 IST` ×2, plus four other en-dashed
+> windows) against 13 with an ASCII hyphen, and **one is the empty string, not NULL**.
+> Neither is a live defect — `contact_window._WINDOW_RE` is
+> `(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})`, dash-agnostic by construction, and
+> `window_hours` guards with `if not preferred_window`, which catches `''` and `None`
+> alike. Recorded because **any canonicalization that replaces that regex with a literal
+> `-` split silently reclassifies 6 of 20 borrowers**, and because it confirms the
+> correction filed against `WP-003`: the en-dashes in this system are in the *hour*
+> fields, never in `allowed_days`.
+
 > **⚠ The trap this band must not fall into.** RBI 08:00–19:00 (statutory) and `contact_window` 09:00–20:00 (borrower **preference**) are **different rules**. A 19:30 callback is in-preference and out-of-statute. **Merging them would be the worst single outcome of this exercise**, and a canonicalization pass that pattern-matches on "hour window" will do exactly that.
 
 ---
@@ -631,6 +648,42 @@ The brief's default order is correctness → security → data integrity → arc
 | **Acceptance criteria** | Either `policy_rule_sets` is populated on a fresh install, or a WhatsApp send outside hours is refused by an explicit rule. |
 | **Risk** | **regulated.** Publishing a statutory rule set **changes what the platform is allowed to do** — it goes through a shadow protocol, not an ordinary deploy |
 | **Rollback** | `git revert` + delete the rows · **Atomic?** Yes |
+
+---
+
+> **Correction, measured 2026-09-05. This entry's two branches are not alternatives, and
+> its statement of the hole is wrong.**
+>
+> The entry says *"With no published rule set, WhatsApp, SMS and email have no calling-hour
+> bound whatsoever"* and offers two interchangeable fixes: seed `policy_rule_sets`, **or**
+> make an out-of-hours WhatsApp send refuse. **Seeding does not produce the second
+> outcome.** `scripts/seed_policy_rules.py:92-99` publishes a `calling_window` row for
+> `voice` only, and the comment above it says the omission is deliberate: *digital is bound
+> by the borrower's consented window rather than by a statutory one*, and a row saying
+> 00:00–24:00 and no row at all "mean the same thing to the resolver but very different
+> things to a reader." Wiring the seeder therefore closes the `policy_version IS NULL`
+> problem and changes the digital hour bound not at all.
+>
+> The digital channels are **not** unbounded. `contact_policy.py:519-524` applies
+> `_preferred_hours(customer)` to every channel, not just voice. The actual hole is
+> narrower and it is in the fallback: `_preferred_hours` (`contact_policy.py:257-288`)
+> returns `None` when **both** `consent_records.allowed_hours` and
+> `customers.preferred_window` are absent, and `None` at the call site means *no hour check
+> is performed at all*.
+>
+> **Measured against the live database: 20 customers, of whom exactly 1 has neither column
+> populated.** That borrower can be messaged at any hour on WhatsApp, SMS and email. On
+> voice they are still caught by the hardcoded `RBI_VOICE_START`/`RBI_VOICE_END`.
+>
+> The fix this points at is a canonicalization, not a seeding: `contact_window.window_hours`
+> already faces the identical question and answers it the other way, in a docstring that
+> says *"An unparseable window is not a licence to call at 03:00: it falls back to the
+> default bounds rather than to 'no restriction'."* Two modules, one question, opposite
+> answers — the same shape as `WP-029`. Re-scope accordingly: (1) wire the seeder into the
+> fresh-install path the way `WP-034` did, (2) make an absent borrower window fall back to a
+> bound rather than to no check, (3) handle `effective_to` — a rule set that expires with no
+> successor silently reverts the platform to the module constants and, per `WP-017`, nothing
+> logs it.
 
 ---
 
