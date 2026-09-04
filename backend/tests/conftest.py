@@ -1,11 +1,17 @@
-"""Rollback fixture for domain handler tests — no leftover CRM rows."""
+"""Shared DB fixtures: rollback (``db_tx``) and committing (``db_real``)."""
 
 from __future__ import annotations
 
 import os
+import re
+from collections.abc import Callable
 from contextlib import contextmanager
+from typing import Any
 
 import pytest
+from sqlalchemy import text
+
+_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
 @pytest.fixture
@@ -63,6 +69,98 @@ def db_tx(monkeypatch: pytest.MonkeyPatch):
     finally:
         outer.rollback()
         connection.close()
+
+
+class _RealDb:
+    """Unwrapped engine plus teardown deletes for tests that must COMMIT.
+
+    ``track`` / ``on_teardown`` are the cleanup. A test that inserts and
+    forgets to register the row leaves it in the shared development database
+    — that is the cost of real commits, and it is why ``db_tx`` exists for
+    every test that does not need a second connection.
+    """
+
+    def __init__(self, engine: Any) -> None:
+        self.engine = engine
+        self._cleanups: list[Callable[[Any], None]] = []
+
+    def begin(self):
+        return self.engine.begin()
+
+    def connect(self):
+        return self.engine.connect()
+
+    def track(self, table: str, **filters: Any) -> None:
+        """Delete matching rows at teardown. Filters are AND-ed equalities."""
+        if not _IDENT.fullmatch(table):
+            raise ValueError(f"not a table name: {table!r}")
+        if not filters:
+            raise ValueError("track() needs at least one column filter")
+        for column in filters:
+            if not _IDENT.fullmatch(column):
+                raise ValueError(f"not a column name: {column!r}")
+        snapshot = dict(filters)
+
+        def _delete(conn: Any) -> None:
+            where = " AND ".join(f"{column} = :{column}" for column in snapshot)
+            conn.execute(
+                text(f"DELETE FROM {table} WHERE {where}"),  # noqa: S608
+                snapshot,
+            )
+
+        self._cleanups.append(_delete)
+
+    def on_teardown(self, fn: Callable[[Any], None]) -> None:
+        """Run ``fn(conn)`` inside the fixture's cleanup transaction."""
+        self._cleanups.append(fn)
+
+
+@pytest.fixture
+def db_real(request: pytest.FixtureRequest):
+    """Real pooled connections, real COMMITs, explicit cleanup.
+
+    ``db_tx`` routes every ``engine.begin()`` onto one shared connection as a
+    SAVEPOINT. Two blocks are always mutually visible; advisory locks are
+    held for the whole test; ``FOR UPDATE SKIP LOCKED`` has nobody to skip.
+    Concurrency is structurally untestable under that fixture.
+
+    This sibling leaves ``db.engine`` alone. Two ``begin()`` blocks are two
+    connections, visible to each other only after COMMIT — the production
+    shape. Tests must register leftover rows: the fixture will not roll
+    them back because there is no outer transaction to roll back.
+
+    ``test_job_claim.py`` and ``test_voice_session_store_contention.py``
+    already escape ``db_tx`` by hand. This is that pattern, promoted.
+    """
+    if "db_tx" in request.fixturenames:
+        raise pytest.UsageError(
+            "db_real and db_tx cannot be requested together: the savepoint "
+            "proxy makes two begin() blocks share one connection, which is "
+            "the condition db_real exists to escape."
+        )
+
+    import db
+
+    handle = _RealDb(db.engine)
+    try:
+        yield handle
+    finally:
+        # Not `if not ...: return` — a `return` inside `finally` is a
+        # SyntaxWarning on 3.12+ and suppresses in-flight exceptions in any
+        # context where one is propagating.
+        errors: list[BaseException] = []
+        if handle._cleanups:
+            with db.engine.begin() as conn:
+                for fn in reversed(handle._cleanups):
+                    nested = conn.begin_nested()
+                    try:
+                        fn(conn)
+                        nested.commit()
+                    except BaseException as exc:  # noqa: BLE001 — surface after the rest run
+                        nested.rollback()
+                        errors.append(exc)
+        if errors:
+            raise errors[0]
 
 
 @pytest.fixture(autouse=True)
