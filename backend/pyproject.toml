@@ -1,0 +1,16 @@
+# The backend is not a published package. This table exists so the
+# interpreter bound is declared where installers look for it.
+#
+# Image and CI run Python 3.12. A 3.14 venv resolves environment markers
+# differently (numpy floors, audioop-lts, onnxruntime), so pins taken from
+# it do not describe what ships. requires-python makes that mismatch
+# fail at venv creation under uv rather than at the next image rebuild.
+#
+# Lockfiles (requirements.lock, requirements-voice.lock) are a 3.12
+# linux resolve with hashes. Regenerate with:
+#   uv pip compile requirements.txt --python-version 3.12 --python-platform x86_64-unknown-linux-gnu --generate-hashes --no-strip-extras -o requirements.lock
+#   uv pip compile requirements-voice.txt -c requirements.txt --python-version 3.12 --python-platform x86_64-unknown-linux-gnu --generate-hashes --no-strip-extras -o requirements-voice.lock
+[project]
+name = "habibi-backend"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"

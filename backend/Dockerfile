@@ -16,8 +16,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# requirements.lock is a 3.12 linux resolve of this file, with hashes.
+# --require-hashes is what makes the 114 previously-unpinned transitives
+# (cryptography, urllib3, certifi, …) a recorded artifact rather than a
+# fresh PyPI resolve at every image build.
+COPY requirements.txt requirements.lock .
+RUN pip install --require-hashes -r requirements.lock
 
 # Application source (see .dockerignore)
 COPY . .
@@ -43,8 +47,8 @@ RUN apt-get update \
 # disagree, and nothing records what either got. A conflict
 # (ruff==0.6.9 vs pipecat's cli extra ruff>=0.12.1, if evals is added)
 # must fail the build — do not drop the flag to make the install green.
-COPY requirements-voice.txt .
-RUN pip install -r requirements-voice.txt -c requirements.txt
+COPY requirements-voice.txt requirements-voice.lock .
+RUN pip install --require-hashes -r requirements-voice.lock -c requirements.txt
 
 # Pipecat's sentence splitter (pipecat.utils.string) calls
 # nltk.download("punkt_tab") at import if the data is missing. Bake it

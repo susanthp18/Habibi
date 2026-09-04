@@ -41,9 +41,9 @@ def test_voice_dockerfile_constrains_the_voice_install() -> None:
     install_lines = [
         line
         for line in voice.splitlines()
-        if "pip install" in line and "requirements-voice.txt" in line
+        if "pip install" in line and "requirements-voice" in line
     ]
-    assert install_lines, "voice stage must pip install requirements-voice.txt"
+    assert install_lines, "voice stage must pip install the voice requirements"
     constraint = re.compile(r"(^|\s)-c\s+requirements\.txt(\s|$)")
     for line in install_lines:
         assert constraint.search(line), (

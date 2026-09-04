@@ -73,12 +73,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/requirements-voice.lock
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.lock
 
       # 26 test files import pipecat at module scope and cannot even be
       # collected without it -- every one of them covering the voice runtime,
@@ -93,14 +95,15 @@ jobs:
       # dependency argument. -c requirements.txt is the same gate as the
       # voice Dockerfile: pipecat must not silently move the base pins.
       - name: Install voice dependencies
-        run: pip install -r requirements-voice.txt -c requirements.txt
+        run: pip install --require-hashes -r requirements-voice.lock -c requirements.txt
 
       # Same shape as the frontend audit: a CVE against the declared trees
       # must fail CI rather than wait for a person to look. Installed here,
       # not in requirements.txt, so it does not ship in the images.
-      # `-r` both manifests (not the local venv): the host venv is 3.14 and
-      # can lag the floors WP-057 already shipped. --progress-spinner off
-      # keeps the log a result, not an animation.
+      # `-r` both lockfiles (the 3.12 linux resolve images install), not the
+      # manifests and not the local venv: re-resolving the manifests would
+      # describe a tree nobody ships. --progress-spinner off keeps the log
+      # a result, not an animation.
       #
       # PYSEC-2026-3740 is nltk 3.10.3 (model-artifact pathsec bypass,
       # TransitionParser/AveragedPerceptron). No patched release exists;
@@ -111,8 +114,8 @@ jobs:
         run: |
           pip install pip-audit==2.10.1
           pip-audit --progress-spinner off --ignore-vuln PYSEC-2026-3740 \
-            -r requirements.txt \
-            -r requirements-voice.txt
+            -r requirements.lock \
+            -r requirements-voice.lock
 
       # Before the database steps on purpose: ruff needs no Postgres, so a lint
       # failure costs ten seconds instead of the ninety it takes to build and
@@ -260,17 +263,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements.lock
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.lock
 
       - name: Pytest production envelope
         run: pytest -q tests/test_unrecognised_app_env_is_production.py
 
-  # The pytest job installs requirements-voice.txt, so an eager `import pipecat`
+  # The pytest job installs requirements-voice.lock, so an eager `import pipecat`
   # (or `fastembed`) on the API/worker path would pass that suite and still
   # crash the base image — the image those two processes actually run in.
   # Pipecat and fastembed are voice-only by design; this job builds that base

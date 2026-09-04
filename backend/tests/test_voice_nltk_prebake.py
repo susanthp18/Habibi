@@ -65,8 +65,8 @@ def test_voice_dockerfile_prebakes_punkt_tab_outside_app() -> None:
     assert not data_dir.startswith("/app"), (
         "NLTK_DATA under /app is hidden by docker-compose.dev.yml's bind-mount"
     )
-    install_at = voice.find("pip install -r requirements-voice.txt")
-    assert install_at != -1
-    after_install = voice[install_at:]
+    match = re.search(r"pip install[^\n]*requirements-voice", voice)
+    assert match, "voice stage must pip install the voice requirements"
+    after_install = voice[match.start():]
     assert "punkt_tab" in after_install
     assert "nltk.download" in after_install or "nltk.downloader" in after_install

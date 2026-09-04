@@ -1,4 +1,5 @@
-# Voice / Pipecat deps — install into the SAME backend/.venv:
+# Voice / Pipecat deps — transitives are hashed in requirements-voice.lock
+# (same 3.12 linux resolve as requirements.lock). Local venv:
 #   .\.venv\Scripts\pip install -r requirements-voice.txt -c requirements.txt
 #
 # Kept separate from requirements.txt so CRM API upgrades are not coupled to

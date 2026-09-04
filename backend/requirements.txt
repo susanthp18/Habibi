@@ -1,5 +1,7 @@
-# Known-good pins from the local venv (optimization Tier 0).
-# Bump deliberately after testing — do not leave floating majors in prod.
+# Direct dependencies. Transitives are hashed in requirements.lock,
+# compiled for Python 3.12 linux — the interpreter the image and CI run,
+# not the local venv. Bump deliberately after testing, then recompile
+# the lockfile (see pyproject.toml). Do not leave floating majors in prod.
 fastapi==0.139.2
 uvicorn==0.51.0
 sqlalchemy==2.0.51
