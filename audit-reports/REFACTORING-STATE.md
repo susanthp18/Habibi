@@ -288,17 +288,19 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 70. Status: 28 completed, 42 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 72. Status: 31 completed, 41 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **12** |
+| **READY** — no unmet prerequisite; can begin today | **9** |
 | **BLOCKED** — has an unmet prerequisite | **30** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
-| **IN PROGRESS** | **0** |
-| **COMPLETED** | **28** |
+| **IN PROGRESS** | **3** — `WP-050`, `WP-055`, `WP-060` |
+| **COMPLETED** | **31** |
 
-### COMPLETED (28)
+### COMPLETED (31)
+
+Batch seven added: `WP-034` **a fresh install can finally satisfy the outbound publish gate** · `WP-051` two mouse-only tasks given keyboard paths · `WP-056` **a CVE now fails the build instead of waiting to be noticed**.
 
 Batches three to six added: `WP-044` one error-code map · `WP-067` roster status derived from deployments · `WP-024` **coverage published: 62%** · `WP-010` each dial counted · `WP-065` flag lock · `WP-061`/`WP-063` hygiene · `WP-032` Fish promo lapsed *(PARTIAL — needs funded API credit)* · `WP-053` import-boundary CI · `WP-057` 21 nltk advisories + no boot-time download · `WP-058` **the submission zip no longer redistributes 4,518 licence-restricted files** · `WP-054` voice install constrained · `WP-052` 105 labels connected.
 
