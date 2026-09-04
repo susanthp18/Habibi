@@ -22,6 +22,8 @@ from agent_core import platform_flags as flags
         flags.vision_ingest_enabled,
         flags.temporal_enabled,
         flags.policy_export_enabled,
+        flags.outbound_eval_gate_enabled,
+        flags.campaign_runtime_enabled,
     ],
 )
 def test_factory_flags_default_off(fn, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -38,6 +40,8 @@ def test_factory_flags_default_off(fn, monkeypatch: pytest.MonkeyPatch) -> None:
         "VISION_INGEST_ENABLED",
         "TEMPORAL_ENABLED",
         "POLICY_EXPORT_ENABLED",
+        "OUTBOUND_EVAL_GATE_ENABLED",
+        "CAMPAIGN_RUNTIME_ENABLED",
     ):
         monkeypatch.delenv(name, raising=False)
     assert fn() is False
