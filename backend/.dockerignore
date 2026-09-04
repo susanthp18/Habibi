@@ -21,3 +21,6 @@ _tmp_*.py
 *.md
 !README.md
 alembic/versions/__pycache__/
+# 190 test files; they are not a runtime dependency. Leaving them in
+# the image is how they used to ship in every process type.
+tests/

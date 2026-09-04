@@ -120,18 +120,14 @@ def test_tls_surface_is_hashed_in_the_shipped_tree() -> None:
 
 def test_dockerfile_installs_the_lockfiles_with_hashes() -> None:
     src = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
-    base, _, voice = src.partition("FROM base AS voice")
-    base_install = [line for line in base.splitlines() if "pip install" in line]
+    installs = [line for line in src.splitlines() if "pip install" in line]
+    base_install = [line for line in installs if "requirements-voice" not in line]
     assert base_install, "base stage must pip install"
     for line in base_install:
         assert "--require-hashes" in line, line
         assert "requirements.lock" in line, line
-    voice_install = [
-        line
-        for line in voice.splitlines()
-        if "pip install" in line and "requirements-voice" in line
-    ]
-    assert voice_install, "voice stage must pip install the voice lockfile"
+    voice_install = [line for line in installs if "requirements-voice" in line]
+    assert voice_install, "voice layer must pip install the voice lockfile"
     for line in voice_install:
         assert "--require-hashes" in line, line
         assert "requirements-voice.lock" in line, line

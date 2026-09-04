@@ -65,8 +65,16 @@ def test_voice_dockerfile_prebakes_punkt_tab_outside_app() -> None:
     assert not data_dir.startswith("/app"), (
         "NLTK_DATA under /app is hidden by docker-compose.dev.yml's bind-mount"
     )
-    match = re.search(r"pip install[^\n]*requirements-voice", voice)
-    assert match, "voice stage must pip install the voice requirements"
-    after_install = voice[match.start():]
+    # Install + download may live on a builder stage; they must still
+    # precede the copy into the final voice image, and the data dir
+    # the voice stage names must be the one that was baked.
+    match = re.search(r"pip install[^\n]*requirements-voice", src)
+    assert match, "voice layer must pip install the voice requirements"
+    after_install = src[match.start():]
     assert "punkt_tab" in after_install
     assert "nltk.download" in after_install or "nltk.downloader" in after_install
+    assert "COPY --from=builder" in voice
+    assert data_dir.startswith("/usr/local"), (
+        "NLTK_DATA must sit under the /usr/local tree the voice stage copies "
+        f"from the builder; got {data_dir}"
+    )

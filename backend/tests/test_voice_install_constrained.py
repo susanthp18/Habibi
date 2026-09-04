@@ -36,14 +36,12 @@ def test_base_requirements_are_legal_pip_constraints() -> None:
 
 def test_voice_dockerfile_constrains_the_voice_install() -> None:
     src = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
-    assert "FROM base AS voice" in src
-    voice = src.split("FROM base AS voice", 1)[1]
     install_lines = [
         line
-        for line in voice.splitlines()
+        for line in src.splitlines()
         if "pip install" in line and "requirements-voice" in line
     ]
-    assert install_lines, "voice stage must pip install the voice requirements"
+    assert install_lines, "voice layer must pip install the voice requirements"
     constraint = re.compile(r"(^|\s)-c\s+requirements\.txt(\s|$)")
     for line in install_lines:
         assert constraint.search(line), (

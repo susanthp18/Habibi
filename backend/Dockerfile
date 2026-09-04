@@ -32,8 +32,12 @@ EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 
-# Voice runner needs Pipecat + native audio/WebRTC deps.
-FROM base AS voice
+# Compile voice native wheels. Discarded; the voice stage copies
+# /usr/local and does not keep the C toolchain. ffmpeg is here too
+# because some wheels probe for it at install time — the runtime
+# copy is a separate apt install on the voice stage, since apt
+# puts the binary in /usr/bin, outside this COPY.
+FROM base AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -59,6 +63,20 @@ RUN pip install --require-hashes -r requirements-voice.lock -c requirements.txt
 ENV NLTK_DATA=/usr/local/share/nltk_data
 RUN python -c "import os, nltk; nltk.download('punkt_tab', download_dir=os.environ['NLTK_DATA'], quiet=True, raise_on_error=True); nltk.data.find('tokenizers/punkt_tab')"
 
+
+# Voice runner. ffmpeg is needed at runtime; a C toolchain is not.
+# build-essential used to survive into this stage — the container that
+# terminates borrower calls.
+FROM base AS voice
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local /usr/local
+
+ENV NLTK_DATA=/usr/local/share/nltk_data
 ENV DB_PROCESS_ROLE=voice
 EXPOSE 7860
 # Bind all interfaces so published compose ports reach the runner.
