@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "https://api.fish.audio"
 
 #: The model is selected by a ``model:`` **header**, not a body field, and the
-#: free promotion is a *separate model id* rather than a discount on the paid
+#: free promotion was a *separate model id* rather than a discount on the paid
 #: one. Sending ``s2.1-pro`` bills API credit — which is a balance distinct from
 #: platform credit — so an account with a valid key and a funded platform wallet
 #: still 402s. Verified 2026-08-22 on the same key: ``s2.1-pro`` -> 402,
@@ -52,12 +52,11 @@ DEFAULT_BASE_URL = "https://api.fish.audio"
 #: (speed 0.5 vs 2.0 measured a 4.1x duration ratio).
 #:
 #: **Free through 2026-08-31**, per Fish's announcement, already extended once
-#: from 2026-07-24. When it lapses this will start failing; set
-#: ``FISH_TTS_MODEL=s2.1-pro`` and fund API credit at fish.audio/app/developers,
-#: or let the OpenRouter fall-through carry previews. Fair-use, no SLA, and
-#: requests may be used to improve the model — fine for a demo, a decision to
-#: revisit before production.
-DEFAULT_MODEL = "s2.1-pro-free"
+#: from 2026-07-24. The promo has lapsed; the default is now ``s2.1-pro``.
+#: Fund API credit at fish.audio/app/developers. The OpenRouter fall-through
+#: uses ``fish-audio/s2.1-pro``, not the expired free promotion — a fallback
+#: on the same expired id cannot rescue the primary.
+DEFAULT_MODEL = "s2.1-pro"
 _TIMEOUT = 90.0
 
 #: Grouped for the picker. Sourced from Fish's emotion-control reference; the

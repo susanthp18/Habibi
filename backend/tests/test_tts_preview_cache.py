@@ -295,10 +295,10 @@ def test_a_vendor_returning_no_audio_is_an_error_and_is_not_cached(monkeypatch):
 
 
 def test_the_fish_salt_is_the_configured_model(monkeypatch):
-    monkeypatch.setenv("FISH_TTS_MODEL", "s2.1-pro")
-    assert provider_tts._cache_salt("fish") == "s2.1-pro"
-    monkeypatch.delenv("FISH_TTS_MODEL")
+    monkeypatch.setenv("FISH_TTS_MODEL", "s2.1-pro-free")
     assert provider_tts._cache_salt("fish") == "s2.1-pro-free"
+    monkeypatch.delenv("FISH_TTS_MODEL")
+    assert provider_tts._cache_salt("fish") == "s2.1-pro"
 
 
 def test_only_fish_carries_a_salt():

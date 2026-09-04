@@ -437,7 +437,7 @@ SEED: tuple[ProviderSpec, ...] = (
         models=(
             ModelSpec(
                 kind="tts",
-                model_id="fish-audio/s2.1-pro-free:free",
+                model_id="fish-audio/s2.1-pro",
                 display_name="Fish Audio S2.1 Pro",
                 # No Pipecat integration ships for OpenRouter audio, so this is
                 # served by our own OpenAI-compatible client rather than a
@@ -457,9 +457,9 @@ SEED: tuple[ProviderSpec, ...] = (
                     "Generative TTS: steered by sampler settings, not a prosody "
                     "envelope. One default voice — OpenRouter exposes no voice "
                     "list, and sending voice:\"\" is a 400, so the field is "
-                    "omitted entirely. Free tier is rate-limited and carries no "
-                    "latency or availability guarantee, so bind it as a "
-                    "fallback or for auditioning, never as a production default."
+                    "omitted entirely. Paid ``fish-audio/s2.1-pro``, not the "
+                    "expired ``s2.1-pro-free:free`` promotion. Preview/audition "
+                    "only — there is no streaming Pipecat integration."
                 ),
             ),
         ),

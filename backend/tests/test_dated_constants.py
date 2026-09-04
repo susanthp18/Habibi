@@ -16,9 +16,10 @@ the class recurs.
 
 An exception is a written, reviewed decision: ``_ALLOWLIST`` keyed by
 ``(relative_path, identifier)``. A name that happens to contain
-``VERSION`` is not an exemption. The lapsed Fish TTS free-tier date is
-owned by WP-032; expiry comments are future-lookahead only so that
-already-fired date does not re-red this suite.
+``VERSION`` is not an exemption. Expiry comments are future-lookahead
+only, so an already-fired date does not re-red this suite — the Fish TTS
+free-tier sentence stays in the source as history now that WP-032 has
+flipped the default to the paid model.
 """
 
 from __future__ import annotations
@@ -227,14 +228,19 @@ def test_the_live_fish_tts_sources_are_caught_inside_the_horizon() -> None:
     )
 
 
-def test_lapsed_fish_tts_is_owned_by_wp032_not_this_scanner() -> None:
-    """Expiry comments are future-lookahead only. WP-032 owns the flip."""
+def test_a_lapsed_expiry_comment_does_not_re_red_the_suite() -> None:
+    """Expiry comments are future-lookahead only.
+
+    WP-032 has landed: the Fish default is the paid ``s2.1-pro``. The dated
+    sentence stays in the source because it records why the default changed,
+    and a scanner that re-flagged it would punish keeping the history.
+    """
     today = date(2026, 9, 3)
     fish = (BACKEND / "agent_core" / "providers" / "fish_tts.py").read_text(
         encoding="utf-8"
     )
     assert hits_in(fish, today=today) == [], (
-        "already-lapsed Fish TTS must not re-red this suite; WP-032 owns it"
+        "a lapsed expiry comment kept as history must not re-red this suite"
     )
     env = (BACKEND / ".env.example").read_text(encoding="utf-8")
     assert hits_in(env, today=today) == [], (

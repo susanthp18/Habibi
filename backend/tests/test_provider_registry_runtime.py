@@ -70,7 +70,7 @@ def test_azure_tts_binds_the_keepalive_subclass():
 def test_preview_only_models_are_declared_not_inferred():
     """OpenRouter has no streaming integration and raises on construction. The
     flag has to be declared, because detecting it means constructing it."""
-    model = registry.find_model("openrouter", "fish-audio/s2.1-pro-free:free")
+    model = registry.find_model("openrouter", "fish-audio/s2.1-pro")
     assert model is not None
     assert model.live_capable is False
     assert registry.runtime_status(model)[0] == registry.RUNTIME_PREVIEW_ONLY
@@ -177,29 +177,31 @@ def test_emotion_markers_are_not_metered_as_speech():
 # ------------------------------------------------------------ fish model id
 
 
-def test_fish_defaults_to_the_free_promo_model():
-    """Fish selects the model with a ``model:`` HEADER, and the free tier is a
+def test_fish_defaults_to_the_paid_model():
+    """Fish selects the model with a ``model:`` HEADER, and the free tier was a
     *separate model id* rather than a discount on the paid one.
 
-    This cost a full misdiagnosis: the account had a valid key and a funded
-    platform wallet, so "Insufficient API credit" read as a billing problem to
-    escalate rather than the wrong model id. API credit is a distinct balance.
-    Verified on one key: s2.1-pro -> 402, s2.1-pro-free -> 200.
+    The free promo lapsed 2026-08-31. Leaving the default on ``s2.1-pro-free``
+    (and the OpenRouter fallback on the same promotion) made every preview a
+    402 that could not rescue itself. API credit is a distinct balance from
+    the platform wallet; the paid id needs that balance funded.
     """
-    from agent_core.providers import fish_tts
+    from agent_core.providers import fish_tts, openrouter_tts
 
-    assert fish_tts.DEFAULT_MODEL == "s2.1-pro-free"
+    assert fish_tts.DEFAULT_MODEL == "s2.1-pro"
+    assert openrouter_tts.DEFAULT_MODEL == "fish-audio/s2.1-pro"
+    assert "s2.1-pro-free" not in openrouter_tts.DEFAULT_MODEL
+    assert ":free" not in openrouter_tts.DEFAULT_MODEL
 
 
 def test_fish_model_is_env_overridable(monkeypatch):
-    """The promo ends 2026-08-31. When it lapses, FISH_TTS_MODEL=s2.1-pro plus
-    funded API credit is the whole migration — no code change."""
+    """The paid default can still be overridden; the env var is the escape."""
     from agent_core.providers import fish_tts
 
-    monkeypatch.setenv("FISH_TTS_MODEL", "s2.1-pro")
-    assert fish_tts.default_model() == "s2.1-pro"
-    monkeypatch.delenv("FISH_TTS_MODEL")
+    monkeypatch.setenv("FISH_TTS_MODEL", "s2.1-pro-free")
     assert fish_tts.default_model() == "s2.1-pro-free"
+    monkeypatch.delenv("FISH_TTS_MODEL")
+    assert fish_tts.default_model() == "s2.1-pro"
 
 
 def test_fish_pcm_payload_carries_the_pipeline_sample_rate():

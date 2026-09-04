@@ -37,7 +37,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "fish-audio/s2.1-pro-free:free"
+DEFAULT_MODEL = "fish-audio/s2.1-pro"
 
 #: Fields the speech endpoint honours. Anything else is dropped rather than
 #: forwarded: the endpoint 200s on unknown keys, so forwarding a typo would
