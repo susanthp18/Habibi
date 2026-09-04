@@ -13,9 +13,8 @@ import {
   filterConsents,
   type ConsentFilterState,
   type ConsentRecord,
-  type ChannelConsent,
-  type AllowedWindow,
   type ConsentChannel,
+  type ConsentPreferencesPatch,
   type OptOutSource,
 } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -56,11 +55,8 @@ function ConsentPage() {
   const openRecord = useMemo(() => items.find((r) => r.id === openId) ?? null, [items, openId]);
 
   const saveMutation = useMutation({
-    mutationFn: (v: {
-      rec: ConsentRecord;
-      patch: { channels: ChannelConsent[]; allowedWindow: AllowedWindow };
-      note: string;
-    }) => saveConsent(v.rec, v.patch, v.note),
+    mutationFn: (v: { rec: ConsentRecord; patch: ConsentPreferencesPatch; note: string }) =>
+      saveConsent(v.rec, v.patch, v.note),
     onSuccess: () => {
       invalidate();
       toast.success("Consent preferences saved", {
@@ -102,11 +98,7 @@ function ConsentPage() {
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "DND update failed"),
   });
 
-  const onSave = (
-    id: string,
-    p: { channels: ChannelConsent[]; allowedWindow: AllowedWindow },
-    note: string,
-  ) => {
+  const onSave = (id: string, p: ConsentPreferencesPatch, note: string) => {
     const rec = items.find((r) => r.id === id);
     if (!rec) return;
     saveMutation.mutate({ rec, patch: p, note });

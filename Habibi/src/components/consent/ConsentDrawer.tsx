@@ -8,12 +8,14 @@ import { AllowedHoursEditor } from "./AllowedHoursEditor";
 import { FrequencyCapsEditor } from "./FrequencyCapsEditor";
 import { OptOutLog } from "./OptOutLog";
 import { ContactablePill } from "./ContactablePill";
-import type {
-  ChannelConsent,
-  AllowedWindow,
-  ConsentRecord,
-  ConsentChannel,
-  OptOutSource,
+import {
+  allowedWindowsEqual,
+  type ChannelConsent,
+  type AllowedWindow,
+  type ConsentPreferencesPatch,
+  type ConsentRecord,
+  type ConsentChannel,
+  type OptOutSource,
 } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 
@@ -36,11 +38,7 @@ export function ConsentDrawer({
 }: {
   record: ConsentRecord | null;
   onClose: () => void;
-  onSave: (
-    id: string,
-    patch: { channels: ChannelConsent[]; allowedWindow: AllowedWindow },
-    note: string,
-  ) => void;
+  onSave: (id: string, patch: ConsentPreferencesPatch, note: string) => void;
   onRenew: (id: string) => void;
   onCaptureOptOut: (
     id: string,
@@ -71,7 +69,11 @@ export function ConsentDrawer({
   if (!record) return null;
 
   const save = () => {
-    onSave(record.id, { channels, allowedWindow: window }, note || "Consent preferences updated.");
+    const patch: ConsentPreferencesPatch = { channels };
+    if (!allowedWindowsEqual(window, record.allowedWindow)) {
+      patch.allowedWindow = window;
+    }
+    onSave(record.id, patch, note || "Consent preferences updated.");
     setNote("");
   };
   const captureOptOut = () => {

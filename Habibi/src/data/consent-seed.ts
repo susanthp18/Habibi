@@ -22,6 +22,20 @@ export interface AllowedWindow {
   endHour: number; // 0-23
 }
 
+/** Channel-matrix save. `allowedWindow` is present only when the operator edited it. */
+export type ConsentPreferencesPatch = {
+  channels: ChannelConsent[];
+  allowedWindow?: AllowedWindow;
+};
+
+export function allowedWindowsEqual(a: AllowedWindow, b: AllowedWindow): boolean {
+  if (a.startHour !== b.startHour || a.endHour !== b.endHour) return false;
+  if (a.days.length !== b.days.length) return false;
+  const left = [...a.days].sort((x, y) => x - y);
+  const right = [...b.days].sort((x, y) => x - y);
+  return left.every((day, i) => day === right[i]);
+}
+
 export interface OptOutEvent {
   id: string;
   at: string;
@@ -504,12 +518,14 @@ function pushAudit(rec: ConsentRecord, action: string, actor = "You") {
 
 export function saveConsentPreferences(
   id: string,
-  patch: { channels: ChannelConsent[]; allowedWindow: AllowedWindow },
+  patch: ConsentPreferencesPatch,
   note: string,
 ): void {
   const rec = findOrThrow(id);
   rec.channels = patch.channels;
-  rec.allowedWindow = patch.allowedWindow;
+  if (patch.allowedWindow !== undefined) {
+    rec.allowedWindow = patch.allowedWindow;
+  }
   pushAudit(rec, note || "Consent preferences updated.");
 }
 

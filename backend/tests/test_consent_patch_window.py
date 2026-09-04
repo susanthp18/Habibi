@@ -1,0 +1,226 @@
+"""A channel-only PATCH must not rewrite the stored consent window.
+
+``patch_consent`` used to persist whatever the GET serializer emitted, so a save
+that only toggled a channel reformatted ``allowed_days`` / ``allowed_hours`` /
+``customers.preferred_window``. An en-dash ``Mon–Sat`` became ``Mon-Mon``; a
+NULL window became ``Mon-Fri`` / ``10:00-19:00 IST``. After the first rewrite
+both parsers agreed, and the original consent was unrecoverable.
+
+WP-030 consolidates the parser. This file only pins that the write does not
+happen.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy import text
+
+import db
+
+# The GET serializer's hyphen-only parser sees this as Monday. Sending that
+# parse back is the write this package has to refuse.
+EN_DASH_DAYS = "Mon–Sat"
+
+
+def _get_echo(days_raw: str | None, hours_raw: str | None) -> dict:
+    """What ``list_consent`` puts in ``allowedWindow`` for these stored strings."""
+    start, end = db._parse_allowed_hours(hours_raw)
+    return {"days": db._parse_allowed_days(days_raw), "startHour": start, "endHour": end}
+
+
+def _fresh(db_tx, *, days: str | None, hours: str | None, preferred: str | None) -> str:
+    cid = f"wp002-{uuid.uuid4().hex[:10]}"
+    cr_id = f"cr-{cid}"
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO customers (id, tenant_id, name, risk, preferred_window)
+            VALUES (:id, :t, 'WP-002', 'low', :w)
+            """
+        ),
+        {"id": cid, "t": db.current_tenant(), "w": preferred},
+    )
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO consent_records (id, customer_id, allowed_days, allowed_hours)
+            VALUES (:id, :cid, :days, :hours)
+            """
+        ),
+        {"id": cr_id, "cid": cid, "days": days, "hours": hours},
+    )
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO channel_consents
+              (id, consent_id, channel, purpose, status, source, captured_at)
+            VALUES
+              (:id, :cr, 'sms', 'servicing', 'opted_in', 'Agent', now())
+            """
+        ),
+        {"id": f"{cr_id}-sms-servicing", "cr": cr_id},
+    )
+    return cid
+
+
+def _stored(db_tx, customer_id: str) -> dict:
+    row = db_tx.execute(
+        text(
+            """
+            SELECT cr.allowed_days, cr.allowed_hours, c.preferred_window
+            FROM consent_records cr
+            JOIN customers c ON c.id = cr.customer_id
+            WHERE c.id = :id
+            """
+        ),
+        {"id": customer_id},
+    ).mappings().first()
+    assert row is not None
+    return dict(row)
+
+
+def _sms_status(db_tx, customer_id: str) -> str | None:
+    return db_tx.execute(
+        text(
+            """
+            SELECT cc.status
+            FROM channel_consents cc
+            JOIN consent_records cr ON cr.id = cc.consent_id
+            WHERE cr.customer_id = :id AND cc.channel = 'sms' AND cc.purpose = 'servicing'
+            """
+        ),
+        {"id": customer_id},
+    ).scalar()
+
+
+def test_a_channel_toggle_leaves_an_en_dash_window_byte_identical(db_tx) -> None:
+    """``Mon–Sat`` survives a save that only opted SMS out.
+
+    The screen used to PATCH the GET payload, whose parser yields Monday-only
+    for an en-dash range. Writing that parse produced ``Mon-Mon``.
+    """
+    hours = "08:00-17:00 IST"
+    cid = _fresh(db_tx, days=EN_DASH_DAYS, hours=hours, preferred=hours)
+    echo = _get_echo(EN_DASH_DAYS, hours)
+    assert echo["days"] == [1], "hyphen-only parse must still see Monday-only; WP-030 owns the fix"
+    before = _stored(db_tx, cid)
+    assert _sms_status(db_tx, cid) == "opted_in"
+
+    db.patch_consent(
+        cid,
+        {
+            "channels": [{"channel": "sms", "status": "opted_out"}],
+            "allowedWindow": echo,
+        },
+    )
+
+    after = _stored(db_tx, cid)
+    assert after["allowed_days"] == EN_DASH_DAYS
+    assert after["allowed_hours"] == hours
+    assert after["preferred_window"] == hours
+    assert after == before
+    assert _sms_status(db_tx, cid) == "opted_out"
+
+
+def test_a_channel_toggle_leaves_a_null_window_null(db_tx) -> None:
+    """NULL stays NULL. The serializer defaults (Mon–Fri, 10–19) must not land."""
+    cid = _fresh(db_tx, days=None, hours=None, preferred=None)
+    echo = _get_echo(None, None)
+    assert echo == {"days": [1, 2, 3, 4, 5], "startHour": 10, "endHour": 19}
+    before = _stored(db_tx, cid)
+    assert _sms_status(db_tx, cid) == "opted_in"
+
+    db.patch_consent(
+        cid,
+        {
+            "channels": [{"channel": "sms", "status": "opted_out"}],
+            "allowedWindow": echo,
+        },
+    )
+
+    after = _stored(db_tx, cid)
+    assert after["allowed_days"] is None
+    assert after["allowed_hours"] is None
+    assert after["preferred_window"] is None
+    assert after == before
+    assert _sms_status(db_tx, cid) == "opted_out"
+
+
+def test_an_operator_changing_the_window_still_writes(db_tx) -> None:
+    """The echo guard must not freeze an actual edit."""
+    cid = _fresh(
+        db_tx,
+        days="Mon-Fri",
+        hours="10:00-19:00 IST",
+        preferred="10:00-19:00 IST",
+    )
+
+    db.patch_consent(
+        cid,
+        {"allowedWindow": {"days": [1, 2, 3, 4, 5, 6], "startHour": 9, "endHour": 18}},
+    )
+
+    after = _stored(db_tx, cid)
+    assert after["allowed_days"] == "Mon-Sat"
+    assert after["allowed_hours"] == "09:00-18:00 IST"
+    assert after["preferred_window"] == "09:00-18:00 IST"
+
+
+def test_an_hours_edit_leaves_an_en_dash_days_string_byte_identical(db_tx) -> None:
+    """Changing hours must not reformat days. The GET parse of ``Mon–Sat`` is
+    Monday-only; writing that parse is how six days became ``Mon-Mon``.
+    """
+    hours = "08:00-17:00 IST"
+    cid = _fresh(db_tx, days=EN_DASH_DAYS, hours=hours, preferred=hours)
+    echo = _get_echo(EN_DASH_DAYS, hours)
+    assert echo["days"] == [1]
+
+    db.patch_consent(
+        cid,
+        {"allowedWindow": {**echo, "startHour": 9, "endHour": 18}},
+    )
+
+    after = _stored(db_tx, cid)
+    assert after["allowed_days"] == EN_DASH_DAYS
+    assert after["allowed_hours"] == "09:00-18:00 IST"
+    assert after["preferred_window"] == "09:00-18:00 IST"
+
+
+def test_a_days_edit_leaves_stored_hours_byte_identical(db_tx) -> None:
+    """Changing days must not reformat hours. The GET parser keeps only the
+    hour numbers, so writing that parse would turn ``08:30-17:45 IST`` into
+    ``08:00-17:00 IST``.
+    """
+    hours = "08:30-17:45 IST"
+    cid = _fresh(db_tx, days="Mon-Fri", hours=hours, preferred=hours)
+    echo = _get_echo("Mon-Fri", hours)
+    assert echo["startHour"] == 8 and echo["endHour"] == 17
+
+    db.patch_consent(
+        cid,
+        {"allowedWindow": {**echo, "days": [1, 2, 3, 4, 5, 6]}},
+    )
+
+    after = _stored(db_tx, cid)
+    assert after["allowed_days"] == "Mon-Sat"
+    assert after["allowed_hours"] == hours
+    assert after["preferred_window"] == hours
+
+
+def test_an_hours_edit_leaves_null_days_null(db_tx) -> None:
+    """A NULL days column is not a Mon–Fri artefact. An hours edit must not
+    stamp the serializer default onto it.
+    """
+    cid = _fresh(db_tx, days=None, hours=None, preferred=None)
+    echo = _get_echo(None, None)
+
+    db.patch_consent(
+        cid,
+        {"allowedWindow": {**echo, "startHour": 9, "endHour": 18}},
+    )
+
+    after = _stored(db_tx, cid)
+    assert after["allowed_days"] is None
+    assert after["allowed_hours"] == "09:00-18:00 IST"
+    assert after["preferred_window"] == "09:00-18:00 IST"

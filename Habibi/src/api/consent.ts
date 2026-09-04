@@ -16,9 +16,11 @@ import {
   renewConsent as renewSeedConsent,
   saveConsentPreferences as saveSeedConsent,
   toggleDndRegistry as toggleSeedDnd,
+  allowedWindowsEqual,
   type AllowedWindow,
   type ChannelConsent,
   type ConsentChannel,
+  type ConsentPreferencesPatch,
   type ConsentRecord,
   type OptOutSource,
 } from "@/data/consent-seed";
@@ -33,20 +35,34 @@ export function useConsent() {
   return useQuery({ queryKey: ["consent"], queryFn: fetchConsent, staleTime: 15_000 });
 }
 
+export function consentPatchBody(
+  rec: ConsentRecord,
+  patch: ConsentPreferencesPatch,
+  note: string,
+): { channels: ChannelConsent[]; note: string; allowedWindow?: AllowedWindow } {
+  const body: { channels: ChannelConsent[]; note: string; allowedWindow?: AllowedWindow } = {
+    channels: patch.channels,
+    note: note || "Consent preferences updated.",
+  };
+  if (
+    patch.allowedWindow !== undefined &&
+    !allowedWindowsEqual(patch.allowedWindow, rec.allowedWindow)
+  ) {
+    body.allowedWindow = patch.allowedWindow;
+  }
+  return body;
+}
+
 export async function saveConsent(
   rec: ConsentRecord,
-  patch: { channels: ChannelConsent[]; allowedWindow: AllowedWindow },
+  patch: ConsentPreferencesPatch,
   note: string,
 ): Promise<void> {
   if (USE_MOCK) {
     saveSeedConsent(rec.id, patch, note);
     return;
   }
-  await apiPatch(`/consent/${rec.customerId}`, {
-    channels: patch.channels,
-    allowedWindow: patch.allowedWindow,
-    note: note || "Consent preferences updated.",
-  });
+  await apiPatch(`/consent/${rec.customerId}`, consentPatchBody(rec, patch, note));
 }
 
 export async function renewConsent(rec: ConsentRecord): Promise<void> {

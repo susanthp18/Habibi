@@ -6645,8 +6645,54 @@ def _channel_status_from_patch(item: dict[str, Any]) -> str:
     raise ValueError("channel status or optedIn is required")
 
 
+def _incoming_window_days(aw: dict[str, Any]) -> list[int] | None:
+    if "days" not in aw:
+        return None
+    try:
+        return sorted(int(d) for d in (aw.get("days") or []))
+    except (TypeError, ValueError):
+        return None
+
+
+def _incoming_window_hours(aw: dict[str, Any]) -> tuple[int, int] | None:
+    """GET always sends both hours. Missing hours are not filled with 10–19."""
+    start = aw.get("startHour")
+    end = aw.get("endHour")
+    if start is None or end is None:
+        return None
+    try:
+        return (int(start), int(end))
+    except (TypeError, ValueError):
+        return None
+
+
+def _window_days_echo_stored(incoming_days: list[int], allowed_days: str | None) -> bool:
+    """True when ``incoming_days`` is the GET serializer's view of ``allowed_days``.
+
+    Writing that view reformats the text: an en-dash ``Mon–Sat`` becomes
+    ``Mon-Mon``. The parser that produces that artefact is WP-030; this only
+    refuses to persist it. Decided per field so an hours edit cannot rewrite days.
+    """
+    return incoming_days == sorted(_parse_allowed_days(allowed_days))
+
+
+def _window_hours_echo_stored(incoming_hours: tuple[int, int], hours_raw: str | None) -> bool:
+    """True when ``incoming_hours`` is the GET serializer's view of the stored hours.
+
+    Writing that view turns a NULL window into ``10:00-19:00 IST`` and drops
+    minutes from a stored ``08:30-17:45 IST``. The parser is WP-030.
+    """
+    return incoming_hours == _parse_allowed_hours(hours_raw)
+
+
 def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Payload arrives with exclude_unset: a present key is an intentional write."""
+    """Payload arrives with exclude_unset: a present key is an intentional write.
+
+    ``allowedWindow`` is the exception: the consent screen used to echo the GET
+    serializer on every save, so a present key may be a round-trip of the stored
+    text rather than an operator edit. Each field whose parsed value matches the
+    stored string is left byte-identical; only a real edit is written.
+    """
     with engine.begin() as conn:
         _assert_tenant_owns_customer(conn, customer_id)
         _ensure_customer(conn, customer_id)
@@ -6675,22 +6721,49 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
         if "allowedWindow" in payload and payload["allowedWindow"] is not None:
             aw = payload["allowedWindow"]
-            days_str = _format_allowed_days(list(aw.get("days") or []))
-            hours_str = _format_allowed_hours(int(aw.get("startHour", 10)), int(aw.get("endHour", 19)))
-            conn.execute(
-                text(
-                    """
-                    UPDATE consent_records
-                    SET allowed_days = :days, allowed_hours = :hours
-                    WHERE id = :id
-                    """
-                ),
-                {"days": days_str, "hours": hours_str, "id": consent_id},
+            if not isinstance(aw, dict):
+                aw = aw.model_dump() if hasattr(aw, "model_dump") else dict(aw)
+            stored = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT cr.allowed_days, cr.allowed_hours, c.preferred_window
+                        FROM consent_records cr
+                        JOIN customers c ON c.id = cr.customer_id
+                        WHERE cr.id = :id
+                        """
+                    ),
+                    {"id": consent_id},
+                )
             )
-            conn.execute(
-                text("UPDATE customers SET preferred_window = :hours WHERE id = :id"),
-                {"hours": hours_str, "id": customer_id},
-            )
+            days_raw = stored["allowed_days"] if stored else None
+            # GET uses allowed_hours, then preferred_window. Match that view so
+            # a round-trip of either column is recognised as an echo.
+            hours_raw = (stored["allowed_hours"] or stored["preferred_window"]) if stored else None
+            incoming_days = _incoming_window_days(aw)
+            incoming_hours = _incoming_window_hours(aw)
+            # Preserve each stored string when its parsed value round-trips
+            # unchanged. A whole-window skip still rewrote days on an hours
+            # edit (Mon–Sat → Mon-Mon) and hours on a days edit.
+            if incoming_days is not None and not _window_days_echo_stored(
+                incoming_days, days_raw
+            ):
+                conn.execute(
+                    text("UPDATE consent_records SET allowed_days = :days WHERE id = :id"),
+                    {"days": _format_allowed_days(incoming_days), "id": consent_id},
+                )
+            if incoming_hours is not None and not _window_hours_echo_stored(
+                incoming_hours, hours_raw
+            ):
+                hours_str = _format_allowed_hours(*incoming_hours)
+                conn.execute(
+                    text("UPDATE consent_records SET allowed_hours = :hours WHERE id = :id"),
+                    {"hours": hours_str, "id": consent_id},
+                )
+                conn.execute(
+                    text("UPDATE customers SET preferred_window = :hours WHERE id = :id"),
+                    {"hours": hours_str, "id": customer_id},
+                )
 
         for item in payload.get("channels") or []:
             if not isinstance(item, dict):
