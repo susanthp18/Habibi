@@ -61,6 +61,23 @@ SETTLE_EVERY = 20
 _iteration = 0
 
 
+def _run_stage(queue: str, drain):
+    """Run one drain. A poison row must not abort the rest of the tick.
+
+    Four of twelve stages used to be individually guarded, and five unguarded
+    ones ran *above* them. A persistently-raising ``whatsapp_outbound`` aborted
+    the tick before the closer, cadence, campaigns, treatment and webhooks were
+    reached; the loop logged ``process_one crashed — backing off`` with no
+    queue name and no row id, slept 1.5s, and repeated forever. Every stage
+    now catches, names the queue, and lets the ones below it still run.
+    """
+    try:
+        return bool(drain())
+    except Exception:
+        logger.exception("queue=%s failed", queue)
+        return False
+
+
 def process_one_any() -> bool:
     """Prefer agent outbound (latency-sensitive UI), with a fair share for bot turns."""
     global _iteration
@@ -70,97 +87,79 @@ def process_one_any() -> bool:
     bot_first = bot_enabled and _iteration % BOT_PRIORITY_EVERY == 0
 
     if _iteration % SETTLE_EVERY == 1:
-        try:
-            promise_fulfillment.settle_promises(db.engine)
-        except Exception:
-            logger.exception("settle_promises failed")
+        _run_stage("promise_settle", lambda: promise_fulfillment.settle_promises(db.engine))
         # Attempts whose carrier callback never arrived. They hold a slot in the
         # outbound fleet gate and would never reach the Closer, so a dropped
         # tunnel would quietly throttle dialling to zero over a day.
-        try:
-            outbound.sweep_stale(db.engine)
-        except Exception:
-            logger.exception("outbound stale sweep failed")
+        _run_stage("outbound_stale", lambda: outbound.sweep_stale(db.engine))
         # Caller-ID health. Cheap (three UPDATEs over one tenant's numbers) and
         # on the same settle cadence, because a number's answer rate does not
         # move between iterations and rotating on a stale reading is the same
         # mistake as not rotating at all.
-        try:
-            outbound.sweep_pool_health(db.engine)
-        except Exception:
-            logger.exception("number pool health sweep failed")
+        _run_stage("number_pool_health", lambda: outbound.sweep_pool_health(db.engine))
 
-    if bot_first and bot_jobs.process_one(db.engine):
+    if bot_first and _run_stage("bot_jobs", lambda: bot_jobs.process_one(db.engine)):
         return True
-    if whatsapp_outbound.process_one(db.engine):
+    if _run_stage("whatsapp_outbound", lambda: whatsapp_outbound.process_one(db.engine)):
         return True
-    if promise_fulfillment.process_one_reminder(db.engine):
+    if _run_stage("promise_reminders", lambda: promise_fulfillment.process_one_reminder(db.engine)):
         return True
-    if payment_events.process_one_voice(db.engine):
+    if _run_stage("bounce_voice", lambda: payment_events.process_one_voice(db.engine)):
         return True
     # Post-call: turn one finished dial into one structured outcome. Ahead of
     # the treatment loops because it finishes work rather than generating it,
     # and because followthrough's attribution reads what it writes — closing a
     # call after the ladder has already re-decided the case would attribute the
     # next rung to the wrong attempt.
-    try:
-        if call_closer.process_one(db.engine):
-            return True
-    except Exception:
-        logger.exception("call closer failed")
+    if _run_stage("call_closer", lambda: call_closer.process_one(db.engine)):
+        return True
     # A retry that is due. Ahead of the campaign runner on purpose: finishing a
     # case somebody is already halfway through beats starting a new one, and the
     # borrower waiting on the second attempt has already been rung once.
-    try:
-        if cadence.process_one(db.engine):
-            return True
-    except Exception:
-        logger.exception("cadence retry failed")
-    try:
-        if campaigns.process_one(db.engine):
-            return True
-    except Exception:
-        logger.exception("campaign runner failed")
+    if _run_stage("cadence", lambda: cadence.process_one(db.engine)):
+        return True
+    if _run_stage("campaigns", lambda: campaigns.process_one(db.engine)):
+        return True
     # Treatment plans whose moment has arrived. Returns False immediately
     # outside TREATMENT_MODE=live, so a shadow deployment pays one env read per
     # iteration and touches nothing.
-    if treatment_enact.process_one(db.engine):
+    if _run_stage("treatment_enact", lambda: treatment_enact.process_one(db.engine)):
         return True
     # Attribution and ladder re-decision. Runs in shadow too — labelling what
     # happened is not an intervention, and the counterfactuals are most of what
     # the shadow fortnight is for.
-    if treatment_followthrough.process_one(db.engine):
+    if _run_stage("treatment_followthrough", lambda: treatment_followthrough.process_one(db.engine)):
         return True
     # The book sweep, last of the treatment loops on purpose. It is the only
     # one that generates work rather than finishing it, so a backlog of due
     # plans or unattributed outcomes must drain before more decisions are made
     # — otherwise a large book pushes the queue further behind every iteration.
     # Off unless TREATMENT_SWEEP is set.
-    if treatment_sweep.process_one(db.engine):
+    if _run_stage("treatment_sweep", lambda: treatment_sweep.process_one(db.engine)):
         return True
     # Outbound webhooks, below everything that talks to a customer. A tenant's
     # integration is allowed to be a few seconds behind; a borrower waiting on a
     # reply is not. It is above the fallback so a webhook backlog still drains
     # on an otherwise idle worker.
-    if webhooks_dispatch.process_one(db.engine):
+    if _run_stage("webhooks_dispatch", lambda: webhooks_dispatch.process_one(db.engine)):
         return True
     try:
         from agent_core.clerk import process_one as clerk_one, sweep_overdue
 
         if _iteration % SETTLE_EVERY == 1:
-            sweep_overdue()
+            _run_stage("clerk_overdue", sweep_overdue)
             try:
                 from agent_core.canary import sweep_rollbacks
-
-                sweep_rollbacks()
             except Exception:
-                logger.exception("canary sweep failed")
-        if clerk_one():
+                logger.exception("queue=%s failed", "canary")
+            else:
+                _run_stage("canary", sweep_rollbacks)
+        if _run_stage("clerk", clerk_one):
             return True
     except Exception:
-        logger.exception("clerk drain failed")
+        logger.exception("queue=%s failed", "clerk")
     if bot_enabled and not bot_first:
-        return bot_jobs.process_one(db.engine)
+        return _run_stage("bot_jobs", lambda: bot_jobs.process_one(db.engine))
     return False
 
 

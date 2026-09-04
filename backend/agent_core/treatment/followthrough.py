@@ -431,17 +431,32 @@ def advance(conn: Any, case: dict[str, Any], *, now: datetime | None = None) -> 
     """
     from agent_core.treatment.engine import recommend_treatment
 
-    result = recommend_treatment(
-        customer_id=case["customer_id"],
-        account_id=case.get("account_id"),
-        trigger=Trigger(
-            kind=str(case["trigger_kind"]),
-            at=_aware(case.get("created_at")),
-            ref=str(case["trigger_ref"]),
-        ),
-        now=now,
-        conn=conn,
-    )
+    savepoint = conn.begin_nested()
+    try:
+        result = recommend_treatment(
+            customer_id=case["customer_id"],
+            account_id=case.get("account_id"),
+            trigger=Trigger(
+                kind=str(case["trigger_kind"]),
+                at=_aware(case.get("created_at")),
+                ref=str(case["trigger_ref"]),
+            ),
+            now=now,
+            conn=conn,
+        )
+    except Exception:
+        # recommend_treatment promises not to raise; this catches the INSERT it
+        # wraps failing on a constraint. One case's bad row must not poison
+        # the worker transaction — the same savepoint sweep.py uses so one
+        # borrower cannot take the rest of the batch down with them.
+        savepoint.rollback()
+        logger.exception(
+            "queue=treatment_followthrough case=%s/%s failed",
+            case.get("trigger_kind"),
+            case.get("trigger_ref"),
+        )
+        raise
+    savepoint.commit()
     logger.info(
         "treatment follow-through case=%s/%s -> %s (%s)",
         case["trigger_kind"],
@@ -501,5 +516,13 @@ def process_one(engine: Engine) -> bool:
         cases = open_cases(conn, limit=1)
         if not cases:
             return False
-        advance(conn, cases[0])
+        # advance rolls its own savepoint so a constraint failure does not
+        # abort this transaction. Returning False (not True, not a raise) is
+        # what lets every queue below us in bot_worker still drain this tick;
+        # reporting work for a failed re-decision would spin on the poison
+        # case and starve the sweep, webhooks and clerk.
+        try:
+            advance(conn, cases[0])
+        except Exception:
+            return False
         return True

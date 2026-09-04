@@ -12,6 +12,7 @@ steps, and RBI has a word for that.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -630,6 +631,59 @@ def test_closing_never_costs_the_payment(db_tx, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # Worker entry point and the case view
 # ---------------------------------------------------------------------------
+
+
+def test_a_failed_advance_does_not_poison_the_transaction(
+    db_tx, monkeypatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The savepoint sweep.py already documents, applied to the sibling.
+
+    ``advance`` used to call ``recommend_treatment`` on the worker's plain
+    ``engine.begin()``. A constraint failure aborted the transaction, and
+    every later statement on that connection died with
+    ``InFailedSqlTransaction`` — which is how one poison case stopped the
+    rest of the tick.
+    """
+    import agent_core.treatment.engine as engine_mod
+
+    monkeypatch.setattr(
+        engine_mod,
+        "recommend_treatment",
+        lambda **_k: (_ for _ in ()).throw(RuntimeError("constraint")),
+    )
+    case = {
+        "customer_id": "cust-poison",
+        "account_id": "acct-poison",
+        "trigger_kind": "bounce",
+        "trigger_ref": "PE-POISON-ROW",
+        "created_at": datetime.now(timezone.utc),
+    }
+    with caplog.at_level(logging.ERROR, logger="agent_core.treatment.followthrough"):
+        with pytest.raises(RuntimeError, match="constraint"):
+            followthrough.advance(db_tx, case)
+
+    assert db_tx.execute(text("SELECT 1")).scalar() == 1
+    assert "PE-POISON-ROW" in caplog.text
+    assert "queue=treatment_followthrough" in caplog.text
+
+
+def test_process_one_does_not_claim_work_when_advance_fails(db_tx, monkeypatch) -> None:
+    """A failed re-decision is not work. Returning True would starve every
+    queue below followthrough in the same worker tick.
+    """
+    monkeypatch.setenv("TREATMENT_MODE", "shadow")
+    monkeypatch.setattr(followthrough, "attribute_outcomes", lambda _conn: 0)
+    monkeypatch.setattr(
+        followthrough,
+        "open_cases",
+        lambda _conn, limit=1: [{"trigger_kind": "bounce", "trigger_ref": "PE-X"}],
+    )
+    monkeypatch.setattr(
+        followthrough,
+        "advance",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("constraint")),
+    )
+    assert followthrough.process_one(db.engine) is False
 
 
 def test_the_loop_is_inert_when_the_engine_is_off(monkeypatch) -> None:
