@@ -262,7 +262,10 @@ function seedFrom(calls: CallRecord[]): Scorecard[] {
     const status: ScorecardStatus = i < 6 ? "unscored" : i < 16 ? "ai_draft" : "final";
     // bias derives from avgSentiment + flags
     const flagPenalty = call.flags.length * 0.08;
-    const bias = Math.max(0.1, Math.min(0.95, 0.55 + call.avgSentiment * 0.35 - flagPenalty));
+    const bias = Math.max(
+      0.1,
+      Math.min(0.95, 0.55 + (call.avgSentiment ?? 0) * 0.35 - flagPenalty),
+    );
     const entries =
       status === "unscored"
         ? makeEntries(rand, defaultRubric, bias, false).map((e) => ({ ...e, score: 0 }))
@@ -271,7 +274,7 @@ function seedFrom(calls: CallRecord[]): Scorecard[] {
       id: `qa-${call.id}`,
       callId: call.id,
       customerName: call.customerName,
-      disposition: call.disposition,
+      disposition: call.disposition ?? "",
       handledBy: { kind, label },
       agentId,
       reviewer:
@@ -279,10 +282,10 @@ function seedFrom(calls: CallRecord[]): Scorecard[] {
       status,
       entries,
       scoredAt:
-        status === "final"
+        status === "final" && call.startedAt
           ? new Date(Date.parse(call.startedAt) + 3600_000).toISOString()
           : undefined,
-      createdAt: call.startedAt,
+      createdAt: call.startedAt ?? new Date().toISOString(),
     });
   }
   return list;

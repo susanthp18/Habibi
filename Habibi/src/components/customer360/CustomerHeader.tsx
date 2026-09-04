@@ -81,7 +81,7 @@ export function CustomerHeader({
             <div className="mt-075 flex flex-wrap items-center gap-075">
               <ContactabilityPill customerId={customer.id} contact={customer.contact} compact />
               <StatusChip label={`${customer.account.dpd} DPD`} tone={dpdTone} />
-              <StatusChip label={customer.account.bucket} tone="neutral" />
+              <StatusChip label={customer.account.bucket ?? "—"} tone="neutral" />
               <span className="text-body-small text-text-subtlest">
                 Assigned · {customer.assignedTo}
               </span>

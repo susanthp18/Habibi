@@ -194,6 +194,7 @@ function build(): Violation[] {
   let n = 0;
 
   for (const call of calls) {
+    if (!call.startedAt) continue;
     const rand = rng(`v-${call.id}`);
 
     // 1) Disclosure misses — one per missed template item.

@@ -344,7 +344,8 @@ function makeCall(i: number): CallRecord {
 }
 
 export const calls: CallRecord[] = Array.from({ length: 42 }, (_, i) => makeCall(i)).sort(
-  (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+  (a, b) =>
+    (b.startedAt ? Date.parse(b.startedAt) : 0) - (a.startedAt ? Date.parse(a.startedAt) : 0),
 );
 
 // ---------- filters ----------
@@ -378,16 +379,19 @@ export function filterCalls(all: CallRecord[], f: AuditFilterState): CallRecord[
           : 0;
   const q = f.q.trim().toLowerCase();
   return all.filter((c) => {
-    if (cutoff && new Date(c.startedAt).getTime() < cutoff) return false;
+    if (cutoff && (!c.startedAt || new Date(c.startedAt).getTime() < cutoff)) return false;
     if (f.channel !== "all" && c.channel !== f.channel) return false;
     if (f.handler !== "all" && c.handledBy.kind !== f.handler) return false;
     if (f.agent !== "all" && c.handledBy.agent !== f.agent) return false;
     if (f.disposition !== "all" && c.disposition !== f.disposition) return false;
-    if (f.sentiment !== "all" && sentimentBucket(c.avgSentiment) !== f.sentiment) return false;
+    if (f.sentiment !== "all") {
+      if (c.avgSentiment == null) return false;
+      if (sentimentBucket(c.avgSentiment) !== f.sentiment) return false;
+    }
     if (f.flaggedOnly && c.flags.length === 0) return false;
     if (q) {
       const hay =
-        `${c.id} ${c.customerName} ${c.phoneMasked} ${c.accountId} ${c.disposition} ${c.summary} ${c.transcript.map((t) => t.text).join(" ")}`.toLowerCase();
+        `${c.id} ${c.customerName} ${c.phoneMasked} ${c.accountId ?? ""} ${c.disposition ?? ""} ${c.summary ?? ""} ${c.transcript.map((t) => t.text).join(" ")}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -410,8 +414,10 @@ export function formatDuration(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function formatDateTime(iso: string): string {
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("en-IN", {
     day: "2-digit",
     month: "short",

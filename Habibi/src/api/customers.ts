@@ -176,12 +176,13 @@ export async function logInteraction(
       },
     };
   }
+  // POST /interactions returns CallResponse — startedAt/disposition/summary are str | None.
   const call = await apiPost<{
     id: string;
     channel: Interaction["channel"];
-    startedAt: string;
-    disposition: string;
-    summary: string;
+    startedAt: string | null;
+    disposition: string | null;
+    summary: string | null;
     handledBy?: { agent?: string | null } | null;
   }>("/interactions", {
     customerId: customer.id,

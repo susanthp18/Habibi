@@ -167,9 +167,9 @@ function InteractionCard({
                 {i.handler.name}
               </span>
               <span className="text-xs text-text-subtlest">· {i.duration}</span>
-              <span className="text-xs text-text-subtlest">· {i.disposition}</span>
+              <span className="text-xs text-text-subtlest">· {i.disposition ?? "—"}</span>
             </div>
-            <p className="mt-050 line-clamp-2 text-xs text-text-subtle">{i.summary}</p>
+            <p className="mt-050 line-clamp-2 text-xs text-text-subtle">{i.summary ?? "—"}</p>
           </div>
           <div className="flex shrink-0 items-center gap-100 text-xs">
             <Lozenge tone={SENT_TONE[i.sentiment]} className="capitalize">
@@ -189,7 +189,7 @@ function InteractionCard({
             </div>
             <div className="text-xs text-text">
               <span className="font-semibold text-text">Summary. </span>
-              {i.summary}
+              {i.summary ?? "—"}
             </div>
             <div className="mt-100 flex items-center justify-between text-body-small text-text-subtle">
               <span>{fmtDateTime(i.startedAt)}</span>

@@ -250,7 +250,7 @@ function mockFeatures(customer: Customer, at: number): MockAuthorityFeatures {
   // Waivers are stored signed; the provider counts them and sums their size.
   const waivers = recent.filter((entry) => entry.type === "waiver");
 
-  const opened = Date.parse(customer.account.openedOn);
+  const opened = customer.account.openedOn ? Date.parse(customer.account.openedOn) : Number.NaN;
   const tenureMonths = Number.isFinite(opened)
     ? Math.max(0, Math.floor((at - opened) / DAY_MS / 30))
     : null;

@@ -354,7 +354,7 @@ function buildSummary(
 
   bullets.push({
     id: "ins-position",
-    text: `${customer.name} is in bucket ${customer.account.bucket} at ${customer.account.dpd} DPD with ₹${inr(customer.outstanding)} outstanding (min due ₹${inr(customer.minimumDue)}).`,
+    text: `${customer.name} is in bucket ${str(customer.account.bucket, "unknown")} at ${customer.account.dpd} DPD with ₹${inr(customer.outstanding)} outstanding (min due ₹${inr(customer.minimumDue)}).`,
     source: "from account position",
     confidence: "high",
   });

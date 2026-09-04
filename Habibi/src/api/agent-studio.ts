@@ -906,7 +906,7 @@ export type ChangeLogEntry = {
   previousVersionLabel?: string | null;
   versionId?: string | null;
   deploymentId?: string | null;
-  summary?: string;
+  summary?: string | null;
   changed?: ChangedComponent[];
   rollout?: { trafficPct: number; shadow: boolean; autoRollback: string[] };
   gates?: Record<string, string>;

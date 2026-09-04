@@ -3,6 +3,8 @@
  *
  * Lived in a `data/*-seed.ts` mock factory. Moved here so live `api/`
  * modules do not import their contract from fixtures (WP-048).
+ *
+ * Nullability follows `CallResponse` in `backend/schemas.py`.
  */
 
 export type Channel = "voice" | "whatsapp" | "sms";
@@ -38,29 +40,30 @@ export interface SentimentPoint {
   t: number; // seconds
   v: number; // -1..+1
 }
+/** Mirrors `CallResponse` — several fields are `None` on the wire. */
 export interface CallRecord {
   id: string;
-  startedAt: string; // ISO
+  startedAt: string | null;
   duration: number; // seconds
   channel: Channel;
-  direction: Direction;
+  direction: Direction | null;
   handledBy: { kind: HandlerKind; agent?: string; bot?: string };
   customerId: string;
   customerName: string;
   phoneMasked: string;
-  accountId: string;
-  disposition: Disposition;
-  summary: string;
+  accountId: string | null;
+  disposition: Disposition | null;
+  summary: string | null;
   tags: string[];
   flags: CallFlag[];
-  avgSentiment: number; // -1..+1
+  avgSentiment: number | null;
   sentimentSeries: SentimentPoint[];
   disclosures: DisclosureCheck[];
   transcript: TranscriptTurn[];
   redactionApplied: boolean;
-  hash: string;
+  hash: string | null;
   ragHits: number;
-  latencyMs: number;
+  latencyMs: number | null;
   routing: string[];
 }
 export type DateRange = "today" | "7d" | "30d" | "all";

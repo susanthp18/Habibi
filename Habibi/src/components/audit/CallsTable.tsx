@@ -229,7 +229,7 @@ export function CallsTable({
         sortable: true,
         sortValue: (c) => c.disposition ?? "",
         cell: (c) => (
-          <Lozenge tone={DISPOSITION_TONE[c.disposition] ?? "neutral"}>
+          <Lozenge tone={DISPOSITION_TONE[c.disposition ?? ""] ?? "neutral"}>
             {c.disposition || "—"}
           </Lozenge>
         ),
@@ -243,7 +243,7 @@ export function CallsTable({
         footer: (visible) => {
           const withS = visible.filter((c) => typeof c.avgSentiment === "number");
           if (!withS.length) return <span className="text-text-subtlest">—</span>;
-          const avg = withS.reduce((s, c) => s + c.avgSentiment, 0) / withS.length;
+          const avg = withS.reduce((s, c) => s + (c.avgSentiment ?? 0), 0) / withS.length;
           return (
             <span className="tabular">
               {avg >= 0 ? "+" : ""}

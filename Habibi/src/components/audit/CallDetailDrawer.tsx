@@ -116,10 +116,12 @@ export function CallDetailDrawer({ call, onClose }: Props) {
               <div className="mt-050 flex items-center gap-100">
                 <h2 className="truncate text-body font-semibold text-text">{call.customerName}</h2>
                 <span className="text-body-small text-text-subtle">{call.phoneMasked}</span>
-                <span className="text-body-small text-text-subtlest">· {call.accountId}</span>
+                {call.accountId ? (
+                  <span className="text-body-small text-text-subtlest">· {call.accountId}</span>
+                ) : null}
               </div>
               <div className="mt-075 flex flex-wrap items-center gap-100 text-body-small">
-                <Lozenge tone="selected">{call.disposition}</Lozenge>
+                <Lozenge tone="selected">{call.disposition ?? "—"}</Lozenge>
                 {call.handledBy.kind === "bot" && (
                   <span className="inline-flex items-center gap-050 text-text-subtle">
                     <Bot className="h-3.5 w-3.5" /> {call.handledBy.bot}
@@ -213,7 +215,7 @@ export function CallDetailDrawer({ call, onClose }: Props) {
 
             <TabsContent value="summary" className="mt-0 space-y-150">
               <div className="rounded-medium border border-border bg-surface p-150 text-body leading-relaxed text-text">
-                {call.summary}
+                {call.summary ?? "—"}
               </div>
               <div>
                 <div className="mb-050 text-body-small font-semibold text-text-subtlest">Tags</div>
@@ -284,11 +286,15 @@ export function CallDetailDrawer({ call, onClose }: Props) {
             <TabsContent value="meta" className="mt-0">
               <dl className="grid grid-cols-2 gap-x-300 gap-y-100 text-body">
                 <MetaRow k="Call ID" v={call.id} mono />
-                <MetaRow k="Log hash" v={`sha256:${call.hash}…`} mono />
-                <MetaRow k="Direction" v={call.direction} />
+                <MetaRow k="Log hash" v={call.hash ? `sha256:${call.hash}…` : "—"} mono />
+                <MetaRow k="Direction" v={call.direction ?? "—"} />
                 <MetaRow k="Channel" v={call.channel} />
                 <MetaRow k="Duration" v={formatDuration(call.duration)} mono />
-                <MetaRow k="Avg. latency" v={`${call.latencyMs} ms`} mono />
+                <MetaRow
+                  k="Avg. latency"
+                  v={call.latencyMs != null ? `${call.latencyMs} ms` : "—"}
+                  mono
+                />
                 <MetaRow k="RAG hits" v={String(call.ragHits)} mono />
                 <MetaRow k="Redaction" v={call.redactionApplied ? "PII masked" : "Raw"} />
                 <MetaRow k="Routing" v={call.routing.join(" → ")} full />

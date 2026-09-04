@@ -3,6 +3,10 @@
  *
  * Lived in a `data/*-seed.ts` mock factory. Moved here so live `api/`
  * modules do not import their contract from fixtures (WP-048).
+ *
+ * Nullability follows `backend/schemas.py` (`CustomerResponse` and nested
+ * models). A field the server sends as `str | None` is `string | null` here —
+ * not `string`. `tsc` must fail a `.slice` on `Interaction.summary`.
  */
 
 import type { DisputeSla } from "./dispute-sla";
@@ -22,29 +26,30 @@ export interface LedgerEntry {
   description: string;
   type: LedgerType;
   amount: number; // signed; charges +, payments -
-  balance: number;
-  invoiceId?: string;
+  balance: number | null;
+  invoiceId?: string | null;
 }
 export interface EmiRow {
   id: string;
   index: number;
   dueDate: string;
   amount: number;
-  paidOn?: string;
-  paidAmount?: number;
+  paidOn?: string | null;
+  paidAmount?: number | null;
   status: EmiStatus;
-  balanceCarried: number;
+  balanceCarried: number | null;
 }
+/** Mirrors `InteractionResponse` — `startedAt` / `disposition` / `summary` are null on the wire. */
 export interface Interaction {
   id: string;
   channel: Channel;
   handler: { kind: "bot" | "human"; name: string };
-  startedAt: string; // ISO
+  startedAt: string | null;
   duration: string;
-  disposition: string;
+  disposition: string | null;
   sentiment: Sentiment;
   sentimentDelta: "up" | "down" | "flat";
-  summary: string;
+  summary: string | null;
   intents: { queryResolved?: boolean; upsellPresented?: boolean; ptpCaptured?: boolean };
   transcript?: string[];
 }
@@ -66,11 +71,11 @@ export interface Promise {
 export interface Dispute extends DisputeSla {
   id: string;
   type: string;
-  amount: number;
+  amount: number | null;
   transcriptSnippet: string;
   status: DisputeStatus;
   filedAt: string;
-  assignee?: string;
+  assignee?: string | null;
 }
 export interface DocumentRequest {
   id: string;
@@ -92,7 +97,7 @@ export interface Consent {
   channel: "call" | "whatsapp" | "sms" | "email";
   optedIn: boolean;
   source: "self-serve" | "bot-captured" | "agent-captured";
-  capturedAt: string;
+  capturedAt: string | null;
 }
 export interface Contact {
   phonePrimary: string;
@@ -112,12 +117,12 @@ export interface Contact {
 }
 export interface AccountFacts {
   product: Product;
-  openedOn: string;
-  apr: number;
-  sanctionedAmount: number;
-  bucket: "0-30" | "31-60" | "61-90" | "91+";
+  openedOn: string | null;
+  apr: number | null;
+  sanctionedAmount: number | null;
+  bucket: "0-30" | "31-60" | "61-90" | "91+" | null;
   dpd: number;
-  riskScore: number; // 300-900
+  riskScore: number | null;
 }
 export interface Customer {
   id: string;
@@ -125,8 +130,8 @@ export interface Customer {
   accountId: string;
   risk: RiskLevel;
   outstanding: number;
-  minimumDue: number;
-  lastContact: string;
+  minimumDue: number | null;
+  lastContact: string | null;
   assignedTo: string;
   contact: Contact;
   account: AccountFacts;
