@@ -288,17 +288,22 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 70. Status: 15 completed, 55 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 70. Status: 28 completed, 42 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **25** |
+| **READY** — no unmet prerequisite; can begin today | **12** |
 | **BLOCKED** — has an unmet prerequisite | **30** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
-| **IN PROGRESS** | **3** — `WP-024`, `WP-044`, `WP-067` |
-| **COMPLETED** | **15** |
+| **IN PROGRESS** | **0** |
+| **COMPLETED** | **28** |
 
-### COMPLETED (15)
+### COMPLETED (28)
+
+Batches three to six added: `WP-044` one error-code map · `WP-067` roster status derived from deployments · `WP-024` **coverage published: 62%** · `WP-010` each dial counted · `WP-065` flag lock · `WP-061`/`WP-063` hygiene · `WP-032` Fish promo lapsed *(PARTIAL — needs funded API credit)* · `WP-053` import-boundary CI · `WP-057` 21 nltk advisories + no boot-time download · `WP-058` **the submission zip no longer redistributes 4,518 licence-restricted files** · `WP-054` voice install constrained · `WP-052` 105 labels connected.
+
+**Still open and needing a person:** `WP-062` (untracked `.env.bak.reco` on disk) · `WP-070` (`ALLOW_ACTOR_HEADER` opt-in decision) · `WP-032`'s API credit · `WP-009` re-scope (needs a migration) · `WP-015` (P0, may need a migration).
+
 
 | WP | Commit | Verified by | Residual |
 |---|---|---|---|

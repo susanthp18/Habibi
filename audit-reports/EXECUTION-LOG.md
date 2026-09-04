@@ -74,6 +74,73 @@ a fresh local copy drifts back in.
 `WP-018` preserved every ordering comment (**zero** removed), which matters: that
 sequence is load-bearing and documented in place.
 
+### Batches three to six
+
+| Batch | Commits | Closed |
+|---|---|---|
+| Three | `6595334` `d10ae22` `5829424` | `WP-044`, `WP-067`, `WP-024` |
+| Four | `a065bc6` `bca4541` `c377e16` | `WP-010`, `WP-065`, `WP-061`+`WP-063` |
+| Five | `5c143eb` `b4e1f47` `9ec9c39` | `WP-032`, `WP-053`, `WP-057` |
+| Six | `4e356d6` … | `WP-058`, + two in flight |
+
+### Where the orchestrator's own scope was wrong
+
+Three packages had to go **wider** than instructed, and in each case the
+instruction was the error, not the agent:
+
+- **`WP-067`** — scoped to the frontend roster on `WP-005`'s note. But
+  `db.list_staff()` hardcoded `"status": "active"` for **every** bot, so the
+  mock-only fix would have left *live* mode lying. Verified after: all 7 bots
+  now resolve correctly against the database.
+- **`WP-032`** — scoped to `fish_tts.py` + `.env.example`. The lapsed
+  `s2.1-pro-free` id was in **four** places, including `openrouter_tts.py` and
+  the seeded `registry.py` ModelSpec — which is the documented *fallback*. A
+  fallback pointing at the same expired promotion cannot rescue the primary,
+  which is the defect the package names.
+- **`WP-053`** — told not to simulate absence locally. It built the real
+  Dockerfile `base` target instead, and added a vacuity guard asserting pipecat
+  and fastembed are genuinely missing before importing. Verified that guard by
+  running it against `collections-voice:local`, where it correctly fails.
+
+### Two facts that were nearly lost with the code that recorded them
+
+- **`WP-061/063`** deleted `backend/pyproject.toml` (correctly — it held nothing
+  but a `[tool.vulture]` block for an uninstalled tool) and **silently dropped
+  its one real fact**: *".venv must stay excluded — a full-tree scan hangs on
+  site-packages."* Carried into `AGENTS.md`, where it applies to any future tool.
+- **`WP-032`** left `test_dated_constants.py`'s prose saying the lapsed Fish date
+  was *"owned by WP-032"* — true while pending, stale the moment it landed, in a
+  module docstring **and a test name**. Refreshed. **An allowlist whose stated
+  reason has gone stale is the exact failure that allowlist exists to prevent.**
+
+### `WP-010`'s real consequence is not its acceptance criterion
+
+The criterion — *"two clicks ten seconds apart produce two counted rows"* — holds
+only because `_prep` sets `CONTACT_COOLING_OFF_MINUTES=0`. Under the 120-minute
+default the second manual dial is now **refused** with `cooling_off`, where
+before it was allowed **and uncounted**. Stricter, correct, and immediately
+visible to operators — so it is in the commit message rather than a footnote.
+
+### `WP-024`'s number was re-measured, not accepted
+
+The agent reported 62% coverage having run it **while two other packages were
+mid-edit**. Re-run serially on the committed tree: **62% (16,048 of 42,770)**,
+and the 20 skips resolved to 7 RLS + 6 `/Habibi` + 3 schema-parity + 4 singles.
+It matched — but a coverage figure quoted in a governing document is exactly the
+kind of claim this audit exists to stop taking on trust.
+
+### Two things flagged rather than actioned
+
+- **`WP-062`** — `backend/.env.bak.reco` is **untracked**, so there is no repo
+  change to make. The action is deleting a 9.5 KB stale credentials backup from
+  disk, which is a person's decision.
+- **`Videos/hero.mp4`** — 2.5 MB, created during batch three, referenced by
+  nothing in the tree. An agent did something entirely outside its brief.
+  Untracked, so it cannot reach a commit; left in place rather than deleting an
+  unexplained binary unsupervised.
+
+---
+
 ### `WP-009` re-scoped, not run
 
 It looked like an ideal batch candidate — the entry says "~15 lines". It is not:
