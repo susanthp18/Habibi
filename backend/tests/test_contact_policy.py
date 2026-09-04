@@ -12,12 +12,21 @@ IST = ZoneInfo("Asia/Kolkata")
 
 
 def _today_ist() -> datetime.date:
-    return datetime.now(IST).date()
+    """A day inside the seeded Mon–Sat consent window.
+
+    Sunday must not be why outreach is refused once ``_prep`` stops nulling
+    ``allowed_days``. Roll back one day rather than invent a calendar.
+    """
+    d = datetime.now(IST).date()
+    if d.isoweekday() == 7:
+        return d - timedelta(days=1)
+    return d
 
 
 def _noon(day: datetime.date | None = None) -> datetime:
+    """Inside the seeded 11:00–18:00 window of the first customer by id."""
     d = day or _today_ist()
-    return datetime(d.year, d.month, d.day, 10, 0, tzinfo=IST)
+    return datetime(d.year, d.month, d.day, 12, 0, tzinfo=IST)
 
 
 def _require_ledger(db_tx) -> None:
@@ -49,24 +58,11 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
     monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "0")
     monkeypatch.setenv("CONTACT_SESSION_WINDOW_MINUTES", "30")
     cid = _customer(db_tx)
+    # Timezone only. Nulling ``dnd``, ``dnd_registry``, ``allowed_days``,
+    # ``allowed_hours`` and ``preferred_window`` was how this file's own
+    # fixture disarmed the statutory branches it exists to pin.
     db_tx.execute(
-        text(
-            """
-            UPDATE customers
-            SET dnd = false, timezone = 'Asia/Kolkata', preferred_window = NULL
-            WHERE id = :id
-            """
-        ),
-        {"id": cid},
-    )
-    db_tx.execute(
-        text(
-            """
-            UPDATE consent_records
-            SET dnd_registry = false, allowed_days = NULL, allowed_hours = NULL
-            WHERE customer_id = :id
-            """
-        ),
+        text("UPDATE customers SET timezone = 'Asia/Kolkata' WHERE id = :id"),
         {"id": cid},
     )
     for ch in ("voice", "whatsapp", "sms", "email"):
@@ -161,7 +157,7 @@ def test_voice_hours(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
         channel="voice",
         session_key="v1",
         related_id="v1",
-        now=datetime(_today_ist().year, _today_ist().month, _today_ist().day, 10, 0, tzinfo=IST),
+        now=_noon(),
     )
     assert ok.allowed
     late = _admit(
@@ -267,6 +263,22 @@ def test_used_this_week_matches_ledger(db_tx, monkeypatch: pytest.MonkeyPatch) -
 
 def test_due_reminder_blocked_when_capped(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     cid = _prep(db_tx, monkeypatch)
+    # The reminder send uses wall-clock now, not `_noon()`. Opening the window
+    # here keeps this test about the cap; the window branch is pinned elsewhere.
+    db_tx.execute(
+        text(
+            """
+            UPDATE consent_records
+            SET allowed_hours = '00:00-24:00 IST', allowed_days = 'Sun-Sat'
+            WHERE customer_id = :id
+            """
+        ),
+        {"id": cid},
+    )
+    db_tx.execute(
+        text("UPDATE customers SET preferred_window = '00:00-24:00 IST' WHERE id = :id"),
+        {"id": cid},
+    )
     for i in range(3):
         assert _admit(db_tx, cid, session_key=f"d{i}", related_id=f"d{i}").allowed
     acct = db_tx.execute(
@@ -492,3 +504,128 @@ def test_dial_endpoints_key_the_attempt_not_the_customer() -> None:
         src = inspect.getsource(fn)
         assert "session_key=customer_id" not in src
         assert 'session_key=attempt["id"]' in src
+
+
+def _consent_columns(db_tx, cid: str) -> dict:
+    row = db_tx.execute(
+        text(
+            """
+            SELECT c.dnd, c.preferred_window, cr.dnd_registry, cr.allowed_days, cr.allowed_hours
+            FROM customers c
+            LEFT JOIN consent_records cr ON cr.customer_id = c.id
+            WHERE c.id = :id
+            """
+        ),
+        {"id": cid},
+    ).mappings().first()
+    assert row is not None
+    return dict(row)
+
+
+def _set_channel_status(db_tx, cid: str, channel: str, status: str) -> None:
+    db_tx.execute(
+        text(
+            """
+            UPDATE channel_consents cc
+            SET status = :status
+            FROM consent_records cr
+            WHERE cc.consent_id = cr.id AND cr.customer_id = :id AND cc.channel = :ch
+            """
+        ),
+        {"id": cid, "ch": channel, "status": status},
+    )
+
+
+def test_prep_does_not_null_dnd_or_window_columns(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fixture used to wipe the columns the rest of this file is testing."""
+    cid = _customer(db_tx)
+    before = _consent_columns(db_tx, cid)
+    prepared = _prep(db_tx, monkeypatch)
+    assert prepared == cid
+    assert _consent_columns(db_tx, cid) == before
+
+
+def test_a_dnd_borrower_is_refused(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    cid = _prep(db_tx, monkeypatch)
+    db_tx.execute(text("UPDATE customers SET dnd = true WHERE id = :id"), {"id": cid})
+    d = _admit(db_tx, cid, session_key="dnd", related_id="dnd")
+    assert d.allowed is False
+    assert d.reason == "customer_dnd"
+
+
+def test_a_channel_on_dnd_is_refused(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    cid = _prep(db_tx, monkeypatch)
+    _set_channel_status(db_tx, cid, "whatsapp", "dnd")
+    d = _admit(db_tx, cid, session_key="ch-dnd", related_id="ch-dnd")
+    assert d.allowed is False
+    assert d.reason == "channel_dnd"
+
+
+def test_expired_channel_consent_is_refused(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    cid = _prep(db_tx, monkeypatch)
+    _set_channel_status(db_tx, cid, "whatsapp", "expired")
+    d = _admit(db_tx, cid, session_key="expired", related_id="expired")
+    assert d.allowed is False
+    assert d.reason == "channel_expired"
+
+
+def test_outreach_outside_the_allowed_window_is_refused(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cid = _prep(db_tx, monkeypatch)
+    db_tx.execute(
+        text(
+            "UPDATE consent_records SET allowed_hours = '11:00-18:00 IST' WHERE customer_id = :id"
+        ),
+        {"id": cid},
+    )
+    db_tx.execute(
+        text("UPDATE customers SET preferred_window = '11:00-18:00 IST' WHERE id = :id"),
+        {"id": cid},
+    )
+    d = _admit(
+        db_tx,
+        cid,
+        session_key="win",
+        related_id="win",
+        now=_noon().replace(hour=10),
+    )
+    assert d.allowed is False
+    assert d.reason == "outside_allowed_window"
+
+
+def test_a_second_touch_inside_cooling_off_is_refused(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cid = _prep(db_tx, monkeypatch)
+    monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "120")
+    first = _admit(db_tx, cid, session_key="cool-1", related_id="cool-1")
+    assert first.allowed
+    second = _admit(db_tx, cid, session_key="cool-2", related_id="cool-2")
+    assert second.allowed is False
+    assert second.reason == "cooling_off"
+
+
+def test_the_weekly_cap_fires_before_the_daily_cap(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_prep`` used to set weekly=8 against daily=3, so this branch never ran."""
+    cid = _prep(db_tx, monkeypatch)
+    db_tx.execute(
+        text(
+            """
+            UPDATE channel_consents cc
+            SET weekly_frequency_cap = 1
+            FROM consent_records cr
+            WHERE cc.consent_id = cr.id AND cr.customer_id = :id AND cc.channel = 'whatsapp'
+            """
+        ),
+        {"id": cid},
+    )
+    first = _admit(db_tx, cid, session_key="wk-1", related_id="wk-1")
+    assert first.allowed
+    second = _admit(db_tx, cid, session_key="wk-2", related_id="wk-2")
+    assert second.allowed is False
+    assert second.reason == "weekly_cap"

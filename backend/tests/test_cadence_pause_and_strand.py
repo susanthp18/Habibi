@@ -48,8 +48,15 @@ def _cadence_runs(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _contact_gate_allows(monkeypatch):
-    """The gate has its own suite. Here it must not be the reason nothing dials."""
+def _contact_gate_allows(request, monkeypatch):
+    """The gate has its own suite. Here it must not be the reason nothing dials.
+
+    ``test_a_dnd_borrower_is_not_dialled_by_the_ladder`` is the exception: two
+    suites each deferred the gate to the other, and between them nothing
+    tested it. That one test lets the real gate run.
+    """
+    if request.node.name == "test_a_dnd_borrower_is_not_dialled_by_the_ladder":
+        return
     monkeypatch.setattr(
         contact_policy, "admit", lambda *a, **k: contact_policy.Decision(allowed=True)
     )
@@ -405,3 +412,33 @@ def test_the_last_authored_attempt_is_still_placed(db_tx, monkeypatch) -> None:
     case = _case(db_tx, case_id)
     assert case["attempts"] == 3
     assert case["state"] == cadence.STATE_OPEN
+
+
+def test_a_dnd_borrower_is_not_dialled_by_the_ladder(db_tx, monkeypatch) -> None:
+    """The real gate, not the always-allow stand-in the rest of this file uses.
+
+    A borrower on DND was dialable from this worker because every test mocked
+    ``admit`` open. The pause/strand assertions stay behind that mock; this
+    one is the seam between the two suites.
+    """
+    cust = _a_customer(db_tx)
+    db_tx.execute(
+        text("UPDATE customers SET dnd = true WHERE id = :id"),
+        {"id": cust["id"]},
+    )
+    case_id = _only_due_case(db_tx, cust, case_ref="CASE-CAD-DND")
+
+    dialler = _Dialler()
+    monkeypatch.setattr(outbound, "place", dialler)
+
+    assert cadence.process_one(dbmod.engine) is True
+    assert dialler.calls == [], "a DND borrower was dialled"
+
+    attempts = _attempts_for(db_tx, case_id)
+    assert len(attempts) == 1
+    assert attempts[0]["state"] == "suppressed"
+    reason = db_tx.execute(
+        text("SELECT suppressed_reason FROM call_attempts WHERE id = :id"),
+        {"id": attempts[0]["id"]},
+    ).scalar()
+    assert reason == contact_policy.REASON_CUSTOMER_DND
