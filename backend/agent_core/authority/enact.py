@@ -100,48 +100,58 @@ def post_waiver_for_dispute(
     amount: float | None = None,
     description: str | None = None,
 ) -> dict[str, Any] | None:
-    """Specialist resolve path. Idempotent on dispute id."""
-    existing = conn.execute(
-        text(
-            """
-            SELECT id FROM ledger_entries
-            WHERE description LIKE :pat
-            LIMIT 1
-            """
-        ),
-        {"pat": f"%{dispute_id}%"},
-    ).first()
-    if existing:
-        return None
+    """Specialist resolve path. Idempotent on dispute id.
 
-    row = conn.execute(
-        text(
-            """
-            SELECT d.id, d.customer_id, d.account_id, d.disputed_amount, d.type
-            FROM disputes d
-            WHERE d.id = :id
-            """
-        ),
-        {"id": dispute_id},
-    ).mappings().first()
-    if row is None:
-        return None
-    account_id = row["account_id"]
-    if not account_id:
-        return None
-    posted = float(amount if amount is not None else (row["disputed_amount"] or 0))
-    if posted <= 0:
-        return None
-    return _post(
-        conn,
-        account_id=account_id,
-        customer_id=row["customer_id"],
-        amount=posted,
-        fee_type=row["type"] or "fee_waiver",
-        decision_id=None,
-        dispute_id=dispute_id,
-        description=description or f"Goodwill waiver {dispute_id}",
-    )
+    Returning None means a waiver for this dispute is already on the ledger.
+    Raising means it is not — the caller's transaction must not record the
+    dispute as ``resolved/valid_waive_fee``.
+    """
+    try:
+        row = conn.execute(
+            text(
+                """
+                SELECT d.id, d.customer_id, d.account_id, d.disputed_amount, d.type
+                FROM disputes d
+                WHERE d.id = :id
+                FOR UPDATE
+                """
+            ),
+            {"id": dispute_id},
+        ).mappings().first()
+        if row is None:
+            raise AuthorityError("dispute_not_found")
+
+        existing = conn.execute(
+            text(
+                """
+                SELECT id FROM ledger_entries
+                WHERE dispute_id = :id AND type = 'waiver'
+                LIMIT 1
+                """
+            ),
+            {"id": dispute_id},
+        ).first()
+        if existing:
+            return None
+
+        account_id = row["account_id"]
+        if not account_id:
+            raise AuthorityError("account_missing")
+        posted = float(amount if amount is not None else (row["disputed_amount"] or 0))
+        if posted <= 0:
+            raise AuthorityError("invalid_amount")
+        return _post(
+            conn,
+            account_id=account_id,
+            customer_id=row["customer_id"],
+            amount=posted,
+            fee_type=row["type"] or "fee_waiver",
+            decision_id=None,
+            dispute_id=dispute_id,
+            description=description or f"Goodwill waiver {dispute_id}",
+        )
+    except IntegrityError as exc:
+        raise AuthorityError("already_applied") from exc
 
 
 def _post(
@@ -162,11 +172,25 @@ def _post(
     desc = description or (
         f"Goodwill {fee_type} waiver {decision_id or dispute_id or ''}".strip()
     )
+    resolved_dispute = dispute_id
+    if not resolved_dispute:
+        resolved_dispute = _open_or_create_fee_dispute(
+            conn,
+            customer_id=customer_id,
+            account_id=account_id,
+            amount=amount,
+        )
     conn.execute(
         text(
             """
-            INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at)
-            VALUES (:id, :account_id, 'waiver', :description, :amount, :posted_at)
+            INSERT INTO ledger_entries (
+              id, account_id, type, description, amount, posted_at,
+              decision_id, dispute_id
+            )
+            VALUES (
+              :id, :account_id, 'waiver', :description, :amount, :posted_at,
+              :decision_id, :dispute_id
+            )
             """
         ),
         {
@@ -175,6 +199,8 @@ def _post(
             "description": desc,
             "amount": float(-abs(amount)),
             "posted_at": posted_at,
+            "decision_id": decision_id,
+            "dispute_id": resolved_dispute,
         },
     )
     conn.execute(
@@ -189,14 +215,6 @@ def _post(
         {"id": account_id, "paid": float(abs(amount))},
     )
 
-    resolved_dispute = dispute_id
-    if not resolved_dispute:
-        resolved_dispute = _open_or_create_fee_dispute(
-            conn,
-            customer_id=customer_id,
-            account_id=account_id,
-            amount=amount,
-        )
     if resolved_dispute:
         conn.execute(
             text(

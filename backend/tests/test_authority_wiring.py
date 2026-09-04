@@ -98,7 +98,7 @@ def _ledger_waivers(conn, account_id: str) -> list[dict]:
         for r in conn.execute(
             text(
                 """
-                SELECT id, amount, description
+                SELECT id, amount, description, decision_id, dispute_id
                 FROM ledger_entries
                 WHERE account_id = :aid AND type = 'waiver'
                 ORDER BY posted_at
@@ -157,6 +157,8 @@ def test_live_apply_posts_ledger_and_resolves_a_dispute(db_tx, customer, monkeyp
     waivers = _ledger_waivers(db_tx, customer["account_id"])
     assert len(waivers) == 1
     assert float(waivers[0]["amount"]) == -400
+    assert waivers[0]["decision_id"] == result.decision_id
+    assert waivers[0]["dispute_id"] == posted["disputeId"]
     after = float(
         db_tx.execute(
             text("SELECT outstanding FROM accounts WHERE id = :id"),
@@ -281,12 +283,74 @@ def test_specialist_valid_waive_fee_posts_the_ledger(db_tx, customer) -> None:
     assert len(waivers) == 1
     assert float(waivers[0]["amount"]) == -350
     assert dispute["id"] in (waivers[0]["description"] or "")
+    assert waivers[0]["dispute_id"] == dispute["id"]
+    assert waivers[0]["decision_id"] is None
 
     db.patch_dispute(
         dispute["id"],
         {"status": "resolved", "resolutionCode": "valid_waive_fee"},
     )
     assert len(_ledger_waivers(db_tx, customer["account_id"])) == 1
+
+
+def test_failed_waiver_post_does_not_mark_the_dispute_waived(
+    db_tx, customer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Acceptance for WP-073: a swallowed post left resolved/valid_waive_fee
+    on a dispute whose fee was never reversed.
+    """
+    _prepare_eligible(db_tx, customer)
+    dispute = db.create_dispute(
+        {
+            "customerId": customer["customer_id"],
+            "accountId": customer["account_id"],
+            "type": "fee_waiver",
+            "amount": 350,
+        }
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr("agent_core.authority.enact._post", _boom)
+
+    with pytest.raises(RuntimeError, match="ledger unavailable"):
+        db.patch_dispute(
+            dispute["id"],
+            {"status": "resolved", "resolutionCode": "valid_waive_fee"},
+        )
+    row = db_tx.execute(
+        text("SELECT status, resolution_code FROM disputes WHERE id = :id"),
+        {"id": dispute["id"]},
+    ).mappings().first()
+    assert row["status"] != "resolved"
+    assert row["resolution_code"] != "valid_waive_fee"
+    assert not _ledger_waivers(db_tx, customer["account_id"])
+
+
+def test_zero_amount_waiver_does_not_resolve_as_waived(db_tx, customer) -> None:
+    _prepare_eligible(db_tx, customer)
+    from agent_core.authority.enact import AuthorityError
+
+    dispute = db.create_dispute(
+        {
+            "customerId": customer["customer_id"],
+            "accountId": customer["account_id"],
+            "type": "fee_waiver",
+            "amount": 0,
+        }
+    )
+    with pytest.raises(AuthorityError, match="invalid_amount"):
+        db.patch_dispute(
+            dispute["id"],
+            {"status": "resolved", "resolutionCode": "valid_waive_fee"},
+        )
+    row = db_tx.execute(
+        text("SELECT status, resolution_code FROM disputes WHERE id = :id"),
+        {"id": dispute["id"]},
+    ).mappings().first()
+    assert row["status"] != "resolved"
+    assert row["resolution_code"] != "valid_waive_fee"
 
 
 def test_next_endpoint_logs_a_shadow_decision(db_tx, customer, client, monkeypatch) -> None:

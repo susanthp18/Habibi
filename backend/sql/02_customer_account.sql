@@ -120,16 +120,24 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   balance numeric(14,2),
   invoice_id TEXT,
   posted_at timestamptz NOT NULL,
+  -- Real keys for goodwill uniqueness. A regex on description cannot cover
+  -- the disputes-desk path (no AD- id) and silently stops constraining rows
+  -- if the posting wording changes.
+  decision_id TEXT,
+  dispute_id TEXT,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_account_id ON ledger_entries(account_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_posted_at ON ledger_entries(posted_at);
--- One goodwill posting per authority decision. The decision id is in the
--- description (`Goodwill {fee} waiver AD-…`); apply_goodwill serialises with
--- FOR UPDATE, and this unique keeps a lost race from committing a second row.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ledger_entries_authority_decision
-  ON ledger_entries ((substring(description from 'AD-[0-9A-F]{12}')))
-  WHERE type = 'waiver' AND description ~ 'AD-[0-9A-F]{12}';
+-- One goodwill posting per authority decision, and one per resolved dispute.
+-- apply_goodwill / post_waiver_for_dispute serialise with FOR UPDATE; these
+-- uniques are the constraint the database can enforce when that lock is missing.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ledger_entries_decision_id
+  ON ledger_entries (decision_id)
+  WHERE type = 'waiver' AND decision_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ledger_entries_dispute_id
+  ON ledger_entries (dispute_id)
+  WHERE type = 'waiver' AND dispute_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS emi_installments (
   id TEXT PRIMARY KEY,

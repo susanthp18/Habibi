@@ -4535,18 +4535,18 @@ def patch_dispute(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             if key in payload:  # present == intentional (None clears)
                 updates.append(f"{column} = :{column}")
                 params[column] = payload[key]
-        if updates:
-            conn.execute(text(f"UPDATE disputes SET {', '.join(updates)} WHERE id = :id"), params)
 
         status = payload.get("status")
         resolution = payload.get("resolutionCode")
         if status == "resolved" and resolution == "valid_waive_fee":
-            try:
-                from agent_core.authority import enact as authority_enact
+            # Post before the status write. A failure must not leave
+            # resolved/valid_waive_fee on a dispute whose fee was not waived;
+            # the open transaction rolls the whole patch back either way.
+            from agent_core.authority import enact as authority_enact
 
-                authority_enact.post_waiver_for_dispute(conn, dispute_id=dispute_id)
-            except Exception:
-                logger.exception("goodwill ledger post failed for dispute %s", dispute_id)
+            authority_enact.post_waiver_for_dispute(conn, dispute_id=dispute_id)
+        if updates:
+            conn.execute(text(f"UPDATE disputes SET {', '.join(updates)} WHERE id = :id"), params)
         if "assigneeUserId" in payload and payload["assigneeUserId"] is None:
             label, note = "Dispute unassigned", None
         elif payload.get("assigneeUserId"):
