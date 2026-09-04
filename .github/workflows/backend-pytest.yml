@@ -249,3 +249,42 @@ jobs:
 
       - name: Pytest production envelope
         run: pytest -q tests/test_unrecognised_app_env_is_production.py
+
+  # The pytest job installs requirements-voice.txt, so an eager `import pipecat`
+  # (or `fastembed`) on the API/worker path would pass that suite and still
+  # crash the base image — the image those two processes actually run in.
+  # Pipecat and fastembed are voice-only by design; this job builds that base
+  # target and imports the two modules that must boot without them.
+  #
+  # Isolated from the live compose stack: no .env, no network, no Twilio.
+  import-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build base image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          target: base
+          load: true
+          push: false
+          tags: collections-api:import-boundary
+          cache-from: type=gha,scope=collections-api
+          cache-to: type=gha,mode=max,scope=collections-api
+
+      - name: Import main and worker without pipecat or fastembed
+        run: |
+          set -euo pipefail
+          docker run --rm --network none -e APP_ENV=dev \
+            collections-api:import-boundary \
+            python -c "import importlib.util, sys; bad=[n for n in ('pipecat','fastembed') if importlib.util.find_spec(n) is not None]; sys.exit(0 if not bad else f'{bad[0]} must be absent from the base image')"
+          docker run --rm --network none -e APP_ENV=dev \
+            collections-api:import-boundary \
+            python -c "import main"
+          docker run --rm --network none -e APP_ENV=dev \
+            collections-api:import-boundary \
+            python -c "import worker"
