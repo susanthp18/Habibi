@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, ChevronRight, Filter, Inbox, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { bucketWorkItems, enactedByLabel, useWorkItems, type WorkItem } from "@/api/workspace";
-import { type SlaLevel } from "@/data/workspace-seed";
+import type { SlaLevel } from "@/api/types/workspace";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";

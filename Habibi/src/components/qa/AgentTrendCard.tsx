@@ -1,4 +1,4 @@
-import type { AgentQaStat } from "@/data/qa-seed";
+import type { AgentQaStat } from "@/api/types/qa";
 import { ScoreBand } from "./ScoreBand";
 import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 import { cn } from "@/lib/utils";

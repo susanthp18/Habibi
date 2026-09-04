@@ -8,6 +8,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type { QueueRow, SlaLevel } from "@/api/types/workspace";
 import {
   brokenPtps,
   callbacks,
@@ -17,8 +18,6 @@ import {
   nextLead as seedNextLead,
   slaCountdowns as seedSlaCountdowns,
   stats as seedStats,
-  type QueueRow,
-  type SlaLevel,
 } from "@/data/workspace-seed";
 import { apiGet, mockDelay, USE_MOCK } from "./config";
 

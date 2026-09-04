@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { GitCommit, RotateCcw, Undo2 } from "lucide-react";
-import type { PromptVersion } from "@/data/prompt-studio-seed";
+import type { PromptVersion } from "@/api/types/prompt-studio";
 import type { BotDeployment } from "@/api/prompt-studio";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {

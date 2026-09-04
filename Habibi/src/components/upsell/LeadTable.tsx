@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { CalendarClock, ShieldAlert, ShieldCheck, Tag, User, Wallet } from "lucide-react";
+import type { Lead, LeadStage, Sentiment } from "@/api/types/upsell";
 import {
   fmtDateTime,
   fmtMoney,
@@ -7,9 +8,6 @@ import {
   leadValue,
   SOURCE_LABELS,
   STAGE_LABELS,
-  type Lead,
-  type LeadStage,
-  type Sentiment,
 } from "@/data/upsell-seed";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";

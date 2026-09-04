@@ -1,16 +1,8 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  SOURCE_LABELS,
-  TEAM_OPTIONS,
-  products as seedProducts,
-  type Filters,
-  type LeadSource,
-  type Priority,
-  type Product,
-  type Sentiment,
-} from "@/data/upsell-seed";
+import type { Filters, LeadSource, Priority, Product, Sentiment } from "@/api/types/upsell";
+import { SOURCE_LABELS, TEAM_OPTIONS, products as seedProducts } from "@/data/upsell-seed";
 import { cn } from "@/lib/utils";
 
 interface Props {

@@ -1,4 +1,4 @@
-import type { Persona } from "@/data/sandbox-seed";
+import type { Persona } from "@/api/types/sandbox";
 import type { IdentityVerifiedEvent } from "@/components/sandbox/voice/liveEvents";
 import { Lozenge } from "@/components/ui/lozenge";
 

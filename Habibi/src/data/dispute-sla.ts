@@ -13,15 +13,7 @@
 // _dispute_sla — same thresholds, same label format. Change one, change both.
 // -----------------------------------------------------------------------------
 
-export type SlaTone = "ok" | "warn" | "breach" | "done";
-
-/** Structured SLA carried by every dispute the API returns. */
-export interface DisputeSla {
-  sla: SlaTone;
-  slaLabel: string;
-  /** Signed minutes: positive is time remaining, negative is time overdue. */
-  slaMinutes: number;
-}
+import type { DisputeSla } from "@/api/types/dispute-sla";
 
 /** At risk once less than a quarter of the filing→due window remains. */
 const WARN_FRACTION = 0.25;

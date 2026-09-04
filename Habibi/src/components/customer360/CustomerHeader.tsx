@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { RiskBadge } from "./RiskBadge";
 import { ContactabilityPill } from "./ContactabilityPill";
 import { StatusChip } from "./StatusChip";
-import type { Customer } from "@/data/customer360-seed";
+import type { Customer } from "@/api/types/customer360";
 import { fmtMoney } from "@/data/customer360-seed";
 
 function initials(name: string | null | undefined) {

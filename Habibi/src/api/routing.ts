@@ -6,15 +6,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  AUDIT_SEED,
-  RULES_SEED,
-  type ActionKey,
-  type AuditEntry,
-  type Rule,
-  type RuleAction,
-  type RuleCategory,
-} from "@/data/routing-seed";
+import type { ActionKey, AuditEntry, Rule, RuleAction, RuleCategory } from "@/api/types/routing";
+import { AUDIT_SEED, RULES_SEED } from "@/data/routing-seed";
 import { apiDelete, apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 
 interface RoutingActionApi {

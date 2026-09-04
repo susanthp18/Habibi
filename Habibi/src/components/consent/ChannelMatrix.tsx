@@ -1,5 +1,5 @@
 import { Phone, MessageCircle, MessageSquare, Mail, type LucideIcon } from "lucide-react";
-import type { ChannelConsent, ConsentChannel, ConsentStatus } from "@/data/consent-seed";
+import type { ChannelConsent, ConsentChannel, ConsentStatus } from "@/api/types/consent";
 
 const CHANNEL_ORDER: ConsentChannel[] = ["call", "whatsapp", "sms", "email"];
 const CHANNEL_META: Record<ConsentChannel, { label: string; Icon: LucideIcon }> = {

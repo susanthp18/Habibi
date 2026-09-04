@@ -3,15 +3,13 @@ import { Play, Square, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
 import { previewTts } from "@/api/prompt-studio";
-import {
-  LANGUAGES,
-  languageTag,
-  renderPersonaPreview,
-  type PersonaPreset,
-  type PersonaState,
-  type PersonaTraitKey,
-  type VoiceConfig,
-} from "@/data/prompt-studio-seed";
+import type {
+  PersonaPreset,
+  PersonaState,
+  PersonaTraitKey,
+  VoiceConfig,
+} from "@/api/types/prompt-studio";
+import { LANGUAGES, languageTag, renderPersonaPreview } from "@/data/prompt-studio-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 
 const TRAITS: Array<{ key: PersonaTraitKey; label: string; lo: string; hi: string }> = [

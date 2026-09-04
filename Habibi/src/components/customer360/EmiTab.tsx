@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Customer, EmiRow, EmiStatus } from "@/data/customer360-seed";
+import type { Customer, EmiRow, EmiStatus } from "@/api/types/customer360";
 import { fmtDate, fmtMoney } from "@/data/customer360-seed";
 import { StatusChip, type ChipTone } from "./StatusChip";
 import { cn } from "@/lib/utils";

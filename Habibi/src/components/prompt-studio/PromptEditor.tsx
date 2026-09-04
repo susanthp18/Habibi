@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Sparkles, X } from "lucide-react";
 import { usePromptTokenEstimate, type PromptLintFinding } from "@/api/prompt-studio";
+import type { Guardrails, PersonaPreset, PersonaState } from "@/api/types/prompt-studio";
 import {
   SYSTEM_SAFE_VARIABLES,
   detectCrmVars,
   detectFlowVars,
   detectUndefinedVars,
-  type Guardrails,
-  type PersonaPreset,
-  type PersonaState,
 } from "@/data/prompt-studio-seed";
 
 type Props = {

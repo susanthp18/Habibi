@@ -6,18 +6,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  ExportFormat,
+  ExportJob,
+  ExportScope,
+  PiiEntityType,
+  RedactionRecord,
+  RedactionRules,
+  RuleConfig,
+} from "@/api/types/redaction";
 import {
   DEFAULT_RULES,
   ENTITY_TYPES,
   initialExports,
   records as seedRecords,
-  type ExportFormat,
-  type ExportJob,
-  type ExportScope,
-  type PiiEntityType,
-  type RedactionRecord,
-  type RedactionRules,
-  type RuleConfig,
 } from "@/data/redaction-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 

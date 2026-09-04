@@ -12,7 +12,7 @@ import { ApprovalsQueue } from "@/components/floor/ApprovalsQueue";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useAckFloorAlert, useFloor, useSupervisorAction, type FloorSnapshot } from "@/api/floor";
 import { USE_MOCK } from "@/api/config";
-import type { ActiveCall, FloorAction, FloorAlert } from "@/data/floor-seed";
+import type { ActiveCall, FloorAction, FloorAlert } from "@/api/types/floor";
 
 export const Route = createFileRoute("/floor")({
   head: () => ({

@@ -8,15 +8,14 @@ import { ConsentStatsStrip } from "@/components/consent/ConsentStatsStrip";
 import { ConsentFilters } from "@/components/consent/ConsentFilters";
 import { ConsentTable } from "@/components/consent/ConsentTable";
 import { ConsentDrawer } from "@/components/consent/ConsentDrawer";
-import {
-  defaultConsentFilters,
-  filterConsents,
-  type ConsentFilterState,
-  type ConsentRecord,
-  type ConsentChannel,
-  type ConsentPreferencesPatch,
-  type OptOutSource,
-} from "@/data/consent-seed";
+import type {
+  ConsentFilterState,
+  ConsentRecord,
+  ConsentChannel,
+  ConsentPreferencesPatch,
+  OptOutSource,
+} from "@/api/types/consent";
+import { defaultConsentFilters, filterConsents } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import { captureOptOut, renewConsent, saveConsent, toggleDnd, useConsent } from "@/api/consent";
 

@@ -13,6 +13,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  Dispute,
+  DisputeStatus,
+  DisputeType,
+  Evidence,
+  ResolutionCode,
+} from "@/api/types/disputes";
 import {
   addNote as addSeedNote,
   assignDispute as assignSeedDispute,
@@ -23,11 +30,6 @@ import {
   rejectDispute as rejectSeedDispute,
   resolveDispute as resolveSeedDispute,
   withMockSla,
-  type Dispute,
-  type DisputeStatus,
-  type DisputeType,
-  type Evidence,
-  type ResolutionCode,
 } from "@/data/disputes-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { resolveActor } from "./staff";

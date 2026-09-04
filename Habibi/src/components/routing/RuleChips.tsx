@@ -1,4 +1,5 @@
-import { ACTION_LABEL, FIELDS, type Condition, type Rule } from "@/data/routing-seed";
+import type { Condition, Rule } from "@/api/types/routing";
+import { ACTION_LABEL, FIELDS } from "@/data/routing-seed";
 import { cn } from "@/lib/utils";
 
 function condChip(c: Condition, matched?: boolean) {

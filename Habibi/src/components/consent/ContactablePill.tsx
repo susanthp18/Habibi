@@ -1,5 +1,6 @@
 import { CheckCircle2, AlertTriangle, ShieldOff } from "lucide-react";
-import { contactableSummary, type ConsentRecord } from "@/data/consent-seed";
+import type { ConsentRecord } from "@/api/types/consent";
+import { contactableSummary } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 
 /* `dense` used to switch the inline padding. The Lozenge is already the compact size the

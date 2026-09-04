@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { inrCompact, type Invoice } from "@/data/billing-seed";
+import type { Invoice } from "@/api/types/billing";
+import { inrCompact } from "@/data/billing-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
   FilterTable,

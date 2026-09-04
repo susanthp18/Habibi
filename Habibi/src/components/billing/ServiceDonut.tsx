@@ -1,11 +1,5 @@
-import {
-  CATEGORY_COLORS,
-  sumRange,
-  inrCompact,
-  type DayPoint,
-  type Service,
-  type ServiceCategory,
-} from "@/data/billing-seed";
+import type { DayPoint, Service, ServiceCategory } from "@/api/types/billing";
+import { CATEGORY_COLORS, sumRange, inrCompact } from "@/data/billing-seed";
 import { ChartCard, ModernDonut, SnapshotPill } from "@/components/charts";
 
 export function ServiceDonut({ data, services }: { data: DayPoint[]; services: Service[] }) {

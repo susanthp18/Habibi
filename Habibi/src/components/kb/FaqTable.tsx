@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
-import type { FaqPair } from "@/data/kb-seed";
+import type { FaqPair } from "@/api/types/kb";
 import { formatKbDate } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";

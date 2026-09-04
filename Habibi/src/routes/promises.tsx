@@ -17,16 +17,8 @@ import {
   type CustomerOption,
 } from "@/components/promises/PromiseSheet";
 import { PlanBuilderSheet, type PlanInput } from "@/components/promises/PlanBuilderSheet";
-import {
-  computeMetrics,
-  defaultFilters,
-  filterPromises,
-  followUps,
-  type Filters,
-  type PaymentPlan,
-  type Promise as Ptp,
-  type PromiseStatus,
-} from "@/data/promises-seed";
+import type { Filters, PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
+import { computeMetrics, defaultFilters, filterPromises, followUps } from "@/data/promises-seed";
 import {
   createPlan,
   createPromise,

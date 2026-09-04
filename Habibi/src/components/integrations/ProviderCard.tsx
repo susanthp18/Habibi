@@ -1,7 +1,8 @@
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Settings2, PlayCircle } from "lucide-react";
-import { healthTone, usageSeries, type Env, type Provider } from "@/data/integrations-seed";
+import type { Env, Provider } from "@/api/types/integrations";
+import { healthTone, usageSeries } from "@/data/integrations-seed";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 import { LivelineSpark } from "@/components/charts";

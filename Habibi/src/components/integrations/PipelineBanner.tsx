@@ -1,4 +1,5 @@
-import { PROVIDERS, healthTone, type Env, type Provider } from "@/data/integrations-seed";
+import type { Env, Provider } from "@/api/types/integrations";
+import { PROVIDERS, healthTone } from "@/data/integrations-seed";
 import { cn } from "@/lib/utils";
 import {
   ArrowRight,

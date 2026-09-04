@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { KbGap } from "@/api/kb";
-import type { KbDocument } from "@/data/kb-seed";
+import type { KbDocument } from "@/api/types/kb";
 import { formatKbDate } from "@/lib/utils";
 import { CheckCircle2, MessageSquarePlus, BookOpen, Link2 } from "lucide-react";
 import { toast } from "sonner";

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { SlaTone } from "@/data/disputes-seed";
+import type { SlaTone } from "@/api/types/disputes";
 
 export function SlaChip({ tone, label }: { tone: SlaTone; label: string }) {
   const c = {

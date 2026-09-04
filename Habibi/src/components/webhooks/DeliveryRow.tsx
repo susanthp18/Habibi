@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
-import type { Delivery, Endpoint } from "@/data/webhooks-seed";
+import type { Delivery, Endpoint } from "@/api/types/webhooks";
 import { fmtRel, signaturePreview } from "@/data/webhooks-seed";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

@@ -1,46 +1,17 @@
 // Compliance Risk — rule-hit violations derived from audit call records.
-import { calls, type CallRecord, type TranscriptTurn } from "./audit-seed";
-
-export type Severity = "critical" | "high" | "medium" | "low";
-export type ViolationStatus = "open" | "in_review" | "acknowledged" | "resolved";
-export type ActorKind = "bot" | "human";
-export type RuleCategory =
-  "disclosure" | "prohibited-language" | "consent" | "verification" | "sentiment";
-
-export interface ComplianceRule {
-  id: string;
-  code: string;
-  label: string;
-  category: RuleCategory;
-  severity: Severity;
-  description: string;
-}
-
-export interface ViolationNote {
-  at: string;
-  author: string;
-  text: string;
-}
-
-export interface Violation {
-  id: string;
-  callId: string;
-  customerName: string;
-  ruleId: string;
-  severity: Severity;
-  occurredAt: string;
-  atSec: number;
-  actor: { kind: ActorKind; name: string };
-  evidence: {
-    snippet: string;
-    preceding?: TranscriptTurn;
-    offending: TranscriptTurn;
-    following?: TranscriptTurn;
-  };
-  status: ViolationStatus;
-  assignee?: string;
-  notes: ViolationNote[];
-}
+import type { CallRecord, TranscriptTurn } from "@/api/types/audit";
+import { calls } from "./audit-seed";
+import type {
+  Severity,
+  ViolationStatus,
+  ActorKind,
+  RuleCategory,
+  ComplianceRule,
+  ViolationNote,
+  Violation,
+  CompDateRange,
+  ComplianceFilterState,
+} from "@/api/types/compliance";
 
 export const RULES: ComplianceRule[] = [
   {
@@ -387,19 +358,6 @@ export function statusLabel(s: ViolationStatus): string {
       : s === "acknowledged"
         ? "Acknowledged"
         : "Resolved";
-}
-
-// ---------- filters ----------
-export type CompDateRange = "today" | "7d" | "30d" | "all";
-
-export interface ComplianceFilterState {
-  q: string;
-  dateRange: CompDateRange;
-  severities: Set<Severity>;
-  ruleId: "all" | string;
-  actor: "all" | ActorKind;
-  agent: "all" | string;
-  status: "all" | ViolationStatus;
 }
 
 export const defaultCompFilters: ComplianceFilterState = {

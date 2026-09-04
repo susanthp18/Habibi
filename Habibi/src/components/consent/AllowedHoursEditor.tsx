@@ -1,4 +1,4 @@
-import type { AllowedWindow } from "@/data/consent-seed";
+import type { AllowedWindow } from "@/api/types/consent";
 
 const DAYS = [
   { d: 1, label: "M" },

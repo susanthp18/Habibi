@@ -1,5 +1,5 @@
 import { TrendingDown, TrendingUp, Minus } from "lucide-react";
-import type { SandboxTurn } from "@/data/sandbox-seed";
+import type { SandboxTurn } from "@/api/types/sandbox";
 import type { TurnAnalysisEvent } from "../voice/liveEvents";
 import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 

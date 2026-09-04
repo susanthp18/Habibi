@@ -1,6 +1,6 @@
 import { Search, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Thread, ThreadStatus } from "@/data/inbox-seed";
+import type { Thread, ThreadStatus } from "@/api/types/inbox";
 import { Avatar, slaColor, statusMeta } from "./meta";
 import { Badge } from "@/components/ui/badge";
 import { useMemo, useState } from "react";

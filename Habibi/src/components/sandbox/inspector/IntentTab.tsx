@@ -1,4 +1,5 @@
-import { INTENT_LABEL, type SandboxTurn, type IntentKey } from "@/data/sandbox-seed";
+import type { SandboxTurn, IntentKey } from "@/api/types/sandbox";
+import { INTENT_LABEL } from "@/data/sandbox-seed";
 import type { TurnAnalysisEvent } from "../voice/liveEvents";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";

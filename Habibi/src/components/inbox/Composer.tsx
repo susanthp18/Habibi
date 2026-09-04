@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { Thread } from "@/data/inbox-seed";
+import type { Thread } from "@/api/types/inbox";
 import { getThreadHandoffState } from "@/components/inbox/meta";
 import { ingestInboxDocument, useCannedResponses } from "@/api/inbox";
 

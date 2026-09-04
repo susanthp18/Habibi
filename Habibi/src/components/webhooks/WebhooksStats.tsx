@@ -1,5 +1,5 @@
 import { Activity, CheckCircle2, AlertTriangle, Radio } from "lucide-react";
-import type { Delivery, Endpoint } from "@/data/webhooks-seed";
+import type { Delivery, Endpoint } from "@/api/types/webhooks";
 import { successRate, within } from "@/data/webhooks-seed";
 import { cn } from "@/lib/utils";
 

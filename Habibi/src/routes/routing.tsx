@@ -17,7 +17,8 @@ import {
   useRoutingAudit,
   useRoutingRules,
 } from "@/api/routing";
-import { newBlankRule, type Rule } from "@/data/routing-seed";
+import type { Rule } from "@/api/types/routing";
+import { newBlankRule } from "@/data/routing-seed";
 
 export const Route = createFileRoute("/routing")({
   head: () => ({

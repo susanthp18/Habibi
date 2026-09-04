@@ -12,16 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ACTION_LABEL,
-  FIELDS,
-  OPERATORS_BY_TYPE,
-  type ActionKey,
-  type Condition,
-  type ConditionNode,
-  type Rule,
-  type RuleCategory,
-} from "@/data/routing-seed";
+import type { ActionKey, Condition, ConditionNode, Rule, RuleCategory } from "@/api/types/routing";
+import { ACTION_LABEL, FIELDS, OPERATORS_BY_TYPE } from "@/data/routing-seed";
 import { ConditionRow } from "./ConditionRow";
 
 const CATEGORIES: RuleCategory[] = ["Escalation", "Handoff", "Throttle", "Compliance", "Routing"];

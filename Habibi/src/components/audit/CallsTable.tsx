@@ -18,13 +18,8 @@ import {
   Radio,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  formatDateTime,
-  formatDuration,
-  sentimentColor,
-  type CallFlag,
-  type CallRecord,
-} from "@/data/audit-seed";
+import type { CallFlag, CallRecord } from "@/api/types/audit";
+import { formatDateTime, formatDuration, sentimentColor } from "@/data/audit-seed";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {
   RecordsAvatarMark,

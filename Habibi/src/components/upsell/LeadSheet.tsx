@@ -18,6 +18,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import type { FollowUpChannel, Lead, LeadStage, Priority } from "@/api/types/upsell";
 import {
   STAGE_LABELS,
   STAGE_ORDER,
@@ -30,10 +31,6 @@ import {
   moneyValue,
   listOwners,
   products,
-  type FollowUpChannel,
-  type Lead,
-  type LeadStage,
-  type Priority,
 } from "@/data/upsell-seed";
 import {
   addLeadFollowUp,

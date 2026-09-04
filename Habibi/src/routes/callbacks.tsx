@@ -13,12 +13,12 @@ import { CallbackList } from "@/components/callbacks/CallbackList";
 import { MissedLane } from "@/components/callbacks/MissedLane";
 import { CallbackSheet } from "@/components/callbacks/CallbackSheet";
 import { NewCallbackSheet } from "@/components/callbacks/NewCallbackSheet";
+import type { Filters } from "@/api/types/callbacks";
 import {
   CURRENT_QUEUE,
   computeMetrics,
   defaultFilters,
   filterCallbacks,
-  type Filters,
 } from "@/data/callbacks-seed";
 import {
   autoMarkMissed,

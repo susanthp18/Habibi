@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { IntentAgg } from "@/data/bot-analytics-seed";
+import type { IntentAgg } from "@/api/types/bot-analytics";
 import { ChartCard, SnapshotPill } from "@/components/charts";
 
 export function IntentDistribution({

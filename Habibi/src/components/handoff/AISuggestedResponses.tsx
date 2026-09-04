@@ -1,5 +1,5 @@
 import { Copy, Send, Sparkles, BookOpen } from "lucide-react";
-import type { Suggestion } from "@/data/handoff-seed";
+import type { Suggestion } from "@/api/types/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
 
 type Canned = { id: string; label: string; text: string };

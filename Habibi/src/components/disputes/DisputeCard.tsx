@@ -1,5 +1,6 @@
 import { Bot, User, Mic, MessageSquare, MoreHorizontal, UserPlus } from "lucide-react";
-import { SOURCE_LABELS, TYPE_LABELS, fmtMoney, type Dispute } from "@/data/disputes-seed";
+import type { Dispute } from "@/api/types/disputes";
+import { SOURCE_LABELS, TYPE_LABELS, fmtMoney } from "@/data/disputes-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

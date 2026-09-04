@@ -1,4 +1,4 @@
-import type { StackedPoint } from "@/data/dashboard-seed";
+import type { StackedPoint } from "@/api/types/dashboard";
 import { ChartCard, ChartEmpty, ChartStage, ModernBars, SnapshotPill } from "@/components/charts";
 
 function fmtDate(d: string) {

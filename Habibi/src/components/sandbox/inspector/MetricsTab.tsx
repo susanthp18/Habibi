@@ -1,4 +1,4 @@
-import type { SandboxTurn } from "@/data/sandbox-seed";
+import type { SandboxTurn } from "@/api/types/sandbox";
 import type { LiveTurnAudio, TurnAnalysisEvent } from "@/components/sandbox/voice/liveEvents";
 
 export type TurnMetric = {

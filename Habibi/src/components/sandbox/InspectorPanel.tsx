@@ -10,7 +10,7 @@ import {
   Radio,
   Wrench,
 } from "lucide-react";
-import type { SandboxTurn } from "@/data/sandbox-seed";
+import type { SandboxTurn } from "@/api/types/sandbox";
 import { RetrievalTab } from "./inspector/RetrievalTab";
 import { IntentTab } from "./inspector/IntentTab";
 import { SentimentTab } from "./inspector/SentimentTab";

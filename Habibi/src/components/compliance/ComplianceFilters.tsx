@@ -1,14 +1,13 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  RULES,
-  type ComplianceFilterState,
-  type Severity,
-  type ViolationStatus,
-  listActorNames,
-  type Violation,
-} from "@/data/compliance-seed";
+import type {
+  ComplianceFilterState,
+  Severity,
+  ViolationStatus,
+  Violation,
+} from "@/api/types/compliance";
+import { RULES, listActorNames } from "@/data/compliance-seed";
 
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
 const SEV_COLORS: Record<Severity, string> = {

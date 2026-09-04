@@ -14,7 +14,7 @@ import {
   takeoverConversation,
   useConversations,
 } from "@/api/inbox";
-import type { Thread } from "@/data/inbox-seed";
+import type { Thread } from "@/api/types/inbox";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useConfirm } from "@/components/ui/use-confirm";
 

@@ -13,7 +13,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { products as mockProducts, type Product } from "@/data/upsell-seed";
+import type { Product } from "@/api/types/upsell";
+import { products as mockProducts } from "@/data/upsell-seed";
 import { apiGet, mockDelay, USE_MOCK } from "./config";
 
 /** Wire shape of GET /products (schemas.ProductResponse). */

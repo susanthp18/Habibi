@@ -1,8 +1,17 @@
 import { chunks as kbChunks, documents as kbDocs } from "./kb-seed";
-import type { Guardrails, PersonaState } from "./prompt-studio-seed";
-
-export type Difficulty = "easy" | "medium" | "hard";
-export type Role = "bot" | "customer" | "system";
+import type { Guardrails, PersonaState } from "@/api/types/prompt-studio";
+import type {
+  Difficulty,
+  Role,
+  IntentKey,
+  SandboxChunkMeta,
+  Persona,
+  ScenarioTurn,
+  Scenario,
+  KbSnapshot,
+  SandboxTurn,
+  BotReply,
+} from "@/api/types/sandbox";
 
 export const INTENT_KEYS = [
   "balance_query",
@@ -14,14 +23,6 @@ export const INTENT_KEYS = [
   "escalation",
   "out_of_scope",
 ] as const;
-
-export type IntentKey = (typeof INTENT_KEYS)[number];
-
-export type SandboxChunkMeta = {
-  docTitle?: string | null;
-  heading?: string | null;
-  snippet?: string | null;
-};
 
 declare global {
   interface Window {
@@ -61,66 +62,11 @@ export const INTENT_LABEL: Record<IntentKey, string> = {
   out_of_scope: "Out of scope",
 };
 
-export type Persona = {
-  name: string;
-  phoneLast4: string;
-  product: string;
-  dpd: number;
-  overdue: number;
-  mood: string;
-  language: string;
-};
-
-export type ScenarioTurn = {
-  customer: string;
-  expectedIntent: IntentKey;
-  expectedSentiment: number; // -1..1
-  botTemplate: string; // {trait} placeholders resolved at runtime
-  chunkIds?: string[];
-};
-
-export type Scenario = {
-  id: string;
-  title: string;
-  summary: string;
-  difficulty: Difficulty;
-  intents: IntentKey[];
-  persona: Persona;
-  openingBot: string;
-  turns: ScenarioTurn[];
-};
-
-export type KbSnapshot = { id: string; label: string; note: string };
-
 export const KB_SNAPSHOTS: KbSnapshot[] = [
   { id: "current", label: "Current", note: "Live index" },
   { id: "2026-07-15", label: "2026-07-15 snapshot", note: "Post FAQ refresh" },
   { id: "2026-07-01", label: "2026-07-01 snapshot", note: "Baseline" },
 ];
-
-export type SandboxTurn = {
-  id: string;
-  role: Role;
-  text: string;
-  ts: number;
-  intent?: IntentKey;
-  intentScores?: Record<IntentKey, number>;
-  sentiment?: number;
-  chunkIds?: string[];
-  /** Live RAG hits with doc titles — preferred over seed chunkTitle lookup. */
-  chunks?: Array<{
-    chunkId: string;
-    docId?: string | null;
-    docTitle?: string | null;
-    heading?: string | null;
-    snippet?: string | null;
-    score?: number | null;
-  }>;
-  latencyMs?: number;
-  tokens?: number;
-  guardrailFlags?: string[];
-  systemKind?: "info" | "warn" | "success";
-};
 
 // ---------- pick some real chunk ids from KB ----------
 function pickChunks(match: string, n = 3): string[] {
@@ -625,17 +571,6 @@ export function estimateSentiment(text: string): number {
   if (text.includes("!")) s -= 0.15;
   return Math.max(-1, Math.min(1, Number(s.toFixed(2))));
 }
-
-// ---------- bot reply generator ----------
-export type BotReply = {
-  text: string;
-  chunkIds: string[];
-  latencyMs: number;
-  tokens: number;
-  guardrailFlags: string[];
-  intent: IntentKey;
-  intentScores: Record<IntentKey, number>;
-};
 
 function fillTemplate(t: string, persona: Persona): string {
   return t

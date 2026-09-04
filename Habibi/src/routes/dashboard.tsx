@@ -14,7 +14,7 @@ import { AtRiskAccounts } from "@/components/dashboard/AtRiskAccounts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 import { useDashboard } from "@/api/dashboard";
-import type { Range, Segment, TeamFilter } from "@/data/dashboard-seed";
+import type { Range, Segment, TeamFilter } from "@/api/types/dashboard";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({

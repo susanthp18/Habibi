@@ -44,17 +44,19 @@ import {
   useRollbackBotDeployment,
   type PromptLintFinding,
 } from "@/api/prompt-studio";
+import type {
+  Guardrails,
+  PersonaPreset,
+  PersonaState,
+  PromptVersion,
+  VoiceConfig,
+} from "@/api/types/prompt-studio";
 import {
   DEFAULT_GUARDRAILS,
   DEFAULT_PERSONA,
   DEFAULT_VOICE,
   languageTag,
   nextVersionLabel,
-  type Guardrails,
-  type PersonaPreset,
-  type PersonaState,
-  type PromptVersion,
-  type VoiceConfig,
 } from "@/data/prompt-studio-seed";
 import {
   FileText,

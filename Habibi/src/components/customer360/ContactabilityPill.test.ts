@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ContactPolicy } from "@/api/contact-policy";
-import type { Contact } from "@/data/customer360-seed";
+import type { Contact } from "@/api/types/customer360";
 import { contactabilityState } from "./ContactabilityPill";
 
 const CONTACT: Contact = {

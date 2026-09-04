@@ -9,14 +9,8 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  fmtMoney,
-  fmtRelative,
-  leadValue,
-  SOURCE_LABELS,
-  type Lead,
-  type Sentiment,
-} from "@/data/upsell-seed";
+import type { Lead, Sentiment } from "@/api/types/upsell";
+import { fmtMoney, fmtRelative, leadValue, SOURCE_LABELS } from "@/data/upsell-seed";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 

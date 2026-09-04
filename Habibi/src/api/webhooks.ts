@@ -3,16 +3,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type { Delivery, Endpoint, EventDef, EventKey } from "@/api/types/webhooks";
 import {
   EVENT_CATALOG,
   SEED_DELIVERIES,
   SEED_ENDPOINTS,
   rotateSecret as seedRotateSecret,
   simulateDelivery,
-  type Delivery,
-  type Endpoint,
-  type EventDef,
-  type EventKey,
 } from "@/data/webhooks-seed";
 import { apiDelete, apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 

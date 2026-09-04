@@ -1,5 +1,5 @@
 import { Search, Phone, MessageCircle, MessageSquare } from "lucide-react";
-import type { RedactionRecord, RecordFilter } from "@/data/redaction-seed";
+import type { RedactionRecord, RecordFilter } from "@/api/types/redaction";
 import { formatDateTime } from "@/data/redaction-seed";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";

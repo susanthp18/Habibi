@@ -16,12 +16,8 @@ import {
   A2aPartnersPanel,
 } from "@/components/integrations/McpConsole";
 import { LoadingState } from "@/components/ui/loading-state";
-import {
-  CATEGORY_LIST,
-  type Env,
-  type Provider,
-  type TestLogEntry,
-} from "@/data/integrations-seed";
+import type { Env, Provider, TestLogEntry } from "@/api/types/integrations";
+import { CATEGORY_LIST } from "@/data/integrations-seed";
 import { useProviderMutations, useProviders } from "@/api/integrations";
 import { USE_MOCK } from "@/api/config";
 import { cn } from "@/lib/utils";

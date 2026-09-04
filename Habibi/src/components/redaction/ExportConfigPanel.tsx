@@ -1,5 +1,5 @@
 import { FileText, FileSpreadsheet, FileArchive, ShieldCheck, Play } from "lucide-react";
-import type { ExportFormat, ExportScope } from "@/data/redaction-seed";
+import type { ExportFormat, ExportScope } from "@/api/types/redaction";
 import { cn } from "@/lib/utils";
 
 interface Props {

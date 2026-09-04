@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { CalendarClock, Clock, Shield, User } from "lucide-react";
 import { ChannelChip } from "./ChannelChip";
 import { ContactablePill } from "./ContactablePill";
-import { contactableSummary, daysUntil, type ConsentRecord } from "@/data/consent-seed";
+import type { ConsentRecord } from "@/api/types/consent";
+import { contactableSummary, daysUntil } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
   RecordsAvatarMark,

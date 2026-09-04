@@ -1,6 +1,6 @@
 import { Send, RotateCw, ArrowRightLeft, X, Mail, MessageCircle, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { DocChannel } from "@/data/documents-seed";
+import type { DocChannel } from "@/api/types/documents";
 
 interface Props {
   count: number;

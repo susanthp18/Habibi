@@ -1,6 +1,6 @@
 import { ShieldCheck } from "lucide-react";
 import { ViolationCard } from "./ViolationCard";
-import type { Violation } from "@/data/compliance-seed";
+import type { Violation } from "@/api/types/compliance";
 
 export function ViolationFeed({
   items,

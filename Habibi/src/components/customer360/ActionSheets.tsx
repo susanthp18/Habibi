@@ -19,7 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TYPE_LABELS, type DisputeType } from "@/data/disputes-seed";
+import type { DisputeType } from "@/api/types/disputes";
+import { TYPE_LABELS } from "@/data/disputes-seed";
 
 type Kind = "ptp" | "dispute" | "statement" | "call" | null;
 

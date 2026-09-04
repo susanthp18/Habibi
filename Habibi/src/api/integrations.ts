@@ -3,15 +3,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  LIVE_PROVIDER_IDS,
-  PROVIDERS,
-  runMockHealthCheck,
-  type Env,
-  type Provider,
-  type ProviderId,
-  type TestLogEntry,
-} from "@/data/integrations-seed";
+import type { Env, Provider, ProviderId, TestLogEntry } from "@/api/types/integrations";
+import { LIVE_PROVIDER_IDS, PROVIDERS, runMockHealthCheck } from "@/data/integrations-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 
 function mockProviders(): Provider[] {

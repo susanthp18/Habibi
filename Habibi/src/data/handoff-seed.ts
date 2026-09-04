@@ -1,31 +1,4 @@
-export type Speaker = "customer" | "agent" | "bot" | "system";
-
-export type TranscriptTurn = {
-  id: string;
-  speaker: Speaker;
-  text: string;
-  /** Absolute second offset from call start when this line appears. */
-  at: number;
-  /** Sentiment delta this turn contributes (-1..+1). */
-  sentimentDelta?: number;
-};
-
-export type Suggestion = {
-  id: string;
-  title: string;
-  body: string;
-  source: string;
-  /** Show after this many seconds. */
-  showAfter: number;
-};
-
-export type ComplianceItem = {
-  id: string;
-  label: string;
-  required: boolean;
-  autoAt?: number; // auto-check at second N (simulated)
-};
-
+import type { Speaker, TranscriptTurn, Suggestion, ComplianceItem } from "@/api/types/handoff";
 export const activeCall = {
   customerName: "Priya Menon",
   accountId: "HDFC-RL-8842-1207",

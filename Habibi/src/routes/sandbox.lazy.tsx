@@ -26,7 +26,8 @@ import { fetchVoiceStatus } from "@/api/voice-sandbox";
 import { usePromptVersions, publishPromptVersion } from "@/api/prompt-studio";
 import { useAgentStudioCards, useAgentStudioSkills } from "@/api/agent-studio";
 import { useKbSnapshots } from "@/api/kb";
-import { mergeSandboxChunkMeta, type IntentKey, type SandboxTurn } from "@/data/sandbox-seed";
+import type { IntentKey, SandboxTurn } from "@/api/types/sandbox";
+import { mergeSandboxChunkMeta } from "@/data/sandbox-seed";
 import { LoadingState } from "@/components/ui/loading-state";
 import { DEFAULT_AGENT_TUNING, tuningFromVoiceConfig, type AgentTuning } from "@/data/agent-tuning";
 

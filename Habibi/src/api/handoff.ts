@@ -13,6 +13,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type {
+  ComplianceItem as SeedComplianceItem,
+  Suggestion,
+  TranscriptTurn,
+} from "@/api/types/handoff";
 import {
   activeCall as seedCall,
   complianceItems as seedCompliance,
@@ -20,9 +25,6 @@ import {
   dispositions as seedDispositions,
   suggestions as seedSuggestions,
   transcriptScript as seedTranscript,
-  type ComplianceItem as SeedComplianceItem,
-  type Suggestion,
-  type TranscriptTurn,
 } from "@/data/handoff-seed";
 import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 import type { OfferPolicy } from "@/lib/offer-policy";

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { type DayPoint, type Service, inrCompact } from "@/data/billing-seed";
+import type { DayPoint, Service } from "@/api/types/billing";
+import { inrCompact } from "@/data/billing-seed";
 import { ChartCard, ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 
 export function SpendTrendChart({ data, services }: { data: DayPoint[]; services: Service[] }) {

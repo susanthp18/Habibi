@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Bot, User, Headphones, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatDuration, type TranscriptTurn } from "@/data/audit-seed";
+import type { TranscriptTurn } from "@/api/types/audit";
+import { formatDuration } from "@/data/audit-seed";
 
 interface Props {
   turns: TranscriptTurn[];

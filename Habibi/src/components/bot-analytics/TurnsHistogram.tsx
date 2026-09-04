@@ -1,4 +1,4 @@
-import type { TurnsBucket } from "@/data/bot-analytics-seed";
+import type { TurnsBucket } from "@/api/types/bot-analytics";
 import { ChartCard, ChartStage, ModernBars, SnapshotPill } from "@/components/charts";
 
 const COLORS = ["#82b536", "#5b7f24", "#f68909", "#bd5b00", "#e2483d"];

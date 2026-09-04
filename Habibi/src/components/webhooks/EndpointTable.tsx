@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Lozenge } from "@/components/ui/lozenge";
-import type { Delivery, Endpoint } from "@/data/webhooks-seed";
+import type { Delivery, Endpoint } from "@/api/types/webhooks";
 import { fmtRel } from "@/data/webhooks-seed";
 import { cn } from "@/lib/utils";
 import {

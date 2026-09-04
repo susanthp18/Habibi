@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FaqPair, KbDocument } from "@/data/kb-seed";
+import type { FaqPair, KbDocument } from "@/api/types/kb";
 import {
   AlertDialog,
   AlertDialogAction,

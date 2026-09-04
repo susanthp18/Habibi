@@ -1,9 +1,5 @@
-import {
-  ENTITY_TYPES,
-  ENTITY_COLORS,
-  DEFAULT_RULES,
-  type PiiEntityType,
-} from "@/data/redaction-seed";
+import type { PiiEntityType } from "@/api/types/redaction";
+import { ENTITY_TYPES, ENTITY_COLORS, DEFAULT_RULES } from "@/data/redaction-seed";
 import { cn } from "@/lib/utils";
 
 interface Props {

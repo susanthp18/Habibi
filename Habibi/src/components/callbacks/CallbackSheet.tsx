@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { X, Send, Phone, ExternalLink, AlertTriangle, Bot, User, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Callback, CbChannel, CbDisposition, CbPriority } from "@/api/types/callbacks";
 import {
   CHANNEL_LABELS,
   DISPOSITION_LABELS,
@@ -15,10 +16,6 @@ import {
   fmtLongDate,
   isWithinDndWindow,
   nextAllowedSlot,
-  type Callback,
-  type CbChannel,
-  type CbDisposition,
-  type CbPriority,
 } from "@/data/callbacks-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import {

@@ -6,62 +6,23 @@ import {
   fmtMoney as _fmtMoney,
   fmtDate as _fmtDate,
 } from "./customer360-seed";
+import type {
+  DocStatus,
+  DocChannel,
+  RequestedVia,
+  DocSource,
+  DocType,
+  DocEvent,
+  DocRequest,
+  Template,
+  AgingTone,
+  AgingInfo,
+  Filters,
+  NewRequestInput,
+} from "@/api/types/documents";
 
 export const fmtMoney = _fmtMoney;
 export const fmtDate = _fmtDate;
-
-export type DocStatus = "requested" | "generating" | "sent" | "failed";
-export type DocChannel = "whatsapp" | "email" | "sms";
-export type RequestedVia =
-  "bot_voice" | "bot_chat" | "agent" | "mcp" | "clerk" | "vision" | "inbox";
-export type DocSource = "crm" | "vision" | "clerk" | "mcp";
-export type DocType =
-  | "account_statement"
-  | "no_dues_certificate"
-  | "interest_certificate"
-  | "foreclosure_letter"
-  | "loan_schedule"
-  | "payment_receipt"
-  | "kyc_letter";
-
-export interface DocEvent {
-  at: string;
-  label: string;
-  actor?: string;
-  tone?: "info" | "success" | "warn" | "danger";
-}
-
-export interface DocRequest {
-  id: string;
-  customerId: string;
-  customerName: string;
-  accountId: string;
-  accountTail: string;
-  docType: DocType;
-  period?: string;
-  requestedVia: RequestedVia;
-  requestedAt: string;
-  deliveryChannel: DocChannel;
-  deliveryTarget: string;
-  status: DocStatus;
-  source?: DocSource;
-  templateId: string;
-  generatedAt?: string;
-  sentAt?: string;
-  failedReason?: string;
-  sizeKb?: number;
-  attempts: number;
-  assignee: string;
-  events: DocEvent[];
-}
-
-export interface Template {
-  id: string;
-  name: string;
-  docType: DocType;
-  description: string;
-  previewLines: string[];
-}
 
 export const STATUS_ORDER: DocStatus[] = ["requested", "generating", "sent", "failed"];
 
@@ -584,13 +545,6 @@ const _docs: DocRequest[] = BLUEPRINTS.map((bp, i) => {
 
 export const documents: DocRequest[] = _docs;
 
-// ---- Aging tone ----
-export type AgingTone = "fresh" | "warn" | "stale" | "done";
-export interface AgingInfo {
-  tone: AgingTone;
-  hours: number;
-  label: string;
-}
 export function agingInfo(d: DocRequest): AgingInfo {
   if (d.status === "sent") return { tone: "done", hours: 0, label: "Delivered" };
   const hours = Math.max(0, (Date.now() - new Date(d.requestedAt).getTime()) / 3600000);
@@ -600,17 +554,6 @@ export function agingInfo(d: DocRequest): AgingInfo {
   if (hours < 4) return { tone: "fresh", hours, label };
   if (hours < 24) return { tone: "warn", hours, label };
   return { tone: "stale", hours, label };
-}
-
-// ---- Filters ----
-export interface Filters {
-  search: string;
-  docTypes: DocType[]; // empty = all
-  channels: DocChannel[];
-  vias: RequestedVia[];
-  statuses: DocStatus[];
-  range: "today" | "7d" | "30d" | "all";
-  assignee: string | "all";
 }
 
 export const defaultFilters: Filters = {
@@ -798,14 +741,6 @@ export function retry(id: string) {
     actor: CURRENT_AGENT,
     tone: "info",
   });
-}
-
-export interface NewRequestInput {
-  customerId: string;
-  docType: DocType;
-  period?: string;
-  channel: DocChannel;
-  templateId: string;
 }
 
 export function createRequest(input: NewRequestInput): DocRequest {

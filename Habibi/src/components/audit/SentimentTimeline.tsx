@@ -1,5 +1,6 @@
 import { useRef } from "react";
-import { sentimentColor, type SentimentPoint } from "@/data/audit-seed";
+import type { SentimentPoint } from "@/api/types/audit";
+import { sentimentColor } from "@/data/audit-seed";
 import { SnapshotPill } from "@/components/charts";
 
 interface Props {

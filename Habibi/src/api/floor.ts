@@ -4,14 +4,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type { ActiveCall, FloorAgent, FloorAlert } from "@/api/types/floor";
 import {
   activeCalls as seedCalls,
   baselineStats,
   initialAlerts,
   seedAgents,
-  type ActiveCall,
-  type FloorAgent,
-  type FloorAlert,
 } from "@/data/floor-seed";
 import { apiEventStream, apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 

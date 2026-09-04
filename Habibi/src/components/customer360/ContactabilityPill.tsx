@@ -1,6 +1,6 @@
 import { AlertTriangle, Ban, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Contact } from "@/data/customer360-seed";
+import type { Contact } from "@/api/types/customer360";
 import { useContactPolicy, type ContactPolicy } from "@/api/contact-policy";
 import { StatusChip, type ChipTone } from "./StatusChip";
 

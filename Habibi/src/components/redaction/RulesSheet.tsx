@@ -5,7 +5,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { ENTITY_TYPES, ENTITY_COLORS, type RedactionRules } from "@/data/redaction-seed";
+import type { RedactionRules } from "@/api/types/redaction";
+import { ENTITY_TYPES, ENTITY_COLORS } from "@/data/redaction-seed";
 
 interface Props {
   open: boolean;

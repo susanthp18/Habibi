@@ -1,4 +1,4 @@
-import type { AudioSegment, RedactionRecord } from "@/data/redaction-seed";
+import type { AudioSegment, RedactionRecord } from "@/api/types/redaction";
 import { ENTITY_COLORS, DEFAULT_RULES } from "@/data/redaction-seed";
 import { Volume2, VolumeX, Play } from "lucide-react";
 import { cn } from "@/lib/utils";

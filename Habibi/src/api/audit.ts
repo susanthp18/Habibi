@@ -7,7 +7,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { calls, type CallFlag, type CallRecord } from "@/data/audit-seed";
+import type { CallFlag, CallRecord } from "@/api/types/audit";
+import { calls } from "@/data/audit-seed";
 import { apiGet, mockDelay, USE_MOCK } from "./config";
 
 /** Live GET /calls returns [{flag,severity}]; the table renders CallFlag[]. */

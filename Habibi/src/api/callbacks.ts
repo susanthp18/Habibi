@@ -11,6 +11,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  Callback,
+  CbChannel,
+  CbDisposition,
+  CbPriority,
+  CreateInput,
+} from "@/api/types/callbacks";
 import {
   assign as assignSeed,
   autoMarkMissed as autoMarkSeedMissed,
@@ -24,11 +31,6 @@ import {
   setPriority as setSeedPriority,
   startCall as startSeedCall,
   callbacks as seedCallbacks,
-  type Callback,
-  type CbChannel,
-  type CbDisposition,
-  type CbPriority,
-  type CreateInput,
 } from "@/data/callbacks-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { resolveActor } from "./staff";

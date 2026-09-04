@@ -4,7 +4,8 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TYPE_LABELS, type DisputeType } from "@/data/disputes-seed";
+import type { DisputeType } from "@/api/types/disputes";
+import { TYPE_LABELS } from "@/data/disputes-seed";
 import { createDispute } from "@/api/disputes";
 
 export interface DisputeCustomerOption {

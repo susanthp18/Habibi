@@ -11,6 +11,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  Filters,
+  FollowUpChannel,
+  FollowUp,
+  Lead,
+  LeadOffer,
+  LeadSource,
+  LeadStage,
+  Priority,
+  Team,
+} from "@/api/types/upsell";
 import {
   assign,
   computeMetrics,
@@ -25,15 +36,6 @@ import {
   reassignTeam,
   scheduleFollowUp,
   updateOffer,
-  type Filters,
-  type FollowUpChannel,
-  type FollowUp,
-  type Lead,
-  type LeadOffer,
-  type LeadSource,
-  type LeadStage,
-  type Priority,
-  type Team,
 } from "@/data/upsell-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { resolveProduct } from "./products";

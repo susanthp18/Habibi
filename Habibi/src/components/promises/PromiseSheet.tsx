@@ -19,16 +19,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import {
-  fmtDate,
-  fmtMoney,
-  listCustomerSlim,
-  type Promise,
-  type PromiseChannel,
-  type PromiseSource,
-  type PromiseStatus,
-  type ReminderStatus,
-} from "@/data/promises-seed";
+import type {
+  Promise,
+  PromiseChannel,
+  PromiseSource,
+  PromiseStatus,
+  ReminderStatus,
+} from "@/api/types/promises";
+import { fmtDate, fmtMoney, listCustomerSlim } from "@/data/promises-seed";
 
 // --- Create sheet ---
 export interface CreateInput {

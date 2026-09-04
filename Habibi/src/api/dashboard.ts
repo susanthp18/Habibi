@@ -8,6 +8,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  AtRiskAccount,
+  HeroKpi,
+  Kpi,
+  LeaderRow,
+  Range,
+  Segment,
+  StackedPoint,
+  TeamFilter,
+  Trend,
+} from "@/api/types/dashboard";
 import {
   atRiskAccounts,
   botVsHuman,
@@ -18,15 +29,6 @@ import {
   leaderboard,
   recoveryTrend,
   sentimentDistribution,
-  type AtRiskAccount,
-  type HeroKpi,
-  type Kpi,
-  type LeaderRow,
-  type Range,
-  type Segment,
-  type StackedPoint,
-  type TeamFilter,
-  type Trend,
 } from "@/data/dashboard-seed";
 import { apiGet, mockDelay, USE_MOCK } from "./config";
 

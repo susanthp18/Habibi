@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Medal, Trophy } from "lucide-react";
-import type { LeaderRow } from "@/data/dashboard-seed";
+import type { LeaderRow } from "@/api/types/dashboard";
 import { cn } from "@/lib/utils";
 import {
   RecordsAvatarMark,

@@ -12,7 +12,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { getCustomer, type Consent, type Contact } from "@/data/customer360-seed";
+import type { Consent, Contact } from "@/api/types/customer360";
+import { getCustomer } from "@/data/customer360-seed";
 import { apiGet, mockDelay, USE_MOCK } from "./config";
 
 /** Mirrors backend/schemas.py :: ContactPolicyResponse. */

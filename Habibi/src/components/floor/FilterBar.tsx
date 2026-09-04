@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type Channel, type HandlerKind } from "@/data/floor-seed";
+import type { Channel, HandlerKind } from "@/api/types/floor";
 import { Lozenge } from "@/components/ui/lozenge";
 
 export type Filters = {

@@ -2,7 +2,7 @@ import { Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { signalFloorApproval, useCopilotStream } from "@/api/floor";
-import type { Suggestion } from "@/data/handoff-seed";
+import type { Suggestion } from "@/api/types/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
 import { USE_MOCK } from "@/api/config";
 

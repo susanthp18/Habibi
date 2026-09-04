@@ -4,7 +4,7 @@ import { ExternalLink, Plus, X } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useRedactionRules } from "@/api/redaction";
-import type { Guardrails } from "@/data/prompt-studio-seed";
+import type { Guardrails } from "@/api/types/prompt-studio";
 import { Lozenge } from "@/components/ui/lozenge";
 import { LoadingState } from "@/components/ui/loading-state";
 

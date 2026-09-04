@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import type { AuditEntry, Rule } from "@/data/routing-seed";
+import type { AuditEntry, Rule } from "@/api/types/routing";
 import { RuleEditor } from "./RuleEditor";
 import { Simulator } from "./Simulator";
 import { AuditLog } from "./AuditLog";

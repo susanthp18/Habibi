@@ -1,85 +1,18 @@
 // Redaction & Export Hub — synthetic PII detection, rules, and export audit log.
 
-export type PiiEntityType =
-  | "card"
-  | "pan"
-  | "phone"
-  | "email"
-  | "address"
-  | "dob"
-  | "account"
-  | "ifsc"
-  | "aadhaar"
-  | "custom";
-
-export interface PiiFinding {
-  id: string;
-  turnId: string;
-  type: PiiEntityType;
-  start: number; // char offset in turn.text
-  end: number;
-  text: string;
-  masked: string;
-  confidence: number; // 0..1
-  source: "auto" | "manual";
-  accepted: boolean;
-}
-
-export interface RedactionTurn {
-  id: string;
-  t: number;
-  speaker: "bot" | "agent" | "customer" | "system";
-  text: string;
-}
-
-export interface AudioSegment {
-  atSec: number;
-  durSec: number;
-  type: PiiEntityType;
-  findingId: string;
-  muted: boolean;
-}
-
-export interface RedactionRecord {
-  id: string;
-  callId: string;
-  customer: string;
-  customerId: string;
-  channel: "voice" | "whatsapp" | "sms";
-  handler: string;
-  occurredAt: string;
-  durationSec: number;
-  transcript: RedactionTurn[];
-  findings: PiiFinding[];
-  audioSegments: AudioSegment[];
-  reviewed: boolean;
-}
-
-export type ExportFormat = "pdf" | "csv" | "audio-zip";
-export type ExportScope = "transcript" | "audio" | "metadata";
-
-export interface ExportJob {
-  id: string;
-  at: string;
-  actor: string;
-  actorRole: string;
-  recordIds: string[];
-  format: ExportFormat;
-  scope: ExportScope[];
-  watermark: string;
-  status: "queued" | "ready" | "failed";
-  downloadCount: number;
-  entitiesRedacted: number;
-}
-
-export interface RuleConfig {
-  enabled: boolean;
-  replacement: string;
-  label: string;
-}
-
-export type RedactionRules = Record<PiiEntityType, RuleConfig>;
-
+import type {
+  PiiEntityType,
+  PiiFinding,
+  RedactionTurn,
+  AudioSegment,
+  RedactionRecord,
+  ExportFormat,
+  ExportScope,
+  ExportJob,
+  RuleConfig,
+  RedactionRules,
+  RecordFilter,
+} from "@/api/types/redaction";
 export const DEFAULT_RULES: RedactionRules = {
   card: { enabled: true, replacement: "**** **** **** ####", label: "Card number" },
   pan: { enabled: true, replacement: "[REDACTED-PAN]", label: "PAN / SSN" },
@@ -299,12 +232,6 @@ function makeRecord(i: number): RedactionRecord {
 export const records: RedactionRecord[] = Array.from({ length: 14 }, (_, i) => makeRecord(i));
 
 // ---- filters ----
-
-export interface RecordFilter {
-  q: string;
-  channel: "all" | "voice" | "whatsapp" | "sms";
-  hasPiiOnly: boolean;
-}
 
 export const defaultFilter: RecordFilter = { q: "", channel: "all", hasPiiOnly: true };
 

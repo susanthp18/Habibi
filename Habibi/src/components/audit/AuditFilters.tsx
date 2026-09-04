@@ -9,7 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ALL_DISPOSITIONS, listAgents, type AuditFilterState } from "@/data/audit-seed";
+import type { AuditFilterState } from "@/api/types/audit";
+import { ALL_DISPOSITIONS, listAgents } from "@/data/audit-seed";
 
 interface Props {
   filters: AuditFilterState;

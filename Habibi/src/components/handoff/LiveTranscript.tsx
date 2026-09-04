@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownCircle, Bot, User, Headphones, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Speaker, TranscriptTurn } from "@/data/handoff-seed";
+import type { Speaker, TranscriptTurn } from "@/api/types/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
 
 type Props = {

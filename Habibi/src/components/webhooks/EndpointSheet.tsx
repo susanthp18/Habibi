@@ -13,16 +13,14 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Trash2, Plus } from "lucide-react";
-import {
-  EVENT_CATALOG,
-  EVENT_CATEGORIES,
-  rotateSecret,
-  type Endpoint,
-  type EventCategory,
-  type EventKey,
-  type SigningAlgo,
-  type TargetSystem,
-} from "@/data/webhooks-seed";
+import type {
+  Endpoint,
+  EventCategory,
+  EventKey,
+  SigningAlgo,
+  TargetSystem,
+} from "@/api/types/webhooks";
+import { EVENT_CATALOG, EVENT_CATEGORIES, rotateSecret } from "@/data/webhooks-seed";
 
 type Draft = Omit<Endpoint, "id" | "createdAt" | "status"> & {
   id?: string;

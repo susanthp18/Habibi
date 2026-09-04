@@ -1,6 +1,8 @@
 import { cn } from "@/lib/utils";
-import type { SlaLevel } from "@/data/workspace-seed";
 import { Lozenge } from "@/components/ui/lozenge";
+
+/** Matches workspace queue SLA. Local so `components/ui` does not import `api/`. */
+type SlaLevel = "ok" | "warn" | "breach";
 
 const LEVEL_TONE: Record<SlaLevel, "success" | "warning" | "danger"> = {
   ok: "success",

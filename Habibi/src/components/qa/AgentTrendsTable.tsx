@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { ArrowDown, ArrowUp, Minus, Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentQaStat } from "@/data/qa-seed";
+import type { AgentQaStat } from "@/api/types/qa";
 import { ScoreBand } from "./ScoreBand";
 import { Lozenge } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";

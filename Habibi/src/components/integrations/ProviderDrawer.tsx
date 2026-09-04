@@ -5,14 +5,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import type { Env, Provider, TestLogEntry } from "@/api/types/integrations";
 import {
   healthTone,
   pipecatSnippet,
   runMockHealthCheck,
   usageSeries,
-  type Env,
-  type Provider,
-  type TestLogEntry,
 } from "@/data/integrations-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import { MaskedInput } from "./MaskedInput";

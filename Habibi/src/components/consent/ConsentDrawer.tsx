@@ -8,15 +8,15 @@ import { AllowedHoursEditor } from "./AllowedHoursEditor";
 import { FrequencyCapsEditor } from "./FrequencyCapsEditor";
 import { OptOutLog } from "./OptOutLog";
 import { ContactablePill } from "./ContactablePill";
-import {
-  allowedWindowsEqual,
-  type ChannelConsent,
-  type AllowedWindow,
-  type ConsentPreferencesPatch,
-  type ConsentRecord,
-  type ConsentChannel,
-  type OptOutSource,
-} from "@/data/consent-seed";
+import type {
+  ChannelConsent,
+  AllowedWindow,
+  ConsentPreferencesPatch,
+  ConsentRecord,
+  ConsentChannel,
+  OptOutSource,
+} from "@/api/types/consent";
+import { allowedWindowsEqual } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 
 const SOURCES: OptOutSource[] = [

@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import type { DocChannel, DocRequest, DocStatus } from "@/api/types/documents";
 import {
   CHANNEL_LABELS,
   DOC_TYPE_LABELS,
@@ -21,9 +22,6 @@ import {
   STATUS_ORDER,
   agingInfo,
   fmtDate,
-  type DocChannel,
-  type DocRequest,
-  type DocStatus,
 } from "@/data/documents-seed";
 import {
   FilterTable,

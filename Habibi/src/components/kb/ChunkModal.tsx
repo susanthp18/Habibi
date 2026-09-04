@@ -1,5 +1,5 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { KbChunk } from "@/data/kb-seed";
+import type { KbChunk } from "@/api/types/kb";
 
 export function ChunkModal({ chunk, onClose }: { chunk: KbChunk | null; onClose: () => void }) {
   return (

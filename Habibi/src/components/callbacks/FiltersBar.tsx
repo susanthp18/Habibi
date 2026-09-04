@@ -2,15 +2,8 @@ import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  CHANNEL_LABELS,
-  REASON_LABELS,
-  STATUS_LABELS,
-  type CbChannel,
-  type CbReason,
-  type CbStatus,
-  type Filters,
-} from "@/data/callbacks-seed";
+import type { CbChannel, CbReason, CbStatus, Filters } from "@/api/types/callbacks";
+import { CHANNEL_LABELS, REASON_LABELS, STATUS_LABELS } from "@/data/callbacks-seed";
 
 interface Props {
   filters: Filters;

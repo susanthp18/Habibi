@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Bot, User, Clock, FileAudio, ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import type { Violation } from "@/api/types/compliance";
 import {
-  type Violation,
   RULES_BY_ID,
   severityColor,
   severityBg,

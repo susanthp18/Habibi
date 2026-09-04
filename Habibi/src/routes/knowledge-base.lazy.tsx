@@ -66,7 +66,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { KbDocType } from "@/data/kb-seed";
+import type { KbDocType } from "@/api/types/kb";
 
 export const Route = createLazyFileRoute("/knowledge-base")({
   component: KnowledgeBasePage,

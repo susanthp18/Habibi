@@ -13,7 +13,8 @@ import {
   HandCoins,
   MoreHorizontal,
 } from "lucide-react";
-import { fmtDate, fmtMoney, type Promise, type PromiseStatus } from "@/data/promises-seed";
+import type { Promise, PromiseStatus } from "@/api/types/promises";
+import { fmtDate, fmtMoney } from "@/data/promises-seed";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 

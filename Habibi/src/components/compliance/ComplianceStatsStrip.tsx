@@ -1,5 +1,6 @@
 import { ShieldAlert, AlertOctagon, Calendar, Clock, Bot } from "lucide-react";
-import { type Violation, botHumanShare, severityWeight } from "@/data/compliance-seed";
+import type { Violation } from "@/api/types/compliance";
+import { botHumanShare, severityWeight } from "@/data/compliance-seed";
 
 function KpiCard({
   icon: Icon,

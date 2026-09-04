@@ -1,4 +1,4 @@
-import type { DailyPoint } from "@/data/bot-analytics-seed";
+import type { DailyPoint } from "@/api/types/bot-analytics";
 import { VOICE_TTFA_SLO_MS } from "@/data/bot-analytics-seed";
 import { ChartCard, ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 

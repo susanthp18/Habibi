@@ -7,7 +7,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import type { Rule } from "@/data/routing-seed";
+import type { Rule } from "@/api/types/routing";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {

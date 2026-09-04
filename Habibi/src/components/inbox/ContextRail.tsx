@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import type { Thread } from "@/data/inbox-seed";
+import type { Thread } from "@/api/types/inbox";
 import { Avatar } from "./meta";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Badge } from "@/components/ui/badge";

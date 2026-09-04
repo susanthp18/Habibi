@@ -1,4 +1,4 @@
-import type { OptOutEvent } from "@/data/consent-seed";
+import type { OptOutEvent } from "@/api/types/consent";
 import { Lozenge } from "@/components/ui/lozenge";
 
 export function OptOutLog({ events }: { events: OptOutEvent[] }) {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
-import type { AuditEntry } from "@/data/routing-seed";
+import type { AuditEntry } from "@/api/types/routing";
 import {
   Select,
   SelectContent,

@@ -6,7 +6,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { fmtDate, fmtMoney, type PaymentPlan } from "@/data/promises-seed";
+import type { PaymentPlan } from "@/api/types/promises";
+import { fmtDate, fmtMoney } from "@/data/promises-seed";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 

@@ -13,14 +13,8 @@ import { LeadBoard } from "@/components/upsell/LeadBoard";
 import { LeadTable } from "@/components/upsell/LeadTable";
 import { LeadSheet } from "@/components/upsell/LeadSheet";
 import { NewLeadSheet } from "@/components/upsell/NewLeadSheet";
-import {
-  STAGE_LABELS,
-  defaultFilters,
-  listOwners,
-  moneyValue,
-  type Filters,
-  type LeadStage,
-} from "@/data/upsell-seed";
+import type { Filters, LeadStage } from "@/api/types/upsell";
+import { STAGE_LABELS, defaultFilters, listOwners, moneyValue } from "@/data/upsell-seed";
 import { patchLead, useLeadMetrics, useLeads, type LeadQuery } from "@/api/upsell";
 import { USE_MOCK } from "@/api/config";
 import { useMe } from "@/api/me";

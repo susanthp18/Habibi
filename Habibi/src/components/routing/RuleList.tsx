@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Rule, RuleCategory } from "@/data/routing-seed";
+import type { Rule, RuleCategory } from "@/api/types/routing";
 import { RuleCard } from "./RuleCard";
 import { cn } from "@/lib/utils";
 

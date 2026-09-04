@@ -1,4 +1,4 @@
-import type { Trend } from "@/data/dashboard-seed";
+import type { Trend } from "@/api/types/dashboard";
 import {
   ChartCard,
   ChartEmpty,

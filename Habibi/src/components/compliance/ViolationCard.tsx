@@ -1,7 +1,7 @@
 import { Bot, User, Clock, ExternalLink, CheckCircle2, Eye, UserPlus } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import type { Violation } from "@/api/types/compliance";
 import {
-  type Violation,
   RULES_BY_ID,
   severityColor,
   severityBg,

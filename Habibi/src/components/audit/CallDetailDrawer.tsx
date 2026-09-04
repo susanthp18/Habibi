@@ -23,7 +23,8 @@ import { AudioPlayer } from "./AudioPlayer";
 import { CallCostPanel } from "./CallCostPanel";
 import { SentimentTimeline } from "./SentimentTimeline";
 import { TranscriptView } from "./TranscriptView";
-import { formatDateTime, formatDuration, type CallRecord } from "@/data/audit-seed";
+import type { CallRecord } from "@/api/types/audit";
+import { formatDateTime, formatDuration } from "@/data/audit-seed";
 
 interface Props {
   call: CallRecord | null;

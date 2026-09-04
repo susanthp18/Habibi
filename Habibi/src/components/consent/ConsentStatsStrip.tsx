@@ -1,5 +1,6 @@
 import { Users, ShieldOff, Ban, CalendarX, AlertTriangle, type LucideIcon } from "lucide-react";
-import { contactableSummary, type ConsentRecord, daysUntil } from "@/data/consent-seed";
+import type { ConsentRecord } from "@/api/types/consent";
+import { contactableSummary, daysUntil } from "@/data/consent-seed";
 
 function KpiCard({
   icon: Icon,

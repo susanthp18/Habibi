@@ -12,7 +12,8 @@ import { LatencyChart } from "@/components/bot-analytics/LatencyChart";
 import { TurnsHistogram } from "@/components/bot-analytics/TurnsHistogram";
 import { useBotAnalytics } from "@/api/bot-analytics";
 import { USE_MOCK } from "@/api/config";
-import { computeKpis, type ChannelKey, type RangeKey } from "@/data/bot-analytics-seed";
+import type { ChannelKey, RangeKey } from "@/api/types/bot-analytics";
+import { computeKpis } from "@/data/bot-analytics-seed";
 import { LoadingState } from "@/components/ui/loading-state";
 import { CardSkillAnalytics } from "@/components/bot-analytics/CardSkillAnalytics";
 

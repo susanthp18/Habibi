@@ -2,13 +2,8 @@ import { useMemo, useState } from "react";
 import { Send, Save, UserPlus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCalls } from "@/api/audit";
-import {
-  allCriteria,
-  computeTotal,
-  type Rubric,
-  type Scorecard,
-  type ScorecardEntry,
-} from "@/data/qa-seed";
+import type { Rubric, Scorecard, ScorecardEntry } from "@/api/types/qa";
+import { allCriteria, computeTotal } from "@/data/qa-seed";
 import { formatDateTime, formatDuration } from "@/data/audit-seed";
 import { ScoreBand } from "./ScoreBand";
 import { RubricScorer } from "./RubricScorer";

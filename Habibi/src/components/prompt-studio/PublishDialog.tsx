@@ -8,12 +8,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  diffStudioVersions,
-  type Guardrails,
-  type PersonaState,
-  type VoiceConfig,
-} from "@/data/prompt-studio-seed";
+import type { Guardrails, PersonaState, VoiceConfig } from "@/api/types/prompt-studio";
+import { diffStudioVersions } from "@/data/prompt-studio-seed";
 import type { CompileReport } from "@/api/agent-studio";
 import { CompileReportList } from "@/components/prompt-studio/AgentCardPanels";
 import type { FlowGraph, FlowIssue } from "@/api/flow";

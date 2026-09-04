@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
-import type { EscalationReason } from "@/data/bot-analytics-seed";
+import type { EscalationReason } from "@/api/types/bot-analytics";
 import { ChartCard, ModernDonut, SnapshotPill } from "@/components/charts";
 
 const COLORS = ["#357de8", "#82b536", "#bf63f3", "#f68909", "#1558bc", "#964ac0", "#42b2d7"];

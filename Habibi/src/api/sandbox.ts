@@ -11,21 +11,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  DEFAULT_GUARDRAILS,
-  type Guardrails,
-  type PersonaState,
-  type PromptVersion,
-} from "@/data/prompt-studio-seed";
-import {
-  SCENARIOS,
-  generateBotReply,
-  INTENT_KEYS,
-  type BotReply,
-  type IntentKey,
-  type Persona,
-  type Scenario,
-} from "@/data/sandbox-seed";
+import type { Guardrails, PersonaState, PromptVersion } from "@/api/types/prompt-studio";
+import { DEFAULT_GUARDRAILS } from "@/data/prompt-studio-seed";
+import type { BotReply, IntentKey, Persona, Scenario } from "@/api/types/sandbox";
+import { SCENARIOS, generateBotReply, INTENT_KEYS } from "@/data/sandbox-seed";
 import { apiGet, apiGetBlob, apiPost, mockDelay, USE_MOCK } from "./config";
 
 export type SandboxContext = {

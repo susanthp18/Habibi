@@ -19,7 +19,8 @@ import {
   previewTts,
   type TtsCatalogVoice,
 } from "@/api/prompt-studio";
-import { DEFAULT_VOICE, type VoiceConfig, type VoiceParamValue } from "@/data/prompt-studio-seed";
+import type { VoiceConfig, VoiceParamValue } from "@/api/types/prompt-studio";
+import { DEFAULT_VOICE } from "@/data/prompt-studio-seed";
 import { cn } from "@/lib/utils";
 import { useProviderModels, type ProviderModel } from "@/api/providers";
 import { VoiceCatalogBrowser, tierBadge, useSelectedCatalogVoice } from "./VoiceCatalogBrowser";

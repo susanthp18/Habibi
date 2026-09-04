@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { PlayCircle } from "lucide-react";
-import type { Env } from "@/data/integrations-seed";
+import type { Env } from "@/api/types/integrations";
 import { cn } from "@/lib/utils";
 
 type Props = {

@@ -16,7 +16,7 @@ import type {
   Period,
   Service,
   Tenant,
-} from "@/data/billing-seed";
+} from "@/api/types/billing";
 import { apiDelete, apiGet, apiPatch, apiPost, API_BASE_URL } from "./config";
 
 export type BillingTenantBreakdown = {

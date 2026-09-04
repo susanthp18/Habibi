@@ -20,7 +20,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { getCustomer, type Customer } from "@/data/customer360-seed";
+import type { Customer } from "@/api/types/customer360";
+import { getCustomer } from "@/data/customer360-seed";
 import {
   authorityReasonLabel,
   authorityStatusFor,

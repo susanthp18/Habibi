@@ -7,18 +7,15 @@
 import { useEffect, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  KNOWN_VARIABLES,
-  PRESETS,
-  TTS_VOICES,
-  VERSION_HISTORY,
-  type Guardrails,
-  type PersonaPreset,
-  type PersonaState,
-  type PromptVersion,
-  type TtsVoice,
-  type VoiceConfig,
-} from "@/data/prompt-studio-seed";
+import type {
+  Guardrails,
+  PersonaPreset,
+  PersonaState,
+  PromptVersion,
+  TtsVoice,
+  VoiceConfig,
+} from "@/api/types/prompt-studio";
+import { KNOWN_VARIABLES, PRESETS, TTS_VOICES, VERSION_HISTORY } from "@/data/prompt-studio-seed";
 import {
   ApiError,
   apiGet,

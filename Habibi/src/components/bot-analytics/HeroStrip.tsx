@@ -8,7 +8,7 @@ import {
   TrendingUp,
   HandCoins,
 } from "lucide-react";
-import type { Kpis } from "@/data/bot-analytics-seed";
+import type { Kpis } from "@/api/types/bot-analytics";
 import { VOICE_TTFA_SLO_MS } from "@/data/bot-analytics-seed";
 import { LivelineSpark } from "@/components/charts";
 

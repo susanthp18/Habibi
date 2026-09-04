@@ -1,6 +1,6 @@
 import { Plus, Calendar, Link2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CoachingAction, CoachingStatus } from "@/data/qa-seed";
+import type { CoachingAction, CoachingStatus } from "@/api/types/qa";
 
 const COLS: Array<{ key: CoachingStatus; label: string; tint: string }> = [
   {

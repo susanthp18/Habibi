@@ -19,6 +19,7 @@ import {
   Music,
   ExternalLink,
 } from "lucide-react";
+import type { Dispute, DisputeStatus, Evidence, ResolutionCode } from "@/api/types/disputes";
 import {
   RESOLUTION_LABELS,
   SOURCE_LABELS,
@@ -27,10 +28,6 @@ import {
   TYPE_LABELS,
   fmtDate,
   fmtMoney,
-  type Dispute,
-  type DisputeStatus,
-  type Evidence,
-  type ResolutionCode,
 } from "@/data/disputes-seed";
 import {
   addNote,

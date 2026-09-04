@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Copy, Eye, EyeOff, KeyRound, Pause, Play, Trash2, Zap } from "lucide-react";
+import type { Delivery, Endpoint, EventKey } from "@/api/types/webhooks";
 import {
   EVENT_CATALOG,
   EVENT_CATEGORIES,
@@ -21,9 +22,6 @@ import {
   signaturePreview,
   successRate,
   within,
-  type Delivery,
-  type Endpoint,
-  type EventKey,
 } from "@/data/webhooks-seed";
 import { DeliveryRow } from "./DeliveryRow";
 import { cn } from "@/lib/utils";

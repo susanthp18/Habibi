@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { FloorAgent } from "@/data/floor-seed";
+import type { FloorAgent } from "@/api/types/floor";
 
 const statusLabel: Record<FloorAgent["status"], string> = {
   on_call: "On call",

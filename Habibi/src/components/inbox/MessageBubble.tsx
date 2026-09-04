@@ -1,6 +1,6 @@
 import { Check, CheckCheck, Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Message } from "@/data/inbox-seed";
+import type { Message } from "@/api/types/inbox";
 
 function Ticks({ status }: { status: Message["delivery"] }) {
   if (!status) return null;

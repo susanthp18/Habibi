@@ -6,13 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import {
-  CHANNEL_LABELS,
-  DOC_TYPE_LABELS,
-  templatesFor,
-  type DocChannel,
-  type DocType,
-} from "@/data/documents-seed";
+import type { DocChannel, DocType } from "@/api/types/documents";
+import { CHANNEL_LABELS, DOC_TYPE_LABELS, templatesFor } from "@/data/documents-seed";
 import { createRequest } from "@/api/documents";
 
 export interface DocumentCustomerOption {

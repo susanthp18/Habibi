@@ -1,6 +1,6 @@
 import { Sparkline } from "./Sparkline";
 import { DeltaChip } from "./DeltaChip";
-import type { HeroKpi } from "@/data/dashboard-seed";
+import type { HeroKpi } from "@/api/types/dashboard";
 import { Star } from "lucide-react";
 
 export function HeroKpiCard({ kpi }: { kpi: HeroKpi }) {

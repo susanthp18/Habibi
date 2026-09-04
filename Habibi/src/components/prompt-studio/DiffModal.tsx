@@ -1,11 +1,11 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  diffStudioVersions,
-  type Guardrails,
-  type PersonaState,
-  type PromptVersion,
-  type VoiceConfig,
-} from "@/data/prompt-studio-seed";
+import type {
+  Guardrails,
+  PersonaState,
+  PromptVersion,
+  VoiceConfig,
+} from "@/api/types/prompt-studio";
+import { diffStudioVersions } from "@/data/prompt-studio-seed";
 import { stableStringify } from "@/lib/stable-stringify";
 
 type Snapshot = {

@@ -12,15 +12,8 @@ import { BulkActionBar } from "@/components/documents/BulkActionBar";
 import { RequestsTable } from "@/components/documents/RequestsTable";
 import { RequestSheet } from "@/components/documents/RequestSheet";
 import { NewRequestSheet } from "@/components/documents/NewRequestSheet";
-import {
-  computeMetrics,
-  defaultFilters,
-  filterDocs,
-  type DocChannel,
-  type DocRequest,
-  type DocStatus,
-  type Filters,
-} from "@/data/documents-seed";
+import type { DocChannel, DocRequest, DocStatus, Filters } from "@/api/types/documents";
+import { computeMetrics, defaultFilters, filterDocs } from "@/data/documents-seed";
 import {
   markFailed,
   markGenerating,

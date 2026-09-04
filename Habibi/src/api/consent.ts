@@ -10,6 +10,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  AllowedWindow,
+  ChannelConsent,
+  ConsentChannel,
+  ConsentPreferencesPatch,
+  ConsentRecord,
+  OptOutSource,
+} from "@/api/types/consent";
 import {
   captureOptOut as captureSeedOptOut,
   consentRecords as seedConsent,
@@ -17,12 +25,6 @@ import {
   saveConsentPreferences as saveSeedConsent,
   toggleDndRegistry as toggleSeedDnd,
   allowedWindowsEqual,
-  type AllowedWindow,
-  type ChannelConsent,
-  type ConsentChannel,
-  type ConsentPreferencesPatch,
-  type ConsentRecord,
-  type OptOutSource,
 } from "@/data/consent-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 

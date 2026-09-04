@@ -1,12 +1,7 @@
 import { useState } from "react";
 import { PromiseCard } from "./PromiseCard";
-import {
-  STATUS_LABELS,
-  STATUS_ORDER,
-  fmtMoney,
-  type Promise,
-  type PromiseStatus,
-} from "@/data/promises-seed";
+import type { Promise, PromiseStatus } from "@/api/types/promises";
+import { STATUS_LABELS, STATUS_ORDER, fmtMoney } from "@/data/promises-seed";
 import { cn } from "@/lib/utils";
 
 interface Props {

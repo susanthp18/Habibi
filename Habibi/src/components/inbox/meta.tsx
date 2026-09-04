@@ -1,4 +1,4 @@
-import type { Channel, Sentiment, SlaLevel, Thread, ThreadStatus } from "@/data/inbox-seed";
+import type { Channel, Sentiment, SlaLevel, Thread, ThreadStatus } from "@/api/types/inbox";
 import { MessageCircle, Mail, MessageSquare, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LozengeProps } from "@/components/ui/lozenge";

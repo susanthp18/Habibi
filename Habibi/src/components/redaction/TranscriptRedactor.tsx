@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import type { PiiFinding, RedactionRecord } from "@/data/redaction-seed";
+import type { PiiFinding, RedactionRecord } from "@/api/types/redaction";
 import { ENTITY_COLORS, DEFAULT_RULES } from "@/data/redaction-seed";
 import { cn } from "@/lib/utils";
 

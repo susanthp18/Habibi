@@ -1,4 +1,4 @@
-import type { Rule } from "@/data/routing-seed";
+import type { Rule } from "@/api/types/routing";
 
 export function RoutingStats({ rules }: { rules: Rule[] }) {
   const active = rules.filter((r) => r.enabled).length;

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { Customer } from "@/data/customer360-seed";
+import type { Customer } from "@/api/types/customer360";
 import { fmtDate, fmtMoney } from "@/data/customer360-seed";
 import type { NbaItem, NbaActionKind } from "@/lib/customerInsights";
 import { StatusChip, ptpStatusTone, disputeStatusTone } from "./StatusChip";

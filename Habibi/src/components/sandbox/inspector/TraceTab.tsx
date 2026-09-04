@@ -1,6 +1,7 @@
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
-import { INTENT_LABEL, type SandboxTurn } from "@/data/sandbox-seed";
+import type { SandboxTurn } from "@/api/types/sandbox";
+import { INTENT_LABEL } from "@/data/sandbox-seed";
 import { TurnTraceView } from "@/components/trace/TurnTraceView";
 
 /**

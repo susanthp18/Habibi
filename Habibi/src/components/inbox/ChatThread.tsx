@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Copy, Bot, Info, MoreHorizontal, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { Thread, ThreadItem } from "@/data/inbox-seed";
+import type { Thread, ThreadItem } from "@/api/types/inbox";
 import { getThreadHandoffState } from "./meta";
 import { MessageBubble } from "./MessageBubble";
 import { Lozenge } from "@/components/ui/lozenge";

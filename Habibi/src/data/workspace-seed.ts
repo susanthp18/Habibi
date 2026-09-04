@@ -1,16 +1,4 @@
-export type SlaLevel = "ok" | "warn" | "breach";
-
-export interface QueueRow {
-  id: string;
-  customer: string;
-  accountId: string;
-  type: string;
-  detail: string;
-  amount?: number;
-  ageHours: number;
-  sla: SlaLevel;
-  slaLabel: string;
-}
+import type { SlaLevel, QueueRow } from "@/api/types/workspace";
 
 export const stats = {
   callsHandled: 31,

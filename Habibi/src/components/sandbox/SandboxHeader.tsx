@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, Download, Pencil, RotateCcw, Rocket } from "lucide-react";
-import type { PromptVersion } from "@/data/prompt-studio-seed";
-import type { Scenario } from "@/data/sandbox-seed";
+import type { PromptVersion } from "@/api/types/prompt-studio";
+import type { Scenario } from "@/api/types/sandbox";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 import {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pin, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { CustomerNote } from "@/data/customer360-seed";
+import type { CustomerNote } from "@/api/types/customer360";
 import { fmtRelative } from "@/data/customer360-seed";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";

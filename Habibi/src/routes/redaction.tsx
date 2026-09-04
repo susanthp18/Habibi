@@ -25,6 +25,14 @@ import {
   useRedactionRules,
 } from "@/api/redaction";
 import { Lozenge } from "@/components/ui/lozenge";
+import type {
+  ExportFormat,
+  ExportScope,
+  PiiEntityType,
+  RecordFilter,
+  RedactionRecord,
+  RedactionRules,
+} from "@/api/types/redaction";
 import {
   DEFAULT_RULES,
   ENTITY_TYPES,
@@ -32,12 +40,6 @@ import {
   filterRecords,
   formatDateTime,
   statsFor,
-  type ExportFormat,
-  type ExportScope,
-  type PiiEntityType,
-  type RecordFilter,
-  type RedactionRecord,
-  type RedactionRules,
 } from "@/data/redaction-seed";
 
 export const Route = createFileRoute("/redaction")({

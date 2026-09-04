@@ -3,15 +3,13 @@ import { toast } from "sonner";
 import { X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { CbChannel, CbPriority, CbReason } from "@/api/types/callbacks";
 import {
   CHANNEL_LABELS,
   PRIORITY_LABELS,
   REASON_LABELS,
   customerOptions,
   isWithinDndWindow,
-  type CbChannel,
-  type CbPriority,
-  type CbReason,
 } from "@/data/callbacks-seed";
 import { createCallback } from "@/api/callbacks";
 

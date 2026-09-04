@@ -1,5 +1,5 @@
 import { Phone, MessageSquare, MessageCircle, Mail, type LucideIcon } from "lucide-react";
-import type { ChannelConsent, ConsentChannel } from "@/data/consent-seed";
+import type { ChannelConsent, ConsentChannel } from "@/api/types/consent";
 
 const ICONS: Record<ConsentChannel, LucideIcon> = {
   call: Phone,

@@ -27,7 +27,7 @@ import {
   type HandoffSession,
   type WrapUpPayload,
 } from "@/api/handoff";
-import type { Suggestion, TranscriptTurn } from "@/data/handoff-seed";
+import type { Suggestion, TranscriptTurn } from "@/api/types/handoff";
 import { cn } from "@/lib/utils";
 
 export const Route = createLazyFileRoute("/handoff")({

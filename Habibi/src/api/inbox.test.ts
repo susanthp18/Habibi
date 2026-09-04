@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { compareThreads, mergeThreads } from "./inbox";
-import type { Thread } from "@/data/inbox-seed";
+import type { Thread } from "@/api/types/inbox";
 
 function thread(id: string, updatedAt: string, lastTime: string): Thread {
   return {

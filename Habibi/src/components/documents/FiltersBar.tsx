@@ -2,15 +2,8 @@ import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  CHANNEL_LABELS,
-  DOC_TYPE_LABELS,
-  VIA_LABELS,
-  type DocChannel,
-  type DocType,
-  type Filters,
-  type RequestedVia,
-} from "@/data/documents-seed";
+import type { DocChannel, DocType, Filters, RequestedVia } from "@/api/types/documents";
+import { CHANNEL_LABELS, DOC_TYPE_LABELS, VIA_LABELS } from "@/data/documents-seed";
 
 interface Props {
   filters: Filters;

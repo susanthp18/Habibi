@@ -8,7 +8,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FIELDS, OPERATORS_BY_TYPE, type Condition, type RuleOperator } from "@/data/routing-seed";
+import type { Condition, RuleOperator } from "@/api/types/routing";
+import { FIELDS, OPERATORS_BY_TYPE } from "@/data/routing-seed";
 
 type Props = {
   cond: Condition;

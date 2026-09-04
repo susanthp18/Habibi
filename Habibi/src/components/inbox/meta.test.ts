@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getThreadHandoffState } from "./meta";
-import type { Thread, ThreadStatus } from "@/data/inbox-seed";
+import type { Thread, ThreadStatus } from "@/api/types/inbox";
 
 function thread(status: ThreadStatus, isMine: boolean): Thread {
   return { id: "CV-1", status, isMine, channel: "whatsapp" } as unknown as Thread;

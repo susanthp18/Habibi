@@ -16,8 +16,8 @@ import { DocumentsTab } from "@/components/customer360/DocumentsTab";
 import { NotesTab } from "@/components/customer360/NotesTab";
 import { ActionSheets } from "@/components/customer360/ActionSheets";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { type Customer } from "@/data/customer360-seed";
-import type { DisputeType } from "@/data/disputes-seed";
+import type { Customer } from "@/api/types/customer360";
+import type { DisputeType } from "@/api/types/disputes";
 import {
   addCustomerNote,
   createDispute,

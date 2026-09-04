@@ -1,7 +1,7 @@
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { ChannelKey, RangeKey } from "@/data/bot-analytics-seed";
+import type { ChannelKey, RangeKey } from "@/api/types/bot-analytics";
 import { Lozenge } from "@/components/ui/lozenge";
 
 const RANGES: Array<{ key: RangeKey; label: string }> = [

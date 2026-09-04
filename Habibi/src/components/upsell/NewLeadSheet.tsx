@@ -2,15 +2,13 @@ import { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
+import type { LeadSource, Priority, Team } from "@/api/types/upsell";
 import {
   CURRENT_AGENT,
   TEAM_OPTIONS,
   listCustomers,
   listOwners,
   products,
-  type LeadSource,
-  type Priority,
-  type Team,
 } from "@/data/upsell-seed";
 import { createLead } from "@/api/upsell";
 import { useProducts } from "@/api/products";

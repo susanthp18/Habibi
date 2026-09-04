@@ -1,6 +1,7 @@
 import { Sparkles, Check, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { sectionTotal, type Rubric, type Scorecard, type ScorecardEntry } from "@/data/qa-seed";
+import type { Rubric, Scorecard, ScorecardEntry } from "@/api/types/qa";
+import { sectionTotal } from "@/data/qa-seed";
 
 export function RubricScorer({
   rubric,

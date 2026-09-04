@@ -1,15 +1,20 @@
 // Routing & Logic Builder — synthetic rule engine
 
-export type FieldType = "enum" | "number" | "boolean" | "string";
-
-export type FieldMeta = {
-  key: string;
-  label: string;
-  type: FieldType;
-  options?: string[];
-  unit?: string;
-};
-
+import type {
+  FieldType,
+  FieldMeta,
+  RuleOperator,
+  Condition,
+  ConditionNode,
+  ActionKey,
+  RuleAction,
+  RuleCategory,
+  Rule,
+  AuditEntry,
+  SimContext,
+  NodeEval,
+  RuleEval,
+} from "@/api/types/routing";
 export const FIELDS: FieldMeta[] = [
   {
     key: "sentiment",
@@ -59,29 +64,6 @@ export const OPERATORS_BY_TYPE: Record<FieldType, RuleOperator[]> = {
   string: ["=", "!=", "contains"],
 };
 
-export type RuleOperator = "=" | "!=" | ">" | "<" | ">=" | "<=" | "in" | "contains";
-
-export type Condition = {
-  id: string;
-  field: string;
-  op: RuleOperator;
-  value: string | number | boolean | string[];
-};
-
-// AND-list at top; each entry may itself be an OR-group of Conditions.
-export type ConditionNode = Condition | { id: string; or: Condition[] };
-
-export type ActionKey =
-  | "route_tier2"
-  | "route_specialist"
-  | "handoff_human"
-  | "play_disclosure"
-  | "send_sms"
-  | "log_flag"
-  | "stop_upsell"
-  | "slow_tts"
-  | "escalate_supervisor";
-
 export const ACTION_LABEL: Record<ActionKey, string> = {
   route_tier2: "Route to Tier 2",
   route_specialist: "Route to specialist team",
@@ -92,47 +74,6 @@ export const ACTION_LABEL: Record<ActionKey, string> = {
   stop_upsell: "Stop upsell attempts",
   slow_tts: "Slow-down TTS pace",
   escalate_supervisor: "Escalate to supervisor",
-};
-
-export type RuleAction = {
-  key: ActionKey;
-  params?: Record<string, string>;
-};
-
-export type RuleCategory = "Escalation" | "Handoff" | "Throttle" | "Compliance" | "Routing";
-
-export type Rule = {
-  id: string;
-  name: string;
-  description: string;
-  category: RuleCategory;
-  enabled: boolean;
-  when: ConditionNode[]; // AND across list
-  then: RuleAction;
-  triggersLast24h: number;
-};
-
-export type AuditEntry = {
-  id: string;
-  at: string; // ISO
-  author: string;
-  ruleId?: string;
-  ruleName: string;
-  action: "created" | "edited" | "reordered" | "toggled" | "deleted" | "duplicated";
-  summary: string;
-};
-
-export type SimContext = {
-  sentiment: string;
-  intent: string;
-  overdue_amount: number;
-  dpd: number;
-  verification_status: string;
-  consent_dnd: boolean;
-  channel: string;
-  product: string;
-  turn_count: number;
-  guardrail_flag: string;
 };
 
 const cid = () => Math.random().toString(36).slice(2, 9);
@@ -347,20 +288,6 @@ function evalCondition(c: Condition, ctx: SimContext): boolean {
       return String(av).toLowerCase().includes(String(bv).toLowerCase());
   }
 }
-
-export type NodeEval = {
-  nodeId: string;
-  matched: boolean;
-  conditions: { id: string; matched: boolean; label: string }[];
-  isOr: boolean;
-};
-
-export type RuleEval = {
-  rule: Rule;
-  matched: boolean;
-  nodes: NodeEval[];
-  latencyMs: number;
-};
 
 function labelCondition(c: Condition) {
   const f = FIELDS.find((f) => f.key === c.field);

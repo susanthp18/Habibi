@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Delivery, DeliveryStatus, Endpoint, EventKey } from "@/data/webhooks-seed";
+import type { Delivery, DeliveryStatus, Endpoint, EventKey } from "@/api/types/webhooks";
 import { EVENT_CATALOG } from "@/data/webhooks-seed";
 import { DeliveryRow } from "./DeliveryRow";
 import {

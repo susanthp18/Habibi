@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import type { DocChannel, DocRequest } from "@/api/types/documents";
 import {
   CHANNEL_LABELS,
   DOC_TYPE_LABELS,
@@ -25,8 +26,6 @@ import {
   fmtDate,
   renderPreview,
   templatesFor,
-  type DocChannel,
-  type DocRequest,
 } from "@/data/documents-seed";
 import {
   UNASSIGNED,

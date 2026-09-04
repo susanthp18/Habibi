@@ -9,6 +9,15 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  ChannelKey,
+  DailyPoint,
+  EscalationReason,
+  IntentAgg,
+  RangeKey,
+  TurnsBucket,
+  UnansweredQuestion,
+} from "@/api/types/bot-analytics";
 import {
   dailySeries as seedDailySeries,
   escalationReasons as seedEscalationReasons,
@@ -17,13 +26,6 @@ import {
   intentAggs as seedIntentAggs,
   turnsHistogram as seedTurnsHistogram,
   unansweredQuestions as seedUnansweredQuestions,
-  type ChannelKey,
-  type DailyPoint,
-  type EscalationReason,
-  type IntentAgg,
-  type RangeKey,
-  type TurnsBucket,
-  type UnansweredQuestion,
 } from "@/data/bot-analytics-seed";
 import { apiGet, mockDelay, USE_MOCK } from "./config";
 

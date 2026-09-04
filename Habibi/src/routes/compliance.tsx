@@ -11,12 +11,8 @@ import { RuleBreakdown } from "@/components/compliance/RuleBreakdown";
 import { RuleCoverageCard } from "@/components/compliance/RuleCoverageCard";
 import { ViolationFeed } from "@/components/compliance/ViolationFeed";
 import { ViolationSheet } from "@/components/compliance/ViolationSheet";
-import {
-  defaultCompFilters,
-  filterViolations,
-  type ComplianceFilterState,
-  type Violation,
-} from "@/data/compliance-seed";
+import type { ComplianceFilterState, Violation } from "@/api/types/compliance";
+import { defaultCompFilters, filterViolations } from "@/data/compliance-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";

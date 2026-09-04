@@ -15,11 +15,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import {
-  cannedResponses as seedCanned,
-  threads as seedThreads,
-  type Thread,
-} from "@/data/inbox-seed";
+import type { Thread } from "@/api/types/inbox";
+import { cannedResponses as seedCanned, threads as seedThreads } from "@/data/inbox-seed";
 import { apiGet, apiPost, apiUpload, mockDelay, retryUnlessClientError, USE_MOCK } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };

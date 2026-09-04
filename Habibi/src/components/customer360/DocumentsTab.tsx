@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { FileText, Mail, MessageCircle, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Channel, Customer, DocStatus, DocumentRequest } from "@/data/customer360-seed";
+import type { Channel, Customer, DocStatus, DocumentRequest } from "@/api/types/customer360";
 import { fmtDate } from "@/data/customer360-seed";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {

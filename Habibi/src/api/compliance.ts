@@ -11,14 +11,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type { Violation, ViolationStatus } from "@/api/types/compliance";
 import {
   acknowledgeViolation as acknowledgeSeed,
   addViolationNote as addSeedNote,
   assignViolation as assignSeed,
   resolveViolation as resolveSeed,
   violations as seedViolations,
-  type Violation,
-  type ViolationStatus,
 } from "@/data/compliance-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { currentActor } from "./me";

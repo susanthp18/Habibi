@@ -8,18 +8,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  customers,
-  getCustomer,
-  type Customer,
-  type CustomerNote,
-  type Dispute,
-  type DocumentRequest,
-  type Interaction,
-  type Promise as PtpPromise,
-} from "@/data/customer360-seed";
+import type {
+  Customer,
+  CustomerNote,
+  Dispute,
+  DocumentRequest,
+  Interaction,
+  Promise as PtpPromise,
+} from "@/api/types/customer360";
+import { customers, getCustomer } from "@/data/customer360-seed";
 import { mockDisputeSla } from "@/data/dispute-sla";
-import type { DisputeType } from "@/data/disputes-seed";
+import type { DisputeType } from "@/api/types/disputes";
 import { deriveCustomerInsights, type CustomerInsights } from "@/lib/customerInsights";
 import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 

@@ -6,17 +6,19 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  CalibrationSession,
+  CoachingAction,
+  CoachingStatus,
+  Rubric,
+  Scorecard,
+  ScorecardEntry,
+} from "@/api/types/qa";
 import {
   defaultRubric,
   initialCalibrations,
   initialCoaching,
   scorecards as seedScorecards,
-  type CalibrationSession,
-  type CoachingAction,
-  type CoachingStatus,
-  type Rubric,
-  type Scorecard,
-  type ScorecardEntry,
 } from "@/data/qa-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { currentActor } from "./me";

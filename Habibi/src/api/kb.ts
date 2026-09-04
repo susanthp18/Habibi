@@ -3,17 +3,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type { FaqPair, KbChunk, KbDocType, KbDocument, RetrievalResult } from "@/api/types/kb";
 import {
   chunks as seedChunks,
   computeKbStats,
   documents as seedDocs,
   faqs as seedFaqs,
   runMockRetrieval,
-  type FaqPair,
-  type KbChunk,
-  type KbDocType,
-  type KbDocument,
-  type RetrievalResult,
 } from "@/data/kb-seed";
 import { unansweredQuestions } from "@/data/bot-analytics-seed";
 import { apiDelete, apiGet, apiPatch, apiPost, apiUpload, mockDelay, USE_MOCK } from "./config";

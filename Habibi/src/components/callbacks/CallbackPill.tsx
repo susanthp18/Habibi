@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtTime, type Callback, type CbReason, type CbStatus } from "@/data/callbacks-seed";
+import type { Callback, CbReason, CbStatus } from "@/api/types/callbacks";
+import { fmtTime } from "@/data/callbacks-seed";
 import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";
 
 const STATUS_LOZENGE_TONE: Record<CbStatus, NonNullable<LozengeProps["tone"]>> = {

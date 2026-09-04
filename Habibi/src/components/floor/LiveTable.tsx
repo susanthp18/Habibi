@@ -3,12 +3,8 @@ import { Bot, MessageCircle, MessageSquare, Phone } from "lucide-react";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";
 import { SentimentBubble } from "./SentimentBubble";
-import {
-  channelLabel,
-  LIVE_QA_STATUS_LABEL,
-  LIVE_QA_STATUS_TONE,
-  type ActiveCall,
-} from "@/data/floor-seed";
+import type { ActiveCall } from "@/api/types/floor";
+import { channelLabel, LIVE_QA_STATUS_LABEL, LIVE_QA_STATUS_TONE } from "@/data/floor-seed";
 import { OFFER_STATUS_LABEL, OFFER_STATUS_TONE } from "@/lib/offer-policy";
 import { AUTHORITY_STATUS_LABEL, AUTHORITY_STATUS_TONE } from "@/lib/authority-policy";
 import { cn } from "@/lib/utils";

@@ -8,7 +8,7 @@ import {
   CheckCircle2,
   Clock,
 } from "lucide-react";
-import type { ExportJob } from "@/data/redaction-seed";
+import type { ExportJob } from "@/api/types/redaction";
 import { formatDateTime } from "@/data/redaction-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 

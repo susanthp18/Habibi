@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronRight } from "lucide-react";
-import type { AtRiskAccount } from "@/data/dashboard-seed";
+import type { AtRiskAccount } from "@/api/types/dashboard";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
 const riskTone: Record<AtRiskAccount["risk"], LozengeTone> = {

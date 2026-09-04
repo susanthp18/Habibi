@@ -2,7 +2,7 @@ import { useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { Rubric, RubricCriterion, RubricSection } from "@/data/qa-seed";
+import type { Rubric, RubricCriterion, RubricSection } from "@/api/types/qa";
 
 export function RubricBuilderSheet({
   open,

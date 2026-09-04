@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { BudgetRule } from "@/data/billing-seed";
+import type { BudgetRule } from "@/api/types/billing";
 
 export function BudgetRuleDialog({
   open,

@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { DOC_TYPE_LABEL, type KbChunk, type KbDocument } from "@/data/kb-seed";
+import type { KbChunk, KbDocument } from "@/api/types/kb";
+import { DOC_TYPE_LABEL } from "@/data/kb-seed";
 import { KbTagEditor } from "@/components/kb/KbTagEditor";
 import {
   AlertDialog,

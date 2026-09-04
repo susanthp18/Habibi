@@ -30,15 +30,14 @@ import {
 } from "@/api/qa";
 import { useQaDisagreements } from "@/api/agent-studio";
 import { Lozenge } from "@/components/ui/lozenge";
-import {
-  defaultRubric,
-  agentStats,
-  type Scorecard,
-  type ScorecardEntry,
-  type CoachingAction,
-  type CoachingStatus,
-  type Rubric,
-} from "@/data/qa-seed";
+import type {
+  Scorecard,
+  ScorecardEntry,
+  CoachingAction,
+  CoachingStatus,
+  Rubric,
+} from "@/api/types/qa";
+import { defaultRubric, agentStats } from "@/data/qa-seed";
 
 type Tab = "queue" | "trends" | "calibration" | "disagreements" | "coaching";
 

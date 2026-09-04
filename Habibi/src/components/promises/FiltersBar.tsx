@@ -8,12 +8,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import {
-  STATUS_LABELS,
-  STATUS_ORDER,
-  type Filters,
-  type PromiseStatus,
-} from "@/data/promises-seed";
+import type { Filters, PromiseStatus } from "@/api/types/promises";
+import { STATUS_LABELS, STATUS_ORDER } from "@/data/promises-seed";
 
 interface Props {
   filters: Filters;

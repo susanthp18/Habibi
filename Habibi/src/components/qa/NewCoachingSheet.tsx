@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
-import { AGENT_POOL, type CoachingAction } from "@/data/qa-seed";
+import type { CoachingAction } from "@/api/types/qa";
+import { AGENT_POOL } from "@/data/qa-seed";
 
 const CATEGORIES = ["Empathy", "Resolution", "Compliance", "Script adherence", "Upsell"];
 

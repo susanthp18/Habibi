@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { CreateInput } from "@/components/promises/PromiseSheet";
 import type { PlanInput } from "@/components/promises/PlanBuilderSheet";
+import type { PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
 import {
   buildSchedule,
   createPlan as createSeedPlan,
@@ -22,9 +23,6 @@ import {
   plans as seedPlans,
   promises as seedPromises,
   reschedulePromise as rescheduleSeedPromise,
-  type PaymentPlan,
-  type Promise as Ptp,
-  type PromiseStatus,
 } from "@/data/promises-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { resolveActor } from "./staff";

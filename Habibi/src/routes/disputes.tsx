@@ -10,14 +10,13 @@ import { FiltersBar } from "@/components/disputes/FiltersBar";
 import { DisputeBoard } from "@/components/disputes/DisputeBoard";
 import { DisputeSheet } from "@/components/disputes/DisputeSheet";
 import { NewDisputeSheet } from "@/components/disputes/NewDisputeSheet";
+import type { Dispute, Filters } from "@/api/types/disputes";
 import {
   CURRENT_AGENT,
   computeMetrics,
   defaultFilters,
   filterDisputes,
   STATUS_LABELS,
-  type Dispute,
-  type Filters,
 } from "@/data/disputes-seed";
 import { assignDispute, moveDispute, useDisputes } from "@/api/disputes";
 import { humanNames, useStaff } from "@/api/staff";

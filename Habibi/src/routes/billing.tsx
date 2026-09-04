@@ -17,7 +17,7 @@ import {
   useBudgetRuleMutations,
   type BillingBudget,
 } from "@/api/billing";
-import type { BudgetRule, Env, Period, Service } from "@/data/billing-seed";
+import type { BudgetRule, Env, Period, Service } from "@/api/types/billing";
 import { toast } from "sonner";
 import { LoadingState } from "@/components/ui/loading-state";
 

@@ -19,7 +19,7 @@ import {
   type WebhookDraft,
 } from "@/api/webhooks";
 import { USE_MOCK } from "@/api/config";
-import type { Endpoint, EventKey } from "@/data/webhooks-seed";
+import type { Endpoint, EventKey } from "@/api/types/webhooks";
 import { useConfirm } from "@/components/ui/use-confirm";
 
 export const Route = createFileRoute("/webhooks")({

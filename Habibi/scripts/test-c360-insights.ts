@@ -3,7 +3,7 @@
  * Run: npx --yes tsx --tsconfig tsconfig.json scripts/test-c360-insights.ts
  */
 import { deriveCustomerInsights } from "../src/lib/customerInsights";
-import type { Customer } from "../src/data/customer360-seed";
+import type { Customer } from "../src/api/types/customer360";
 
 async function main() {
   const base = process.env.VITE_API_BASE_URL || "http://localhost:8000";

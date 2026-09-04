@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { consentPatchBody } from "./consent";
-import type { AllowedWindow, ConsentRecord } from "@/data/consent-seed";
+import type { AllowedWindow, ConsentRecord } from "@/api/types/consent";
 import { allowedWindowsEqual } from "@/data/consent-seed";
 
 const here = dirname(fileURLToPath(import.meta.url));

@@ -18,13 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  buildSchedule,
-  fmtDate,
-  fmtMoney,
-  listCustomerSlim,
-  type PlanCadence,
-} from "@/data/promises-seed";
+import type { PlanCadence } from "@/api/types/promises";
+import { buildSchedule, fmtDate, fmtMoney, listCustomerSlim } from "@/data/promises-seed";
 import type { CustomerOption } from "./PromiseSheet";
 
 export interface PlanInput {

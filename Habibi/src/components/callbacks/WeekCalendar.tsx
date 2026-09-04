@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { Callback } from "@/api/types/callbacks";
 import {
   CALENDAR_END_HOUR,
   CALENDAR_START_HOUR,
@@ -9,7 +10,6 @@ import {
   minutesFromStart,
   sameDay,
   weekDays,
-  type Callback,
 } from "@/data/callbacks-seed";
 import { CallbackPill } from "./CallbackPill";
 

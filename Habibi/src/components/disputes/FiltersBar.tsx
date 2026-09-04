@@ -1,13 +1,8 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  SOURCE_LABELS,
-  TYPE_LABELS,
-  type DisputeSource,
-  type DisputeType,
-  type Filters,
-} from "@/data/disputes-seed";
+import type { DisputeSource, DisputeType, Filters } from "@/api/types/disputes";
+import { SOURCE_LABELS, TYPE_LABELS } from "@/data/disputes-seed";
 import { cn } from "@/lib/utils";
 
 interface Props {

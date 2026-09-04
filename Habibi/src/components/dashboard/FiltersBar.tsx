@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Range, Segment, TeamFilter } from "@/data/dashboard-seed";
+import type { Range, Segment, TeamFilter } from "@/api/types/dashboard";
 
 type Props = {
   range: Range;

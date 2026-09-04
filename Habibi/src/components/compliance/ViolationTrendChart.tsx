@@ -1,4 +1,5 @@
-import { trendByDay, type Violation } from "@/data/compliance-seed";
+import type { Violation } from "@/api/types/compliance";
+import { trendByDay } from "@/data/compliance-seed";
 import { ChartCard, ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 
 const SERIES = [

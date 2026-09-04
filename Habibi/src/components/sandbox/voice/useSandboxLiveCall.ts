@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { pushVoiceTune, startVoiceSandbox, stopVoiceSandbox } from "@/api/voice-sandbox";
 import type { AgentTuning } from "@/data/agent-tuning";
-import type { Persona } from "@/data/sandbox-seed";
-import type { SandboxTurn } from "@/data/sandbox-seed";
+import type { Persona } from "@/api/types/sandbox";
+import type { SandboxTurn } from "@/api/types/sandbox";
 import type { LiveCallChrome } from "@/components/sandbox/ConversationPanel";
 import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
 import {

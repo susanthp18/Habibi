@@ -11,6 +11,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import type {
+  DocChannel,
+  DocRequest,
+  DocStatus,
+  DocType,
+  NewRequestInput,
+} from "@/api/types/documents";
 import {
   assign as assignSeed,
   changeTemplate as changeSeedTemplate,
@@ -22,11 +29,6 @@ import {
   reassignChannel as reassignSeedChannel,
   retry as retrySeed,
   setStatus as setSeedStatus,
-  type DocChannel,
-  type DocRequest,
-  type DocStatus,
-  type DocType,
-  type NewRequestInput,
 } from "@/data/documents-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { currentActor } from "./me";

@@ -1,6 +1,6 @@
 import { Download, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Env, Period, Tenant } from "@/data/billing-seed";
+import type { Env, Period, Tenant } from "@/api/types/billing";
 import { Lozenge } from "@/components/ui/lozenge";
 
 const PERIODS: Array<{ key: Period; label: string }> = [

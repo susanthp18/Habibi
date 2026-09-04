@@ -1,6 +1,6 @@
 import { Sparkline } from "./Sparkline";
 import { DeltaChip } from "./DeltaChip";
-import type { Kpi } from "@/data/dashboard-seed";
+import type { Kpi } from "@/api/types/dashboard";
 import { cn } from "@/lib/utils";
 
 const toneMap: Record<

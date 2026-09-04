@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { computeTotal, defaultRubric, type CalibrationSession } from "@/data/qa-seed";
+import type { CalibrationSession } from "@/api/types/qa";
+import { computeTotal, defaultRubric } from "@/data/qa-seed";
 import { ScoreBand } from "./ScoreBand";
 
 export function CalibrationView({

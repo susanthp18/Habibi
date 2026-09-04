@@ -11,7 +11,8 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { actionLabel, channelLabel, type ActiveCall, type FloorAction } from "@/data/floor-seed";
+import type { ActiveCall, FloorAction } from "@/api/types/floor";
+import { actionLabel, channelLabel } from "@/data/floor-seed";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";

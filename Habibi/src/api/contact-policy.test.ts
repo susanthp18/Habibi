@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Consent, Contact } from "@/data/customer360-seed";
+import type { Consent, Contact } from "@/api/types/customer360";
 import { mockVeto, type ContactChannel, type ContactPurpose } from "./contact-policy";
 
 const OPTED_IN: Consent[] = [

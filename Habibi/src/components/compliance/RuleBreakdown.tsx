@@ -1,4 +1,5 @@
-import { groupByRule, severityColor, type Violation } from "@/data/compliance-seed";
+import type { Violation } from "@/api/types/compliance";
+import { groupByRule, severityColor } from "@/data/compliance-seed";
 import { ChartCard, SnapshotPill } from "@/components/charts";
 
 export function RuleBreakdown({

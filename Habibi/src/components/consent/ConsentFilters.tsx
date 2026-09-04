@@ -1,10 +1,6 @@
 import { Search, X } from "lucide-react";
-import {
-  CHANNEL_LABEL,
-  defaultConsentFilters,
-  type ConsentFilterState,
-  type ConsentChannel,
-} from "@/data/consent-seed";
+import type { ConsentFilterState, ConsentChannel } from "@/api/types/consent";
+import { CHANNEL_LABEL, defaultConsentFilters } from "@/data/consent-seed";
 
 const STATUSES: { id: ConsentFilterState["status"]; label: string }[] = [
   { id: "all", label: "All" },

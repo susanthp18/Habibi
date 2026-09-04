@@ -11,15 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { Rule, RuleEval, SimContext } from "@/api/types/routing";
 import {
   ACTION_LABEL,
   DEFAULT_CONTEXT,
   FIELDS,
   PRESET_CONTEXTS,
   evaluateRules,
-  type Rule,
-  type RuleEval,
-  type SimContext,
 } from "@/data/routing-seed";
 import { cn } from "@/lib/utils";
 
