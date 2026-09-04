@@ -160,7 +160,7 @@ def test_ptp_without_written_confirm_fails_res_close() -> None:
 
 def test_evaluate_live_qa_never_raises(monkeypatch) -> None:
     monkeypatch.setattr("agent_core.live_qa.decisions.record", lambda **_k: None)
-    result = evaluate_live_qa(_facts(bot_text="ok"), interaction_id=None)
+    result = evaluate_live_qa(_facts(bot_text="ok"), conn=object(), interaction_id=None)
     assert result.verdict in {"pass", "fail_soft", "fail_critical"}
 
 
@@ -168,6 +168,7 @@ def test_shadow_mode_does_not_auto_barge(monkeypatch) -> None:
     monkeypatch.setattr("agent_core.live_qa.decisions.record", lambda **_k: "LQ-TEST")
     result = evaluate_live_qa(
         _facts(now_hour=20, bot_text="hello"),
+        conn=object(),
         force_mode="shadow",
     )
     assert result.recommended_action == ACTION_BARGE
@@ -179,6 +180,7 @@ def test_live_mode_auto_barges_hours(monkeypatch) -> None:
     monkeypatch.setattr("agent_core.live_qa.decisions.record", lambda **_k: "LQ-TEST")
     result = evaluate_live_qa(
         _facts(now_hour=20, bot_text="hello"),
+        conn=object(),
         force_mode="live",
     )
     assert result.auto_barge is True
@@ -193,6 +195,7 @@ def test_shadow_evaluate_does_not_call_twilio(monkeypatch) -> None:
     monkeypatch.setattr("voice.twilio_ops.warm_transfer_to_supervisor", boom)
     result = evaluate_live_qa(
         _facts(now_hour=20, bot_text="hello"),
+        conn=object(),
         force_mode="shadow",
     )
     assert result.auto_barge is False

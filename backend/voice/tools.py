@@ -2002,17 +2002,22 @@ def build_tools(
 
         try:
             from agent_core.reco import engine as reco_engine
+            import db
 
-            result = await asyncio.to_thread(
-                reco_engine.recommend,
-                customer_id=cid,
-                interaction_id=session.interaction_id,
-                channel="voice",
-                live=_live_signals(),
-                # Per-session A/B arm, same override pattern as flowGraph.
-                # Absent, the engine buckets the customer by RECO_AB_SPLIT.
-                variant=session.extra.get("recoVariant"),
-            )
+            def _run():
+                with db.engine.begin() as conn:
+                    return reco_engine.recommend(
+                        customer_id=cid,
+                        conn=conn,
+                        interaction_id=session.interaction_id,
+                        channel="voice",
+                        live=_live_signals(),
+                        # Per-session A/B arm, same override pattern as flowGraph.
+                        # Absent, the engine buckets the customer by RECO_AB_SPLIT.
+                        variant=session.extra.get("recoVariant"),
+                    )
+
+            result = await asyncio.to_thread(_run)
         except Exception as exc:
             # Never let the offer engine break the call. No offer is always a
             # valid outcome; an exception on the audio path is not.
@@ -2197,17 +2202,22 @@ def build_tools(
 
         try:
             from agent_core.reco import engine as reco_engine
+            import db
 
-            result = await asyncio.to_thread(
-                reco_engine.recommend,
-                customer_id=cid,
-                interaction_id=session.interaction_id,
-                channel="voice",
-                live=_live_signals(),
-                # Per-session A/B arm, same override pattern as flowGraph.
-                # Absent, the engine buckets the customer by RECO_AB_SPLIT.
-                variant=session.extra.get("recoVariant"),
-            )
+            def _run():
+                with db.engine.begin() as conn:
+                    return reco_engine.recommend(
+                        customer_id=cid,
+                        conn=conn,
+                        interaction_id=session.interaction_id,
+                        channel="voice",
+                        live=_live_signals(),
+                        # Per-session A/B arm, same override pattern as flowGraph.
+                        # Absent, the engine buckets the customer by RECO_AB_SPLIT.
+                        variant=session.extra.get("recoVariant"),
+                    )
+
+            result = await asyncio.to_thread(_run)
         except Exception:
             logger.exception("close-probe recommendation failed")
             return

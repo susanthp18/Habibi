@@ -200,7 +200,10 @@ def test_a_hardship_hold_also_silences_the_offer_engine(db_tx, customer) -> None
 
     db.create_treatment_hold({"customerId": customer["customer_id"], "kind": "hardship"})
     result = recommend(
-        customer_id=customer["customer_id"], channel="voice", force_mode="live"
+        customer_id=customer["customer_id"],
+        channel="voice",
+        force_mode="live",
+        conn=db_tx,
     )
     assert result.suppressed
     assert result.reason == "hold:hardship"

@@ -64,14 +64,18 @@ class LiveQaResult:
 def evaluate_live_qa(
     facts: TurnFacts,
     *,
+    conn: Any,
     customer_id: str | None = None,
     account_id: str | None = None,
     interaction_id: str | None = None,
     tenant_id: str | None = None,
-    conn: Any | None = None,
     force_mode: str | None = None,
 ) -> LiveQaResult:
-    """Score one turn. Never raises."""
+    """Score one turn. Never raises.
+
+    ``conn`` is required. The decision-log row is written on it, so a caller
+    that rolls back does not leave a QA finding for a turn that did not land.
+    """
     started = time.perf_counter()
     mode = (force_mode or config.mode()).strip().lower()
     try:
@@ -100,7 +104,7 @@ def _evaluate(
     account_id: str | None,
     interaction_id: str | None,
     tenant_id: str | None,
-    conn: Any | None,
+    conn: Any,
     mode: str,
     started: float,
 ) -> LiveQaResult:

@@ -8,9 +8,11 @@ the wrap-up of a live phone call:
 
 * **It never raises.** Any failure degrades to "hold", logged. An engine that
   can take down bounce ingest is worse than no engine.
-* **It never opens its own connection when given one.** Bounce ingest holds
-  ``FOR UPDATE`` on the account row while it asks what to do next; a second
-  connection there is a deadlock waiting for load.
+* **It never opens its own connection.** The caller lends a transaction; the
+  decision and the row recording it are the same unit of work. Bounce ingest
+  holds ``FOR UPDATE`` on the account row while it asks what to do next; a
+  second connection there is a deadlock waiting for load, and a log write on
+  a connection the caller does not own survives the caller's rollback.
 
 One deliberate divergence from ``reco.engine``: in shadow mode this returns the
 plan it would have carried out, rather than an empty result. Reco hides its
@@ -159,7 +161,7 @@ def recommend_treatment(
     trigger: Trigger | str = "manual",
     interaction_id: str | None = None,
     now: datetime | None = None,
-    conn: Any | None = None,
+    conn: Any,
     provider: FeatureProvider | None = None,
     force_mode: str | None = None,
     variant: str | None = None,
@@ -171,6 +173,10 @@ def recommend_treatment(
     always lands in the same arm. A borrower treated patiently after Monday's
     bounce and eagerly after Thursday's belongs to neither, and every number
     computed from that split is noise.
+
+    ``conn`` is required. The decision-log row is written on it, so a bounce
+    that rolls back does not leave a plan describing a case that no longer
+    exists.
     """
     started = time.perf_counter()
     instant = _aware(now)
@@ -226,52 +232,31 @@ def _recommend(
     trigger: Trigger,
     interaction_id: str | None,
     now: datetime,
-    conn: Any | None,
+    conn: Any,
     provider: FeatureProvider | None,
     mode: str,
     arm: config.Variant | None,
     started: float,
 ) -> TreatmentResult:
-    import db
-
     arm_name = arm.name if arm else None
     active_policy = config.apply_variant(config.policy(), arm)
     unit_costs = config.costs()
 
-    if conn is not None:
-        return _decide(
-            conn,
-            customer_id=customer_id,
-            account_id=account_id,
-            trigger=trigger,
-            interaction_id=interaction_id,
-            now=now,
-            provider=provider,
-            mode=mode,
-            arm=arm,
-            arm_name=arm_name,
-            active_policy=active_policy,
-            unit_costs=unit_costs,
-            started=started,
-        )
-    # One connection for the whole read phase, then the log writes on its own.
-    with db.engine.connect() as owned:
-        return _decide(
-            owned,
-            customer_id=customer_id,
-            account_id=account_id,
-            trigger=trigger,
-            interaction_id=interaction_id,
-            now=now,
-            provider=provider,
-            mode=mode,
-            arm=arm,
-            arm_name=arm_name,
-            active_policy=active_policy,
-            unit_costs=unit_costs,
-            started=started,
-            log_conn=None,
-        )
+    return _decide(
+        conn,
+        customer_id=customer_id,
+        account_id=account_id,
+        trigger=trigger,
+        interaction_id=interaction_id,
+        now=now,
+        provider=provider,
+        mode=mode,
+        arm=arm,
+        arm_name=arm_name,
+        active_policy=active_policy,
+        unit_costs=unit_costs,
+        started=started,
+    )
 
 
 def _decide(
@@ -289,16 +274,12 @@ def _decide(
     active_policy: config.Policy,
     unit_costs: config.Costs,
     started: float,
-    log_conn: Any | None = ...,  # type: ignore[assignment]
 ) -> TreatmentResult:
     """The pipeline itself, against one connection.
 
-    ``log_conn`` defaults to ``conn`` — when the caller lends us a transaction,
-    the decision row belongs in it, so a bounce that rolls back does not leave a
-    plan behind describing a case that no longer exists.
+    The decision row is written on ``conn``, so a bounce that rolls back does
+    not leave a plan behind describing a case that no longer exists.
     """
-    writer = conn if log_conn is ... else log_conn
-
     features = build_features(
         customer_id,
         account_id=account_id,
@@ -375,7 +356,7 @@ def _decide(
     latency_ms = int((time.perf_counter() - started) * 1000)
 
     decision_id = decisions.record(
-        conn=writer,
+        conn=conn,
         tenant_id=features.tenant_id,
         customer_id=customer_id,
         account_id=features.account_id,

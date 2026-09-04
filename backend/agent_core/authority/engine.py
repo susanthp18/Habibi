@@ -118,12 +118,17 @@ def recommend_authority(
     fee_type: str = FEE_LATE,
     asked_amount: float | None = None,
     identity_verified: bool = True,
-    conn: Any | None = None,
+    conn: Any,
     provider: FeatureProvider | None = None,
     force_mode: str | None = None,
     features: AccountAuthority | None = None,
 ) -> AuthorityResult:
-    """Decide the allowed move. Never raises."""
+    """Decide the allowed move. Never raises.
+
+    ``conn`` is required. The decision-log row is written on it, so a caller
+    that rolls back does not leave an authority record for a waiver that was
+    never approved.
+    """
     started = time.perf_counter()
     mode = (force_mode or config.mode()).strip().lower()
     kind = (fee_type or FEE_LATE).strip().lower() or FEE_LATE
@@ -181,7 +186,7 @@ def _recommend(
     fee_type: str,
     asked_amount: float | None,
     identity_verified: bool,
-    conn: Any | None,
+    conn: Any,
     provider: FeatureProvider | None,
     mode: str,
     features: AccountAuthority | None,
@@ -216,19 +221,9 @@ def _recommend(
         )
 
     if features is None:
-        if conn is not None:
-            loaded = build_features(
-                conn, customer_id=customer_id, account_id=account_id, provider=provider
-            )
-        else:
-            with db.engine.connect() as owned:
-                loaded = build_features(
-                    owned,
-                    customer_id=customer_id,
-                    account_id=account_id,
-                    provider=provider,
-                )
-        features = loaded
+        features = build_features(
+            conn, customer_id=customer_id, account_id=account_id, provider=provider
+        )
 
     if not identity_verified:
         from dataclasses import replace
@@ -260,7 +255,7 @@ def _finish(
     fee_type: str,
     asked_amount: float | None,
     mode: str,
-    conn: Any | None,
+    conn: Any,
     started: float,
 ) -> AuthorityResult:
     import db

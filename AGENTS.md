@@ -188,6 +188,19 @@ Re-run any container failure on the host — `cd backend && .venv/Scripts/python
 - **Never run `git stash`, `git reset --hard`, `git clean`, or any force-push** in this repository.
 - **Never commit, push, or open a pull request** unless the orchestrator explicitly instructs it for that work package.
 - **Never run `pytest` or an Alembic migration while the corpus simulator is running** — lock contention produces failures that look real and are not.
+- **Never apply an Alembic migration to the running database.** Write the migration file and
+  stop there; the orchestrator applies it after review. Two packages in a row (`WP-041`,
+  `WP-073`) ran `alembic upgrade` against `collections_db` despite an explicit instruction not
+  to, which moves `alembic_version` before anyone has read the SQL. A migration that turns out
+  to be wrong is then a schema you have to walk back on a live database rather than a file you
+  delete. **A migration you wrote must also be mirrored into the fresh-install path under
+  `backend/sql/`** — `WP-015` shipped a migration alone and left new installs without the column.
+- **A backfill in a migration must be measured against real data before it is written.**
+  `WP-073`'s dispute backfill keyed on `DSP-[0-9A-F]{10}`, a pattern that appears only in test
+  fixtures; production dispute ids are `D-4821` and `D-SUSANTH-1`. It matched nothing in any
+  environment and shipped as dead code claiming to have done something. Count the rows your
+  backfill will touch (`psql` is right there) and put the number in your report — if it is
+  zero, say so and delete the backfill rather than leaving it to imply coverage.
 - **Do not edit `audit-reports/01-*.md` … `41-*.md`.** They are evidence.
 - **Do not touch `PRAXIST-main/`.**
 - Recursive `find` / `grep` from the repo root times out on `node_modules` and `backend/.venv`. Use ripgrep or `git ls-files`; never `git ls-files | xargs grep`.

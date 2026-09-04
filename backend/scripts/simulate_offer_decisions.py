@@ -169,12 +169,14 @@ def main() -> int:
             customer_turns=rng.randint(3, 25),
         )
 
-        result = engine.recommend(
-            customer_id=customer_id,
-            channel="voice",
-            live=live,
-            force_mode="live",
-        )
+        with db.engine.begin() as conn:
+            result = engine.recommend(
+                customer_id=customer_id,
+                conn=conn,
+                channel="voice",
+                live=live,
+                force_mode="live",
+            )
         if not result.decision_id:
             continue
         written += 1

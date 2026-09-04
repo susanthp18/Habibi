@@ -454,30 +454,32 @@ def _tool_recommend_next_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[s
     from agent_core.reco import engine as reco_engine
     from agent_core.reco.features import CallSignals
 
-    result = reco_engine.recommend(
-        customer_id=ctx.customer_id,
-        interaction_id=ctx.interaction_id,
-        channel="whatsapp",
-        live=CallSignals(
+    with db.engine.begin() as conn:
+        result = reco_engine.recommend(
+            customer_id=ctx.customer_id,
+            conn=conn,
             interaction_id=ctx.interaction_id,
             channel="whatsapp",
-            intents_seen=(ctx.intent,) if ctx.intent else (),
-            dominant_intent=ctx.session_intent or ctx.intent,
-            sentiment_current=(
-                ctx.sentiment
-                if ctx.sentiment is not None
-                else estimate_sentiment(ctx.customer_text or "")
+            live=CallSignals(
+                interaction_id=ctx.interaction_id,
+                channel="whatsapp",
+                intents_seen=(ctx.intent,) if ctx.intent else (),
+                dominant_intent=ctx.session_intent or ctx.intent,
+                sentiment_current=(
+                    ctx.sentiment
+                    if ctx.sentiment is not None
+                    else estimate_sentiment(ctx.customer_text or "")
+                ),
+                # Text has no PTP-before-pitch graph, so the commitment gate would
+                # suppress every chat offer. The channel is asynchronous and
+                # interruption-free, which is what that gate exists to protect
+                # against on a live call.
+                commitment_secured=True,
+                escalation_flagged=ctx.escalated,
+                offer_declined_this_call=ctx.offer_declined,
+                offers_presented_this_call=ctx.offers_presented,
             ),
-            # Text has no PTP-before-pitch graph, so the commitment gate would
-            # suppress every chat offer. The channel is asynchronous and
-            # interruption-free, which is what that gate exists to protect
-            # against on a live call.
-            commitment_secured=True,
-            escalation_flagged=ctx.escalated,
-            offer_declined_this_call=ctx.offer_declined,
-            offers_presented_this_call=ctx.offers_presented,
-        ),
-    )
+        )
     ctx.offer_decision_id = result.decision_id
     payload = result.to_tool_payload()
     if result.suppressed or not result.offers:

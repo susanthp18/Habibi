@@ -205,6 +205,7 @@ def test_recommend_authority_never_raises(monkeypatch) -> None:
     result = recommend_authority(
         customer_id="probe-cust",
         features=make_features(),
+        conn=object(),
     )
     assert result.verdict == VERDICT_ESCALATE
     assert result.reason == "engine_error"
@@ -220,6 +221,7 @@ def test_shadow_mode_is_not_actionable(monkeypatch) -> None:
         customer_id="probe-cust",
         features=make_features(),
         asked_amount=200,
+        conn=object(),
     )
     assert result.verdict == VERDICT_AUTO
     assert result.approved_amount == 200
@@ -237,6 +239,7 @@ def test_live_in_policy_is_actionable(monkeypatch) -> None:
         customer_id="probe-cust",
         features=make_features(),
         asked_amount=200,
+        conn=object(),
     )
     assert result.actionable is True
     assert result.to_tool_payload()["apply"] is True

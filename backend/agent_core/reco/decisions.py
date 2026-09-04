@@ -29,6 +29,7 @@ def _id() -> str:
 
 def record(
     *,
+    conn: Any,
     customer_id: str,
     interaction_id: str | None,
     channel: str,
@@ -51,53 +52,52 @@ def record(
 
     decision_id = _id()
     try:
-        with db.engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO offer_decisions (
-                      id, tenant_id, customer_id, interaction_id, channel, mode,
-                      variant, recommender, recommender_version,
-                      feature_schema_version,
-                      features, candidates, excluded,
-                      chosen_product_id, suggested_amount, score,
-                      suppression_reason, latency_ms, created_at
-                    ) VALUES (
-                      :id, :tenant, :customer_id, :interaction_id, :channel, :mode,
-                      :variant, :recommender, :recommender_version,
-                      :feature_schema_version,
-                      CAST(:features AS jsonb), CAST(:candidates AS jsonb),
-                      CAST(:excluded AS jsonb),
-                      -- Resolve inside the INSERT: a product deleted between
-                      -- scoring and logging must null the column, not raise a
-                      -- foreign-key error that loses the whole row.
-                      (SELECT p.id FROM products p WHERE p.id = :chosen_product_id),
-                      :suggested_amount, :score,
-                      :suppression_reason, :latency_ms, now()
-                    )
-                    """
-                ),
-                {
-                    "id": decision_id,
-                    "tenant": db.current_tenant(),
-                    "customer_id": customer_id,
-                    "interaction_id": interaction_id,
-                    "channel": channel,
-                    "mode": mode,
-                    "variant": variant,
-                    "recommender": recommender,
-                    "recommender_version": recommender_version,
-                    "feature_schema_version": feature_schema_version,
-                    "features": json.dumps(features, default=str),
-                    "candidates": json.dumps(list(candidates), default=str),
-                    "excluded": json.dumps(dict(excluded), default=str),
-                    "chosen_product_id": chosen_product_id,
-                    "suggested_amount": suggested_amount,
-                    "score": score,
-                    "suppression_reason": suppression_reason,
-                    "latency_ms": latency_ms,
-                },
-            )
+        conn.execute(
+            text(
+                """
+                INSERT INTO offer_decisions (
+                  id, tenant_id, customer_id, interaction_id, channel, mode,
+                  variant, recommender, recommender_version,
+                  feature_schema_version,
+                  features, candidates, excluded,
+                  chosen_product_id, suggested_amount, score,
+                  suppression_reason, latency_ms, created_at
+                ) VALUES (
+                  :id, :tenant, :customer_id, :interaction_id, :channel, :mode,
+                  :variant, :recommender, :recommender_version,
+                  :feature_schema_version,
+                  CAST(:features AS jsonb), CAST(:candidates AS jsonb),
+                  CAST(:excluded AS jsonb),
+                  -- Resolve inside the INSERT: a product deleted between
+                  -- scoring and logging must null the column, not raise a
+                  -- foreign-key error that loses the whole row.
+                  (SELECT p.id FROM products p WHERE p.id = :chosen_product_id),
+                  :suggested_amount, :score,
+                  :suppression_reason, :latency_ms, now()
+                )
+                """
+            ),
+            {
+                "id": decision_id,
+                "tenant": db.current_tenant(),
+                "customer_id": customer_id,
+                "interaction_id": interaction_id,
+                "channel": channel,
+                "mode": mode,
+                "variant": variant,
+                "recommender": recommender,
+                "recommender_version": recommender_version,
+                "feature_schema_version": feature_schema_version,
+                "features": json.dumps(features, default=str),
+                "candidates": json.dumps(list(candidates), default=str),
+                "excluded": json.dumps(dict(excluded), default=str),
+                "chosen_product_id": chosen_product_id,
+                "suggested_amount": suggested_amount,
+                "score": score,
+                "suppression_reason": suppression_reason,
+                "latency_ms": latency_ms,
+            },
+        )
         return decision_id
     except Exception:
         logger.exception("offer decision log failed for customer=%s", customer_id)

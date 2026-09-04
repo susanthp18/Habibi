@@ -162,7 +162,10 @@ def main() -> int:
     def _once() -> float:
         customer_id = rng.choice(customer_ids)
         t0 = time.perf_counter()
-        engine.recommend(customer_id=customer_id, channel="voice", live=live)
+        with db.engine.begin() as conn:
+            engine.recommend(
+                customer_id=customer_id, conn=conn, channel="voice", live=live
+            )
         return (time.perf_counter() - t0) * 1000
 
     # Warm the connection pool and the import graph. Including cold starts would

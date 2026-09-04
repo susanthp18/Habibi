@@ -299,15 +299,16 @@ def next_treatment(
     _assert_tenant_owns_customer = _mod._assert_tenant_owns_customer
     from agent_core.treatment import Trigger, recommend_treatment
 
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         _assert_tenant_owns_customer(conn, customer_id)
         if account_id:
             _assert_tenant_owns(conn, "accounts", account_id)
-    result = recommend_treatment(
-        customer_id=customer_id,
-        account_id=account_id,
-        trigger=Trigger(kind=trigger),
-    )
+        result = recommend_treatment(
+            customer_id=customer_id,
+            account_id=account_id,
+            trigger=Trigger(kind=trigger),
+            conn=conn,
+        )
     payload = result.to_payload()
 
     # The Action Contract, for whoever is going to execute this. Until now it
@@ -509,17 +510,18 @@ def next_authority(
     _assert_tenant_owns_customer = _mod._assert_tenant_owns_customer
     from agent_core.authority import recommend_authority
 
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         _assert_tenant_owns_customer(conn, customer_id)
         if account_id:
             _assert_tenant_owns(conn, "accounts", account_id)
-    result = recommend_authority(
-        customer_id=customer_id,
-        account_id=account_id,
-        interaction_id=interaction_id,
-        fee_type=fee_type,
-        asked_amount=asked_amount,
-    )
+        result = recommend_authority(
+            customer_id=customer_id,
+            account_id=account_id,
+            interaction_id=interaction_id,
+            fee_type=fee_type,
+            asked_amount=asked_amount,
+            conn=conn,
+        )
     return result.to_payload()
 
 

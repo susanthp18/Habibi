@@ -6,6 +6,7 @@
         customer_id="vikram-rao",
         fee_type="late_fee",
         asked_amount=500,
+        conn=conn,
     )
     result.verdict           # auto_approve | cap_inr | escalate
     result.approved_amount   # inside the cap, or None

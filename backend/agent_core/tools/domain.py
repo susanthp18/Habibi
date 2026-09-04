@@ -872,15 +872,18 @@ def evaluate_authority(
 ) -> ToolResult:
     """Ask the matrix. Never raises into the caller."""
     from agent_core.authority import recommend_authority
+    import db
 
-    result = recommend_authority(
-        customer_id=customer_id,
-        account_id=account_id,
-        interaction_id=interaction_id,
-        fee_type=fee_type or "late_fee",
-        asked_amount=asked_amount,
-        identity_verified=identity_verified,
-    )
+    with db.engine.begin() as conn:
+        result = recommend_authority(
+            customer_id=customer_id,
+            account_id=account_id,
+            interaction_id=interaction_id,
+            fee_type=fee_type or "late_fee",
+            asked_amount=asked_amount,
+            identity_verified=identity_verified,
+            conn=conn,
+        )
     payload = result.to_tool_payload()
     return ToolResult(
         ok=True,

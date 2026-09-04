@@ -84,6 +84,7 @@ class RecommendationResult:
 def recommend(
     *,
     customer_id: str,
+    conn: Any,
     interaction_id: str | None = None,
     channel: str = "voice",
     live: CallSignals | None = None,
@@ -98,6 +99,10 @@ def recommend(
     so the same customer always lands in the same arm — a customer who is
     pitched by the rule scorer on Monday and the model on Thursday belongs to
     neither, and every number computed from that split is noise.
+
+    ``conn`` is required. The decision-log row is written on it, so a caller
+    that rolls back does not leave an offer asserting a pitch that did not
+    happen.
     """
     started = time.perf_counter()
 
@@ -116,6 +121,7 @@ def recommend(
     try:
         return _recommend(
             customer_id=customer_id,
+            conn=conn,
             interaction_id=interaction_id,
             channel=channel,
             live=live,
@@ -139,6 +145,7 @@ def recommend(
 def _recommend(
     *,
     customer_id: str,
+    conn: Any,
     interaction_id: str | None,
     channel: str,
     live: CallSignals | None,
@@ -147,39 +154,36 @@ def _recommend(
     arm: config.Variant | None,
     started: float,
 ) -> RecommendationResult:
-    import db
-
     policy = config.policy()
     arm_name = arm.name if arm else None
 
-    # One connection for the whole read phase. Feature building used to open
-    # its own, so every recommendation checked out two — and at four concurrent
-    # calls against a pool of five that alone pushed p99 past the 150ms budget.
-    with db.engine.connect() as conn:
-        features, signals = build_features(
-            customer_id,
-            interaction_id=interaction_id,
-            channel=channel,
-            live=live,
-            provider=provider,
-            conn=conn,
-        )
+    # The caller owns this connection for the whole pipeline — features,
+    # eligibility, and the decision-log INSERT. Opening a second one here is
+    # how a rolled-back caller used to leave an offer_decisions row behind.
+    features, signals = build_features(
+        customer_id,
+        interaction_id=interaction_id,
+        channel=channel,
+        live=live,
+        provider=provider,
+        conn=conn,
+    )
 
-        pool, excluded = candidates_mod.generate(
-            conn,
-            features=features,
-            channel=channel,
-            decline_cooldown_days=policy.decline_cooldown_days,
-            family_cooldown_days=policy.family_cooldown_days,
-        )
-        vetted, vetoed = _apply_eligibility(
-            conn, customer_id=customer_id, channel=channel, pool=pool
-        )
-        # Collection / upsell separation. Read here rather than folded into
-        # CustomerFeatures so the feature schema version — and therefore every
-        # trained artifact scored against it — is unaffected by a gate that is
-        # not a feature.
-        hold_reason = _collections_hold(conn, customer_id)
+    pool, excluded = candidates_mod.generate(
+        conn,
+        features=features,
+        channel=channel,
+        decline_cooldown_days=policy.decline_cooldown_days,
+        family_cooldown_days=policy.family_cooldown_days,
+    )
+    vetted, vetoed = _apply_eligibility(
+        conn, customer_id=customer_id, channel=channel, pool=pool
+    )
+    # Collection / upsell separation. Read here rather than folded into
+    # CustomerFeatures so the feature schema version — and therefore every
+    # trained artifact scored against it — is unaffected by a gate that is
+    # not a feature.
+    hold_reason = _collections_hold(conn, customer_id)
     excluded.update(vetoed)
 
     scorer = build_scorer(
@@ -218,6 +222,7 @@ def _recommend(
     top = verdict.offers[0] if verdict.offers else None
 
     decision_id = decisions.record(
+        conn=conn,
         customer_id=customer_id,
         interaction_id=interaction_id,
         channel=channel,

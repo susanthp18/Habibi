@@ -6,6 +6,7 @@
         customer_id="vikram-rao",
         account_id="ACC-9021",
         trigger=Trigger(kind="bounce", at=bounced_at, ref="PE-123"),
+        conn=conn,
     )
     result.action          # 'whatsapp'
     result.at              # when it should happen

@@ -904,7 +904,7 @@ def account(db_tx):
     return dict(row)
 
 
-def _decide(account, **kw):
+def _decide(account, conn, **kw):
     """One decision for the seeded account.
 
     The default trigger carries a unique ref so these tests cannot be made to
@@ -918,12 +918,13 @@ def _decide(account, **kw):
         customer_id=account["customer_id"],
         account_id=account["id"],
         trigger=kw.pop("trigger", default),
+        conn=conn,
         **kw,
     )
 
 
 def test_the_engine_decides_and_logs(db_tx, account) -> None:
-    result = _decide(account)
+    result = _decide(account, db_tx)
     assert result.decision_id
     row = db_tx.execute(
         text("SELECT * FROM treatment_decisions WHERE id = :id"),
@@ -939,7 +940,7 @@ def test_shadow_decides_fully_and_enacts_nothing(db_tx, account) -> None:
     """Reco hides its shadow output because *speaking* is the risk it manages.
     Here the risk is *contacting*, and showing a supervisor exactly what the
     engine would have done is the entire point of the shadow fortnight."""
-    result = _decide(account, force_mode=config.MODE_SHADOW)
+    result = _decide(account, db_tx, force_mode=config.MODE_SHADOW)
     assert result.suppressed
     assert result.reason == arbitration.SUPPRESS_SHADOW
     assert result.action != A.WAIT, "shadow must still produce a plan to look at"
@@ -951,7 +952,7 @@ def test_shadow_decides_fully_and_enacts_nothing(db_tx, account) -> None:
 
 
 def test_live_produces_an_actionable_plan(db_tx, account) -> None:
-    result = _decide(account, force_mode=config.MODE_LIVE)
+    result = _decide(account, db_tx, force_mode=config.MODE_LIVE)
     assert result.actionable
     assert result.at is not None
     scheduled = db_tx.execute(
@@ -963,7 +964,7 @@ def test_live_produces_an_actionable_plan(db_tx, account) -> None:
 
 def test_the_engine_off_switch_writes_nothing(db_tx, account) -> None:
     before = db_tx.execute(text("SELECT count(*) FROM treatment_decisions")).scalar()
-    result = _decide(account, force_mode=config.MODE_OFF)
+    result = _decide(account, db_tx, force_mode=config.MODE_OFF)
     assert result.reason == arbitration.SUPPRESS_ENGINE_OFF
     after = db_tx.execute(text("SELECT count(*) FROM treatment_decisions")).scalar()
     assert after == before
@@ -977,14 +978,16 @@ def test_the_engine_never_raises(db_tx, account) -> None:
         def build(self, *a, **k):
             raise RuntimeError("feature store is down")
 
-    result = _decide(account, provider=Exploding())
+    result = _decide(account, db_tx, provider=Exploding())
     assert result.suppressed
     assert result.reason == arbitration.SUPPRESS_ERROR
     assert result.action == A.WAIT
 
 
 def test_an_unknown_customer_is_a_held_decision_not_a_crash(db_tx) -> None:
-    result = recommend_treatment(customer_id="nobody-at-all", trigger=Trigger(kind="manual"))
+    result = recommend_treatment(
+        customer_id="nobody-at-all", trigger=Trigger(kind="manual"), conn=db_tx
+    )
     assert result.suppressed
     assert result.reason == arbitration.SUPPRESS_ERROR
 
@@ -992,7 +995,7 @@ def test_an_unknown_customer_is_a_held_decision_not_a_crash(db_tx) -> None:
 def test_an_unknown_trigger_degrades_to_manual(db_tx, account) -> None:
     """``trigger_kind`` has a CHECK constraint. A kind this module does not know
     is a kind the log would reject, losing the decision entirely."""
-    result = _decide(account, trigger=Trigger(kind="not-a-real-trigger"))
+    result = _decide(account, db_tx, trigger=Trigger(kind="not-a-real-trigger"))
     assert result.decision_id
     kind = db_tx.execute(
         text("SELECT trigger_kind FROM treatment_decisions WHERE id = :id"),
@@ -1031,7 +1034,7 @@ def test_a_hold_silences_the_engine_end_to_end(db_tx, account) -> None:
         ),
         {"t": "hdfc.retail", "c": account["customer_id"]},
     )
-    result = _decide(account, force_mode=config.MODE_LIVE)
+    result = _decide(account, db_tx, force_mode=config.MODE_LIVE)
     assert result.action == A.WAIT
     assert result.reason == "hold:hardship"
     assert set(result.excluded.values()) == {"hold:hardship"}
@@ -1041,7 +1044,7 @@ def test_the_scoreboard_reports_coverage_in_shadow(db_tx, account) -> None:
     """In shadow every actionable decision carries reason='shadow_mode'.
     Counting those as suppressed would report zero coverage in exactly the mode
     the report exists to serve."""
-    _decide(account, force_mode=config.MODE_SHADOW)
+    _decide(account, db_tx, force_mode=config.MODE_SHADOW)
     report = decisions.insights(db_tx, days=1)
     assert report["decisions"] >= 1
     assert report["actionable"] >= 1
@@ -1205,11 +1208,11 @@ def test_a_cancelled_plan_does_not_freeze_the_borrower(db_tx, account) -> None:
         latency_ms=1,
     )
     trigger = Trigger(kind="dpd_tick", at=NOW, ref=ref)
-    blocked = _decide(account, trigger=trigger, force_mode=config.MODE_LIVE)
+    blocked = _decide(account, db_tx, trigger=trigger, force_mode=config.MODE_LIVE)
     assert blocked.reason == arbitration.SUPPRESS_ALREADY_PLANNED
 
     decisions.record_outcome(decision_id, "cancelled", conn=db_tx)
-    freed = _decide(account, trigger=trigger, force_mode=config.MODE_LIVE)
+    freed = _decide(account, db_tx, trigger=trigger, force_mode=config.MODE_LIVE)
     assert freed.reason != arbitration.SUPPRESS_ALREADY_PLANNED
 
 

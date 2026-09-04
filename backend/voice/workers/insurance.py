@@ -116,13 +116,18 @@ def _build_insurance_worker():
                 return
             try:
                 from agent_core.reco import engine as reco_engine
+                import db
 
-                result = await asyncio.to_thread(
-                    reco_engine.recommend,
-                    customer_id=cid,
-                    interaction_id=self._interaction_id(params),
-                    channel="voice",
-                )
+                def _run():
+                    with db.engine.begin() as conn:
+                        return reco_engine.recommend(
+                            customer_id=cid,
+                            conn=conn,
+                            interaction_id=self._interaction_id(params),
+                            channel="voice",
+                        )
+
+                result = await asyncio.to_thread(_run)
             except Exception as exc:
                 logger.exception("mesh recommend_next_offer failed")
                 await params.result_callback(

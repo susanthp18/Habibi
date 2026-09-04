@@ -838,27 +838,29 @@ def evaluate_and_flag_bot_turn(
         from agent_core.live_qa import TurnFacts, evaluate_live_qa
 
         hour = now_hour if now_hour is not None else now_local().hour
-        live_result = evaluate_live_qa(
-            TurnFacts(
-                channel=channel or "voice",
-                bot_text=bot_text,
-                customer_text=customer_text,
-                turn_index=turn_index,
-                elapsed_seconds=elapsed_seconds,
-                identity_verified=identity_verified,
-                third_party=third_party,
-                now_hour=hour,
-                direction=direction,
-                simulated=simulated,
-                recording_disclosed=recording_disclosed
-                or "missing-recording-disclosure" not in flags,
-                miranda_disclosed=False,
-                guardrail_flags=tuple(flags),
-            ),
-            customer_id=customer_id,
-            account_id=account_id,
-            interaction_id=interaction_id,
-        )
+        with db.engine.begin() as conn:
+            live_result = evaluate_live_qa(
+                TurnFacts(
+                    channel=channel or "voice",
+                    bot_text=bot_text,
+                    customer_text=customer_text,
+                    turn_index=turn_index,
+                    elapsed_seconds=elapsed_seconds,
+                    identity_verified=identity_verified,
+                    third_party=third_party,
+                    now_hour=hour,
+                    direction=direction,
+                    simulated=simulated,
+                    recording_disclosed=recording_disclosed
+                    or "missing-recording-disclosure" not in flags,
+                    miranda_disclosed=False,
+                    guardrail_flags=tuple(flags),
+                ),
+                conn=conn,
+                customer_id=customer_id,
+                account_id=account_id,
+                interaction_id=interaction_id,
+            )
         for extra in live_result.flags:
             if extra not in flags:
                 flags.append(extra)
