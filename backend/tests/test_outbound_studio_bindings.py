@@ -7,9 +7,11 @@ then thrown away. These tests lock the joins that make the studio steer.
 
 from __future__ import annotations
 
-import inspect
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+import pytest
 from sqlalchemy import text
 
 _BACKEND = Path(__file__).resolve().parents[1]
@@ -104,11 +106,256 @@ def test_missions_prefer_the_draft_graph() -> None:
     assert "get_agent_studio_card" in chunk
 
 
-def test_process_one_uses_the_run_bot_not_only_the_default() -> None:
+IST = ZoneInfo("Asia/Kolkata")
+
+
+class _Dialler:
+    """Stands in for the carrier. ``process_one`` must never reach Twilio here."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def __call__(self, engine, attempt, *, to_phone, custom=None):
+        self.calls.append({"attempt": attempt, "to": to_phone})
+        return {"placed": True, "state": "dialing", "attemptId": attempt["id"]}
+
+
+def _noon_today() -> datetime:
+    d = datetime.now(IST).date()
+    if d.isoweekday() == 7:
+        d = d - timedelta(days=1)
+    return datetime(d.year, d.month, d.day, 12, 0, tzinfo=IST)
+
+
+def _pause_running_campaigns(conn) -> None:
     import campaigns
 
-    src = inspect.getsource(campaigns.process_one)
-    assert "run.get(\"bot_id\")" in src or "run.get('bot_id')" in src
+    rows = conn.execute(text("SELECT id FROM campaign_runs WHERE status = 'running'"))
+    for (run_id,) in rows:
+        campaigns.set_status(conn, run_id, campaigns.STATUS_PAUSED)
+
+
+def _a_campaign_borrower(conn) -> dict:
+    row = conn.execute(
+        text(
+            """
+            SELECT c.id, c.tenant_id
+            FROM customers c JOIN accounts a ON a.customer_id = c.id
+            WHERE c.id <> 'UNKNOWN-CALLER'
+            ORDER BY c.id LIMIT 1
+            """
+        )
+    ).mappings().first()
+    if row is None:
+        pytest.skip("no seeded customer with an account")
+    conn.execute(
+        text(
+            """
+            UPDATE customers
+            SET phone_primary = '919000000001', timezone = 'Asia/Kolkata',
+                dnd = false, preferred_window = NULL
+            WHERE id = :id
+            """
+        ),
+        {"id": row["id"]},
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE consent_records
+            SET dnd_registry = false, allowed_days = NULL, allowed_hours = NULL
+            WHERE customer_id = :id
+            """
+        ),
+        {"id": row["id"]},
+    )
+    return dict(row)
+
+
+def _opt_borrower_in(conn, customer_id: str) -> None:
+    conn.execute(
+        text(
+            """
+            INSERT INTO consent_records (id, customer_id)
+            VALUES (:id, :cid)
+            ON CONFLICT (customer_id) DO NOTHING
+            """
+        ),
+        {"id": f"CR-{customer_id}", "cid": customer_id},
+    )
+    cr = conn.execute(
+        text("SELECT id FROM consent_records WHERE customer_id = :id"),
+        {"id": customer_id},
+    ).mappings().first()
+    assert cr
+    for ch in ("voice", "whatsapp", "sms", "email"):
+        conn.execute(
+            text(
+                """
+                INSERT INTO channel_consents
+                  (id, consent_id, channel, status, weekly_frequency_cap, used_this_week, captured_at)
+                VALUES
+                  (:id, :cr, :ch, 'opted_in', 99, 0, now())
+                ON CONFLICT (consent_id, channel, purpose)
+                DO UPDATE SET status = 'opted_in', weekly_frequency_cap = 99, captured_at = now()
+                """
+            ),
+            {"id": f"{cr['id']}-{ch}", "cr": cr["id"], "ch": ch},
+        )
+
+
+def _running_campaign(conn, cust: dict, *, bot_id: str):
+    import campaigns
+
+    _pause_running_campaigns(conn)
+    run = campaigns.create(
+        conn,
+        tenant_id=cust["tenant_id"],
+        name="process_one composition",
+        objective="dpd_reminder",
+        bot_id=bot_id,
+        window_start_hour=0,
+        window_end_hour=24,
+    )
+    added = campaigns.add_targets(conn, run["id"], [cust["id"]])
+    assert added == 1
+    started = campaigns.set_status(conn, run["id"], campaigns.STATUS_RUNNING)
+    assert started is not None
+    return started
+
+
+def _admit_at_noon(monkeypatch: pytest.MonkeyPatch):
+    import contact_policy
+
+    real = contact_policy.admit
+    noon = _noon_today()
+
+    def _wrapped(conn, **kwargs):
+        kwargs.setdefault("now", noon)
+        return real(conn, **kwargs)
+
+    monkeypatch.setattr(contact_policy, "admit", _wrapped)
+    return real
+
+
+def _record_gate(monkeypatch: pytest.MonkeyPatch, dialler: _Dialler) -> list[str]:
+    import contact_policy
+    import outbound
+
+    steps: list[str] = []
+    real_reserve = outbound.reserve
+    real_admit = contact_policy.admit
+    real_suppress = outbound.suppress
+
+    def reserve(*args, **kwargs):
+        steps.append("reserve")
+        return real_reserve(*args, **kwargs)
+
+    def admit(*args, **kwargs):
+        steps.append("admit")
+        return real_admit(*args, **kwargs)
+
+    def suppress(*args, **kwargs):
+        steps.append("suppress")
+        return real_suppress(*args, **kwargs)
+
+    def place(*args, **kwargs):
+        steps.append("place")
+        return dialler(*args, **kwargs)
+
+    monkeypatch.setattr(outbound, "reserve", reserve)
+    monkeypatch.setattr(contact_policy, "admit", admit)
+    monkeypatch.setattr(outbound, "suppress", suppress)
+    monkeypatch.setattr(outbound, "place", place)
+    return steps
+
+
+def test_process_one_uses_the_run_bot_not_only_the_default(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The studio card on the run is the agent that dials, not ``DEFAULT_BOT_ID``.
+
+    This used to be an ``inspect.getsource`` substring. A logic inversion that
+    kept the same token still passed; executing the dialer does not.
+    """
+    import campaigns
+    import db as dbmod
+
+    monkeypatch.setattr(campaigns, "enabled", lambda: True)
+    monkeypatch.setenv("CONTACT_DAILY_CAP", "99")
+    monkeypatch.setenv("CONTACT_WEEKLY_CAP", "99")
+    monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "0")
+    monkeypatch.setattr(dbmod, "DEFAULT_BOT_ID", "NOT-THE-STUDIO-BOT")
+    _admit_at_noon(monkeypatch)
+
+    cust = _a_campaign_borrower(db_tx)
+    _opt_borrower_in(db_tx, cust["id"])
+    bot = db_tx.execute(text("SELECT id FROM bots LIMIT 1")).scalar()
+    if not bot:
+        pytest.skip("no bot seeded")
+    run = _running_campaign(db_tx, cust, bot_id=str(bot))
+
+    dialler = _Dialler()
+    steps = _record_gate(monkeypatch, dialler)
+
+    assert campaigns.process_one(dbmod.engine) is True
+    assert steps == ["reserve", "admit", "place"]
+    assert len(dialler.calls) == 1
+    stored = db_tx.execute(
+        text("SELECT bot_id FROM call_attempts WHERE campaign_run_id = :run"),
+        {"run": run["id"]},
+    ).scalar()
+    assert stored == str(bot)
+
+
+def test_process_one_suppresses_an_opted_out_borrower_instead_of_dialling(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``reserve → admit → suppress``, and ``place`` is not reached.
+
+    The composition the piece-wise suites never executed. An opt-out written
+    by ``db.opt_out`` has to be the reason — not a hand-built SQL row.
+    """
+    import campaigns
+    import contact_policy
+    import db as dbmod
+
+    monkeypatch.setattr(campaigns, "enabled", lambda: True)
+    monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "0")
+
+    cust = _a_campaign_borrower(db_tx)
+    _opt_borrower_in(db_tx, cust["id"])
+    dbmod.opt_out(cust["id"], {"channel": "call", "source": "Agent"})
+    bot = db_tx.execute(text("SELECT id FROM bots LIMIT 1")).scalar() or dbmod.DEFAULT_BOT_ID
+    run = _running_campaign(db_tx, cust, bot_id=str(bot))
+
+    dialler = _Dialler()
+    steps = _record_gate(monkeypatch, dialler)
+
+    assert campaigns.process_one(dbmod.engine) is True
+    assert steps == ["reserve", "admit", "suppress"]
+    assert dialler.calls == []
+
+    attempt = db_tx.execute(
+        text(
+            """
+            SELECT state, suppressed_reason FROM call_attempts
+            WHERE campaign_run_id = :run
+            """
+        ),
+        {"run": run["id"]},
+    ).mappings().first()
+    assert attempt is not None
+    assert attempt["state"] == "suppressed"
+    assert attempt["suppressed_reason"] == contact_policy.REASON_OPTED_OUT
+
+    target = db_tx.execute(
+        text("SELECT state, note FROM campaign_targets WHERE run_id = :run"),
+        {"run": run["id"]},
+    ).mappings().first()
+    assert target is not None
+    assert target["state"] == "skipped"
+    assert target["note"] == contact_policy.REASON_OPTED_OUT
 
 
 def test_call_trace_joins_session_attempt_and_demo() -> None:

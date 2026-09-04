@@ -217,6 +217,33 @@ def test_whatsapp_opt_out_statutory_falls_to_sms(db_tx, monkeypatch: pytest.Monk
     assert sms.allowed
 
 
+def test_opt_out_writer_is_what_admit_enforces(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Capture and enforcement have to meet in one process.
+
+    Every other opted-out borrower in this file is fabricated by raw SQL, so a
+    writer that stored the wrong channel, purpose or consent id would leave the
+    suite green. The operator payload says ``call``; the dialler asks for
+    ``voice``. Those have to be the same row.
+    """
+    import db as dbmod
+
+    cid = _prep(db_tx, monkeypatch)
+    dbmod.opt_out(cid, {"channel": "call", "source": "Agent", "note": "seam test"})
+
+    voice = _admit(db_tx, cid, channel="voice", session_key="oo-v", related_id="oo-v")
+    assert voice.allowed is False
+    assert voice.reason == "channel_opted_out"
+
+    # A call-only opt-out must not close WhatsApp. Writing ``all``, or writing
+    # the voice row under purpose ``promotional`` only, would make this fail.
+    whatsapp = _admit(
+        db_tx, cid, channel="whatsapp", session_key="oo-wa", related_id="oo-wa"
+    )
+    assert whatsapp.allowed is True
+
+
 def test_session_coalesce_one_touch(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     cid = _prep(db_tx, monkeypatch)
     a = _admit(db_tx, cid, session_key="thread-1", related_id="m1")
