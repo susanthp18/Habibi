@@ -18,8 +18,14 @@ export interface Staff {
   status: string | null;
 }
 
-/** Mirrors the seeded DB roster so mock mode resolves the same names. */
-const MOCK_STAFF: Staff[] = [
+/** Mirrors the seeded DB roster so mock mode resolves the same names.
+ *
+ * Live mode already reads GET /staff. This list stays for USE_MOCK only —
+ * historical seed rows still name the two archived scaffolds, so they remain
+ * here for name resolution, but they are not `active`. `seed_postgres.py`
+ * archives them on purpose: they hold no prompt version and no deployment.
+ */
+export const MOCK_STAFF: Staff[] = [
   {
     id: "arjun-mehta",
     name: "Arjun Mehta",
@@ -56,10 +62,10 @@ const MOCK_STAFF: Staff[] = [
     name: "CollectionsBot v2.4",
     kind: "bot",
     team: null,
-    status: "active",
+    status: "archived",
   },
   { id: "kaia-v2-4", name: "BigBound v2.4", kind: "bot", team: null, status: "active" },
-  { id: "webchatbot", name: "WebChatBot", kind: "bot", team: null, status: "active" },
+  { id: "webchatbot", name: "WebChatBot", kind: "bot", team: null, status: "archived" },
 ];
 
 export async function fetchStaff(): Promise<Staff[]> {

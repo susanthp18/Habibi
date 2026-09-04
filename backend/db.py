@@ -1729,7 +1729,14 @@ def _document_events(conn: Any, document_ids: list[str]) -> dict[str, list[dict[
 
 
 def list_staff() -> list[dict[str, Any]]:
-    """Assignable actors: active humans first, then bots."""
+    """Assignable actors: humans first, then bots.
+
+    A bot is ``active`` only when it carries an active production deployment
+    and is not archived. ``webchatbot`` / ``collectionsbot-v2-4`` exist as
+    history scaffolds — they hold no prompt and no deployment — and must not
+    be claimed as live. Status is still returned so name resolution of
+    historical owners keeps working.
+    """
     with engine.connect() as conn:
         users = _rows(
             conn.execute(
@@ -1743,12 +1750,38 @@ def list_staff() -> list[dict[str, Any]]:
                 )
             )
         )
-        bots = _rows(conn.execute(text("SELECT id, name FROM bots ORDER BY name")))
+        bots = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT b.id, b.name, b.archived_at,
+                           EXISTS (
+                             SELECT 1 FROM bot_deployments d
+                              WHERE d.bot_id = b.id
+                                AND d.status = 'active'
+                                AND d.environment = 'production'
+                           ) AS has_deployment
+                      FROM bots b
+                     ORDER BY b.name
+                    """
+                )
+            )
+        )
         return [
             {"id": u["id"], "name": u["name"], "kind": "human", "team": u["team"], "status": u["status"]}
             for u in users
         ] + [
-            {"id": b["id"], "name": b["name"], "kind": "bot", "team": None, "status": "active"}
+            {
+                "id": b["id"],
+                "name": b["name"],
+                "kind": "bot",
+                "team": None,
+                "status": (
+                    "archived"
+                    if b.get("archived_at")
+                    else ("active" if b.get("has_deployment") else "inactive")
+                ),
+            }
             for b in bots
         ]
 
