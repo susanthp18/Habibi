@@ -275,6 +275,7 @@ def test_write_helper_maps_each_failure_kind_to_its_own_status() -> None:
     that forgets to unwrap its message, or reuses a status, fails here."""
     import main
     from fastapi import HTTPException
+    from sqlalchemy.exc import IntegrityError
 
     expected = {KeyError: 404, PermissionError: 403, ValueError: 409}
     for exc_type, status in expected.items():
@@ -286,3 +287,47 @@ def test_write_helper_maps_each_failure_kind_to_its_own_status() -> None:
             main._handle_write(_raise)
         assert caught.value.status_code == status
         assert caught.value.detail == "plain_message"
+
+    def _constraint():
+        raise IntegrityError("INSERT", {}, orig=Exception("fk"))
+
+    with pytest.raises(HTTPException) as caught:
+        main._handle_write(_constraint)
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "constraint_violation"
+
+
+def test_write_helper_maps_value_error_codes_by_table() -> None:
+    """Bad input is 422; a race stays 409. Unmapped codes keep today's 409 so
+    each mapping is opt-in. Prefixed messages match on the token before `:`."""
+    import main
+    from fastapi import HTTPException
+
+    assert not hasattr(main, "_handoff_call")
+    assert all(status == 422 for status in main._VALUE_ERROR_STATUS.values())
+    assert "publish_conflict" not in main._VALUE_ERROR_STATUS
+    assert "handoff_already_claimed" not in main._VALUE_ERROR_STATUS
+
+    cases = [
+        ("bot_id_required", 422),
+        ("empty_message", 422),
+        ("invalid_severity", 422),
+        ("invalid_updated_after", 422),
+        ("invalid_reason: weekend", 422),
+        ("provide either ownerUserId or ownerBotId, not both", 422),
+        ("publish_conflict", 409),
+        ("handoff_already_claimed", 409),
+        ("deployment_already_active", 409),
+        ("prompt_version_not_draft", 409),
+        ("kept promise cannot move to broken/partial", 409),
+        ("shadow_mode", 409),
+    ]
+    for message, status in cases:
+
+        def _raise(message=message):
+            raise ValueError(message)
+
+        with pytest.raises(HTTPException) as caught:
+            main._handle_write(_raise)
+        assert caught.value.status_code == status, message
+        assert caught.value.detail == message

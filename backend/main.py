@@ -737,6 +737,73 @@ async def _circuit_open_handler(_request: Request, exc: circuit_breaker.CircuitO
     )
 
 
+# ValueError is two kinds of thing on this funnel: the client sent garbage
+# (`bot_id_required`, `empty_message`) and someone else got there first
+# (`publish_conflict`, `handoff_already_claimed`). Unmapped codes stay 409 so
+# today's wire is the default; each other status is opt-in per code. Prefixed
+# messages (`invalid_reason: foo`) match on the token before the first colon.
+# English sentences that are validation, not codes, are keys here too —
+# `detail=str(exc)` is the public contract and renaming them is a wire change.
+_VALUE_ERROR_STATUS: dict[str, int] = {
+    "bot_id_required": 422,
+    "empty_message": 422,
+    "invalid_severity": 422,
+    "invalid_updated_after": 422,
+    "disclosure_label_required": 422,
+    "productId_required": 422,
+    "loss_reason_required": 422,
+    "target_bot_required": 422,
+    "channels_required": 422,
+    "confirm_required": 422,
+    "skill_slug_required": 422,
+    "skill_slug_invalid": 422,
+    "allowed_tools_must_be_list": 422,
+    "skill_missing_frontmatter": 422,
+    "skill_missing_name": 422,
+    "skill_allowed_tools_not_a_list": 422,
+    "connector_url_required": 422,
+    "connector_url_https_only": 422,
+    "connector_url_unresolvable": 422,
+    "connector_slug_required": 422,
+    "connector_data_class_required": 422,
+    "cimd_issuer_https_only": 422,
+    "connector_prefix_must_be_ext": 422,
+    "vault_secret_required": 422,
+    "vault_name_required": 422,
+    "mcp_scopes_required": 422,
+    "a2a_cert_required": 422,
+    "clone_source_required": 422,
+    "unknown_clone_template": 422,
+    "agent_required": 422,
+    "title_required": 422,
+    "accepted_required": 422,
+    "record_ids_required": 422,
+    "when_must_be_list": 422,
+    "then_must_be_object": 422,
+    "no_fields": 422,
+    "invalid_reason": 422,
+    "invalid_disposition": 422,
+    "invalid_reminder_status": 422,
+    "invalid_status": 422,
+    "invalid_coaching_status": 422,
+    "invalid_calibration_status": 422,
+    "invalid_format": 422,
+    "invalid_export_status": 422,
+    "invalid_kind": 422,
+    "invalid_source": 422,
+    "invalid_presence_status": 422,
+    "invalid_channel": 422,
+    "invalid_range": 422,
+    "invalid_purge_scope": 422,
+    "provide either ownerUserId or ownerBotId, not both": 422,
+    "note text is required": 422,
+    "channel status or optedIn is required": 422,
+    "set subjectUserId or subjectBotId, not both": 422,
+    "invalid status": 422,
+    "entries require criterionId": 422,
+}
+
+
 def _handle_write(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
@@ -749,7 +816,11 @@ def _handle_write(fn, *args, **kwargs):
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        detail = str(exc)
+        status = _VALUE_ERROR_STATUS.get(detail)
+        if status is None:
+            status = _VALUE_ERROR_STATUS.get(detail.split(":", 1)[0].strip(), 409)
+        raise HTTPException(status_code=status, detail=detail) from exc
     except IntegrityError as exc:
         # A bad foreign key (unknown productId / teamId / ownerUserId) is a
         # client error, not a server fault. It used to escape as an unhandled
@@ -1328,17 +1399,6 @@ def list_consent(
     return db.list_consent(limit=limit, offset=offset)
 
 
-def _handoff_call(fn, *args, **kwargs):
-    try:
-        return fn(*args, **kwargs)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
 @app.get("/handoff/queue", response_model=HandoffQueueResponse)
 def get_handoff_queue(customerId: str | None = Query(default=None)):
     return db.list_handoff_queue(customer_id=customerId)
@@ -1354,17 +1414,17 @@ def get_handoff_active():
 
 @app.get("/handoff/{interaction_id}", response_model=HandoffSessionResponse)
 def get_handoff_by_id(interaction_id: str):
-    return _handoff_call(db.get_handoff_session, interaction_id)
+    return _handle_write(db.get_handoff_session, interaction_id)
 
 
 @app.post("/handoff/{interaction_id}/claim", response_model=HandoffSessionResponse)
 def claim_handoff(interaction_id: str):
-    return _handoff_call(db.claim_handoff, interaction_id)
+    return _handle_write(db.claim_handoff, interaction_id)
 
 
 @app.post("/handoff/{interaction_id}/disclosures", response_model=HandoffSessionResponse)
 def post_handoff_disclosure(interaction_id: str, payload: HandoffDisclosureRequest):
-    return _handoff_call(
+    return _handle_write(
         db.record_handoff_disclosure,
         interaction_id,
         payload.model_dump(exclude_none=True),
@@ -1373,7 +1433,7 @@ def post_handoff_disclosure(interaction_id: str, payload: HandoffDisclosureReque
 
 @app.post("/handoff/{interaction_id}/suggestions/{suggestion_id}/accept", response_model=HandoffSessionResponse)
 def accept_handoff_suggestion(interaction_id: str, suggestion_id: str):
-    return _handoff_call(db.accept_handoff_suggestion, interaction_id, suggestion_id)
+    return _handle_write(db.accept_handoff_suggestion, interaction_id, suggestion_id)
 
 
 @app.get("/floor", response_model=FloorSnapshotResponse)
