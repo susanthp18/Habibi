@@ -2891,7 +2891,7 @@ def promote_gateway_canary(canary_id: str, payload: dict[str, Any] | None = None
 
 @app.get("/roles")
 def list_roles_catalog():
-    """Roles page. Grants are writable via PATCH."""
+    """Roles page. Grants are the resolved set the enforcer will honour."""
     from sqlalchemy import text as _text
 
     catalog = [
@@ -2899,38 +2899,50 @@ def list_roles_catalog():
         for pid, module, action, description in authz.PERMISSION_CATALOG
     ]
     with db.engine.connect() as conn:
-        roles = db._rows(
-            conn.execute(
-                _text("SELECT id, name FROM roles WHERE tenant_id = :t ORDER BY name"),
-                {"t": db.current_tenant()},
-            )
-        )
-        grants = db._rows(
+        rows = db._rows(
             conn.execute(
                 _text(
                     """
-                    SELECT r.id AS role_id, r.name AS role, rp.permission_id
-                    FROM role_permissions rp
-                    JOIN roles r ON r.id = rp.role_id
-                    WHERE r.tenant_id = :t
-                    ORDER BY r.name, rp.permission_id
+                    SELECT r.id AS role_id, r.name AS role_name, r.configured_at,
+                           rp.permission_id
+                      FROM roles r
+                 LEFT JOIN role_permissions rp ON rp.role_id = r.id
+                     WHERE r.tenant_id = :t
+                     ORDER BY r.name, rp.permission_id
                     """
                 ),
                 {"t": db.current_tenant()},
             )
         )
-    by_role: dict[str, list[str]] = {}
-    for g in grants:
-        by_role.setdefault(g["role_id"], []).append(g["permission_id"])
-    publishers = sorted({g["role"] for g in grants if g["permission_id"] == authz.AGENT_PUBLISH})
+    explicit_by_role: dict[str, list[str]] = {}
+    role_meta: dict[str, tuple[str, bool]] = {}
+    role_order: list[str] = []
+    for row in rows:
+        rid = row["role_id"]
+        if rid not in role_meta:
+            role_meta[rid] = (row["role_name"], row["configured_at"] is not None)
+            role_order.append(rid)
+            explicit_by_role[rid] = []
+        if row["permission_id"]:
+            explicit_by_role[rid].append(row["permission_id"])
+    roles_out: list[dict[str, Any]] = []
+    grants: list[dict[str, Any]] = []
+    publishers: set[str] = set()
+    for rid in role_order:
+        name, configured = role_meta[rid]
+        resolved = sorted(
+            authz.resolve_role_grants(name, explicit_by_role[rid], configured=configured)
+        )
+        roles_out.append({"id": rid, "name": name, "permissionIds": resolved})
+        for pid in resolved:
+            grants.append({"role_id": rid, "role": name, "permission_id": pid})
+            if pid == authz.AGENT_PUBLISH:
+                publishers.add(name)
     return {
         "permissions": catalog,
-        "agentPublishRoles": publishers,
+        "agentPublishRoles": sorted(publishers),
         "grants": grants,
-        "roles": [
-            {"id": r["id"], "name": r["name"], "permissionIds": by_role.get(r["id"], [])}
-            for r in roles
-        ],
+        "roles": roles_out,
     }
 
 

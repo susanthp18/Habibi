@@ -471,7 +471,12 @@ def get_current_user() -> dict[str, Any]:
 
 
 def replace_role_permissions(role_id: str, permission_ids: list[str]) -> dict[str, Any]:
-    """Replace the grant set for one role. Admin keeps admin.write."""
+    """Replace the grant set for one role. Admin keeps admin.write.
+
+    An empty ``permission_ids`` is a real opinion — the role is configured
+    with no grants, not "never configured". Callers that previously deleted
+    every row and fell back to ``ROLE_DEFAULTS`` were restoring access.
+    """
     import authz
 
     rid = (role_id or "").strip()
@@ -493,6 +498,16 @@ def replace_role_permissions(role_id: str, permission_ids: list[str]) -> dict[st
             raise KeyError("role_not_found")
         if authz._normalize_role(role["name"]) == "admin" and authz.ADMIN_WRITE not in wanted:
             wanted.append(authz.ADMIN_WRITE)
+        conn.execute(
+            text(
+                """
+                UPDATE roles
+                   SET configured_at = now(), updated_at = now()
+                 WHERE id = :id
+                """
+            ),
+            {"id": role["id"]},
+        )
         conn.execute(text("DELETE FROM role_permissions WHERE role_id = :id"), {"id": role["id"]})
         for pid in wanted:
             conn.execute(
@@ -505,6 +520,11 @@ def replace_role_permissions(role_id: str, permission_ids: list[str]) -> dict[st
                 ),
                 {"rid": role["id"], "pid": pid},
             )
+    # Role changes are rare and the cache is per-process; drop all of it so a
+    # revocation is visible on the next request rather than up to PERMS_TTL_S
+    # later. The docstring on invalidate_permission_cache is "call after a
+    # role change" — this is that caller.
+    authz.invalidate_permission_cache()
     return {"id": role["id"], "name": role["name"], "permissionIds": sorted(wanted)}
 
 

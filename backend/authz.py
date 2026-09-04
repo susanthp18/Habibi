@@ -34,12 +34,14 @@ enforced. ``AUTHZ_ENFORCE=1|0`` overrides in either direction.
 
 Grant resolution
 ----------------
-``role_permissions`` is authoritative when it says anything about a role. A role
-with **no** explicit grant falls back to the built-in default for its name, so a
-fresh database with no permission seed is usable rather than locked out; the
-moment an operator grants that role anything, the database wins entirely and
-revocation works. ``perm-admin-write`` is a superuser grant, matching the
-existing semantics of :func:`db.actor_is_admin`.
+``role_permissions`` is authoritative when the role has any explicit grant
+**or** has been configured (``roles.configured_at`` is set). A role that has
+never been configured and has no grant rows falls back to the built-in default
+for its name, so a fresh database with no permission seed is usable rather than
+locked out. Once an operator saves grants — including the empty set — the
+database wins entirely and a revoked grant stays revoked. ``perm-admin-write``
+is a superuser grant, matching the existing semantics of
+:func:`db.actor_is_admin`.
 """
 
 from __future__ import annotations
@@ -144,7 +146,8 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(p[0] for p in PERMISSION_CATALOG)
 
 
 #: Fallback grants, keyed by normalized role name. Applied only to a role that
-#: has no row at all in ``role_permissions`` — see the module docstring.
+#: has never been configured *and* has no row in ``role_permissions`` — see
+#: the module docstring.
 ROLE_DEFAULTS: dict[str, frozenset[str]] = {
     "admin": ALL_PERMISSIONS,
     "supervisor": frozenset(
@@ -669,6 +672,32 @@ def _normalize_role(name: str | None) -> str:
     return (name or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
+def resolve_role_grants(
+    role_name: str,
+    explicit: Iterable[str],
+    *,
+    configured: bool,
+) -> frozenset[str]:
+    """Return the grants the enforcer will honour for one role.
+
+    ``explicit`` is the ``role_permissions`` set (empty if none).
+    ``configured`` is true once :func:`db.replace_role_permissions` has written
+    an opinion, including the opinion "none". An unconfigured role with no rows
+    falls back to :data:`ROLE_DEFAULTS`; a configured role with no rows is
+    empty. Admin-by-name is still a superuser — that short-circuit is part of
+    what the enforcer actually grants, so the Roles screen must report it.
+    """
+    name = _normalize_role(role_name)
+    explicit_set = frozenset(p for p in explicit if p)
+    if explicit_set or configured:
+        granted = set(explicit_set)
+    else:
+        granted = set(ROLE_DEFAULTS.get(name, frozenset()))
+    if ADMIN_WRITE in granted or name == "admin":
+        return ALL_PERMISSIONS
+    return frozenset(granted)
+
+
 def _load_grants(user_id: str) -> frozenset[str]:
     """Resolve grants from the database. See the module docstring for policy."""
     from sqlalchemy import text
@@ -679,7 +708,8 @@ def _load_grants(user_id: str) -> frozenset[str]:
         rows = conn.execute(
             text(
                 """
-                SELECT r.id AS role_id, r.name AS role_name, rp.permission_id
+                SELECT r.id AS role_id, r.name AS role_name, r.configured_at,
+                       rp.permission_id
                   FROM user_roles ur
                   JOIN roles r ON r.id = ur.role_id
              LEFT JOIN role_permissions rp ON rp.role_id = r.id
@@ -691,25 +721,29 @@ def _load_grants(user_id: str) -> frozenset[str]:
 
     explicit_by_role: dict[str, set[str]] = {}
     role_names: dict[str, str] = {}
+    configured_by_role: dict[str, bool] = {}
     for row in rows:
         role_id = row["role_id"]
-        role_names[role_id] = _normalize_role(row["role_name"])
+        role_names[role_id] = row["role_name"]
+        configured_by_role[role_id] = row["configured_at"] is not None
         bucket = explicit_by_role.setdefault(role_id, set())
         if row["permission_id"]:
             bucket.add(row["permission_id"])
 
     granted: set[str] = set()
     for role_id, explicit in explicit_by_role.items():
-        if explicit:
-            # The database has an opinion about this role — it is authoritative,
-            # so a revoked grant stays revoked.
-            granted |= explicit
-        else:
-            granted |= ROLE_DEFAULTS.get(role_names.get(role_id, ""), frozenset())
+        granted |= resolve_role_grants(
+            role_names[role_id],
+            explicit,
+            configured=configured_by_role[role_id],
+        )
 
     # Superuser: matches db.actor_is_admin, which also treats an 'admin' role
-    # name as sufficient.
-    if ADMIN_WRITE in granted or "admin" in set(role_names.values()):
+    # name as sufficient. Kept at user level so a holder of any admin-named
+    # role (or of ADMIN_WRITE via another role) cannot be partially gated.
+    if ADMIN_WRITE in granted or "admin" in {
+        _normalize_role(n) for n in role_names.values()
+    }:
         return ALL_PERMISSIONS
     return frozenset(granted)
 

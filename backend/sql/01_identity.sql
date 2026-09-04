@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS roles (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  -- NULL: this role has never been given an explicit grant set, so a missing
+  -- role_permissions row still means "use the built-in defaults". A timestamp:
+  -- an operator wrote an opinion, including the opinion "none" — empty
+  -- role_permissions then means empty, not a fallback that restores access.
+  configured_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

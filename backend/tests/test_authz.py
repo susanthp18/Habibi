@@ -310,6 +310,86 @@ def test_explicit_grant_beats_default_so_revocation_works(db_tx) -> None:
     assert authz.QA_WRITE not in perms
 
 
+def test_resolve_role_grants_empty_unconfigured_falls_back_to_defaults() -> None:
+    assert authz.resolve_role_grants(
+        "Supervisor", [], configured=False
+    ) == authz.ROLE_DEFAULTS["supervisor"]
+    assert authz.VOICE_OPERATE in authz.resolve_role_grants(
+        "Supervisor", [], configured=False
+    )
+
+
+def test_resolve_role_grants_empty_configured_is_empty() -> None:
+    """The case ``test_explicit_grant_beats_default_so_revocation_works`` missed."""
+    assert authz.resolve_role_grants("Supervisor", [], configured=True) == frozenset()
+    assert authz.VOICE_OPERATE not in authz.resolve_role_grants(
+        "Supervisor", [], configured=True
+    )
+
+
+def test_resolve_role_grants_admin_by_name_is_still_superuser() -> None:
+    assert authz.resolve_role_grants("Admin", [], configured=True) == authz.ALL_PERMISSIONS
+
+
+def test_revoking_every_grant_leaves_the_role_empty(db_tx) -> None:
+    """Total revocation is not 'never configured' — the role stays empty.
+
+    The previous test granted one permission and asserted a second was absent.
+    An operator who unticks the last box sends ``[]``, and that path used to
+    restore the full default set.
+    """
+    import db
+
+    tenant = db.TENANT_ID
+    db_tx.execute(
+        text(
+            "INSERT INTO roles (id, tenant_id, name) "
+            "VALUES ('role-tmp-sup-empty', :t, 'Supervisor')"
+        ),
+        {"t": tenant},
+    )
+    db_tx.execute(
+        text(
+            "INSERT INTO user_roles (user_id, role_id) "
+            "VALUES ('anita-rao', 'role-tmp-sup-empty')"
+        )
+    )
+    authz.invalidate_permission_cache("anita-rao")
+    assert authz.VOICE_OPERATE in authz.actor_permissions("anita-rao")
+
+    result = db.replace_role_permissions("role-tmp-sup-empty", [])
+    assert result["permissionIds"] == []
+    configured_at = db_tx.execute(
+        text("SELECT configured_at FROM roles WHERE id = 'role-tmp-sup-empty'")
+    ).scalar()
+    assert configured_at is not None
+    remaining = db_tx.execute(
+        text("SELECT count(*) FROM role_permissions WHERE role_id = 'role-tmp-sup-empty'")
+    ).scalar()
+    assert remaining == 0
+    # No extra invalidate — replace_role_permissions must have dropped the cache
+    # or this would still see the default set for up to AUTHZ_CACHE_TTL_S.
+    perms = authz.actor_permissions("anita-rao")
+    assert perms == frozenset()
+    assert authz.VOICE_OPERATE not in perms
+
+
+def test_total_revocation_of_supervisor_denies_voice_operate_on_the_next_request(
+    db_tx,
+) -> None:
+    """Acceptance: strip role-supervisor; a holder loses VOICE_OPERATE immediately."""
+    import db
+
+    if db_tx.execute(text("SELECT 1 FROM roles WHERE id = 'role-supervisor'")).scalar() is None:
+        pytest.skip("role-supervisor not present in this database")
+    if db_tx.execute(text("SELECT 1 FROM users WHERE id = 'david-chen'")).scalar() is None:
+        pytest.skip("david-chen not present in this database")
+
+    assert authz.has_permission("david-chen", authz.VOICE_OPERATE)
+    db.replace_role_permissions("role-supervisor", [])
+    assert not authz.has_permission("david-chen", authz.VOICE_OPERATE)
+
+
 def test_permission_cache_is_invalidatable(db_tx) -> None:
     assert authz.actor_permissions("anita-rao") == frozenset()
     tenant = __import__("db").TENANT_ID
@@ -518,3 +598,41 @@ def test_agent_cannot_publish_an_agent_card(gated_client: TestClient) -> None:
     )
     assert res.status_code == 403, res.text
     assert authz.AGENT_PUBLISH in res.text
+
+
+def test_get_roles_reports_resolved_grants_not_raw_rows(
+    db_tx, gated_client: TestClient
+) -> None:
+    """The Roles screen and the enforcer cannot disagree about an empty role."""
+    import db
+
+    tenant = db.TENANT_ID
+    db_tx.execute(
+        text(
+            "INSERT INTO roles (id, tenant_id, name) "
+            "VALUES ('role-tmp-unconf', :t, 'QA Reviewer')"
+        ),
+        {"t": tenant},
+    )
+    catalog = gated_client.get("/roles", headers=_hdr("priya-nair")).json()
+    unconf = next(r for r in catalog["roles"] if r["id"] == "role-tmp-unconf")
+    assert set(unconf["permissionIds"]) == set(authz.ROLE_DEFAULTS["qa_reviewer"])
+
+    if db_tx.execute(text("SELECT 1 FROM roles WHERE id = 'role-supervisor'")).scalar() is None:
+        pytest.skip("role-supervisor not present in this database")
+
+    db.replace_role_permissions("role-supervisor", [])
+    catalog = gated_client.get("/roles", headers=_hdr("priya-nair")).json()
+    supervisor = next(r for r in catalog["roles"] if r["id"] == "role-supervisor")
+    assert supervisor["permissionIds"] == []
+    assert [
+        g["permission_id"] for g in catalog["grants"] if g["role_id"] == "role-supervisor"
+    ] == []
+
+    denied = gated_client.post(
+        "/voice/sandbox/start",
+        headers=_hdr("david-chen"),
+        json={},
+    )
+    assert denied.status_code == 403, denied.text
+    assert authz.VOICE_OPERATE in denied.text
