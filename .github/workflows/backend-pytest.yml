@@ -95,6 +95,25 @@ jobs:
       - name: Install voice dependencies
         run: pip install -r requirements-voice.txt -c requirements.txt
 
+      # Same shape as the frontend audit: a CVE against the declared trees
+      # must fail CI rather than wait for a person to look. Installed here,
+      # not in requirements.txt, so it does not ship in the images.
+      # `-r` both manifests (not the local venv): the host venv is 3.14 and
+      # can lag the floors WP-057 already shipped. --progress-spinner off
+      # keeps the log a result, not an animation.
+      #
+      # PYSEC-2026-3740 is nltk 3.10.3 (model-artifact pathsec bypass,
+      # TransitionParser/AveragedPerceptron). No patched release exists;
+      # pipecat bounds nltk<4; WP-057 already took that floor. Pipecat
+      # only calls sent_tokenize. An unfixed advisory is ignored by id so
+      # the gate still fails on the next one.
+      - name: pip-audit
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit --progress-spinner off --ignore-vuln PYSEC-2026-3740 \
+            -r requirements.txt \
+            -r requirements-voice.txt
+
       # Before the database steps on purpose: ruff needs no Postgres, so a lint
       # failure costs ten seconds instead of the ninety it takes to build and
       # seed a schema that is about to be thrown away.

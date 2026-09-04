@@ -8,6 +8,10 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+# npm is the package manager (`packageManager` in package.json). A second
+# lockfile is how a 206-package divergence sat unaudited; bun.lock is not
+# to be re-added.
+bun.lock
 dist
 dist-ssr
 .output

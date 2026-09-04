@@ -29,6 +29,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # A CVE against this lockfile was noticed by no mechanism in this
+      # repository. --audit-level=high is what is green today; moderate
+      # findings stay in the log without failing the job. --package-lock-only
+      # audits the lock npm ci just installed from (the non-lockfile
+      # endpoint is retiring and 400s on a drifted node_modules tree).
+      # A gate introduced red is a gate people learn to ignore.
+      - name: npm audit
+        run: npm audit --audit-level=high --package-lock-only
+
       - name: Typecheck
         run: npx tsc --noEmit
 
