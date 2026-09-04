@@ -347,3 +347,66 @@ def test_a_day_range_parses_whatever_dash_it_was_typed_with():
     # A wrapping range and a comma list must not regress with the substitution.
     assert contact_policy.parse_allowed_days("Fri–Mon") == [5, 6, 0, 1]
     assert contact_policy.parse_allowed_days("Mon, Wed, Fri") == [1, 3, 5]
+
+
+def _boom_load_customer(_conn, _customer_id):
+    raise RuntimeError("consent table is on fire")
+
+
+@pytest.mark.parametrize("purpose", ("outreach", "statutory", "in_session"))
+def test_evaluate_fails_closed_when_consent_is_unreadable(
+    monkeypatch: pytest.MonkeyPatch, purpose: str
+) -> None:
+    """A consent-table read error is a refusal, for every purpose.
+
+    The previous branch admitted non-outreach sends when the database blipped,
+    contradicting this module's fail-closed contract. An in-flight WhatsApp
+    thread is not permission to skip the gate.
+    """
+    import contact_policy
+
+    monkeypatch.setattr(contact_policy, "_load_customer", _boom_load_customer)
+    d = contact_policy.evaluate(
+        None,
+        customer_id="CUST-UNREADABLE",
+        channel="whatsapp",
+        purpose=purpose,
+    )
+    assert d.allowed is False
+    assert d.reason == contact_policy.REASON_UNREADABLE
+
+
+@pytest.mark.parametrize("purpose", ("outreach", "statutory", "in_session"))
+def test_admit_fails_closed_when_consent_is_unreadable(
+    db_tx, monkeypatch: pytest.MonkeyPatch, purpose: str
+) -> None:
+    """Fault-inject `_load_customer`: the send is refused and the ledger is quiet.
+
+    `in_session` is the WhatsApp-reply path (`bot_runtime` / `whatsapp_outbound`).
+    `admit` still swallows the exception — it never raises — so the caller's
+    own `except` stays unreachable; the refusal is the `Decision`.
+    """
+    cid = _prep(db_tx, monkeypatch)
+    import contact_policy
+
+    monkeypatch.setattr(contact_policy, "_load_customer", _boom_load_customer)
+    before = db_tx.execute(
+        text("SELECT count(*) FROM contact_events WHERE customer_id = :id"),
+        {"id": cid},
+    ).scalar()
+    d = _admit(
+        db_tx,
+        cid,
+        channel="whatsapp",
+        purpose=purpose,
+        session_key="wa-reply",
+        related_id="msg-unreadable",
+        source="bot_reply",
+    )
+    assert d.allowed is False
+    assert d.reason == contact_policy.REASON_UNREADABLE
+    after = db_tx.execute(
+        text("SELECT count(*) FROM contact_events WHERE customer_id = :id"),
+        {"id": cid},
+    ).scalar()
+    assert int(after or 0) == int(before or 0)

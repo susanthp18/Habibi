@@ -595,9 +595,7 @@ def evaluate(
         return Decision(True, today_count=today, daily_cap=cap)
     except Exception:
         logger.exception("contact_policy.evaluate failed customer=%s", cid)
-        if purpose == "outreach":
-            return Decision(False, REASON_UNREADABLE, daily_cap=cap)
-        return Decision(True, daily_cap=cap)
+        return Decision(False, REASON_UNREADABLE, daily_cap=cap)
 
 
 # Reasons that are properties of the customer and the clock, and are therefore
@@ -1019,9 +1017,7 @@ def admit(
         )
     except Exception:
         logger.exception("contact_policy.admit failed customer=%s", cid)
-        if purpose == "outreach":
-            return Decision(False, REASON_UNREADABLE, daily_cap=cap)
-        return Decision(True, daily_cap=cap)
+        return Decision(False, REASON_UNREADABLE, daily_cap=cap)
 
 
 def require_admit(conn: Any, **kwargs: Any) -> Decision:
