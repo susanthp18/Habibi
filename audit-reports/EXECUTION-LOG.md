@@ -750,3 +750,35 @@ The five `inspect.getsource` failures `WP-036` reported were **not** regressions
 was mid-edit by `WP-042` when it ran. Re-run after `WP-042` finished: 75 passed. Same artefact
 class as batch one. The protection remains the orchestrator's serial re-run, never the
 agent's report — and never reading a file another agent still holds.
+
+---
+
+## Batch twelve — 2026-09-05
+
+Six packages. Suite after all of them: **3,330 passed · 22 skipped · 6 failed**, the six being
+4 known `/Habibi` mount artefacts and the 2 known `WP-068` timezone tests. Zero genuine
+failures. Baseline 3,311 → 3,317 → 3,330 across the batch's three verification runs.
+
+| WP | Commit | What was claimed | What I measured |
+|---|---|---|---|
+| `WP-047` | `01d1fec` | 44 files, error states threaded | Verified: `tsc` 0, `vitest` 142/142, build PASS. Empty branch now gated on `!showError`, so `emptyMessage` cannot fire on failure. Its new test is a **source pin and says so in its own header** — no jsdom (`WP-071`). Honestly flagged that customer 360's ledger/EMI still load via the route loader, so `isError` stays false there; checked — a failed loader errors the route, so the bad outcome is not reachable today |
+| `WP-041` | `691a154` | "one waiver, at the spoken amount" | Fix is correct — `FOR UPDATE`, rowcount claim, no swallow, ceiling persisted, escalate on persist failure. **But its contention test still passes with `FOR UPDATE` removed.** Three guards (lock, rowcount, unique index) each produce the right outcome alone, so the test proves the composite and cannot detect losing a layer. Implementer applied the migration to the live DB against instruction |
+| `WP-036` | `3e66154` | peels 3–4 | `db.py` 16,559 → 15,508. All invariants verified. **Two of my own dispatch measurements were wrong**: `_work_item_sla` is not a leak (docstring reference) and `_spark` is not a dependency (comment describing a replaced function). Of five external helpers grep found for Dashboard, two were real |
+| `WP-048` | `071dfa2` | "done (first half)" | Move verified — 25 type modules, `tsc` 0, `vitest` 142/142, build PASS. **PARTIAL, and the missing half is the valuable one**: no nullability reconciliation was done. `summary: string` survives in 7 places against `str \| None` at `schemas.py:98`, `:412`, `:1560`. Re-dispatched separately |
+| `WP-073` | `2a2dfae` | dispute race fixed | Structural fix confirmed — real `decision_id`/`dispute_id` columns, regex index dropped, `FOR UPDATE` on the dispute row, swallow removed, `sql/` mirrored. **Its backfill was dead code**: keyed on `DSP-[0-9A-F]{10}`, a pattern that exists only in test fixtures. Production ids are `D-4821`, `D-SUSANTH-1`. Measured: **0 of 7 waiver rows contain an id of any form.** I replaced it with the measurement |
+| `WP-037` | `62af01a` | 4 engines, 21 files | Verified: 0 `db.engine.` in treatment/authority/live_qa; reco gained the `conn` it never had. Behavioural acceptance under `db_real` — roll back, assert absent on a second connection. Residual recorded: reco's `present()` keeps its own transaction, but it marks *spoken* and consumes quota, a different fact from the decision |
+
+### What this batch changed about the method
+
+Three separate claims survived code review and failed against real data. That is the pattern
+worth keeping:
+
+* `WP-041`'s test passes without the lock it exists to prove.
+* `WP-073`'s backfill regex came from test fixtures, not production ids.
+* My own leak analysis counted prose as code, twice.
+
+**`AGENTS.md` was hardened rather than the lessons being left in commit messages.** Applying a
+migration to the running database is now forbidden outright (two packages in a row did it),
+the `backend/sql/` mirror is required (the `WP-015` lesson), and a backfill must be counted
+against real rows before it is written — with the `DSP-` case as the worked example. A rule in
+the contract every agent reads beats the same warning re-typed into each work package.

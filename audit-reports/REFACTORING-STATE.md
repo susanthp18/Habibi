@@ -288,15 +288,15 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 72. Status: 45 completed, 27 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 73. Status: 49 completed, 24 open.** *(`WP-073` filed from the `WP-041` review.)* *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **11** — `WP-029`, `WP-030`, `WP-031`, `WP-033`, `WP-036` *(peels 3-13)*, `WP-037`, `WP-038`, `WP-041`, `WP-043`, `WP-045`, `WP-047`/`WP-048` |
+| **READY** — no unmet prerequisite; can begin today | **9** — `WP-029`, `WP-030`, `WP-031`, `WP-033`, `WP-036` *(peels 5-13)*, `WP-038`, `WP-043`, `WP-045`, `WP-048` *(second half)*, `WP-049` |
 | **BLOCKED** — has an unmet prerequisite | **16** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
 | **IN PROGRESS** | **0** |
-| **COMPLETED** | **45** |
+| **COMPLETED** | **49** |
 
 > **Correction (2026-09-05).** The `READY` count above stood at **2** for nine batches and was
 > wrong. It was never recomputed after each batch landed, so packages whose only gate had
@@ -313,7 +313,13 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 > \* `WP-030` and `WP-027` are ready on prerequisites but each waits on a file another package
 > holds (`db.py`, and `WP-022`'s new test respectively).
 
-### COMPLETED (45)
+### COMPLETED (49)
+
+Batch twelve added: `WP-047` a failed list read no longer renders as a statement of fact · `WP-041` **one authority decision posts one waiver, at the amount that was spoken** · `WP-036` *(peels 3-4)* Dashboard and Workspace · `WP-048` *(PARTIAL — the type move; runtime parsing deliberately deferred)* · **`WP-073` the dispute waiver path had the same race, found in review** · `WP-037` `conn` is required in all four Locked Engines.
+
+**The two money packages are the ones to read.** `WP-041` serialised `apply_goodwill`; reviewing it turned up `post_waiver_for_dispute` forty lines below with the identical unlocked check-then-act, uncovered by the new index and wrapped in a swallow that left a dispute recorded as `resolved/valid_waive_fee` with no waiver on the ledger. `WP-073` fixed it structurally — real `decision_id`/`dispute_id` columns replacing a unique index over a regex on prose.
+
+**Three findings came from checking claims against real data rather than reading code.** `WP-041`'s contention test still passes with `FOR UPDATE` removed (three guards, any one sufficient — so it cannot detect losing one). `WP-073`'s migration backfill keyed on `DSP-[0-9A-F]{10}`, a pattern present only in test fixtures, and matched 0 of 7 waiver rows. And my own "leak" measurements for `WP-036` counted docstring prose as code — of five external helpers grep found for Dashboard, two were real.
 
 Batch eleven added: `WP-042` **the 26 `/agent-studio` routes declare what they return** · `WP-036` *(PARTIAL — peels 1 and 2 of 13)* Billing and Treatment holds are their own modules · `WP-022` the opt-out writer is finally checked against the enforcer · `WP-023` the outbound gate sequence is executed and contracted across all seven `place` sites · `WP-046` **29 dead frontend files and 22 npm dependencies deleted**.
 

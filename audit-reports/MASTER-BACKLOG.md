@@ -822,6 +822,65 @@ The brief's default order is correctness → security → data integrity → arc
 
 ---
 
+### WP-073 — The dispute waiver path has the race `WP-041` just fixed next door
+
+| | |
+|---|---|
+| **Category** | Correctness / money · **Severity** P1 · **Confidence** Certain (read from source and the live schema) |
+| **Root cause** | `WP-041` serialised `apply_goodwill`. Its sibling **40 lines below in the same file** was not touched and still check-then-acts. |
+| **Objective** | One resolved dispute posts at most one waiver, and a failed post is not reported as resolved. |
+| **Affected files** | `agent_core/authority/enact.py:96-140` · the call site at `db.py:4543-4549` |
+| **Dependencies** | `WP-041` (landed) |
+
+**Found during the `WP-041` review on 2026-09-05, not reported by the implementer.**
+
+`post_waiver_for_dispute` does exactly what `apply_goodwill` did before `WP-041`:
+
+    SELECT id FROM ledger_entries WHERE description LIKE :pat LIMIT 1   -- the check
+    ...
+    return _post(conn, ...)                                            -- the act
+
+No `FOR UPDATE`, and the check is a `LIKE` over free text with nothing locked. Two
+transactions resolving the same dispute both find nothing and both post a waiver.
+
+**The `WP-041` unique index does not cover this path.**
+`uq_ledger_entries_authority_decision` keys on `substring(description, 'AD-[0-9A-F]{12}')`
+where the description matches that pattern. `_post` builds the description as
+`f"Goodwill {fee_type} waiver {decision_id or dispute_id or ''}"`, and this path passes
+`decision_id=None`, so the description carries a **dispute** id, does not match `AD-…`, and
+falls outside the partial index entirely. The backstop that protects `apply_goodwill`
+protects nothing here.
+
+**And the call site swallows the failure.** `db.py:4547` wraps the call in
+`except Exception: logger.exception(...)` — the identical swallow `WP-041` removed from
+`mark_enacted`. So a waiver that fails to post still leaves the dispute marked `resolved`
+with `resolution_code = 'valid_waive_fee'`: the record says the fee was waived and the
+ledger says it was not.
+
+**Reachability is ordinary, not exotic.** The call site is the dispute update path, reached
+when `status == "resolved"` and `resolutionCode == "valid_waive_fee"` — a disputes-desk
+operator clicking resolve. A double-submit or two operators on one dispute is the whole
+scenario; no unusual concurrency is required.
+
+| | |
+|---|---|
+| **Implementation strategy** | Lock the dispute row `FOR UPDATE` in the same transaction as the ledger insert, exactly as `WP-041` did. Then give the ledger a real key rather than parsed prose — see the note below. Decide deliberately whether the call site should keep swallowing: if the waiver cannot post, `resolved/valid_waive_fee` is a false record. |
+| **Acceptance criteria** | Two concurrent resolves of one dispute yield **one** ledger row. A failed waiver post does not leave the dispute recorded as waived. |
+| **Required tests** | `db_real`, threads — `db_tx` cannot express it. `tests/test_authority_enact_contention.py` is the template. |
+| **Risk** | **regulated (money)** · **Rollback** `git revert` · **Atomic?** Yes |
+
+> **The structural fix `WP-041` reached past.** `ledger_entries` has **no `decision_id`
+> column** — verified against the live schema — which is why the uniqueness backstop had to
+> be a functional index over a regex on `description`. That index is coupled to a string
+> built by an f-string in `_post`; a wording change silently stops it constraining new rows,
+> and it cannot cover the dispute path at all. A `decision_id` / `dispute_id` column on
+> `ledger_entries` with a plain unique partial index would replace both the regex index and
+> the `LIKE` check with something the database can actually enforce. That is a schema
+> addition and belongs in this package, not in a hotfix.
+
+
+---
+
 # BAND 6 — The wire contract
 
 ---
