@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import { bindControlId } from "@/components/ui/bind-control-id";
 import { toast } from "sonner";
 import { X, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   CHANNEL_LABELS,
@@ -183,10 +185,13 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId();
   return (
     <div>
-      <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
-      <div className="mt-050">{children}</div>
+      <Label htmlFor={id} className="text-body-small font-semibold text-text-subtlest">
+        {label}
+      </Label>
+      <div className="mt-050">{bindControlId(children, id, label)}</div>
     </div>
   );
 }

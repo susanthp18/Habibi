@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { bindControlId } from "@/components/ui/bind-control-id";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
@@ -13,6 +14,7 @@ import {
   FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   CHANNEL_LABELS,
@@ -364,10 +366,13 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId();
   return (
     <div>
-      <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
-      <div className="mt-050">{children}</div>
+      <Label htmlFor={id} className="text-body-small font-semibold text-text-subtlest">
+        {label}
+      </Label>
+      <div className="mt-050">{bindControlId(children, id, label)}</div>
     </div>
   );
 }

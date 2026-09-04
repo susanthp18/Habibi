@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { bindControlId } from "@/components/ui/bind-control-id";
 import {
   Sheet,
   SheetContent,
@@ -238,10 +239,13 @@ export function CreatePromiseSheet({
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId();
   return (
     <div className="space-y-050">
-      <Label className="text-body-small font-semibold text-text-subtlest">{label}</Label>
-      {children}
+      <Label htmlFor={id} className="text-body-small font-semibold text-text-subtlest">
+        {label}
+      </Label>
+      {bindControlId(children, id, label)}
     </div>
   );
 }

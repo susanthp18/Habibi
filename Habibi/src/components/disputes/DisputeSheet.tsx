@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { bindControlId } from "@/components/ui/bind-control-id";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
@@ -40,6 +41,7 @@ import {
   resolveDispute,
 } from "@/api/disputes";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -507,10 +509,13 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId();
   return (
     <div>
-      <div className="mb-050 text-body-small font-semibold text-text-subtlest">{label}</div>
-      {children}
+      <Label htmlFor={id} className="mb-050 text-body-small font-semibold text-text-subtlest">
+        {label}
+      </Label>
+      {bindControlId(children, id, label)}
     </div>
   );
 }

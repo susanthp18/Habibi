@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
+import { bindControlId } from "@/components/ui/bind-control-id";
 import {
   Sheet,
   SheetContent,
@@ -303,10 +304,13 @@ function CallForm({
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
   return (
     <div className="space-y-075">
-      <Label className="text-xs font-medium text-text-subtle">{label}</Label>
-      {children}
+      <Label htmlFor={id} className="text-xs font-medium text-text-subtle">
+        {label}
+      </Label>
+      {bindControlId(children, id, label)}
     </div>
   );
 }
