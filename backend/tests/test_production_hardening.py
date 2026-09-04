@@ -44,10 +44,8 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
     actor_context.reload_api_key_map()
     client = TestClient(app_main.app)
     try:
-        # Non-prod `_twilio_signature_ok` accepts a missing signature, so the
-        # old `!= 401` assertion was green while unsigned POSTs were accepted.
-        # Fail the signature check closed: 403 is the handler, 401 is the key.
-        monkeypatch.setattr(app_main, "_IS_PROD", True)
+        # Unsigned POSTs 403 in every environment (WP-014). 403 is the
+        # signature handler; 401 is the API-key middleware.
         res = client.post("/twilio/voice/incoming", data={})
         assert res.status_code == 403, res.text
         assert res.json()["detail"] == "invalid_twilio_signature"
@@ -99,8 +97,6 @@ def test_sms_status_webhook_hmac_is_the_gate(monkeypatch: pytest.MonkeyPatch) ->
     actor_context.reload_api_key_map()
     client = TestClient(app_main.app)
     try:
-        monkeypatch.setattr(app_main, "_IS_PROD", True)
-
         unsigned = client.post("/twilio/sms/status", data={})
         assert unsigned.status_code == 403, unsigned.text
         assert unsigned.json()["detail"] == "invalid_twilio_signature"
@@ -625,18 +621,26 @@ def test_deployment_env_dedupe() -> None:
         db.get_active_deployment = original  # type: ignore[assignment]
 
 
-def test_twilio_signature_fail_closed_in_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    import main as app_main
+def test_twilio_signature_fail_closed_in_every_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing token and missing signature refuse outside production too.
 
-    monkeypatch.setattr(app_main, "_IS_PROD", True)
+    ``setattr(_IS_PROD, False)`` is required: under the old escape both cases
+    returned True, and a production CI run would not see that branch.
+    """
+    import main as app_main
+    from voice import twilio_ops
+
+    monkeypatch.setattr(app_main, "_IS_PROD", False)
 
     class _Req:
         headers: dict[str, str] = {}
-        url = type("U", (), {"path": "/twilio/voice/incoming"})()
+        url = type("U", (), {"path": "/twilio/voice/incoming", "query": ""})()
 
-    # No auth token → fail closed in production.
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "")
-    from voice import twilio_ops
-
     monkeypatch.setattr(twilio_ops, "auth_token", lambda: "")
+    assert app_main._twilio_signature_ok(_Req(), {}) is False  # type: ignore[arg-type]
+
+    monkeypatch.setattr(twilio_ops, "auth_token", lambda: "test-twilio-auth-token")
     assert app_main._twilio_signature_ok(_Req(), {}) is False  # type: ignore[arg-type]

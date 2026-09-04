@@ -80,9 +80,10 @@ def test_only_the_voice_media_stream_routes_are_websockets() -> None:
     """The exemption above is safe only while these two are the only sockets.
 
     They authenticate themselves with ``VOICE_WS_PROXY_SECRET``
-    (``_voice_ws_upgrade_authorized``, fail-closed in production). A websocket
-    route added later would inherit the exemption silently and be gated by
-    nothing at all, so it has to fail here first and be given its own check.
+    (``_voice_ws_upgrade_authorized``, fail-closed in every environment). A
+    websocket route added later would inherit the exemption silently and be
+    gated by nothing at all, so it has to fail here first and be given its
+    own check.
     """
     assert sorted(_websocket_routes()) == ["/ws", "/ws/{proxy_secret}"]
 
@@ -113,3 +114,103 @@ def test_http_routes_are_still_checked(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     asyncio.run(app_main._authz_guard(conn))
     assert called == [("GET", "/customers")]
+
+
+class _WS:
+    def __init__(
+        self,
+        *,
+        headers: dict[str, str] | None = None,
+        query_params: dict[str, str] | None = None,
+    ) -> None:
+        self.headers = headers or {}
+        self.query_params = query_params or {}
+
+
+def test_the_ws_and_twilio_gates_do_not_consult_is_prod() -> None:
+    """The non-prod escapes were ``return True`` / ``return not _IS_PROD``.
+
+    A source pin so reintroducing either cannot hide behind a production CI
+    job, where ``_IS_PROD`` is already True and the escape is unreachable.
+    """
+    import inspect
+
+    import main as app_main
+
+    ws_src = inspect.getsource(app_main._voice_ws_upgrade_authorized)
+    twilio_src = inspect.getsource(app_main._twilio_signature_ok)
+    assert "_IS_PROD" not in ws_src
+    assert "_IS_PROD" not in twilio_src
+    assert "return not _IS_PROD" not in twilio_src
+    # Matching secret is the only True; refusal is unconditional.
+    assert ws_src.rstrip().endswith("return False")
+
+
+def test_upgrade_without_the_secret_is_refused_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acceptance: an upgrade without the secret is refused in every environment.
+
+    ``setattr(_IS_PROD, False)`` is the load-bearing half. The suite and the
+    production-envelope job freeze that flag at import; without the setattr a
+    production run would still refuse under the old ``if _IS_PROD`` branch and
+    the escape would look closed.
+    """
+    import main as app_main
+
+    monkeypatch.setattr(app_main, "_IS_PROD", False)
+    monkeypatch.setenv("VOICE_WS_PROXY_SECRET", "s3cret-value")
+    assert app_main._voice_ws_upgrade_authorized(_WS()) is False
+
+
+def test_upgrade_is_refused_when_the_secret_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unset secret is a misconfiguration, not an open door."""
+    import main as app_main
+
+    monkeypatch.setattr(app_main, "_IS_PROD", False)
+    monkeypatch.delenv("VOICE_WS_PROXY_SECRET", raising=False)
+    assert app_main._voice_ws_upgrade_authorized(_WS()) is False
+    assert (
+        app_main._voice_ws_upgrade_authorized(_WS(), path_secret="anything")
+        is False
+    )
+
+
+def test_matching_secret_is_accepted_on_path_header_and_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import main as app_main
+
+    monkeypatch.setattr(app_main, "_IS_PROD", False)
+    monkeypatch.setenv("VOICE_WS_PROXY_SECRET", "s3cret-value")
+    assert (
+        app_main._voice_ws_upgrade_authorized(_WS(), path_secret="s3cret-value")
+        is True
+    )
+    assert (
+        app_main._voice_ws_upgrade_authorized(
+            _WS(headers={"x-voice-proxy-secret": "s3cret-value"})
+        )
+        is True
+    )
+    assert (
+        app_main._voice_ws_upgrade_authorized(
+            _WS(query_params={"proxy_secret": "s3cret-value"})
+        )
+        is True
+    )
+
+
+def test_wrong_secret_is_refused_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import main as app_main
+
+    monkeypatch.setattr(app_main, "_IS_PROD", False)
+    monkeypatch.setenv("VOICE_WS_PROXY_SECRET", "s3cret-value")
+    assert (
+        app_main._voice_ws_upgrade_authorized(_WS(), path_secret="other-secret")
+        is False
+    )

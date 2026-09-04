@@ -546,9 +546,10 @@ async def _authz_guard(conn: HTTPConnection) -> None:
     """
     # A socket has no method, and the registry is keyed on one. The two
     # websocket routes authorise themselves with ``VOICE_WS_PROXY_SECRET``
-    # (`_voice_ws_upgrade_authorized`, fail-closed in production) — that is the
-    # design, not an oversight. ``tests/test_voice_ws_authz.py`` pins the route
-    # list so a websocket added later cannot inherit this exemption in silence.
+    # (`_voice_ws_upgrade_authorized`, fail-closed in every environment) — that
+    # is the design, not an oversight. ``tests/test_voice_ws_authz.py`` pins the
+    # route list so a websocket added later cannot inherit this exemption in
+    # silence.
     if conn.scope.get("type") != "http":
         return
 
@@ -3398,21 +3399,19 @@ def tune_voice_sandbox_session(session_id: str, payload: VoiceSandboxTuneRequest
 def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
     """Validate X-Twilio-Signature.
 
-    Production fail-closed: missing ``TWILIO_AUTH_TOKEN`` or missing signature → reject.
-    Non-prod may omit the token for local ngrok smoke tests.
+    Fail-closed in every environment: missing ``TWILIO_AUTH_TOKEN`` or missing
+    signature → reject. A configured token is not a mode switch, and an unset
+    token is a misconfiguration, not an open door.
     """
     from voice import twilio_ops
 
     token = twilio_ops.auth_token()
     if not token:
-        if _IS_PROD:
-            logger.error("TWILIO_AUTH_TOKEN unset in production — rejecting Twilio request")
-            return False
-        return True
+        logger.error("TWILIO_AUTH_TOKEN unset — rejecting Twilio request")
+        return False
     signature = (request.headers.get("x-twilio-signature") or "").strip()
     if not signature:
-        # Local ngrok tests sometimes omit; allow only outside production.
-        return not _IS_PROD
+        return False
     try:
         from twilio.request_validator import RequestValidator
 
@@ -3466,7 +3465,8 @@ def _voice_ws_upgrade_authorized(
     Requires a shared ``VOICE_WS_PROXY_SECRET`` matching (in order):
     path ``/ws/{secret}``, ``X-Voice-Proxy-Secret``, or legacy ``?proxy_secret=``.
     Twilio ``<Stream url>`` cannot use query strings (error 31920) — prefer path.
-    Production fails closed without a valid secret.
+    Fail-closed in every environment: an unset secret or a missing/invalid
+    supplied secret refuses the upgrade.
     """
     shared = (os.getenv("VOICE_WS_PROXY_SECRET") or "").strip()
     provided = (
@@ -3478,24 +3478,17 @@ def _voice_ws_upgrade_authorized(
         return True
 
     # Twilio Media Streams authenticate at the HTTP webhook layer; the WS
-    # upgrade does not carry X-Twilio-Signature. Outside production we allow
-    # the upgrade so local ngrok/dev runs work.
-    #
-    # Production fails closed. A configured TWILIO_AUTH_TOKEN is *not* an
-    # authorization signal for this socket — nothing on the upgrade proves the
-    # peer holds it, so treating token presence as sufficient left the media
-    # stream open to anyone who learned the URL. Prod therefore requires
-    # VOICE_WS_PROXY_SECRET to be configured *and* supplied; a deployment with
-    # no secret configured is a misconfiguration, not an open door.
-    if _IS_PROD:
-        if not shared:
-            logger.error(
-                "Voice WS proxy rejected: VOICE_WS_PROXY_SECRET is not configured in production"
-            )
-        else:
-            logger.warning("Voice WS proxy rejected: missing/invalid proxy secret")
-        return False
-    return True
+    # upgrade does not carry X-Twilio-Signature. The proxy secret is the only
+    # credential on this socket. A configured TWILIO_AUTH_TOKEN is *not* an
+    # authorization signal here — nothing on the upgrade proves the peer holds
+    # it. An unset secret is a misconfiguration, not an open door.
+    if not shared:
+        logger.error(
+            "Voice WS proxy rejected: VOICE_WS_PROXY_SECRET is not configured"
+        )
+    else:
+        logger.warning("Voice WS proxy rejected: missing/invalid proxy secret")
+    return False
 
 
 @app.post("/twilio/voice/incoming")
