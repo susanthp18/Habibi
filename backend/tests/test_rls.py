@@ -10,7 +10,9 @@ The second is opt-in and checks the thing that actually matters: that with
 policies enforcing, a connection carrying one tenant's ``app.tenant_id`` cannot
 see or write another tenant's rows. That needs a role which does not bypass RLS
 and a database it is safe to enable FORCE ROW LEVEL SECURITY on, so it wants a
-scratch database — set ``RLS_DATABASE_URL``.
+scratch database — set ``RLS_DATABASE_URL``. Enforcement walks every derived
+policy table, not a two-table sample: a hop-2 policy that follows the wrong
+parent would leave ``customers`` and ``accounts`` green.
 """
 
 from __future__ import annotations
@@ -191,6 +193,27 @@ def test_enable_refuses_when_the_role_bypasses_rls(db_tx) -> None:
         rls.enable(db_tx)
 
 
+def test_provision_role_creates_a_login_that_cannot_bypass_rls(db_tx) -> None:
+    """The role policies will actually constrain — without enabling them.
+
+    ``provision_role`` is the half that is safe to run against any database:
+    it creates a login with DML rights and ``NOBYPASSRLS``. Pointing
+    ``DATABASE_URL`` at it, and ``enable``, are the maintenance-window half
+    and are not exercised here. The transaction rolls the role back.
+    """
+    name = "rls_app_rw_probe"
+    rls.provision_role(db_tx, name, "not-echoed")
+    assert rls.role_bypasses_rls(db_tx, name) is False
+    row = db_tx.execute(
+        text(
+            "SELECT rolcanlogin, rolsuper, rolbypassrls "
+            "  FROM pg_roles WHERE rolname = :n"
+        ),
+        {"n": name},
+    ).one()
+    assert row == (True, False, False)
+
+
 # ---------------------------------------------------------------------------
 # Enforcement — opt-in, needs a scratch database
 # ---------------------------------------------------------------------------
@@ -198,16 +221,28 @@ def test_enable_refuses_when_the_role_bypasses_rls(db_tx) -> None:
 _SCRATCH_MARKERS = ("rls", "test", "scratch", "ci")
 _PROBE_ROLE = "rls_probe"
 _PROBE_PW = "rls-probe-password"
+_SCRATCH_REASON = "set RLS_DATABASE_URL to a scratch database to test RLS enforcement"
+
+#: Seeded tables spanning rooted / hop-1 / hop-2, so a policy that only
+#: happens to be right for ``customers`` cannot hide a wrong parent further
+#: down the FK graph. Values are (acme.bank, rival.bank) row counts.
+_SEEDED_COUNTS = {
+    "products": (1, 1),  # rooted
+    "customers": (3, 5),  # rooted
+    "accounts": (3, 5),  # hop-1 through customers
+    "customer_notes": (3, 5),  # hop-1 through customers
+    "consent_records": (3, 5),  # hop-1, regulated
+    "channel_consents": (3, 5),  # hop-2 through consent_records
+    "ledger_entries": (3, 5),  # hop-2 through accounts
+}
 
 
 def _scratch_url() -> str:
     return (os.getenv("RLS_DATABASE_URL") or "").strip()
 
 
-requires_scratch_db = pytest.mark.skipif(
-    not _scratch_url(),
-    reason="set RLS_DATABASE_URL to a scratch database to test RLS enforcement",
-)
+def _ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
 
 
 @pytest.fixture(scope="module")
@@ -220,7 +255,10 @@ def enforcing_db():
     import psycopg
     from sqlalchemy import create_engine
 
-    url = _scratch_url().replace("postgresql+psycopg://", "postgresql://", 1)
+    url = _scratch_url()
+    if not url:
+        pytest.skip(_SCRATCH_REASON)
+    url = url.replace("postgresql+psycopg://", "postgresql://", 1)
     name = urlsplit(url).path.lstrip("/").lower()
     if not any(m in name for m in _SCRATCH_MARKERS):
         pytest.fail(
@@ -245,15 +283,38 @@ def enforcing_db():
                 (f"{tenant}-prod", tenant),
             )
             for i in range(count):
+                cust = f"{tenant}-cust-{i}"
+                acct = f"{tenant}-acct-{i}"
+                consent = f"{tenant}-consent-{i}"
                 conn.execute(
                     "INSERT INTO customers (id, tenant_id, name, risk) "
                     "VALUES (%s,%s,%s,'low')",
-                    (f"{tenant}-cust-{i}", tenant, f"Customer {i}"),
+                    (cust, tenant, f"Customer {i}"),
                 )
                 conn.execute(
                     "INSERT INTO accounts (id, customer_id, product_id, status) "
                     "VALUES (%s,%s,%s,'active')",
-                    (f"{tenant}-acct-{i}", f"{tenant}-cust-{i}", f"{tenant}-prod"),
+                    (acct, cust, f"{tenant}-prod"),
+                )
+                conn.execute(
+                    "INSERT INTO customer_notes (id, customer_id, text) "
+                    "VALUES (%s,%s,'note')",
+                    (f"{tenant}-note-{i}", cust),
+                )
+                conn.execute(
+                    "INSERT INTO consent_records (id, customer_id) VALUES (%s,%s)",
+                    (consent, cust),
+                )
+                conn.execute(
+                    "INSERT INTO channel_consents (id, consent_id, channel, status) "
+                    "VALUES (%s,%s,'voice','opted_in')",
+                    (f"{tenant}-chconsent-{i}", consent),
+                )
+                conn.execute(
+                    "INSERT INTO ledger_entries "
+                    "(id, account_id, type, amount, posted_at) "
+                    "VALUES (%s,%s,'charge',100,now())",
+                    (f"{tenant}-ledger-{i}", acct),
                 )
         conn.commit()
 
@@ -281,7 +342,22 @@ def _as_probe(enforcing_db, tenant: str):
     )
 
 
-@requires_scratch_db
+def _owned_counts(conn, policies, tenant: str) -> dict[str, int]:
+    conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant})
+    return {
+        p.table: int(
+            conn.execute(
+                text(
+                    f"SELECT count(*) FROM {_ident(p.table)} WHERE {p.predicate}"
+                )
+            ).scalar()
+            or 0
+        )
+        for p in policies
+    }
+
+
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
 def test_every_derived_policy_is_installed_enabled_and_forced(enforcing_db) -> None:
     with enforcing_db["engine"].connect() as conn:
         status = rls.status(conn)
@@ -293,21 +369,65 @@ def test_every_derived_policy_is_installed_enabled_and_forced(enforcing_db) -> N
     )
 
 
-@requires_scratch_db
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
+def test_the_probe_role_does_not_bypass_rls(enforcing_db) -> None:
+    """``provision_role`` is what makes enable mean anything at all."""
+    import psycopg
+
+    with psycopg.connect(enforcing_db["probe_url"]) as conn:
+        row = conn.execute(
+            "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
+        ).fetchone()
+    assert row == (False,)
+
+
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
 @pytest.mark.parametrize(
-    "tenant,customers,accounts", [("acme.bank", 3, 3), ("rival.bank", 5, 5)]
+    "tenant,index", [("acme.bank", 0), ("rival.bank", 1)]
 )
 def test_a_tenant_sees_only_its_own_rows(
-    enforcing_db, tenant: str, customers: int, accounts: int
+    enforcing_db, tenant: str, index: int
 ) -> None:
     """No WHERE clause anywhere — the scoping is entirely the GUC."""
     with _as_probe(enforcing_db, tenant) as conn:
-        assert conn.execute("SELECT count(*) FROM customers").fetchone()[0] == customers
-        # accounts carries no tenant_id: it is scoped through customers.
-        assert conn.execute("SELECT count(*) FROM accounts").fetchone()[0] == accounts
+        for table, pair in _SEEDED_COUNTS.items():
+            got = conn.execute(f"SELECT count(*) FROM {_ident(table)}").fetchone()[0]
+            assert got == pair[index], (
+                f"{table}: {got} visible to {tenant}, expected {pair[index]}"
+            )
 
 
-@requires_scratch_db
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
+def test_every_covered_table_is_scoped_to_the_guc(enforcing_db) -> None:
+    """Bare ``SELECT count(*)`` as the probe role, every derived policy table.
+
+    A two-table sample stays green while a hop-2 policy follows the wrong
+    parent. Walking the plan makes a new table a failure rather than a gap.
+    Empty tables assert 0=0, which still proves the policy executes.
+    """
+    with enforcing_db["engine"].begin() as owner:
+        policies = rls.plan(owner)
+        expected = {
+            tenant: _owned_counts(owner, policies, tenant)
+            for tenant in ("acme.bank", "rival.bank")
+        }
+
+    mismatches: list[str] = []
+    for tenant, counts in expected.items():
+        with _as_probe(enforcing_db, tenant) as conn:
+            for table, want in counts.items():
+                got = conn.execute(f"SELECT count(*) FROM {_ident(table)}").fetchone()[0]
+                if got != want:
+                    mismatches.append(
+                        f"{table} as {tenant}: {got} visible, {want} owned"
+                    )
+    assert mismatches == [], (
+        "probe role saw a different row count than the tenant predicate "
+        "on the owner connection:\n  " + "\n  ".join(mismatches)
+    )
+
+
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
 def test_a_write_into_another_tenant_is_rejected(enforcing_db) -> None:
     """``WITH CHECK`` — reading is not the only way to cross a tenant boundary."""
     import psycopg
@@ -318,15 +438,23 @@ def test_a_write_into_another_tenant_is_rejected(enforcing_db) -> None:
                 "INSERT INTO customers (id, tenant_id, name, risk) "
                 "VALUES ('sneak','rival.bank','Sneak','low')"
             )
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(
+                "INSERT INTO ledger_entries "
+                "(id, account_id, type, amount, posted_at) "
+                "VALUES ('sneak-ledger','rival.bank-acct-0','charge',1,now())"
+            )
 
 
-@requires_scratch_db
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
 def test_an_unknown_tenant_sees_nothing(enforcing_db) -> None:
     with _as_probe(enforcing_db, "nobody.bank") as conn:
-        assert conn.execute("SELECT count(*) FROM customers").fetchone()[0] == 0
+        for table in _SEEDED_COUNTS:
+            got = conn.execute(f"SELECT count(*) FROM {_ident(table)}").fetchone()[0]
+            assert got == 0, f"{table}: unknown tenant saw {got} rows"
 
 
-@requires_scratch_db
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
 def test_the_owner_still_bypasses_every_policy(enforcing_db) -> None:
     """Not a wart to fix here — the reason ``verify_as`` exists.
 
@@ -340,9 +468,10 @@ def test_the_owner_still_bypasses_every_policy(enforcing_db) -> None:
         enforcing_db["owner_url"], options="-c app.tenant_id=acme.bank"
     ) as conn:
         assert conn.execute("SELECT count(*) FROM customers").fetchone()[0] == 8
+        assert conn.execute("SELECT count(*) FROM ledger_entries").fetchone()[0] == 8
 
 
-@requires_scratch_db
+@pytest.mark.skipif(not _scratch_url(), reason=_SCRATCH_REASON)
 def test_enable_rolls_back_when_a_policy_hides_rows(enforcing_db) -> None:
     """The safety net, exercised against a deliberately broken policy.
 
