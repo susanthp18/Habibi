@@ -16,6 +16,70 @@ account `susanth.p@bigtapp.ai` (Pro), invoked `-p --force --trust`.
 
 ---
 
+## WP-003 — Inventory the consent rows already corrupted
+
+| | |
+|---|---|
+| **Executed** | 2026-09-04, after `WP-002` landed (`22ef7c5`) |
+| **Implementer** | none — read-only SQL, run by the orchestrator |
+| **Answer** | **Zero corrupted rows. The mechanism was real and never fired here.** |
+
+### What was measured
+
+| Signature | Rows |
+|---|---:|
+| `consent_records` total | 19 |
+| `allowed_days` containing an en-dash | **0** |
+| `allowed_days` collapsed to a single day (`Mon-Mon`, …) | **0** |
+| `allowed_days` or `allowed_hours` NULL | **0** |
+| `allowed_hours` exactly `'10:00-19:00 IST'` | 12 |
+| `activity_events` where `kind = 'consent_updated'` | **0** |
+
+Every `allowed_days` value is `Mon-Sat` with an **ASCII hyphen**, which round-trips
+cleanly: `_parse_allowed_days('Mon-Sat')` → `[1..6]` → `_format_allowed_days` →
+`'Mon-Sat'`. The collapse to `'Mon-Mon'` needs an en-dash to start with, and none
+is present.
+
+### The ambiguity the backlog expected, resolved rather than left open
+
+WP-003 anticipated that rows sitting at the serializer default would be
+indistinguishable between *"the borrower chose this"* and *"a save fabricated it"*,
+because there is no history table. The seed settles it:
+
+- `seed_postgres.py:859` — `"allowed_hours": contact.get("preferredWindow") or "10:00-19:00 IST"` — accounts for the 12.
+- `seed_susanth.py:172` — `"allowed_hours": "10:00-19:00"` — accounts for the 1 row without the `IST` suffix.
+- The 6 rows carrying an **en-dash in `allowed_hours`** (`18:00–21:00 IST`, `09:00–13:00 IST`, `10:00–17:00 IST`, `11:00–18:00 IST`, and two at `10:00–19:00 IST`) come from `preferredWindow` in the source data. **Harmless**: `_parse_allowed_hours` matches `(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})`, whose `.*?` spans any dash, so hours parse correctly either way.
+
+**All 19 rows are accounted for by seeding.** None bears the signature of a
+write-back.
+
+### Two corrections to the backlog
+
+1. **The en-dash lives in `allowed_hours`, not `allowed_days`.** WP-003's query
+   targets `allowed_days` and therefore finds nothing by construction. The audit
+   corpus was right that *"this database already holds both `10:00-19:00 IST` and
+   `10:00–19:00 IST`"* — it is the hours column, where the parser tolerates it.
+2. **There is no `consent_updated` trail at all** — not the single contentless row
+   the backlog assumed, but **zero**. Consistent with the PATCH path never having
+   run against this corpus, which is also why there is no damage.
+
+### What this does and does not license
+
+It does **not** retire `WP-002`. The mechanism was live: an operator toggling a
+channel on a borrower whose `allowed_days` had been typed with an en-dash would
+have written `'Mon-Mon'`, and there would have been no record of it. This corpus
+simply never had such a row, and the console has apparently never PATCHed consent
+here.
+
+**Acceptance criteria met**: a written count, and a decision per affected row —
+the affected set being empty, no borrower needs re-confirming and nothing needs
+restoring.
+
+`WP-030` (the en-dash parser) is now unblocked: the evidence `WP-003` existed to
+protect is a count of zero, so fixing the parser can no longer destroy it.
+
+---
+
 ## WP-012 / WP-013 — `.env` reaches the line that decides production, and that line is an allow-list
 
 | | |

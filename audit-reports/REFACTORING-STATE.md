@@ -288,17 +288,17 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 70. Status: 8 completed, 62 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 70. Status: 9 completed, 61 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
 | **READY** — no unmet prerequisite; can begin today | **31** |
-| **BLOCKED** — has an unmet prerequisite | **31** |
+| **BLOCKED** — has an unmet prerequisite | **30** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
 | **IN PROGRESS** | **0** |
-| **COMPLETED** | **8** |
+| **COMPLETED** | **9** |
 
-### COMPLETED (8)
+### COMPLETED (9)
 
 | WP | Commit | Verified by | Residual |
 |---|---|---|---|
@@ -306,6 +306,7 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 | **`WP-066`** allowlist the expiry scanner | `52712ff` (2026-09-04) | 8/8 in the file, `ruff` clean, suite passed count unchanged at 3,148 | none |
 | **`WP-005`** cardless inventory | — *(no code; an answer)* | Live query: **0 of 18** prompt versions cardless, all 18 parse; the 2 cardless bots have **no deployment rows** and are archived on purpose | none — **it unblocked `WP-004`** |
 | **`WP-001`** deploy identity + rollback | `06e90b1` (2026-09-04) | `compose config --images` unchanged by default and SHA-resolving when set; `npm run build` PASS; every factual claim in `rollback.md` checked against migration source | first rollback not executable until one SHA is published |
+| **`WP-003`** inventory corrupted consent rows | — *(no code; an answer)* | **0 corrupted rows of 19.** No en-dashed `allowed_days`, no collapsed `Mon-Mon`, no NULLs, and **0** `consent_updated` events. All 19 explained by `seed_postgres.py:859` / `seed_susanth.py:172` | none — **it unblocks `WP-030`** |
 | **`WP-012`** `load_env()` before `_IS_PROD` | `2350a14` (2026-09-04) | Container **3,176 passed · 4 failed** (mount artefacts). Cleared of a concurrent flake by measurement: `load_env()` adds **0** keys inside the container | none |
 | **`WP-013`** unrecognised `APP_ENV` is production | `70d91be` (2026-09-04) | Container **3,181 passed · 20 skipped · 4 failed**. New `production-envelope` CI job; allow-list verified across six `APP_ENV` values | `env_utils.NON_PROD_ENVS` still a wider set — deliberately not unified · **`WP-070`** decision open |
 | **`WP-002`** stop the consent write-back | `22ef7c5` (2026-09-04) | Container **3,173 passed · 19 skipped · 4 failed** (mount artefacts only, run at 00:48 UTC); frontend `tsc` clean, 112/112 vitest, build PASS. Took **3 rounds** — round 2 reported `DONE` on a defect it had not fixed | rows already rewritten stay unrecoverable — **`WP-003`** now unblocked |
