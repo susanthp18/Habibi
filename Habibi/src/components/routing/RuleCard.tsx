@@ -1,4 +1,12 @@
-import { GripVertical, MoreVertical, Copy, Trash2, Pencil } from "lucide-react";
+import {
+  GripVertical,
+  MoreVertical,
+  Copy,
+  Trash2,
+  Pencil,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import type { Rule } from "@/data/routing-seed";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -6,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RuleChips } from "./RuleChips";
@@ -21,6 +30,8 @@ type Props = {
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   onDragStart: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: () => void;
@@ -43,6 +54,8 @@ export function RuleCard({
   onEdit,
   onDuplicate,
   onDelete,
+  onMoveUp,
+  onMoveDown,
   onDragStart,
   onDragOver,
   onDrop,
@@ -95,11 +108,25 @@ export function RuleCard({
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label={`Actions for ${rule.name}`}
+                >
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={!onMoveUp} onClick={onMoveUp}>
+                  <ChevronUp className="mr-100 h-4 w-4" />
+                  Move up
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!onMoveDown} onClick={onMoveDown}>
+                  <ChevronDown className="mr-100 h-4 w-4" />
+                  Move down
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onEdit}>
                   <Pencil className="mr-100 h-4 w-4" />
                   Edit

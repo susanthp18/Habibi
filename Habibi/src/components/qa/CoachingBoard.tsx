@@ -36,7 +36,7 @@ export function CoachingBoard({
     <div className="space-y-150">
       <div className="flex items-center justify-between">
         <div className="text-body-small text-text-subtle">
-          Assign actions to agents; drag between columns to update status.
+          Assign actions to agents; set status on the card or drag between columns.
         </div>
         <button
           onClick={onNew}
@@ -75,41 +75,62 @@ export function CoachingBoard({
                 {items.map((a) => {
                   const d = daysUntil(a.dueAt);
                   const overdue = d < 0 && col.key !== "done";
+                  const statusLabel = `Status for ${a.title}`;
                   return (
                     <div
                       key={a.id}
                       draggable
                       onDragStart={(e) => e.dataTransfer.setData("text/plain", a.id)}
-                      onClick={() => onOpen(a.id)}
-                      className="group cursor-pointer rounded-medium border border-border bg-surface px-150 py-100 hover:border-border-brand"
+                      className="group rounded-medium border border-border bg-surface px-150 py-100 hover:border-border-brand"
                     >
-                      <div className="flex items-start justify-between gap-100">
-                        <div className="text-body-small font-medium text-text">{a.title}</div>
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-subtlest opacity-0 group-hover:opacity-100" />
-                      </div>
-                      <div className="mt-050 text-body-small text-text-subtle">
-                        {a.agentId} · {a.category}
-                      </div>
-                      <div className="mt-075 flex items-center gap-100 text-body-small">
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-050",
-                            overdue ? "text-text-danger-bolder" : "text-text-subtlest",
-                          )}
-                        >
-                          <Calendar className="h-3 w-3" />{" "}
-                          {overdue
-                            ? `${Math.abs(d)}d overdue`
-                            : d === 0
-                              ? "Due today"
-                              : `${d}d left`}
-                        </span>
-                        {a.callId && (
-                          <span className="inline-flex items-center gap-050 text-text-subtlest">
-                            <Link2 className="h-3 w-3" /> Call
+                      <button
+                        type="button"
+                        onClick={() => onOpen(a.id)}
+                        className="focus-ring w-full rounded-medium text-left"
+                      >
+                        <div className="flex items-start justify-between gap-100">
+                          <div className="text-body-small font-medium text-text">{a.title}</div>
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-subtlest opacity-0 group-hover:opacity-100" />
+                        </div>
+                        <div className="mt-050 text-body-small text-text-subtle">
+                          {a.agentId} · {a.category}
+                        </div>
+                        <div className="mt-075 flex items-center gap-100 text-body-small">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-050",
+                              overdue ? "text-text-danger-bolder" : "text-text-subtlest",
+                            )}
+                          >
+                            <Calendar className="h-3 w-3" />{" "}
+                            {overdue
+                              ? `${Math.abs(d)}d overdue`
+                              : d === 0
+                                ? "Due today"
+                                : `${d}d left`}
                           </span>
-                        )}
-                      </div>
+                          {a.callId && (
+                            <span className="inline-flex items-center gap-050 text-text-subtlest">
+                              <Link2 className="h-3 w-3" /> Call
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                      <label className="mt-075 block">
+                        <span className="sr-only">{statusLabel}</span>
+                        <select
+                          value={a.status}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onChange={(e) => onMove(a.id, e.target.value as CoachingStatus)}
+                          className="focus-ring w-full rounded-medium border border-border bg-surface px-100 py-050 text-body-small text-text"
+                        >
+                          {COLS.map((option) => (
+                            <option key={option.key} value={option.key}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
                   );
                 })}

@@ -49,6 +49,7 @@ export function LiveTable({
         id: "customer",
         header: "Customer",
         sticky: true,
+        rowActivator: true,
         sortable: true,
         sortValue: (r) => r.customer,
         cell: (r) => (

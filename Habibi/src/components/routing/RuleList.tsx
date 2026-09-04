@@ -73,6 +73,8 @@ export function RuleList(props: Props) {
             onEdit={() => props.onEdit(r.id)}
             onDuplicate={() => props.onDuplicate(r.id)}
             onDelete={() => props.onDelete(r.id)}
+            onMoveUp={i > 0 ? () => props.onReorder(i, i - 1) : undefined}
+            onMoveDown={i < props.rules.length - 1 ? () => props.onReorder(i, i + 1) : undefined}
             onDragStart={() => setDragIdx(i)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => {

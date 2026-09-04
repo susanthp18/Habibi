@@ -12,6 +12,11 @@ export type RecordsColumn<T> = {
   headerIcon?: ReactNode;
   /** Stick as the leftmost identity column (after optional checkbox). */
   sticky?: boolean;
+  /**
+   * Wrap this cell in a button that activates `onRowClick`.
+   * Use on the identity column when the row has no other button or link.
+   */
+  rowActivator?: boolean;
   sortable?: boolean;
   sortValue?: (row: T) => string | number | null | undefined;
   align?: "left" | "right" | "center";
@@ -274,7 +279,20 @@ export function RecordsTable<T>({
                           col.className,
                         )}
                       >
-                        {col.cell(row)}
+                        {onRowClick && col.rowActivator ? (
+                          <button
+                            type="button"
+                            className="focus-ring block w-full min-w-0 max-w-full rounded-medium text-left"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRowClick(row);
+                            }}
+                          >
+                            {col.cell(row)}
+                          </button>
+                        ) : (
+                          col.cell(row)
+                        )}
                       </td>
                     ))}
                   </tr>
