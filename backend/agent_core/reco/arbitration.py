@@ -17,6 +17,7 @@ from typing import Any, Sequence
 
 from sqlalchemy import text
 
+from contact_policy import BLOCKING_CONSENT
 from agent_core.reco.config import Policy
 from agent_core.reco.features import CallSignals, CustomerFeatures
 from agent_core.reco.scoring import ScoredOffer
@@ -35,8 +36,6 @@ SUPPRESS_CALL_CAP = "per_call_cap_reached"
 SUPPRESS_CUSTOMER_CAP = "per_customer_cap_reached"
 SUPPRESS_NO_CANDIDATES = "no_eligible_candidates"
 SUPPRESS_BELOW_THRESHOLD = "below_score_threshold"
-
-_CONSENT_BLOCKING = frozenset({"opted_out", "dnd", "expired"})
 
 
 @dataclass(frozen=True)
@@ -73,7 +72,7 @@ def arbitrate(
         return _no(SUPPRESS_DND)
 
     consent = features.consent_by_channel.get(channel)
-    if consent in _CONSENT_BLOCKING:
+    if consent in BLOCKING_CONSENT:
         return _no(SUPPRESS_CONSENT)
 
     # --- conversation state ------------------------------------------------

@@ -21,12 +21,12 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 import webhooks_dispatch
+from contact_policy import BLOCKING_CONSENT
 from env_loader import load_env
 
 logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
-BLOCKING_CONSENT = frozenset({"opted_out", "dnd", "expired"})
 OPEN_INTENT = ("created", "sent", "opened")
 
 

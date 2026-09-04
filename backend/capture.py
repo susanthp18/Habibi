@@ -20,6 +20,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from contact_policy import BLOCKING_CONSENT
+
 logger = logging.getLogger(__name__)
 
 PRODUCT_INTENTS = frozenset({"upsell_opportunity", "product_faq"})
@@ -327,9 +329,6 @@ ELIGIBILITY_RULE_UNSUPPORTED = "rule_unsupported"
 # to offer.
 _LIVE_ACCOUNT_STATUSES = frozenset({"active", "delinquent", "overdue", "current", "open"})
 
-# Promotional contact is blocked on a channel in any of these states.
-_CONSENT_BLOCKING_STATUSES = frozenset({"opted_out", "dnd", "expired"})
-
 # Legacy fallback for flag dicts persisted/round-tripped before `blocking`
 # existed (e.g. eligibilityFlags supplied on a create_lead payload).
 _LEGACY_BLOCKING_LABEL_KEYWORDS = ("consent", "dnd", "account on file", "dpd")
@@ -477,7 +476,7 @@ def _promo_consent_flag(
     promo = promotional or {}
     if channel:
         promo_status = promo.get(channel)
-        if promo_status in _CONSENT_BLOCKING_STATUSES:
+        if promo_status in BLOCKING_CONSENT:
             return False, "fail", f"{channel} promotional consent is {promo_status}"
 
     # An unknown carries passed=False alongside status="unknown", matching the
@@ -488,15 +487,15 @@ def _promo_consent_flag(
         status = consent.get(channel)
         if status is None:
             return False, "unknown", f"No {channel} consent record on file - skipped (unknown)"
-        if status in _CONSENT_BLOCKING_STATUSES:
+        if status in BLOCKING_CONSENT:
             return False, "fail", f"{channel} consent is {status}"
         return True, "pass", f"{channel} consent is {status}"
 
-    if consent and all(s in _CONSENT_BLOCKING_STATUSES for s in consent.values()):
+    if consent and all(s in BLOCKING_CONSENT for s in consent.values()):
         closed = ", ".join(sorted(consent))
         return False, "fail", f"Every recorded channel is opted out ({closed})"
 
-    blocked = sorted(ch for ch, s in consent.items() if s in _CONSENT_BLOCKING_STATUSES)
+    blocked = sorted(ch for ch, s in consent.items() if s in BLOCKING_CONSENT)
     if blocked:
         return (
             False,
@@ -998,7 +997,7 @@ def _pred_requires_consent_channel(
             status="unknown",
             reason=f"No {channel} consent record on file - skipped (unknown)",
         )
-    ok = status not in _CONSENT_BLOCKING_STATUSES
+    ok = status not in BLOCKING_CONSENT
     return _rule_flag(
         rule_id=rid,
         code=ELIGIBILITY_RULE_CONSENT_CHANNEL,

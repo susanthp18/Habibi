@@ -21,11 +21,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
+from contact_policy import BLOCKING_CONSENT
 from env_loader import load_env
 
 logger = logging.getLogger(__name__)
 
-BLOCKING_CONSENT = frozenset({"opted_out", "dnd", "expired"})
 REASONS = frozenset(
     {"insufficient_funds", "account_closed", "mandate_expired", "technical", "unknown"}
 )
