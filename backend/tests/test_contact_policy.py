@@ -410,3 +410,85 @@ def test_admit_fails_closed_when_consent_is_unreadable(
         {"id": cid},
     ).scalar()
     assert int(after or 0) == int(before or 0)
+
+
+def test_repeat_dial_increments_the_frequency_ledger(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two operator dials ten seconds apart are two counted touches.
+
+    Session coalescing is for a conversation thread (one session_key, many
+    messages). A reserved attempt is not a thread. Each "Call now" click
+    reserves a fresh attempt id and must consume its own cap slot — otherwise
+    the daily cap of 3 records one ring for a thirty-minute burst.
+    """
+    cid = _prep(db_tx, monkeypatch)
+    first_at = _noon()
+    first = _admit(
+        db_tx,
+        cid,
+        channel="voice",
+        session_key="CA-1",
+        related_id="CA-1",
+        source="voice_outbound",
+        now=first_at,
+    )
+    second = _admit(
+        db_tx,
+        cid,
+        channel="voice",
+        session_key="CA-2",
+        related_id="CA-2",
+        source="voice_outbound",
+        now=first_at + timedelta(seconds=10),
+    )
+    assert first.allowed and second.allowed
+    assert first.touch_counted and second.touch_counted
+    counted = db_tx.execute(
+        text(
+            """
+            SELECT count(*) FROM contact_events
+            WHERE customer_id = :id AND outcome = 'allowed' AND touch_counted
+              AND related_id IN ('CA-1', 'CA-2')
+            """
+        ),
+        {"id": cid},
+    ).scalar()
+    assert int(counted) == 2
+    third = _admit(
+        db_tx,
+        cid,
+        channel="voice",
+        session_key="CA-3",
+        related_id="CA-3",
+        source="voice_outbound",
+        now=first_at + timedelta(seconds=20),
+    )
+    fourth = _admit(
+        db_tx,
+        cid,
+        channel="voice",
+        session_key="CA-4",
+        related_id="CA-4",
+        source="voice_outbound",
+        now=first_at + timedelta(seconds=30),
+    )
+    assert third.allowed and third.touch_counted
+    assert not fourth.allowed
+    assert fourth.reason == "daily_cap"
+
+
+def test_dial_endpoints_key_the_attempt_not_the_customer() -> None:
+    """The two HTTP dial paths must not pass customer_id as session_key.
+
+    Cadence and campaigns already key the attempt. The endpoints used the
+    borrower, which is what turned coalescing into a cap bypass.
+    """
+    import inspect
+
+    import main
+
+    for fn in (main.twilio_voice_outbound, main.demo_outbound_call):
+        src = inspect.getsource(fn)
+        assert "session_key=customer_id" not in src
+        assert 'session_key=attempt["id"]' in src

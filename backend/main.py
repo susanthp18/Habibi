@@ -3851,7 +3851,11 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
             customer_id=customer_id or None,
             channel="voice",
             purpose="outreach",
-            session_key=customer_id or to,
+            # Each reserved attempt is its own session. Keying this on the
+            # borrower coalesced a burst of operator clicks into one counted
+            # touch and left the daily cap recording a single ring for the
+            # whole burst. Cadence and campaigns already pass attempt id.
+            session_key=attempt["id"] if attempt else None,
             source="voice_outbound",
             related_id=attempt["id"] if attempt else to,
             actor_kind="human",
@@ -4171,7 +4175,11 @@ async def demo_outbound_call():
             customer_id=customer_id,
             channel="voice",
             purpose="outreach",
-            session_key=customer_id,
+            # Each reserved attempt is its own session. Keying this on the
+            # borrower coalesced a burst of operator clicks into one counted
+            # touch and left the daily cap recording a single ring for the
+            # whole burst. Cadence and campaigns already pass attempt id.
+            session_key=attempt["id"] if attempt else None,
             source="voice_outbound",
             related_id=attempt["id"] if attempt else phone,
             actor_kind="human",
