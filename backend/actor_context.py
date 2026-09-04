@@ -2,7 +2,7 @@
 
 Until OIDC/JWT lands, identity is resolved from:
   1. ``API_KEY_MAP`` JSON ``{"secret":"user-id", ...}`` — per-user keys (preferred)
-  2. Shared ``API_KEY`` + optional ``X-Actor-User-Id`` (dev / ALLOW_ACTOR_HEADER)
+  2. Shared ``API_KEY`` + optional ``X-Actor-User-Id`` (when ``ALLOW_ACTOR_HEADER`` is on)
   3. Fallback ``ACTOR_USER_ID`` env
 
 ``db._actor_user_id()`` reads the ContextVar set by ApiKeyMiddleware so every
@@ -52,7 +52,9 @@ def reset_actor_user_id(token: Any) -> None:
 
 
 def _app_is_prod() -> bool:
-    return (os.getenv("APP_ENV") or "dev").strip().lower() in {"prod", "production"}
+    # Same laptop allow-list as main._IS_PROD. Unrecognised names (staging,
+    # a typo) are production — they must not inherit the open envelope.
+    return (os.getenv("APP_ENV") or "dev").strip().lower() not in {"dev", "test", "local"}
 
 
 def _allow_actor_header() -> bool:
@@ -62,6 +64,10 @@ def _allow_actor_header() -> bool:
     if raw in {"0", "false", "no", "off"}:
         return False
     # Default: allow in non-prod only (shared API_KEY must not spoof in prod).
+    # ``_app_is_prod`` is now an allow-list, so staging and typos already
+    # default to off. Making unset mean off everywhere is a separate decision
+    # with a cost — it silently drops the console's X-Actor-User-Id and
+    # re-attributes every action to ACTOR_USER_ID. Tracked as WP-070.
     return not _app_is_prod()
 
 

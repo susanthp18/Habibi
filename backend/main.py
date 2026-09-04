@@ -204,9 +204,10 @@ from schemas import (
 
 logger = logging.getLogger(__name__)
 
-# APP_ENV=production (or prod) enables fail-closed auth + disabled OpenAPI docs.
+# Unrecognised APP_ENV is production. Only an explicit laptop name keeps the
+# open envelope — a typo or APP_ENV=staging must not silently disable auth.
 _APP_ENV = (os.getenv("APP_ENV") or "dev").strip().lower()
-_IS_PROD = _APP_ENV in {"prod", "production"}
+_IS_PROD = _APP_ENV not in {"dev", "test", "local"}
 
 # Cap multipart uploads (STT / KB) — reject before buffering unbounded bytes.
 _MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES") or str(25 * 1024 * 1024))
@@ -271,7 +272,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
     Actor resolution (see ``actor_context``):
       - ``API_KEY_MAP`` JSON maps each secret → ``users.id``
       - shared ``API_KEY`` → ``ACTOR_USER_ID``, or ``X-Actor-User-Id`` when
-        ``ALLOW_ACTOR_HEADER`` is on (default: non-prod only)
+        ``ALLOW_ACTOR_HEADER`` is on (default: off; must be set explicitly)
     """
 
     async def dispatch(self, request: Request, call_next: Callable):
@@ -293,7 +294,10 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         actor_header = (request.headers.get("x-actor-user-id") or "").strip() or None
         key_map = actor_context.parse_api_key_map()
         single = (os.getenv("API_KEY") or "").strip()
-        auth_required = bool(single or key_map)
+        # Absent credentials are a refusal, not a mode. Production-like
+        # environments require a key even if the operator left both unset
+        # (the lifespan check should have refused to boot; this is the belt).
+        auth_required = _IS_PROD or bool(single or key_map)
 
         if auth_required and not provided:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
@@ -408,14 +412,15 @@ def _assert_hardening_gate() -> None:
     ack = (os.getenv("ALLOW_UNHARDENED_PRODUCTION") or "").strip().lower()
     if ack in {"1", "true", "yes", "on"}:
         logger.error(
-            "Booting with APP_ENV=production while deferred controls are still "
+            "Booting with APP_ENV=%s while deferred controls are still "
             "inactive (%s) — ALLOW_UNHARDENED_PRODUCTION is set. This deployment "
             "must not receive real customer data.",
+            _APP_ENV,
             ", ".join(_DEFERRED_HARDENING_CONTROLS),
         )
         return
     raise RuntimeError(
-        "APP_ENV=production but the data layer's deferred controls are not active: "
+        f"APP_ENV={_APP_ENV} but the data layer's deferred controls are not active: "
         + "; ".join(_DEFERRED_HARDENING_CONTROLS)
         + ". Run this build locally, or set ALLOW_UNHARDENED_PRODUCTION=1 to "
         "explicitly accept the risk."
@@ -434,11 +439,14 @@ async def lifespan(_app: FastAPI):
     # Mirror FE mock fail-closed: prod without credentials must not boot.
     has_auth = bool((os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map())
     if _IS_PROD and not has_auth:
-        raise RuntimeError("API_KEY or API_KEY_MAP must be set when APP_ENV=production")
+        raise RuntimeError(
+            f"API_KEY or API_KEY_MAP must be set when APP_ENV={_APP_ENV!r} "
+            "(only dev/test/local may boot without credentials)"
+        )
     if not has_auth:
         logger.warning(
             "API_KEY / API_KEY_MAP unset — CRM routes are public. "
-            "Set credentials (required when APP_ENV=production)."
+            "Set credentials (required outside APP_ENV=dev/test/local)."
         )
 
     try:

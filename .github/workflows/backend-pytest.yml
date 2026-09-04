@@ -202,3 +202,40 @@ jobs:
           RUN_ALEMBIC_ROUNDTRIP: "0"
           SCHEMA_PARITY_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_parity
           RLS_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_rls
+
+  # The job above freezes ``_IS_PROD`` False at import (APP_ENV=dev). Two tests
+  # already setattr it True to reach the fail-closed branch, which is how the
+  # import-time two-string allowlist survived. This job starts as production so
+  # the freeze itself is what is under test. It does not boot the API — deferred
+  # hardening correctly refuses — and it does not set ALLOW_UNHARDENED_PRODUCTION.
+  production-envelope:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: production
+      API_KEY: ci-test-api-key
+      ACTOR_USER_ID: priya-nair
+      DATABASE_URL: postgresql+psycopg://collections:collections@localhost:5432/collections
+      AZURE_OPENAI_API_KEY: "ci-not-a-real-key"
+      AZURE_OPENAI_API_VERSION: "2024-10-21"
+      AZURE_OPENAI_ENDPOINT: "https://ci.invalid/"
+      AZURE_OPENAI_CHAT_DEPLOYMENT: "ci-chat"
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: "ci-embedding"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pytest production envelope
+        run: pytest -q tests/test_unrecognised_app_env_is_production.py

@@ -81,6 +81,63 @@ def test_actor_header_ignored_in_production(monkeypatch: pytest.MonkeyPatch) -> 
     assert actor == "priya-nair"
 
 
+def test_staging_without_credentials_is_unauthorized(monkeypatch: pytest.MonkeyPatch) -> None:
+    """APP_ENV=staging is production for identity: missing keys refuse, not spoof."""
+    import actor_context
+
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("API_KEY_MAP", raising=False)
+    monkeypatch.delenv("ALLOW_ACTOR_HEADER", raising=False)
+    actor_context.reload_api_key_map()
+
+    ok, actor, err = actor_context.resolve_authenticated_actor(
+        provided_key="", actor_header="priya-nair"
+    )
+    assert not ok
+    assert actor is None
+    assert err == "unauthorized"
+
+
+def test_actor_header_off_for_an_unrecognised_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset ALLOW_ACTOR_HEADER must not inherit 'on' from an unrecognised APP_ENV.
+
+    ``dev``/``test``/``local`` still default to on — that is the laptop
+    affordance the console's ``X-Actor-User-Id`` depends on. ``staging`` is not
+    one of them, and before WP-013 it was treated as non-production and could
+    therefore spoof the actor behind a shared API key.
+    """
+    import actor_context
+    import db
+
+    if not db.user_exists("priya-nair"):
+        pytest.skip("priya-nair not seeded")
+
+    monkeypatch.setenv("API_KEY", "shared-dev-key")
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("ACTOR_USER_ID", "priya-nair")
+    monkeypatch.delenv("ALLOW_ACTOR_HEADER", raising=False)
+    actor_context.reload_api_key_map()
+
+    # A header that would 400 if honoured (see test_unknown_actor_header_rejected)
+    # must be ignored: staging is production for this purpose.
+    ok, actor, err = actor_context.resolve_authenticated_actor(
+        provided_key="shared-dev-key",
+        actor_header="definitely-not-a-real-user-id",
+    )
+    assert ok and err is None
+    assert actor == "priya-nair"
+
+    monkeypatch.setenv("ALLOW_ACTOR_HEADER", "true")
+    ok, actor, err = actor_context.resolve_authenticated_actor(
+        provided_key="shared-dev-key",
+        actor_header="definitely-not-a-real-user-id",
+    )
+    assert not ok
+    assert actor is None
+    assert err == "actor_not_found"
+
+
 def test_parse_api_key_map_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     import actor_context
 
