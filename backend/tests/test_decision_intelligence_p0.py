@@ -23,6 +23,7 @@ exactly what it chose before.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -700,6 +701,30 @@ def test_simulated_is_not_a_mode_the_engine_can_be_set_to(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+class _EngineOnConnection:
+    """Engine duck-type whose ``begin()`` is a savepoint on one lent connection.
+
+    ``sweep.process_one`` takes an Engine and opens ``engine.begin()``. The
+    tests below used to pass ``db.engine`` after deleting setup rows on
+    ``db_tx`` — two different sessions. The deletes never committed, the sweep
+    could not see them, and the same code answered True or False depending on
+    whatever committed cursor and ``dpd_tick`` rows the worker had left behind.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    @contextmanager
+    def begin(self):
+        nested = self._conn.begin_nested()
+        try:
+            yield self._conn
+            nested.commit()
+        except Exception:
+            nested.rollback()
+            raise
+
+
 def test_the_sweep_is_off_until_somebody_turns_it_on(monkeypatch) -> None:
     """A worker that starts deciding across an entire book the moment it is
     deployed is a worker nobody chose to run."""
@@ -724,17 +749,18 @@ def test_the_sweep_decides_the_book_and_then_stops(db_tx, monkeypatch) -> None:
     sweep that reported work on an empty batch would spin, and starve every
     other loop in ``bot_worker``.
     """
-    import db as dbmod
     from agent_core.treatment import sweep
 
     monkeypatch.setenv("TREATMENT_SWEEP", "1")
     monkeypatch.setenv("TREATMENT_MODE", config.MODE_SHADOW)
 
-    # Clear today's sweep and the cursor inside the fixture's transaction, so
-    # the write path is exercised on every run rather than only on the first
-    # one of the day. Without this the test passes vacuously the moment anybody
-    # has swept the dev database, which is the state it will spend most of its
-    # life in.
+    # Clear today's sweep and the cursor on the same connection the sweep will
+    # use, so the write path is exercised on every run rather than only on the
+    # first one of the day. Without this the test passes vacuously the moment
+    # anybody has swept the dev database, which is the state it will spend most
+    # of its life in. The deletes stay inside the fixture transaction; the
+    # sweep must too, or it reads the committed residue and this assertion
+    # becomes a coin flip.
     db_tx.execute(
         text(
             "DELETE FROM treatment_decisions WHERE trigger_kind = 'dpd_tick'"
@@ -750,7 +776,8 @@ def test_the_sweep_decides_the_book_and_then_stops(db_tx, monkeypatch) -> None:
         text("SELECT count(*) FROM treatment_decisions WHERE trigger_kind = 'dpd_tick'")
     ).scalar()
 
-    assert sweep.process_one(dbmod.engine) is True
+    engine = _EngineOnConnection(db_tx)
+    assert sweep.process_one(engine) is True
     after = db_tx.execute(
         text("SELECT count(*) FROM treatment_decisions WHERE trigger_kind = 'dpd_tick'")
     ).scalar()
@@ -765,7 +792,7 @@ def test_the_sweep_decides_the_book_and_then_stops(db_tx, monkeypatch) -> None:
     # simulated corpus of 18,000 accounts was loaded — and it would have broken
     # the same way on the first client with more than fifty delinquent
     # borrowers, which is every client.
-    sweep.process_one(dbmod.engine)
+    sweep.process_one(engine)
     duplicates = db_tx.execute(
         text(
             """
@@ -794,43 +821,39 @@ def test_the_sweep_reports_no_work_once_the_book_is_done(db_tx, monkeypatch) -> 
     work" and loops. A sweep that reported True on an empty tail would starve
     the enact and followthrough loops beside it.
     """
-    import db as dbmod
     from agent_core.treatment import sweep
 
     monkeypatch.setenv("TREATMENT_SWEEP", "1")
     monkeypatch.setenv("TREATMENT_MODE", config.MODE_SHADOW)
 
-    with dbmod.engine.begin() as conn:
-        tenant = sweep._tenant(conn)
-        assert tenant is not None
-        # The largest account id there is, so the next claim (`a.id > cursor`)
-        # comes back empty. Read from the table rather than invented: the
-        # comparison runs under the database's collation, and a hand-written
-        # sentinel that looks obviously largest in Python may not be under ICU.
-        last = conn.execute(
-            text("SELECT max(a.id) FROM accounts a WHERE a.status = 'active' AND a.dpd > 0")
-        ).scalar()
-        assert last, "no delinquent accounts to sweep past"
-        sweep._write_cursor(conn, tenant, str(last))
+    tenant = sweep._tenant(db_tx)
+    assert tenant is not None
+    # The largest account id there is, so the next claim (`a.id > cursor`)
+    # comes back empty. Read from the table rather than invented: the
+    # comparison runs under the database's collation, and a hand-written
+    # sentinel that looks obviously largest in Python may not be under ICU.
+    last = db_tx.execute(
+        text("SELECT max(a.id) FROM accounts a WHERE a.status = 'active' AND a.dpd > 0")
+    ).scalar()
+    assert last, "no delinquent accounts to sweep past"
+    sweep._write_cursor(db_tx, tenant, str(last))
 
-    assert sweep.process_one(dbmod.engine) is False
+    assert sweep.process_one(_EngineOnConnection(db_tx)) is False
 
     # ...and the tail resets the cursor, so tomorrow starts at the top of the
     # book rather than at the bottom. ``_read_cursor`` normalises the empty
     # string it was written to None, both meaning "start from the beginning".
-    with dbmod.engine.connect() as conn:
-        assert not sweep._read_cursor(conn, tenant)
+    assert not sweep._read_cursor(db_tx, tenant)
 
 
 def test_every_sweep_decision_carries_the_columns_it_exists_for(db_tx, monkeypatch) -> None:
     """A corpus row without a propensity is a row no estimator can use, and a
     row without a policy version cannot answer "under which rules?"."""
-    import db as dbmod
     from agent_core.treatment import sweep
 
     monkeypatch.setenv("TREATMENT_SWEEP", "1")
     monkeypatch.setenv("TREATMENT_MODE", config.MODE_SHADOW)
-    sweep.process_one(dbmod.engine)
+    sweep.process_one(_EngineOnConnection(db_tx))
 
     gaps = db_tx.execute(
         text(
