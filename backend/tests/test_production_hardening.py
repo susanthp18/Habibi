@@ -26,8 +26,15 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
     assert "/twilio/voice/fallback" in prefixes
     assert "/twilio/voice/stream-status" in prefixes
     assert "/twilio/voice/call-status" in prefixes
+    assert "/twilio/sms/status" in prefixes
+    assert "/webhooks/collections/payment-events" in prefixes
     assert "/twilio" not in prefixes
     assert "/twilio/voice/incoming/" not in prefixes  # trailing slash breaks startswith
+    # `/webhooks/payments` is a different tree; prefix matching does not
+    # cover the CBS bounce ingest path.
+    bounce = "/webhooks/collections/payment-events"
+    payments = "/webhooks/payments"
+    assert not (bounce == payments or bounce.startswith(payments + "/"))
 
     import actor_context
 
@@ -37,12 +44,16 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
     actor_context.reload_api_key_map()
     client = TestClient(app_main.app)
     try:
-        # Exempt: reaches the route (signature validation rejects it, not auth).
+        # Non-prod `_twilio_signature_ok` accepts a missing signature, so the
+        # old `!= 401` assertion was green while unsigned POSTs were accepted.
+        # Fail the signature check closed: 403 is the handler, 401 is the key.
+        monkeypatch.setattr(app_main, "_IS_PROD", True)
         res = client.post("/twilio/voice/incoming", data={})
-        assert res.status_code != 401, res.text
-        assert client.post("/twilio/voice/fallback", data={}).status_code != 401
-        assert client.post("/twilio/voice/stream-status", data={}).status_code != 401
-        assert client.post("/twilio/voice/call-status", data={}).status_code != 401
+        assert res.status_code == 403, res.text
+        assert res.json()["detail"] == "invalid_twilio_signature"
+        assert client.post("/twilio/voice/fallback", data={}).status_code == 403
+        assert client.post("/twilio/voice/stream-status", data={}).status_code == 403
+        assert client.post("/twilio/voice/call-status", data={}).status_code == 403
 
         # A path that merely shares the prefix is NOT exempt.
         res = client.get("/twilio-admin/secrets")
@@ -62,6 +73,108 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
         # Restore the environment BEFORE rebuilding the cache, and do it even
         # when an assertion fails: reloading first cached the map for this
         # test's own stripped environment, leaking into every later test.
+        monkeypatch.undo()
+        actor_context.reload_api_key_map()
+
+
+def test_sms_status_webhook_hmac_is_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unsigned SMS receipts 403 at the signature check; signed ones reach it.
+
+    This path was in ``authz.PUBLIC_ROUTES`` and missing from
+    ``_AUTH_EXEMPT_PREFIXES``, so with ``API_KEY`` set the middleware 401'd
+    and Twilio's HMAC never ran.
+    """
+    from fastapi.testclient import TestClient
+    from twilio.request_validator import RequestValidator
+
+    import actor_context
+    import main as app_main
+
+    token = "test-twilio-auth-token"
+    monkeypatch.setenv("API_KEY", "test-key-auth-exempt")
+    monkeypatch.delenv("API_KEY_MAP", raising=False)
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", token)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "")
+    actor_context.reload_api_key_map()
+    client = TestClient(app_main.app)
+    try:
+        monkeypatch.setattr(app_main, "_IS_PROD", True)
+
+        unsigned = client.post("/twilio/sms/status", data={})
+        assert unsigned.status_code == 403, unsigned.text
+        assert unsigned.json()["detail"] == "invalid_twilio_signature"
+
+        form = {"MessageSid": "SMtest", "MessageStatus": "delivered"}
+        url = "http://testserver/twilio/sms/status"
+        sig = RequestValidator(token).compute_signature(url, form)
+        signed = client.post(
+            "/twilio/sms/status",
+            data=form,
+            headers={"X-Twilio-Signature": sig},
+        )
+        # Unknown SID is 204, not 401 — the HMAC passed and the handler ran.
+        assert signed.status_code == 204, signed.text
+    finally:
+        monkeypatch.undo()
+        actor_context.reload_api_key_map()
+
+
+def test_payment_events_webhook_hmac_is_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unsigned CBS bounce ingest 401 at HMAC; a correct signature is accepted.
+
+    ``/webhooks/payments`` does not prefix-match this path, so it 401'd at
+    the API key even though ``PUBLIC_ROUTES`` declared the handler HMAC as
+    the authentication.
+    """
+    import hashlib
+    import hmac
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+
+    from fastapi.testclient import TestClient
+
+    import actor_context
+    import db
+    import main as app_main
+    import payment_events as pe
+
+    secret = "test-payment-events-secret"
+    monkeypatch.setenv("API_KEY", "test-key-auth-exempt")
+    monkeypatch.delenv("API_KEY_MAP", raising=False)
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("PAYMENT_EVENTS_WEBHOOK_SECRET", secret)
+    actor_context.reload_api_key_map()
+    monkeypatch.setattr(pe, "ingest", lambda *_a, **_k: {"ok": True})
+
+    client = TestClient(app_main.app)
+    try:
+        unsigned = client.post(
+            "/webhooks/collections/payment-events",
+            content=b"{}",
+            headers={"Content-Type": "application/json"},
+        )
+        assert unsigned.status_code == 401, unsigned.text
+        assert unsigned.json()["detail"] == "invalid_signature"
+
+        @contextmanager
+        def _begin():
+            yield MagicMock()
+
+        monkeypatch.setattr(db.engine, "begin", _begin)
+        raw = b'{"accountId":"a1","sourceRef":"ref-1"}'
+        sig = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+        signed = client.post(
+            "/webhooks/collections/payment-events",
+            content=raw,
+            headers={
+                "Content-Type": "application/json",
+                "X-Payment-Events-Signature": sig,
+            },
+        )
+        assert signed.status_code == 200, signed.text
+        assert signed.json() == {"ok": True}
+    finally:
         monkeypatch.undo()
         actor_context.reload_api_key_map()
 

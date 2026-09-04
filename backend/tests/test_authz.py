@@ -8,6 +8,8 @@ noticed it was ungated".
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -58,6 +60,65 @@ def test_registry_has_no_entries_for_routes_that_do_not_exist() -> None:
         if (m, p) not in live and (m, p) not in optional
     )
     assert not stale, f"authz registry references routes that do not exist: {stale}"
+
+
+# Authenticated, not API-key-exempt: any actor may read their own row.
+_SELF_SCOPED_PUBLIC = frozenset(
+    {
+        ("GET", "/me"),
+        ("GET", "/me/presence"),
+        ("PATCH", "/me/presence"),
+    }
+)
+# ApiKeyMiddleware special-cases POST /a2a before the prefix list.
+_MIDDLEWARE_SPECIAL_CASED = frozenset({("POST", "/a2a")})
+# Only present in _AUTH_EXEMPT_PREFIXES when the embedded voice host is on.
+_CONDITIONAL_ON_EMBEDDED_HOST = frozenset(
+    {
+        ("POST", "/api/offer"),
+        ("PATCH", "/api/offer"),
+        ("POST", "/voice-rtc/api/offer"),
+        ("PATCH", "/voice-rtc/api/offer"),
+    }
+)
+
+
+def _instantiate_path_template(path: str) -> str:
+    return re.sub(r"\{[^}]+\}", "x", path)
+
+
+def _matches_exempt_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
+    concrete = _instantiate_path_template(path)
+    return any(concrete == p or concrete.startswith(p + "/") for p in prefixes)
+
+
+def test_public_signature_routes_are_api_key_exempt() -> None:
+    """``PUBLIC_ROUTES`` and ``_AUTH_EXEMPT_PREFIXES`` are one policy.
+
+    They used to disagree on ``POST /twilio/sms/status`` and
+    ``POST /webhooks/collections/payment-events``: the handler HMAC never
+    ran because ApiKeyMiddleware 401'd first.
+    """
+    import main as app_main
+
+    prefixes = app_main._AUTH_EXEMPT_PREFIXES
+    missing: list[str] = []
+    leaked: list[str] = []
+    for method, path in sorted(authz.PUBLIC_ROUTES):
+        key = (method, path)
+        exempt = _matches_exempt_prefix(path, prefixes)
+        if key in _SELF_SCOPED_PUBLIC:
+            if exempt:
+                leaked.append(f"{method} {path}")
+            continue
+        if key in _MIDDLEWARE_SPECIAL_CASED:
+            continue
+        if key in _CONDITIONAL_ON_EMBEDDED_HOST and not app_main._EMBEDDED_VOICE_HOST:
+            continue
+        if not exempt:
+            missing.append(f"{method} {path}")
+    assert missing == [], f"PUBLIC_ROUTES not API-key exempt: {missing}"
+    assert leaked == [], f"self-scoped /me routes must still require a key: {leaked}"
 
 
 def test_every_registered_permission_is_in_the_catalog() -> None:

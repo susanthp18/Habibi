@@ -250,8 +250,15 @@ _AUTH_EXEMPT_PREFIXES = (
     "/twilio/voice/fallback",
     "/twilio/voice/stream-status",
     "/twilio/voice/call-status",
+    # Delivery receipts. Twilio carries no API key; the handler HMAC is the
+    # authentication — same as the voice callbacks above. This path lived in
+    # authz.PUBLIC_ROUTES and not here, so ApiKeyMiddleware 401'd it first.
+    "/twilio/sms/status",
     "/pay",
     "/webhooks/payments",
+    # `/webhooks/payments` does not prefix-match `/webhooks/collections/…`
+    # because matching is `path == p or path.startswith(p + "/")`.
+    "/webhooks/collections/payment-events",
     "/ws",
     "/.well-known/agent-card.json",
     # SmallWebRTC signalling. The WebRTC client cannot attach our API-key
