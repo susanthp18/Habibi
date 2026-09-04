@@ -16,6 +16,12 @@ dist-ssr
 .nitro
 *.local
 
+# Every .env variant, not just the bare name: .env.production / .env.local hold
+# the same secrets and were previously tracked-by-default.
+.env
+.env.*
+!.env.example
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

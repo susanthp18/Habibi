@@ -191,6 +191,7 @@ Re-run any container failure on the host — `cd backend && .venv/Scripts/python
 - **Do not edit `audit-reports/01-*.md` … `41-*.md`.** They are evidence.
 - **Do not touch `PRAXIST-main/`.**
 - Recursive `find` / `grep` from the repo root times out on `node_modules` and `backend/.venv`. Use ripgrep or `git ls-files`; never `git ls-files | xargs grep`.
+- **Any tree-walking tool you configure must exclude `.venv`** — a full-tree scan hangs on site-packages. This was recorded in `backend/pyproject.toml`'s `[tool.vulture]` block, which `WP-063` deleted because the tool was never installed; the warning outlived the config and is kept here.
 
 ## Environment facts that mislead
 
