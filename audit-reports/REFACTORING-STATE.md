@@ -288,17 +288,21 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 72. Status: 31 completed, 41 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 72. Status: 34 completed, 38 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **9** |
+| **READY** — no unmet prerequisite; can begin today | **6** |
 | **BLOCKED** — has an unmet prerequisite | **30** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
-| **IN PROGRESS** | **3** — `WP-050`, `WP-055`, `WP-060` |
-| **COMPLETED** | **31** |
+| **IN PROGRESS** | **0** |
+| **COMPLETED** | **34** |
 
-### COMPLETED (31)
+### COMPLETED (34)
+
+Batch eight added: `WP-050` the last network call outside `src/api` · `WP-055` **hashed 3.12 lockfiles — 114 of 134 packages were constrained nowhere** · `WP-060` a misconfigured boolean can no longer disable a protection.
+
+**`WP-060` took four rounds, and only the first instance was in the backlog.** `MINIO_SECURE=on` → the new `env_bool` returning `False` on any unrecognised value → `AUTHZ_ENFORCE=ture` **disabling route-level authorization** → `ALLOW_ACTOR_HEADER=ture` silently re-attributing every audited action. One invariant, four sites: *an unrecognised value must never yield less than the value's absence would.* Two of the four sit on authorization and audit attribution, and neither would have failed a test.
 
 Batch seven added: `WP-034` **a fresh install can finally satisfy the outbound publish gate** · `WP-051` two mouse-only tasks given keyboard paths · `WP-056` **a CVE now fails the build instead of waiting to be noticed**.
 

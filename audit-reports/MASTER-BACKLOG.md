@@ -1023,6 +1023,7 @@ The brief's default order is correctness → security → data integrity → arc
 |---|---|
 | **Category** | Security · **Severity** P2 · **Confidence** Certain |
 | **Root cause** | `.env:48-49` uses `minioadmin`/`minioadmin`, which its own template forbids in terms. And **`MINIO_SECURE=on` disables TLS** — `"on"` is not in that site's truth set while it is in 20 of the other 26. |
+| **CORRECTED 2026-09-04** | **The live exposure was not present.** The running deployment has `MINIO_SECURE=false` against `minio:9000`, not `on` — measured, not read from `.env`. So plaintext was *configured*, not caused by the truth-set gap. The defect in `storage.py` was real and is fixed (`WP-060`, `42842ab`): `on` now means TLS at every site, and an unrecognised value falls back to `not loopback` instead of to False. But the entry's claim that a deployment was silently running without TLS **because of the truth set** does not hold here. |
 | **Implementation strategy** | Rotate. Set `MINIO_SECURE=true`, **not `on`**, until `env_bool` exists. Then add `env_bool` to `env_utils` and route all 26 sites through it. |
 | **Risk** | internal · **Atomic?** No |
 
