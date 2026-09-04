@@ -29,7 +29,7 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import HTTPConnection
 from sqlalchemy import text
@@ -44,7 +44,7 @@ import db
 import observability
 import request_context
 import flow_graph
-from agent_core.cards.compile import CompileError
+from agent_core.cards.compile import CompileError, CompileReport
 import kb_rate_limit
 import kb_retrieve
 import ops_screens
@@ -109,6 +109,17 @@ from schemas import (
     PromptVersionPatchRequest,
     PromptVersionPublishRequest,
     PromptVersionResponse,
+    AgentStudioArchiveResponse,
+    AgentStudioCardResponse,
+    AgentStudioChangeLogResponse,
+    AgentStudioGraphResponse,
+    AgentStudioOkResponse,
+    AgentStudioScriptNameResponse,
+    AgentStudioScriptRunResponse,
+    AgentStudioSkillDeleteResponse,
+    AgentStudioSkillResponse,
+    AgentStudioSkillSummaryResponse,
+    AgentStudioTemplateResponse,
     PromiseCreateRequest,
     PromiseListResponse,
     PromisePatchRequest,
@@ -2092,19 +2103,19 @@ def list_flow_reserved_keys():
     return flow_graph.RESERVED_NODE_KEYS
 
 
-@app.get("/agent-studio/cards")
+@app.get("/agent-studio/cards", response_model=list[AgentStudioCardResponse])
 def list_agent_studio_cards(includeArchived: bool = Query(default=False)):
     return db.list_agent_studio_cards(include_archived=includeArchived)
 
 
-@app.get("/agent-studio/templates")
+@app.get("/agent-studio/templates", response_model=list[AgentStudioTemplateResponse])
 def list_agent_studio_templates():
     from agent_core.cards.templates import templates
 
     return templates()
 
 
-@app.post("/agent-studio/cards/clone")
+@app.post("/agent-studio/cards/clone", response_model=AgentStudioCardResponse)
 def clone_agent_studio_card(payload: dict[str, Any]):
     from agent_core.cards.clone import clone_card
 
@@ -2116,7 +2127,7 @@ def clone_agent_studio_card(payload: dict[str, Any]):
     )
 
 
-@app.get("/agent-studio/cards/{bot_id}")
+@app.get("/agent-studio/cards/{bot_id}", response_model=AgentStudioCardResponse)
 def get_agent_studio_card(bot_id: str):
     row = db.get_agent_studio_card(bot_id)
     if row is None:
@@ -2124,7 +2135,7 @@ def get_agent_studio_card(bot_id: str):
     return row
 
 
-@app.patch("/agent-studio/cards/{bot_id}")
+@app.patch("/agent-studio/cards/{bot_id}", response_model=PromptVersionResponse)
 def patch_agent_studio_card(bot_id: str, payload: dict[str, Any]):
     """Patch the latest draft for this bot, creating one from published if needed."""
     card = payload.get("agentCard") or payload.get("agent_card")
@@ -2145,7 +2156,7 @@ def patch_agent_studio_card(bot_id: str, payload: dict[str, Any]):
     return _handle_write(db.patch_prompt_version, draft["id"], body)
 
 
-@app.post("/agent-studio/cards/{bot_id}/archive")
+@app.post("/agent-studio/cards/{bot_id}/archive", response_model=AgentStudioArchiveResponse)
 def archive_agent_studio_card(bot_id: str):
     """Retire a tenant card. Refuses first-party and the runtime entry bot.
 
@@ -2157,13 +2168,17 @@ def archive_agent_studio_card(bot_id: str):
     return _handle_write(db.archive_agent_studio_card, bot_id)
 
 
-@app.post("/agent-studio/cards/{bot_id}/restore")
+@app.post("/agent-studio/cards/{bot_id}/restore", response_model=AgentStudioArchiveResponse)
 def restore_agent_studio_card(bot_id: str):
     """Put a retired card back on the roster. Does not redeploy it."""
     return _handle_write(db.restore_agent_studio_card, bot_id)
 
 
-@app.get("/agent-studio/change-log")
+@app.get(
+    "/agent-studio/change-log",
+    response_model=AgentStudioChangeLogResponse,
+    response_model_exclude_unset=True,
+)
 def get_agent_change_log(
     botId: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
@@ -2176,7 +2191,7 @@ def get_agent_change_log(
     return db.agent_change_log(botId, limit=limit)
 
 
-@app.post("/agent-studio/cards/{bot_id}/compile")
+@app.post("/agent-studio/cards/{bot_id}/compile", response_model=CompileReport)
 def compile_agent_studio_card(bot_id: str, payload: dict[str, Any] | None = None):
     body = payload or {}
     pct = body.get("trafficPct", body.get("traffic_pct"))
@@ -2196,7 +2211,7 @@ def compile_agent_studio_card(bot_id: str, payload: dict[str, Any] | None = None
     )
 
 
-@app.post("/agent-studio/cards/{bot_id}/publish")
+@app.post("/agent-studio/cards/{bot_id}/publish", response_model=PromptVersionResponse)
 def publish_agent_studio_card(bot_id: str, payload: PromptVersionPublishRequest):
     """Publish one of this bot's drafts — the one the caller names, by preference.
 
@@ -2238,7 +2253,7 @@ def publish_agent_studio_card(bot_id: str, payload: PromptVersionPublishRequest)
     return publish_prompt_version(drafts[0]["id"], payload)
 
 
-@app.post("/agent-studio/cards/{bot_id}/connectors")
+@app.post("/agent-studio/cards/{bot_id}/connectors", response_model=PromptVersionResponse)
 def attach_agent_studio_connector(bot_id: str, payload: dict[str, Any]):
     from agent_core.cards.clone import attach_connector_to_card
 
@@ -2254,7 +2269,7 @@ def attach_agent_studio_connector(bot_id: str, payload: dict[str, Any]):
     )
 
 
-@app.get("/agent-studio/cards/{bot_id}/graph")
+@app.get("/agent-studio/cards/{bot_id}/graph", response_model=AgentStudioGraphResponse)
 def get_agent_studio_graph(bot_id: str):
     card = db.get_agent_studio_card(bot_id)
     if card is None:
@@ -2283,14 +2298,14 @@ def get_agent_studio_graph(bot_id: str):
     }
 
 
-@app.get("/agent-studio/skills")
+@app.get("/agent-studio/skills", response_model=list[AgentStudioSkillSummaryResponse])
 def list_agent_studio_skills():
     from agent_core.skills.persist import list_skills
 
     return list_skills()
 
 
-@app.get("/agent-studio/skills/scripts")
+@app.get("/agent-studio/skills/scripts", response_model=list[AgentStudioScriptNameResponse])
 def list_agent_studio_scripts():
     """Allowlisted code-mode scripts. The editor's picker hardcoded this list, so
     a new script was invisible and a removed one was still offered.
@@ -2303,7 +2318,11 @@ def list_agent_studio_scripts():
     return [{"name": n} for n in SCRIPT_NAMES]
 
 
-@app.get("/agent-studio/skills/{skill_id}")
+@app.get(
+    "/agent-studio/skills/{skill_id}",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 def get_agent_studio_skill(skill_id: str):
     from agent_core.skills.persist import get_skill
 
@@ -2313,21 +2332,29 @@ def get_agent_studio_skill(skill_id: str):
     return row
 
 
-@app.post("/agent-studio/skills")
+@app.post(
+    "/agent-studio/skills",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 def create_agent_studio_skill(payload: dict[str, Any]):
     from agent_core.skills.persist import create_draft_skill
 
     return _handle_write(create_draft_skill, payload)
 
 
-@app.patch("/agent-studio/skills/{skill_id}")
+@app.patch(
+    "/agent-studio/skills/{skill_id}",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 def patch_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
     from agent_core.skills.persist import patch_skill
 
     return _handle_write(patch_skill, skill_id, payload)
 
 
-@app.delete("/agent-studio/skills/{skill_id}")
+@app.delete("/agent-studio/skills/{skill_id}", response_model=AgentStudioSkillDeleteResponse)
 def delete_agent_studio_skill(skill_id: str):
     """Delete an unsigned tenant/gardener skill that no card is using.
 
@@ -2339,14 +2366,22 @@ def delete_agent_studio_skill(skill_id: str):
     return _handle_write(delete_skill, skill_id)
 
 
-@app.post("/agent-studio/skills/{skill_id}/sign")
+@app.post(
+    "/agent-studio/skills/{skill_id}/sign",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 def sign_agent_studio_skill(skill_id: str):
     from agent_core.skills.persist import sign_skill
 
     return _handle_write(sign_skill, skill_id)
 
 
-@app.post("/agent-studio/skills/{skill_id}/revert")
+@app.post(
+    "/agent-studio/skills/{skill_id}/revert",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 def revert_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = None):
     from agent_core.skills.persist import revert_skill
 
@@ -2354,7 +2389,11 @@ def revert_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = No
     return _handle_write(revert_skill, skill_id, body.get("versionId") or body.get("version_id"))
 
 
-@app.post("/agent-studio/skills/{skill_id}/clone")
+@app.post(
+    "/agent-studio/skills/{skill_id}/clone",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 def clone_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = None):
     from agent_core.skills.persist import clone_skill
 
@@ -2362,7 +2401,7 @@ def clone_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = Non
     return _handle_write(clone_skill, skill_id, body.get("slug"))
 
 
-@app.post("/agent-studio/skills/{skill_id}/attach")
+@app.post("/agent-studio/skills/{skill_id}/attach", response_model=AgentStudioOkResponse)
 def attach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
     from agent_core.skills.persist import attach_skill_to_prompt
 
@@ -2373,7 +2412,7 @@ def attach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
     return {"ok": True}
 
 
-@app.post("/agent-studio/skills/{skill_id}/detach")
+@app.post("/agent-studio/skills/{skill_id}/detach", response_model=AgentStudioOkResponse)
 def detach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
     from agent_core.skills.persist import detach_skill_from_prompt
 
@@ -2384,12 +2423,11 @@ def detach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
     return {"ok": True}
 
 
-@app.get("/agent-studio/skills/{skill_id}/export")
+@app.get("/agent-studio/skills/{skill_id}/export", response_class=StreamingResponse)
 def export_agent_studio_skill(skill_id: str):
     import io
     import zipfile
 
-    from fastapi.responses import StreamingResponse
     from agent_core.skills.persist import get_skill
 
     row = get_skill(skill_id)
@@ -2410,7 +2448,11 @@ def export_agent_studio_skill(skill_id: str):
     )
 
 
-@app.post("/agent-studio/skills/import")
+@app.post(
+    "/agent-studio/skills/import",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 async def import_agent_studio_skill(file: UploadFile = File(...)):
     import io
     import zipfile
@@ -2439,7 +2481,11 @@ async def import_agent_studio_skill(file: UploadFile = File(...)):
     return upsert_skill_from_pack(pack, origin="tenant", signed=False)
 
 
-@app.post("/agent-studio/skills/run-script")
+@app.post(
+    "/agent-studio/skills/run-script",
+    response_model=AgentStudioScriptRunResponse,
+    response_model_exclude_unset=True,
+)
 def run_agent_studio_script(payload: dict[str, Any]):
     from agent_core.skills.scripts import run_script
 

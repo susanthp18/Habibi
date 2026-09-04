@@ -3451,3 +3451,236 @@ class ProviderPoolStatus(BaseModel):
     retired: int
     sessionsBound: int
     keys: list[ProviderPoolKey] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Agent Studio — WP-042. Field names match the dicts already on the wire.
+# extra="forbid" so an undeclared key 500s rather than silently disappearing.
+# ---------------------------------------------------------------------------
+
+AgentStudioReachability = Literal["entry", "handoff", "direct", "unreachable", "archived"]
+AgentStudioDeploymentStatus = Literal["live", "published", "draft", "empty"]
+AgentStudioCardSource = Literal["draft", "published", "default", "scaffold"]
+
+
+class AgentStudioCardResponse(BaseModel):
+    """Fleet index / single-card row. Mirrors Habibi AgentCardSummary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    botId: str
+    name: str
+    version: str
+    slug: str
+    purpose: str
+    channels: list[str]
+    skills: list[str]
+    toolCount: int
+    evalStatus: str
+    trafficPct: int | None
+    deploymentStatus: AgentStudioDeploymentStatus
+    lastPublish: str | None
+    promptVersionId: str | None
+    draftVersionId: str | None
+    hasDraft: bool
+    cardSource: AgentStudioCardSource
+    entryBotId: str
+    reachability: AgentStudioReachability
+    archivedAt: str | None
+    isFirstParty: bool
+    agentCard: dict[str, Any]
+    publishedCard: dict[str, Any]
+
+
+class AgentStudioTemplateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    sourceBotId: str
+    purpose: str
+
+
+class AgentStudioArchiveResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    botId: str
+    archived: bool
+
+
+class AgentStudioOkResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+
+
+class AgentStudioChangeLogRolloutResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trafficPct: int
+    shadow: bool
+    autoRollback: list[str]
+
+
+class AgentStudioChangeLogEntryResponse(BaseModel):
+    """One audit_log row plus the payload spread onto it.
+
+    Action-specific keys (hashes, rollout, archivedAt, …) are optional because
+    publish / rollback / archive / restore do not share a payload. Routes that
+    return this model must set ``response_model_exclude_unset=True`` so those
+    absences stay absences rather than becoming null.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    actorUserId: str | None
+    action: str
+    botId: str | None
+    at: str | None
+    seq: int | None = None
+    entryHash: str | None = None
+    prevHash: str | None = None
+    versionLabel: str | None = None
+    previousVersionLabel: str | None = None
+    previousVersionId: str | None = None
+    versionId: str | None = None
+    deploymentId: str | None = None
+    summary: str | None = None
+    changed: list[str] | None = None
+    rollout: AgentStudioChangeLogRolloutResponse | None = None
+    gates: dict[str, str] | None = None
+    hashes: dict[str, str] | None = None
+    replacedDeploymentId: str | None = None
+    retiredDeploymentId: str | None = None
+    archivedAt: str | None = None
+
+
+class AgentStudioChainVerdictResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    checked: int
+    brokenAt: str | None
+    reason: str | None
+
+
+class AgentStudioChangeLogResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[AgentStudioChangeLogEntryResponse]
+    chain: AgentStudioChainVerdictResponse
+
+
+class AgentStudioGraphNodeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    reachability: AgentStudioReachability
+    deploymentStatus: AgentStudioDeploymentStatus
+
+
+class AgentStudioGraphEdgeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    from_: str = Field(alias="from")
+    to: str | None = None
+
+
+class AgentStudioGraphResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    botId: str
+    nodes: list[AgentStudioGraphNodeResponse]
+    edges: list[AgentStudioGraphEdgeResponse]
+
+
+class AgentStudioSkillVersionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    skillId: str
+    version: str
+    status: str
+    frontmatter: dict[str, Any]
+    body: str
+    allowedTools: list[str]
+    contentHash: str
+    signature: str | None
+    signedBy: str | None
+    pack: dict[str, Any]
+    description: str
+    evalSuite: Any | None
+    origin: Any | None
+
+
+class AgentStudioSkillSummaryResponse(BaseModel):
+    """Library row. ``get_skill`` adds the detail fields on the subclass."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    slug: str
+    origin: str
+    signatureStatus: str
+    latestVersionId: str | None
+    description: str
+    allowedTools: list[str]
+    version: str
+    status: str
+    attachedCards: list[str]
+    evalSuite: Any | None
+    contentHash: str
+    signed: bool
+    hasSignedVersion: bool
+    bodyTokens: int
+    referenceFiles: list[str]
+
+
+class AgentStudioSkillResponse(AgentStudioSkillSummaryResponse):
+    """Detail / write return. Optional keys only appear when the mapper set them."""
+
+    versions: list[AgentStudioSkillVersionResponse] | None = None
+    frontmatter: dict[str, Any] | None = None
+    body: str | None = None
+    pack: dict[str, Any] | None = None
+    markdown: str | None = None
+    lintWarnings: list[dict[str, Any]] | None = None
+
+
+class AgentStudioSkillDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    id: str
+    slug: str
+
+
+class AgentStudioScriptNameResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+
+
+class AgentStudioScriptRunResponse(BaseModel):
+    """Union of the allowlisted script returns plus the unknown-script error.
+
+    Sparse by construction: ``emi_remaining`` and ``promise_date_in_window``
+    do not share keys. Routes must set ``response_model_exclude_unset=True``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    error: str | None = None
+    name: str | None = None
+    allowed: list[str] | None = None
+    remaining_emis: int | None = None
+    outstanding: float | None = None
+    installment_amount: float | None = None
+    in_window: bool | None = None
+    outside: bool | None = None
+    promise_date: str | None = None
+    preferred_window: Any | None = None
