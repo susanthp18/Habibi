@@ -389,6 +389,8 @@ export function AssignedQueue() {
             getRowId={(row) => row.id}
             columns={columns}
             isLoading={isLoading}
+            isError={isError}
+            errorLabel="your queue"
             emptyMessage="No rows match your filters."
             ariaLabel={`My assigned queue — ${current.label}`}
             defaultSort={{ id: "sla", dir: -1 }}

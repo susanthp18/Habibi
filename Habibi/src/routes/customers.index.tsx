@@ -291,26 +291,22 @@ function CustomersIndex() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden p-300">
-          {isError ? (
-            <div className="rounded-large border border-border-danger bg-background-danger-subtlest px-300 py-200 text-sm text-text-danger">
-              Could not load customers from the API.
-              {error instanceof Error ? ` ${error.message}` : ""}
-            </div>
-          ) : (
-            <RecordsTable
-              rows={rows}
-              getRowId={(c) => c.id}
-              columns={columns}
-              selectable
-              selected={selected}
-              onSelectedChange={setSelected}
-              isLoading={isPending}
-              emptyMessage="No customers match your search."
-              ariaLabel="Customers table"
-              defaultSort={{ id: "name", dir: 1 }}
-              className="h-full"
-            />
-          )}
+          <RecordsTable
+            rows={rows}
+            getRowId={(c) => c.id}
+            columns={columns}
+            selectable
+            selected={selected}
+            onSelectedChange={setSelected}
+            isLoading={isPending}
+            isError={isError}
+            error={error}
+            errorLabel="customers"
+            emptyMessage="No customers match your search."
+            ariaLabel="Customers table"
+            defaultSort={{ id: "name", dir: 1 }}
+            className="h-full"
+          />
         </div>
       </div>
     </AppShell>

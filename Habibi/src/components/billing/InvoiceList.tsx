@@ -15,7 +15,17 @@ const STATUS_DOT: Record<InvoiceStatus, string> = {
   draft: "var(--icon-accent-gray)",
 };
 
-export function InvoiceList({ invoices }: { invoices: Invoice[] }) {
+export function InvoiceList({
+  invoices,
+  isLoading = false,
+  isError = false,
+  error,
+}: {
+  invoices: Invoice[];
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}) {
   const chips = useMemo<FilterChip<InvoiceStatus>[]>(() => {
     const counts = { paid: 0, pending: 0, draft: 0 };
     for (const inv of invoices) counts[inv.status] += 1;
@@ -82,6 +92,10 @@ export function InvoiceList({ invoices }: { invoices: Invoice[] }) {
         getStatus={(inv) => inv.status}
         chips={chips}
         columns={columns}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="invoices"
         emptyMessage="No invoices yet."
         ariaLabel="Invoice history"
         className="min-h-0 flex-1"

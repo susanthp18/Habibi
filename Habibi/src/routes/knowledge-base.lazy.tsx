@@ -76,9 +76,24 @@ function KnowledgeBasePage() {
   const qc = useQueryClient();
   const navigate = useNavigate({ from: "/knowledge-base" });
   const { gapId: searchGapId, q: searchQ, tab: searchTab } = Route.useSearch();
-  const { data: docs = [], isLoading: docsLoading } = useKbDocuments();
-  const { data: faqs = [], isLoading: faqsLoading } = useKbFaqs();
-  const { data: gaps = [], isLoading: gapsLoading } = useKbGaps();
+  const {
+    data: docs = [],
+    isLoading: docsLoading,
+    isError: docsError,
+    error: docsErr,
+  } = useKbDocuments();
+  const {
+    data: faqs = [],
+    isLoading: faqsLoading,
+    isError: faqsError,
+    error: faqsErr,
+  } = useKbFaqs();
+  const {
+    data: gaps = [],
+    isLoading: gapsLoading,
+    isError: gapsError,
+    error: gapsErr,
+  } = useKbGaps();
   const { data: stats } = useKbStats();
   const { data: snapshots = [] } = useKbSnapshots();
   const [reindexing, setReindexing] = useState<Set<string>>(new Set());
@@ -683,6 +698,8 @@ function KnowledgeBasePage() {
                   reindexing={reindexing}
                   deletingId={deletingId}
                   loading={docsLoading}
+                  isError={docsError}
+                  error={docsErr}
                   filteredOutSelected={selectedHiddenByFilter}
                   emptyFromFilter={searchActive && filteredDocs.length === 0 && docs.length > 0}
                 />
@@ -720,6 +737,8 @@ function KnowledgeBasePage() {
               onDelete={(id) => setPendingDeleteFaqId(id)}
               selectedId={editingFaq?.id || null}
               loading={faqsLoading}
+              isError={faqsError}
+              error={faqsErr}
               emptyFromFilter={
                 Boolean(search.trim()) && filteredFaqs.length === 0 && faqs.length > 0
               }
@@ -733,6 +752,8 @@ function KnowledgeBasePage() {
               faqs={faqs}
               showResolved={showResolved}
               loading={gapsLoading}
+              isError={gapsError}
+              error={gapsErr}
               onCreateFaq={openCreateFaqFromGap}
               onAttachDoc={attachDocToGap}
               onUploadForGap={(gap) => {

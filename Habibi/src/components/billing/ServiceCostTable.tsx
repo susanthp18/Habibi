@@ -25,11 +25,17 @@ export function ServiceCostTable({
   current,
   previous,
   onRowClick,
+  isLoading = false,
+  isError = false,
+  error,
 }: {
   services: Service[];
   current: DayPoint[];
   previous: DayPoint[];
   onRowClick: (s: Service) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }) {
   const totalCur = sumRange(current);
   const rows = useMemo<ServiceRow[]>(() => {
@@ -196,6 +202,10 @@ export function ServiceCostTable({
         columns={columns}
         defaultSort={{ id: "cost", dir: -1 }}
         onRowClick={(r) => onRowClick(r.s)}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="service spend"
         ariaLabel="Cost breakdown by service"
         tableClassName="min-w-[52rem]"
         className="rounded-none border-0"

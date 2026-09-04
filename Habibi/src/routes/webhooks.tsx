@@ -44,7 +44,12 @@ export const Route = createFileRoute("/webhooks")({
 
 function WebhooksPage() {
   const { confirm, confirmDialog } = useConfirm();
-  const { data: endpoints = [], isLoading: loadingEp } = useWebhookEndpoints();
+  const {
+    data: endpoints = [],
+    isLoading: loadingEp,
+    isError: endpointsError,
+    error: endpointsErr,
+  } = useWebhookEndpoints();
   const { data: deliveries = [], isLoading: loadingDlv } = useWebhookDeliveries();
   const mut = useWebhookMutations();
 
@@ -349,6 +354,9 @@ function WebhooksPage() {
             onTogglePause={togglePause}
             onRotate={rotateOne}
             onDelete={deleteEndpoint}
+            isLoading={loadingEp}
+            isError={endpointsError}
+            error={endpointsErr}
           />
         </div>
 

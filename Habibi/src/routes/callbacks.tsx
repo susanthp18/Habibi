@@ -61,7 +61,12 @@ function CallbacksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  const { data: callbacksData = [] } = useCallbacks();
+  const {
+    data: callbacksData = [],
+    isPending: callbacksPending,
+    isError: callbacksError,
+    error: callbacksErr,
+  } = useCallbacks();
   const { data: liveCustomers } = useCustomers();
   const { data: staff = [] } = useStaff();
   const { data: teams = [] } = useTeams();
@@ -302,6 +307,9 @@ function CallbacksPage() {
             onSendReminder={(id) => reminderMutation.mutate(id)}
             onReschedulePlus1h={(id) => plusHours(id, 1)}
             onCancel={(id) => cancelMutation.mutate(id)}
+            isLoading={callbacksPending}
+            isError={callbacksError}
+            error={callbacksErr}
           />
         )}
         {view === "missed" && (

@@ -33,6 +33,8 @@ export function DocumentsTable({
   reindexing,
   deletingId,
   loading = false,
+  isError = false,
+  error,
   filteredOutSelected = false,
   emptyFromFilter = false,
 }: {
@@ -45,6 +47,8 @@ export function DocumentsTable({
   reindexing: Set<string>;
   deletingId?: string | null;
   loading?: boolean;
+  isError?: boolean;
+  error?: unknown;
   /** Selected doc exists but is hidden by the current search/filter. */
   filteredOutSelected?: boolean;
   /** List is empty because search/filters excluded all docs (collection may still have items). */
@@ -212,7 +216,7 @@ export function DocumentsTable({
     [deletingId, onDelete, onReindex, onToggle, reindexing, selectedId],
   );
 
-  if (!loading && docs.length === 0) {
+  if (!loading && !isError && docs.length === 0) {
     return (
       <div className="flex h-full min-h-[13.75rem] flex-col items-center justify-center bg-surface px-300 py-500 text-center">
         <FileText className="mb-100 h-400 w-400 text-text-subtlest" />
@@ -240,6 +244,9 @@ export function DocumentsTable({
         getRowId={(d) => d.id}
         columns={columns}
         isLoading={loading}
+        isError={isError}
+        error={error}
+        errorLabel="knowledge base documents"
         activeRowId={selectedId}
         onRowClick={(d) => onSelect(d.id)}
         ariaLabel="Knowledge base documents"

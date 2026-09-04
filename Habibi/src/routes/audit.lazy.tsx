@@ -90,6 +90,9 @@ function AuditPage() {
               onSelectedChange={setSelected}
               openId={openId}
               onOpen={setOpenId}
+              isLoading={isLoading}
+              isError={isError}
+              error={error}
             />
           </div>
         )}

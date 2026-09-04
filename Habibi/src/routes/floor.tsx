@@ -48,7 +48,7 @@ function FloorPage() {
 }
 
 function FloorLive({ initial }: { initial: FloorSnapshot }) {
-  const { data } = useFloor();
+  const { data, isError, error } = useFloor();
   const snapshot = data ?? initial;
   const actionMut = useSupervisorAction();
   const ackMut = useAckFloorAlert();
@@ -237,7 +237,13 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
       />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <LiveTable rows={filtered} activeId={selectedId} onSelect={(c) => setSelectedId(c.id)} />
+        <LiveTable
+          rows={filtered}
+          activeId={selectedId}
+          onSelect={(c) => setSelectedId(c.id)}
+          isError={isError}
+          error={error}
+        />
         {selected && (
           <div className="absolute inset-y-0 right-0 z-20 flex shadow-overlay xl:static xl:z-auto xl:shadow-none">
             <Inspector

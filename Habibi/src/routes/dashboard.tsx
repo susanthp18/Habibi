@@ -12,6 +12,7 @@ import { BotVsHumanDonut } from "@/components/dashboard/BotVsHumanDonut";
 import { AgentLeaderboard } from "@/components/dashboard/AgentLeaderboard";
 import { AtRiskAccounts } from "@/components/dashboard/AtRiskAccounts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import { useDashboard } from "@/api/dashboard";
 import type { Range, Segment, TeamFilter } from "@/data/dashboard-seed";
 
@@ -39,7 +40,7 @@ function DashboardPage() {
   const [segment, setSegment] = useState<Segment>("all");
   const [team, setTeam] = useState<TeamFilter>("all");
 
-  const { data } = useDashboard({ range, segment, team });
+  const { data, isPending, isError, error } = useDashboard({ range, segment, team });
 
   const handleExport = () => toast.success("Report queued — you'll get an email when it's ready.");
   const handleAgent = () => toast.info("Opens agent scorecard (QA module) — coming soon.");
@@ -60,7 +61,9 @@ function DashboardPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[100rem] space-y-200 p-300">
-            {!data ? (
+            {!data && isError ? (
+              <QueryErrorBanner label="the dashboard" error={error} />
+            ) : !data ? (
               <DashboardSkeleton />
             ) : (
               <>
@@ -101,7 +104,13 @@ function DashboardPage() {
                 {/* Bottom row */}
                 <section className="grid grid-cols-1 gap-200 lg:grid-cols-2">
                   <div className="h-[25rem]">
-                    <AgentLeaderboard rows={data.leaderboard} onOpen={handleAgent} />
+                    <AgentLeaderboard
+                      rows={data.leaderboard}
+                      onOpen={handleAgent}
+                      isLoading={isPending}
+                      isError={isError}
+                      error={error}
+                    />
                   </div>
                   <div className="h-[25rem]">
                     <AtRiskAccounts accounts={data.atRiskAccounts} onOpen={handleAccount} />

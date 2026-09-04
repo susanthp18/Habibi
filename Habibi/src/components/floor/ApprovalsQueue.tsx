@@ -2,11 +2,21 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { signalFloorApproval, useFloorApprovals } from "@/api/floor";
 import { USE_MOCK } from "@/api/config";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 
 export function ApprovalsQueue() {
-  const { data = [] } = useFloorApprovals();
+  const { data, isError, error, isPending } = useFloorApprovals();
   const qc = useQueryClient();
-  if (USE_MOCK || data.length === 0) return null;
+  if (isError) {
+    return (
+      <div className="border-b border-border bg-background-danger-subtlest px-200 py-100">
+        <QueryErrorBanner label="pending approvals" error={error} />
+      </div>
+    );
+  }
+  if (isPending && !data) return null;
+  const jobs = data ?? [];
+  if (USE_MOCK || jobs.length === 0) return null;
 
   const signal = async (id: string, name: "approve" | "reject") => {
     try {
@@ -22,7 +32,7 @@ export function ApprovalsQueue() {
     <div className="border-b border-border bg-background-warning-subtlest px-200 py-100">
       <p className="mb-075 text-body-small font-semibold text-text">Pending approvals</p>
       <ul className="space-y-050">
-        {data.map((job) => (
+        {jobs.map((job) => (
           <li key={job.id} className="flex items-center justify-between gap-100 text-body-small">
             <span className="min-w-0 truncate text-text">
               {job.workflowType.replace(/_/g, " ")}

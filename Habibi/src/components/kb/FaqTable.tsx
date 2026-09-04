@@ -13,6 +13,8 @@ export function FaqTable({
   onDelete,
   selectedId,
   loading = false,
+  isError = false,
+  error,
   emptyFromFilter = false,
 }: {
   faqs: FaqPair[];
@@ -21,6 +23,8 @@ export function FaqTable({
   onDelete?: (id: string) => void;
   selectedId?: string | null;
   loading?: boolean;
+  isError?: boolean;
+  error?: unknown;
   emptyFromFilter?: boolean;
 }) {
   const columns = useMemo<RecordsColumn<FaqPair>[]>(
@@ -112,7 +116,7 @@ export function FaqTable({
     [onDelete, onToggle],
   );
 
-  if (!loading && faqs.length === 0) {
+  if (!loading && !isError && faqs.length === 0) {
     return (
       <div className="flex h-full min-h-[11.25rem] flex-col items-center justify-center bg-surface px-300 py-500 text-center">
         <p className="text-body font-medium text-text">
@@ -133,6 +137,9 @@ export function FaqTable({
       getRowId={(f) => f.id}
       columns={columns}
       isLoading={loading}
+      isError={isError}
+      error={error}
+      errorLabel="FAQ pairs"
       activeRowId={selectedId}
       onRowClick={onSelect}
       ariaLabel="FAQ pairs"

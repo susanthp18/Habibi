@@ -10,10 +10,16 @@ export function AgentTrendsTable({
   stats,
   activeAgent,
   onSelect,
+  isLoading = false,
+  isError = false,
+  error,
 }: {
   stats: AgentQaStat[];
   activeAgent: string | null;
   onSelect: (id: string) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }) {
   const columns = useMemo<RecordsColumn<AgentQaStat>[]>(
     () => [
@@ -122,6 +128,10 @@ export function AgentTrendsTable({
       activeRowId={activeAgent}
       onRowClick={(s) => onSelect(s.agentId)}
       defaultSort={{ id: "avg", dir: -1 }}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      errorLabel="agent QA trends"
       ariaLabel="Agent QA trends"
       tableClassName="min-w-[40rem]"
       emptyMessage="No scored agents in this window."

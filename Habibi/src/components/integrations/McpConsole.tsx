@@ -32,7 +32,7 @@ import {
 const SCOPES = ["crm.read", "kb.search", "offers.read", "policy.read", "tasks.write"] as const;
 
 export function ConnectorsPanel() {
-  const { data: rows = [], isLoading } = useConnectors();
+  const { data: rows = [], isLoading, isError, error } = useConnectors();
   const mut = useConnectorMutations();
   const [slug, setSlug] = useState("");
   const [url, setUrl] = useState("");
@@ -168,6 +168,9 @@ export function ConnectorsPanel() {
         getRowId={(r) => r.id}
         columns={columns}
         isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="connectors"
         emptyMessage="No connectors. Seed creates pay-link and LMS."
         ariaLabel="MCP connectors"
         tableClassName="min-w-full"
@@ -371,6 +374,10 @@ export function OurMcpPanel() {
         rows={keys.data ?? []}
         getRowId={(r) => r.id}
         columns={keyCols}
+        isLoading={keys.isLoading}
+        isError={keys.isError}
+        error={keys.error}
+        errorLabel="MCP keys"
         emptyMessage="No minted keys. Use MCP_API_KEY for bootstrap (read scopes only)."
         ariaLabel="MCP keys"
         tableClassName="min-w-full"
@@ -380,6 +387,10 @@ export function OurMcpPanel() {
         rows={tasks.data ?? []}
         getRowId={(r) => r.id}
         columns={taskCols}
+        isLoading={tasks.isLoading}
+        isError={tasks.isError}
+        error={tasks.error}
+        errorLabel="MCP tasks"
         emptyMessage="No MCP tasks. Statement generate returns an id without blocking the call."
         ariaLabel="MCP tasks"
         tableClassName="min-w-full"
@@ -497,6 +508,10 @@ export function VaultPanel() {
         rows={refs.data ?? []}
         getRowId={(r) => r.id}
         columns={cols}
+        isLoading={refs.isLoading}
+        isError={refs.isError}
+        error={refs.error}
+        errorLabel="vault refs"
         emptyMessage="No vault refs yet."
         ariaLabel="Vault refs"
         tableClassName="min-w-full"
@@ -687,6 +702,9 @@ export function A2aPartnersPanel() {
         columns={cols}
         getRowId={(r) => r.id}
         isLoading={partners.isLoading}
+        isError={partners.isError}
+        error={partners.error}
+        errorLabel="A2A partners"
         emptyMessage="No A2A partners"
       />
       <div className="text-body font-medium">Recent A2A tasks</div>
@@ -695,6 +713,9 @@ export function A2aPartnersPanel() {
         columns={taskCols}
         getRowId={(r) => r.id}
         isLoading={tasks.isLoading}
+        isError={tasks.isError}
+        error={tasks.error}
+        errorLabel="A2A tasks"
         emptyMessage="No A2A tasks"
       />
     </div>

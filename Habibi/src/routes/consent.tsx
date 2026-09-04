@@ -20,6 +20,8 @@ import {
 import { Lozenge } from "@/components/ui/lozenge";
 import { captureOptOut, renewConsent, saveConsent, toggleDnd, useConsent } from "@/api/consent";
 
+const EMPTY_CONSENT: ConsentRecord[] = [];
+
 export const Route = createFileRoute("/consent")({
   head: () => ({
     meta: [
@@ -42,7 +44,8 @@ export const Route = createFileRoute("/consent")({
 
 function ConsentPage() {
   const queryClient = useQueryClient();
-  const { data: items = [] } = useConsent();
+  const { data, isPending, isError, error } = useConsent();
+  const items = data ?? EMPTY_CONSENT;
   const [filters, setFilters] = useState<ConsentFilterState>(defaultConsentFilters);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -167,16 +170,25 @@ function ConsentPage() {
           </p>
         </header>
 
-        <ConsentStatsStrip all={items} />
-        <ConsentFilters
-          filters={filters}
-          onChange={setFilters}
-          resultCount={filtered.length}
-          totalCount={items.length}
-        />
+        {!isError ? <ConsentStatsStrip all={items} /> : null}
+        {!isError ? (
+          <ConsentFilters
+            filters={filters}
+            onChange={setFilters}
+            resultCount={filtered.length}
+            totalCount={items.length}
+          />
+        ) : null}
 
         <div className="min-h-0 flex-1 overflow-auto bg-surface p-200">
-          <ConsentTable rows={filtered} onOpen={setOpenId} selectedId={openId} />
+          <ConsentTable
+            rows={filtered}
+            onOpen={setOpenId}
+            selectedId={openId}
+            isLoading={isPending}
+            isError={isError}
+            error={error}
+          />
         </div>
       </div>
 

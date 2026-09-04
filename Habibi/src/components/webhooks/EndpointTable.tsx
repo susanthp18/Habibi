@@ -59,6 +59,9 @@ export function EndpointTable({
   onTogglePause,
   onRotate,
   onDelete,
+  isLoading = false,
+  isError = false,
+  error,
 }: {
   endpoints: Endpoint[];
   deliveries: Delivery[];
@@ -71,6 +74,9 @@ export function EndpointTable({
   onTogglePause: (ep: Endpoint) => void;
   onRotate: (ep: Endpoint) => void;
   onDelete: (ep: Endpoint) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }) {
   const lastByEp = useMemo(() => {
     const map = new Map<string, Delivery>();
@@ -260,6 +266,10 @@ export function EndpointTable({
       selectable
       selected={selectedIds}
       onSelectedChange={onSelectedChange}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      errorLabel="webhook endpoints"
       emptyMessage="No webhook endpoints yet."
       ariaLabel="Webhook endpoints table"
       defaultSort={{ id: "name", dir: 1 }}

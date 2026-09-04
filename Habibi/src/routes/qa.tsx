@@ -69,7 +69,12 @@ function QaPage() {
   const { callId } = Route.useSearch();
   const queryClient = useQueryClient();
   const { data: remoteRubric } = useRubric();
-  const { data: remoteScorecards } = useScorecards();
+  const {
+    data: remoteScorecards,
+    isPending: scorecardsPending,
+    isError: scorecardsError,
+    error: scorecardsErr,
+  } = useScorecards();
   const { data: remoteCoaching } = useCoachingActions();
   const { data: remoteCalibrations } = useCalibrationSessions();
   const { data: coverage } = useQaCoverage();
@@ -362,6 +367,9 @@ function QaPage() {
                   stats={stats}
                   activeAgent={activeAgent ?? stats[0]?.agentId ?? null}
                   onSelect={setActiveAgent}
+                  isLoading={scorecardsPending}
+                  isError={scorecardsError}
+                  error={scorecardsErr}
                 />
                 <AgentTrendCard stat={activeStat} />
               </div>

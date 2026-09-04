@@ -9,7 +9,17 @@ function deltaPct(r: BillingTenantBreakdown) {
   return r.spendPrev > 0 ? ((r.spend - r.spendPrev) / r.spendPrev) * 100 : r.spend > 0 ? 100 : 0;
 }
 
-export function TenantTable({ rows }: { rows: BillingTenantBreakdown[] }) {
+export function TenantTable({
+  rows,
+  isLoading = false,
+  isError = false,
+  error,
+}: {
+  rows: BillingTenantBreakdown[];
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}) {
   const columns = useMemo<RecordsColumn<BillingTenantBreakdown>[]>(
     () => [
       {
@@ -148,6 +158,10 @@ export function TenantTable({ rows }: { rows: BillingTenantBreakdown[] }) {
         getRowId={(r) => r.id}
         columns={columns}
         defaultSort={{ id: "spend", dir: -1 }}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="tenant spend"
         ariaLabel="Per-tenant billing breakdown"
         tableClassName="min-w-[48rem]"
         className="rounded-none border-0"

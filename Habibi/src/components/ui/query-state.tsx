@@ -23,6 +23,22 @@ import { LoadingState } from "@/components/ui/loading-state";
  * it the longer path: `empty` is only reached once the query has actually
  * succeeded.
  */
+/** Canonical copy for a failed list read. Tables render this in the empty slot. */
+export function QueryErrorBanner({ label, error }: { label: string; error?: unknown }) {
+  return (
+    <div className="flex items-start gap-075 rounded-medium border border-border-danger bg-background-danger-subtler p-150 text-body-small text-text-danger-bolder">
+      <AlertCircle className="mt-025 h-4 w-4 shrink-0" />
+      <div>
+        <div className="font-semibold">Could not load {label}</div>
+        <p className="mt-025">
+          {error instanceof Error ? error.message : "The API did not answer."} This is a failed
+          read, not a statement about what exists.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function QueryState({
   query,
   label,
@@ -48,18 +64,7 @@ export function QueryState({
     );
   }
   if (query.isError) {
-    return (
-      <div className="flex items-start gap-075 rounded-medium border border-border-danger bg-background-danger-subtler p-150 text-body-small text-text-danger-bolder">
-        <AlertCircle className="mt-025 h-4 w-4 shrink-0" />
-        <div>
-          <div className="font-semibold">Could not load {label}</div>
-          <p className="mt-025">
-            {query.error instanceof Error ? query.error.message : "The API did not answer."} This is
-            a failed read, not a statement about what exists.
-          </p>
-        </div>
-      </div>
-    );
+    return <QueryErrorBanner label={label} error={query.error} />;
   }
   return (
     <>

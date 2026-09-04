@@ -11,7 +11,17 @@ import { Lozenge } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
 
-export function UnansweredTable({ questions }: { questions: UnansweredQuestion[] }) {
+export function UnansweredTable({
+  questions,
+  isLoading = false,
+  isError = false,
+  error,
+}: {
+  questions: UnansweredQuestion[];
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}) {
   const navigate = useNavigate();
   const publishedQuery = usePublishedPromptVersion();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -210,6 +220,10 @@ export function UnansweredTable({ questions }: { questions: UnansweredQuestion[]
         getRowId={(r) => r.id}
         columns={columns}
         defaultSort={{ id: "hits", dir: -1 }}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="unanswered questions"
         ariaLabel="Unanswered questions"
         tableClassName="min-w-[56rem]"
         className="rounded-none border-0"

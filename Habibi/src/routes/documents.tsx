@@ -59,7 +59,12 @@ function DocumentsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  const { data: items = [] } = useDocuments();
+  const {
+    data: items = [],
+    isPending: docsPending,
+    isError: docsError,
+    error: docsErr,
+  } = useDocuments();
   const { data: staff = [] } = useStaff();
   const { data: liveCustomers = [] } = useCustomers();
   const [filters, setFilters] = useState<Filters>(defaultFilters);
@@ -259,6 +264,9 @@ function DocumentsPage() {
           onOpen={(d) => setOpenId(d.id)}
           onGenerate={(d) => void runGenerate(d)}
           onRetry={handleRetry}
+          isLoading={docsPending}
+          isError={docsError}
+          error={docsErr}
         />
 
         {openDoc && (

@@ -27,7 +27,17 @@ const TYPE_DOT: Record<LedgerType, string> = {
 
 const TYPES: LedgerType[] = ["charge", "payment", "fee", "adjustment", "waiver"];
 
-export function LedgerTab({ customer }: { customer: Customer }) {
+export function LedgerTab({
+  customer,
+  isLoading = false,
+  isError = false,
+  error,
+}: {
+  customer: Customer;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}) {
   const [range, setRange] = useState<90 | 180 | 365>(180);
 
   const summary = useMemo(() => {
@@ -119,35 +129,39 @@ export function LedgerTab({ customer }: { customer: Customer }) {
 
   return (
     <div className="space-y-200">
-      <div className="grid grid-cols-2 gap-150 md:grid-cols-5">
-        <StatTile label="Principal" value={fmtMoney(summary.principal)} />
-        <StatTile label="Fees" value={fmtMoney(summary.fees)} tone="warning" />
-        <StatTile label="Payments received" value={fmtMoney(summary.payments)} tone="success" />
-        <StatTile label="Outstanding" value={fmtMoney(summary.total)} tone="brand" />
-        <StatTile
-          label="Last payment"
-          value={summary.lastPayment ? fmtDate(summary.lastPayment.date) : "—"}
-        />
-      </div>
+      {!isError ? (
+        <>
+          <div className="grid grid-cols-2 gap-150 md:grid-cols-5">
+            <StatTile label="Principal" value={fmtMoney(summary.principal)} />
+            <StatTile label="Fees" value={fmtMoney(summary.fees)} tone="warning" />
+            <StatTile label="Payments received" value={fmtMoney(summary.payments)} tone="success" />
+            <StatTile label="Outstanding" value={fmtMoney(summary.total)} tone="brand" />
+            <StatTile
+              label="Last payment"
+              value={summary.lastPayment ? fmtDate(summary.lastPayment.date) : "—"}
+            />
+          </div>
 
-      <div className="flex items-center justify-end gap-050">
-        <span className="text-body-small text-text-subtle">Range</span>
-        {[90, 180, 365].map((r) => (
-          <button
-            key={r}
-            type="button"
-            onClick={() => setRange(r as 90 | 180 | 365)}
-            className={cn(
-              "rounded-medium px-100 py-025 text-body-small font-medium",
-              range === r
-                ? "bg-background-brand-boldest text-white"
-                : "text-text-subtle hover:bg-surface-sunken",
-            )}
-          >
-            {r}d
-          </button>
-        ))}
-      </div>
+          <div className="flex items-center justify-end gap-050">
+            <span className="text-body-small text-text-subtle">Range</span>
+            {[90, 180, 365].map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRange(r as 90 | 180 | 365)}
+                className={cn(
+                  "rounded-medium px-100 py-025 text-body-small font-medium",
+                  range === r
+                    ? "bg-background-brand-boldest text-white"
+                    : "text-text-subtle hover:bg-surface-sunken",
+                )}
+              >
+                {r}d
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       <FilterTable
         rows={ranged}
@@ -155,6 +169,10 @@ export function LedgerTab({ customer }: { customer: Customer }) {
         getStatus={(r) => r.type}
         chips={chips}
         columns={columns}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="the account ledger"
         emptyMessage="No entries in this window."
         ariaLabel="Account ledger"
       />

@@ -82,7 +82,12 @@ function BotAnalyticsPage() {
                   <EscalationReasons reasons={data?.escalationReasons ?? []} />
                   <SentimentByIntentHeatmap intents={intentAggs} activeId={activeIntent} />
                 </div>
-                <UnansweredTable questions={data?.unansweredQuestions ?? []} />
+                <UnansweredTable
+                  questions={data?.unansweredQuestions ?? []}
+                  isLoading={isLoading}
+                  isError={isError}
+                  error={error}
+                />
                 <div className="grid gap-200 xl:grid-cols-2">
                   <LatencyChart points={points} />
                   <TurnsHistogram buckets={data?.turnsHistogram ?? []} />

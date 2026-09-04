@@ -33,6 +33,8 @@ export function AnalyticsGapsTable({
   onUploadForGap,
   showResolved,
   loading = false,
+  isError = false,
+  error,
 }: {
   gaps: KbGap[];
   documents: KbDocument[];
@@ -42,6 +44,8 @@ export function AnalyticsGapsTable({
   onUploadForGap: (gap: KbGap) => void;
   showResolved: boolean;
   loading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }) {
   const [attachGap, setAttachGap] = useState<KbGap | null>(null);
   const [pickedDocId, setPickedDocId] = useState("");
@@ -224,7 +228,7 @@ export function AnalyticsGapsTable({
 
   return (
     <>
-      {!loading && rows.length === 0 ? (
+      {!loading && !isError && rows.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-100 p-500 text-center">
           <CheckCircle2 className="h-400 w-400 text-text-success" />
           <div className="text-body font-medium text-text">
@@ -237,6 +241,9 @@ export function AnalyticsGapsTable({
           getRowId={(q) => q.id}
           columns={columns}
           isLoading={loading}
+          isError={isError}
+          error={error}
+          errorLabel="coverage gaps"
           defaultSort={{ id: "hits", dir: -1 }}
           ariaLabel="Knowledge coverage gaps"
           tableClassName="min-w-[64rem]"

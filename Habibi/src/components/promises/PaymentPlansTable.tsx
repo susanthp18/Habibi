@@ -12,6 +12,9 @@ import { RecordsTag } from "@/components/records/RecordsTag";
 interface Props {
   plans: PaymentPlan[];
   onOpen: (p: PaymentPlan) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }
 
 const statusChip: Record<PaymentPlan["status"], LozengeTone> = {
@@ -26,7 +29,13 @@ const statusRank: Record<PaymentPlan["status"], number> = {
   completed: 1,
 };
 
-export function PaymentPlansTable({ plans, onOpen }: Props) {
+export function PaymentPlansTable({
+  plans,
+  onOpen,
+  isLoading = false,
+  isError = false,
+  error,
+}: Props) {
   const columns = useMemo<RecordsColumn<PaymentPlan>[]>(
     () => [
       {
@@ -157,9 +166,9 @@ export function PaymentPlansTable({ plans, onOpen }: Props) {
         <div>
           <div className="text-body font-semibold text-text">Payment plans</div>
           <div className="mt-025 text-body-small text-text-subtlest">
-            {plans.length} plan{plans.length === 1 ? "" : "s"} ·{" "}
-            {plans.filter((p) => p.status === "on_track").length} on-track ·{" "}
-            {plans.filter((p) => p.status === "slipped").length} slipped
+            {isError
+              ? "Could not load payment plans."
+              : `${plans.length} plan${plans.length === 1 ? "" : "s"} · ${plans.filter((p) => p.status === "on_track").length} on-track · ${plans.filter((p) => p.status === "slipped").length} slipped`}
           </div>
         </div>
       </div>
@@ -168,6 +177,10 @@ export function PaymentPlansTable({ plans, onOpen }: Props) {
           rows={plans}
           getRowId={(p) => p.id}
           columns={columns}
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          errorLabel="payment plans"
           emptyMessage='No payment plans yet. Use "+ Payment plan" to build one.'
           ariaLabel="Payment plans table"
           defaultSort={{ id: "status", dir: -1 }}

@@ -67,7 +67,12 @@ function PromisesPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
   const { data: promisesData = [] } = usePromises();
-  const { data: plansData = [] } = usePaymentPlans();
+  const {
+    data: plansData = [],
+    isPending: plansPending,
+    isError: plansError,
+    error: plansErr,
+  } = usePaymentPlans();
   const { data: liveCustomers } = useCustomers();
 
   const [filters, setFilters] = useState<Filters>(defaultFilters);
@@ -269,7 +274,13 @@ function PromisesPage() {
               onResend={handleResend}
             />
 
-            <PaymentPlansTable plans={plansData} onOpen={setPlanDetail} />
+            <PaymentPlansTable
+              plans={plansData}
+              onOpen={setPlanDetail}
+              isLoading={plansPending}
+              isError={plansError}
+              error={plansErr}
+            />
           </div>
         </div>
       </div>

@@ -34,10 +34,16 @@ export function ConsentTable({
   rows,
   onOpen,
   selectedId: _selectedId,
+  isLoading = false,
+  isError = false,
+  error,
 }: {
   rows: ConsentRecord[];
   onOpen: (id: string) => void;
   selectedId: string | null;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }) {
   const columns = useMemo<RecordsColumn<ConsentRecord>[]>(
     () => [
@@ -173,6 +179,10 @@ export function ConsentTable({
       rows={rows}
       getRowId={(r) => r.id}
       columns={columns}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      errorLabel="consent records"
       emptyMessage="No consent records match the current filters."
       ariaLabel="Consent registry table"
       defaultSort={{ id: "customer", dir: 1 }}

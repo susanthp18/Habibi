@@ -82,7 +82,12 @@ function UpsellPage() {
     [filters, me?.name],
   );
 
-  const { data: filtered = [] } = useLeads(query);
+  const {
+    data: filtered = [],
+    isPending: leadsPending,
+    isError: leadsError,
+    error: leadsErr,
+  } = useLeads(query);
   const { data: metrics } = useLeadMetrics(query);
   const openLead = openId ? (filtered.find((l) => l.id === openId) ?? null) : null;
   // Filter rosters come from the DB in live mode. The hardcoded six names only
@@ -213,7 +218,13 @@ function UpsellPage() {
               onDropStage={handleDropStage}
             />
           ) : (
-            <LeadTable leads={tableRows} onOpen={(l) => setOpenId(l.id)} />
+            <LeadTable
+              leads={tableRows}
+              onOpen={(l) => setOpenId(l.id)}
+              isLoading={leadsPending}
+              isError={leadsError}
+              error={leadsErr}
+            />
           )}
         </div>
 

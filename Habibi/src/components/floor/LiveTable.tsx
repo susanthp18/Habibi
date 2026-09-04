@@ -38,10 +38,16 @@ export function LiveTable({
   rows,
   activeId,
   onSelect,
+  isLoading = false,
+  isError = false,
+  error,
 }: {
   rows: ActiveCall[];
   activeId: string | null;
   onSelect: (call: ActiveCall) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }) {
   const columns = useMemo<RecordsColumn<ActiveCall>[]>(
     () => [
@@ -157,6 +163,10 @@ export function LiveTable({
         activeRowId={activeId}
         onRowClick={onSelect}
         defaultSort={{ id: "risk", dir: -1 }}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="live sessions"
         emptyMessage="No live sessions match."
         ariaLabel="Live floor sessions"
         tableClassName="min-w-[56rem]"

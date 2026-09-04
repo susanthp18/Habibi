@@ -33,7 +33,19 @@ const CHANNEL_ICON: Partial<Record<Channel, React.ComponentType<{ className?: st
   email: Mail,
 };
 
-export function DocumentsTab({ customer, onCreate }: { customer: Customer; onCreate: () => void }) {
+export function DocumentsTab({
+  customer,
+  onCreate,
+  isLoading = false,
+  isError = false,
+  error,
+}: {
+  customer: Customer;
+  onCreate: () => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}) {
   const chips = useMemo<FilterChip<DocStatus>[]>(() => {
     const counts = Object.fromEntries(STATUS_ORDER.map((s) => [s, 0])) as Record<DocStatus, number>;
     for (const d of customer.documents) counts[d.status] += 1;
@@ -118,20 +130,24 @@ export function DocumentsTab({ customer, onCreate }: { customer: Customer; onCre
         </Button>
       </div>
 
-      {customer.documents.length === 0 ? (
-        <div className="rounded-large border border-dashed border-border bg-surface p-500 text-center text-sm text-text-subtlest">
-          No documents requested yet.
-        </div>
-      ) : (
+      {isError || customer.documents.length > 0 ? (
         <FilterTable
           rows={customer.documents}
           getRowId={(d) => d.id}
           getStatus={(d) => d.status}
           chips={chips}
           columns={columns}
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          errorLabel="document requests"
           emptyMessage="No documents match this filter."
           ariaLabel="Customer document requests"
         />
+      ) : (
+        <div className="rounded-large border border-dashed border-border bg-surface p-500 text-center text-sm text-text-subtlest">
+          No documents requested yet.
+        </div>
       )}
     </div>
   );

@@ -23,6 +23,9 @@ import { RecordsTag } from "@/components/records/RecordsTag";
 interface Props {
   leads: Lead[];
   onOpen: (l: Lead) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }
 
 const stageTone: Record<LeadStage, LozengeTone> = {
@@ -47,7 +50,7 @@ const sentimentDot: Record<Sentiment, string> = {
   negative: "bg-background-danger-bold",
 };
 
-export function LeadTable({ leads, onOpen }: Props) {
+export function LeadTable({ leads, onOpen, isLoading = false, isError = false, error }: Props) {
   const columns = useMemo<RecordsColumn<Lead>[]>(
     () => [
       {
@@ -208,6 +211,10 @@ export function LeadTable({ leads, onOpen }: Props) {
       rows={leads}
       getRowId={(l) => l.id}
       columns={columns}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      errorLabel="leads"
       emptyMessage="No leads match the filters."
       ariaLabel="Upsell leads table"
       defaultSort={{ id: "value", dir: -1 }}

@@ -39,6 +39,9 @@ interface Props {
   onOpen: (d: DocRequest) => void;
   onGenerate: (d: DocRequest) => void;
   onRetry: (d: DocRequest) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }
 
 function ChannelIcon({ c }: { c: DocChannel }) {
@@ -81,6 +84,9 @@ export function RequestsTable({
   onOpen,
   onGenerate,
   onRetry,
+  isLoading = false,
+  isError = false,
+  error,
 }: Props) {
   const [statusFilter, setStatusFilter] = useState<DocStatus | "all">("all");
 
@@ -338,6 +344,10 @@ export function RequestsTable({
         columns={columns}
         filter={statusFilter}
         onFilterChange={setStatusFilter}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="document requests"
         emptyMessage="No requests match this status."
         ariaLabel="Document requests table"
         className="min-h-0 flex-1"

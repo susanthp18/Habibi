@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowDown } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,11 @@ export type RecordsTableProps<T> = {
   selected?: Set<string>;
   onSelectedChange?: (next: Set<string>) => void;
   isLoading?: boolean;
+  /** Failed read. Takes the empty slot so `emptyMessage` cannot fire on a 500. */
+  isError?: boolean;
+  error?: unknown;
+  /** Names the failed read for QueryErrorBanner — "consent records". */
+  errorLabel?: string;
   emptyMessage?: string;
   ariaLabel?: string;
   defaultSort?: { id: string; dir: RecordsSortDir };
@@ -62,6 +68,9 @@ export function RecordsTable<T>({
   selected: selectedProp,
   onSelectedChange,
   isLoading = false,
+  isError = false,
+  error,
+  errorLabel = "records",
   emptyMessage = "No records match.",
   ariaLabel = "Records table",
   defaultSort,
@@ -123,6 +132,8 @@ export function RecordsTable<T>({
   };
 
   const stickyPad = selectable ? "left-500" : "left-0";
+  const colSpan = columns.length + (selectable ? 1 : 0);
+  const showError = isError && !isLoading && visibleRows.length === 0;
 
   /** Sticky cells must stay fully opaque — translucent hover/selected paints let
    *  scrolled columns bleed through the frozen identity column. CSS in styles.css
@@ -222,16 +233,22 @@ export function RecordsTable<T>({
             {isLoading &&
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={`sk-${i}`}>
-                  <td
-                    colSpan={columns.length + (selectable ? 1 : 0)}
-                    className="border-b border-border px-150 py-150"
-                  >
+                  <td colSpan={colSpan} className="border-b border-border px-150 py-150">
                     <Skeleton className="h-400 w-full rounded-medium" />
                   </td>
                 </tr>
               ))}
 
+            {showError && (
+              <tr>
+                <td colSpan={colSpan} className="px-150 py-200">
+                  <QueryErrorBanner label={errorLabel} error={error} />
+                </td>
+              </tr>
+            )}
+
             {!isLoading &&
+              !showError &&
               visibleRows.map((row) => {
                 const id = getRowId(row);
                 const isSelected = selected.has(id) || id === activeRowId;
@@ -299,10 +316,10 @@ export function RecordsTable<T>({
                 );
               })}
 
-            {!isLoading && visibleRows.length === 0 && (
+            {!isLoading && !showError && visibleRows.length === 0 && (
               <tr>
                 <td
-                  colSpan={columns.length + (selectable ? 1 : 0)}
+                  colSpan={colSpan}
                   className="px-200 py-500 text-center text-body text-text-subtlest"
                 >
                   {emptyMessage}
@@ -311,7 +328,7 @@ export function RecordsTable<T>({
             )}
           </tbody>
 
-          {!isLoading && rows.length > 0 && columns.some((c) => c.footer) && (
+          {!isLoading && !showError && rows.length > 0 && columns.some((c) => c.footer) && (
             <tfoot className="sticky bottom-0 z-30">
               <tr className="bg-surface-sunken">
                 {selectable && (

@@ -160,15 +160,33 @@ function BillingPage() {
                   current={data.daily}
                   previous={data.previousDaily}
                   onRowClick={setDrawerService}
+                  isLoading={isLoading}
+                  isError={isError}
+                  error={error}
                 />
                 <ServiceDonut data={data.daily} services={services} />
               </div>
 
-              <ModelCostTable rows={data.modelSpend} />
+              <ModelCostTable
+                rows={data.modelSpend}
+                isLoading={isLoading}
+                isError={isError}
+                error={error}
+              />
 
               <div className="grid gap-200 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                <TenantTable rows={data.tenantBreakdown} />
-                <InvoiceList invoices={data.invoices} />
+                <TenantTable
+                  rows={data.tenantBreakdown}
+                  isLoading={isLoading}
+                  isError={isError}
+                  error={error}
+                />
+                <InvoiceList
+                  invoices={data.invoices}
+                  isLoading={isLoading}
+                  isError={isError}
+                  error={error}
+                />
               </div>
             </div>
           </div>

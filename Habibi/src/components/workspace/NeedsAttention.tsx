@@ -34,7 +34,7 @@ const LEVEL_RANK: Record<string, number> = { breach: 3, warn: 2, ok: 1 };
 
 export function NeedsAttention() {
   const navigate = useNavigate();
-  const { data } = useWorkspaceSummary("me");
+  const { data, isPending, isError, error } = useWorkspaceSummary("me");
   const nextCallback = data?.nextCallback;
   const nextLead = data?.nextLead;
   const rows = useMemo(() => (data?.slaCountdowns ?? []).map(parseSla), [data?.slaCountdowns]);
@@ -267,6 +267,10 @@ export function NeedsAttention() {
             rows={rows}
             getRowId={(row) => row.id}
             columns={columns}
+            isLoading={isPending}
+            isError={isError}
+            error={error}
+            errorLabel="SLA timers"
             emptyMessage="No open SLA timers."
             ariaLabel="Personal SLA countdowns"
             defaultSort={{ id: "sla", dir: -1 }}

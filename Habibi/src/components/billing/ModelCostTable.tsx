@@ -4,7 +4,17 @@ import type { BillingModelSpend } from "@/api/billing";
 import { inrCompact } from "@/data/billing-seed";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 
-export function ModelCostTable({ rows }: { rows: BillingModelSpend[] }) {
+export function ModelCostTable({
+  rows,
+  isLoading = false,
+  isError = false,
+  error,
+}: {
+  rows: BillingModelSpend[];
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}) {
   const total = useMemo(() => rows.reduce((acc, r) => acc + r.costInr, 0), [rows]);
 
   const columns = useMemo<RecordsColumn<BillingModelSpend>[]>(
@@ -126,6 +136,10 @@ export function ModelCostTable({ rows }: { rows: BillingModelSpend[] }) {
         getRowId={(r) => `${r.serviceId}-${r.model}-${r.sourceRef ?? ""}`}
         columns={columns}
         defaultSort={{ id: "cost", dir: -1 }}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="model spend"
         ariaLabel="Cost breakdown by model"
         tableClassName="min-w-[48rem]"
         className="rounded-none border-0"

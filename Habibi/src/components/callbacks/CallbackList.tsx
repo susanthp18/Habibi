@@ -22,6 +22,9 @@ interface Props {
   onSendReminder: (id: string) => void;
   onReschedulePlus1h: (id: string) => void;
   onCancel: (id: string) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }
 
 /** Status order for chips — operational first, terminal last. */
@@ -62,6 +65,9 @@ export function CallbackList({
   onSendReminder,
   onReschedulePlus1h,
   onCancel,
+  isLoading = false,
+  isError = false,
+  error,
 }: Props) {
   const chips = useMemo<FilterChip<CbStatus>[]>(() => {
     const counts = new Map<CbStatus, number>();
@@ -213,6 +219,10 @@ export function CallbackList({
       getStatus={(cb) => cb.status}
       chips={chips}
       columns={columns}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      errorLabel="callbacks"
       emptyMessage="No callbacks match this status."
       ariaLabel="Scrollable callbacks table"
       className="min-h-0 flex-1"

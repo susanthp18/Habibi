@@ -41,7 +41,17 @@ const STATUS_META: Record<
 
 const STATUS_ORDER: EmiStatus[] = ["overdue", "partial", "upcoming", "paid"];
 
-export function EmiTab({ customer }: { customer: Customer }) {
+export function EmiTab({
+  customer,
+  isLoading = false,
+  isError = false,
+  error,
+}: {
+  customer: Customer;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}) {
   const paid = customer.emi.filter((e) => e.status === "paid").length;
   const total = customer.emi.length;
   const pct = total ? (paid / total) * 100 : 0;
@@ -131,52 +141,58 @@ export function EmiTab({ customer }: { customer: Customer }) {
 
   return (
     <div className="space-y-200">
-      <div className="rounded-large border border-border bg-surface p-200">
-        <div className="mb-100 flex items-center justify-between text-sm">
-          <div>
-            <div className="font-semibold text-text">Repayment progress</div>
-            <div className="text-xs text-text-subtle">
-              {paid} of {total} installments paid
+      {!isError ? (
+        <>
+          <div className="rounded-large border border-border bg-surface p-200">
+            <div className="mb-100 flex items-center justify-between text-sm">
+              <div>
+                <div className="font-semibold text-text">Repayment progress</div>
+                <div className="text-xs text-text-subtle">
+                  {paid} of {total} installments paid
+                </div>
+              </div>
+              <div className="text-lg font-semibold text-text-brand tabular">{pct.toFixed(0)}%</div>
+            </div>
+            <div className="h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
+              <div
+                className="h-full rounded-full bg-background-brand-bold"
+                style={{ width: `${pct}%` }}
+              />
             </div>
           </div>
-          <div className="text-lg font-semibold text-text-brand tabular">{pct.toFixed(0)}%</div>
-        </div>
-        <div className="h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
-          <div
-            className="h-full rounded-full bg-background-brand-bold"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
 
-      <div className="rounded-large border border-border bg-surface p-200">
-        <div className="mb-150 text-body-small font-semibold text-text-subtle">
-          Installment timeline
-        </div>
-        <div className="flex items-center gap-050 overflow-x-auto pb-050">
-          {customer.emi.map((e) => {
-            const t = STATUS_META[e.status];
-            return (
-              <div
-                key={e.id}
-                className="flex min-w-[3.25rem] flex-1 flex-col items-center gap-050"
-                title={`EMI #${e.index} · ${fmtDate(e.dueDate)}`}
-              >
-                <div className={cn("h-100 w-full rounded-full", t.dot)} />
-                <div className="text-body-small tabular-nums text-text-subtlest">#{e.index}</div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-150 flex flex-wrap gap-100 text-body-small">
-          {(Object.keys(STATUS_META) as EmiStatus[]).map((s) => (
-            <span key={s} className="inline-flex items-center gap-050 text-text-subtle">
-              <span className={cn("h-100 w-100 rounded-full", STATUS_META[s].dot)} />
-              {STATUS_META[s].label}
-            </span>
-          ))}
-        </div>
-      </div>
+          <div className="rounded-large border border-border bg-surface p-200">
+            <div className="mb-150 text-body-small font-semibold text-text-subtle">
+              Installment timeline
+            </div>
+            <div className="flex items-center gap-050 overflow-x-auto pb-050">
+              {customer.emi.map((e) => {
+                const t = STATUS_META[e.status];
+                return (
+                  <div
+                    key={e.id}
+                    className="flex min-w-[3.25rem] flex-1 flex-col items-center gap-050"
+                    title={`EMI #${e.index} · ${fmtDate(e.dueDate)}`}
+                  >
+                    <div className={cn("h-100 w-full rounded-full", t.dot)} />
+                    <div className="text-body-small tabular-nums text-text-subtlest">
+                      #{e.index}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-150 flex flex-wrap gap-100 text-body-small">
+              {(Object.keys(STATUS_META) as EmiStatus[]).map((s) => (
+                <span key={s} className="inline-flex items-center gap-050 text-text-subtle">
+                  <span className={cn("h-100 w-100 rounded-full", STATUS_META[s].dot)} />
+                  {STATUS_META[s].label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <FilterTable
         rows={customer.emi}
@@ -184,6 +200,10 @@ export function EmiTab({ customer }: { customer: Customer }) {
         getStatus={(r) => r.status}
         chips={chips}
         columns={columns}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="the installment schedule"
         emptyMessage="No installments on this account."
         ariaLabel="EMI schedule"
       />

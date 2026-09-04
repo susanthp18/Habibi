@@ -18,9 +18,15 @@ function medalTone(rank: number) {
 export function AgentLeaderboard({
   rows,
   onOpen,
+  isLoading = false,
+  isError = false,
+  error,
 }: {
   rows: LeaderRow[];
   onOpen?: (r: LeaderRow) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }) {
   const columns = useMemo<RecordsColumn<LeaderRow>[]>(
     () => [
@@ -135,6 +141,10 @@ export function AgentLeaderboard({
         columns={columns}
         defaultSort={{ id: "rank", dir: 1 }}
         onRowClick={onOpen}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        errorLabel="the agent leaderboard"
         ariaLabel="Agent leaderboard"
         tableClassName="min-w-[36rem]"
         className="min-h-0 flex-1 rounded-none border-0"

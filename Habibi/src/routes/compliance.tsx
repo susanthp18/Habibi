@@ -18,6 +18,8 @@ import {
   type Violation,
 } from "@/data/compliance-seed";
 import { Lozenge } from "@/components/ui/lozenge";
+import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import {
   acknowledgeViolation,
   assignViolation,
@@ -27,6 +29,8 @@ import {
 import { currentActor } from "@/api/me";
 import { humanNames, useStaff } from "@/api/staff";
 import { apiGet, USE_MOCK } from "@/api/config";
+
+const EMPTY_VIOLATIONS: Violation[] = [];
 
 export const Route = createFileRoute("/compliance")({
   validateSearch: (search: Record<string, unknown>): { callId?: string } => ({
@@ -54,7 +58,8 @@ export const Route = createFileRoute("/compliance")({
 function CompliancePage() {
   const queryClient = useQueryClient();
   const { callId } = Route.useSearch();
-  const { data: items = [] } = useViolations();
+  const { data, isPending, isError, error } = useViolations();
+  const items = data ?? EMPTY_VIOLATIONS;
   const { data: staff = [] } = useStaff();
   const [filters, setFilters] = useState<ComplianceFilterState>(defaultCompFilters);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -198,41 +203,55 @@ function CompliancePage() {
           </p>
         </header>
 
-        <ComplianceStatsStrip all={items} filtered={filtered} />
-        <ComplianceFilters
-          filters={filters}
-          onChange={setFilters}
-          all={items}
-          resultCount={filtered.length}
-        />
-
-        <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">
-          <div className="grid gap-200 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-200 min-w-0">
-              {/* ChartCard is `h-full` by design — it is built for a fixed-height
-                  dashboard tile and every other caller wraps it in one. Stacked
-                  straight into this stretched grid item it resolved to the full
-                  column height, so the chart claimed the whole left column and
-                  pushed the violation feed below the scroll area: the page
-                  reported "3 violations" over an empty panel. The <aside> was
-                  unaffected only because `self-start` keeps it auto-height. */}
-              <div className="h-[15rem]">
-                <ViolationTrendChart all={items} />
-              </div>
-              <ViolationFeed
-                items={filtered}
-                onOpen={setOpenId}
-                onAssign={(id) => void onAssign(id)}
-                onAcknowledge={(id) => onAcknowledge(id)}
-                onResolve={(id) => onResolve(id, "Resolved after review.")}
-              />
-            </div>
-            <aside className="space-y-200 xl:sticky xl:top-0 xl:self-start">
-              <RuleBreakdown all={items} selectedRuleId={filters.ruleId} onSelect={setRule} />
-              <RuleCoverageCard selectedRuleId={filters.ruleId} onSelect={setRule} />
-            </aside>
+        {isError ? (
+          <div className="p-250">
+            <QueryErrorBanner label="compliance violations" error={error} />
           </div>
-        </div>
+        ) : (
+          <>
+            <ComplianceStatsStrip all={items} filtered={filtered} />
+            <ComplianceFilters
+              filters={filters}
+              onChange={setFilters}
+              all={items}
+              resultCount={filtered.length}
+            />
+
+            <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">
+              <div className="grid gap-200 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="space-y-200 min-w-0">
+                  {/* ChartCard is `h-full` by design — it is built for a fixed-height
+                      dashboard tile and every other caller wraps it in one. Stacked
+                      straight into this stretched grid item it resolved to the full
+                      column height, so the chart claimed the whole left column and
+                      pushed the violation feed below the scroll area: the page
+                      reported "3 violations" over an empty panel. The <aside> was
+                      unaffected only because `self-start` keeps it auto-height. */}
+                  <div className="h-[15rem]">
+                    <ViolationTrendChart all={items} />
+                  </div>
+                  {isPending && items.length === 0 ? (
+                    <div className="rounded-medium border border-border p-500">
+                      <LoadingState label="Loading violations" />
+                    </div>
+                  ) : (
+                    <ViolationFeed
+                      items={filtered}
+                      onOpen={setOpenId}
+                      onAssign={(id) => void onAssign(id)}
+                      onAcknowledge={(id) => onAcknowledge(id)}
+                      onResolve={(id) => onResolve(id, "Resolved after review.")}
+                    />
+                  )}
+                </div>
+                <aside className="space-y-200 xl:sticky xl:top-0 xl:self-start">
+                  <RuleBreakdown all={items} selectedRuleId={filters.ruleId} onSelect={setRule} />
+                  <RuleCoverageCard selectedRuleId={filters.ruleId} onSelect={setRule} />
+                </aside>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <ViolationSheet

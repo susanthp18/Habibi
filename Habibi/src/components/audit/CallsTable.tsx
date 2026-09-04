@@ -39,6 +39,9 @@ interface Props {
   onSelectedChange: (next: Set<string>) => void;
   openId: string | null;
   onOpen: (id: string) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
 }
 
 const CHANNEL_ICON = { voice: Phone, whatsapp: MessageCircle, sms: MessageSquare } as const;
@@ -120,7 +123,16 @@ const DISPOSITION_TONE: Record<string, LozengeTone> = {
   "DND — Not Contacted": "neutral",
 };
 
-export function CallsTable({ rows, selected, onSelectedChange, openId, onOpen }: Props) {
+export function CallsTable({
+  rows,
+  selected,
+  onSelectedChange,
+  openId,
+  onOpen,
+  isLoading = false,
+  isError = false,
+  error,
+}: Props) {
   const columns = useMemo<RecordsColumn<CallRecord>[]>(
     () => [
       {
@@ -312,6 +324,10 @@ export function CallsTable({ rows, selected, onSelectedChange, openId, onOpen }:
       selectable
       selected={selected}
       onSelectedChange={onSelectedChange}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      errorLabel="audit calls"
       emptyMessage="No calls match these filters."
       ariaLabel="Call audit table"
       defaultSort={{ id: "when", dir: -1 }}
