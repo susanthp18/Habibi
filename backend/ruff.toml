@@ -8,6 +8,7 @@ target-version = "py312"
 [lint.per-file-ignores]
 # These modules set DB_PROCESS_ROLE / sys.path / load_env() before importing
 # db and friends. Moving those imports to the top binds config too early.
+"main.py" = ["E402"]
 "bot_worker.py" = ["E402"]
 "worker.py" = ["E402"]
 "voice/bot.py" = ["E402"]

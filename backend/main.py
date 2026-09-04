@@ -16,6 +16,10 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Callable
 
+from env_loader import load_env
+
+load_env()
+
 from fastapi import Depends, Header, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware

@@ -25,11 +25,14 @@ if str(_BACKEND) not in sys.path:
 
 os.environ.setdefault("DB_PROCESS_ROLE", "voice")
 
+from env_loader import load_env
+
+load_env()
+
 from loguru import logger
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.workers.llm import LLMWorker, LLMWorkerActivationArgs, tool
 
-from env_loader import load_env
 from voice import config as voice_config
 
 

@@ -27,6 +27,10 @@ import os
 
 os.environ.setdefault("DB_PROCESS_ROLE", "voice")
 
+from env_loader import load_env
+
+load_env()
+
 from loguru import logger
 
 from agent_core import default_context, default_tuning, load_active_bundle, voice_params_from_config
