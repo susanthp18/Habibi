@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 import pytest
 
 from agent_core.eval.fixtures import (
@@ -12,6 +16,29 @@ from agent_core.eval.fixtures import (
 )
 from agent_core.eval.graders import run_grader
 from agent_core.eval.harness import run_suite_fixtures
+
+_SQL_23 = Path(__file__).resolve().parents[1] / "sql" / "23_outbound_evals.sql"
+
+_SQL_TASK_RE = re.compile(
+    r"THEN '(evt-ob-[a-z-]+)' ELSE '\1-'.*?"
+    r"\$obname\$(.*?)\$obname\$,\s*"
+    r"'([a-z_]+)',\s*"
+    r"\$obfix\$(.*?)\$obfix\$",
+    re.S,
+)
+
+
+def _sql_23_publish_tasks() -> dict[str, dict]:
+    text = _SQL_23.read_text(encoding="utf-8")
+    found: dict[str, dict] = {}
+    for match in _SQL_TASK_RE.finditer(text):
+        found[match.group(1)] = {
+            "id": match.group(1),
+            "name": match.group(2),
+            "grader": match.group(3),
+            "fixture": json.loads(match.group(4)),
+        }
+    return found
 
 
 def test_collections_regression_fixtures_pass() -> None:
@@ -74,3 +101,50 @@ def test_no_seeded_task_is_graded_against_an_empty_fixture() -> None:
         if not t.get("fixture")
     ]
     assert hollow == [], f"tasks with no fixture cannot fail: {hollow}"
+
+
+def test_sql_23_exists_so_a_fresh_install_can_satisfy_g_ob9() -> None:
+    """WP-034. 0096 claimed to mirror this file; sql/ jumped 22 → 90."""
+    assert _SQL_23.is_file(), (
+        "sql/23_outbound_evals.sql is the seed a database built from sql/ "
+        "needs to run the outbound suite G-OB9 gates on"
+    )
+
+
+def test_sql_23_mirrors_the_python_publish_tasks() -> None:
+    """Python is the pin; this file is what CI actually applies.
+
+    A third restatement of the nine fixtures that then drifted is how 0096
+    shipped hollow ``{}`` rows. Comparing the parsed INSERTs to
+    ``PUBLISH_OUTBOUND_TASKS`` is the check that would have caught that.
+    """
+    expected = {
+        t["id"]: {
+            "id": t["id"],
+            "name": t["name"],
+            "grader": t["grader"],
+            "fixture": t["fixture"],
+        }
+        for t in PUBLISH_OUTBOUND_TASKS
+    }
+    assert _sql_23_publish_tasks() == expected
+
+
+def test_sql_23_does_not_seed_the_expect_fail_siblings() -> None:
+    """Those rows exist to prove a grader can fail. Seeding one makes G-OB9
+    unsatisfiable, which is the outage this file exists to close."""
+    sql = _SQL_23.read_text(encoding="utf-8")
+    seeded = {t["id"] for t in PUBLISH_OUTBOUND_TASKS}
+    for task in OUTBOUND_TASKS:
+        if task.get("expect_fail"):
+            assert task["id"] not in seeded
+            assert f"THEN '{task['id']}'" not in sql, task["id"]
+
+
+def test_sql_23_fixtures_are_a_passable_outbound_suite() -> None:
+    """A database built from sql/ alone can satisfy G-OB9: the rows it
+    inserts are the shape a correct agent produces, and they grade green."""
+    tasks = list(_sql_23_publish_tasks().values())
+    result = run_suite_fixtures(tasks)
+    assert result["status"] == "pass", result["trials"]
+    assert result["failed"] == 0

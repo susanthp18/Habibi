@@ -206,16 +206,16 @@ OUTBOUND_COLLECTIONS_ID = "eval-outbound-collections"
 #
 # Worse, none of it existed anywhere a fresh database would find it. CI applies
 # sql/*.sql and then `alembic stamp head` — it never runs 0096's INSERT — and
-# `seed_eval_catalog` below did not mention outbound at all. So on CI, and on
-# any pilot provisioned from sql/*.sql, the suite is absent entirely and
-# `OUTBOUND_EVAL_GATE_ENABLED=true` refuses every outbound publish.
+# until WP-034 `sql/23_outbound_evals.sql` did not exist either, so on CI and
+# on any pilot provisioned from sql/*.sql the suite was absent and
+# `OUTBOUND_EVAL_GATE_ENABLED=true` refused every outbound publish.
 #
-# Python is now the authoritative definition; the migration only repairs
-# databases that already ran 0096. Each fixture is the shape a *correct* agent
-# produces, because this is a gate and a correct agent must pass it. The
-# `expect_fail` entries are the other half of the contract: without a case that
-# a *wrong* agent fails, a populated fixture is just the vacuous pass with more
-# JSON in it.
+# Python is the pin (`PUBLISH_OUTBOUND_TASKS`); sql/23 seeds a fresh install;
+# 0103 repairs databases that already ran 0096. Each fixture is the shape a
+# *correct* agent produces, because this is a gate and a correct agent must
+# pass it. The `expect_fail` entries are the other half of the contract:
+# without a case that a *wrong* agent fails, a populated fixture is just the
+# vacuous pass with more JSON in it.
 OUTBOUND_TASKS: list[dict[str, Any]] = [
     {
         "id": "evt-ob-machine",
@@ -464,9 +464,9 @@ def seed_eval_catalog(conn: Any, tenant_id: str, upsert) -> None:
                 "fixture": case["fixture"],
             },
         )
-    # The outbound conduct suite G-OB9 gates on. It lived only inside migration
-    # 0096, which CI stamps rather than runs, so until now every fresh database
-    # had the gate enabled and the suite absent.
+    # The outbound conduct suite G-OB9 gates on. sql/23_outbound_evals.sql now
+    # seeds it on a fresh install; this upsert keeps seed_demo / CI seeders
+    # on the same rows.
     upsert(
         conn,
         "eval_suites",
