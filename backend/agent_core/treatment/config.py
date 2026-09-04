@@ -20,7 +20,7 @@ import logging
 import os
 from dataclasses import dataclass
 
-from env_utils import env_float, env_int
+from env_utils import env_bool, env_float, env_int
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,6 @@ MODE_LIVE = "live"
 MODE_SIMULATED = "simulated"
 
 _MODES = frozenset({MODE_OFF, MODE_SHADOW, MODE_LIVE})
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = (os.getenv(name) or "").strip().lower()
-    if not raw:
-        return default
-    return raw in {"1", "true", "yes", "on"}
 
 
 def mode() -> str:
@@ -80,11 +73,11 @@ def log_vectors() -> bool:
     On by default. Without it there is no leakage-free training corpus, which
     is most of what shadow mode is for.
     """
-    return _env_bool("TREATMENT_LOG_VECTORS", True)
+    return env_bool("TREATMENT_LOG_VECTORS", True)
 
 
 def llm_rerank_enabled() -> bool:
-    return _env_bool("TREATMENT_LLM_RERANK", False)
+    return env_bool("TREATMENT_LLM_RERANK", False)
 
 
 def greediness() -> float:
@@ -261,7 +254,7 @@ def policy() -> Policy:
         ),
         fatigue_cost=env_float("TREATMENT_FATIGUE_COST", 6.0),
         max_rung_advance=max(1, env_int("TREATMENT_MAX_RUNG_ADVANCE", 1)),
-        reserve_budget=_env_bool("TREATMENT_RESERVE_BUDGET", True),
+        reserve_budget=env_bool("TREATMENT_RESERVE_BUDGET", True),
         reserve_margin=max(1.0, env_float("TREATMENT_RESERVE_MARGIN", 3.0)),
         field_digital_exhaustion=max(
             0, env_int("TREATMENT_FIELD_DIGITAL_EXHAUSTION", 4)

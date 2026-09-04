@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from env_loader import load_env
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +58,10 @@ def _cfg() -> dict[str, Any]:
         logger.warning("MinIO credentials unset — using local defaults (loopback endpoint only)")
         access = access or "minioadmin"
         secret = secret or "minioadmin"
-    raw_secure = (os.getenv("MINIO_SECURE") or "").strip().lower()
-    if raw_secure:
-        secure = raw_secure in ("1", "true", "yes")
-    else:
-        # Default to TLS for anything off the loopback; plaintext stays the
-        # default only for the local docker-compose MinIO.
-        secure = not loopback
+    # Default to TLS for anything off the loopback; plaintext stays the
+    # default only for the local docker-compose MinIO. ``"on"`` must mean
+    # TLS — it is in the shared truth set; the previous tuple omitted it.
+    secure = env_bool("MINIO_SECURE", default=not loopback)
     return {
         "endpoint": endpoint,
         "access_key": access,

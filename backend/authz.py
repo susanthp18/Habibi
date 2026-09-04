@@ -50,7 +50,7 @@ import threading
 import time
 from typing import Any, Iterable
 
-from env_utils import env_float
+from env_utils import env_bool, env_float
 
 logger = logging.getLogger(__name__)
 
@@ -628,15 +628,14 @@ def enforcement_enabled() -> bool:
     credentials behaves as it always has, and a production boot — which already
     refuses to start without ``API_KEY``/``API_KEY_MAP`` — is gated.
     """
-    raw = (os.getenv("AUTHZ_ENFORCE") or "").strip().lower()
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-
     import actor_context
 
-    return bool((os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map())
+    # Unset, blank, and a spelling that is in neither set all use this
+    # default — the same contract as ``env_int``. Peeking emptiness and then
+    # calling ``env_bool`` with an implicit ``False`` would treat a typo as
+    # "off" and leave a production boot with ``API_KEY`` ungated.
+    default = bool((os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map())
+    return env_bool("AUTHZ_ENFORCE", default=default)
 
 
 # ---------------------------------------------------------------------------

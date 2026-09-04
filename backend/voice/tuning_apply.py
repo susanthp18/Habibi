@@ -12,6 +12,7 @@ from typing import Any
 from loguru import logger
 
 from agent_core.tuning import live_delta_only, normalize_tuning
+from env_utils import env_bool
 
 
 def _is_reasoning_model(model: str) -> bool:
@@ -19,12 +20,19 @@ def _is_reasoning_model(model: str) -> bool:
     penalties) and require max_completion_tokens. Explicit config override wins
     over the name heuristic, since deployment names are user-defined aliases.
     """
-    raw = (os.getenv("AZURE_OPENAI_VOICE_REASONING_MODEL")
-           or os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip().lower()
-    if raw in ("1", "true", "yes", "on"):
-        return True
-    if raw in ("0", "false", "no", "off"):
-        return False
+    voice_raw = (os.getenv("AZURE_OPENAI_VOICE_REASONING_MODEL") or "").strip()
+    base_raw = (os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip()
+    chosen = voice_raw or base_raw
+    if chosen:
+        name = (
+            "AZURE_OPENAI_VOICE_REASONING_MODEL"
+            if voice_raw
+            else "AZURE_OPENAI_REASONING_MODEL"
+        )
+        if env_bool(name):
+            return True
+        if chosen.lower() in ("0", "false", "no", "off"):
+            return False
     d = (model or "").lower()
     return d.startswith(("o1", "o3", "o4")) or "gpt-5" in d or "gpt5" in d
 

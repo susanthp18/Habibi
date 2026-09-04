@@ -58,6 +58,7 @@ from agent_core.treatment.segments import (
     all_keys as all_segment_keys,
     key_for as segment_key_for,
 )
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -588,12 +589,7 @@ def _allow_simulated_models() -> bool:
     Legitimate for exercising the pipeline end to end before real traffic
     arrives, which is most of what the simulator is for. Never a default.
     """
-    return (os.getenv("TREATMENT_ALLOW_SIMULATED_MODELS") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("TREATMENT_ALLOW_SIMULATED_MODELS")
 
 
 def _max_age_days() -> float:

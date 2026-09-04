@@ -49,6 +49,7 @@ from typing import Any, Mapping, Sequence
 from sqlalchemy import text
 
 from agent_core.treatment import actions as A
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -340,12 +341,7 @@ def enabled() -> bool:
     priors on a holdout, simple daily quotas per channel are sufficient and
     safe.
     """
-    return (os.getenv("TREATMENT_DUAL_PRICING") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("TREATMENT_DUAL_PRICING")
 
 
 def persist(conn: Any, allocation: Allocation, *, tenant_id: str) -> None:

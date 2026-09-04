@@ -19,6 +19,7 @@ import pii_redact
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
+from env_utils import env_bool
 from pg_errors import PG_UNIQUE_VIOLATION, is_unique_violation as _is_unique_violation  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ _CLAIM_ATTEMPTS = 3
 
 
 def bot_runtime_enabled() -> bool:
-    return (os.getenv("BOT_RUNTIME_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return env_bool("BOT_RUNTIME_ENABLED")
 
 
 def bot_environment() -> str:

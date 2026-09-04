@@ -16,6 +16,7 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from env_loader import load_env  # noqa: E402
+from env_utils import env_bool  # noqa: E402
 
 
 def _require(name: str) -> str:
@@ -105,16 +106,13 @@ def voice_handoff_mode() -> str:
 
 def _flag(name: str) -> bool:
     load_env()
-    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+    return env_bool(name)
 
 
 def _flag_default_on(name: str) -> bool:
     """Like :func:`_flag` but unset means on — for kill switches, not opt-ins."""
     load_env()
-    raw = (os.getenv(name) or "").strip().lower()
-    if not raw:
-        return True
-    return raw in {"1", "true", "yes", "on"}
+    return env_bool(name, default=True)
 
 
 def voice_turn_audio(*, sandbox: bool = False) -> bool:
@@ -123,10 +121,7 @@ def voice_turn_audio(*, sandbox: bool = False) -> bool:
     Unset defaults on for sandbox sessions and off for production calls.
     """
     load_env()
-    raw = (os.getenv("VOICE_TURN_AUDIO") or "").strip().lower()
-    if not raw:
-        return bool(sandbox)
-    return raw in {"1", "true", "yes", "on"}
+    return env_bool("VOICE_TURN_AUDIO", default=bool(sandbox))
 
 
 def voice_filter_incomplete_turns() -> bool:

@@ -59,7 +59,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from env_utils import env_int
+from env_utils import env_bool, env_int
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +215,7 @@ def amd_enabled() -> bool:
     default: it delays connect while the carrier listens, which is a real cost
     paid on every dial for a signal we mostly already have.
     """
-    return (os.getenv("OUTBOUND_CARRIER_AMD") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return env_bool("OUTBOUND_CARRIER_AMD")
 
 
 # ---------------------------------------------------------------------------

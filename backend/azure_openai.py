@@ -14,7 +14,7 @@ from typing import Any, Iterator
 from openai import AzureOpenAI
 
 from env_loader import load_env
-from env_utils import env_int as _env_int
+from env_utils import env_bool, env_int as _env_int
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +263,9 @@ def _reasoning_override() -> bool | None:
     flag is set, else None to fall back to the name heuristic.
     """
     raw = (os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip().lower()
-    if raw in ("1", "true", "yes", "on"):
+    if not raw:
+        return None
+    if env_bool("AZURE_OPENAI_REASONING_MODEL"):
         return True
     if raw in ("0", "false", "no", "off"):
         return False

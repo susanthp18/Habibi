@@ -13,6 +13,7 @@ import os
 from fastapi import WebSocket, WebSocketDisconnect
 
 from env_loader import load_env
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,7 @@ def voice_ws_upstream() -> str:
 
 def ws_proxy_enabled() -> bool:
     load_env()
-    raw = (os.getenv("VOICE_WS_VIA_API") or "true").strip().lower()
-    return raw in {"1", "true", "yes", "on", ""}
+    return env_bool("VOICE_WS_VIA_API", default=True)
 
 
 async def proxy_voice_websocket(client: WebSocket) -> None:

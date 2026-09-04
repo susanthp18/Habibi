@@ -39,7 +39,7 @@ from agent_core import (
     sentiment_label,
     should_halt,
 )
-from env_utils import env_float, env_int
+from env_utils import env_bool, env_float, env_int
 from prompt_render import render_prompt
 
 logger = logging.getLogger(__name__)
@@ -187,8 +187,7 @@ def _sandbox_tools_enabled(payload: dict[str, Any], context: dict[str, Any] | No
         return False
     if payload.get("enableTools") is True:
         return True
-    flag = (os.getenv("SANDBOX_TEXT_TOOLS") or "").strip().lower()
-    if flag in {"1", "true", "yes", "on"}:
+    if env_bool("SANDBOX_TEXT_TOOLS"):
         return True
     # Auto-enable when a CRM customer is pinned on the run context.
     ctx = context or {}

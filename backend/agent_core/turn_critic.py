@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from collections.abc import Iterable
 from typing import Any
 
+from env_utils import env_bool
+
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------
@@ -133,12 +135,7 @@ class Correction:
 
 def enabled() -> bool:
     """Read at call time so the flag flips without a redeploy."""
-    return (os.getenv("TURN_CRITIC_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("TURN_CRITIC_ENABLED")
 
 
 def _max_tokens() -> int:

@@ -30,10 +30,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from sqlalchemy import text
+
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +70,7 @@ Call submit_qa_scores exactly once with a score for EVERY criterion listed."""
 
 
 def enabled() -> bool:
-    return (os.getenv("QA_AUTOSCORE_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("QA_AUTOSCORE_ENABLED")
 
 
 def _tool_schema(criteria: list[dict[str, Any]]) -> dict[str, Any]:

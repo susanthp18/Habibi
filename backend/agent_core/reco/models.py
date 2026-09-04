@@ -44,6 +44,7 @@ from agent_core.reco.candidates import Candidate
 from agent_core.reco.config import Weights
 from agent_core.reco.features import CallSignals, CustomerFeatures, SCHEMA_VERSION
 from agent_core.reco.scoring import Recommender, RuleScorer, ScoredOffer
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -541,4 +542,4 @@ def hybrid_rule_weight() -> float:
 
 
 def llm_rerank_enabled() -> bool:
-    return (os.getenv("RECO_LLM_RERANK") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return env_bool("RECO_LLM_RERANK")

@@ -33,6 +33,7 @@ from functools import lru_cache
 from typing import Any, Callable
 
 from agent_core.tools.domain import ToolResult
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +56,7 @@ KB_GAP_MARGIN = 0.02
 
 def _gap_capture_enabled() -> bool:
     """Read at call time so the flag can be flipped without a redeploy."""
-    return (os.getenv("KB_GAP_CAPTURE_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("KB_GAP_CAPTURE_ENABLED")
 
 
 def _gap_margin_threshold() -> float:

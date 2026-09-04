@@ -50,6 +50,8 @@ import threading
 import time
 from typing import Any, Sequence
 
+from env_utils import env_bool
+
 logger = logging.getLogger(__name__)
 
 # MiniLM-L-6 is the smallest cross-encoder that still reranks well, and the only
@@ -70,16 +72,9 @@ _encoder: Any | None = None
 _load_failed = False
 
 
-def _flag(name: str, default: bool) -> bool:
-    raw = (os.getenv(name) or "").strip().lower()
-    if not raw:
-        return default
-    return raw in {"1", "true", "yes", "on"}
-
-
 def enabled() -> bool:
     """Whether reranking is switched on. Off by default — see module docstring."""
-    return _flag("KB_RERANK_ENABLED", False)
+    return env_bool("KB_RERANK_ENABLED", False)
 
 
 def _int_env(name: str, default: int, *, low: int, high: int) -> int:

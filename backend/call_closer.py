@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -54,7 +53,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 import outbound
-from env_utils import env_int
+from env_utils import env_bool, env_int
 
 logger = logging.getLogger(__name__)
 
@@ -172,12 +171,7 @@ def llm_enabled() -> bool:
     deterministic fallback, which is the property that makes this safe to run
     against a saturated or missing Azure deployment.
     """
-    return (os.getenv("CLOSER_LLM_ENABLED") or "true").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("CLOSER_LLM_ENABLED", True)
 
 
 def _now() -> datetime:

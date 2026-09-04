@@ -6,13 +6,11 @@ Do not invent a new name in a feature PR — add it here and in ``.env.example``
 
 from __future__ import annotations
 
-import os
-
-_TRUE = frozenset({"1", "true", "yes", "on"})
+from env_utils import env_bool
 
 
 def _flag(name: str) -> bool:
-    return (os.getenv(name) or "").strip().lower() in _TRUE
+    return env_bool(name)
 
 
 def agent_cards_enabled() -> bool:

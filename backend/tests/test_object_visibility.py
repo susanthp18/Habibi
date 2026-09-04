@@ -96,6 +96,20 @@ def test_disabled_enforcement_is_the_same_path_as_admin(monkeypatch) -> None:
     assert visibility.params(AGENT)["vis_all"] is True
 
 
+def test_unrecognised_visibility_enforce_follows_authz(monkeypatch) -> None:
+    """A typo must not introduce a second switch that disagrees with authz."""
+    monkeypatch.setenv("AUTHZ_ENFORCE", "1")
+    monkeypatch.setenv("VISIBILITY_ENFORCE", "banana")
+    assert visibility.enforcement_enabled() is True
+    monkeypatch.setenv("AUTHZ_ENFORCE", "0")
+    assert visibility.enforcement_enabled() is False
+    monkeypatch.setenv("VISIBILITY_ENFORCE", "on")
+    assert visibility.enforcement_enabled() is True
+    monkeypatch.setenv("VISIBILITY_ENFORCE", "off")
+    monkeypatch.setenv("AUTHZ_ENFORCE", "1")
+    assert visibility.enforcement_enabled() is False
+
+
 def test_predicate_rejects_an_alias_that_is_not_an_identifier() -> None:
     """The alias is the one part of the predicate that is interpolated."""
     with pytest.raises(ValueError):
@@ -163,6 +177,16 @@ def test_the_pool_can_be_closed_for_deployments_that_assign_everything(
     monkeypatch.setenv("VISIBILITY_UNASSIGNED_POOL", "0")
     as_actor(OTHER_AGENT)
     assert pool not in _customer_ids()
+
+
+def test_unrecognised_unassigned_pool_stays_visible(
+    db_tx, as_actor, monkeypatch
+) -> None:
+    """Only an explicit false closes the pool. A typo must not empty the queue."""
+    pool = _unassigned(db_tx)
+    monkeypatch.setenv("VISIBILITY_UNASSIGNED_POOL", "banana")
+    as_actor(OTHER_AGENT)
+    assert pool in _customer_ids()
 
 
 def test_supervisor_sees_their_reports_customers(db_tx, as_actor) -> None:

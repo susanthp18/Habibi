@@ -45,6 +45,7 @@ from typing import Any
 from agent_core import lexicon
 from agent_core.intent import INTENT_KEYWORDS, resolve_intent
 from agent_core.sentiment import estimate_sentiment, sentiment_label
+from env_utils import env_bool
 
 # Intents that survive a short, ambiguous follow-up turn. Mirrors
 # agent_core.intent._PRODUCT_SESSION_INTENTS — imported by value rather than
@@ -217,12 +218,7 @@ class TurnUnderstanding:
 
 def llm_enabled() -> bool:
     """Read at call time so the flag flips without a redeploy."""
-    return (os.getenv("UNDERSTANDING_LLM_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("UNDERSTANDING_LLM_ENABLED")
 
 
 #: Wall-clock budget for the enrichment call, per turn.

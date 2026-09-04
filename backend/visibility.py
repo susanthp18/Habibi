@@ -52,9 +52,10 @@ silently, and guessing at it would be worse than the gap.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
+
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -89,22 +90,13 @@ def enforcement_enabled() -> bool:
     nothing, and the two being separately configurable is mostly a way to end up
     with one of them off by accident. ``VISIBILITY_ENFORCE`` overrides.
     """
-    raw = (os.getenv("VISIBILITY_ENFORCE") or "").strip().lower()
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-
     import authz
 
-    return authz.enforcement_enabled()
+    return env_bool("VISIBILITY_ENFORCE", default=authz.enforcement_enabled())
 
 
 def unassigned_pool_visible() -> bool:
-    raw = (os.getenv("VISIBILITY_UNASSIGNED_POOL") or "").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return True
+    return env_bool("VISIBILITY_UNASSIGNED_POOL", default=True)
 
 
 def resolve(user_id: str | None) -> Visibility:

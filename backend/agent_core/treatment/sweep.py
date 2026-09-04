@@ -54,6 +54,7 @@ from sqlalchemy.engine import Engine
 
 from agent_core.treatment import config
 from agent_core.treatment.features import zone
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -118,14 +119,7 @@ def enabled() -> bool:
     day, and that is an operational decision rather than a deployment
     side-effect.
     """
-    import os
-
-    return (os.getenv("TREATMENT_SWEEP") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("TREATMENT_SWEEP")
 
 
 def _tenant(conn: Any) -> str | None:

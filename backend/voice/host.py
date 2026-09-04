@@ -33,10 +33,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
 from env_loader import load_env
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +52,7 @@ _SESSION_TASKS: set[asyncio.Task] = set()
 
 def embedded_host_enabled() -> bool:
     load_env()
-    return (os.getenv("VOICE_EMBEDDED_HOST") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return env_bool("VOICE_EMBEDDED_HOST")
 
 
 async def get_runner() -> Any:

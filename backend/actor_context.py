@@ -20,7 +20,7 @@ import time
 from contextvars import ContextVar
 from typing import Any
 
-from env_utils import env_float
+from env_utils import env_bool, env_float
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +58,19 @@ def _app_is_prod() -> bool:
 
 
 def _allow_actor_header() -> bool:
-    raw = (os.getenv("ALLOW_ACTOR_HEADER") or "").strip().lower()
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    # Default: allow in non-prod only (shared API_KEY must not spoof in prod).
-    # ``_app_is_prod`` is now an allow-list, so staging and typos already
-    # default to off. Making unset mean off everywhere is a separate decision
-    # with a cost — it silently drops the console's X-Actor-User-Id and
-    # re-attributes every action to ACTOR_USER_ID. Tracked as WP-070.
-    return not _app_is_prod()
+    raw = (os.getenv("ALLOW_ACTOR_HEADER") or "").strip()
+    if not raw:
+        # Default: allow in non-prod only (shared API_KEY must not spoof in prod).
+        # ``_app_is_prod`` is now an allow-list, so staging and typos already
+        # default to off. Making unset mean off everywhere is a separate decision
+        # with a cost — it silently drops the console's X-Actor-User-Id and
+        # re-attributes every action to ACTOR_USER_ID. Tracked as WP-070.
+        return not _app_is_prod()
+    # An unrecognised value falls back to the same default, rather than to
+    # False: a typo must not silently drop the console's X-Actor-User-Id and
+    # re-attribute every action to ACTOR_USER_ID. Same rule as
+    # authz.enforcement_enabled.
+    return env_bool("ALLOW_ACTOR_HEADER", default=not _app_is_prod())
 
 
 def reload_api_key_map() -> dict[str, str]:

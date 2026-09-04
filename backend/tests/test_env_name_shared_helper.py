@@ -42,6 +42,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_env_name_is_public_on_the_leaf_module() -> None:
     assert callable(env_utils.env_name)
     assert "env_name" in env_utils.__all__
+    assert "env_bool" in env_utils.__all__
     assert "NON_PROD_ENVS" in env_utils.__all__
     assert "env_allows_dev_key" in env_utils.__all__
 

@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Callable
 
 from env_loader import load_env
+from env_utils import env_bool
 
 load_env()
 
@@ -416,8 +417,7 @@ def _assert_hardening_gate() -> None:
     """Refuse to boot outside a trusted local environment while controls are off."""
     if not _IS_PROD:
         return
-    ack = (os.getenv("ALLOW_UNHARDENED_PRODUCTION") or "").strip().lower()
-    if ack in {"1", "true", "yes", "on"}:
+    if env_bool("ALLOW_UNHARDENED_PRODUCTION"):
         logger.error(
             "Booting with APP_ENV=%s while deferred controls are still "
             "inactive (%s) — ALLOW_UNHARDENED_PRODUCTION is set. This deployment "

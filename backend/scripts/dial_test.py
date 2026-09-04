@@ -33,6 +33,7 @@ import os
 import sys
 
 from env_loader import load_env
+from env_utils import env_bool
 
 load_env()
 
@@ -188,7 +189,7 @@ def main() -> None:
         if not allowed and args.force_hours and decision.reason == contact_policy.REASON_HOURS:
             # Only the clock, never consent. An opt-out or a DND flag is a
             # decision the borrower made and no test flag overrides it.
-            if (os.getenv("OUTBOUND_TEST_ANY_HOUR") or "").strip().lower() in {"1", "true", "yes"}:
+            if env_bool("OUTBOUND_TEST_ANY_HOUR"):
                 print("  ! calling-window veto overridden for a rehearsal")
                 allowed = True
             else:

@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 
 from contact_policy import BLOCKING_CONSENT
 from env_loader import load_env
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,8 @@ def _env(name: str, default: str = "") -> str:
 
 
 def bounce_voice_enabled() -> bool:
-    return _env("BOUNCE_VOICE_ENABLED").lower() in {"1", "true", "yes", "on"}
+    load_env()
+    return env_bool("BOUNCE_VOICE_ENABLED")
 
 
 def webhook_secret() -> str:

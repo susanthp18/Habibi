@@ -193,8 +193,31 @@ def test_enforce_env_overrides_in_both_directions(monkeypatch) -> None:
     actor_context.reload_api_key_map()
     monkeypatch.setenv("AUTHZ_ENFORCE", "1")
     assert authz.enforcement_enabled() is True
+    monkeypatch.setenv("AUTHZ_ENFORCE", "on")
+    assert authz.enforcement_enabled() is True
     monkeypatch.setenv("API_KEY", "some-key")
     monkeypatch.setenv("AUTHZ_ENFORCE", "0")
+    assert authz.enforcement_enabled() is False
+    monkeypatch.setenv("AUTHZ_ENFORCE", "off")
+    assert authz.enforcement_enabled() is False
+
+
+def test_unrecognised_enforce_follows_credentials(monkeypatch) -> None:
+    """A typo must not disable the gate the way omitting ``on`` disabled TLS.
+
+    Unset, blank, and unrecognised all use the credential default. Treating a
+    set-but-unknown value as false would leave a production boot with
+    ``API_KEY`` ungated.
+    """
+    import actor_context
+
+    monkeypatch.setenv("API_KEY", "some-key")
+    monkeypatch.delenv("API_KEY_MAP", raising=False)
+    actor_context.reload_api_key_map()
+    monkeypatch.setenv("AUTHZ_ENFORCE", "banana")
+    assert authz.enforcement_enabled() is True
+    monkeypatch.delenv("API_KEY")
+    actor_context.reload_api_key_map()
     assert authz.enforcement_enabled() is False
 
 

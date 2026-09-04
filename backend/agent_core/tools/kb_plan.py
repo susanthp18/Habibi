@@ -49,6 +49,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from env_utils import env_bool
+
 logger = logging.getLogger(__name__)
 
 MODE_PASSAGE = "passage"
@@ -75,16 +77,9 @@ _MAX_CANDIDATES = 12
 _CONTEXT_TURNS = 4
 
 
-def _flag(name: str, default: bool = True) -> bool:
-    raw = (os.getenv(name) or "").strip().lower()
-    if not raw:
-        return default
-    return raw in {"1", "true", "yes", "on"}
-
-
 def planner_enabled() -> bool:
     """Read at call time so the model path can be disabled without a redeploy."""
-    return _flag("KB_PLANNER_ENABLED", True)
+    return env_bool("KB_PLANNER_ENABLED", True)
 
 
 def _budget_s(name: str, default: float) -> float:

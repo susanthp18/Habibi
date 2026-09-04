@@ -20,6 +20,7 @@ import os
 __all__ = [
     "env_int",
     "env_float",
+    "env_bool",
     "NON_PROD_ENVS",
     "env_name",
     "env_allows_dev_key",
@@ -47,6 +48,25 @@ def env_allows_dev_key() -> bool:
     agree on what counts as production.
     """
     return env_name() in NON_PROD_ENVS
+
+
+# One truth set for every flag. ``"on"`` belongs here: ``MINIO_SECURE=on`` used
+# to disable TLS because ``storage.py`` omitted it while twenty other sites
+# accepted it. Empty / unset / unrecognised is the caller's default — the same
+# contract as ``env_int`` — never true-by-blank, and never false-by-typo. A
+# spelling that is not in either set must not force plaintext the way omitting
+# ``"on"`` did.
+_BOOL_TRUE = frozenset({"1", "true", "yes", "on"})
+_BOOL_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if raw in _BOOL_TRUE:
+        return True
+    if raw in _BOOL_FALSE:
+        return False
+    return default
 
 
 def env_int(name: str, default: int) -> int:
