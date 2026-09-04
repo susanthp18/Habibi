@@ -28,6 +28,7 @@ SKIP_DIR_NAMES = {
     "pgdata",
     "minio_data",
     "voice_sessions",
+    "PRAXIST-main",  # Fair Source guest tree — do not redistribute (S6)
 }
 
 # Exact relative paths (posix-style) to skip
