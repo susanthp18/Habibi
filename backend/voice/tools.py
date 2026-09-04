@@ -1472,13 +1472,40 @@ def build_tools(
         # courtesy call has no business conceding what a broken-promise chase
         # might. It can only ever lower, which is what stops a card authoring
         # itself more discretion than the matrix would grant.
+        #
+        # The in-memory payload is what the Mouth quotes. apply_goodwill re-reads
+        # approved_amount from the row, so the ceiling has to land there too
+        # or a pre-due courtesy Mission posts the un-narrowed matrix figure.
         _mission = session.extra.get("mission")
         _profile = (_mission or {}).get("authorityProfile") if isinstance(_mission, dict) else None
         if _profile and state.authority_cap is not None:
             from agent_core.authority import config as _authority_config
+            from agent_core.authority import decisions as _authority_decisions
 
             ceiling = _authority_config.profile_ceiling(_profile)
             if ceiling is not None and ceiling < state.authority_cap:
+                decision_id = payload.get("decisionId")
+                if decision_id:
+                    try:
+                        await asyncio.to_thread(
+                            _authority_decisions.bind_ceiling,
+                            str(decision_id),
+                            ceiling=ceiling,
+                            profile=_profile,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "authority mission ceiling persist failed for %s",
+                            decision_id,
+                        )
+                        return {
+                            "verdict": "escalate",
+                            "suppressed": True,
+                            "apply": False,
+                            "say": (
+                                "do not quote a waiver or settlement figure; escalate"
+                            ),
+                        }, None
                 logger.info(
                     "authority narrowed by mission profile %s: %s -> %s",
                     _profile,

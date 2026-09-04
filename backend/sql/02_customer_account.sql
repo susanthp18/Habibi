@@ -124,6 +124,12 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_account_id ON ledger_entries(account_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_posted_at ON ledger_entries(posted_at);
+-- One goodwill posting per authority decision. The decision id is in the
+-- description (`Goodwill {fee} waiver AD-…`); apply_goodwill serialises with
+-- FOR UPDATE, and this unique keeps a lost race from committing a second row.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ledger_entries_authority_decision
+  ON ledger_entries ((substring(description from 'AD-[0-9A-F]{12}')))
+  WHERE type = 'waiver' AND description ~ 'AD-[0-9A-F]{12}';
 
 CREATE TABLE IF NOT EXISTS emi_installments (
   id TEXT PRIMARY KEY,

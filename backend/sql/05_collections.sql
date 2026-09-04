@@ -552,6 +552,11 @@ CREATE INDEX IF NOT EXISTS idx_authority_decisions_customer_id ON authority_deci
 CREATE INDEX IF NOT EXISTS idx_authority_decisions_interaction
   ON authority_decisions (interaction_id, created_at DESC)
   WHERE interaction_id IS NOT NULL;
+-- One ledger posting per enacted decision. enacted_ref is the LED- id written
+-- by apply_goodwill; the partial predicate leaves unenacted (null) rows free.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_authority_decisions_enacted_ref
+  ON authority_decisions (enacted_ref)
+  WHERE enacted IS TRUE AND enacted_ref IS NOT NULL;
 
 
 -- Book-level allocation: the marginal value of one more agent-hour -----------

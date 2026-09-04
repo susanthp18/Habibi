@@ -196,6 +196,73 @@ def test_apply_refuses_an_amount_above_the_cap(db_tx, customer, monkeypatch) -> 
     assert not _ledger_waivers(db_tx, customer["account_id"])
 
 
+def test_mission_ceiling_is_what_apply_goodwill_posts(
+    db_tx, customer, monkeypatch
+) -> None:
+    """The Mouth quotes the Mission ceiling; the ledger must honour it.
+
+    Narrowing only the in-memory payload left apply_goodwill reading the
+    un-narrowed matrix figure from the row.
+    """
+    monkeypatch.setenv("AUTHORITY_MODE", "live")
+    _prepare_eligible(db_tx, customer)
+    from agent_core.authority import recommend_authority
+    from agent_core.authority.decisions import MISSION_CEILING, bind_ceiling
+    from agent_core.authority.enact import AuthorityError, apply_goodwill
+
+    result = recommend_authority(
+        customer_id=customer["customer_id"],
+        account_id=customer["account_id"],
+        asked_amount=400,
+        conn=db_tx,
+    )
+    assert result.approved_amount == 400
+    bind_ceiling(result.decision_id, ceiling=100, profile="collections_tier1", conn=db_tx)
+
+    stored = db_tx.execute(
+        text(
+            """
+            SELECT approved_amount, cap_amount, reason_codes
+            FROM authority_decisions WHERE id = :id
+            """
+        ),
+        {"id": result.decision_id},
+    ).mappings().first()
+    assert float(stored["approved_amount"]) == 100
+    assert float(stored["cap_amount"]) == 100
+    assert MISSION_CEILING in (stored["reason_codes"] or [])
+
+    with pytest.raises(AuthorityError, match="amount_above_cap"):
+        apply_goodwill(decision_id=result.decision_id, amount=400, conn=db_tx)
+
+    posted = apply_goodwill(decision_id=result.decision_id, amount=None, conn=db_tx)
+    assert posted["amount"] == 100
+    waivers = _ledger_waivers(db_tx, customer["account_id"])
+    assert len(waivers) == 1
+    assert float(waivers[0]["amount"]) == -100
+
+
+def test_bind_ceiling_cannot_raise_the_stored_cap(db_tx, customer, monkeypatch) -> None:
+    monkeypatch.setenv("AUTHORITY_MODE", "live")
+    _prepare_eligible(db_tx, customer)
+    from agent_core.authority import recommend_authority
+    from agent_core.authority.decisions import bind_ceiling
+
+    result = recommend_authority(
+        customer_id=customer["customer_id"],
+        account_id=customer["account_id"],
+        asked_amount=200,
+        conn=db_tx,
+    )
+    assert result.approved_amount == 200
+    bind_ceiling(result.decision_id, ceiling=500, profile="collections_tier3", conn=db_tx)
+    stored = db_tx.execute(
+        text("SELECT approved_amount, cap_amount FROM authority_decisions WHERE id = :id"),
+        {"id": result.decision_id},
+    ).mappings().first()
+    assert float(stored["approved_amount"]) == 200
+
+
 def test_specialist_valid_waive_fee_posts_the_ledger(db_tx, customer) -> None:
     _prepare_eligible(db_tx, customer)
     dispute = db.create_dispute(

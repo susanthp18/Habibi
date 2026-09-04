@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 import money_inr
 from agent_core.authority import config, decisions
@@ -38,47 +39,51 @@ def apply_goodwill(
         raise AuthorityError("shadow_mode")
 
     def _run(c: Any) -> dict[str, Any]:
-        row = c.execute(
-            text(
-                """
-                SELECT id, customer_id, account_id, fee_type, verdict,
-                       approved_amount, cap_amount, enacted, dispute_id
-                FROM authority_decisions
-                WHERE id = :id
-                """
-            ),
-            {"id": decision_id},
-        ).mappings().first()
-        if row is None:
-            raise AuthorityError("decision_not_found")
-        if row["enacted"]:
-            raise AuthorityError("already_applied")
-        if row["verdict"] == VERDICT_ESCALATE:
-            raise AuthorityError("verdict_escalate")
-        cap = float(row["approved_amount"] or row["cap_amount"] or 0)
-        if cap <= 0:
-            raise AuthorityError("no_approved_amount")
-        asked = float(amount) if amount is not None else cap
-        if asked <= 0:
-            raise AuthorityError("invalid_amount")
-        if asked > cap + 0.009:
-            raise AuthorityError("amount_above_cap")
-        posted = min(asked, cap)
+        try:
+            row = c.execute(
+                text(
+                    """
+                    SELECT id, customer_id, account_id, fee_type, verdict,
+                           approved_amount, cap_amount, enacted, dispute_id
+                    FROM authority_decisions
+                    WHERE id = :id
+                    FOR UPDATE
+                    """
+                ),
+                {"id": decision_id},
+            ).mappings().first()
+            if row is None:
+                raise AuthorityError("decision_not_found")
+            if row["enacted"]:
+                raise AuthorityError("already_applied")
+            if row["verdict"] == VERDICT_ESCALATE:
+                raise AuthorityError("verdict_escalate")
+            cap = float(row["approved_amount"] or row["cap_amount"] or 0)
+            if cap <= 0:
+                raise AuthorityError("no_approved_amount")
+            asked = float(amount) if amount is not None else cap
+            if asked <= 0:
+                raise AuthorityError("invalid_amount")
+            if asked > cap + 0.009:
+                raise AuthorityError("amount_above_cap")
+            posted = min(asked, cap)
 
-        account_id = row["account_id"]
-        if not account_id:
-            raise AuthorityError("account_missing")
+            account_id = row["account_id"]
+            if not account_id:
+                raise AuthorityError("account_missing")
 
-        did = dispute_id or row["dispute_id"]
-        return _post(
-            c,
-            account_id=account_id,
-            customer_id=row["customer_id"],
-            amount=posted,
-            fee_type=row["fee_type"] or "late_fee",
-            decision_id=decision_id,
-            dispute_id=did,
-        )
+            did = dispute_id or row["dispute_id"]
+            return _post(
+                c,
+                account_id=account_id,
+                customer_id=row["customer_id"],
+                amount=posted,
+                fee_type=row["fee_type"] or "late_fee",
+                decision_id=decision_id,
+                dispute_id=did,
+            )
+        except IntegrityError as exc:
+            raise AuthorityError("already_applied") from exc
 
     if conn is not None:
         return _run(conn)
@@ -210,12 +215,14 @@ def _post(
         )
 
     if decision_id:
-        decisions.mark_enacted(
+        claimed = decisions.mark_enacted(
             decision_id,
             conn=conn,
             ledger_id=ledger_id,
             dispute_id=resolved_dispute,
         )
+        if not claimed:
+            raise AuthorityError("already_applied")
 
     db.record_activity(
         conn,
