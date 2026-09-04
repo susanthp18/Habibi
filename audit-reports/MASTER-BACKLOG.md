@@ -1136,6 +1136,43 @@ The brief's default order is correctness → security → data integrity → arc
 
 ---
 
+### WP-071 — The frontend suite has no DOM, so component tests are source-text pins
+
+| | |
+|---|---|
+| **Category** | Testing · **Severity** P2 · **Confidence** Certain |
+| **Root cause** | `vitest` runs with `environment: "node"`. Nothing can be rendered, so every component-level assertion in this repository is a **string match against source text** — `expect(card).toContain("onClick={onMoveUp}")` in `keyboard-alternatives.test.ts`, `expect(src).toContain("useId()")` in `bind-control-id.test.ts`. |
+| **What that does and does not catch** | It catches a deleted control, an unhooked handler and a changed guard expression. It **cannot** catch a logic inversion that still type-checks — `onMoveUp` wired to `onReorder(i, i + 1)` would pass every current test. |
+| **Objective** | A keyboard path that is asserted to work is asserted by working. |
+| **Affected files** | `Habibi/vitest.config.*` · the component tests that would convert |
+| **Dependencies** | none · **Prerequisites** none |
+| **Implementation strategy** | Add `jsdom` (or `happy-dom`) and `@testing-library/react`, then convert the highest-value pins first: `WP-051`'s three keyboard surfaces and `WP-052`'s label association. **Do not convert everything** — a source pin is the right tool for "this file still calls `useId`", and only the behavioural claims need a DOM. |
+| **Acceptance criteria** | Activating Move up from the keyboard on the rule at index 1 reorders the list, asserted by rendering rather than by reading the file. |
+| **Risk** | **none** to production — test infrastructure · **Rollback** `git revert` · **Atomic?** No |
+
+> Raised during `WP-051`, which shipped code whose entire value is that a keyboard path *functions* and could only pin that the wiring is spelled correctly. `tsc` and `npm run build` do not press a key. Two accessibility packages have now landed against source-text evidence, which is honest but is not the same as working.
+
+---
+
+### WP-072 — Standardising on npm silently dropped a supply-chain guard
+
+| | |
+|---|---|
+| **Category** | Supply chain · **Severity** P2 · **Confidence** Certain |
+| **Root cause** | `WP-056` deleted `Habibi/bun.lock` and declared `packageManager: npm` — correctly, because `npm audit` cannot read a bun lockfile and a second stale tree would have made the new gate blind. But `Habibi/bunfig.toml` remains, and it carries a protection npm has no equivalent for: `minimumReleaseAge = 86400` — *"24h supply-chain guard: skip package versions published less than a day ago"*, with a comment requiring confirmation before any per-package bypass. |
+| **What was lost** | That guard is the cheapest defence against a compromised maintainer account publishing a malicious patch release, which is the dominant npm supply-chain attack. The install path no longer has it, and nothing recorded that it went. |
+| **What is now misleading** | `bunfig.toml` is live-looking configuration for a package manager the repository has just declared it does not use — the same class of defect as the `[tool.vulture]` block `WP-063` deleted, where config for an absent tool read as coverage that did not exist. |
+| **Objective** | Either the guard exists, or its absence is a recorded decision. |
+| **Affected files** | `Habibi/bunfig.toml` · possibly `.github/workflows/frontend-typecheck.yml` |
+| **Dependencies** | `WP-056` (landed) |
+| **Implementation strategy** | Decide, do not drift. Either (a) delete `bunfig.toml` and accept the loss explicitly, noting it in the workflow beside the audit step, or (b) reinstate an equivalent — a CI step rejecting dependencies published within 24h, or a tool that enforces it. **Do not leave the file sitting there implying a guard that no longer runs.** |
+| **Acceptance criteria** | A reader can tell from the repository whether fresh-release installs are blocked, and the answer is not "it depends which package manager you happen to use". |
+| **Risk** | none to production · **Rollback** `git revert` · **Atomic?** Yes |
+
+> `WP-056` was right to remove the bun lockfile — an unauditable second dependency tree is worse. This records the cost of that trade rather than letting it disappear, which is the same failure `WP-063` produced when a deleted config took its one real warning with it.
+
+---
+
 ### WP-066 — Give the expiry scanner a named allowlist
 
 | | |
