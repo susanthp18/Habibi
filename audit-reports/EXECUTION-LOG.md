@@ -16,6 +16,77 @@ account `susanth.p@bigtapp.ai` (Pro), invoked `-p --force --trust`.
 
 ---
 
+## Batches — parallel dispatch, serial verification
+
+From 2026-09-04 packages are dispatched **three at a time on strictly disjoint
+files**, with one rule: **no agent runs `pytest`.** Only the orchestrator does,
+serially, after all three return.
+
+### Why that rule exists — measured, twice
+
+All three agents in batch one ignored it. The result was **three failures that
+looked real and were not**:
+
+| Artefact | Cause |
+|---|---|
+| 3 × `inspect.getsource(main.demo_outbound_call)` | `main.py` was being edited by another agent; `getsource` reads from disk and the imported code object's line numbers had shifted. Re-run serially: **38 passed** |
+| `test_rls.py::test_policy_sql_is_valid` — `DeadlockDetected` | two suites against one Postgres |
+| `ruff` red on `test_bot_worker_stage_isolation.py` (F401/F821) | a third agent's test file caught mid-write |
+
+None survived serial re-verification. **The protection is not the instruction —
+agents ignore it — it is that no agent-reported test result counts until the
+orchestrator re-runs it.**
+
+Parallelism also makes `resource_exhausted` **more** likely, not less: WP-018
+spent its first attempt in reconnect loops. It still wins on wall-clock, because
+three packages complete in roughly the time of one.
+
+### Batch one — `fb87401`, `8716c54`, `c9504a1`
+
+| WP | What closed |
+|---|---|
+| **WP-006** | The contact Gate fails closed for **every** purpose. Both exception handlers returned `Decision(True)` unless `purpose == "outreach"`, so an unreadable consent table allowed WhatsApp replies, statutory notices, payment events and promise reminders |
+| **WP-007** | `authz.PUBLIC_ROUTES` declared two callbacks public; `_AUTH_EXEMPT_PREFIXES` listed neither, so the middleware 401'd before their HMAC ran. **The security fix that replaced a blanket `/twilio` prefix created the availability bug** |
+| **WP-008** | `sent = True` sat outside `if twilio_sms.configured():`, so a statutory bounce notice was stamped as served when nothing was sent |
+
+**A backlog claim corrected**: WP-006's note that `bot_runtime.py:158`'s `except`
+*"will start firing"* is **wrong**. `admit` catches its own exception and returns
+a `Decision` either way, so that handler stays unreachable. Challenged in the
+instruction rather than asserted, and the agent confirmed it independently.
+
+**A test that was lying, fixed**: `test_production_hardening.py:41-45` asserted
+`status_code != 401` inside a fixture where `_twilio_signature_ok` returns
+`True` — green for the wrong reason while unsigned POSTs were accepted. It now
+forces `_IS_PROD` and asserts `403 / invalid_twilio_signature`.
+
+### Batch two — `e1b04dc`, `c80ed91`, `ce072f3`
+
+| WP | What closed |
+|---|---|
+| **WP-014** | Both gates ended in a non-prod escape (`return True`, `return not _IS_PROD`) while **both secrets were already configured**. Now fail-closed in every environment |
+| **WP-018** | Four of twelve worker stages were guarded, and **four unguarded ones ran above them**. One poison row aborted every queue below it, logging no queue name and no row id, forever |
+| **WP-025** | Four copies of one frozenset under **three** names — which is why a symbol search found only three. Verified member-identical **before** deleting, not after |
+
+`WP-025`'s pin asserts **identity**, not equality, plus an AST scan that the
+literal is defined only in `contact_policy.py` — equality alone stays green while
+a fresh local copy drifts back in.
+
+`WP-018` preserved every ordering comment (**zero** removed), which matters: that
+sequence is load-bearing and documented in place.
+
+### `WP-009` re-scoped, not run
+
+It looked like an ideal batch candidate — the entry says "~15 lines". It is not:
+`ck_campaign_targets_state` constrains state to five values, so the `parked`
+state it requires needs **an Alembic migration on a regulated table**, inheriting
+`WP-001`'s rollback caveat. The entry never mentioned schema. Corrected in the
+backlog before anyone picks it up.
+
+`WP-010` was likewise pulled from a batch: its two fix routes have very different
+blast radii, and it deserves a solo slot.
+
+---
+
 ## WP-003 — Inventory the consent rows already corrupted
 
 | | |

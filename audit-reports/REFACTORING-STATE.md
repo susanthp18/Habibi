@@ -288,17 +288,17 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 70. Status: 9 completed, 61 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 70. Status: 15 completed, 55 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **31** |
+| **READY** — no unmet prerequisite; can begin today | **25** |
 | **BLOCKED** — has an unmet prerequisite | **30** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
-| **IN PROGRESS** | **0** |
-| **COMPLETED** | **9** |
+| **IN PROGRESS** | **3** — `WP-024`, `WP-044`, `WP-067` |
+| **COMPLETED** | **15** |
 
-### COMPLETED (9)
+### COMPLETED (15)
 
 | WP | Commit | Verified by | Residual |
 |---|---|---|---|
@@ -306,6 +306,12 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 | **`WP-066`** allowlist the expiry scanner | `52712ff` (2026-09-04) | 8/8 in the file, `ruff` clean, suite passed count unchanged at 3,148 | none |
 | **`WP-005`** cardless inventory | — *(no code; an answer)* | Live query: **0 of 18** prompt versions cardless, all 18 parse; the 2 cardless bots have **no deployment rows** and are archived on purpose | none — **it unblocked `WP-004`** |
 | **`WP-001`** deploy identity + rollback | `06e90b1` (2026-09-04) | `compose config --images` unchanged by default and SHA-resolving when set; `npm run build` PASS; every factual claim in `rollback.md` checked against migration source | first rollback not executable until one SHA is published |
+| **`WP-006`** contact Gate fails closed for every purpose | `fb87401` | Parametrised over outreach/statutory/in_session; admit test also pins **no `contact_events` row** is written | availability trade: in-session replies stop during a DB incident |
+| **`WP-007`** the two signature-verified webhooks reach their HMAC | `8716c54` | Two new HTTP tests + a list-agreement pin that carves out 3 documented exception classes; the lying hardening test corrected | none |
+| **`WP-008`** a bounce notice is served only if sent | `c9504a1` | `first_touch_at IS NULL` **and** a non-null `suppression_reason` both asserted | operators will see a backlog that was already real |
+| **`WP-014`** a configured secret is enforced | `e1b04dc` | Both non-prod escapes removed; no bypass flag added | local tooling using the carve-out now fails loudly — the acceptance criterion |
+| **`WP-018`** guard every worker stage | `c80ed91` | Stage-isolation test pins that a later stage runs and the log names the queue; **zero** ordering comments removed | `WP-017` still absent, so the new log lines go somewhere nobody watches |
+| **`WP-025`** one `BLOCKING_CONSENT` | `ce072f3` | All four copies independently confirmed literally identical **before** deletion; pin asserts identity + an AST scan | none |
 | **`WP-003`** inventory corrupted consent rows | — *(no code; an answer)* | **0 corrupted rows of 19.** No en-dashed `allowed_days`, no collapsed `Mon-Mon`, no NULLs, and **0** `consent_updated` events. All 19 explained by `seed_postgres.py:859` / `seed_susanth.py:172` | none — **it unblocks `WP-030`** |
 | **`WP-012`** `load_env()` before `_IS_PROD` | `2350a14` (2026-09-04) | Container **3,176 passed · 4 failed** (mount artefacts). Cleared of a concurrent flake by measurement: `load_env()` adds **0** keys inside the container | none |
 | **`WP-013`** unrecognised `APP_ENV` is production | `70d91be` (2026-09-04) | Container **3,181 passed · 20 skipped · 4 failed**. New `production-envelope` CI job; allow-list verified across six `APP_ENV` values | `env_utils.NON_PROD_ENVS` still a wider set — deliberately not unified · **`WP-070`** decision open |
