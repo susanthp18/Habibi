@@ -8,3 +8,7 @@ __pycache__/
 *.pyc
 *.db
 .cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

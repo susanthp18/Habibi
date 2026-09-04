@@ -196,12 +196,22 @@ jobs:
       - name: Seed demo graph
         run: python scripts/seed_demo.py
 
+      # Coverage is published, not gated. No --cov-fail-under: introduce the
+      # gate green, then ratchet. xml is the archive; term is the log line.
       - name: Pytest
-        run: pytest -q
+        run: pytest -q -rs --cov=. --cov-report=xml --cov-report=term
         env:
           RUN_ALEMBIC_ROUNDTRIP: "0"
           SCHEMA_PARITY_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_parity
           RLS_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_rls
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: error
 
   # The job above freezes ``_IS_PROD`` False at import (APP_ENV=dev). Two tests
   # already setattr it True to reach the fail-closed branch, which is how the

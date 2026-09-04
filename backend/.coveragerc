@@ -1,0 +1,11 @@
+# Publish a number; do not gate on it. fail_under stays unset (WP-024).
+# .venv is bind-mounted into the voice container, so omitting it is what
+# makes `--cov=.` measure application code rather than site-packages.
+[run]
+omit =
+    .venv/*
+    tests/*
+    alembic/*
+    scripts/*
+    .ruff_cache/*
+    .pytest_cache/*

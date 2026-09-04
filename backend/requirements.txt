@@ -23,6 +23,9 @@ prometheus-client==0.26.0
 sentry-sdk==2.66.1
 # Dev / regression (auth CORS lock + readiness)
 pytest==9.1.1
+# Coverage. CI publishes a number (`--cov=. --cov-report=xml`); no fail-under —
+# a gate introduced before the number is known is a gate people learn to ignore.
+pytest-cov==7.1.0
 # Linting. ruff.toml has existed since July and ruff was never installed, so the
 # per-file E402 ignores protecting the modules that must set env before
 # importing db were documentation rather than configuration. Pinned because an

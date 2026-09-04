@@ -81,9 +81,9 @@ Also confirmed: `db.py:24` imports `schemas` (not `:26`); the `db_tx` monkeypatc
 | `backend/` | **Tests** | `docker exec collections_voice python -m pytest tests/ -q` | **1 failed · 3,141 passed · 19 skipped**, 587s | 1 |
 | `backend/` | Migrations | `alembic heads` | **single head** `20260901_0103`, 102 revisions | 0 |
 | `backend/` | Type check | — | **impossible — no checker installed** | — |
-| `backend/` | Coverage | — | **impossible — `pytest-cov` not installed** | — |
+| `backend/` | Coverage | `docker exec collections_voice python -m pytest tests/ -q --cov=. --cov-report=xml --cov-report=term -rs` | **62%** (26,722 / 42,770 statements); **20 skipped**. No threshold. | 1 |
 
-**Absent tooling, verified by `pip show` and not by inference:** `mypy`, `pyright`, `vulture`, `pytest-cov`, `coverage`, `bandit`, `pip-audit` are **all not installed**. `[tool.vulture]` is configured in `pyproject.toml` for a tool that is not present. "No Python type checker exists anywhere" and "coverage has never been measured" are now measurements, not deductions.
+**Absent tooling, verified by `pip show` and not by inference:** `mypy`, `pyright`, `vulture`, `bandit`, `pip-audit` are **not installed**. `[tool.vulture]` is configured in `pyproject.toml` for a tool that is not present. `pytest-cov==7.1.0` is in `requirements.txt`. Coverage is **62%** (26,722 / 42,770 statements, voice container, 2026-09-04). "No Python type checker exists anywhere" remains a measurement.
 
 ---
 
@@ -466,7 +466,8 @@ Every number carries the method that produced it. **Where a metric cannot curren
 | Skippable at runtime | **436 (17.9%)** | AST | <5% |
 | — because the seed was empty | 284 | AST | 0 |
 | `pytest.skip()` call sites | 116 across 55 files | Count | — |
-| **Coverage** | **NOT MEASURED — no `pytest-cov` anywhere** | Config search | published, then ratcheted |
+| Runtime skips (`pytest -rs`) | **20** | Voice container, 2026-09-04. 7 RLS scratch-DB, 3 schema-parity scratch-DB, 6 Habibi tree absent, 1 alembic roundtrip, 1 empty fleet cards, 1 no alternate actor, 1 production-envelope CI job | published |
+| **Coverage** | **62%** (26,722 / 42,770 statements) | `pytest-cov` 7.1.0, `--cov=.`, voice container, 2026-09-04. No `--cov-fail-under`. | published, then ratcheted |
 | Contention tests | **1 of ~16 claim paths** | Source | ≥1 per high-volume queue |
 | Statutory refusal reasons asserted as behaviour | **5 of 12** | Source | **12 of 12** |
 | Routes with a negative-auth test | **5 of 314** | Source | high-consequence routes covered |
