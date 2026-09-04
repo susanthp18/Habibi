@@ -672,7 +672,9 @@ def _first_touch(
                     customer_id=event.get("customer_id"),
                     related_id=event["id"],
                 )
-            sent = True
+                sent = True
+            else:
+                reason = reason or "sms_not_configured"
         except Exception:
             logger.exception("bounce sms send failed event=%s", event["id"])
             reason = reason or "sms_send_failed"

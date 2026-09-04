@@ -245,6 +245,29 @@ def test_whatsapp_opt_out_falls_to_sms(db_tx, monkeypatch: pytest.MonkeyPatch) -
     assert "whatsapp" in reasons and "sms" in reasons
 
 
+def test_unconfigured_sms_does_not_record_bounce_notice_served(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cid, aid = _prep(db_tx, monkeypatch)
+    _opt_out(db_tx, cid, ("whatsapp",))
+    monkeypatch.setenv("TWILIO_SMS_FROM", "")
+    monkeypatch.setenv("TWILIO_PHONE_NUMBER", "")
+    sent: list[dict] = []
+    monkeypatch.setattr("twilio_sms.configured", lambda: False)
+    monkeypatch.setattr("twilio_sms.send", lambda **kw: sent.append(kw) or {"sid": "SM-test"})
+    emi_id = _seed_emi(db_tx, aid)
+    now = datetime(2026, 8, 13, 10, 0, tzinfo=IST)
+    out, _ = _ingest(db_tx, aid, now=now, emiId=emi_id)
+    event = db_tx.execute(
+        text("SELECT first_touch_at, suppression_reason FROM payment_events WHERE id = :id"),
+        {"id": out["eventId"]},
+    ).mappings().first()
+    assert event is not None
+    assert event["first_touch_at"] is None
+    assert event["suppression_reason"] == "sms_not_configured"
+    assert not sent
+
+
 def test_both_digital_blocked_no_voice_when_disabled(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     cid, aid = _prep(db_tx, monkeypatch)
     _opt_out(db_tx, cid, ("whatsapp", "sms"))
