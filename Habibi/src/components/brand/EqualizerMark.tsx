@@ -19,8 +19,7 @@ type Props = {
  *
  * `size` is the height of the visible crop, not the original 100px artboard.
  * Width follows the 75×52 crop. Colors come from `--text` and
- * `--background-brand-bold` so light/dark both read. The previous
- * `BigBoundMark` file is kept on disk and is not imported from shell chrome.
+ * `--background-brand-bold` so light/dark both read.
  */
 export function EqualizerMark({ className, size = 32, animated = true }: Props) {
   const width = Math.round((size * ARTBOARD_W) / CROP_H);

@@ -4,9 +4,8 @@
  * Six business forms cloned a `<Field label>` helper that rendered the words
  * and never connected them: three used `<Label>` with no `htmlFor`, three used
  * a `<div>`. The screen looked labelled; the accessibility tree said
- * "edit, blank". `ui/form.tsx` already knew how to do this and has zero
- * importers, so this is the small adopted helper — the `useConfirm` shape —
- * rather than that dead stack.
+ * "edit, blank". This is the small adopted helper — the `useConfirm` shape —
+ * rather than the deleted shadcn form stack.
  *
  * `id` goes on the labelable node, not whichever React element is first:
  * Radix `Select` is a context provider with no DOM, so the id has to land on

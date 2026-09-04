@@ -1635,40 +1635,6 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
   }
 }
 
-/* BigBound monogram mark — kept on disk, unused by shell chrome.
-   One gesture only: the trend line draws itself once on mount. No looping pulse, no
-   travelling sheen, no glow — this sits at 28px beside the product name in the sidebar
-   and anything repeating there reads as a notification, not as brand. */
-.bb-mark {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-}
-
-/* Static baseline: fully drawn. Motion only ever adds to this, so a reduced-motion
-   user and a mid-animation interrupt both land on a complete mark. */
-.bb-mark__trend {
-  stroke-dasharray: 100;
-  stroke-dashoffset: 0;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .bb-mark--live .bb-mark__trend {
-    animation: bb-trend-draw var(--motion-duration-xlong) cubic-bezier(0.33, 1, 0.68, 1) both;
-  }
-}
-
-@keyframes bb-trend-draw {
-  from {
-    stroke-dashoffset: 100;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
 @keyframes pulse-ring {
   0% {
     box-shadow: 0 0 0 0 var(--background-success-bold);

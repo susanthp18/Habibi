@@ -139,7 +139,7 @@ function EvalTrend({ reports }: { reports: EvalReport[] }) {
  * keeps it hoverable and focusable, dims it the same way, ignores the click,
  * and — through `aria-describedby` onto an off-screen sentence — reaches a
  * screen reader, which `title` alone does not and never does on keyboard
- * focus. `aria-disabled:opacity-50` is already generated for `ui/calendar`.
+ * focus.
  *
  * `busy` is the other thing and keeps the real `disabled` attribute: a
  * mutation in flight is transient and has nothing to explain.
