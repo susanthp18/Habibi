@@ -27,6 +27,16 @@ pipecat-ai[azure,webrtc,runner,silero,deepgram]==1.6.0
 # transitive dep, but declared here so the import doesn't rely on that).
 numpy==2.4.6
 
+# Pipecat requires nltk<4,>=3.10.0 as a *core* dep (not an extra) and calls
+# nltk.download("punkt_tab") at import in pipecat.utils.string. 3.10.0 carries
+# 21 advisories, closed in 3.10.3. Declaring the floor here means the voice
+# image cannot resolve the vulnerable release. Tokenizer data is pre-baked in
+# the Dockerfile so process start does not hit the network.
+nltk>=3.10.3,<4
+# aiohttp 3.14.2: GHSA-cq5v-8q36-5273 (OOB heap read in the C parser). Pipecat
+# allows >=3.11.12,<4; without a floor, 3.14.2 still resolves.
+aiohttp>=3.14.3
+
 # Cross-encoder reranking (agent_core/tools/kb_rerank.py), off by default behind
 # KB_RERANK_ENABLED. Pulls no torch: it runs on the onnxruntime that Pipecat's
 # Silero VAD already brings in, so the marginal cost is the tokenizer plus the

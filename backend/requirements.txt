@@ -11,6 +11,10 @@ httpx==0.28.1
 minio==7.2.20
 python-multipart==0.0.32
 twilio>=9.0,<10
+# Floor for GHSA-cq5v-8q36-5273. Twilio pulls aiohttp with no upper bound
+# that excludes 3.14.2; the voice image has the same floor in
+# requirements-voice.txt (pipecat).
+aiohttp>=3.14.3
 redis>=5.0,<6
 websockets>=12.0,<16
 # Metrics exposition for /metrics. Pure Python, no transitive dependencies —

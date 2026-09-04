@@ -40,6 +40,15 @@ RUN apt-get update \
 COPY requirements-voice.txt .
 RUN pip install -r requirements-voice.txt
 
+# Pipecat's sentence splitter (pipecat.utils.string) calls
+# nltk.download("punkt_tab") at import if the data is missing. Bake it
+# into the image so a production start does not perform a network
+# download — least of all behind a bank egress proxy.
+# Path is outside /app so the docker-compose.dev.yml bind-mount of
+# .:/app cannot hide it.
+ENV NLTK_DATA=/usr/local/share/nltk_data
+RUN python -c "import os, nltk; nltk.download('punkt_tab', download_dir=os.environ['NLTK_DATA'], quiet=True, raise_on_error=True); nltk.data.find('tokenizers/punkt_tab')"
+
 ENV DB_PROCESS_ROLE=voice
 EXPOSE 7860
 # Bind all interfaces so published compose ports reach the runner.
