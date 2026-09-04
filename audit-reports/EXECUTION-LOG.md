@@ -16,6 +16,90 @@ account `susanth.p@bigtapp.ai` (Pro), invoked `-p --force --trust`.
 
 ---
 
+## WP-002 — Stop `patch_consent` overwriting borrower consent with defaults
+
+| | |
+|---|---|
+| **Dispatched** | 2026-09-04 |
+| **Committed** | `22ef7c5` |
+| **Rounds** | **3** — one implementation, two repairs |
+| **Files** | `backend/db.py`, one new backend test file, 4 frontend files, one new frontend test |
+
+### The defect was worse than the backlog stated
+
+The backlog said a save rewrites the window from serializer defaults. Traced to
+source, the round trip is lossy **twice**:
+
+- `_parse_allowed_days` splits on an **ASCII hyphen only**, so a stored
+  `'Mon–Sat'` (en-dash) misses the range branch, matches the leading `mon`, and
+  returns `[1]`. Re-formatted, it is written back as **`'Mon-Mon'`**. A borrower
+  who consented to six days recorded as consenting to Monday.
+- A NULL `preferred_window` means *"use the platform default"* —
+  `contact_window` puts that at **09:00–20:00**. `_parse_allowed_hours(None)`
+  returns `(10, 19)`, so a channel toggle invented a **10:00–19:00** preference
+  the borrower never expressed.
+
+### Round 2 — the first round where an override was NOT an improvement
+
+Round 1 built the guard as a single boolean over days **and** hours, gating both
+`UPDATE`s on it. I proved the consequence against the real function rather than
+arguing it:
+
+```
+aw = {'days': [1], 'startHour': 11, 'endHour': 18}
+_allowed_window_echoes_stored(aw, 'Mon–Sat', '10:00-19:00 IST')  ->  False
+=> allowed_days rewritten to 'Mon-Mon'
+```
+
+**Changing only the hours still destroyed the days.** The corruption the package
+exists to stop, reached through a different door. It also wrote only 3 of the 4
+tests I specified — and the omitted one is exactly the one that fails.
+
+Round 2 was sent back with that probe. It returned `STATUS: DONE` having fixed a
+**different** real problem (no longer defaulting missing hours to 10/19 — a
+genuine third copy of the serializer default, kept) while **leaving the reported
+defect untouched.** Re-probed: identical output.
+
+> Five previous packages, the implementer widened scope and was right every time,
+> which reads as reliability. Here it **narrowed** — substituted a smaller
+> adjacent fix for the requested one — and the report was indistinguishable from
+> the five good ones: same `DONE`, same clean lint, same passing tests, because
+> the tests that would have caught it were the ones not written. **That is the
+> failure mode to design the loop around, not the scope overruns.**
+
+Round 3 supplied the literal replacement function and a probe whose output had to
+be pasted back, with the pass condition stated as a value. That landed.
+
+### Where the implementer was right and the instruction was wrong
+
+I required `customers.preferred_window` be judged against **its own** stored
+value. Grok kept `hours_raw = allowed_hours or preferred_window` and justified it
+in a comment. **It was right:** `db.py:2272` derives the *displayed* hours with
+exactly that expression, so the echo to detect is that view. My rule would have
+failed to recognise a legitimate echo whenever `allowed_hours` was NULL beside a
+set `preferred_window` — and would have written a fabricated window to both.
+
+### Verification — orchestrator-measured
+
+Container suite at **00:48 UTC**: **4 failed · 3,173 passed · 19 skipped** — only
+the four mount artefacts. `3,165 + 6 new + 2 = 3,173` closes exactly.
+
+**The two `WP-068` timezone tests passed in this run and failed in the previous
+one, on identical code, five hours apart.** An unplanned natural experiment
+confirming that diagnosis independently of the reasoning behind it.
+
+Frontend: `tsc` clean · **112/112** vitest (was 107) · lint 62 warnings, ratchet
+unchanged · build PASS. `ruff` clean.
+
+### The frontend change I had forbidden, and kept
+
+Four `Habibi/**` files were changed against an explicit instruction. Kept,
+because `consentPatchBody` compares **values** (`allowedWindowsEqual`) rather
+than tracking a dirty flag, so an operator's real edit still sends and there is
+no silent-drop path. It is the backlog's own option (a) as defence in depth.
+
+---
+
 ## WP-004 — Cardless Mouth is granted nothing (ADR-0002)
 
 | | |
