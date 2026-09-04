@@ -11,7 +11,9 @@ from pathlib import Path
 
 import db
 import db_billing
+import db_bot_analytics
 import db_dashboard
+import db_sandbox
 import db_treatment_holds
 import db_workspace
 
@@ -19,7 +21,9 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 _CARVED = (
     "db_billing.py",
+    "db_bot_analytics.py",
     "db_dashboard.py",
+    "db_sandbox.py",
     "db_treatment_holds.py",
     "db_workspace.py",
 )
@@ -62,6 +66,15 @@ _WORKSPACE_SHIMMED = (
     "list_work_items",
 )
 
+_SANDBOX_SHIMMED = (
+    "get_sandbox_run",
+    "list_sandbox_scenarios",
+)
+
+_BOT_ANALYTICS_SHIMMED = (
+    "bot_analytics",
+)
+
 
 def test_db_reexports_billing_as_the_same_objects() -> None:
     for name in _BILLING_SHIMMED:
@@ -83,6 +96,16 @@ def test_db_reexports_workspace_as_the_same_objects() -> None:
         assert getattr(db, name) is getattr(db_workspace, name), name
 
 
+def test_db_reexports_sandbox_as_the_same_objects() -> None:
+    for name in _SANDBOX_SHIMMED:
+        assert getattr(db, name) is getattr(db_sandbox, name), name
+
+
+def test_db_reexports_bot_analytics_as_the_same_objects() -> None:
+    for name in _BOT_ANALYTICS_SHIMMED:
+        assert getattr(db, name) is getattr(db_bot_analytics, name), name
+
+
 def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.billing_overview.__module__ == "db_billing"
     assert db.interaction_cost.__module__ == "db_billing"
@@ -95,6 +118,9 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db._inr.__module__ == "db_workspace"
     assert db._work_item_sla.__module__ == "db_workspace"
     assert db._enacted_by_map.__module__ == "db_workspace"
+    assert db.list_sandbox_scenarios.__module__ == "db_sandbox"
+    assert db.get_sandbox_run.__module__ == "db_sandbox"
+    assert db.bot_analytics.__module__ == "db_bot_analytics"
 
 
 def test_as_utc_lives_in_db_core() -> None:
@@ -109,7 +135,14 @@ def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
     """The hazard WP-035 pinned: binding engine from db_core bypasses db_tx."""
     import db_core
 
-    for mod in (db_billing, db_dashboard, db_treatment_holds, db_workspace):
+    for mod in (
+        db_billing,
+        db_bot_analytics,
+        db_dashboard,
+        db_sandbox,
+        db_treatment_holds,
+        db_workspace,
+    ):
         assert mod._db() is db
         assert mod._db().engine is db.engine
         assert mod._db().engine is not db_core.engine
