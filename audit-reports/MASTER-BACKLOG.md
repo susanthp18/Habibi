@@ -1100,6 +1100,41 @@ The brief's default order is correctness → security → data integrity → arc
 
 ---
 
+### WP-069 — The sweep test sets up state the sweep cannot see
+
+| | |
+|---|---|
+| **Category** | Testing · **Severity** P1 · **Confidence** Certain (mechanism), Partial (trigger) |
+| **Root cause** | `tests/test_decision_intelligence_p0.py:714` clears today's `treatment_decisions` and the `treatment_book_sweep` cursor **inside the `db_tx` fixture transaction**, then calls `sweep.process_one(dbmod.engine)` — which runs on a **different connection** and therefore cannot see either delete. The author's comment says the clear exists *"so the write path is exercised on every run rather than only on the first one of the day."* Across connections it cannot do that. |
+| **Objective** | The suite gives the same answer twice in a row. |
+| **Affected files** | `backend/tests/test_decision_intelligence_p0.py` (the `db_tx` + real-engine pair) |
+| **Dependencies** | none · **Prerequisites** none |
+| **Implementation strategy** | Either drive the sweep on the fixture's own connection, or use the `db_real` pattern `WP-019` proposes — real pooled connections with explicit cleanup, which `test_job_claim.py:38-50` already does by hand — and delete the committed rows in the same connection the sweep will use. Do **not** widen the assertion to make it stable: `after > before` is the property worth having. |
+| **Acceptance criteria** | Ten consecutive full-suite runs on one day, all agreeing. |
+| **Risk** | **none** — tests only · **Rollback** `git revert` · **Atomic?** Yes |
+
+> **Observed 2026-09-04 across three full-suite runs on identical code: pass, fail, pass.** The database shows why the setup cannot work — `work_runtime_jobs` holds one **committed** `treatment_book_sweep` cursor row that survives every fixture rollback, and `treatment_decisions` sits at exactly **38 `dpd_tick` rows per day**. A test whose answer changes between identical runs makes *"did my change break it?"* unanswerable, which is the whole argument `WP-011` was built on — and this loop runs the suite several times a day, so it will keep recurring.
+
+---
+
+### WP-070 — Decide whether `ALLOW_ACTOR_HEADER` should be opt-in
+
+| | |
+|---|---|
+| **Category** | Security / product decision · **Severity** P2 · **Confidence** n/a — this is a decision, not a defect |
+| **Root cause** | Raised twice by the implementation agent during `WP-013` and reverted twice by the orchestrator. `actor_context._allow_actor_header()` defaults to `not _app_is_prod()`. The agent argued that inheriting a security-relevant permission from an unrelated environment name is the same class of bug as `_IS_PROD` itself, and that unset should mean off everywhere. **That argument has merit and the change was still not taken.** |
+| **Why it was reverted** | It **buys nothing**: `WP-013` inverted `_app_is_prod()` to an allow-list, so `staging`, `production` and any typo **already** default to off. Verified across six values. The spoofing hole was closed by the line above it. And it **costs**: `ALLOW_ACTOR_HEADER` is unset in the running stack, so the default flips `True → False` on every developer machine. `Habibi/src/api/config.ts:53` sends `X-Actor-User-Id`, and its comment at 41-43 documents the removed default. With the header ignored, the server falls back to `ACTOR_USER_ID` and **every action attributes to `priya-nair` instead of the operator who took it.** Quietly changing who the audit trail names is the wrong direction on a collections platform, even in dev. |
+| **Objective** | Make this an explicit decision rather than a side effect of an `APP_ENV` fix. |
+| **Affected files** | `backend/actor_context.py:60-70` · `backend/.env.example` · `Habibi/src/api/config.ts:41-53` — **the console change must land in the same package** |
+| **Dependencies** | `WP-013` (landed) |
+| **Implementation strategy** | If opt-in is chosen: default to `False`, set `ALLOW_ACTOR_HEADER=true` in the dev `.env`, and update the console comment so the two halves agree. If not: keep the current three-state default and close this. |
+| **Acceptance criteria** | Whichever is chosen, a developer machine and the console agree about who the actor is, and that is asserted by a test. |
+| **Risk** | **none if decided; user-visible if changed silently** · **Rollback** `git revert` · **Atomic?** Yes |
+
+> The security property is already held. What remains is a usability-versus-explicitness trade with an audit-attribution cost, and that belongs to a person.
+
+---
+
 ### WP-066 — Give the expiry scanner a named allowlist
 
 | | |

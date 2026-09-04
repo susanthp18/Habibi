@@ -288,17 +288,17 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 68. Status: 6 completed, 62 open.** *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 70. Status: 8 completed, 62 open.** *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **28** |
+| **READY** — no unmet prerequisite; can begin today | **31** |
 | **BLOCKED** — has an unmet prerequisite | **31** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
-| **IN PROGRESS** | **1** — `WP-012` |
-| **COMPLETED** | **6** |
+| **IN PROGRESS** | **0** |
+| **COMPLETED** | **8** |
 
-### COMPLETED (6)
+### COMPLETED (8)
 
 | WP | Commit | Verified by | Residual |
 |---|---|---|---|
@@ -306,6 +306,8 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 | **`WP-066`** allowlist the expiry scanner | `52712ff` (2026-09-04) | 8/8 in the file, `ruff` clean, suite passed count unchanged at 3,148 | none |
 | **`WP-005`** cardless inventory | — *(no code; an answer)* | Live query: **0 of 18** prompt versions cardless, all 18 parse; the 2 cardless bots have **no deployment rows** and are archived on purpose | none — **it unblocked `WP-004`** |
 | **`WP-001`** deploy identity + rollback | `06e90b1` (2026-09-04) | `compose config --images` unchanged by default and SHA-resolving when set; `npm run build` PASS; every factual claim in `rollback.md` checked against migration source | first rollback not executable until one SHA is published |
+| **`WP-012`** `load_env()` before `_IS_PROD` | `2350a14` (2026-09-04) | Container **3,176 passed · 4 failed** (mount artefacts). Cleared of a concurrent flake by measurement: `load_env()` adds **0** keys inside the container | none |
+| **`WP-013`** unrecognised `APP_ENV` is production | `70d91be` (2026-09-04) | Container **3,181 passed · 20 skipped · 4 failed**. New `production-envelope` CI job; allow-list verified across six `APP_ENV` values | `env_utils.NON_PROD_ENVS` still a wider set — deliberately not unified · **`WP-070`** decision open |
 | **`WP-002`** stop the consent write-back | `22ef7c5` (2026-09-04) | Container **3,173 passed · 19 skipped · 4 failed** (mount artefacts only, run at 00:48 UTC); frontend `tsc` clean, 112/112 vitest, build PASS. Took **3 rounds** — round 2 reported `DONE` on a defect it had not fixed | rows already rewritten stay unrecoverable — **`WP-003`** now unblocked |
 | **`WP-004`** cardless Mouth granted nothing (**ADR-0002**) | `fd5c73b` (2026-09-04) | Container suite **3,165 passed · 19 skipped · 6 failed**, the six being 4 mount artefacts + the 2 `WP-068` timezone tests. `3,148 + 17 new = 3,165` exactly. Blast radius pre-measured at zero by `WP-005` | `WP-031`'s remaining steps — channel filter, adopt `grant.py`, drop `\| ALWAYS_ON` from the live filter |
 
@@ -317,7 +319,7 @@ Nothing prevents any of these starting today.
 `WP-006` contact Gate fails closed · `WP-007` webhook exemption · `WP-008` bounce notice guard · `WP-009` classify the carrier exception · `WP-010` coalescing vs frequency caps
 
 **Band 2 — envelope:**
-`WP-012` `load_env()` ordering · `WP-014` require the WS secret and the Twilio signature · `WP-015` revocation means empty · `WP-016` provision `NOBYPASSRLS` and enable RLS · `WP-018` guard every `bot_worker` stage
+`WP-014` require the WS secret and the Twilio signature · `WP-015` revocation means empty · `WP-016` provision `NOBYPASSRLS` and enable RLS · `WP-018` guard every `bot_worker` stage
 
 **Band 3–4 — provable no-ops and cheap wins:**
 `WP-024` publish a coverage number · `WP-025` import `BLOCKING_CONSENT` · `WP-032` `FISH_TTS_MODEL` · `WP-034` `sql/23_outbound_evals.sql` · `WP-035` `db_core.py`
@@ -611,6 +613,7 @@ Consolidation put `WP-001` first, on the reasoning that nothing has a rollback u
 |---|---|---|
 | 2026-09-01 → 09-03 | Reports `01`–`41` | ~23,850 lines of read-only forensics. Reports `32` and `33` were never produced |
 | **2026-09-03** | **Consolidation** | 40 report files read in full · **129** MASTER findings from ~700+ · **15** conflicts adjudicated at source · **21** claims re-verified · **65** work packages · **10** runtime questions left open. **No application file modified.** |
+| **2026-09-04** | **`WP-012` + `WP-013` — the envelope is shut** | `2350a14`, `70d91be`. `.env` now reaches the line that decides production, and that line is an allow-list: `staging`, `uat` and typos no longer disable eight controls at once. `actor_context`'s third copy of the deny-list is gone. CI gains a `production-envelope` job — the suite had only ever run the permissive branch. **Two findings filed rather than fixed**: `WP-069` (a sweep test whose setup runs in a transaction the sweep cannot see — pass/fail/pass on identical code) and `WP-070` (whether `ALLOW_ACTOR_HEADER` should be opt-in — a decision with an audit-attribution cost, twice attempted by the agent, twice reverted). |
 | **2026-09-04** | **`WP-002` — the consent write-back stopped** | `22ef7c5`. Each of `allowed_days`, `allowed_hours` and `preferred_window` is now written only when it actually changed. **Three rounds**: round 1 coupled days to hours so an hours-only edit still wrote `'Mon–Sat'` back as `'Mon-Mon'`; round 2 reported `DONE` having fixed a different problem and left that one intact; round 3 landed against a literal specification. The parser is deliberately untouched — **`WP-030`** owns it, and fixing it first would silently rewrite the rows **`WP-003`** exists to count. **`WP-068` confirmed by natural experiment**: the two timezone tests failed at 23:23 UTC and passed at 00:48 UTC on identical code. |
 | **2026-09-04** | **`WP-004` — ADR-0002 implemented** | `fd5c73b`. The fail-open sentinel at `agent_core/skills/runtime.py` is inverted; both hand-maintained fallback tool lists deleted; three runtimes pinned by a new test file covering the previously-unpinned unparseable-card branch. **Grok exceeded the authorised scope by 17 files and reported `DONE` rather than `BLOCKED`** — accepted because it is what ADR-0002 asks for and the suite verifies, recorded because the override was silent. One genuine defect caught in review and repaired: a docstring promising a schema-drift guarantee the code no longer provided. |
 | **2026-09-04** | **`WP-005`, `WP-066`, `WP-001` · `WP-004` dispatched** | `WP-005` answered with one read-only query: **0 of 18** prompt versions are cardless and all 18 parse, so `WP-004`'s blast radius is **empty** and its gate opened. `WP-066` landed the allowlist Grok had twice declined (`52712ff`). `WP-001` landed SHA-tagged images, a GHCR publish workflow, `npm run build` in CI and `docs/ops/rollback.md` (`06e90b1`) — every factual claim in that document verified against migration source. **`WP-068` filed**: two tests read "today" from the process timezone against an IST guard and go red for 5½ hours a day on any UTC runner. `WP-067` filed: the frontend roster calls an archived bot active. |

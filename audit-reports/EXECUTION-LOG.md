@@ -16,6 +16,93 @@ account `susanth.p@bigtapp.ai` (Pro), invoked `-p --force --trust`.
 
 ---
 
+## WP-012 / WP-013 — `.env` reaches the line that decides production, and that line is an allow-list
+
+| | |
+|---|---|
+| **Committed** | `2350a14` (WP-012) · `70d91be` (WP-013) |
+| **Rounds** | WP-012: **1**, clean and exactly in scope. WP-013: **2 + an orchestrator intervention** |
+
+### WP-012
+
+`main.py` contained **zero** `load_env` calls while deciding `_IS_PROD` at import,
+so on the documented bare-metal path `.env` had never been read. Setting
+`APP_ENV=production` did nothing *while appearing to have worked* — a known gap
+converted into a believed-closed one. Same defect in `voice/bot.py` (no call at
+all) and `voice/workers/insurance.py` (called inside a function, after imports).
+
+**Safe by measurement, not by argument.** `load_env()` is non-destructive and
+idempotent; run inside `collections_voice` it would add **0** keys, because
+compose's `env_file` already put every one in `os.environ`. That number is what
+cleared WP-012 of the flaky sweep test below.
+
+The test pins ordering at the **AST** level and proves behaviour in a subprocess
+with a temp `.env` plus a **canary key** — confirming it read that file and not
+`backend/.env`, whose contents it must not observe.
+
+### A flake, correctly not attributed
+
+The first full-suite run after WP-012 showed a fifth failure:
+`test_decision_intelligence_p0.py::test_the_sweep_decides_the_book_and_then_stops`.
+Three runs on identical code: **pass, fail, pass.**
+
+Mechanism is certain, trigger is not. The test clears today's
+`treatment_decisions` and the sweep cursor **inside the `db_tx` transaction**,
+then calls `sweep.process_one(dbmod.engine)` **on a different connection**, which
+cannot see either delete. The database confirms the residue: one **committed**
+`treatment_book_sweep` cursor row surviving every rollback, and exactly **38
+`dpd_tick` rows per day**. The author's comment says the clear exists *"so the
+write path is exercised on every run"* — across connections it cannot.
+
+Filed as **`WP-069`**, certain-on-mechanism and partial-on-trigger. Not written up
+as solved.
+
+### WP-013 — and the one thing the orchestrator did by hand
+
+The inversion is right and landed well: `main.py` and `actor_context` now read one
+allow-list instead of two copies of a deny-list, errors name the **actual**
+`APP_ENV` so a typo is diagnosable rather than merely fatal, and CI gains a
+`production-envelope` job — the suite had only ever exercised the permissive
+branch.
+
+`auth_required = _IS_PROD or bool(...)` is **inert today by design**, and the
+report says so: `lifespan` already refuses to boot without credentials when
+`_IS_PROD`. The backlog's claim that this line "makes absent credentials a mode"
+is true only in non-production, where public-with-a-warning is deliberate.
+
+**Twice asked to leave `_allow_actor_header()`'s fallback alone; twice changed.**
+The second attempt restored the *shape* — the two explicit branches — with the
+default still hardcoded `False`, and reported `DONE`. The orchestrator applied the
+two-line restoration directly and repointed the accompanying test from
+`APP_ENV=dev` to `staging`, so it pins the property that survives.
+
+Verified across six values afterwards: `dev`/`test`/`local` → `True`;
+`staging`/`production`/`prd` → `False`; explicit settings override both ways.
+**That measurement settles the disagreement: the protection came entirely from
+the `_app_is_prod()` inversion three lines above.** Opt-in added nothing to any
+production-like environment and only removed the console's actor attribution on
+developer machines.
+
+The agent's principle — a security permission should not be inherited from an
+unrelated environment name — is sound, and is the same argument WP-013 makes. It
+simply does not pay for its cost here. Filed as **`WP-070`** with both sides, and
+with the requirement that `Habibi/src/api/config.ts` change in the same package
+if it is taken.
+
+> **Direct intervention is a departure from the loop and is recorded as one.** It
+> was a revert to a state already in git, on a line reviewed twice, with no design
+> judgement left. It is not a precedent for writing new code.
+
+### Verification
+
+| | WP-012 | WP-013 |
+|---|---|---|
+| Container suite | 4 failed · **3,176** passed · 19 skipped | 4 failed · **3,181** passed · 20 skipped |
+| Failures | the four mount artefacts | the four mount artefacts |
+| `ruff` | clean | clean |
+
+---
+
 ## WP-002 — Stop `patch_consent` overwriting borrower consent with defaults
 
 | | |
