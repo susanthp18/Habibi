@@ -288,17 +288,23 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 72. Status: 34 completed, 38 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 72. Status: 41 completed, 31 open.** *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **6** |
+| **READY** — no unmet prerequisite; can begin today | **2** — `WP-036`, `WP-045` |
 | **BLOCKED** — has an unmet prerequisite | **30** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
 | **IN PROGRESS** | **0** |
-| **COMPLETED** | **34** |
+| **COMPLETED** | **41** |
 
-### COMPLETED (34)
+### COMPLETED (41)
+
+Batches nine and ten added: `WP-035` `db_core` extracted so `db.py` can ever be split · `WP-016` RLS coverage walks the plan instead of sampling 2 of 112 tables *(PARTIAL — `enable` needs a maintenance window)* · `WP-059` the C toolchain is out of the voice image *(PARTIAL — non-root `USER` deferred)* · **`WP-021` deleting a statutory refusal now turns the suite red** · `WP-019` `db_real`, so concurrency is testable at all · `WP-020` an empty seed fails loudly instead of skipping 284 tests.
+
+**`WP-021` is the one to read.** Seven of twelve refusal reasons were unpinned, including `customer_dnd`. Both suites that should have caught that **disarmed themselves** — one nulled the columns, the other monkeypatched `admit` open across 407 lines. Verified by mutation: disabling the expired-consent branch fails exactly one test, disabling DND fails exactly two.
+
+**Batch ten was recovered, not completed.** All three agents were killed mid-flight, and one left `contact_policy.py` with `if False and status == "expired"` — a statutory branch disabled by an interrupted mutation run, plus a scratch file at the backend root. Both reverted before anything was committed.
 
 Batch eight added: `WP-050` the last network call outside `src/api` · `WP-055` **hashed 3.12 lockfiles — 114 of 134 packages were constrained nowhere** · `WP-060` a misconfigured boolean can no longer disable a protection.
 
