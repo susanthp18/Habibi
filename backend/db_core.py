@@ -56,6 +56,7 @@ __all__ = [
     "_activity",
     "_actor_user_id",
     "_as_dict",
+    "_as_utc",
     "_assert_tenant_owns",
     "_bind_tenant_for_transaction",
     "_db",
@@ -398,6 +399,20 @@ def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str
 # Operating timezone for operator-facing time labels. Fixed offset — India
 # has no DST, so this needs no tz database at runtime.
 _IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _as_utc(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return None
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

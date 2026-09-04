@@ -38,6 +38,7 @@ _SHIMMED = (
     "_activity",
     "_actor_user_id",
     "_as_dict",
+    "_as_utc",
     "_assert_tenant_owns",
     "_bind_tenant_for_transaction",
     "_dump",

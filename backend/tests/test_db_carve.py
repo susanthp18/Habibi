@@ -1,4 +1,4 @@
-"""WP-036 peels 1–2: billing and treatment holds leave db.py via re-export.
+"""WP-036 peels: carved sections leave db.py via re-export.
 
 Call sites stay ``import db``. Each carved module reaches the engine through
 ``_db().engine`` so the ``db_tx`` savepoint proxy still wraps writes.
@@ -11,9 +11,18 @@ from pathlib import Path
 
 import db
 import db_billing
+import db_dashboard
 import db_treatment_holds
+import db_workspace
 
 BACKEND = Path(__file__).resolve().parents[1]
+
+_CARVED = (
+    "db_billing.py",
+    "db_dashboard.py",
+    "db_treatment_holds.py",
+    "db_workspace.py",
+)
 
 _BILLING_SHIMMED = (
     "_BILLING_ENVS",
@@ -41,6 +50,18 @@ _TREATMENT_SHIMMED = (
     "treatment_models",
 )
 
+_DASHBOARD_SHIMMED = (
+    "_inr_compact",
+    "get_dashboard",
+)
+
+_WORKSPACE_SHIMMED = (
+    "_enacted_by_map",
+    "_inr",
+    "_work_item_sla",
+    "list_work_items",
+)
+
 
 def test_db_reexports_billing_as_the_same_objects() -> None:
     for name in _BILLING_SHIMMED:
@@ -52,26 +73,51 @@ def test_db_reexports_treatment_holds_as_the_same_objects() -> None:
         assert getattr(db, name) is getattr(db_treatment_holds, name), name
 
 
+def test_db_reexports_dashboard_as_the_same_objects() -> None:
+    for name in _DASHBOARD_SHIMMED:
+        assert getattr(db, name) is getattr(db_dashboard, name), name
+
+
+def test_db_reexports_workspace_as_the_same_objects() -> None:
+    for name in _WORKSPACE_SHIMMED:
+        assert getattr(db, name) is getattr(db_workspace, name), name
+
+
 def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.billing_overview.__module__ == "db_billing"
     assert db.interaction_cost.__module__ == "db_billing"
     assert db.list_treatment_holds.__module__ == "db_treatment_holds"
     assert db.create_treatment_hold.__module__ == "db_treatment_holds"
     assert db.apply_authority.__module__ == "db_treatment_holds"
+    assert db.get_dashboard.__module__ == "db_dashboard"
+    assert db._inr_compact.__module__ == "db_dashboard"
+    assert db.list_work_items.__module__ == "db_workspace"
+    assert db._inr.__module__ == "db_workspace"
+    assert db._work_item_sla.__module__ == "db_workspace"
+    assert db._enacted_by_map.__module__ == "db_workspace"
+
+
+def test_as_utc_lives_in_db_core() -> None:
+    """Peel 4 moved ``_as_utc`` down before the workspace section left."""
+    import db_core
+
+    assert db._as_utc is db_core._as_utc
+    assert db._as_utc.__module__ == "db_core"
 
 
 def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
     """The hazard WP-035 pinned: binding engine from db_core bypasses db_tx."""
-    assert db_billing._db() is db
-    assert db_treatment_holds._db() is db
-    assert db_billing._db().engine is db.engine
-    assert db_treatment_holds._db().engine is db.engine
-    assert db_billing._db().engine is not __import__("db_core").engine
+    import db_core
+
+    for mod in (db_billing, db_dashboard, db_treatment_holds, db_workspace):
+        assert mod._db() is db
+        assert mod._db().engine is db.engine
+        assert mod._db().engine is not db_core.engine
 
 
 def test_carved_modules_do_not_bind_engine_at_import_time() -> None:
     """A module-level engine name would capture the unwrapped Engine."""
-    for filename in ("db_billing.py", "db_treatment_holds.py"):
+    for filename in _CARVED:
         tree = ast.parse((BACKEND / filename).read_text(encoding="utf-8"))
         for node in tree.body:
             if isinstance(node, ast.Assign):
