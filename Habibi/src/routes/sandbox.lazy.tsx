@@ -15,6 +15,7 @@ import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
 import {
   appendSandboxTurn,
   createSandboxRun,
+  exportInteraction,
   isIntentKey,
   useSandboxScenarios,
   type SandboxChunkHit,
@@ -22,7 +23,6 @@ import {
   type SandboxRun,
 } from "@/api/sandbox";
 import { fetchVoiceStatus } from "@/api/voice-sandbox";
-import { API_BASE_URL } from "@/api/config";
 import { usePromptVersions, publishPromptVersion } from "@/api/prompt-studio";
 import { useAgentStudioCards, useAgentStudioSkills } from "@/api/agent-studio";
 import { useKbSnapshots } from "@/api/kb";
@@ -429,17 +429,7 @@ function SandboxPage() {
         return;
       }
       try {
-        const res = await fetch(
-          `${API_BASE_URL}/interactions/${encodeURIComponent(id)}/export?format=${format}`,
-        );
-        if (!res.ok) throw new Error(`export failed (${res.status})`);
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `call-${id}.${format}`;
-        a.click();
-        URL.revokeObjectURL(url);
+        await exportInteraction(id, format);
         toast.success(format === "md" ? "Call report downloaded" : "Call data downloaded");
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Export failed");

@@ -1,6 +1,11 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { groundedLabel, groundedSources } from "@/api/sandbox";
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 // Rehearsal 2026-08-25, card kaia-v2-4: turn 2's footer read
 // "3034ms · 1241t · 0 chunks" directly under three "grounded in FAQ" chips. The
@@ -49,5 +54,23 @@ describe("groundedSources", () => {
     const [only] = groundedSources({ chunkIds: ["kbc-7"] });
 
     expect(groundedLabel(only)).toBe("kbc-7");
+  });
+});
+
+// The sandbox call-report used to `fetch` the export URL from the route, with
+// no X-API-Key, no credentials, and no timeout. That was the only network call
+// outside src/api/, and it 401'd in any keyed environment (WP-050).
+describe("call-report export", () => {
+  it("goes through apiGetBlob rather than a raw fetch in the route", () => {
+    const route = readFileSync(join(here, "..", "routes", "sandbox.lazy.tsx"), "utf8");
+    const api = readFileSync(join(here, "sandbox.ts"), "utf8");
+
+    expect(route).not.toMatch(/\bfetch\s*\(/);
+    expect(route).not.toContain("API_BASE_URL");
+    expect(route).toContain("exportInteraction");
+    expect(api).toContain("apiGetBlob");
+    expect(api).toMatch(
+      /\/interactions\/\$\{encodeURIComponent\(interactionId\)\}\/export\?format=\$\{format\}/,
+    );
   });
 });

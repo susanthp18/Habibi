@@ -4,6 +4,7 @@
 //   useSandboxRun(id)     → GET /sandbox/runs/{id}
 //   createSandboxRun      → POST /sandbox/runs
 //   appendSandboxTurn     → POST /sandbox/runs/{id}/turns  (retrieve + Azure chat)
+//   exportInteraction     → GET /interactions/{id}/export
 //
 // Mock mode keeps local SCENARIOS + generateBotReply so demos work offline.
 // -----------------------------------------------------------------------------
@@ -25,7 +26,7 @@ import {
   type Persona,
   type Scenario,
 } from "@/data/sandbox-seed";
-import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiGetBlob, apiPost, mockDelay, USE_MOCK } from "./config";
 
 export type SandboxContext = {
   customer_name?: string;
@@ -320,6 +321,30 @@ export async function appendSandboxTurn(input: {
     topK: input.topK ?? 3,
     skillSlug: input.skillSlug ?? null,
   });
+}
+
+/**
+ * Download the server-assembled call record (transcript, latency split, tool
+ * calls, retrievals, guardrails). Goes through {@link apiGetBlob} so the
+ * request carries the same auth headers, credentials and timeout as every
+ * other live call — the sandbox route used to `fetch` this URL raw, which
+ * 401'd in any keyed environment (WP-050).
+ */
+export async function exportInteraction(
+  interactionId: string,
+  format: "md" | "json",
+): Promise<void> {
+  const { blob, headers } = await apiGetBlob(
+    `/interactions/${encodeURIComponent(interactionId)}/export?format=${format}`,
+  );
+  const disposition = headers.get("Content-Disposition") || "";
+  const match = /filename="?([^"]+)"?/.exec(disposition);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = match?.[1] || `call-${interactionId}.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export { INTENT_KEYS };
