@@ -172,8 +172,18 @@ class MouthTurn:
                 body = body_developer_message(pack)
         return SkillPrompt(prefix=description_block(list(self.packs)), body_message=body)
 
-    def tools(self, *, catalog_names: set[str] | None = None) -> ToolState:
-        """What this turn may execute, and what to put in front of the model."""
+    def tools(
+        self,
+        *,
+        catalog_names: set[str] | None = None,
+        channel_tools: set[str] | None = None,
+    ) -> ToolState:
+        """What this turn may execute, and what to put in front of the model.
+
+        ``channel_tools`` is the catalog names renderable on this channel.
+        The publish Gate already forwards it; omitting it here is how a
+        voice-only name reached WhatsApp, where no handler exists.
+        """
         if self.card is None:
             # ADR-0002: a cardless mouth is granted nothing. Empty, not None —
             # None was read as "do not filter" by every runtime.
@@ -186,7 +196,12 @@ class MouthTurn:
         attached = list(self.packs) if self.packs else None
         return ToolState(
             allowed=frozenset(
-                effective_tools(self.card, catalog_names=names, attached_skills=attached)
+                effective_tools(
+                    self.card,
+                    catalog_names=names,
+                    attached_skills=attached,
+                    channel_tools=channel_tools,
+                )
             ),
             offered=tuple(
                 offered_tools(
@@ -194,6 +209,7 @@ class MouthTurn:
                     catalog_names=names,
                     attached_skills=attached,
                     active_slug=self.active_slug,
+                    channel_tools=channel_tools,
                 )
             ),
         )
@@ -230,6 +246,7 @@ def mouth_turn_state(
     intent: str | None = None,
     active_slug: str | None = None,
     catalog_names: set[str] | None = None,
+    channel_tools: set[str] | None = None,
 ) -> dict[str, Any]:
     """Both halves in one untyped dict — the shape callers used before the split.
 
@@ -239,7 +256,7 @@ def mouth_turn_state(
     """
     mouth = resolve_mouth(card_raw, intent=intent, active_slug=active_slug)
     prompt = mouth.prompt()
-    tools = mouth.tools(catalog_names=catalog_names)
+    tools = mouth.tools(catalog_names=catalog_names, channel_tools=channel_tools)
     return {
         "card": mouth.card,
         "packs": list(mouth.packs),

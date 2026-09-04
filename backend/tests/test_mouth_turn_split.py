@@ -24,12 +24,18 @@ every case runs from the filesystem alone.
 
 from __future__ import annotations
 
+import ast
 import hashlib
+from pathlib import Path
 
 import pytest
 
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
 from agent_core.skills.runtime import resolve_mouth
+from agent_core.tools.catalog import CATALOG
+from agent_core.tools.schema import CHANNEL_TEXT, CHANNEL_VOICE
+
+BACKEND = Path(__file__).resolve().parents[1]
 
 # --- golden values, captured from the pre-split implementation --------------
 
@@ -268,3 +274,53 @@ def test_a_pack_resolution_failure_denies_gated_writes_at_the_new_seam(
     assert allowed is not None
     assert "create_promise_to_pay" not in allowed
     assert not (set(allowed) & SKILL_GATED_TOOLS)
+
+
+# --- channel filter (WP-031 step 1) -----------------------------------------
+#
+# The publish Gate forwarded channel_tools; MouthTurn.tools() did not. A card
+# naming a voice-only tool was granted it on WhatsApp, where no handler exists.
+
+
+def test_a_text_grant_drops_voice_only_tools() -> None:
+    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID))
+    text = {s.name for s in CATALOG.for_channel(CHANNEL_TEXT)}
+    voice = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
+    granted = mouth.tools(channel_tools=text).allowed
+    assert granted is not None
+    assert not (set(granted) & (voice - text))
+    assert "get_account_position" not in granted
+    # Omitting the argument stays channel-blind — that is the pre-step-1
+    # formula, which the golden cases above still pin. Production callers
+    # pass channel_tools; the AST pin below fails if one stops.
+    assert "get_account_position" in mouth.tools().allowed
+
+
+def test_a_voice_grant_drops_text_only_tools() -> None:
+    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID))
+    text = {s.name for s in CATALOG.for_channel(CHANNEL_TEXT)}
+    voice = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
+    granted = mouth.tools(channel_tools=voice).allowed
+    assert granted is not None
+    assert not (set(granted) & (text - voice))
+    assert "get_account_position" in granted
+
+
+def test_the_three_runtimes_pass_channel_tools() -> None:
+    """Closing the divergence requires the callers, not only the parameter."""
+    missing: list[str] = []
+    for rel in ("bot_runtime.py", "sandbox_runtime.py", "voice/bot.py"):
+        path = BACKEND / rel
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "tools"
+        ]
+        assert calls, f"{rel} no longer calls MouthTurn.tools()"
+        for node in calls:
+            if not any(kw.arg == "channel_tools" for kw in node.keywords):
+                missing.append(f"{rel}:{node.lineno}")
+    assert missing == []

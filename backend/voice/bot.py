@@ -1132,11 +1132,15 @@ async def run_bot(transport, runner_args) -> None:
         spawn_session_task(session.session_id, _run())
 
     from agent_core.skills.runtime import resolve_mouth as _resolve_mouth
+    from agent_core.tools.catalog import CATALOG
+    from agent_core.tools.schema import CHANNEL_VOICE
 
     _mouth = _resolve_mouth(bundle.get("agentCard") or {})
     # Not `_tool_state`: build_collections_flow returns its own turn state under
     # that name a few lines below, and they are unrelated types.
-    _grant = _mouth.tools()
+    _grant = _mouth.tools(
+        channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_VOICE)}
+    )
     _allowed_tools = _grant.allowed
     _attached_skills = list(_mouth.packs)
 
@@ -2535,6 +2539,11 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "agent_core.deployment",
     "agent_core.providers",
     "agent_core.skills.runtime",
+    # WP-031 step 1: the runtimes now forward channel_tools, so run_bot
+    # reaches the catalog and its schema on the first call. Warm them or
+    # that import cost lands mid-conversation.
+    "agent_core.tools.catalog",
+    "agent_core.tools.schema",
     "agent_core.tuning",
     "db",
     "mission",

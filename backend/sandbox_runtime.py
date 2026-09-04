@@ -208,10 +208,13 @@ def _run_sandbox_tool_loop(
     """Shared catalog tools under a max-iteration budget (unification Phase D)."""
     from agent_core.skills.runtime import resolve_mouth
     from agent_core.tools.catalog import CATALOG
+    from agent_core.tools.schema import CHANNEL_TEXT
     from bot_tools import ToolContext, execute_tool
 
     mouth = resolve_mouth(agent_card or {}, intent=intent)
-    tool_state = mouth.tools()
+    tool_state = mouth.tools(
+        channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
+    )
     tools = CATALOG.openai_tools(list(tool_state.offered or ()))
     ctx = ToolContext(
         job_id=f"sandbox-{run_id}",

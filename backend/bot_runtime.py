@@ -908,10 +908,12 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             history = [{"role": "user", "content": customer_text}]
         from agent_core.skills.runtime import resolve_mouth
         from agent_core.tools.catalog import CATALOG
+        from agent_core.tools.schema import CHANNEL_TEXT
 
         mouth = resolve_mouth(bundle.get("agentCard") or {}, intent=intent)
         skill_prompt = mouth.prompt()
-        tool_state = mouth.tools()
+        text_channel_tools = {spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
+        tool_state = mouth.tools(channel_tools=text_channel_tools)
         messages = _build_messages(
             bundle=bundle,
             conv=conv,
@@ -1031,7 +1033,9 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                         # deliberately untouched: activating a skill changes
                         # what the model is shown, never what it may run.
                         activated = _replace(mouth, active_slug=tool_ctx.active_skill)
-                        turn_tools = CATALOG.openai_tools(list(activated.tools().offered))
+                        turn_tools = CATALOG.openai_tools(
+                            list(activated.tools(channel_tools=text_channel_tools).offered)
+                        )
                 if tool_ctx.escalated:
                     with engine.begin() as conn:
                         bot_jobs.mark_succeeded(conn, job_id)

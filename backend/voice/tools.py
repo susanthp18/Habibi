@@ -35,6 +35,7 @@ from agent_core.tools.catalog import (
     NONPAYMENT_REASONS,
     VERIFY_METHODS,
 )
+from agent_core.tools.grant import VOICE_ALWAYS as ALWAYS_ON  # live filter; do not restate
 from agent_core.tools import domain
 from agent_core.tools import kb as kb_tool
 from agent_core.reco import talk as reco_talk
@@ -59,39 +60,6 @@ _session_tasks_lock = threading.Lock()
 # declaration is the conduct failure; a later successful PTP may clear this
 # latch. ``mission_forbids_offers`` is a different key and must stay.
 HARDSHIP_UPSELL_REASONS = frozenset({"income_loss", "medical"})
-
-#: Verbs the runtime keeps regardless of what the card granted.
-#:
-#: These are not capabilities an author chooses between; they are the flow's own
-#: controls -- how a node hands over, how a call ends, how the agent says it
-#: cannot verify someone. A card that excluded them would not be a narrower
-#: agent, it would be a stuck one, so the grant filter below unions them back in.
-#:
-#: ``verify_identity`` is here because a call that cannot verify anybody is not a
-#: narrower call either: every write tool sits behind ``identity_verified``, and
-#: ``confirm_identity`` and ``verify_identity`` are nodes whose only exits are
-#: this verb and the two refusals already in this set. It was missing, so a card
-#: whose grant omitted it published cleanly and produced a call that verified
-#: nobody -- on the regulated channel.
-#:
-#: Exported so tests and node contracts can read the set instead of restating it.
-#: A second copy of this list is how it drifted from
-#: ``flow_graph._FLOW_CONTROL_TOOLS`` in the first place -- the two still differ.
-ALWAYS_ON: frozenset[str] = frozenset(
-    {
-        "disclose_recording",
-        "verify_identity",
-        "refuse_verification",
-        "not_account_holder",
-        "begin_negotiate",
-        "begin_dispute",
-        "begin_wrap_up",
-        "return_to_position",
-        "pause_for_caller",
-        "end_call",
-        "capture_call_goal",
-    }
-)
 
 
 def spawn_session_task(session_id: str | None, coro: Any) -> asyncio.Task[Any]:

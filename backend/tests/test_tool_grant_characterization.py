@@ -51,7 +51,12 @@ CHANNELS = [VOICE, TEXT]
 
 
 def _today_grant(card, packs) -> set[str]:
-    """Formula 1, called the way every runtime calls it today: no channel."""
+    """Formula 1, unchannelled — the intersect call without ``channel_tools``.
+
+    Production runtimes now pass ``channel_tools`` (WP-031 step 1). This helper
+    stays the old call so the characterization still compares ToolGrant against
+    the formula it replaces, not against MouthTurn's new forwarding.
+    """
     return set(
         effective_tools(card, catalog_names=CATALOG_NAMES, attached_skills=list(packs))
     )

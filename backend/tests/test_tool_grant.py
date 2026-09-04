@@ -7,16 +7,18 @@ ADR-0001 and ADR-0002 require the grant to hold forever, and ADR-0001 in
 particular rejects a two-module design *because* "the relationship between them
 is asserted by a test". That test cannot be scaffolding.
 
-One pin here has an ordering hazard worth naming: ``VOICE_ALWAYS`` restates
-``voice.tools.ALWAYS_ON``, and the voice literal is deleted by a different
-ticket (#9) than the characterization suite (#13). Had the pin stayed in the
-scaffolding file, running #13 first would have unpinned the pair silently.
+``voice.tools.ALWAYS_ON`` is this module's ``VOICE_ALWAYS``, imported under
+that name. The pin that they are the same object cannot import ``voice.tools``
+in the API image or CI (pipecat is absent), so it reads the source instead.
 
 Packs come from the ``card_and_packs`` fixture, which reads them off disk, so
 nothing here needs a database — see the fixture for why that matters.
 """
 
 from __future__ import annotations
+
+import ast
+from pathlib import Path
 
 import pytest
 
@@ -34,6 +36,7 @@ from agent_core.tools.grant import (
 CATALOG_NAMES = set(CATALOG.specs)
 BOTS = sorted(FIRST_PARTY_BOT_IDS)
 CHANNELS = [VOICE, TEXT]
+BACKEND = Path(__file__).resolve().parents[1]
 
 
 # --- ADR-0001: one owner, and the offer can never widen the grant -----------
@@ -118,19 +121,46 @@ def test_for_bundle_reads_the_card_off_a_deployment_bundle() -> None:
 # --- the always-on floor, pinned against its other two statements -----------
 
 
-def test_the_always_on_floor_matches_the_voice_runtimes_live_set() -> None:
-    """Two statements of one set, pinned for as long as both exist.
+def test_the_voice_runtime_imports_the_grant_floor() -> None:
+    """The live filter is the grant's object, proven without importing pipecat.
 
-    ``voice.tools.ALWAYS_ON`` is the live filter; this module restates it
-    because it cannot import that module — ``voice.tools`` imports pipecat, and
-    the API process that runs the publish compiler does not have it.
-
-    This test therefore only runs where pipecat does. It is skipped rather than
-    dropped so the pin holds wherever it can be checked.
+    An equality assertion behind ``importorskip("voice.tools")`` skipped in the
+    API image and CI, so a restated frozenset could drift with nothing red.
     """
-    voice_tools = pytest.importorskip("voice.tools")
+    tree = ast.parse((BACKEND / "voice" / "tools.py").read_text(encoding="utf-8"))
+    aliases = [
+        alias
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "agent_core.tools.grant"
+        for alias in node.names
+        if alias.name == "VOICE_ALWAYS" and (alias.asname or alias.name) == "ALWAYS_ON"
+    ]
+    assert aliases, (
+        "voice.tools.ALWAYS_ON must be agent_core.tools.grant.VOICE_ALWAYS, imported"
+    )
 
-    assert VOICE_ALWAYS == voice_tools.ALWAYS_ON
+
+def test_always_on_is_not_assigned_in_voice_tools() -> None:
+    """A local ``ALWAYS_ON = frozenset({...})`` is a second owner."""
+    tree = ast.parse((BACKEND / "voice" / "tools.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "ALWAYS_ON"
+            for target in node.targets
+        ):
+            pytest.fail(f"voice/tools.py:{node.lineno} assigns ALWAYS_ON; import it")
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "ALWAYS_ON"
+        ):
+            pytest.fail(f"voice/tools.py:{node.lineno} annotates ALWAYS_ON; import it")
+
+
+def test_the_always_on_floor_is_the_same_object_where_pipecat_runs() -> None:
+    """Identity, not equality — a second frozenset with the same members is a new owner."""
+    voice_tools = pytest.importorskip("voice.tools")
+    assert voice_tools.ALWAYS_ON is VOICE_ALWAYS
 
 
 def test_the_authoring_catalog_omits_nothing_the_runtime_keeps() -> None:

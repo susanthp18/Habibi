@@ -27,8 +27,8 @@ A cardless mouth is granted nothing (ADR-0002). Callers that still need the
 legacy ungated fallback ask :attr:`is_cardless` and supply it themselves, until
 the deny-all ticket deletes those branches.
 
-Nothing imports this yet. It is added beside the seven formulas so they can be
-migrated one at a time; see the parent issue for the sequence.
+``voice.tools`` imports :data:`VOICE_ALWAYS` as ``ALWAYS_ON``. The remaining
+formulas still compute the grant themselves; they migrate one at a time.
 """
 
 from __future__ import annotations
@@ -78,14 +78,13 @@ VOICE_FLOW_TOOLS: frozenset[str] = frozenset(
 #: no other exit, so a card whose grant omitted it published cleanly and
 #: produced a call that verified nobody on the regulated channel.
 #:
-#: **This must equal ``voice.tools.ALWAYS_ON``**, which is the live filter today.
-#: It cannot be imported from there: that module imports pipecat, and the API
-#: process — which runs the publish compiler, and therefore :meth:`static_grant`
-#: — deliberately does not have it. The same constraint is why
-#: ``flow_graph._FLOW_CONTROL_TOOLS`` exists as a third statement. The three are
-#: pinned together by ``tests/test_tool_grant.py``, which is permanent: the pin
-#: must outlive the characterization suite, because the voice literal is deleted
-#: by a different ticket than the one that deletes the characterization.
+#: ``voice.tools.ALWAYS_ON`` is this object — imported, not restated. The alias
+#: cannot run the other way: ``voice.tools`` imports pipecat, and the API
+#: process that runs the publish compiler (and therefore :meth:`static_grant`)
+#: does not have it. ``flow_graph._FLOW_CONTROL_TOOLS`` remains a third
+#: statement, of editor descriptions rather than the runtime floor. The pin in
+#: ``tests/test_tool_grant.py`` reads ``voice/tools.py`` as text so it holds in
+#: the API image and CI, where importing ``voice.tools`` would skip.
 VOICE_ALWAYS: frozenset[str] = VOICE_FLOW_TOOLS | {"capture_call_goal", "verify_identity"}
 
 
