@@ -443,7 +443,7 @@ def test_billing_as_of_uses_utc_date() -> None:
     import db
 
     fake_now = datetime(2026, 7, 25, 22, 30, tzinfo=timezone.utc)
-    with patch("db.datetime") as mock_dt:
+    with patch("db_billing.datetime") as mock_dt:
         mock_dt.now.return_value = fake_now
         mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
         assert db._billing_as_of() == date(2026, 7, 25)
