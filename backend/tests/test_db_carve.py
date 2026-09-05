@@ -13,6 +13,8 @@ import db
 import db_billing
 import db_bot_analytics
 import db_dashboard
+import db_redaction
+import db_routing
 import db_sandbox
 import db_treatment_holds
 import db_workspace
@@ -23,6 +25,8 @@ _CARVED = (
     "db_billing.py",
     "db_bot_analytics.py",
     "db_dashboard.py",
+    "db_redaction.py",
+    "db_routing.py",
     "db_sandbox.py",
     "db_treatment_holds.py",
     "db_workspace.py",
@@ -75,6 +79,24 @@ _BOT_ANALYTICS_SHIMMED = (
     "bot_analytics",
 )
 
+_ROUTING_SHIMMED = (
+    "_routing_action_key",
+    "_routing_category",
+    "_routing_eval_condition",
+    "escalate_voice_interaction",
+    "get_routing_rule",
+    "list_routing_rule_executions",
+    "list_routing_rules",
+)
+
+_REDACTION_SHIMMED = (
+    "actor_is_admin",
+    "get_redaction_record",
+    "get_redaction_rule",
+    "list_redaction_records",
+    "list_redaction_rules",
+)
+
 
 def test_db_reexports_billing_as_the_same_objects() -> None:
     for name in _BILLING_SHIMMED:
@@ -106,6 +128,16 @@ def test_db_reexports_bot_analytics_as_the_same_objects() -> None:
         assert getattr(db, name) is getattr(db_bot_analytics, name), name
 
 
+def test_db_reexports_routing_as_the_same_objects() -> None:
+    for name in _ROUTING_SHIMMED:
+        assert getattr(db, name) is getattr(db_routing, name), name
+
+
+def test_db_reexports_redaction_as_the_same_objects() -> None:
+    for name in _REDACTION_SHIMMED:
+        assert getattr(db, name) is getattr(db_redaction, name), name
+
+
 def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.billing_overview.__module__ == "db_billing"
     assert db.interaction_cost.__module__ == "db_billing"
@@ -121,6 +153,13 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.list_sandbox_scenarios.__module__ == "db_sandbox"
     assert db.get_sandbox_run.__module__ == "db_sandbox"
     assert db.bot_analytics.__module__ == "db_bot_analytics"
+    assert db.list_routing_rules.__module__ == "db_routing"
+    assert db.get_routing_rule.__module__ == "db_routing"
+    assert db.escalate_voice_interaction.__module__ == "db_routing"
+    assert db._routing_eval_condition.__module__ == "db_routing"
+    assert db.list_redaction_records.__module__ == "db_redaction"
+    assert db.get_redaction_record.__module__ == "db_redaction"
+    assert db.actor_is_admin.__module__ == "db_redaction"
 
 
 def test_as_utc_lives_in_db_core() -> None:
@@ -131,6 +170,14 @@ def test_as_utc_lives_in_db_core() -> None:
     assert db._as_utc.__module__ == "db_core"
 
 
+def test_speaker_screen_lives_in_db_core() -> None:
+    """Peel 8 moved ``_speaker_screen`` down before the redaction section left."""
+    import db_core
+
+    assert db._speaker_screen is db_core._speaker_screen
+    assert db._speaker_screen.__module__ == "db_core"
+
+
 def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
     """The hazard WP-035 pinned: binding engine from db_core bypasses db_tx."""
     import db_core
@@ -139,6 +186,8 @@ def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
         db_billing,
         db_bot_analytics,
         db_dashboard,
+        db_redaction,
+        db_routing,
         db_sandbox,
         db_treatment_holds,
         db_workspace,

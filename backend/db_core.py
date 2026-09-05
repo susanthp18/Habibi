@@ -65,6 +65,7 @@ __all__ = [
     "_jsonb",
     "_one",
     "_rows",
+    "_speaker_screen",
     "_sql",
     "_tenant",
     "_vis_params",
@@ -413,6 +414,20 @@ def _as_utc(value: Any) -> datetime | None:
             return None
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     return None
+
+
+def _speaker_screen(speaker: str | None) -> str:
+    """Map a transcript speaker label onto the screen vocabulary.
+
+    Moved down from the violations section so Redaction (peel 8) and the
+    remaining kernel share one implementation. ``human`` is the voice-bot
+    dialect for the collecting agent.
+    """
+    if speaker in {"bot", "agent", "customer", "system"}:
+        return speaker
+    if speaker == "human":
+        return "agent"
+    return "system"
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

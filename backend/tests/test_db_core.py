@@ -46,6 +46,7 @@ _SHIMMED = (
     "_jsonb",
     "_one",
     "_rows",
+    "_speaker_screen",
     "_sql",
     "_tenant",
     "_vis_params",
