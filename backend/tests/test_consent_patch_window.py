@@ -97,13 +97,19 @@ def _sms_status(db_tx, customer_id: str) -> str | None:
 def test_a_channel_toggle_leaves_an_en_dash_window_byte_identical(db_tx) -> None:
     """``Mon–Sat`` survives a save that only opted SMS out.
 
-    The screen used to PATCH the GET payload, whose parser yields Monday-only
+    The screen used to PATCH the GET payload, whose parser yielded Monday-only
     for an en-dash range. Writing that parse produced ``Mon-Mon``.
+
+    WP-030 has since landed, so the parser reads all six days and the echo is
+    faithful. That removes the *source* of the artefact; this test keeps
+    guarding the second half — that a save touching only channels does not
+    rewrite the window at all — which is a different guarantee and still the
+    one that protects the borrower's recorded consent.
     """
     hours = "08:00-17:00 IST"
     cid = _fresh(db_tx, days=EN_DASH_DAYS, hours=hours, preferred=hours)
     echo = _get_echo(EN_DASH_DAYS, hours)
-    assert echo["days"] == [1], "hyphen-only parse must still see Monday-only; WP-030 owns the fix"
+    assert echo["days"] == [1, 2, 3, 4, 5, 6], "WP-030: the en-dash range parses to six days"
     before = _stored(db_tx, cid)
     assert _sms_status(db_tx, cid) == "opted_in"
 
@@ -168,13 +174,17 @@ def test_an_operator_changing_the_window_still_writes(db_tx) -> None:
 
 
 def test_an_hours_edit_leaves_an_en_dash_days_string_byte_identical(db_tx) -> None:
-    """Changing hours must not reformat days. The GET parse of ``Mon–Sat`` is
-    Monday-only; writing that parse is how six days became ``Mon-Mon``.
+    """Changing hours must not reformat days.
+
+    The GET parse of ``Mon–Sat`` used to be Monday-only, and writing that parse
+    is how six days became ``Mon-Mon``. WP-030 fixed the parser, so the echo now
+    round-trips; the field-by-field decision is still what stops an hours edit
+    from rewriting the days text at all.
     """
     hours = "08:00-17:00 IST"
     cid = _fresh(db_tx, days=EN_DASH_DAYS, hours=hours, preferred=hours)
     echo = _get_echo(EN_DASH_DAYS, hours)
-    assert echo["days"] == [1]
+    assert echo["days"] == [1, 2, 3, 4, 5, 6]
 
     db.patch_consent(
         cid,

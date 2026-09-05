@@ -70,3 +70,50 @@ def outside_preferred_window(scheduled_at: str, preferred_window: str | None) ->
     hour = at.astimezone(IST).hour
     start_h, end_h = window_hours(preferred_window)
     return hour < start_h or hour >= end_h
+
+
+# --- allowed days ------------------------------------------------------------
+#
+# The hours rule was consolidated here; the days rule was not, and it drifted the
+# same way for the same reason. ``contact_policy._parse_days`` normalised the
+# dash and ``db._parse_allowed_days`` did not, so a borrower whose consent reads
+# "Mon–Sat" was six days to the Gate and **Monday alone** to everything reading
+# through db.py — the range branch missed, the token split matched the leading
+# "mon", and a six-day consent silently became one. It fails closed, so nobody is
+# contacted illegally; they are simply never contacted, which is the kind of
+# wrong that does not raise.
+
+#: 0=Sun … 6=Sat, matching ``isoweekday() % 7`` at the call sites.
+DAY_NAME_TO_NUM = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
+
+
+def allowed_days(raw: str | None) -> list[int] | None:
+    """Parse a consent day string. ``None`` means nothing was recorded.
+
+    ``None`` is deliberately distinct from ``[]``: absent consent days and a
+    string that named no recognisable day are different facts, and only the
+    caller knows which default its screen or its gate should apply. Callers that
+    need one substitute it themselves, visibly.
+
+    Ranges arrive with whichever dash the operator's keyboard produced. The
+    sibling ``allowed_hours`` column already holds both ``10:00-19:00 IST`` and
+    ``10:00–19:00 IST``; ``window_hours`` tolerates that only because its regex
+    skips the separator entirely. Here the dash is load-bearing, so it is
+    normalised first.
+    """
+    if not raw or not str(raw).strip():
+        return None
+    text_val = str(raw).strip().lower().replace("–", "-").replace("—", "-")
+    if "-" in text_val and "," not in text_val:
+        parts = [p.strip() for p in text_val.split("-", 1)]
+        if len(parts) == 2 and parts[0][:3] in DAY_NAME_TO_NUM and parts[1][:3] in DAY_NAME_TO_NUM:
+            start, end = DAY_NAME_TO_NUM[parts[0][:3]], DAY_NAME_TO_NUM[parts[1][:3]]
+            if start <= end:
+                return list(range(start, end + 1))
+            return list(range(start, 7)) + list(range(0, end + 1))
+    days: list[int] = []
+    for token in re.split(r"[,\s]+", text_val):
+        key = token[:3]
+        if key in DAY_NAME_TO_NUM:
+            days.append(DAY_NAME_TO_NUM[key])
+    return days or None

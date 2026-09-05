@@ -789,7 +789,7 @@ def _customer_shell(row: dict[str, Any]) -> dict[str, Any]:
             "address": row["address"] or "",
             "timezone": row["timezone"] or "Asia/Kolkata",
             "language": row["language"] or "English",
-            "preferredWindow": row["preferred_window"] or "10:00-19:00 IST",
+            "preferredWindow": row["preferred_window"] or contact_window.DEFAULT_WINDOW,
             "dnd": bool(row["dnd"]),
         },
         "account": {
@@ -1590,8 +1590,29 @@ def _outside_preferred_window(scheduled_at: str, preferred_window: str | None) -
     return contact_window.outside_preferred_window(scheduled_at, preferred_window)
 
 
-def _callback_dnd_active(customer_dnd: bool, preferred_window: str | None, scheduled_at: str) -> bool:
-    return bool(customer_dnd) or _outside_preferred_window(scheduled_at, preferred_window)
+def _callback_dnd_active(
+    customer_dnd: bool,
+    dnd_registry: bool,
+    preferred_window: str | None,
+    scheduled_at: str,
+) -> bool:
+    """Is this callback slot blocked — by either DND store, or by the window?
+
+    Two stores record "do not disturb" and this read only ever consulted one.
+    ``customers.dnd`` is the operator's own flag; ``consent_records.dnd_registry``
+    is the national registry. ``contact_policy.admit`` ORs them and so does the
+    consent screen, so a registry-flagged borrower was refused by the contact
+    Gate and shown as callable on the callback board.
+
+    ``dnd_registry`` is required rather than defaulted. A default of ``False``
+    would let a caller that forgets to join ``consent_records`` keep exactly the
+    behaviour this fixes, and nothing would fail.
+    """
+    return (
+        bool(customer_dnd)
+        or bool(dnd_registry)
+        or _outside_preferred_window(scheduled_at, preferred_window)
+    )
 
 
 def _callback_event_tone(kind: str | None, note: str | None) -> str | None:
@@ -1681,12 +1702,14 @@ def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> li
                            cb.outcome_notes, cb.interaction_id, cb.created_at,
                            c.timezone AS customer_timezone, c.preferred_window,
                            c.dnd AS customer_dnd,
+                           COALESCE(cr.dnd_registry, false) AS dnd_registry,
                            u.name AS assignee, t.name AS queue,
                            i.channel AS interaction_channel, i.handler_kind
                     FROM callbacks cb
                     JOIN customers c ON c.id = cb.customer_id
                      AND c.tenant_id = :tenant_id
                      /*VISIBILITY*/
+                    LEFT JOIN consent_records cr ON cr.customer_id = cb.customer_id
                     LEFT JOIN users u ON u.id = cb.assignee_user_id
                     LEFT JOIN teams t ON t.id = cb.team_id
                     LEFT JOIN interactions i ON i.id = cb.interaction_id
@@ -1702,10 +1725,11 @@ def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> li
         reminders = _callback_reminders(conn, ids)
         result = []
         for r in rows:
-            preferred = r["preferred_window"] or "10:00–19:00 IST"
+            preferred = r["preferred_window"] or contact_window.DEFAULT_WINDOW
             scheduled = r["scheduled_at"]
             customer_dnd = bool(r["customer_dnd"])
-            dnd_active = _callback_dnd_active(customer_dnd, preferred, scheduled)
+            dnd_registry = bool(r["dnd_registry"])
+            dnd_active = _callback_dnd_active(customer_dnd, dnd_registry, preferred, scheduled)
             created = r["created_at"]
             evts = events.get(r["id"]) or [
                 {"at": created, "label": "Callback scheduled", "actor": None, "tone": "info"}
@@ -1803,22 +1827,22 @@ def _consent_channel_screen(channel: str) -> str | None:
 
 
 def _parse_allowed_days(raw: str | None) -> list[int]:
-    if not raw:
-        return [1, 2, 3, 4, 5]
-    text_val = raw.strip().lower()
-    if "-" in text_val and "," not in text_val:
-        parts = [p.strip() for p in text_val.split("-", 1)]
-        if len(parts) == 2 and parts[0][:3] in _DAY_NAME_TO_NUM and parts[1][:3] in _DAY_NAME_TO_NUM:
-            start, end = _DAY_NAME_TO_NUM[parts[0][:3]], _DAY_NAME_TO_NUM[parts[1][:3]]
-            if start <= end:
-                return list(range(start, end + 1))
-            return list(range(start, 7)) + list(range(0, end + 1))
-    days: list[int] = []
-    for token in re.split(r"[,\s]+", text_val):
-        key = token[:3]
-        if key in _DAY_NAME_TO_NUM:
-            days.append(_DAY_NAME_TO_NUM[key])
-    return days or [1, 2, 3, 4, 5]
+    """Consent days for the CRM's screens, substituting Mon-Fri when unrecorded.
+
+    The parsing itself is :func:`contact_window.allowed_days` — the same one the
+    contact Gate vetoes with. This module had its own copy that did not
+    normalise the dash, so ``Mon–Sat`` came back as ``[1]``: the range branch
+    missed, the token split matched the leading "mon", and a six-day consent was
+    displayed and compared as Monday alone.
+
+    The Mon-Fri substitution stays here rather than moving into the shared
+    parser. "Blank consent days means Mon-Fri" is a product claim this screen
+    makes, not a fact about the text, and the Gate deliberately makes the
+    opposite one — absent days there mean no day restriction to apply. Both are
+    defensible; neither should be hidden inside a parser where the other side
+    cannot see it.
+    """
+    return contact_window.allowed_days(raw) or [1, 2, 3, 4, 5]
 
 
 def _format_allowed_days(days: list[int]) -> str:
@@ -4626,7 +4650,15 @@ def _create_callback(
     _ensure_customer(conn, customer_id)
     cust = _one(
         conn.execute(
-            text("SELECT dnd, preferred_window FROM customers WHERE id = :id"),
+            text(
+                """
+                SELECT c.dnd, c.preferred_window,
+                       COALESCE(cr.dnd_registry, false) AS dnd_registry
+                FROM customers c
+                LEFT JOIN consent_records cr ON cr.customer_id = c.id
+                WHERE c.id = :id
+                """
+            ),
             {"id": customer_id},
         )
     )
@@ -4645,7 +4677,12 @@ def _create_callback(
 
     scheduled_at = payload["scheduledAt"]
     window_mins = _callback_window(payload.get("windowMins") or 30)
-    dnd_active = _callback_dnd_active(bool(cust and cust["dnd"]), cust["preferred_window"] if cust else None, scheduled_at)
+    dnd_active = _callback_dnd_active(
+        bool(cust and cust["dnd"]),
+        bool(cust and cust["dnd_registry"]),
+        cust["preferred_window"] if cust else None,
+        scheduled_at,
+    )
 
     callback_id = _id("CB")
     conn.execute(
@@ -4691,9 +4728,11 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             conn.execute(
                 text(
                     """
-                    SELECT cb.customer_id, c.dnd AS customer_dnd, c.preferred_window
+                    SELECT cb.customer_id, c.dnd AS customer_dnd, c.preferred_window,
+                           COALESCE(cr.dnd_registry, false) AS dnd_registry
                     FROM callbacks cb
                     JOIN customers c ON c.id = cb.customer_id
+                    LEFT JOIN consent_records cr ON cr.customer_id = cb.customer_id
                     WHERE cb.id = :id
                     """
                 ),
@@ -4735,7 +4774,10 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if "scheduledAt" in payload and payload["scheduledAt"] is not None:
             updates.append("dnd_active = :dnd_active")
             params["dnd_active"] = _callback_dnd_active(
-                bool(row["customer_dnd"]), row["preferred_window"], payload["scheduledAt"]
+                bool(row["customer_dnd"]),
+                bool(row["dnd_registry"]),
+                row["preferred_window"],
+                payload["scheduledAt"],
             )
 
         if updates:
@@ -7563,7 +7605,7 @@ def _thread_context(conn: Any, customer_id: str, account_id: str | None, risk: s
     return {
         "riskLevel": _inbox_risk(risk),
         "contactableNow": _inbox_contactable(conn, customer_id, bool(dnd), preferred_window),
-        "contactWindow": preferred_window or "10:00-19:00 IST",
+        "contactWindow": preferred_window or contact_window.DEFAULT_WINDOW,
         "outstanding": float(outstanding or 0),
         "outstandingAging": _inbox_aging(dpd),
         "nextEmiDate": next_emi_date or "—",

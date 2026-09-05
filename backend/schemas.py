@@ -7,6 +7,7 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, UrlConstraints, m
 # The authored flow graph is a domain model, not a transport shape — it is
 # shared verbatim by the API, the validator and the voice runtime, so it is
 # defined once in flow_graph and reused here rather than restated.
+import contact_window
 from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 
 
@@ -39,7 +40,11 @@ class ContactResponse(BaseModel):
     address: str = ""
     timezone: str = "Asia/Kolkata"
     language: str = "English"
-    preferredWindow: str = "10:00-19:00 IST"
+    #: The window a customer with nothing on file is assumed to allow. One
+    #: constant, shared with the contact Gate: this used to read
+    #: "10:00-19:00 IST" while contact_window said 09:00-20:00, so the
+    #: console showed one window and the veto enforced another.
+    preferredWindow: str = contact_window.DEFAULT_WINDOW
     dnd: bool = False
 
 

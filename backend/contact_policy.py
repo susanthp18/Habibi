@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
+import contact_window
 from env_utils import env_int
 
 logger = logging.getLogger(__name__)
@@ -218,32 +219,14 @@ def _parse_hours(raw: str | None) -> tuple[int, int] | None:
 
 
 def _parse_days(raw: str | None) -> list[int] | None:
-    if not raw or not str(raw).strip():
-        return None
-    # Ranges arrive with whichever dash the operator's keyboard produced. The
-    # sibling allowed_hours column in this database already holds both
-    # "10:00-19:00 IST" and "10:00–19:00 IST", and _parse_hours only
-    # tolerates that because its regex skips over the separator entirely.
-    #
-    # Here the dash is load-bearing. Without this, "Mon–Sat" misses the
-    # range branch below, falls through to the token split, matches the leading
-    # "mon" and returns Monday alone — silently narrowing a six-day consent
-    # window to one. It fails closed, so nobody is contacted illegally; they are
-    # simply never contacted, which is the kind of wrong that does not raise.
-    text_val = str(raw).strip().lower().replace("–", "-").replace("—", "-")
-    if "-" in text_val and "," not in text_val:
-        parts = [p.strip() for p in text_val.split("-", 1)]
-        if len(parts) == 2 and parts[0][:3] in _DAY_NAME_TO_NUM and parts[1][:3] in _DAY_NAME_TO_NUM:
-            start, end = _DAY_NAME_TO_NUM[parts[0][:3]], _DAY_NAME_TO_NUM[parts[1][:3]]
-            if start <= end:
-                return list(range(start, end + 1))
-            return list(range(start, 7)) + list(range(0, end + 1))
-    days: list[int] = []
-    for token in re.split(r"[,\s]+", text_val):
-        key = token[:3]
-        if key in _DAY_NAME_TO_NUM:
-            days.append(_DAY_NAME_TO_NUM[key])
-    return days or None
+    """Consent days, or ``None`` when nothing was recorded.
+
+    The implementation moved to :mod:`contact_window`, which already owned the
+    sibling hours rule, because ``db.py`` had a second copy that did not
+    normalise the dash — see that module's note. This name stays: it is
+    re-exported as ``parse_days`` below and the treatment engine plans against it.
+    """
+    return contact_window.allowed_days(raw)
 
 
 #: Public names for the two consent-window parsers. The treatment engine plans
@@ -517,12 +500,25 @@ def _veto(
                 return REASON_HOURS
 
     if purpose == "outreach":
-        hours = _preferred_hours(customer)
+        # A borrower with neither `allowed_hours` nor `customers.preferred_window`
+        # on file used to get no hour check at all here: `_preferred_hours`
+        # returns None for "nothing recorded", and None read as "skip". On voice
+        # the statutory window above still bounded them; on WhatsApp, SMS and
+        # email nothing did, and they were contactable at any hour.
+        #
+        # `contact_window.window_hours` has always answered this same question
+        # the other way, in as many words — "an unparseable window is not a
+        # licence to call at 03:00: it falls back to the default bounds rather
+        # than to 'no restriction'." Absence is the same case as unparseable.
+        # This is that answer, not a new rule, and it is deliberately the
+        # borrower-preference default (09:00-20:00) rather than the statutory
+        # voice window: they are different rules and merging them would be worse
+        # than either gap.
+        hours = _preferred_hours(customer) or contact_window.window_hours(None)
         days = _parse_days(customer.get("allowed_days"))
-        if hours is not None:
-            start_h, end_h = hours
-            if now_local.hour < start_h or now_local.hour >= end_h:
-                return REASON_WINDOW
+        start_h, end_h = hours
+        if now_local.hour < start_h or now_local.hour >= end_h:
+            return REASON_WINDOW
         if days is not None:
             # Consent days: 0=Sun … 6=Sat. isoweekday()%7 matches that.
             if (now_local.isoweekday() % 7) not in days:
