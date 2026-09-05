@@ -15,7 +15,18 @@ from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_MCP, CHANNEL_TEXT, CHANNEL_VOICE
 from agent_core.treatment import actions as A
 from agent_core.treatment import decisions, enact
-from work_runtime import idempotency_key, query, signal, start_workflow
+from work_runtime import (
+    WorkRuntime,
+    claim_next,
+    finish,
+    idempotency_key,
+    list_jobs,
+    park_input_required,
+    query,
+    signal,
+    start_workflow,
+    upsert_job,
+)
 
 
 def _require_table(db_tx, name: str) -> None:
@@ -93,19 +104,33 @@ def test_g11_fails_closed_when_required_and_no_run() -> None:
 
 def test_temporal_adapter_fails_closed(monkeypatch) -> None:
     monkeypatch.setenv("TEMPORAL_ENABLED", "true")
-    with pytest.raises(RuntimeError, match="temporal_adapter_not_promoted"):
-        start_workflow(
+    calls = (
+        lambda: start_workflow(
             workflow_type="bounce_chase",
             payload={},
             customer_id=None,
             idempotency_key="x:bounce_chase:probe",
-        )
+        ),
+        lambda: signal("wrj-x", "approve", {}),
+        lambda: query("wrj-x"),
+        lambda: list_jobs(),
+        lambda: claim_next(),
+        lambda: finish("wrj-x", ok=True),
+        lambda: park_input_required("wrj-x", "floor"),
+        lambda: upsert_job(
+            workflow_type="treatment_book_sweep",
+            payload={},
+            idempotency_key="x:cursor:probe",
+        ),
+    )
+    for call in calls:
+        with pytest.raises(RuntimeError, match="temporal_adapter_not_promoted"):
+            call()
 
 
 def test_work_runtime_resumes_approval_after_restart(db_tx, account) -> None:
     _require_table(db_tx, "work_runtime_jobs")
     from agent_core.clerk import process_one
-    from work_runtime.adapter_pg import query as pg_query
 
     ref = f"hitl-{uuid.uuid4().hex[:8]}"
     job = start_workflow(
@@ -115,7 +140,7 @@ def test_work_runtime_resumes_approval_after_restart(db_tx, account) -> None:
         idempotency_key=idempotency_key(workflow_type="bounce_chase", trigger_ref=ref),
     )
     assert process_one() is True
-    parked = pg_query(job["id"])
+    parked = query(job["id"])
     assert parked is not None
     assert parked["status"] == "input_required"
     # Simulate API process restart: a new query of the same row.
@@ -420,8 +445,6 @@ def test_copilot_stream_pack_then_tokens_no_product_invent(db_tx, monkeypatch) -
         pytest.skip("no interactions seeded")
     import azure_openai
     from agent_core.copilot import iter_events
-    from work_runtime import start_workflow
-    from work_runtime.adapter_pg import park_input_required
 
     monkeypatch.setattr(
         azure_openai,
@@ -531,3 +554,113 @@ def test_tuner_is_shadow_and_does_not_write_env(monkeypatch) -> None:
     import os
 
     assert os.getenv("RECO_W_FATIGUE") is None
+
+
+def test_both_adapters_satisfy_the_work_runtime_protocol() -> None:
+    from work_runtime import adapter_pg, adapter_temporal
+
+    assert isinstance(adapter_pg, WorkRuntime)
+    assert isinstance(adapter_temporal, WorkRuntime)
+
+
+def test_port_exports_every_adapter_operation() -> None:
+    import inspect
+
+    from work_runtime import adapter_pg, adapter_temporal
+
+    def _defined(module) -> set[str]:
+        return {
+            name
+            for name, obj in inspect.getmembers(module, inspect.isfunction)
+            if obj.__module__ == module.__name__ and not name.startswith("_")
+        }
+
+    protocol_ops = {
+        name
+        for name, obj in inspect.getmembers(WorkRuntime, inspect.isfunction)
+        if not name.startswith("_")
+    }
+    assert _defined(adapter_pg) == protocol_ops
+    assert _defined(adapter_temporal) == protocol_ops
+
+
+def test_no_module_imports_adapter_pg_directly() -> None:
+    """Callers reach the port. The selector in api.py is the only importer."""
+    import ast
+    import os
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    skip_dirs = {
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        "alembic",
+        "tests",
+        "htmlcov",
+    }
+    allowed = {backend / "work_runtime" / "api.py"}
+    offenders: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(backend):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs and not d.startswith(".")]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = Path(dirpath) / name
+            if path in allowed:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    mod = node.module or ""
+                    if mod == "work_runtime.adapter_pg" or mod.startswith(
+                        "work_runtime.adapter_pg."
+                    ):
+                        offenders.append(str(path.relative_to(backend)))
+                        break
+                    if mod == "work_runtime" and any(
+                        alias.name == "adapter_pg" for alias in node.names
+                    ):
+                        offenders.append(str(path.relative_to(backend)))
+                        break
+                if isinstance(node, ast.Import):
+                    if any(
+                        alias.name == "work_runtime.adapter_pg"
+                        or alias.name.startswith("work_runtime.adapter_pg.")
+                        for alias in node.names
+                    ):
+                        offenders.append(str(path.relative_to(backend)))
+                        break
+    assert offenders == []
+
+
+def test_production_writers_do_not_insert_into_work_runtime_jobs() -> None:
+    """The table has one writer: the postgres adapter, reached through the port."""
+    import os
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    skip_dirs = {
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        "alembic",
+        "tests",
+        "htmlcov",
+        "sql",
+    }
+    allowed = {backend / "work_runtime" / "adapter_pg.py"}
+    offenders: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(backend):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs and not d.startswith(".")]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = Path(dirpath) / name
+            if path in allowed:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if "INSERT INTO work_runtime_jobs" in text:
+                offenders.append(str(path.relative_to(backend)))
+    assert offenders == []
+

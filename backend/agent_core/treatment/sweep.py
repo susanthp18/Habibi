@@ -233,31 +233,12 @@ def _read_cursor(conn: Any, tenant: str) -> str | None:
 
 
 def _write_cursor(conn: Any, tenant: str, after: str) -> None:
-    import db as dbmod
+    from work_runtime import upsert_job
 
-    conn.execute(
-        text(
-            """
-            INSERT INTO work_runtime_jobs (
-              id, tenant_id, workflow_type, status, payload, idempotency_key
-            ) VALUES (
-              :id, :tenant, :workflow, 'working',
-              -- CAST because jsonb_build_object takes "any", so Postgres cannot
-              -- infer a bind parameter's type from the call site.
-              jsonb_build_object('afterAccountId', CAST(:after AS TEXT)), :key
-            )
-            ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
-              SET payload = jsonb_build_object(
-                    'afterAccountId', CAST(:after AS TEXT)
-                  ),
-                  updated_at = now()
-            """
-        ),
-        {
-            "id": dbmod._id("WRJ"),
-            "tenant": tenant,
-            "workflow": CURSOR_WORKFLOW,
-            "after": after,
-            "key": CURSOR_KEY,
-        },
+    upsert_job(
+        workflow_type=CURSOR_WORKFLOW,
+        payload={"afterAccountId": after},
+        idempotency_key=CURSOR_KEY,
+        status="working",
+        conn=conn,
     )

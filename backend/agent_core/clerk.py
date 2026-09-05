@@ -14,8 +14,13 @@ from sqlalchemy import text
 
 from agent_core.treatment import actions as A
 from agent_core.treatment import enact as treatment_enact
-from work_runtime import idempotency_key, start_workflow
-from work_runtime.adapter_pg import claim_next, finish, park_input_required
+from work_runtime import (
+    claim_next,
+    finish,
+    idempotency_key,
+    park_input_required,
+    start_workflow,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -218,3 +218,70 @@ def park_input_required(job_id: str, reason: str) -> None:
             ),
             {"id": job_id, "t": db._tenant(), "r": reason},
         )
+
+
+def upsert_job(
+    *,
+    workflow_type: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    status: str = "submitted",
+    customer_id: str | None = None,
+    conn: Any | None = None,
+) -> dict[str, Any]:
+    """Insert a job, or replace its payload when the idempotency key exists.
+
+    ``start_workflow`` is enqueue-once. This is the other conflict policy: the
+    treatment book-sweep stores its resume cursor as a job row and must move
+    that cursor on every batch.
+    """
+    if not idempotency_key.strip():
+        raise ValueError("idempotency_key_required")
+    if not workflow_type.strip():
+        raise ValueError("workflow_type_required")
+    jid = f"wrj-{uuid.uuid4().hex[:12]}"
+
+    def _write(active: Any) -> dict[str, Any]:
+        active.execute(
+            text(
+                """
+                INSERT INTO work_runtime_jobs (
+                  id, tenant_id, workflow_type, status, customer_id,
+                  payload, idempotency_key
+                ) VALUES (
+                  :id, :t, :wt, :st, :cid, CAST(:payload AS jsonb), :k
+                )
+                ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
+                   SET payload = CAST(:payload AS jsonb),
+                       updated_at = now()
+                """
+            ),
+            {
+                "id": jid,
+                "t": db._tenant(),
+                "wt": workflow_type,
+                "st": status,
+                "cid": customer_id,
+                "payload": db._jsonb(payload),
+                "k": idempotency_key,
+            },
+        )
+        row = db._one(
+            active.execute(
+                text(
+                    """
+                    SELECT * FROM work_runtime_jobs
+                     WHERE tenant_id = :t AND idempotency_key = :k
+                    """
+                ),
+                {"t": db._tenant(), "k": idempotency_key},
+            )
+        )
+        assert row is not None
+        return _public(row)
+
+    if conn is not None:
+        return _write(conn)
+    with db.engine.begin() as active:
+        return _write(active)
+

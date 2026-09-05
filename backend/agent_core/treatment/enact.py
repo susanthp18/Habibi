@@ -25,7 +25,6 @@ than silently retrying forever.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -48,6 +47,27 @@ MAX_PLAN_AGE = timedelta(hours=12)
 
 class NoExecutor(RuntimeError):
     """The action is understood and deliberately not carried out yet."""
+
+
+def _enqueue_work(
+    conn: Any,
+    *,
+    workflow_type: str,
+    customer_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+) -> str:
+    """Idempotent enqueue onto the work-runtime port. One work item per key."""
+    from work_runtime import start_workflow
+
+    job = start_workflow(
+        workflow_type=workflow_type,
+        payload=payload,
+        customer_id=customer_id,
+        idempotency_key=idempotency_key,
+        conn=conn,
+    )
+    return f"work:{job['id']}"
 
 
 def enact_one(
@@ -697,40 +717,20 @@ def _hand_to_lms(
     once. The outcome comes back through the ordinary ``payment_events``
     webhook, which is why the presentation row carries ``payment_event_id``.
     """
-    import db as dbmod
-
-    job_id = dbmod._id("WRJ")
-    conn.execute(
-        text(
-            """
-            INSERT INTO work_runtime_jobs (
-              id, tenant_id, workflow_type, status, customer_id,
-              payload, idempotency_key
-            ) VALUES (
-              :id, :tenant_id, 'mandate_representment', 'submitted', :customer_id,
-              CAST(:payload AS jsonb), :idem
-            )
-            ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-            """
-        ),
-        {
-            "id": job_id,
-            "tenant_id": customer["tenant_id"],
-            "customer_id": customer["id"],
-            "payload": json.dumps(
-                {
-                    "presentationId": presentation_id,
-                    "decisionId": decision["id"],
-                    "accountId": decision.get("account_id"),
-                    "amount": round(amount, 2),
-                    "presentedFor": str(cycle),
-                    "rationale": (decision.get("rationale") or "")[:500],
-                }
-            ),
-            "idem": f"mandate-representment:{presentation_id}",
+    return _enqueue_work(
+        conn,
+        workflow_type="mandate_representment",
+        customer_id=customer["id"],
+        payload={
+            "presentationId": presentation_id,
+            "decisionId": decision["id"],
+            "accountId": decision.get("account_id"),
+            "amount": round(amount, 2),
+            "presentedFor": str(cycle),
+            "rationale": (decision.get("rationale") or "")[:500],
         },
+        idempotency_key=f"mandate-representment:{presentation_id}",
     )
-    return f"work:{job_id}"
 
 
 def _change_emi_date(
@@ -747,8 +747,6 @@ def _change_emi_date(
     a mandate set for the 30th silently skips February on some rails, and a
     schedule that is right eleven months a year is a bug with an alibi.
     """
-    import db as dbmod
-
     row = conn.execute(
         text(
             """
@@ -769,37 +767,19 @@ def _change_emi_date(
     credit_day = _aware(row["next_credit_at"]).day
     proposed = min(28, credit_day + EMI_DATE_BUFFER_DAYS)
 
-    job_id = dbmod._id("WRJ")
-    conn.execute(
-        text(
-            """
-            INSERT INTO work_runtime_jobs (
-              id, tenant_id, workflow_type, status, customer_id,
-              payload, idempotency_key
-            ) VALUES (
-              :id, :tenant_id, 'emi_date_change', 'submitted', :customer_id,
-              CAST(:payload AS jsonb), :idem
-            )
-            ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-            """
-        ),
-        {
-            "id": job_id,
-            "tenant_id": customer["tenant_id"],
-            "customer_id": customer["id"],
-            "payload": json.dumps(
-                {
-                    "decisionId": decision["id"],
-                    "accountId": decision.get("account_id"),
-                    "proposedDueDay": proposed,
-                    "salaryCreditDay": credit_day,
-                    "rationale": (decision.get("rationale") or "")[:500],
-                }
-            ),
-            "idem": f"emi-date-change:{decision['id']}",
+    return _enqueue_work(
+        conn,
+        workflow_type="emi_date_change",
+        customer_id=customer["id"],
+        payload={
+            "decisionId": decision["id"],
+            "accountId": decision.get("account_id"),
+            "proposedDueDay": proposed,
+            "salaryCreditDay": credit_day,
+            "rationale": (decision.get("rationale") or "")[:500],
         },
+        idempotency_key=f"emi-date-change:{decision['id']}",
     )
-    return f"work:{job_id}"
 
 
 def _open_self_service_plan(
@@ -817,8 +797,6 @@ def _open_self_service_plan(
     on one account is a borrower with two schedules and a dispute about which
     one they agreed to.
     """
-    import db as dbmod
-
     row = conn.execute(
         text(
             """
@@ -844,38 +822,20 @@ def _open_self_service_plan(
     # the authority matrix rather than a self-service toggle.
     tenor = min(6, max(2, int(-(-outstanding // instalment))))
 
-    job_id = dbmod._id("WRJ")
-    conn.execute(
-        text(
-            """
-            INSERT INTO work_runtime_jobs (
-              id, tenant_id, workflow_type, status, customer_id,
-              payload, idempotency_key
-            ) VALUES (
-              :id, :tenant_id, 'self_service_plan', 'submitted', :customer_id,
-              CAST(:payload AS jsonb), :idem
-            )
-            ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-            """
-        ),
-        {
-            "id": job_id,
-            "tenant_id": customer["tenant_id"],
-            "customer_id": customer["id"],
-            "payload": json.dumps(
-                {
-                    "decisionId": decision["id"],
-                    "accountId": decision.get("account_id"),
-                    "arrearsInr": round(outstanding, 2),
-                    "instalmentInr": round(instalment, 2),
-                    "proposedTenor": tenor,
-                    "rationale": (decision.get("rationale") or "")[:500],
-                }
-            ),
-            "idem": f"self-service-plan:{decision['id']}",
+    return _enqueue_work(
+        conn,
+        workflow_type="self_service_plan",
+        customer_id=customer["id"],
+        payload={
+            "decisionId": decision["id"],
+            "accountId": decision.get("account_id"),
+            "arrearsInr": round(outstanding, 2),
+            "instalmentInr": round(instalment, 2),
+            "proposedTenor": tenor,
+            "rationale": (decision.get("rationale") or "")[:500],
         },
+        idempotency_key=f"self-service-plan:{decision['id']}",
     )
-    return f"work:{job_id}"
 
 
 #: Days after the salary credit to put the new due date. Two, not zero: a

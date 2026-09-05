@@ -98,7 +98,7 @@ def _approvals_for(customer_id: str | None) -> list[dict[str, Any]]:
     if not customer_id:
         return []
     try:
-        from work_runtime.adapter_pg import list_jobs
+        from work_runtime import list_jobs
 
         return list_jobs(status="input_required", customer_id=customer_id, limit=20)
     except Exception:

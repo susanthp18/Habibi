@@ -13,7 +13,28 @@ The mouth never awaits these APIs. It speaks and enqueues.
 
 from __future__ import annotations
 
-from work_runtime.api import query, signal, start_workflow
+from work_runtime.api import (
+    WorkRuntime,
+    claim_next,
+    finish,
+    list_jobs,
+    park_input_required,
+    query,
+    signal,
+    start_workflow,
+    upsert_job,
+)
 from work_runtime.keys import idempotency_key
 
-__all__ = ["start_workflow", "signal", "query", "idempotency_key"]
+__all__ = [
+    "WorkRuntime",
+    "start_workflow",
+    "signal",
+    "query",
+    "list_jobs",
+    "claim_next",
+    "finish",
+    "park_input_required",
+    "upsert_job",
+    "idempotency_key",
+]

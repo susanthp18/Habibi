@@ -1493,7 +1493,7 @@ def stream_floor_copilot(interaction_id: str):
 
 @app.get("/floor/approvals")
 def list_floor_approvals():
-    from work_runtime.adapter_pg import list_jobs
+    from work_runtime import list_jobs
 
     return list_jobs(status="input_required")
 
