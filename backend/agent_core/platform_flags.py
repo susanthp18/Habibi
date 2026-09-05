@@ -13,10 +13,6 @@ def _flag(name: str) -> bool:
     return env_bool(name)
 
 
-def agent_cards_enabled() -> bool:
-    return _flag("AGENT_CARDS_ENABLED")
-
-
 def mcp_http_enabled() -> bool:
     return _flag("MCP_HTTP_ENABLED")
 
