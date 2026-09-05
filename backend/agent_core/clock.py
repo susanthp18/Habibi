@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,18 @@ def tenant_tz() -> ZoneInfo:
 
 def now_local() -> datetime:
     return datetime.now(tenant_tz())
+
+
+def today_local() -> date:
+    """Today, reckoned where the customer is.
+
+    ``date.today()`` reads the *process* zone. Every container here runs UTC,
+    so between 18:30 and 24:00 UTC it is already tomorrow in Asia/Kolkata and
+    the two answers differ by a day. Anything comparing a promised or due date
+    against 'today' has to use this one, or it is correct only while the two
+    clocks happen to agree.
+    """
+    return now_local().date()
 
 
 #: Inclusive start hours for the spoken parts of a day, in the tenant's own

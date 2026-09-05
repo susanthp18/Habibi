@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
+from agent_core import clock
 import pytest
 from sqlalchemy import text
 
@@ -55,7 +56,7 @@ def _opt_out(db_tx, customer_id: str, channels: tuple[str, ...] = ("whatsapp", "
 def _create(customer_id: str, account_id: str | None, *, amount: float = 121.0, days: int = 9, key: str | None = None):
     from agent_core.tools import create_promise_to_pay
 
-    promised = (date.today() + timedelta(days=days)).isoformat()
+    promised = (clock.today_local() + timedelta(days=days)).isoformat()
     return create_promise_to_pay(
         customer_id=customer_id,
         amount=amount,
@@ -87,7 +88,7 @@ def test_voice_double_call_one_intent(db_tx) -> None:
     """Same voice idempotency key as the live handler: one promise, one intent."""
     _require_intents(db_tx)
     customer_id, account_id = _customer(db_tx)
-    promised = (date.today() + timedelta(days=5)).isoformat()
+    promised = (clock.today_local() + timedelta(days=5)).isoformat()
     key = f"voice-ptp:IX-TEST:{customer_id}:88.00:{promised}"
     from agent_core.tools import create_promise_to_pay
 

@@ -148,7 +148,7 @@ def _promise_date_is_past(date_s: str) -> bool:
         promised = date.fromisoformat(date_s)
     except ValueError:
         return False
-    return promised < clock.now_local().date()
+    return promised < clock.today_local()
 
 
 def _parse_scheduled_at(raw: str) -> str | None:

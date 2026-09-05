@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from agent_core import clock
 import pytest
 from sqlalchemy import text
 
@@ -17,7 +18,7 @@ def _today_ist() -> datetime.date:
     Sunday must not be why outreach is refused once ``_prep`` stops nulling
     ``allowed_days``. Roll back one day rather than invent a calendar.
     """
-    d = datetime.now(IST).date()
+    d = clock.today_local()
     if d.isoweekday() == 7:
         return d - timedelta(days=1)
     return d
@@ -323,7 +324,7 @@ def test_due_reminder_blocked_when_capped(db_tx, monkeypatch: pytest.MonkeyPatch
     result = create_promise_to_pay(
         customer_id=cid,
         amount=50.0,
-        promised_date=(date.today() + timedelta(days=5)).isoformat(),
+        promised_date=(clock.today_local() + timedelta(days=5)).isoformat(),
         account_id=acct,
         channel="voice",
         idempotency_key="ptp-cap-reminder",

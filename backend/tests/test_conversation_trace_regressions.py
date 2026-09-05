@@ -10,8 +10,9 @@ the outside, which is exactly why they survived.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
+from agent_core import clock
 import pytest
 from sqlalchemy import text
 
@@ -234,7 +235,7 @@ def test_a_promise_for_yesterday_is_refused() -> None:
     """
     from agent_core.tools import create_promise_to_pay
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (clock.today_local() - timedelta(days=1)).isoformat()
     result = create_promise_to_pay(
         customer_id="CUST-1001",
         amount=1000.0,
@@ -249,9 +250,9 @@ def test_a_promise_for_today_is_still_allowed() -> None:
     """Today is a real promise — the link lives until tomorrow 23:59 IST."""
     from agent_core.tools import domain
 
-    assert domain._promise_date_is_past(date.today().isoformat()) is False
-    assert domain._promise_date_is_past((date.today() + timedelta(days=3)).isoformat()) is False
-    assert domain._promise_date_is_past((date.today() - timedelta(days=1)).isoformat()) is True
+    assert domain._promise_date_is_past(clock.today_local().isoformat()) is False
+    assert domain._promise_date_is_past((clock.today_local() + timedelta(days=3)).isoformat()) is False
+    assert domain._promise_date_is_past((clock.today_local() - timedelta(days=1)).isoformat()) is True
 
 
 # --- F38: an allowlist that cannot resolve its card must deny ---------------

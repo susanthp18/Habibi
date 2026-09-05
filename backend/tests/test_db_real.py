@@ -16,8 +16,9 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
+from agent_core import clock
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -132,7 +133,7 @@ def test_two_concurrent_posts_with_the_same_key_create_one_promise(
 
     key = f"ptp-contention-{uuid.uuid4().hex}"
     amount = 10_000 + (uuid.uuid4().int % 89_999)
-    promised = (date.today() + timedelta(days=14)).isoformat()
+    promised = (clock.today_local() + timedelta(days=14)).isoformat()
     payload = {
         "customerId": customer_id,
         "accountId": account_id,

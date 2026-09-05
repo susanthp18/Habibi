@@ -9,8 +9,9 @@ documents means the same statement generated and delivered twice.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
+from agent_core import clock
 import pytest
 
 
@@ -31,7 +32,7 @@ def test_whatsapp_path_double_submit_one_row(db_tx) -> None:
 
     customer_id, account_id = _pick_customer()
     key = f"wa-ptp-test-{uuid.uuid4().hex}"
-    promised = (date.today() + timedelta(days=7)).isoformat()
+    promised = (clock.today_local() + timedelta(days=7)).isoformat()
     payload = {
         "customerId": customer_id,
         "accountId": account_id,
@@ -66,7 +67,7 @@ def test_voice_path_double_submit_one_row(db_tx) -> None:
     customer_id, account_id = _pick_customer()
     interaction_id = None
     # Prefer an existing interaction for FK honesty; optional for create_promise.
-    promised = (date.today() + timedelta(days=5)).isoformat()
+    promised = (clock.today_local() + timedelta(days=5)).isoformat()
     amt = 202.0
     idem = f"voice-ptp:{interaction_id or 'no-ix'}:{customer_id}:{amt:.2f}:{promised}"
 
@@ -140,7 +141,7 @@ def test_voice_callback_key_is_stable_across_retries(db_tx) -> None:
     import db
 
     customer_id, account_id = _pick_customer()
-    when = f"{(date.today() + timedelta(days=2)).isoformat()}T10:00:00+05:30"
+    when = f"{(clock.today_local() + timedelta(days=2)).isoformat()}T10:00:00+05:30"
     idem = f"voice-callback:no-ix:{customer_id}:{when}"
     payload = {
         "customerId": customer_id,

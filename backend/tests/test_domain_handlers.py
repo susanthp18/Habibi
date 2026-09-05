@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
+from agent_core import clock
 import pytest
 
 
@@ -32,7 +33,7 @@ def test_create_promise_idempotent_via_domain(db_tx) -> None:
     from agent_core.tools import create_promise_to_pay
 
     customer_id, account_id = _customer(db_tx)
-    promised = (date.today() + timedelta(days=9)).isoformat()
+    promised = (clock.today_local() + timedelta(days=9)).isoformat()
     key = f"domain-ptp-{uuid.uuid4().hex}"
     first = create_promise_to_pay(
         customer_id=customer_id,

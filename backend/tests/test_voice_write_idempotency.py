@@ -24,9 +24,10 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, Callable
 
+from agent_core import clock
 import pytest
 from sqlalchemy import text
 
@@ -34,7 +35,7 @@ import db
 from voice import tools as voice_tools
 from voice.session import VoiceSession
 
-PROMISE_DATE = (date.today() + timedelta(days=14)).isoformat()
+PROMISE_DATE = (clock.today_local() + timedelta(days=14)).isoformat()
 
 
 @pytest.fixture
