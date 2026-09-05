@@ -18,9 +18,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   test: {
-    // Every suite here exercises a pure function. No jsdom, no DOM shims, no
-    // coverage — a test environment the tests do not use is a dependency that
-    // can only break.
+    // Default stays node: most suites are still pure functions, and an
+    // unused DOM is a dependency that can only break (the original reason
+    // this was pinned). Suites that render opt in with
+    // `// @vitest-environment jsdom` and import `@/test/jsdom`.
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },

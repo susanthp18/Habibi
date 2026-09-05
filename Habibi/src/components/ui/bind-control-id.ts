@@ -12,8 +12,8 @@
  * `SelectTrigger`. A Radix `Slider` root is not labelable either, so it
  * also receives `aria-label`.
  *
- * Kept free of the DOM so the pairing can be tested under vitest's
- * `environment: "node"`.
+ * Pure `cloneElement` — no DOM of its own. Pairing is asserted by rendering
+ * under jsdom; the six Field helpers still pin `useId` from source.
  */
 import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
 
