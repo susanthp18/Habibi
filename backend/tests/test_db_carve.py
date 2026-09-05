@@ -13,6 +13,8 @@ import db
 import db_billing
 import db_bot_analytics
 import db_dashboard
+import db_kb
+import db_prompt_studio
 import db_redaction
 import db_routing
 import db_sandbox
@@ -25,6 +27,8 @@ _CARVED = (
     "db_billing.py",
     "db_bot_analytics.py",
     "db_dashboard.py",
+    "db_kb.py",
+    "db_prompt_studio.py",
     "db_redaction.py",
     "db_routing.py",
     "db_sandbox.py",
@@ -97,6 +101,32 @@ _REDACTION_SHIMMED = (
     "list_redaction_rules",
 )
 
+_KB_SHIMMED = (
+    "KB_GAP_MAX_CHARS",
+    "get_kb_document",
+    "list_kb_documents",
+    "list_kb_faqs",
+    "list_kb_gaps",
+    "record_kb_gap",
+)
+
+_PROMPT_STUDIO_SHIMMED = (
+    "DEFAULT_BOT_ID",
+    "_DEFAULT_PERSONA",
+    "_DEFAULT_VOICE",
+    "_DEFAULT_GUARDRAILS",
+    "_handoff_edges",
+    "_map_prompt_version",
+    "_prompt_voice",
+    "compile_agent_studio_card",
+    "get_active_deployment",
+    "get_agent_studio_card",
+    "get_prompt_version",
+    "list_agent_studio_cards",
+    "list_prompt_versions",
+    "publish_prompt_version",
+)
+
 
 def test_db_reexports_billing_as_the_same_objects() -> None:
     for name in _BILLING_SHIMMED:
@@ -138,6 +168,16 @@ def test_db_reexports_redaction_as_the_same_objects() -> None:
         assert getattr(db, name) is getattr(db_redaction, name), name
 
 
+def test_db_reexports_kb_as_the_same_objects() -> None:
+    for name in _KB_SHIMMED:
+        assert getattr(db, name) is getattr(db_kb, name), name
+
+
+def test_db_reexports_prompt_studio_as_the_same_objects() -> None:
+    for name in _PROMPT_STUDIO_SHIMMED:
+        assert getattr(db, name) is getattr(db_prompt_studio, name), name
+
+
 def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.billing_overview.__module__ == "db_billing"
     assert db.interaction_cost.__module__ == "db_billing"
@@ -160,6 +200,15 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.list_redaction_records.__module__ == "db_redaction"
     assert db.get_redaction_record.__module__ == "db_redaction"
     assert db.actor_is_admin.__module__ == "db_redaction"
+    assert db.list_kb_documents.__module__ == "db_kb"
+    assert db.record_kb_gap.__module__ == "db_kb"
+    assert db.get_kb_document.__module__ == "db_kb"
+    assert db.get_prompt_version.__module__ == "db_prompt_studio"
+    assert db.get_active_deployment.__module__ == "db_prompt_studio"
+    assert db.publish_prompt_version.__module__ == "db_prompt_studio"
+    assert db.compile_agent_studio_card.__module__ == "db_prompt_studio"
+    assert db._map_prompt_version.__module__ == "db_prompt_studio"
+    assert db._prompt_voice.__module__ == "db_prompt_studio"
 
 
 def test_as_utc_lives_in_db_core() -> None:
@@ -186,6 +235,8 @@ def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
         db_billing,
         db_bot_analytics,
         db_dashboard,
+        db_kb,
+        db_prompt_studio,
         db_redaction,
         db_routing,
         db_sandbox,
