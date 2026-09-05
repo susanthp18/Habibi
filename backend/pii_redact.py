@@ -43,7 +43,22 @@ PII_DETECTORS: list[tuple[str, re.Pattern[str], Callable[[str], str]]] = [
     ("card", re.compile(r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b"), _mask_card),
     ("aadhaar", re.compile(r"\b\d{4}\s\d{4}\s\d{4}\b"), _mask_aadhaar),
     ("pan", re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"), lambda _s: "[REDACTED-PAN]"),
-    ("phone", re.compile(r"\+91[- ]?\d{5}[- ]?\d{5}\b"), _mask_phone),
+    # Indian mobiles, however they were written down. The previous pattern
+    # required a literal "+91", and `customers.phone_primary` does not always
+    # carry one -- `outbound.place` passes bare digits as `to_phone`, so a number
+    # reaching a log line in that form was not masked at all. Measured against
+    # the live table: 1 of 21 stored values escaped this detector entirely.
+    #
+    # The leading `(?<![\d-])` and trailing `(?!\d)` keep it from biting a
+    # substring of a longer run -- a 14-digit account number, or the tail of a
+    # card the detector above has already consumed. `[6-9]` is what separates a
+    # mobile from an amount: Indian mobile numbers start 6, 7, 8 or 9, so
+    # `1234567890` is left alone.
+    (
+        "phone",
+        re.compile(r"(?<![\d-])(?:\+?91[-\s]?|0)?([6-9]\d{4})[-\s]?(\d{5})(?!\d)"),
+        _mask_phone,
+    ),
     (
         "email",
         re.compile(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", re.I),

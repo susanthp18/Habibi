@@ -234,4 +234,12 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    # Same reason as voice/bot.py, and this worker was the one process that
+    # never got it: nothing here configured the root logger, so every
+    # standard-library logger.info from agent_core and voice.* was discarded,
+    # and WARNING+ fell to logging.lastResort unformatted. install() also
+    # attaches the PII scrubber to both halves of the stream.
+    from voice import log_bridge
+
+    log_bridge.install()
     asyncio.run(main())

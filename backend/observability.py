@@ -315,6 +315,72 @@ def render() -> tuple[bytes, str]:
 # ---------------------------------------------------------------------------
 
 
+#: What a log line says instead of the text, when the scrubber itself failed.
+#: The previous behaviour was ``except Exception: pass``, which emitted the
+#: unredacted message -- the one case where the scrubber is most likely to be
+#: looking at something it did not expect.
+REDACTION_FAILED = "[redaction failed; text withheld]"
+
+
+def _redact_or_withhold(text: str) -> str:
+    """Mask PII, or withhold the text entirely. Never pass it through raw."""
+    try:
+        import pii_redact
+
+        return pii_redact.redact_text(text)
+    except Exception:
+        return REDACTION_FAILED
+
+
+class RedactingFilter(logging.Filter):
+    """Scrub the record itself, so redaction does not depend on the formatter.
+
+    Redaction used to live inside :class:`JsonFormatter`, which meant it ran
+    only when ``LOG_FORMAT=json``. That flag is off by default and appears
+    nowhere in ``.env.example``, so in practice the scrubber never ran on log
+    output at all -- and simply installing a plain handler so ``logger.info`` is
+    no longer discarded would have recreated the leak in a different format.
+
+    A filter on the *handler* covers every formatter, including loguru's
+    ``InterceptHandler`` on the voice path, which had no redaction of any kind.
+
+    The message is rendered here and the args dropped, because ``%s``
+    interpolation is exactly how a phone number arrives: ``logger.info("dialling
+    %s", phone)`` keeps the number in ``record.args``, where a scrub of
+    ``record.msg`` alone would miss it.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            rendered = record.getMessage()
+        except Exception:
+            rendered = str(record.msg)
+        record.msg = _redact_or_withhold(rendered)
+        record.args = ()
+        for key, value in list(record.__dict__.items()):
+            if key in JsonFormatter._RESERVED or key in ("msg", "args"):
+                continue
+            if isinstance(value, str):
+                record.__dict__[key] = _redact_or_withhold(value)
+        return True
+
+
+class RedactingTextFormatter(logging.Formatter):
+    """The plain formatter, with the traceback scrubbed too.
+
+    :class:`RedactingFilter` has already handled the message and ``extra``; the
+    exception text is rendered here, so it is scrubbed here.
+    """
+
+    DEFAULT_FORMAT = "%(asctime)s %(levelname)-8s %(name)s %(message)s"
+
+    def __init__(self) -> None:
+        super().__init__(self.DEFAULT_FORMAT)
+
+    def formatException(self, ei) -> str:  # noqa: ANN001 - matches the stdlib signature
+        return _redact_or_withhold(super().formatException(ei))
+
+
 class JsonFormatter(logging.Formatter):
     """One JSON object per line, with the request id and actor folded in.
 
@@ -342,12 +408,7 @@ class JsonFormatter(logging.Formatter):
             message = str(record.msg)
 
         if self._redact:
-            try:
-                import pii_redact
-
-                message = pii_redact.redact_text(message)
-            except Exception:
-                pass
+            message = _redact_or_withhold(message)
 
         payload: dict[str, Any] = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
@@ -371,10 +432,18 @@ class JsonFormatter(logging.Formatter):
                 json.dumps(value)
             except (TypeError, ValueError):
                 value = repr(value)
+            # `extra` is where a phone number most often reaches a log line:
+            # logger.info("dialling", extra={"to": phone}). The message was
+            # scrubbed and this was not.
+            if self._redact and isinstance(value, str):
+                value = _redact_or_withhold(value)
             payload[key] = value
 
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            # A traceback carries the arguments that raised. `ValueError:
+            # 9876543210 is not a valid amount` is a phone number in a log line.
+            rendered = self.formatException(record.exc_info)
+            payload["exception"] = _redact_or_withhold(rendered) if self._redact else rendered
 
         try:
             return json.dumps(payload, ensure_ascii=False)
@@ -466,21 +535,47 @@ def _scrub_event(event: dict[str, Any], _hint: Any) -> dict[str, Any]:
     return event
 
 
+def log_level() -> int:
+    """``LOG_LEVEL``, INFO by default -- the level that makes a shadow run readable."""
+    raw = (os.getenv("LOG_LEVEL") or "INFO").strip().upper()
+    resolved = getattr(logging, raw, None)
+    return resolved if isinstance(resolved, int) else logging.INFO
+
+
+def attach_redactor(handler: logging.Handler) -> None:
+    """Idempotent: setup_logging may run more than once in one process."""
+    if not any(isinstance(f, RedactingFilter) for f in handler.filters):
+        handler.addFilter(RedactingFilter())
+
+
 def setup_logging() -> None:
-    """Install the JSON formatter on the root handlers when asked for.
+    """Install a formatter and the redacting filter on the root handlers.
 
     Reconfigures the *existing* handlers rather than adding one, so uvicorn's
     own handlers are converted instead of duplicated — adding a handler here is
     how every line ends up logged twice.
+
+    This used to return immediately unless ``LOG_FORMAT=json``. Nothing else
+    configured the root logger in ``api``, so every ``logger.info`` was
+    discarded and WARNING+ fell to ``logging.lastResort`` unformatted — and the
+    PII scrubber, which lived inside the JSON formatter, never ran on log output
+    at all. A shadow run you cannot read is not a shadow run.
+
+    JSON stays opt-in; a developer reading a terminal wants the plain formatter.
+    What is no longer optional is that a handler exists, and that whatever it
+    emits has been through the scrubber.
     """
-    if not json_logs_enabled():
-        return
-    formatter = JsonFormatter()
+    formatter: logging.Formatter = (
+        JsonFormatter() if json_logs_enabled() else RedactingTextFormatter()
+    )
     root = logging.getLogger()
     if not root.handlers:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=log_level())
+    root.setLevel(log_level())
     for handler in root.handlers:
         handler.setFormatter(formatter)
+        attach_redactor(handler)
     for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         for handler in logging.getLogger(name).handlers:
             handler.setFormatter(formatter)
+            attach_redactor(handler)
