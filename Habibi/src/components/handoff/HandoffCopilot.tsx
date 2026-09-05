@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { signalFloorApproval, useCopilotStream } from "@/api/floor";
 import type { Suggestion } from "@/api/types/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
-import { USE_MOCK } from "@/api/config";
 
 type Props = {
   interactionId: string;
@@ -92,7 +91,7 @@ export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
         ) : null}
       </div>
 
-      {!USE_MOCK && stream.approvals.length > 0 ? (
+      {stream.approvals.length > 0 ? (
         <div className="border-t border-border bg-background-warning-subtlest px-150 py-100">
           <p className="mb-075 text-body-small font-semibold text-text">Pending approval</p>
           <ul className="space-y-050">

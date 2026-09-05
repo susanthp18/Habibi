@@ -18,31 +18,30 @@ import {
   Trophy,
 } from "lucide-react";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
-import type { FollowUpChannel, Lead, LeadStage, Priority } from "@/api/types/upsell";
+import type { FollowUpChannel, Lead, LeadStage, Priority, Team } from "@/api/types/upsell";
 import {
   STAGE_LABELS,
   STAGE_ORDER,
   SOURCE_LABELS,
-  TEAM_OPTIONS,
   fmtDateTime,
   fmtMoney,
   fmtRelative,
   fmtSentiment,
   moneyValue,
-  listOwners,
   products,
 } from "@/data/upsell-seed";
 import {
   addLeadFollowUp,
   leadContactChannel,
+  leadOwnerOptions,
+  leadTeamOptions,
   markLeadFollowUpDone,
   patchLead,
   revalidateLead,
 } from "@/api/upsell";
 import { useProducts } from "@/api/products";
-import { humanNames, useStaff } from "@/api/staff";
-import { teamNames, useTeams } from "@/api/teams";
-import { USE_MOCK } from "@/api/config";
+import { useStaff } from "@/api/staff";
+import { useTeams } from "@/api/teams";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -88,11 +87,8 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
   const { data: staff = [] } = useStaff();
   const { data: teams = [] } = useTeams();
   const { data: catalog = [] } = useProducts();
-  const owners = useMemo(
-    () => (USE_MOCK ? listOwners() : [...humanNames(staff), "Unassigned"]),
-    [staff],
-  );
-  const teamOptions = useMemo(() => (USE_MOCK ? TEAM_OPTIONS : teamNames(teams)), [teams]);
+  const owners = useMemo(() => leadOwnerOptions(staff), [staff]);
+  const teamOptions = useMemo(() => leadTeamOptions(teams), [teams]);
   const productOptions = useMemo(() => (catalog.length > 0 ? catalog : products), [catalog]);
 
   const [productId, setProductId] = useState(lead.offer.productId);
@@ -389,7 +385,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                     value={lead.team ?? ""}
                     onChange={(e) => {
                       leadMutation.mutate({
-                        team: e.target.value as (typeof TEAM_OPTIONS)[number],
+                        team: e.target.value as Team,
                       });
                       toast.success(`Routed to ${e.target.value}`);
                     }}

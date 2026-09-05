@@ -16,10 +16,14 @@ import {
   A2aPartnersPanel,
 } from "@/components/integrations/McpConsole";
 import { LoadingState } from "@/components/ui/loading-state";
-import type { Env, Provider, TestLogEntry } from "@/api/types/integrations";
-import { CATEGORY_LIST } from "@/data/integrations-seed";
-import { useProviderMutations, useProviders } from "@/api/integrations";
-import { USE_MOCK } from "@/api/config";
+import type { Category, Env, Provider, TestLogEntry } from "@/api/types/integrations";
+import {
+  INTEGRATIONS_LIVE_HINT,
+  providerCategories,
+  providerCredentialsEditable,
+  useProviderMutations,
+  useProviders,
+} from "@/api/integrations";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/integrations")({
@@ -46,7 +50,7 @@ type ConsoleTab = "providers" | "connectors" | "mcp" | "a2a" | "vault" | "gatewa
 
 function IntegrationsPage() {
   const [env, setEnv] = useState<Env>("sandbox");
-  const [category, setCategory] = useState<(typeof CATEGORY_LIST)[number]>("All");
+  const [category, setCategory] = useState<Category | "All">("All");
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("providers");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logs, setLogs] = useState<TestLogEntry[]>([]);
@@ -81,8 +85,7 @@ function IntegrationsPage() {
 
   const updateProvider = (p: Provider) => {
     // Live mode: credentials are locked — only allow local mock edits.
-    const envCfg = p.perEnv?.[env];
-    if (!USE_MOCK && envCfg?.credentialsLocked) {
+    if (!providerCredentialsEditable(p, env)) {
       toast.message("Secrets are env/ops-managed — enable/disable and health tests only.");
       return;
     }
@@ -156,11 +159,7 @@ function IntegrationsPage() {
 
   const selected = providers.find((p) => p.id === selectedId) ?? null;
 
-  const categories = useMemo(() => {
-    if (USE_MOCK) return CATEGORY_LIST;
-    const present = new Set(providers.map((p) => p.category));
-    return ["All" as const, ...CATEGORY_LIST.filter((c) => c !== "All" && present.has(c))];
-  }, [providers]);
+  const categories = useMemo(() => providerCategories(providers), [providers]);
 
   return (
     <AppShell>
@@ -204,9 +203,9 @@ function IntegrationsPage() {
           </div>
         </div>
 
-        {!USE_MOCK && consoleTab === "providers" && (
+        {INTEGRATIONS_LIVE_HINT && consoleTab === "providers" && (
           <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
-            Live stack providers only · secrets resolve from process env / vault (not editable here)
+            {INTEGRATIONS_LIVE_HINT}
           </div>
         )}
 

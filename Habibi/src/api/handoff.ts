@@ -92,6 +92,8 @@ export type HandoffSession = {
   status: "pending_claim" | "active" | "completed";
   claimed: boolean;
   monitor?: boolean;
+  /** Seed replay: transcript ticks locally and wrap-up does not POST. */
+  scriptedReplay?: boolean;
   activeCall: ActiveCall;
   customerContext: CustomerContext;
   transcriptScript: TranscriptTurn[];
@@ -119,7 +121,11 @@ export type HandoffQueueItem = {
 export type HandoffQueue = {
   items: HandoffQueueItem[];
   activeInteractionId: string | null;
+  scriptedReplay?: boolean;
 };
+
+/** Mock serves a scripted seed cockpit instead of the live claim queue. */
+export const HANDOFF_SCRIPTED_REPLAY = USE_MOCK;
 
 const MOCK_SESSION: HandoffSession = {
   interactionId: "mock-handoff",
@@ -128,6 +134,7 @@ const MOCK_SESSION: HandoffSession = {
   conversationId: null,
   status: "active",
   claimed: true,
+  scriptedReplay: true,
   activeCall: {
     ...seedCall,
     interactionId: "mock-handoff",
@@ -158,7 +165,7 @@ const MOCK_SESSION: HandoffSession = {
 
 export async function fetchHandoffQueue(customerId?: string): Promise<HandoffQueue> {
   if (USE_MOCK) {
-    return mockDelay({ items: [], activeInteractionId: "mock-handoff" });
+    return mockDelay({ items: [], activeInteractionId: "mock-handoff", scriptedReplay: true });
   }
   const q = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
   return apiGet<HandoffQueue>(`/handoff/queue${q}`);

@@ -18,11 +18,10 @@ import {
   filterDisputes,
   STATUS_LABELS,
 } from "@/data/disputes-seed";
-import { assignDispute, moveDispute, useDisputes } from "@/api/disputes";
-import { humanNames, useStaff } from "@/api/staff";
+import { assignDispute, disputeAssigneeOptions, moveDispute, useDisputes } from "@/api/disputes";
+import { useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
 import { useCustomers } from "@/api/customers";
-import { USE_MOCK } from "@/api/config";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/disputes")({
@@ -64,10 +63,14 @@ function DisputesPage() {
   // Live mode: real people from the /staff roster. Mock: derive from seed rows.
   const { data: staff = [] } = useStaff();
   const { data: me } = useMe();
-  const assignees = useMemo(() => {
-    if (!USE_MOCK) return humanNames(staff);
-    return Array.from(new Set(disputesData.map((d) => d.assignee))).sort();
-  }, [disputesData, staff]);
+  const assignees = useMemo(
+    () =>
+      disputeAssigneeOptions(
+        staff,
+        disputesData.map((d) => d.assignee),
+      ),
+    [disputesData, staff],
+  );
 
   const filtered = useMemo(() => filterDisputes(disputesData, filters), [filters, disputesData]);
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);

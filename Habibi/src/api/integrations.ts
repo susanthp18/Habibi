@@ -3,9 +3,31 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { Env, Provider, ProviderId, TestLogEntry } from "@/api/types/integrations";
-import { LIVE_PROVIDER_IDS, PROVIDERS, runMockHealthCheck } from "@/data/integrations-seed";
+import type { Category, Env, Provider, ProviderId, TestLogEntry } from "@/api/types/integrations";
+import {
+  CATEGORY_LIST,
+  LIVE_PROVIDER_IDS,
+  PROVIDERS,
+  runMockHealthCheck,
+} from "@/data/integrations-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+
+export const INTEGRATIONS_LIVE_HINT = USE_MOCK
+  ? null
+  : "Live stack providers only · secrets resolve from process env / vault (not editable here)";
+
+export const GATEWAY_CANARY_WRITES = !USE_MOCK;
+
+export function providerCategories(providers: Provider[]): (Category | "All")[] {
+  if (USE_MOCK) return CATEGORY_LIST;
+  const present = new Set(providers.map((p) => p.category));
+  return ["All", ...CATEGORY_LIST.filter((c) => c !== "All" && present.has(c))];
+}
+
+export function providerCredentialsEditable(provider: Provider, env: Env): boolean {
+  if (USE_MOCK) return true;
+  return !provider.perEnv?.[env]?.credentialsLocked;
+}
 
 function mockProviders(): Provider[] {
   // Keep full catalog in mock; secrets already placeholders.

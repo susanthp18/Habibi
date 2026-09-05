@@ -36,5 +36,38 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
+  {
+    files: ["src/components/**/*.{ts,tsx}", "src/routes/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "server-only",
+              message:
+                "TanStack Start does not use the Next.js `server-only` package. Rename the module to `*.server.ts` or mark it with `@tanstack/react-start/server-only`.",
+            },
+            {
+              name: "@/api/config",
+              importNames: [
+                "USE_MOCK",
+                "mockDelay",
+                "apiGet",
+                "apiPost",
+                "apiPatch",
+                "apiDelete",
+                "apiUpload",
+                "apiGetBlob",
+                "apiEventStream",
+              ],
+              message:
+                "USE_MOCK lives in api/config.ts. Screens consume a named capability from the domain api/ module (WP-049).",
+            },
+          ],
+        },
+      ],
+    },
+  },
   eslintPluginPrettier,
 );

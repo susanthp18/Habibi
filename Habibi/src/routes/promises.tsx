@@ -14,7 +14,6 @@ import {
   CreatePromiseSheet,
   PromiseDetailSheet,
   type CreateInput,
-  type CustomerOption,
 } from "@/components/promises/PromiseSheet";
 import { PlanBuilderSheet, type PlanInput } from "@/components/promises/PlanBuilderSheet";
 import type { Filters, PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
@@ -23,6 +22,8 @@ import {
   createPlan,
   createPromise,
   movePromise,
+  promiseOwnerOptions,
+  promiseSheetCustomers,
   reschedulePromise,
   resendPromiseConfirm,
   usePaymentPlans,
@@ -30,7 +31,6 @@ import {
 } from "@/api/promises";
 import { useCustomers } from "@/api/customers";
 import { useStaff } from "@/api/staff";
-import { USE_MOCK } from "@/api/config";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/promises")({
@@ -75,27 +75,19 @@ function PromisesPage() {
   const [planDetail, setPlanDetail] = useState<PaymentPlan | null>(null);
   const deepLinkKey = useRef<string | null>(null);
 
-  // Live mode: pick real customers for the create/plan sheets. Mock mode: let the
-  // sheets fall back to their seed roster (pass undefined).
-  const sheetCustomers = useMemo<CustomerOption[] | undefined>(() => {
-    if (USE_MOCK) return undefined;
-    return (liveCustomers ?? []).map((c) => ({
-      id: c.id,
-      name: c.name,
-      accountId: c.accountId,
-      outstanding: c.outstanding,
-    }));
-  }, [liveCustomers]);
+  const sheetCustomers = useMemo(() => promiseSheetCustomers(liveCustomers ?? []), [liveCustomers]);
 
   // Live: the full roster (promises can be bot-owned) unioned with owners already
   // present, so the picker can assign anyone real. Mock: derive from seed rows.
   const { data: staff = [] } = useStaff();
-  const owners = useMemo(() => {
-    const set = new Set<string>();
-    promisesData.forEach((p) => set.add(p.owner));
-    if (!USE_MOCK) staff.forEach((s) => set.add(s.name));
-    return Array.from(set).sort();
-  }, [promisesData, staff]);
+  const owners = useMemo(
+    () =>
+      promiseOwnerOptions(
+        staff,
+        promisesData.map((p) => p.owner),
+      ),
+    [promisesData, staff],
+  );
 
   const filtered = useMemo(() => filterPromises(promisesData, filters), [filters, promisesData]);
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);

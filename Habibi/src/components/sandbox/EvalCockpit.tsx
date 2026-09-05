@@ -1,7 +1,11 @@
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
-import { USE_MOCK } from "@/api/config";
-import { useEvalReports, useRunEvalSchedule, type EvalReport } from "@/api/agent-studio";
+import {
+  EVAL_SCHEDULE_AVAILABLE,
+  useEvalReports,
+  useRunEvalSchedule,
+  type EvalReport,
+} from "@/api/agent-studio";
 
 export function EvalCockpit({ compact = false }: { compact?: boolean }) {
   const reports = useEvalReports();
@@ -14,7 +18,7 @@ export function EvalCockpit({ compact = false }: { compact?: boolean }) {
         <p className="text-body-small text-text-subtle">
           History of regression, red-team, capability and twin runs. Red-team is never skipped.
         </p>
-        {!compact && !USE_MOCK ? (
+        {!compact && EVAL_SCHEDULE_AVAILABLE ? (
           <Button
             type="button"
             size="sm"

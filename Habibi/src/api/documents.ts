@@ -32,9 +32,14 @@ import {
 } from "@/data/documents-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { currentActor } from "./me";
-import { resolveActor } from "./staff";
+import { humanNames, resolveActor, type Staff } from "./staff";
 
 export const UNASSIGNED = "Unassigned";
+
+export function documentAssigneeOptions(staff: Staff[], existing: string[]): string[] {
+  if (!USE_MOCK) return humanNames(staff);
+  return Array.from(new Set(existing)).sort();
+}
 
 export async function fetchDocuments(): Promise<DocRequest[]> {
   if (USE_MOCK) return mockDelay(seedDocuments);
@@ -148,6 +153,22 @@ export async function markFailed(doc: DocRequest, reason: string): Promise<void>
     status: "failed",
     failedReason: reason,
   });
+}
+
+/**
+ * Generate → sent (or the mock demo-failure). The 1.6s pause is part of the
+ * fulfilment animation; live never persists a random "failed" from here.
+ */
+export async function finishDocumentGenerate(doc: DocRequest): Promise<"sent" | "failed"> {
+  const shouldFail =
+    USE_MOCK && doc.id.endsWith("7") && doc.status !== "failed" && Math.random() < 0.15;
+  await new Promise((r) => setTimeout(r, 1600));
+  if (shouldFail) {
+    await markFailed(doc, "Delivery gateway rejected · retrying available");
+    return "failed";
+  }
+  await markSent(doc);
+  return "sent";
 }
 
 /** Reset to requested and bump attempts via the delivery-attempts endpoint. */

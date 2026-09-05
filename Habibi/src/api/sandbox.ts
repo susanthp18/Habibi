@@ -381,6 +381,25 @@ export type TwinRunResult = {
   grader: { passed?: boolean };
 };
 
+export type TwinCorpusRow = {
+  id: string;
+  source: string;
+  sourceRef: string;
+  outcome: Record<string, unknown>;
+  taskId?: string | null;
+};
+
+export const TWIN_CORPUS_GROWS = !USE_MOCK;
+
+export async function fetchTwinCorpus(): Promise<TwinCorpusRow[]> {
+  if (USE_MOCK) return mockDelay([] as TwinCorpusRow[]);
+  return apiGet<TwinCorpusRow[]>("/eval/twin-corpus");
+}
+
+export async function growTwinCorpus(): Promise<{ created: number; skipped: number }> {
+  return apiPost<{ created: number; skipped: number }>("/eval/twin-corpus/grow", {});
+}
+
 export async function runBounceTwin(twinId = "twin-bounce-ladder-v0"): Promise<TwinRunResult> {
   if (USE_MOCK) {
     return mockDelay({

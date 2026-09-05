@@ -32,9 +32,14 @@ import {
   withMockSla,
 } from "@/data/disputes-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
-import { resolveActor } from "./staff";
+import { humanNames, resolveActor, type Staff } from "./staff";
 
 export const UNASSIGNED = "Unassigned";
+
+export function disputeAssigneeOptions(staff: Staff[], existing: string[]): string[] {
+  if (!USE_MOCK) return humanNames(staff);
+  return Array.from(new Set(existing)).sort();
+}
 
 export type CreateDisputeInput = {
   customerId: string;

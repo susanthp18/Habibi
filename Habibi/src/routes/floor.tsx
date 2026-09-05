@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
@@ -10,9 +10,14 @@ import { LiveTable } from "@/components/floor/LiveTable";
 import { Inspector } from "@/components/floor/Inspector";
 import { ApprovalsQueue } from "@/components/floor/ApprovalsQueue";
 import { LoadingState } from "@/components/ui/loading-state";
-import { useAckFloorAlert, useFloor, useSupervisorAction, type FloorSnapshot } from "@/api/floor";
-import { USE_MOCK } from "@/api/config";
-import type { ActiveCall, FloorAction, FloorAlert } from "@/api/types/floor";
+import {
+  useAckFloorAlert,
+  useFloor,
+  useFloorBoard,
+  useSupervisorAction,
+  type FloorSnapshot,
+} from "@/api/floor";
+import type { FloorAction } from "@/api/types/floor";
 
 export const Route = createFileRoute("/floor")({
   head: () => ({
@@ -48,45 +53,16 @@ function FloorPage() {
 }
 
 function FloorLive({ initial }: { initial: FloorSnapshot }) {
-  const { data, isError, error } = useFloor();
-  const snapshot = data ?? initial;
+  const { snapshot, calls, alerts, isError, error, liveHint, applyMockBarge, applyMockAck } =
+    useFloorBoard(initial);
   const actionMut = useSupervisorAction();
   const ackMut = useAckFloorAlert();
   const navigate = useNavigate();
 
-  const [calls, setCalls] = useState<ActiveCall[]>(snapshot.calls);
-  const [alerts, setAlerts] = useState<FloorAlert[]>(snapshot.alerts);
   const [listeningId, setListeningId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focus, setFocus] = useState<FloorFocus>("all");
   const [filters, setFilters] = useState<Filters>({ q: "", channels: [], handler: "all" });
-
-  useEffect(() => {
-    if (!USE_MOCK) {
-      setCalls(snapshot.calls);
-      setAlerts(snapshot.alerts);
-    }
-  }, [snapshot.calls, snapshot.alerts]);
-
-  useEffect(() => {
-    if (!USE_MOCK) return;
-    const iv = window.setInterval(() => {
-      setCalls((prev) =>
-        prev.map((c) => {
-          const baseDrift = c.handler.kind === "bot" ? 0 : c.sentiment < 0 ? -0.01 : 0.005;
-          const noise = (Math.random() - 0.5) * 0.03;
-          const next = Math.max(-1, Math.min(1, c.sentiment + baseDrift + noise));
-          return {
-            ...c,
-            durationSec: c.durationSec + 1,
-            sentiment: next,
-            sentimentTrend: next - c.sentiment,
-          };
-        }),
-      );
-    }, 1000);
-    return () => window.clearInterval(iv);
-  }, []);
 
   const liveStats = useMemo(() => {
     const avg = calls.reduce((s, c) => s + c.sentiment, 0) / Math.max(calls.length, 1);
@@ -163,20 +139,7 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
       return;
     }
 
-    if (USE_MOCK) {
-      setCalls((prev) =>
-        prev.map((c) =>
-          c.id === id
-            ? {
-                ...c,
-                handler: { kind: "human", name: "You (supervisor)", initials: "SU" },
-                lastLine: "[system] Supervisor took over the call.",
-                pendingHandoff: false,
-              }
-            : c,
-        ),
-      );
-    }
+    applyMockBarge(id);
     actionMut.mutate(
       { interactionId: id, action: "barge" },
       {
@@ -200,7 +163,7 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
   };
 
   const handleAck = (alertId: string) => {
-    if (USE_MOCK) setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    applyMockAck(alertId);
     ackMut.mutate(alertId, {
       onError: (e) => toast.error(e instanceof Error ? e.message : "Ack failed"),
     });
@@ -208,10 +171,9 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
-      {!USE_MOCK && (
+      {liveHint && (
         <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
-          Live floor · Listen is the transcript. Whisper coaches the next bot turn. Barge takes over
-          a live Twilio call.
+          {liveHint}
         </div>
       )}
       <StatsStrip stats={liveStats} focus={focus} onFocus={setFocus} />

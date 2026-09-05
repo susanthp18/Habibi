@@ -3,6 +3,10 @@
 //
 // Dev default: mock ON unless VITE_USE_MOCK=false.
 // Production builds: mock OFF unless explicitly forced (and that throws).
+//
+// USE_MOCK stays in this file and in api/* modules. Screens ask the domain
+// module for a capability (did /staff return rows? do skill writes persist?)
+// rather than branching on the flag. Enforced by eslint + config.boundary.test.ts.
 // -----------------------------------------------------------------------------
 
 const rawMock = import.meta.env.VITE_USE_MOCK;

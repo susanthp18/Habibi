@@ -19,12 +19,14 @@ import { QueryErrorBanner } from "@/components/ui/query-state";
 import {
   acknowledgeViolation,
   assignViolation,
+  exportPolicyBundle,
+  POLICY_EXPORT_AVAILABLE,
   resolveViolation,
   useViolations,
+  violationAssigneeOptions,
 } from "@/api/compliance";
 import { currentActor } from "@/api/me";
-import { humanNames, useStaff } from "@/api/staff";
-import { apiGet, USE_MOCK } from "@/api/config";
+import { useStaff } from "@/api/staff";
 
 const EMPTY_VIOLATIONS: Violation[] = [];
 
@@ -70,13 +72,14 @@ function CompliancePage() {
     queryClient.invalidateQueries({ queryKey: ["violations"] });
   };
 
-  const assignees = useMemo(() => {
-    if (!USE_MOCK) return humanNames(staff);
-    // Mock: prefer real staff names; fall back to names already on seed rows.
-    const fromStaff = humanNames(staff);
-    if (fromStaff.length) return fromStaff;
-    return Array.from(new Set(items.map((v) => v.assignee).filter(Boolean) as string[])).sort();
-  }, [items, staff]);
+  const assignees = useMemo(
+    () =>
+      violationAssigneeOptions(
+        staff,
+        items.map((v) => v.assignee).filter((name): name is string => Boolean(name)),
+      ),
+    [items, staff],
+  );
 
   const filtered = useMemo(() => filterViolations(items, filters), [items, filters]);
   const openItem = useMemo(() => items.find((v) => v.id === openId) ?? null, [items, openId]);
@@ -144,9 +147,7 @@ function CompliancePage() {
 
   const handlePolicyExport = async (fmt: "opa" | "cedar") => {
     try {
-      const bundle = await apiGet<{ format: string; text: string }>(
-        `/compliance/policy-export?fmt=${fmt}`,
-      );
+      const bundle = await exportPolicyBundle(fmt);
       const blob = new Blob([bundle.text], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -175,7 +176,7 @@ function CompliancePage() {
             >
               <Download className="h-3.5 w-3.5" /> Export compliance report
             </button>
-            {!USE_MOCK ? (
+            {POLICY_EXPORT_AVAILABLE ? (
               <>
                 <button
                   onClick={() => void handlePolicyExport("opa")}

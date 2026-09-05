@@ -19,6 +19,7 @@ import type {
   UnansweredQuestion,
 } from "@/api/types/bot-analytics";
 import {
+  computeKpis,
   dailySeries as seedDailySeries,
   escalationReasons as seedEscalationReasons,
   filterByRange,
@@ -54,7 +55,6 @@ export async function fetchBotAnalytics(
   channel: ChannelKey,
 ): Promise<BotAnalytics> {
   if (USE_MOCK) {
-    // Mock keeps the old client-side range slice; channel scaling stays in the route.
     return mockDelay({
       dailySeries: filterByRange(range, seedDailySeries),
       intentAggs: seedIntentAggs,
@@ -74,6 +74,14 @@ export function useBotAnalytics(range: RangeKey, channel: ChannelKey) {
     queryFn: () => fetchBotAnalytics(range, channel),
     staleTime: 15_000,
   });
+}
+
+/** Live pushes channel into SQL. Mock scales historic PoC session counts here. */
+export function analyticsKpis(points: DailyPoint[], channel: ChannelKey) {
+  const base = computeKpis(points);
+  if (!USE_MOCK || channel === "all") return base;
+  const factor = channel === "voice" ? 0.72 : channel === "whatsapp" ? 0.2 : 0.08;
+  return { ...base, sessions: Math.round(base.sessions * factor) };
 }
 
 export type {

@@ -5,9 +5,8 @@ import { BookOpen, Bot, CheckCircle2, AlertTriangle, Layers } from "lucide-react
 import { cn } from "@/lib/utils";
 import type { UnansweredQuestion } from "@/api/types/bot-analytics";
 import { INTENTS } from "@/data/bot-analytics-seed";
-import { linkKbGap, promoteGapToSkill } from "@/api/kb";
+import { GAP_WRITES_PERSIST, linkKbGap, promoteGapToSkill } from "@/api/kb";
 import { usePublishedPromptVersion } from "@/api/prompt-studio";
-import { USE_MOCK } from "@/api/config";
 import { Lozenge } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
@@ -34,7 +33,7 @@ export function UnansweredTable({
   const onPromoteSkill = async (r: UnansweredQuestion) => {
     setBusyId(r.id);
     try {
-      if (!USE_MOCK) {
+      if (GAP_WRITES_PERSIST) {
         const created = await promoteGapToSkill(r.id);
         toast.success("Draft skill created — unsigned until you sign it");
         void navigate({ to: "/agent-studio/skills/$skillId", params: { skillId: created.id } });
@@ -58,7 +57,7 @@ export function UnansweredTable({
   const onPromptFix = async (r: UnansweredQuestion) => {
     setBusyId(r.id);
     try {
-      if (!USE_MOCK) {
+      if (GAP_WRITES_PERSIST) {
         let publishedId = publishedQuery.data?.id;
         if (!publishedId) {
           try {

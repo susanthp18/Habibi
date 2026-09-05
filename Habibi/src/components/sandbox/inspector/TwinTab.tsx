@@ -1,17 +1,14 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { runBounceTwin, type TwinRunResult } from "@/api/sandbox";
-import { apiGet, apiPost, USE_MOCK, mockDelay } from "@/api/config";
+import {
+  fetchTwinCorpus,
+  growTwinCorpus,
+  runBounceTwin,
+  TWIN_CORPUS_GROWS,
+  type TwinRunResult,
+} from "@/api/sandbox";
 import { Button } from "@/components/ui/button";
-
-type CorpusRow = {
-  id: string;
-  source: string;
-  sourceRef: string;
-  outcome: Record<string, unknown>;
-  taskId?: string | null;
-};
 
 export function TwinTab() {
   const [run, setRun] = useState<TwinRunResult | null>(null);
@@ -19,11 +16,10 @@ export function TwinTab() {
   const qc = useQueryClient();
   const corpus = useQuery({
     queryKey: ["twin-corpus"],
-    queryFn: async () =>
-      USE_MOCK ? mockDelay([] as CorpusRow[]) : apiGet<CorpusRow[]>("/eval/twin-corpus"),
+    queryFn: fetchTwinCorpus,
   });
   const grow = useMutation({
-    mutationFn: () => apiPost<{ created: number; skipped: number }>("/eval/twin-corpus/grow", {}),
+    mutationFn: growTwinCorpus,
     onSuccess: (d) => {
       toast.success(`Grew ${d.created} outcome task(s) from kept PTPs`);
       void qc.invalidateQueries({ queryKey: ["twin-corpus"] });
@@ -62,7 +58,7 @@ export function TwinTab() {
           type="button"
           size="sm"
           variant="outline"
-          disabled={grow.isPending || USE_MOCK}
+          disabled={grow.isPending || !TWIN_CORPUS_GROWS}
           onClick={() => void grow.mutateAsync()}
         >
           {grow.isPending ? "Growing…" : "Grow from kept PTPs"}

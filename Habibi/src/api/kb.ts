@@ -606,6 +606,9 @@ export async function linkKbGap(
   return apiPost<KbGap>(`/kb/gaps/${gapId}/link`, link);
 }
 
+/** Mock promote returns a synthetic id that is not a real skill row. */
+export const GAP_WRITES_PERSIST = !USE_MOCK;
+
 export async function promoteGapToSkill(
   gapId: string,
 ): Promise<{ id: string; slug: string; signatureStatus?: string }> {

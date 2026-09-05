@@ -13,12 +13,12 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Pause, Play, KeyRound, Trash2 } from "lucide-react";
 import {
+  WEBHOOKS_LIVE_HINT,
   useWebhookDeliveries,
   useWebhookEndpoints,
   useWebhookMutations,
   type WebhookDraft,
 } from "@/api/webhooks";
-import { USE_MOCK } from "@/api/config";
 import type { Endpoint, EventKey } from "@/api/types/webhooks";
 import { useConfirm } from "@/components/ui/use-confirm";
 
@@ -303,10 +303,9 @@ function WebhooksPage() {
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
-        {!USE_MOCK && (
+        {WEBHOOKS_LIVE_HINT && (
           <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-300 py-075 text-body-small text-text-brand">
-            Live webhooks · test-fire is simulated (no real egress). Secrets returned once on
-            create/rotate.
+            {WEBHOOKS_LIVE_HINT}
           </div>
         )}
         <WebhooksHeader

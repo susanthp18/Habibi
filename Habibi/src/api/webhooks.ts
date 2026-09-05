@@ -13,6 +13,10 @@ import {
 } from "@/data/webhooks-seed";
 import { apiDelete, apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 
+export const WEBHOOKS_LIVE_HINT = USE_MOCK
+  ? null
+  : "Live webhooks · test-fire is simulated (no real egress). Secrets returned once on create/rotate.";
+
 let mockEndpoints: Endpoint[] = [...SEED_ENDPOINTS];
 let mockDeliveries: Delivery[] = [...SEED_DELIVERIES];
 

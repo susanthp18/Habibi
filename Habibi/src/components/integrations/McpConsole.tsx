@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { USE_MOCK } from "@/api/config";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Lozenge } from "@/components/ui/lozenge";
-import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import {
+  GATEWAY_CANARY_WRITES,
   useConnectorMutations,
   useConnectors,
   useGatewayStatus,
@@ -28,6 +24,10 @@ import {
   type A2aPartner,
   type A2aTask,
 } from "@/api/integrations";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Lozenge } from "@/components/ui/lozenge";
+import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 
 const SCOPES = ["crm.read", "kb.search", "offers.read", "policy.read", "tasks.write"] as const;
 
@@ -610,7 +610,7 @@ export function GatewayPanel() {
           />
           <Button
             size="sm"
-            disabled={!candidate || propose.isPending || USE_MOCK}
+            disabled={!candidate || propose.isPending || !GATEWAY_CANARY_WRITES}
             onClick={() => void propose.mutateAsync(candidate)}
           >
             {propose.isPending ? "Starting…" : "Start at analysis"}

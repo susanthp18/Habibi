@@ -3,20 +3,13 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import type { LeadSource, Priority, Team } from "@/api/types/upsell";
-import {
-  CURRENT_AGENT,
-  TEAM_OPTIONS,
-  listCustomers,
-  listOwners,
-  products,
-} from "@/data/upsell-seed";
-import { createLead } from "@/api/upsell";
+import { CURRENT_AGENT, products } from "@/data/upsell-seed";
+import { createLead, leadCustomerOptions, leadOwnerOptions, leadTeamOptions } from "@/api/upsell";
 import { useProducts } from "@/api/products";
-import { teamNames, useTeams } from "@/api/teams";
+import { useTeams } from "@/api/teams";
 import { useCustomers } from "@/api/customers";
-import { humanNames, useStaff } from "@/api/staff";
+import { useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
-import { USE_MOCK } from "@/api/config";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,26 +26,15 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
   const { data: staff = [] } = useStaff();
   const { data: me } = useMe();
 
-  const customers = useMemo(() => {
-    if (USE_MOCK) return listCustomers();
-    return liveCustomers.map((c) => ({
-      id: c.id,
-      name: c.name,
-      accountId: c.accountId,
-      tail: c.accountId.slice(-4),
-    }));
-  }, [liveCustomers]);
+  const customers = useMemo(() => leadCustomerOptions(liveCustomers), [liveCustomers]);
 
-  const owners = useMemo(
-    () => (USE_MOCK ? listOwners() : [...humanNames(staff), "Unassigned"]),
-    [staff],
-  );
+  const owners = useMemo(() => leadOwnerOptions(staff), [staff]);
   // Catalog and queues from the DB — a picker must never offer an id the
   // server has not heard of.
   const { data: catalog = [] } = useProducts();
   const { data: teams = [] } = useTeams();
   const productOptions = useMemo(() => (catalog.length > 0 ? catalog : products), [catalog]);
-  const teamOptions = useMemo(() => (USE_MOCK ? TEAM_OPTIONS : teamNames(teams)), [teams]);
+  const teamOptions = useMemo(() => leadTeamOptions(teams), [teams]);
 
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
   const [productId, setProductId] = useState(products[0].id);
@@ -183,7 +165,7 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
                 onChange={(e) => setTeam(e.target.value as Team)}
                 className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
               >
-                {TEAM_OPTIONS.map((t) => (
+                {teamOptions.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>

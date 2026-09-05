@@ -25,6 +25,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 
+export const TREATMENT_SOURCE_HINT = USE_MOCK
+  ? "Mock data · no backend call is being made. Set VITE_USE_MOCK=false to read the live decision log."
+  : "Live decision log · the engine logs every decision. Outside live mode it enacts nothing.";
+
 // ---------------------------------------------------------------------------
 // GET /treatment/next
 // ---------------------------------------------------------------------------

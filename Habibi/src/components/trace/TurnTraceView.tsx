@@ -1,7 +1,6 @@
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
-import { useTurnTrace, type TraceTurn } from "@/api/trace";
-import { USE_MOCK } from "@/api/config";
+import { useTurnTrace, TRACE_UNAVAILABLE, type TraceTurn } from "@/api/trace";
 import { LoadingState } from "@/components/ui/loading-state";
 
 /**
@@ -17,10 +16,10 @@ import { LoadingState } from "@/components/ui/loading-state";
  * implementation of what a trace looks like.
  */
 export function TurnTraceView({ interactionId }: { interactionId: string }) {
-  const { data, isLoading, isError, error } = useTurnTrace(interactionId);
+  const { data, isLoading, isError, error, isPending, isFetching } = useTurnTrace(interactionId);
 
-  if (USE_MOCK) {
-    return <Empty>Traces are served by the API — switch off mock mode to view one.</Empty>;
+  if (isPending && !isFetching) {
+    return <Empty>{TRACE_UNAVAILABLE}</Empty>;
   }
   if (isLoading) {
     return (

@@ -12,12 +12,12 @@ import { WrapUpBar } from "@/components/handoff/WrapUpBar";
 import { HandoffAlerts, HandoffQueueList } from "@/components/handoff/HandoffQueue";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { USE_MOCK } from "@/api/config";
 import { postSupervisorAction } from "@/api/floor";
 import { useCannedResponses } from "@/api/inbox";
 import { usePatchPresence } from "@/api/presence";
 import {
   acceptHandoffSuggestion,
+  HANDOFF_SCRIPTED_REPLAY,
   postHandoffDisclosure,
   useClaimHandoff,
   useHandoffActive,
@@ -45,7 +45,7 @@ function HandoffPage() {
   const claimMut = useClaimHandoff();
 
   useEffect(() => {
-    if (USE_MOCK) return;
+    if (HANDOFF_SCRIPTED_REPLAY) return;
     if (interactionId) return;
     const mine = active.data?.interactionId ?? queue.data?.activeInteractionId;
     if (mine) {
@@ -61,10 +61,10 @@ function HandoffPage() {
     });
   };
 
-  if (USE_MOCK) {
+  if (HANDOFF_SCRIPTED_REPLAY) {
     return (
       <AppShell>
-        {!active.data ? <HandoffSkeleton /> : <HandoffLive session={active.data} mock />}
+        {!active.data ? <HandoffSkeleton /> : <HandoffLive session={active.data} />}
       </AppShell>
     );
   }
@@ -220,13 +220,11 @@ function HandoffSkeleton() {
 
 function HandoffLive({
   session,
-  mock,
   customerId: _customerId,
   monitor = false,
   onClaim,
 }: {
   session: HandoffSession;
-  mock?: boolean;
   customerId?: string;
   monitor?: boolean;
   onClaim?: (id: string) => void;
@@ -242,6 +240,7 @@ function HandoffLive({
     sentimentSeries,
     alerts,
   } = session;
+  const mock = Boolean(session.scriptedReplay);
 
   const wrapMut = useWrapUpHandoff();
   const presenceMut = usePatchPresence();

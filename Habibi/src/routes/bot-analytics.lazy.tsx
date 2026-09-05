@@ -10,10 +10,8 @@ import { SentimentByIntentHeatmap } from "@/components/bot-analytics/SentimentBy
 import { UnansweredTable } from "@/components/bot-analytics/UnansweredTable";
 import { LatencyChart } from "@/components/bot-analytics/LatencyChart";
 import { TurnsHistogram } from "@/components/bot-analytics/TurnsHistogram";
-import { useBotAnalytics } from "@/api/bot-analytics";
-import { USE_MOCK } from "@/api/config";
+import { analyticsKpis, useBotAnalytics } from "@/api/bot-analytics";
 import type { ChannelKey, RangeKey } from "@/api/types/bot-analytics";
-import { computeKpis } from "@/data/bot-analytics-seed";
 import { LoadingState } from "@/components/ui/loading-state";
 import { CardSkillAnalytics } from "@/components/bot-analytics/CardSkillAnalytics";
 
@@ -29,13 +27,7 @@ function BotAnalyticsPage() {
   const { data, isLoading, isError, error, refetch } = useBotAnalytics(range, channel);
   const points = data?.dailySeries ?? [];
   const intentAggs = data?.intentAggs ?? [];
-  const kpis = useMemo(() => {
-    const base = computeKpis(points);
-    // Mock-only: historic PoC scaled KPI sessions by channel. Live pushes channel to SQL.
-    if (!USE_MOCK || channel === "all") return base;
-    const factor = channel === "voice" ? 0.72 : channel === "whatsapp" ? 0.2 : 0.08;
-    return { ...base, sessions: Math.round(base.sessions * factor) };
-  }, [points, channel]);
+  const kpis = useMemo(() => analyticsKpis(points, channel), [points, channel]);
 
   return (
     <AppShell>

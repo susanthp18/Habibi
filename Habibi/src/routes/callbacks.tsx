@@ -14,27 +14,23 @@ import { MissedLane } from "@/components/callbacks/MissedLane";
 import { CallbackSheet } from "@/components/callbacks/CallbackSheet";
 import { NewCallbackSheet } from "@/components/callbacks/NewCallbackSheet";
 import type { Filters } from "@/api/types/callbacks";
-import {
-  CURRENT_QUEUE,
-  computeMetrics,
-  defaultFilters,
-  filterCallbacks,
-} from "@/data/callbacks-seed";
+import { computeMetrics, defaultFilters, filterCallbacks } from "@/data/callbacks-seed";
 import {
   autoMarkMissed,
+  callbackAssigneeOptions,
+  callbackQueueOptions,
+  callbackSheetCustomers,
   cancelCallback,
+  defaultCallbackQueue,
   rescheduleCallback,
   sendReminder,
   startCall,
   useCallbacks,
 } from "@/api/callbacks";
 import { useCustomers } from "@/api/customers";
-import { humanNames, useStaff } from "@/api/staff";
-import { teamNames, useTeams } from "@/api/teams";
-import { USE_MOCK } from "@/api/config";
+import { useStaff } from "@/api/staff";
+import { useTeams } from "@/api/teams";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
-
-const UNASSIGNED_LABEL = "Unassigned";
 
 export const Route = createFileRoute("/callbacks")({
   validateSearch: parseDeepLinkSearch,
@@ -84,41 +80,23 @@ function CallbacksPage() {
   };
 
   // Live: real DB humans/teams. Mock: seed rosters (includes synthetic agents/queues).
-  const assignees = useMemo(() => {
-    if (!USE_MOCK) return [UNASSIGNED_LABEL, ...humanNames(staff)];
-    return [
-      "Unassigned",
-      "Priya Nair",
-      "Rohan Sethi",
-      "Ananya Iyer",
-      "Kabir Rao",
-      "Sana Kapoor",
-      "Vikram Menon",
-    ];
-  }, [staff]);
+  const assignees = useMemo(
+    () =>
+      callbackAssigneeOptions(
+        staff,
+        callbacksData.map((c) => c.assignee),
+      ),
+    [staff, callbacksData],
+  );
 
-  const queues = useMemo(() => {
-    if (!USE_MOCK) return teamNames(teams);
-    return ["Retail Collections", "Cards Collections", "Loans Collections", "Escalations"];
-  }, [teams]);
+  const queues = useMemo(() => callbackQueueOptions(teams), [teams]);
 
-  const myQueue = useMemo(() => {
-    if (!USE_MOCK && queues.includes("Retail Collections")) return "Retail Collections";
-    if (!USE_MOCK && queues[0]) return queues[0];
-    return CURRENT_QUEUE;
-  }, [queues]);
+  const myQueue = useMemo(() => defaultCallbackQueue(queues), [queues]);
 
-  const sheetCustomers = useMemo(() => {
-    if (USE_MOCK) return undefined;
-    return (liveCustomers ?? []).map((c) => ({
-      id: c.id,
-      name: c.name,
-      accountId: c.accountId,
-      preferredWindow: c.contact.preferredWindow,
-      customerDnd: c.contact.dnd,
-      timezone: c.contact.timezone,
-    }));
-  }, [liveCustomers]);
+  const sheetCustomers = useMemo(
+    () => callbackSheetCustomers(liveCustomers ?? []),
+    [liveCustomers],
+  );
 
   // Auto-mark missed once data has loaded (window elapsed). Live writes real PATCHes.
   useEffect(() => {

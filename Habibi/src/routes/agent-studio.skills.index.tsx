@@ -3,12 +3,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell/AppShell";
 import {
   importSkillZip,
+  SKILL_MUTATIONS_AVAILABLE,
   useAgentStudioSkills,
   useCloneSkill,
   useCreateSkill,
   useDeleteSkill,
 } from "@/api/agent-studio";
-import { USE_MOCK } from "@/api/config";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
@@ -174,13 +174,21 @@ function SkillsIndex() {
             <Button
               type="button"
               variant="outline"
-              disabled={USE_MOCK}
-              title={USE_MOCK ? "Connect the API to import a pack" : "Unsigned zip becomes a draft"}
+              disabled={!SKILL_MUTATIONS_AVAILABLE}
+              title={
+                SKILL_MUTATIONS_AVAILABLE
+                  ? "Unsigned zip becomes a draft"
+                  : "Connect the API to import a pack"
+              }
               onClick={() => fileRef.current?.click()}
             >
               Import zip
             </Button>
-            <Button type="button" disabled={USE_MOCK} onClick={() => setNewOpen((v) => !v)}>
+            <Button
+              type="button"
+              disabled={!SKILL_MUTATIONS_AVAILABLE}
+              onClick={() => setNewOpen((v) => !v)}
+            >
               New skill
             </Button>
             <Button

@@ -12,7 +12,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import type { CreateInput } from "@/components/promises/PromiseSheet";
+import type { CreateInput, CustomerOption } from "@/components/promises/PromiseSheet";
 import type { PlanInput } from "@/components/promises/PlanBuilderSheet";
 import type { PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
 import {
@@ -24,8 +24,9 @@ import {
   promises as seedPromises,
   reschedulePromise as rescheduleSeedPromise,
 } from "@/data/promises-seed";
+import type { Customer } from "@/api/types/customer360";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
-import { resolveActor } from "./staff";
+import { resolveActor, type Staff } from "./staff";
 
 export async function fetchPromises(): Promise<Ptp[]> {
   if (USE_MOCK) return mockDelay(seedPromises);
@@ -43,6 +44,24 @@ export function usePromises() {
 
 export function usePaymentPlans() {
   return useQuery({ queryKey: ["payment-plans"], queryFn: fetchPaymentPlans, staleTime: 15_000 });
+}
+
+/** Mock sheets fall back to the seed roster (`listCustomerSlim`). */
+export function promiseSheetCustomers(customers: Customer[]): CustomerOption[] | undefined {
+  if (USE_MOCK) return undefined;
+  return customers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    accountId: c.accountId,
+    outstanding: c.outstanding,
+  }));
+}
+
+/** Live unions the /staff roster so the picker can assign anyone real. */
+export function promiseOwnerOptions(staff: Staff[], existing: string[]): string[] {
+  const set = new Set(existing);
+  if (!USE_MOCK) staff.forEach((s) => set.add(s.name));
+  return Array.from(set).sort();
 }
 
 export async function createPromise(input: CreateInput): Promise<{ id: string }> {

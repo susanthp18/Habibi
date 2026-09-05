@@ -21,7 +21,23 @@ import {
 } from "@/data/compliance-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { currentActor } from "./me";
-import { resolveActor } from "./staff";
+import { humanNames, resolveActor, type Staff } from "./staff";
+
+export const POLICY_EXPORT_AVAILABLE = !USE_MOCK;
+
+export function violationAssigneeOptions(staff: Staff[], existing: string[]): string[] {
+  const fromStaff = humanNames(staff);
+  if (!USE_MOCK) return fromStaff;
+  if (fromStaff.length) return fromStaff;
+  return Array.from(new Set(existing.filter(Boolean))).sort();
+}
+
+export async function exportPolicyBundle(fmt: "opa" | "cedar"): Promise<{
+  format: string;
+  text: string;
+}> {
+  return apiGet<{ format: string; text: string }>(`/compliance/policy-export?fmt=${fmt}`);
+}
 
 export async function fetchViolations(): Promise<Violation[]> {
   if (USE_MOCK) return mockDelay(seedViolations);

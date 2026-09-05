@@ -23,12 +23,15 @@ import type {
   Team,
 } from "@/api/types/upsell";
 import {
+  TEAM_OPTIONS,
   assign,
   computeMetrics,
   createLead as createSeedLead,
   defaultFilters,
   filterLeads,
   leads,
+  listCustomers,
+  listOwners,
   markFollowUpDone,
   markLost,
   markWon,
@@ -37,10 +40,11 @@ import {
   scheduleFollowUp,
   updateOffer,
 } from "@/data/upsell-seed";
+import type { Customer } from "@/api/types/customer360";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
 import { resolveProduct } from "./products";
-import { resolveActor } from "./staff";
-import { resolveTeam } from "./teams";
+import { humanNames, resolveActor, type Staff } from "./staff";
+import { resolveTeam, teamNames, type Team as StaffTeam } from "./teams";
 
 /** Resolve an owner name to a real user id, or undefined for "Unassigned". */
 async function ownerUserId(owner: string | undefined): Promise<string | undefined> {
@@ -66,6 +70,31 @@ export function followUpChannelFromPolicy(
   if (channel === "chat") return "whatsapp";
   if (channel === "voice") return "voice";
   return leadContactChannel(source);
+}
+
+export function leadOwnerOptions(staff: Staff[]): string[] {
+  if (USE_MOCK) return listOwners();
+  return [...humanNames(staff), "Unassigned"];
+}
+
+export function leadTeamOptions(teams: StaffTeam[]): string[] {
+  if (USE_MOCK) return [...TEAM_OPTIONS];
+  return teamNames(teams);
+}
+
+export function leadCustomerOptions(customers: Customer[]): Array<{
+  id: string;
+  name: string;
+  accountId: string;
+  tail: string;
+}> {
+  if (USE_MOCK) return listCustomers();
+  return customers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    accountId: c.accountId,
+    tail: c.accountId.slice(-4),
+  }));
 }
 
 async function teamId(team: Team | undefined): Promise<string | undefined> {

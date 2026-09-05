@@ -31,6 +31,9 @@ export type FloorSnapshot = {
   agents: FloorAgent[];
 };
 
+export const FLOOR_LIVE_HINT =
+  "Live floor · Listen is the transcript. Whisper coaches the next bot turn. Barge takes over a live Twilio call.";
+
 export type SupervisorAction = "listen_in" | "whisper" | "barge" | "force_handoff";
 
 function hydrateCall(c: ActiveCall): ActiveCall {
@@ -77,6 +80,75 @@ export function useFloor(refetchIntervalMs = 3_000) {
     refetchInterval: USE_MOCK ? false : refetchIntervalMs,
     staleTime: USE_MOCK ? Infinity : 2_000,
   });
+}
+
+function tickMockCalls(prev: ActiveCall[]): ActiveCall[] {
+  return prev.map((c) => {
+    const baseDrift = c.handler.kind === "bot" ? 0 : c.sentiment < 0 ? -0.01 : 0.005;
+    const noise = (Math.random() - 0.5) * 0.03;
+    const next = Math.max(-1, Math.min(1, c.sentiment + baseDrift + noise));
+    return {
+      ...c,
+      durationSec: c.durationSec + 1,
+      sentiment: next,
+      sentimentTrend: next - c.sentiment,
+    };
+  });
+}
+
+/**
+ * Floor board state: live mirrors GET /floor; mock ticks a local simulation
+ * and does not resync from the query (the seed snapshot is static).
+ */
+export function useFloorBoard(initial: FloorSnapshot) {
+  const { data, isError, error } = useFloor();
+  const snapshot = data ?? initial;
+  const [calls, setCalls] = useState<ActiveCall[]>(snapshot.calls);
+  const [alerts, setAlerts] = useState<FloorAlert[]>(snapshot.alerts);
+
+  useEffect(() => {
+    if (USE_MOCK) return;
+    setCalls(snapshot.calls);
+    setAlerts(snapshot.alerts);
+  }, [snapshot.calls, snapshot.alerts]);
+
+  useEffect(() => {
+    if (!USE_MOCK) return;
+    const iv = window.setInterval(() => setCalls(tickMockCalls), 1000);
+    return () => window.clearInterval(iv);
+  }, []);
+
+  const applyMockBarge = (id: string) => {
+    if (!USE_MOCK) return;
+    setCalls((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              handler: { kind: "human", name: "You (supervisor)", initials: "SU" },
+              lastLine: "[system] Supervisor took over the call.",
+              pendingHandoff: false,
+            }
+          : c,
+      ),
+    );
+  };
+
+  const applyMockAck = (alertId: string) => {
+    if (!USE_MOCK) return;
+    setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+  };
+
+  return {
+    snapshot,
+    calls,
+    alerts,
+    isError,
+    error,
+    liveHint: USE_MOCK ? null : FLOOR_LIVE_HINT,
+    applyMockBarge,
+    applyMockAck,
+  };
 }
 
 export async function postSupervisorAction(

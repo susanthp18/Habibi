@@ -1,7 +1,6 @@
 import { AlertCircle } from "lucide-react";
 
 import { useCallCost, type CallCostLine } from "@/api/call-cost";
-import { USE_MOCK } from "@/api/config";
 import { inrCompact } from "@/data/billing-seed";
 import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
@@ -18,11 +17,9 @@ function formatUnits(line: CallCostLine): string {
 }
 
 export function CallCostPanel({ interactionId }: Props) {
-  const { data, isLoading, isError, error } = useCallCost(interactionId);
+  const { data, isLoading, isError, error, isPending, isFetching } = useCallCost(interactionId);
 
-  // Mock mode disables the query (there is no seeded cost to serve), which would
-  // otherwise leave this tab silently blank — mock is the dev default.
-  if (USE_MOCK) {
+  if (isPending && !isFetching) {
     return (
       <div className="rounded-medium border border-border bg-surface px-150 py-100 text-body-small text-text-subtlest">
         Per-call cost reads live usage events. Set{" "}

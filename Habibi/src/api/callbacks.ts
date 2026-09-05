@@ -19,6 +19,9 @@ import type {
   CreateInput,
 } from "@/api/types/callbacks";
 import {
+  AGENTS,
+  CURRENT_QUEUE,
+  QUEUES,
   assign as assignSeed,
   autoMarkMissed as autoMarkSeedMissed,
   cancel as cancelSeed,
@@ -32,11 +35,57 @@ import {
   startCall as startSeedCall,
   callbacks as seedCallbacks,
 } from "@/data/callbacks-seed";
+import type { Customer } from "@/api/types/customer360";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
-import { resolveActor } from "./staff";
-import { resolveTeam } from "./teams";
+import { humanNames, resolveActor, type Staff } from "./staff";
+import { resolveTeam, teamNames, type Team } from "./teams";
 
 export const UNASSIGNED = "Unassigned";
+
+/**
+ * Picker roster. Live asks "did /staff return humans?" — an empty live
+ * roster falls back to names already on the rows, never a blank dropdown.
+ * Mock keeps the seed agent list so filters still match seed assignees.
+ */
+export function callbackAssigneeOptions(staff: Staff[], existing: string[]): string[] {
+  if (USE_MOCK) return [...AGENTS];
+  const humans = humanNames(staff);
+  if (humans.length) return [UNASSIGNED, ...humans];
+  const fromRows = [...new Set(existing.filter((name) => name && name !== UNASSIGNED))].sort();
+  return [UNASSIGNED, ...fromRows];
+}
+
+export function callbackQueueOptions(teams: Team[]): string[] {
+  if (USE_MOCK) return [...QUEUES];
+  return teamNames(teams);
+}
+
+export function defaultCallbackQueue(queues: string[]): string {
+  if (queues.includes("Retail Collections")) return "Retail Collections";
+  return queues[0] ?? CURRENT_QUEUE;
+}
+
+export type CallbackSheetCustomer = {
+  id: string;
+  name: string;
+  accountId: string;
+  preferredWindow: string;
+  customerDnd: boolean;
+  timezone: string;
+};
+
+/** Mock sheets fall back to the seed roster; live always picks real customers. */
+export function callbackSheetCustomers(customers: Customer[]): CallbackSheetCustomer[] | undefined {
+  if (USE_MOCK) return undefined;
+  return customers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    accountId: c.accountId,
+    preferredWindow: c.contact.preferredWindow,
+    customerDnd: c.contact.dnd,
+    timezone: c.contact.timezone,
+  }));
+}
 
 export async function fetchCallbacks(): Promise<Callback[]> {
   if (USE_MOCK) return mockDelay(seedCallbacks);

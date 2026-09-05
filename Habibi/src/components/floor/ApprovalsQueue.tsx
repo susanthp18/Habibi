@@ -1,7 +1,6 @@
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { signalFloorApproval, useFloorApprovals } from "@/api/floor";
-import { USE_MOCK } from "@/api/config";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 
 export function ApprovalsQueue() {
@@ -16,7 +15,7 @@ export function ApprovalsQueue() {
   }
   if (isPending && !data) return null;
   const jobs = data ?? [];
-  if (USE_MOCK || jobs.length === 0) return null;
+  if (jobs.length === 0) return null;
 
   const signal = async (id: string, name: "approve" | "reject") => {
     try {

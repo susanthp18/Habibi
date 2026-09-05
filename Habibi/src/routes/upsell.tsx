@@ -14,12 +14,17 @@ import { LeadTable } from "@/components/upsell/LeadTable";
 import { LeadSheet } from "@/components/upsell/LeadSheet";
 import { NewLeadSheet } from "@/components/upsell/NewLeadSheet";
 import type { Filters, LeadStage } from "@/api/types/upsell";
-import { STAGE_LABELS, defaultFilters, listOwners, moneyValue } from "@/data/upsell-seed";
-import { patchLead, useLeadMetrics, useLeads, type LeadQuery } from "@/api/upsell";
-import { USE_MOCK } from "@/api/config";
+import { STAGE_LABELS, defaultFilters, moneyValue } from "@/data/upsell-seed";
+import {
+  leadOwnerOptions,
+  patchLead,
+  useLeadMetrics,
+  useLeads,
+  type LeadQuery,
+} from "@/api/upsell";
 import { useMe } from "@/api/me";
 import { useProducts } from "@/api/products";
-import { humanNames, useStaff } from "@/api/staff";
+import { useStaff } from "@/api/staff";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/upsell")({
@@ -89,10 +94,7 @@ function UpsellPage() {
   // against real data.
   const { data: staff = [] } = useStaff();
   const { data: catalog = [] } = useProducts();
-  const owners = useMemo(
-    () => (USE_MOCK ? listOwners() : [...humanNames(staff), "Unassigned"]),
-    [staff],
-  );
+  const owners = useMemo(() => leadOwnerOptions(staff), [staff]);
 
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
   const refreshLeads = async () => {

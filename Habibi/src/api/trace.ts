@@ -69,6 +69,8 @@ export function fetchTurnTrace(interactionId: string): Promise<TraceTurn[]> {
  * Disabled without an interaction id, and in mock mode — there is no seeded
  * trace to serve, and the tab falls back to its client-derived view.
  */
+export const TRACE_UNAVAILABLE = "Traces are served by the API — switch off mock mode to view one.";
+
 export function useTurnTrace(interactionId: string | null | undefined) {
   return useQuery({
     queryKey: ["turn-trace", interactionId],

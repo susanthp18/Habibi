@@ -47,7 +47,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { USE_MOCK } from "@/api/config";
 import {
   fmtInr,
   fmtNum,
@@ -55,6 +54,7 @@ import {
   humanise,
   HOLD_KINDS,
   HOLD_SOURCES,
+  TREATMENT_SOURCE_HINT,
   useCreateTreatmentHold,
   useReleaseTreatmentHold,
   useTreatmentCases,
@@ -269,9 +269,7 @@ function TreatmentPage() {
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-300 py-075 text-body-small text-text-brand">
-          {USE_MOCK
-            ? "Mock data · no backend call is being made. Set VITE_USE_MOCK=false to read the live decision log."
-            : "Live decision log · the engine logs every decision. Outside live mode it enacts nothing."}
+          {TREATMENT_SOURCE_HINT}
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-200 border-b border-border bg-surface px-300 py-150">

@@ -15,16 +15,15 @@ import { NewRequestSheet } from "@/components/documents/NewRequestSheet";
 import type { DocChannel, DocRequest, DocStatus, Filters } from "@/api/types/documents";
 import { computeMetrics, defaultFilters, filterDocs } from "@/data/documents-seed";
 import {
-  markFailed,
+  finishDocumentGenerate,
+  documentAssigneeOptions,
   markGenerating,
-  markSent,
   reassignChannel,
   retryDocument,
   useDocuments,
 } from "@/api/documents";
-import { humanNames, useStaff } from "@/api/staff";
+import { useStaff } from "@/api/staff";
 import { useCustomers } from "@/api/customers";
-import { USE_MOCK } from "@/api/config";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
 
 export const Route = createFileRoute("/documents")({
@@ -70,10 +69,14 @@ function DocumentsPage() {
     queryClient.invalidateQueries({ queryKey: ["documents"] });
   };
 
-  const assignees = useMemo(() => {
-    if (!USE_MOCK) return humanNames(staff);
-    return Array.from(new Set(items.map((d) => d.assignee))).sort();
-  }, [items, staff]);
+  const assignees = useMemo(
+    () =>
+      documentAssigneeOptions(
+        staff,
+        items.map((d) => d.assignee),
+      ),
+    [items, staff],
+  );
 
   const customerOptions = useMemo(
     () =>
@@ -134,16 +137,10 @@ function DocumentsPage() {
     try {
       await markGenerating(d);
       invalidate();
-      // Simulated failure is demo theater — only in mock mode. In live mode this
-      // would persist a real "failed" status to the DB via markFailed, so gate it off.
-      const shouldFail =
-        USE_MOCK && d.id.endsWith("7") && d.status !== "failed" && Math.random() < 0.15;
-      await new Promise((r) => setTimeout(r, 1600));
-      if (shouldFail) {
-        await markFailed(d, "Delivery gateway rejected · retrying available");
+      const result = await finishDocumentGenerate(d);
+      if (result === "failed") {
         toast.error(`Failed · ${d.customerName}`);
       } else {
-        await markSent(d);
         toast.success(`Sent · ${d.customerName}`);
       }
       invalidate();

@@ -661,6 +661,11 @@ export function useAgentStudioSkill(skillId: string) {
   });
 }
 
+/** Import / create hit write endpoints that have no mock branch. */
+export const SKILL_MUTATIONS_AVAILABLE = !USE_MOCK;
+
+export const EVAL_SCHEDULE_AVAILABLE = !USE_MOCK;
+
 export function useCreateSkill() {
   const qc = useQueryClient();
   return useMutation({
