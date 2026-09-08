@@ -16,6 +16,7 @@ import {
   type FlowCondition,
   type FlowConditionType,
   type FlowEdge,
+  type FlowGraph,
   type FlowIssue,
   type FlowNode,
   type FlowOperator,
@@ -198,7 +199,11 @@ function MissionEntries({
 
   return (
     <Section label="Starts these outbound missions">
-      {missions.length === 0 ? (
+      {vocab.isError ? (
+        <p className="text-body-small text-text-danger">
+          Could not load outbound missions — this is not a card with none.
+        </p>
+      ) : missions.length === 0 ? (
         <p className="text-body-small text-text-subtlest">
           {vocab.isPending
             ? "Loading missions…"
@@ -396,6 +401,17 @@ function ToolRow({
               policy
             </span>
           )}
+          {/* The compiler reports the same thing as G16. Until it is removed
+              here or granted on the Tools tab, this step offers a tool the call
+              will never be given. */}
+          {tool.ungranted && (
+            <span
+              title="Not in this card's Tool Grant — the runtime drops it and the canvas does not count its hop as an exit"
+              className="rounded-small bg-background-danger-subtler px-050 text-body-micro text-text-danger-bolder"
+            >
+              not on this card
+            </span>
+          )}
         </span>
         <span className="mt-025 block truncate text-body-tiny text-text-subtlest">
           {tool.description}
@@ -403,6 +419,28 @@ function ToolRow({
       </span>
     </label>
   );
+}
+
+/**
+ * The picker, plus anything already on this step that the picker no longer
+ * offers.
+ *
+ * `flowToolChoices` narrows the catalog to the card's grant, which is right for
+ * *choosing* — but a step that already names an ungranted tool would then show
+ * no row for it at all, leaving the author unable to see or remove the one
+ * thing the runtime is going to drop. It is appended, marked, and removable.
+ */
+function withSelectedStrays(tools: FlowTool[], selectedKeys: string[]): FlowTool[] {
+  const known = new Set(tools.map((t) => t.key));
+  const strays = selectedKeys
+    .filter((key, i) => key && !known.has(key) && selectedKeys.indexOf(key) === i)
+    .map<FlowTool>((key) => ({
+      key,
+      description: "Not on this card — the runtime will drop it at this step.",
+      transitions: false,
+      ungranted: true,
+    }));
+  return strays.length ? [...tools, ...strays] : tools;
 }
 
 function ToolList({
@@ -513,7 +551,7 @@ export function GraphInspector({
         }
       >
         <ToolList
-          tools={tools}
+          tools={withSelectedStrays(tools, [...selected])}
           selected={(key) => selected.has(key)}
           disabled={readOnly}
           onToggle={toggle}
@@ -739,7 +777,7 @@ export function NodeInspector({
             hint="Offered to the model at this step, on top of the graph's global tools."
           >
             <ToolList
-              tools={tools}
+              tools={withSelectedStrays(tools, node.data.tools)}
               selected={(key) => node.data.tools.includes(key)}
               disabled={readOnly}
               onToggle={toggleTool}
@@ -825,12 +863,32 @@ export function NodeInspector({
 
 // --------------------------------------------------------------------- edge
 
+/**
+ * Variables any step of this graph captures, keyed to their declared type.
+ *
+ * The clause editor is free text, which is how `equals True` got written: the
+ * extract tool declares `type: boolean`, so the model returns JSON true, and
+ * the value used to be stored `"True"` while the one system boolean the editor
+ * teaches against — `identity_verified` — was stored `"true"`. Both spell it
+ * `true` now, and a picker is what stops the next author guessing.
+ */
+function booleanVariables(graph: FlowGraph | undefined): Set<string> {
+  const out = new Set<string>(["identity_verified"]);
+  for (const node of graph?.nodes ?? []) {
+    for (const v of node.data.extractVariables ?? []) {
+      if (v.type === "boolean" && v.key) out.add(v.key);
+    }
+  }
+  return out;
+}
+
 export function EdgeInspector({
   edge,
   sourceName,
   targetName,
   issues,
   readOnly,
+  graph,
   onChange,
   onDelete,
 }: {
@@ -839,9 +897,12 @@ export function EdgeInspector({
   targetName: string;
   issues: FlowIssue[];
   readOnly: boolean;
+  /** Optional so a caller that has no graph to hand still renders free text. */
+  graph?: FlowGraph;
   onChange: (next: FlowEdge) => void;
   onDelete: () => void;
 }) {
+  const booleans = booleanVariables(graph);
   const condition = edge.data.condition;
   const setCondition = (patch: Partial<FlowCondition>) => {
     if (readOnly) return;
@@ -953,14 +1014,27 @@ export function EdgeInspector({
                     </option>
                   ))}
                 </select>
-                {!UNARY_OPERATORS.has(clause.operator) && (
-                  <Input
-                    value={clause.value ?? ""}
-                    placeholder="value"
-                    disabled={readOnly}
-                    onChange={(e) => setClause(i, { value: e.target.value })}
-                  />
-                )}
+                {!UNARY_OPERATORS.has(clause.operator) ? (
+                  booleans.has(clause.variable) ? (
+                    <select
+                      className={selectCls}
+                      value={clause.value ?? ""}
+                      disabled={readOnly}
+                      onChange={(e) => setClause(i, { value: e.target.value })}
+                    >
+                      <option value="">choose…</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  ) : (
+                    <Input
+                      value={clause.value ?? ""}
+                      placeholder="value"
+                      disabled={readOnly}
+                      onChange={(e) => setClause(i, { value: e.target.value })}
+                    />
+                  )
+                ) : null}
                 <Button
                   variant="ghost"
                   size="icon"

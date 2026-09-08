@@ -1,0 +1,216 @@
+{
+ "slice": "tools",
+ "summary": "The Tools tab (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:73-200) renders the rows returned by GET /flow/tools (main.py:2059 → flow_graph.tool_catalog:806, which is CATALOG filtered to the voice channel plus the ten hardcoded _FLOW_CONTROL_TOOLS at flow_graph.py:773-784) and marks a row \"on\" when its key is in card.tools.include or is locked (t.locked = LOCKED_MOUTH_TOOLS, or card.tools.locked) — it shows the card's include list, not the Tool Grant. Add/Remove rewrites only card.tools.include via onChange → setCard (prompt-studio.lazy.tsx:1391), which the editor shell autosaves onto the draft after 1.2 s (prompt-studio.lazy.tsx:616-681); locked rows are disabled. For the header counters it runs useCompilePreview (agent-studio.ts:248-281): a debounced (400 ms), stable-stringified, 30 s-stale react-query POST /agent-studio/cards/{bot}/compile with body {agentCard} (main.py:2194 → db_prompt_studio.compile_agent_studio_card:782 → compile_card:519), from which it reads only idle_voice_tools, voice_tool_cap and the G6 gate. At runtime the card feeds agent_core/skills/intersect.effective_tools (intersect.py:85-146) via MouthTurn.tools (runtime.py:175-215); voice/bot.py:1138-1162 hands that grant to build_tools, which filters its registry to allowed ∪ ALWAYS_ON (voice/tools.py:2916-2919); the text path sets ctx.allowed_tools (bot_runtime.py:943, sandbox_runtime.py:228) and execute_tool denies anything outside it (bot_tools.py:806). max_voice_tools is read only by G6 (compile.py:688); nothing at runtime enforces it. The main defects are that the tab offers Add buttons for nine flow-control verbs that are not in CATALOG (so Add makes G4 fail at publish while the tab's only gate readout, G6, stays green), and that it never shows G4/G9 or the compiler's effective_tools list, so an include-only view is presented as the grant.",
+ "endpoints": [
+  "GET /flow/tools → backend/main.py:2059 list_flow_tools → flow_graph.tool_catalog backend/flow_graph.py:806 (CATALOG voice-filtered ∪ _FLOW_CONTROL_TOOLS backend/flow_graph.py:773)",
+  "POST /agent-studio/cards/{bot_id}/compile → backend/main.py:2194 compile_agent_studio_card → backend/db_prompt_studio.py:782 compile_agent_studio_card → backend/agent_core/cards/compile.py:519 compile_card (called from Habibi/src/api/agent-studio.ts:248 useCompilePreview with body {agentCard} only; the Ship/Publish runCompile at Habibi/src/routes/prompt-studio.lazy.tsx:797 uses the mutation at agent-studio.ts:231 with flow/trafficPct/autoRollback/voice/persona)",
+  "Persistence of a toggle: no endpoint of its own — onChange → setCard (Habibi/src/routes/prompt-studio.lazy.tsx:1391) → editor autosave ensureDraft (Habibi/src/routes/prompt-studio.lazy.tsx:636-657) writes agentCard onto the draft prompt_version (editor-shell slice)"
+ ],
+ "runtime_consumers": [
+  "card.tools.include → backend/agent_core/skills/intersect.py:106 effective_tools (∩ CATALOG, skill-gated names kept only if an attached pack lists them :113-114) → backend/agent_core/skills/runtime.py:198-215 MouthTurn.tools → voice: backend/voice/bot.py:1138-1162 → backend/voice/tools.py:2918 (keep = allowed ∪ ALWAYS_ON); text: backend/bot_runtime.py:913-949 (ctx.allowed_tools, offered) → backend/bot_tools.py:806 execute_tool deny; sandbox: backend/sandbox_runtime.py:214-228. Publish-time: compile.py:623 (G4 unknown), :734 (G9 scope). NOTE: only the env BOT_ID bundle is ever loaded on inbound (established: backend/agent_core/cards/routing.py:33-45, bot_runtime.py:712), so include edits on non-entry cards (insurance-v1, intake-v1, supervisor-brief) reach no live voice call until a handoff actually swaps bundles.",
+  "card.tools.locked (recommend_next_offer, evaluate_authority) → backend/agent_core/skills/intersect.py:55 _locked_mouth → :104,114,116 always in the grant even if include omits them → same runtime chain as include; compile.py:603-604 (G3 presence), :640 (G4 missing_locked), :734 (G9 scope)",
+  "card.tools.locked (recommend_treatment, evaluate_live_qa) → NONE at runtime (not in CATALOG, not in voice/tools.py registry); only compile.py:604 G3 checks they are present. The engines themselves run from code paths unrelated to the card.",
+  "card.tools.max_voice_tools → backend/agent_core/cards/compile.py:688-692 (G6, publish/preview only). No consumer in voice/bot.py, voice/tools.py, voice/flows*.py, bot_runtime.py, bot_tools.py, sandbox_runtime.py or agent_core/tools/grant.py — the cap is never enforced at runtime, which matches the tab's copy ('blocks publish (G6)') at AgentCardPanels.tsx:117-119.",
+  "PLATFORM_SKILL_TOOLS (load_skill, run_skill_script) → granted unconditionally by backend/agent_core/skills/intersect.py:105-106,114,116 regardless of card.skills or card.tools.include — the include toggle for them is a no-op.",
+  "VOICE_ALWAYS (9 flow verbs + capture_call_goal + verify_identity) → backend/agent_core/tools/grant.py:88,213 and backend/voice/tools.py:38,2918 — always on for voice regardless of the card; the include toggle for verify_identity/capture_call_goal is a no-op on voice."
+ ],
+ "findings": [
+  {
+   "id": "TOOLS-1",
+   "title": "Tools tab offers Add for nine flow-control verbs that are not catalog tools; Add makes G4 fail while the tab shows G6 green",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:153-185",
+    "backend/flow_graph.py:773-784",
+    "backend/flow_graph.py:822",
+    "backend/agent_core/cards/compile.py:623",
+    "backend/agent_core/cards/compile.py:644-647",
+    "backend/agent_core/tools/grant.py:57-69",
+    "backend/tests/test_tool_grant.py:180-186"
+   ],
+   "mechanism": "GET /flow/tools is the voice-filtered CATALOG plus _FLOW_CONTROL_TOOLS (flow_graph.py:822), so disclose_recording, refuse_verification, not_account_holder, begin_negotiate, begin_dispute, begin_wrap_up, return_to_position, pause_for_caller and end_call arrive as rows with locked=false. The tab renders every row with an enabled Add/Remove button and the 'optional' label (AgentCardPanels.tsx:163-181). Clicking Add appends the key to card.tools.include (:103-112). G4 computes unknown = include − CATALOG.specs (compile.py:623) and fails 'include names not in catalog' (:644-647); test_tool_grant.py:184 pins that these nine names are never in CATALOG. The tab reads only the G6 gate from the same report (:95), so the operator sees 'G6 pass' and no red until Publish. Conversely Remove on these rows can never happen (they are never in include) and they are ALWAYS_ON at runtime (voice/tools.py:2918), so the 'optional / Add' presentation is false in both directions.",
+   "trigger": "Open any authored card's Tools tab, click Add on end_call (or any of the nine), wait for autosave, then Publish: G4 fails 'include names not in catalog' while the Tools tab header still shows a green G6 lozenge.",
+   "fix": "In ToolsTab, treat rows whose key is in a VOICE_ALWAYS/flow-control set (expose `alwaysOn: true` from flow_graph.tool_catalog alongside `locked`) as non-toggleable with a 'always on (voice floor)' lozenge, and never write them into include. Also surface the report's G4 gate next to G6.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-2",
+   "title": "Tab surfaces only G6 although its own edits trip G4 and G9; a pack-required tool can be unticked with no live signal",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:95",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:129-140",
+    "backend/agent_core/cards/compile.py:734-751",
+    "Habibi/src/components/prompt-studio/PublishDialog.tsx:178"
+   ],
+   "mechanism": "useCompilePreview returns the full gate list, but ToolsTab picks `gates.find(g => g.gate === 'G6')` (:95) and renders nothing for G4 or G9. G9 fails when a pack on card.skills lists a tool that is not in include ∪ locked ∪ PLATFORM_SKILL_TOOLS (compile.py:734-747) — exactly what the Remove button produces. The full report is shown only in PublishDialog via CompileReportList after the manual runCompile. The prior audit's live-state note (kaia-v2-4 draft failing G9 on set_contact_preference / capture_nonpayment_reason) is this path.",
+   "trigger": "On kaia-v2-4 (skills attached) click Remove on set_contact_preference; the tab keeps showing 'G6 pass'; Publish then fails G9 'tools_not_on_card'.",
+   "fix": "Render the G4 and G9 gate results beside G6 in the header strip (same Lozenge pattern), and on each row show a 'required by skill <slug>' marker derived from the attached packs' allowed_tools so Remove is disabled or warned.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-3",
+   "title": "G6 'skipped' is painted green in the Tools tab",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:131-137",
+    "backend/agent_core/cards/compile.py:682-683",
+    "backend/agent_core/cards/compile.py:557-567",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1027-1036"
+   ],
+   "mechanism": "The tone expression is `fail ? danger : warn ? warning : success`, so status 'skipped' maps to success. compile_card emits G6 skipped 'no card' whenever `card is None` (:682-683), which happens for an authored card that fails G0 schema validation (:558-567) — the preview is enabled because identity.bot_id is present. The sibling CompileReportList maps skipped to neutral (:1027-1036), so the two renderings of the same gate disagree.",
+   "trigger": "Any G0 failure on an authored card (e.g. a cloned card carrying an unknown key, or an out-of-range outbound value) — the Tools tab shows a green 'G6 skipped — no card' lozenge and '0 / 12 idle voice tools'.",
+   "fix": "Reuse the CompileReportList tone mapping (skipped → neutral) or extract one `gateTone(status)` helper and use it in both places.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-4",
+   "title": "'on the card' counter counts two engines the table cannot show and omits the ~10 always-on tools the voice runtime adds",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:126",
+    "backend/flow_graph.py:817-829",
+    "backend/agent_core/cards/schema.py:58-68",
+    "backend/agent_core/tools/grant.py:88",
+    "backend/voice/tools.py:2918"
+   ],
+   "mechanism": "The counter is `new Set([...include, ...locked]).size`. card.tools.locked contains recommend_treatment and evaluate_live_qa, which are not in CATALOG and therefore have no row in /flow/tools (flow_graph.py:817-821, locked flag only for LOCKED_MOUTH_TOOLS :829), so the number is always 2 higher than the rows marked on. What voice/tools.py builds is effective_tools ∪ ALWAYS_ON (:2918), i.e. for the default collections card 34 names versus a counter of 26. Prior 2g.2 (still present at :126) covered the include/locked drift; the two-engine overcount and the always-on undercount are additional.",
+   "trigger": "Open kaia-v2-4 Tools tab: counter reads 26, only 24 rows show 'Remove', and a live call is built with 34 tools.",
+   "fix": "Show the compiler's numbers instead: `preview.data.effective_tools.length` labelled 'granted' (and optionally list the always-on floor separately), and drop the client-side union.",
+   "prior_ref": "2g.2"
+  },
+  {
+   "id": "TOOLS-5",
+   "title": "A skill-gated tool on include but on no attached pack shows 'Remove' (on) while the runtime never grants it",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:155",
+    "backend/agent_core/skills/intersect.py:29-48",
+    "backend/agent_core/skills/intersect.py:107-115",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:814-816",
+    "backend/agent_core/cards/compile.py:70-71"
+   ],
+   "mechanism": "Row state is `includeSet.has(key) || isLocked` (:155). effective_tools strips every SKILL_GATED_TOOLS name that no attached pack lists (intersect.py:113-114) when the card has skills, so create_promise_to_pay / flag_dispute / apply_goodwill / capture_lead etc. can be 'on' in the tab and absent from the grant. The Skills tab's own copy says exactly this (:814-816), and the compile report already carries effective_tools/idle_tools (compile.py:70-71) which the Tools tab ignores. G9 does not catch the reverse direction (card ⊇ packs is what it checks), so nothing turns red.",
+   "trigger": "Detach ptp-negotiate in the Skills tab, return to Tools: create_promise_to_pay still shows 'Remove' and counts toward 'on the card', but voice/tools.py drops it and bot_tools.execute_tool returns tool_not_on_card_or_skill.",
+   "fix": "Colour rows from `preview.data.effective_tools` (granted) vs include (authored) and label the difference 'on the card but not granted — no attached skill lists it'.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-6",
+   "title": "Toggle is a no-op for verify_identity, capture_call_goal, load_skill and run_skill_script, yet rows say 'optional'",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:154-181",
+    "backend/agent_core/tools/grant.py:88",
+    "backend/agent_core/tools/grant.py:212-213",
+    "backend/agent_core/skills/intersect.py:105-106",
+    "backend/agent_core/skills/intersect.py:114-116",
+    "backend/voice/tools.py:2918"
+   ],
+   "mechanism": "verify_identity and capture_call_goal are catalog tools inside VOICE_ALWAYS (grant.py:88), unioned into every voice grant (grant.py:213; voice/tools.py:2918). load_skill and run_skill_script are PLATFORM_SKILL_TOOLS, added to `names` unconditionally (intersect.py:105-106,114,116) on every channel. All four appear as ordinary rows (in CATALOG with the voice channel) with an enabled Add/Remove and the 'optional' label, so removing them from include changes nothing the runtime does and adding them changes nothing either.",
+   "trigger": "On intake-v1 click Add on run_skill_script (shows 'Add' today): no behavioural change — it was already granted. Click Remove on verify_identity on kaia-v2-4: the voice bot still offers it on every node.",
+   "fix": "Have flow_graph.tool_catalog emit an `alwaysOn` flag (VOICE_ALWAYS ∪ PLATFORM_SKILL_TOOLS) and render those rows disabled with a 'platform floor' lozenge, mirroring the locked treatment.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-7",
+   "title": "PLATFORM_SKILL_TOOLS granted to cards with no skills, contrary to the module's own comment",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "backend/agent_core/skills/intersect.py:50-51",
+    "backend/agent_core/skills/intersect.py:105-106",
+    "backend/agent_core/skills/intersect.py:116",
+    "backend/agent_core/cards/defaults.py:118",
+    "backend/agent_core/cards/defaults.py:318-331"
+   ],
+   "mechanism": "The comment at intersect.py:50 says load_skill/run_skill_script are 'Always offered when the card has skills', but `platform = PLATFORM_SKILL_TOOLS & catalog_names` is unioned into `names` at :106 and re-added after channel filtering at :116 with no `card.skills` condition. run_skill_script executes scripts; a card whose author left it off include (supervisor-brief: include=['add_customer_note'], defaults.py:118) still receives it in the grant, widening the grant beyond the card (ADR-0001).",
+   "trigger": "Resolve the supervisor-brief card through MouthTurn.tools: allowed contains load_skill and run_skill_script though include names neither and no skill packs are attached to require them.",
+   "fix": "Gate `platform` on `bool(card.skills) or attached_skills` (as the comment states) or on membership in include, and update the comment to match whichever rule is chosen.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-8",
+   "title": "Compile never passes channel_tools, so G4/G6 and the report's effective_tools ignore the channel filter the runtime applies",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/db_prompt_studio.py:837-857",
+    "backend/db_prompt_studio.py:1908-1926",
+    "backend/agent_core/cards/compile.py:526",
+    "backend/agent_core/cards/compile.py:627-639",
+    "backend/voice/bot.py:1141-1143",
+    "backend/agent_core/tools/catalog.py:215-231"
+   ],
+   "mechanism": "compile_card accepts channel_tools (compile.py:526) and forwards it into effective_tools/idle_offered_tools (:627-639), but neither the dry-run (db_prompt_studio.py:837-857) nor publish (:1908-1926) supplies it, so the preview's idle count and effective_tools are computed channel-agnostically while voice/bot.py:1141-1143 filters to CATALOG.for_channel(voice). A TEXT_ONLY tool on include (identify_customer, ingest_customer_document) counts toward the voice cap in G6 and appears in effective_tools though the voice runtime drops it. The UI cannot add these (tool_catalog is voice-filtered), so the trigger needs a hand-edited or imported card.",
+   "trigger": "Publish a card whose include JSON contains identify_customer: G6 counts it as an idle voice tool; the voice grant does not contain it.",
+   "fix": "Pass `channel_tools={s.name for s in CATALOG.for_channel('voice')}` (or compute per card channel) from both compile call sites, or report per-channel effective lists in CompileReport.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-9",
+   "title": "Missing non-mouth locked engines fail G3 but no tab can show or repair them",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "disconnected",
+   "files": [
+    "backend/agent_core/cards/compile.py:603-613",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:202-241",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:103-112",
+    "backend/flow_graph.py:817-829"
+   ],
+   "mechanism": "G3 fails with missing_locked when recommend_treatment or evaluate_live_qa is absent from card.tools.locked (compile.py:603-613). The Tools tab has no rows for them (not in CATALOG, flow_graph.py:817-821) and its toggle only writes include (:103-112); the Policy tab reads policy_bindings, not tools.locked (:203,226-235). So the only surface for tools.locked content is the raw JSON, and the failure reads 'engines cannot be unbound' with no pointer to which screen fixes it.",
+   "trigger": "Import or PATCH a card whose tools.locked is ['recommend_next_offer','evaluate_authority']; every tab is green until Publish reports G3 missing_locked.",
+   "fix": "Have PolicyTab also render each LOCKED_POLICY_ENGINES entry's presence in card.tools.locked (red when missing) and offer a one-click 'restore locked engines' that writes the full LOCKED_POLICY_ENGINES list.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TOOLS-10",
+   "title": "No pending state for the catalog; any compile HTTP error is labelled 'compiler unreachable'",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "a11y",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:86",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:189-197",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:129-130",
+    "backend/main.py:2195-2212"
+   ],
+   "mechanism": "While useFlowTools is pending, rows = [] (:86) and the empty/error branches are both suppressed (:195), so the table renders a bare header with no loading indicator. For the preview, `preview.isError` (:129) covers a 500 from compile_card as well as a network failure, yet the lozenge always says 'compiler unreachable'; the endpoint returns 200 for gate failures (main.py:2195-2212), so an error here is a compiler crash, not unreachability.",
+   "trigger": "Slow /flow/tools: table header with no rows and no spinner. A compile 500: 'compiler unreachable'.",
+   "fix": "Render LoadingState while toolsQuery.isPending; show the error message (or status) in the preview lozenge title instead of the fixed 'unreachable' text.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "2g.1 is fixed: cap uses `??` (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:101), so a server-reported cap of 0 is honoured.",
+  "Compile preview is not per keystroke: body is stable-stringified, debounced 400 ms, keyed on the debounced payload, staleTime 30 s, retry false (Habibi/src/api/agent-studio.ts:260-280); the Tools tab has no text input, so at most one POST per toggle.",
+  "useCompilePreview is a query, not the useCompileCard mutation, so it does not invalidate ['agent-studio'] and cannot loop (Habibi/src/api/agent-studio.ts:231-246).",
+  "Dry-run compile gates the posted card, else the draft before the published card (backend/db_prompt_studio.py:803-811), and derives attached packs from the posted card's skills (:827-836) — same catalog/eval inputs as publish (backend/db_prompt_studio.py:1908-1926).",
+  "G6 counts idle tools minus PLATFORM_SKILL_TOOLS and only when 'voice' is a channel (backend/agent_core/cards/compile.py:685-692); the tab reads idle_voice_tools/voice_tool_cap from the compiler rather than recomputing (AgentCardPanels.tsx:96,101), pinned by backend/tests/test_agent_studio_tab_round_trip.py:99-117.",
+  "Locked mouth tools stay in the grant even if include omits them (backend/agent_core/skills/intersect.py:104,114,116; backend/tests/test_tool_grant.py:88) and are disabled in the UI with a tooltip (AgentCardPanels.tsx:154-170).",
+  "Runtime enforcement is deny-all and derived from the deployed bundle's card: voice/bot.py:1138-1144 → voice/tools.py:2918; bot_runtime.py:913-949 → bot_tools.py:806-808 refuses names outside ctx.allowed_tools; sandbox_runtime.py:214-228; cardless mouth gets an empty grant (backend/agent_core/skills/runtime.py:187-190; tests backend/tests/test_cardless_runtime_deny_all.py:31-142).",
+  "Offer ⊆ grant and static grant = union of channel grants are pinned (backend/agent_core/tools/grant.py:125-144,222-246; backend/tests/test_tool_grant.py:46-79).",
+  "ALWAYS_ON in voice/tools.py is the imported grant floor, not a restated set (backend/voice/tools.py:38; backend/tests/test_tool_grant.py:124-163).",
+  "Tool catalog fetch error is rendered as an explicit error line with the stale-cache caveat, not as an empty catalog (AgentCardPanels.tsx:189-194); 'catalog is empty' appears only when not pending and truly empty (:195-196).",
+  "/flow/tools is voice-filtered so text-only catalog tools (identify_customer, ingest_customer_document) cannot be added from the UI (backend/flow_graph.py:817-821; backend/agent_core/tools/catalog.py:231,706).",
+  "Unauthored cards get the NotAuthoredNotice and disabled buttons; the preview is disabled for them (AgentCardPanels.tsx:87,94,142,167).",
+  "Toggle confirmation/undo is consistent with sibling card tabs: Tools (AgentCardPanels.tsx:103-112), Skills (:786-808) and Connectors write straight to card state with no confirm/toast and rely on the shell's autosave + unsaved chip (Habibi/src/routes/prompt-studio.lazy.tsx:616-681).",
+  "G4 correctly skips the locked-mouth check for internal-only cards such as supervisor-brief (backend/agent_core/cards/compile.py:641-648; defaults.py:324).",
+  "Every voice-registry name is either catalog-backed or a declared control tool, so /flow/tools cannot silently omit a runtime verb (backend/tests/test_voice_tool_registry.py:121; backend/tests/test_tool_grant.py:166-177)."
+ ]
+}

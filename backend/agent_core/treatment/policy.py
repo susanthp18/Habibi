@@ -43,6 +43,7 @@ LEGAL_PREREQUISITES = "legal_prerequisites_unmet"
 LEGAL_ALREADY_SERVED = "legal_notice_already_served"
 LADDER_TOO_FAR = "ladder_advance_too_far"
 THIRD_PARTY = "third_party_contact"
+FRESHNESS_UNAVAILABLE = "freshness:resolver_unavailable"
 NO_EXPOSURE = "nothing_owed"
 
 # The mandate family. Nothing caps a channel=None action, so these are the
@@ -67,7 +68,9 @@ SELF_SERVICE_TOO_EARLY = "arrears_not_yet_worth_a_plan"
 #: in this set: once a matter is with legal the *statutory* clock is the only
 #: thing that may still fire, which :func:`veto` expresses by allowing exactly
 #: ``legal_notice`` through.
-SILENCING_HOLDS = frozenset({"hardship", "complaint", "bereavement", "dispute"})
+SILENCING_HOLDS = frozenset(
+    {"hardship", "complaint", "bereavement", "dispute", "cease_and_desist", "deceased"}
+)
 
 #: A dispute hold stops pressure about the disputed amount. It does not stop a
 #: human from calling about the dispute itself — that is the specialist's job,
@@ -157,6 +160,9 @@ def veto(
 
     if action not in A.bucket_policy(features.bucket).allowed:
         return BUCKET_DISALLOWS
+    published = _published_bucket_actions(conn, features, at)
+    if published is not None and action not in published:
+        return BUCKET_DISALLOWS
 
     if features.account_status and features.account_status.lower() in {
         "closed",
@@ -189,7 +195,7 @@ def veto(
         return LADDER_TOO_FAR
 
     if action == A.FIELD_VISIT:
-        reason = _field_veto(features, policy)
+        reason = _field_veto(conn, features, policy, at)
         if reason:
             return reason
 
@@ -212,6 +218,9 @@ def veto(
         reason = _self_service_veto(conn, features)
         if reason:
             return reason
+        ceiling = _ratio_ceiling(conn, features, at)
+        if ceiling is not None and ceiling < 1.0:
+            return "ratio_ceiling"
 
     if spec.channel:
         # A bank-side return is not the borrower's failure, and dunning them
@@ -229,6 +238,29 @@ def veto(
         )
         if reason:
             return reason
+
+    if conn is not None:
+        try:
+            from bank_boundary import freshness
+            from bank_boundary import schema_ready as w5_schema
+
+            # 0110 is not on this database yet. Freshness is a book check, not a
+            # kill switch for the engine that already runs. Once the schema is
+            # present, a stale or missing feed is a veto in every mode.
+            if w5_schema.w5_ready(conn):
+                ready = freshness.resolve(
+                    conn,
+                    tenant_id=features.tenant_id,
+                    action=action,
+                    channel=spec.channel if spec else None,
+                    customer_id=features.customer_id,
+                    product_category=features.product_category,
+                )
+                if ready.veto:
+                    return ready.veto
+        except Exception:
+            logger.exception("freshness resolver failed")
+            return FRESHNESS_UNAVAILABLE
 
     return None
 
@@ -429,20 +461,23 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _field_veto(features: AccountFeatures, policy: Policy) -> str | None:
+def _field_veto(
+    conn: Any, features: AccountFeatures, policy: Policy, at: datetime
+) -> str | None:
     if features.field_visits_90d > 0:
         return FIELD_ALREADY_DISPATCHED
     if features.digital_attempts_since_connect < policy.field_digital_exhaustion:
-        # The roadmap's rule, and the economics behind it: ₹800–1,500 a visit
-        # with the borrower absent 40–50% of the time. Digital first is not
-        # politeness, it is arithmetic.
         return DIGITAL_NOT_EXHAUSTED
     if features.exposure < FIELD_MIN_EXPOSURE:
         return FIELD_NOT_PROPORTIONATE
     if not features.secured and features.bucket in {A.B_31_60}:
-        # Field is for secured lending in the middle buckets. An unsecured
-        # personal loan at 45 DPD gets a specialist on the phone, not a van.
         return FIELD_NOT_PROPORTIONATE
+    rules = _resolve_rules(conn, features, at)
+    required = rules.field_prerequisites() if rules is not None else ()
+    hours = rules.visit_intimation_hours() if rules is not None else None
+    if hours or "visit_intimation" in required:
+        if not _visit_intimation_delivered(conn, features.customer_id):
+            return "field_prerequisites_unmet"
     return None
 
 
@@ -473,6 +508,7 @@ def _contact_veto(
             channel=channel,
             purpose="outreach",
             now=at,
+            product_id=features.product_id,
         )
     except Exception:
         logger.exception(
@@ -528,6 +564,22 @@ def suppresses_upsell(conn: Any, customer_id: str) -> str | None:
     for kind in kinds:
         if kind in UPSELL_BLOCKING_HOLDS:
             return f"{HOLD_PREFIX}{kind}"
+    try:
+        bucket = conn.execute(
+            text(
+                """
+                SELECT bucket FROM accounts
+                WHERE customer_id = :cid
+                ORDER BY dpd DESC NULLS LAST
+                LIMIT 1
+                """
+            ),
+            {"cid": customer_id},
+        ).scalar()
+    except Exception:
+        bucket = None
+    if bucket in UPSELL_BLOCKING_BUCKETS:
+        return "bucket_too_late_for_upsell"
     return None
 
 
@@ -612,3 +664,50 @@ def last_rung_used(
     if served:
         observed = max(observed, A.rung(A.LEGAL_NOTICE))
     return max(observed, floor)
+
+
+def _resolve_rules(conn: Any, features: AccountFeatures, at: datetime) -> Any:
+    import policy_rules
+
+    try:
+        return policy_rules.resolve(
+            conn,
+            tenant_id=features.tenant_id,
+            at=at,
+            product_id=features.product_id,
+        )
+    except Exception:
+        logger.exception("policy resolve failed for %s", features.customer_id)
+        return policy_rules.EMPTY
+
+
+def _published_bucket_actions(
+    conn: Any, features: AccountFeatures, at: datetime
+) -> frozenset[str] | None:
+    rules = _resolve_rules(conn, features, at)
+    return rules.bucket_actions(features.bucket)
+
+
+def _ratio_ceiling(conn: Any, features: AccountFeatures, at: datetime) -> float | None:
+    rules = _resolve_rules(conn, features, at)
+    return rules.ratio_ceiling()
+
+
+def _visit_intimation_delivered(conn: Any, customer_id: str) -> bool:
+    from sqlalchemy import text
+    try:
+        row = conn.execute(
+            text(
+                """
+                SELECT 1 FROM contact_events
+                WHERE customer_id = :cid
+                  AND source = 'visit_intimation'
+                  AND outcome = 'allowed'
+                LIMIT 1
+                """
+            ),
+            {"cid": customer_id},
+        ).first()
+    except Exception:
+        return False
+    return row is not None

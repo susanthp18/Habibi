@@ -108,6 +108,9 @@ def _send_text_message_uncircuited(
             "Content-Type": "application/json",
         },
     )
+    from agent_core.carrier_guard import refuse_real_carrier
+
+    refuse_real_carrier("whatsapp.meta")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read().decode("utf-8")
@@ -187,6 +190,9 @@ def _send_template_message_uncircuited(
             "Content-Type": "application/json",
         },
     )
+    from agent_core.carrier_guard import refuse_real_carrier
+
+    refuse_real_carrier("whatsapp.meta")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read().decode("utf-8")

@@ -4,11 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
   useDeploymentExperiments,
+  useEffectiveContract,
   useRollbackExperiment,
   type CompileReport,
   type DeploymentExperiment,
 } from "@/api/agent-studio";
 import { useRollbackBotDeployment } from "@/api/prompt-studio";
+import { shipRollbackTarget } from "@/lib/studio-trust";
+import { controlKindLabel, parseEffectiveContract } from "@/lib/studio-contract";
 import type { RollbackTrigger } from "@/api/agent-card";
 
 const TRIGGERS: { id: RollbackTrigger; label: string; hint?: string }[] = [
@@ -45,6 +48,8 @@ type Props = {
   value: ShipState;
   onChange: (next: ShipState) => void;
   activeDeploymentId?: string | null;
+  priorDeploymentId?: string | null;
+  rollbackDeploymentId?: string | null;
   /**
    * The latest compile report, from the same state the card tabs already read
    * (prompt-studio.lazy.tsx). Publish readiness was scattered across the Prompt
@@ -69,15 +74,22 @@ export function ShipTab({
   value,
   onChange,
   activeDeploymentId,
+  priorDeploymentId,
+  rollbackDeploymentId,
   compileReport = null,
   onCompile,
   compileBusy = false,
 }: Props) {
   const experiments = useDeploymentExperiments(botId);
+  const contractQuery = useEffectiveContract(botId);
   const rollbackExp = useRollbackExperiment();
   const rollbackDep = useRollbackBotDeployment();
   const running = (experiments.data ?? []).find((e) => e.status === "running") as
     DeploymentExperiment | undefined;
+  const rollbackTarget = shipRollbackTarget({
+    rollbackDeploymentId,
+    priorDeploymentId,
+  });
   const [busy, setBusy] = useState(false);
 
   const toggle = (id: RollbackTrigger) => {
@@ -166,13 +178,21 @@ export function ShipTab({
           className="w-full"
         />
       </label>
-      <label className="flex items-center gap-100 text-body-small">
+      <label className="flex items-start gap-100 text-body-small">
         <input
           type="checkbox"
           checked={value.shadow}
+          disabled={!value.shadow}
+          className="mt-025"
           onChange={(e) => onChange({ ...value, shadow: e.target.checked })}
         />
-        Shadow (log split, do not change customer treatment)
+        <span>
+          <span className="font-medium">Shadow</span>
+          <span className="block text-text-subtlest">
+            Disabled — there is no non-customer-serving execution path. A shadow canary would still
+            answer the borrower. Use a split below 100% with auto-rollback instead.
+          </span>
+        </span>
       </label>
       <div>
         <div className="mb-075 text-body-small font-semibold">Auto-rollback</div>
@@ -201,18 +221,18 @@ export function ShipTab({
             G12 will fail — pick at least one rollback condition.
           </p>
         ) : null}
-        {/* Compiles green and means nothing. Shadow sends traffic to the canary
-            without letting it answer; 100% says every call goes to it. The
-            canary router passes pct>=100 straight through, so the shadow flag
-            is silently dropped and the "shadow" deploy is a full ship. G12 has
-            no opinion on the pair, so nothing else says this. */}
-        {value.shadow && value.trafficPct >= 100 ? (
-          <p className="mt-075 text-body-small text-text-warning-bolder">
-            Shadow at 100% is not a shadow — the router sends every call to the canary for real.
-            Lower the traffic, or turn shadow off.
+        {value.shadow ? (
+          <p className="mt-075 text-body-small text-text-danger">
+            G12 will fail — shadow is not a customer-facing execution path. Uncheck it before
+            publishing.
           </p>
         ) : null}
       </div>
+      {experiments.isError ? (
+        <p className="text-body-small text-text-danger">
+          Could not load experiments — this is not a statement that none are running.
+        </p>
+      ) : null}
       {running ? (
         <div className="rounded-medium border border-border p-150">
           <div className="flex items-center justify-between">
@@ -256,22 +276,127 @@ export function ShipTab({
           </Button>
         </div>
       ) : null}
-      {activeDeploymentId ? (
+      {rollbackTarget ? (
         <Button
           variant="outline"
           disabled={busy}
           onClick={() => {
             setBusy(true);
             void rollbackDep
-              .mutateAsync(activeDeploymentId)
-              .then(() => toast.success("Active deployment rolled back"))
+              .mutateAsync(rollbackTarget)
+              .then(() => toast.success("Rolled back to the previous deployment"))
               .catch((err: Error) => toast.error(err.message))
               .finally(() => setBusy(false));
           }}
         >
-          One-click rollback of active deployment
+          One-click rollback to previous deployment
         </Button>
       ) : null}
+
+      <EffectiveContractPanel compileReport={compileReport} query={contractQuery} />
     </div>
+  );
+}
+
+function EffectiveContractPanel({
+  compileReport,
+  query,
+}: {
+  compileReport?: CompileReport | null;
+  query: ReturnType<typeof useEffectiveContract>;
+}) {
+  const fromCompile = compileReport?.bundle;
+  const parsedCompile = fromCompile
+    ? parseEffectiveContract({
+        source: "preview",
+        botId: compileReport?.bot_id || "",
+        compiled: fromCompile,
+      })
+    : null;
+  const compiled =
+    (parsedCompile?.success ? parsedCompile.data.compiled : null) ||
+    (query.data?.compiled as Record<string, unknown> | undefined);
+  const source = query.data?.source || (fromCompile ? "preview" : null);
+  const hash =
+    compiled && typeof compiled === "object" && "bundle_hash" in compiled
+      ? String((compiled as { bundle_hash?: string }).bundle_hash || "")
+      : "";
+  const grants = Array.isArray((compiled as { grants?: unknown })?.grants)
+    ? (compiled as { grants: Array<{ channel: string; allowed: string[]; offered: string[] }> })
+        .grants
+    : [];
+  const skills = Array.isArray((compiled as { skills?: unknown })?.skills)
+    ? (compiled as { skills: Array<{ skill_id: string; version: string }> }).skills
+    : [];
+  const gates = Array.isArray((compiled as { human_gates?: unknown })?.human_gates)
+    ? (compiled as { human_gates: Array<{ tool_name?: string; require?: string }> }).human_gates
+    : [];
+
+  return (
+    <section className="rounded-medium border border-border p-150">
+      <div className="mb-100 flex flex-wrap items-center gap-100">
+        <h3 className="text-body-small font-semibold">Effective contract</h3>
+        {query.isError ? (
+          <Lozenge tone="danger">could not load</Lozenge>
+        ) : query.isPending && !compiled ? (
+          <Lozenge tone="neutral">loading…</Lozenge>
+        ) : source ? (
+          <Lozenge tone="neutral">{source}</Lozenge>
+        ) : (
+          <Lozenge tone="neutral">compile to inspect</Lozenge>
+        )}
+      </div>
+      <p className="mb-100 text-body-small text-text-subtle">
+        What production and rehearsal will actually run. Every control is labelled runtime,
+        simulated, compile-only, or unsupported.
+      </p>
+      {query.isError ? (
+        <p className="text-body-small text-text-danger">
+          {query.error instanceof Error
+            ? query.error.message
+            : "Effective contract could not be read."}{" "}
+          Retry from Compile.
+        </p>
+      ) : !compiled ? (
+        <p className="text-body-small text-text-subtle">
+          No compiled artefact yet — run Compile, or publish to persist one.
+        </p>
+      ) : (
+        <div className="space-y-100 text-body-small">
+          <div>
+            Hash <span className="font-mono">{hash || "—"}</span>
+          </div>
+          {grants.map((g) => (
+            <div key={g.channel}>
+              <span className="font-medium">{g.channel}</span>{" "}
+              <Lozenge tone="neutral">{controlKindLabel("runtime")}</Lozenge>
+              <div className="mt-025 font-mono text-body-tiny text-text-subtle">
+                {(g.offered.length ? g.offered : g.allowed).join(", ") || "none"}
+              </div>
+            </div>
+          ))}
+          {skills.length ? (
+            <div>
+              Skills <Lozenge tone="neutral">{controlKindLabel("compile-only")}</Lozenge>
+              <div className="mt-025 font-mono text-body-tiny text-text-subtle">
+                {skills.map((s) => `${s.skill_id}@${s.version}`).join(", ")}
+              </div>
+            </div>
+          ) : null}
+          {gates.length ? (
+            <div>
+              Human gates <Lozenge tone="neutral">{controlKindLabel("runtime")}</Lozenge>
+              <div className="mt-025 font-mono text-body-tiny text-text-subtle">
+                {gates.map((g) => `${g.tool_name}:${g.require}`).join(", ")}
+              </div>
+            </div>
+          ) : null}
+          <p className="text-body-tiny text-text-subtlest">
+            Text sandbox is simulated, not live. Flow is validated here; WhatsApp does not walk the
+            graph in rehearsal.
+          </p>
+        </div>
+      )}
+    </section>
   );
 }

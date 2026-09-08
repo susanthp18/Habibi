@@ -171,8 +171,16 @@ export function retryUnlessClientError(failureCount: number, error: unknown): bo
   return failureCount < 2;
 }
 
+export type TransportSchema<T> = { parse: (value: unknown) => T };
+
+type ApiInit<T> = {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+  schema?: TransportSchema<T>;
+};
+
 /** Thin typed GET helper for the live API. */
-export async function apiGet<T>(path: string, init?: { signal?: AbortSignal }): Promise<T> {
+export async function apiGet<T>(path: string, init?: ApiInit<T>): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: authHeaders(),
     credentials: "include",
@@ -184,14 +192,15 @@ export async function apiGet<T>(path: string, init?: { signal?: AbortSignal }): 
   }
   const text = await res.text();
   if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  const payload: unknown = JSON.parse(text);
+  return init?.schema ? init.schema.parse(payload) : (payload as T);
 }
 
 async function apiSend<T>(
   method: "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
-  init?: { signal?: AbortSignal; headers?: Record<string, string> },
+  init?: ApiInit<T>,
 ): Promise<T> {
   const headers = authHeaders(
     body !== undefined ? { "Content-Type": "application/json" } : undefined,
@@ -212,14 +221,11 @@ async function apiSend<T>(
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  const payload: unknown = JSON.parse(text);
+  return init?.schema ? init.schema.parse(payload) : (payload as T);
 }
 
-export function apiPost<T>(
-  path: string,
-  body: unknown,
-  init?: { signal?: AbortSignal; headers?: Record<string, string> },
-): Promise<T> {
+export function apiPost<T>(path: string, body: unknown, init?: ApiInit<T>): Promise<T> {
   return apiSend<T>("POST", path, body, init);
 }
 

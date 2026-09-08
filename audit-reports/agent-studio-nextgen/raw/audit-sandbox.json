@@ -1,0 +1,348 @@
+{
+ "slice": "sandbox",
+ "summary": "PARITY VERDICT: \"Test in Sandbox\" does not test what Publish ships. The one thing that IS the same is the version identity — StudioHeader's button saves the dirty draft and navigates with `search: {promptVersionId: draft.id, botId}` (Habibi/src/routes/prompt-studio.lazy.tsx:1063-1102), the route validates those params (Habibi/src/routes/sandbox.tsx:3-13), and the sandbox refuses a version that is not on the selected card instead of silently swapping (Habibi/src/routes/sandbox.lazy.tsx:100-117). Everything downstream of that diverges.\n\nTEXT SANDBOX (POST /sandbox/runs/{id}/turns → backend/sandbox_runtime.py:679-1088):\n- Version resolved: SAME (the draft row, backend/sandbox_runtime.py:698-700).\n- Prompt/persona/guardrail text: DIFFERENT — assembled via build_system_prompt with the DEFAULT channel \"text\" (backend/agent_core/turn.py:75-81, backend/agent_core/prompt.py:145), which strips the recording-disclosure rule (backend/agent_core/prompt.py:74-75) and injects \"This is NOT a phone call ... never state a call-recording disclosure even if an instruction above tells you to always disclose one\" (backend/agent_core/prompt.py:116-123). A voice card is rehearsed as a chat thread — and then flagged for obeying (SANDBOX-04).\n- Prompt context: DIFFERENT — the persona context is computed at run creation and thrown away; every turn renders with default_context (\"Customer\" / \"XXXX\" / overdue 0) (SANDBOX-02).\n- Tool Grant: NOT EXERCISED AT ALL. The tool loop is gated on a customer_id that the request model cannot carry (SANDBOX-01). Identity-verification gate, connectors, always-on tools, load_skill, the tool audit — none run.\n- Flow graph: NOT RUN. `flow` appears zero times in backend/sandbox_runtime.py; the live voice path builds it (backend/voice/bot.py:1170-1176) (SANDBOX-03).\n- Skills prefix: SAME call (resolve_mouth(...).prompt().prefix). load_skill activation: DIFFERENT (SANDBOX-10).\n- Max turns: DIFFERENT — hard cap of 3 exchanges with a halt, where the live text path computes the same flag and discards it (SANDBOX-05).\n- Locked engines / tuning: DIFFERENT — text turns read temperature from prompt_versions.tuning while the Tuning Studio panel beside them is inert, yet Promote ships that panel's values (SANDBOX-06/08).\n\nVOICE SANDBOX: much better parity — it loads the draft via resolve_prompt_bundle and runs the real authored flow and the version's bot_id (backend/voice/bot.py:401-424, 441-445, 1170-1176). Two defects: the browser's tuning object overwrites the authored tuning wholesale (SANDBOX-07), and /voice/sandbox/{id}/tune persists nowhere but the session file, dying with the session (SANDBOX-16). The text sandbox's handoff allowlist is NOT evaluated against the card under test — ToolContext is built with bot_id=DEFAULT_BOT_ID and never sets ctx.agent_card, so it would fall back to the built-in kaia card (SANDBOX-09).",
+ "endpoints": [
+  "POST /sandbox/runs → backend/main.py:3376 create_sandbox_run → backend/sandbox_runtime.py:513 create_sandbox_run (falls back to agent_core.deployment.load_active_bundle(\"sandbox\") at backend/agent_core/deployment.py:13 when no promptVersionId)",
+  "GET /sandbox/scenarios → backend/main.py:3428 list_sandbox_scenarios → db.list_sandbox_scenarios",
+  "GET /sandbox/runs/{run_id} → backend/main.py:3434 get_sandbox_run → db.get_sandbox_run (client exists at Habibi/src/api/sandbox.ts:150,170 — NO component caller)",
+  "POST /sandbox/runs/{run_id}/turns → backend/main.py:3443 append_sandbox_turn → backend/sandbox_runtime.py:679 append_sandbox_turn",
+  "POST /sandbox/runs/{run_id}/complete → backend/main.py:3461 complete_sandbox_run → backend/sandbox_runtime.py:1090 complete_sandbox_run (only caller is backend/voice_sandbox.py:248; no text-sandbox client)",
+  "GET /sandbox/tuning/presets → backend/main.py:3466 list_sandbox_tuning_presets → backend/agent_core/tuning.py:158 list_presets (client Habibi/src/api/voice-sandbox.ts:67 — NO caller)",
+  "GET /voice/status → backend/main.py:3473 get_voice_status → backend/voice_sandbox.py:93 voice_status",
+  "POST /voice/sandbox/start → backend/main.py:3480 start_voice_sandbox_session → backend/voice_sandbox.py:166 start_voice_sandbox → backend/sandbox_runtime.py:513 create_sandbox_run + voice_session_store.write",
+  "POST /voice/sandbox/{session_id}/stop → backend/main.py:3490 stop_voice_sandbox_session → backend/voice_sandbox.py:236 stop_voice_sandbox",
+  "POST /voice/sandbox/{session_id}/tune → backend/main.py:3497 tune_voice_sandbox_session → backend/voice_sandbox.py:255 tune_voice_sandbox (session store only)",
+  "POST /prompt-versions/{id}/publish (Sandbox Promote) → Habibi/src/routes/sandbox.lazy.tsx:446 → Habibi/src/api/prompt-studio.ts:651 publishPromptVersion → backend/db_prompt_studio.py:1820 publish_prompt_version"
+ ],
+ "runtime_consumers": [
+  "SandboxRunCreateRequest.context (backend/schemas.py:2562) → backend/sandbox_runtime.py:529-531 renders openingTemplate only; never persisted, never reaches a turn → effectively NONE past turn 0",
+  "SandboxTurnCreateRequest.context (backend/schemas.py:2584) → backend/sandbox_runtime.py:818, 843-848 → NONE in practice: Habibi/src/routes/sandbox.lazy.tsx:279-286 never passes it",
+  "SandboxContext.customerId → does not exist (backend/schemas.py:2532-2543, extra=\"forbid\") → the tool-loop gate at backend/sandbox_runtime.py:852 can never be satisfied",
+  "payload.enableTools (backend/sandbox_runtime.py:186-189) → NONE — rejected by extra=\"forbid\" at backend/schemas.py:2580 before the handler runs",
+  "SANDBOX_TEXT_TOOLS (backend/.env.example:378) → backend/sandbox_runtime.py:191 → NONE effectively: still ANDed with the unreachable customer_id at backend/sandbox_runtime.py:852",
+  "SANDBOX_HARD_MAX_TURNS → backend/sandbox_runtime.py:366 and backend/agent_core/guardrails.py:14; duplicated as a literal 3 in Habibi/src/routes/sandbox.lazy.tsx:466",
+  "SandboxTurnCreateRequest.topK → backend/sandbox_runtime.py:776 (clamped to 6)",
+  "SandboxTurnCreateRequest.skillSlug → backend/sandbox_runtime.py:722-726 (prefix) and 829-836 (body)",
+  "prompt_versions.flow → NONE in the text sandbox (zero occurrences in backend/sandbox_runtime.py); consumed only by backend/voice/bot.py:1170-1176",
+  "prompt_versions.agent_card → backend/sandbox_runtime.py:724-726, 829-833 (skills prompt) and 861 (tool loop, unreachable); ctx.agent_card is NEVER set, unlike backend/bot_runtime.py:947",
+  "agent_card.human_gates → NONE (no runtime enforcer; unchanged from the established facts)",
+  "VoiceSandboxStartRequest.botId / customerId / accountId / deploymentId (backend/schemas.py:3296-3301) → NONE — backend/voice_sandbox.py:166-224 reads only promptVersionId, kbSnapshotId, scenarioId, persona, tuning",
+  "VoiceSandboxStartRequest.tuning → backend/voice_sandbox.py:172 → session store → backend/voice/bot.py:418-423 merge_tuning_delta (overwrites the version's tuning)",
+  "VoiceSandboxTuneRequest.tuning → backend/voice_sandbox.py:255-281 session store only → NONE beyond the session (no bot_deployments write)",
+  "GET /sandbox/tuning/presets response → NONE: TuningStudio reads the hardcoded Habibi/src/data/agent-tuning.ts:110 AGENT_TUNING_PRESETS (Habibi/src/components/sandbox/TuningStudio.tsx:112, 198-219)",
+  "GET /sandbox/runs/{id} response → NONE: Habibi/src/api/sandbox.ts:170 useSandboxRun has no component caller"
+ ],
+ "findings": [
+  {
+   "id": "SANDBOX-01",
+   "title": "Test in Sandbox executes zero tools — the Tool Grant is never exercised, and SANDBOX_TEXT_TOOLS cannot turn it on",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/sandbox_runtime.py:843",
+    "backend/sandbox_runtime.py:852",
+    "backend/sandbox_runtime.py:185",
+    "backend/schemas.py:2532",
+    "backend/schemas.py:2580",
+    "Habibi/src/routes/sandbox.lazy.tsx:279",
+    "backend/.env.example:378"
+   ],
+   "mechanism": "The text tool loop runs only when `_sandbox_tools_enabled(...) and customer_id` (backend/sandbox_runtime.py:852). `customer_id` is read from `context[\"customerId\"] / context[\"customer_id\"] / payload[\"customerId\"]` (backend/sandbox_runtime.py:843-848). None can ever be present: `SandboxContext` is `extra=\"forbid\"` and declares no customerId field (backend/schemas.py:2532-2543), `SandboxTurnCreateRequest` is `extra=\"forbid\"` (backend/schemas.py:2580) so a top-level customerId 422s, and the only client never sends `context` at all (Habibi/src/routes/sandbox.lazy.tsx:279-286 omits it; Habibi/src/api/sandbox.ts:305-311 then posts context:null, which backend/main.py:3446-3450 pops). `SANDBOX_TEXT_TOOLS=true` (backend/.env.example:378, read at backend/sandbox_runtime.py:191) is ANDed with the same unreachable customer_id, so the documented switch is inert. `_run_sandbox_tool_loop` (backend/sandbox_runtime.py:197-364) — the Tool Grant via mouth.tools(), the catalog execution, the identity-verification path in bot_tools, the bot_tool_calls audit — is dead code from the HTTP surface.",
+   "trigger": "Open any card in Prompt Studio, click Test in Sandbox, send any customer turn. The reply is a plain chat completion with no tools offered. A card whose entire value is create_promise_to_pay / get_customer_context / handoff_to_agent rehearses green having called none of them.",
+   "fix": "Add `customerId` to SandboxContext (backend/schemas.py:2532) and have the sandbox bind the scenario persona to a CRM row the way the voice path already does (backend/voice_sandbox.py:129-165), then pass it from Habibi/src/routes/sandbox.lazy.tsx:279. Until then the header should say tools are off rather than implying a full rehearsal.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-02",
+   "title": "Every sandbox turn renders the prompt with the default context, not the scenario persona",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/sandbox_runtime.py:529",
+    "backend/sandbox_runtime.py:818",
+    "backend/agent_core/turn.py:55",
+    "backend/agent_core/prompt.py:38",
+    "Habibi/src/routes/sandbox.lazy.tsx:279",
+    "Habibi/src/api/sandbox.ts:112"
+   ],
+   "mechanism": "`create_sandbox_run` builds the persona context (backend/sandbox_runtime.py:529, from Habibi/src/api/sandbox.ts:112-122 contextFromPersona) and uses it only to render the opening template (backend/sandbox_runtime.py:531); it is returned to the client but never written to sandbox_runs. `append_sandbox_turn` then passes `payload.get(\"context\")` (backend/sandbox_runtime.py:818), which the client never sends, so `assemble_turn_messages` falls through to `default_context(None)` (backend/agent_core/turn.py:55 → backend/agent_core/prompt.py:38-50): customer_name \"Customer\", account_no \"XXXX\", overdue_amount \"0\", due_date \"\". The untrusted CRM developer card (backend/agent_core/turn.py:83-86) carries those placeholders too.",
+   "trigger": "Run the \"Rahul Sharma, ₹62,400 overdue, 47 DPD\" scenario. The PersonaCard shows Rahul and the amount; the model is told it is talking to \"Customer\" with ₹0 outstanding, so every rehearsal of a prompt that references {overdue_amount} or {customer_name} tests the empty case.",
+   "fix": "Persist the run context (a jsonb column on sandbox_runs, or re-render from the scenario persona in append_sandbox_turn) and feed it into assemble_turn_messages instead of the per-turn payload.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-03",
+   "title": "The sandbox never runs the flow graph the operator authored — publish ships it, the rehearsal does not",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/sandbox_runtime.py:679",
+    "backend/voice/bot.py:1170",
+    "backend/agent_core/deployment.py:120",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1072"
+   ],
+   "mechanism": "`flow` occurs zero times in backend/sandbox_runtime.py. The draft the button saves carries `flow` (Habibi/src/routes/prompt-studio.lazy.tsx:1072) and resolve_prompt_bundle returns it (backend/agent_core/deployment.py:120), but the text sandbox loads the version with db.get_prompt_version and reads only prompt / persona / guardrails / tuning / agentCard (backend/sandbox_runtime.py:698-770). The live voice runtime checks `voice_uses_authored_flow(bundle[\"flow\"])` and builds the node graph (backend/voice/bot.py:1170-1176). So node transitions, per-node tool restrictions and terminal nodes are untested by the surface named \"Test in Sandbox\".",
+   "trigger": "Author a flow in the canvas (verify → disclose → negotiate), click Test in Sandbox, and the run is a single free-form prompt loop. The flow is exercised for the first time in production, or in Live mode only.",
+   "fix": "Either run the authored flow in the text sandbox (the flow engine is channel-agnostic enough to drive a text turn), or label the text tab \"prompt + retrieval only\" and route flow rehearsal to Live mode explicitly.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-04",
+   "title": "The sandbox tells a voice card it is in a chat thread and must never disclose recording, then flags it for not disclosing",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/agent_core/turn.py:75",
+    "backend/agent_core/prompt.py:145",
+    "backend/agent_core/prompt.py:74",
+    "backend/agent_core/prompt.py:116",
+    "backend/sandbox_runtime.py:906",
+    "backend/agent_core/guardrails.py:240",
+    "backend/agent_core/guardrails.py:22"
+   ],
+   "mechanism": "`assemble_turn_messages` calls `build_system_prompt` without a channel (backend/agent_core/turn.py:75-81), so it defaults to \"text\" (backend/agent_core/prompt.py:145). That drops the alwaysDiscloseRecording rule from the rendered guardrails (backend/agent_core/prompt.py:74-75) AND injects the channel framing \"You are messaging this customer in a written chat thread. This is NOT a phone call ... never state a call-recording disclosure even if an instruction above tells you to always disclose one\" (backend/agent_core/prompt.py:116-123). The same turn then calls evaluate_guardrails with the card's guardrails (backend/sandbox_runtime.py:900-916), which raises `missing-recording-disclosure` from turn index 1 (backend/agent_core/guardrails.py:22, 240-243) when the bot obeys the instruction the sandbox just gave it.",
+   "trigger": "Rehearse a voice card with alwaysDiscloseRecording on, using a scenario whose openingBot does not contain the disclosure (the seed has such scenarios — see backend/tests/test_sandbox_disclosure_and_grounding.py:33 GREETING_THAT_DOES_NOT). Turn 1 comes back red with a compliance flag against a prompt that is correct for the channel it will actually ship on.",
+   "fix": "Pass the card's real channel into build_system_prompt from the sandbox (voice cards render the voice framing), and gate the missing-recording-disclosure check on the same channel so the instruction and the assertion cannot contradict each other.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-05",
+   "title": "Every sandbox run halts at 3 customer turns; the live text path computes the same max-turns flag and throws it away",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/sandbox_runtime.py:366",
+    "backend/sandbox_runtime.py:712",
+    "backend/sandbox_runtime.py:948",
+    "backend/agent_core/guardrails.py:221",
+    "backend/agent_core/guardrails.py:251",
+    "backend/bot_runtime.py:816",
+    "Habibi/src/routes/sandbox.lazy.tsx:466"
+   ],
+   "mechanism": "`_HARD_MAX_TURNS` defaults to 3 (backend/sandbox_runtime.py:366) and `effective_max = min(3, card.maxTurns)` (backend/sandbox_runtime.py:712, re-checked under the row lock at 948). Exceeding it raises `sandbox_max_turns:3` → HTTP 409, and evaluate_guardrails independently appends `max-turns` (backend/agent_core/guardrails.py:221-225) which should_halt treats as terminal (backend/agent_core/guardrails.py:251-263), so the run is marked completed. The live text runtime calls evaluate_guardrails and only ever inspects the result for \"auto-escalate\" (backend/bot_runtime.py:816-825) — max-turns never stops a production conversation. The frontend hardcodes the same 3 as a literal (Habibi/src/routes/sandbox.lazy.tsx:466), so raising SANDBOX_HARD_MAX_TURNS desyncs the header counter.",
+   "trigger": "Author maxTurns=12 in the Guardrails tab and rehearse: the sandbox halts on exchange 3 with a max-turns guardrail the operator did not configure, and there is no way to test turn 4 onwards — where handoffs, escalations and long negotiations actually live.",
+   "fix": "Separate the cost ceiling from the guardrail: keep a budget cap that reports itself as \"sandbox budget reached\", not as a guardrail flag, and let the card's maxTurns be the value under test. Read the ceiling from one place (server) rather than duplicating 3 in the client.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-06",
+   "title": "Tuning presets are a second, drifted copy in the browser; the server endpoint that exists to prevent this has no caller",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "Habibi/src/components/sandbox/TuningStudio.tsx:112",
+    "Habibi/src/components/sandbox/TuningStudio.tsx:198",
+    "Habibi/src/data/agent-tuning.ts:107",
+    "Habibi/src/data/agent-tuning.ts:136",
+    "Habibi/src/data/agent-tuning.ts:149",
+    "Habibi/src/data/agent-tuning.ts:162",
+    "backend/agent_core/tuning.py:62",
+    "backend/agent_core/tuning.py:73",
+    "backend/agent_core/tuning.py:85",
+    "backend/agent_core/tuning.py:95",
+    "backend/agent_core/tuning.py:107",
+    "backend/main.py:3466",
+    "Habibi/src/api/voice-sandbox.ts:67"
+   ],
+   "mechanism": "TuningStudio reads only the hardcoded `AGENT_TUNING_PRESETS` (Habibi/src/components/sandbox/TuningStudio.tsx:112 and the picker at 198-219); `fetchTuningPresets` (Habibi/src/api/voice-sandbox.ts:67-76) and `GET /sandbox/tuning/presets` (backend/main.py:3466-3470 → backend/agent_core/tuning.py:158-163) have no caller anywhere in Habibi/src. The two copies have drifted: default preset idle_timeout_secs 6.0 (Habibi/src/data/agent-tuning.ts:107) vs 12.0 server-side, where the 12.0 carries an explicit incident note about 6.0 firing inside normal thinking time on call VS-6B252E0479 (backend/agent_core/tuning.py:54-62); brisk-verification idle 5 vs 10 and frequency_penalty left at 0.3 vs 0.1 (Habibi/src/data/agent-tuning.ts:136 vs backend/agent_core/tuning.py:73, 85); firm-legal idle 8 vs 15, frequency_penalty 0.5 vs 0.4, tts style \"empathetic\" vs \"serious\" (Habibi/src/data/agent-tuning.ts:149-162 vs backend/agent_core/tuning.py:95-107). The endpoint also returns no `summary` field although the client's type demands one (backend/agent_core/tuning.py:160 vs Habibi/src/api/voice-sandbox.ts:68), which is why nothing ever wired it up.",
+   "trigger": "Pick \"Empathetic-collections\" in the Tuning Studio and start a Live call: the agent runs a 6-second idle timeout — the value the backend reverted after a production incident — and Promote then writes it into the production deployment (see SANDBOX-08).",
+   "fix": "Delete AGENT_TUNING_PRESETS as a source of truth, add `summary` to backend/agent_core/tuning.py:158 list_presets, and load presets through the existing endpoint. Keep the client constant only as an offline/mock fallback.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-07",
+   "title": "The voice sandbox overwrites the version's authored tuning with a tuning object the browser built",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/voice/bot.py:412",
+    "backend/voice/bot.py:418",
+    "backend/agent_core/tuning.py:354",
+    "backend/voice_sandbox.py:172",
+    "Habibi/src/components/sandbox/voice/useSandboxLiveCall.ts:234",
+    "Habibi/src/routes/sandbox.lazy.tsx:176",
+    "Habibi/src/data/agent-tuning.ts:231"
+   ],
+   "mechanism": "voice/bot.py first sets bundle[\"tuning\"] from the prompt version (backend/voice/bot.py:412-416), then merges the session tuning over it (backend/voice/bot.py:418-423). `merge_tuning_delta` deep-merges and re-normalizes (backend/agent_core/tuning.py:354-356), so a COMPLETE tuning object wins on every key. The session tuning is exactly that: voice_sandbox normalizes whatever the browser posted (backend/voice_sandbox.py:172) and the page always posts a full object (Habibi/src/components/sandbox/voice/useSandboxLiveCall.ts:234-239), built by `tuningFromVoiceConfig(activePrompt.voice, DEFAULT_AGENT_TUNING)` (Habibi/src/routes/sandbox.lazy.tsx:176-180 → Habibi/src/data/agent-tuning.ts:231-261), which derives only tts voice/rate/pitch/style from the version and takes llm, stt, vad, turn and interaction wholesale from the browser default.",
+   "trigger": "Publish a card with a tuned llm.temperature / vad.start_secs / interaction.idle_timeout_secs, then Live-rehearse the same version: the call runs the browser defaults, not the authored values. The version's tuning is never audible in the sandbox.",
+   "fix": "Send only the operator's actual deltas (the Tuning Studio already tracks them for the live-apply path) rather than a full object, or seed the panel from the resolved bundle's tuning instead of DEFAULT_AGENT_TUNING.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-08",
+   "title": "Promote from the Sandbox ships a different deployment than Publish from Prompt Studio, for the same version",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/sandbox.lazy.tsx:442",
+    "Habibi/src/routes/sandbox.lazy.tsx:659",
+    "backend/db_prompt_studio.py:2001",
+    "backend/db_prompt_studio.py:2004",
+    "backend/db_prompt_studio.py:2019",
+    "backend/sandbox_runtime.py:766"
+   ],
+   "mechanism": "`promote()` posts the browser's tuning state (Habibi/src/routes/sandbox.lazy.tsx:442-455). In publish_prompt_version that takes the \"Sandbox Promote — Tuning Studio payload is authoritative\" branch (backend/db_prompt_studio.py:2001-2003), which SKIPS `apply_voice_config_overlay` — the step the Prompt Studio path runs to fold the Voice tab's speed / pitch / warmth and the provider `params` bag into tts (backend/db_prompt_studio.py:2004-2018). The promoted deployment therefore loses the Voice tab's prosody and provider params, and prompt_versions.tuning is overwritten with the browser's values (backend/db_prompt_studio.py:2019-2028). Compounding it, the PromoteDialog advertises \"temp {tuning.llm.temperature}\" (Habibi/src/routes/sandbox.lazy.tsx:659) as though that number was rehearsed, but text turns read temperature from prompt_versions.tuning (backend/sandbox_runtime.py:766-770), not from the panel — in text mode the slider is inert.",
+   "trigger": "Set the Voice tab's warmth/speed/params in Prompt Studio, rehearse in the text sandbox, hit Promote: the shipped deployment has different prosody and no provider params than the one the Publish button would have produced from the identical version, and the temperature shown on the confirm dialog was never used by a single turn.",
+   "fix": "Run apply_voice_config_overlay on the promote branch too (or make promote send only the deltas the operator moved), and either wire the panel's llm section into the text turn or disable it outside Live mode.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-09",
+   "title": "The sandbox tool loop runs as DEFAULT_BOT_ID and never sets ctx.agent_card, so the handoff allowlist would be the wrong card's",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "security",
+   "files": [
+    "backend/sandbox_runtime.py:219",
+    "backend/sandbox_runtime.py:224",
+    "backend/bot_tools.py:400",
+    "backend/bot_tools.py:416",
+    "backend/bot_runtime.py:947"
+   ],
+   "mechanism": "`_run_sandbox_tool_loop` builds ToolContext with `bot_id=db.DEFAULT_BOT_ID` (backend/sandbox_runtime.py:224) and never assigns `ctx.agent_card`, although it has the card in hand (it passes the same dict to resolve_mouth at backend/sandbox_runtime.py:214). `_handoff_allowlist` therefore skips the live-card branch (backend/bot_tools.py:416-419) and falls back to `card_for(DEFAULT_BOT_ID)` (backend/bot_tools.py:423-429) — kaia's built-in constant card — where the live text runtime sets it explicitly with the comment \"the handoff allowlist belongs to the card this turn is running\" (backend/bot_runtime.py:947). Every tool audit row and actor_bot_id would also be attributed to kaia.",
+   "trigger": "Latent while SANDBOX-01 keeps the loop unreachable. The moment tools are enabled for a non-default card, its handoff targets are enforced against kaia's list and its tool calls are logged under kaia's bot id.",
+   "fix": "Set `ctx.agent_card = version.get(\"agentCard\")` and `bot_id = version.get(\"botId\") or db.DEFAULT_BOT_ID` in backend/sandbox_runtime.py:219-231, mirroring backend/bot_runtime.py:947.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-10",
+   "title": "The sandbox tool loop has no load_skill activation — progressive disclosure cannot be rehearsed",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/sandbox_runtime.py:216",
+    "backend/sandbox_runtime.py:281",
+    "backend/bot_runtime.py:1023",
+    "backend/bot_tools.py:739"
+   ],
+   "mechanism": "The live text runtime, after a successful load_skill, appends the skill body as a developer message and recomputes the offered tool list from the activated mouth (backend/bot_runtime.py:1023-1038). The sandbox loop does neither: `tools` is computed once before the loop (backend/sandbox_runtime.py:214-218) and the tool-result branch (backend/sandbox_runtime.py:281-322) only appends the JSON result. `_tool_load_skill` deliberately strips the body from its return value (backend/bot_tools.py:739-750) because the caller is expected to inject it, so in the sandbox the model gets `{\"ok\": true, \"body_loaded\": true}` and no instructions.",
+   "trigger": "Latent behind SANDBOX-01. Once tools are on, a card whose ptp-negotiate tools only appear after activating the skill would rehearse with a narrower tool list and no skill instructions than the one publish ships.",
+   "fix": "Lift the load_skill branch out of backend/bot_runtime.py:1023-1038 into a shared helper and call it from both loops.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-11",
+   "title": "The sandbox skill picker offers the whole global library and silently no-ops a slug the card does not carry",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/routes/sandbox.lazy.tsx:609",
+    "backend/sandbox_runtime.py:829",
+    "backend/agent_core/skills/runtime.py:168",
+    "backend/agent_core/skills/runtime.py:230"
+   ],
+   "mechanism": "The dropdown is populated from `skillsQuery.data`, the full catalog returned by /agent-studio/skills (Habibi/src/routes/sandbox.lazy.tsx:609), not from the card's attached skills. `resolve_mouth(..., active_slug=slug).prompt()` returns `body_message=None` when the slug is not among the card's packs (backend/agent_core/skills/runtime.py:168-173) and the sandbox inserts nothing (backend/sandbox_runtime.py:829-836). Nothing tells the operator. Separately, an operator-pinned slug overrides intent-based activation for every turn (backend/agent_core/skills/runtime.py:230-234) — live only activates on intent match or an explicit load_skill call, so pinning also rehearses an activation pattern production will not produce.",
+   "trigger": "Open the sandbox from an insurance skill's detail page (Habibi/src/routes/agent-studio.skills.$skillId.tsx:194-203) against a card that does not attach it: the header shows the skill selected, the run is green, and the skill body was never in the prompt.",
+   "fix": "Filter the picker to the selected card's attached skills, and surface \"not attached to this card\" when a search param names one that is not.",
+   "prior_ref": "4.7"
+  },
+  {
+   "id": "SANDBOX-12",
+   "title": "The sandbox's opening turn is scenario fixture text, not the card's greeting — and it is what satisfies the recording-disclosure check",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/sandbox.lazy.tsx:238",
+    "backend/sandbox_runtime.py:531",
+    "backend/sandbox_runtime.py:756",
+    "backend/voice/bot.py:1170"
+   ],
+   "mechanism": "`openingTemplate` is the scenario seed's `openingBot` (Habibi/src/routes/sandbox.lazy.tsx:238), rendered and persisted as bot turn 0 (backend/sandbox_runtime.py:531, 606-628). That fixture text is then scanned to decide whether the run has already made its recording disclosure (backend/sandbox_runtime.py:756-761). Publish ships the flow's first node or the authored prompt's own greeting (backend/voice/bot.py:1170-1176), which the sandbox never renders.",
+   "trigger": "A card whose authored greeting omits the disclosure still passes the sandbox's disclosure check because the test scenario's greeting contains it — the compliance signal is coming from a fixture, not from the thing being published.",
+   "fix": "Render the card's own opening (flow first node, or the prompt's greeting) as turn 0 and keep the scenario's openingBot only as an operator-selectable override.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-13",
+   "title": "Text sandbox runs are never completed and the persisted transcript is never read back",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/main.py:3461",
+    "backend/main.py:3434",
+    "Habibi/src/api/sandbox.ts:170",
+    "backend/voice_sandbox.py:248"
+   ],
+   "mechanism": "`POST /sandbox/runs/{id}/complete` (backend/main.py:3461-3463) has no client in Habibi/src/api/sandbox.ts — the only caller is the voice stop path (backend/voice_sandbox.py:243-252). `GET /sandbox/runs/{id}` has a client (`useSandboxRun`, Habibi/src/api/sandbox.ts:150-176) with no component caller; the page renders only its local `turns` state. So every text rehearsal leaves a `running` sandbox_runs row behind, a reload loses the conversation, and the server-authoritative record — grounded chunk titles, guardrail flags, latency — is written and never shown.",
+   "trigger": "Run three text turns, reload the page: the transcript is gone and the row still reads running. Reset/scenario-change (Habibi/src/routes/sandbox.lazy.tsx:208-227) drops the run client-side without telling the server.",
+   "fix": "Call /complete on reset, scenario change and unmount; use useSandboxRun to rehydrate an in-flight run from the runId.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-14",
+   "title": "Sandbox tool-iteration budget is 4 where the live text runtime allows 6",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/sandbox_runtime.py:178",
+    "backend/bot_runtime.py:54"
+   ],
+   "mechanism": "`_SANDBOX_MAX_TOOL_ITERS = 4` is a module constant with no env override (backend/sandbox_runtime.py:178); live reads BOT_MAX_TOOL_ITERATIONS with a default of 6 (backend/bot_runtime.py:54). A multi-tool turn that completes live can exhaust the budget in the sandbox and fall to the tool-free final completion (backend/sandbox_runtime.py:325-352).",
+   "trigger": "Latent behind SANDBOX-01; fires as soon as the tool loop is reachable and a turn needs five tool round-trips.",
+   "fix": "Read the same env knob in both loops.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-15",
+   "title": "VoiceSandboxStartRequest declares four fields the handler never reads",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/schemas.py:3296",
+    "backend/voice_sandbox.py:166"
+   ],
+   "mechanism": "`customerId`, `accountId`, `botId` and `deploymentId` are accepted by the request model (backend/schemas.py:3296-3301) and dropped: start_voice_sandbox reads only promptVersionId, kbSnapshotId, scenarioId, persona and tuning (backend/voice_sandbox.py:166-224). A caller pinning botId or deploymentId gets a 200 and the version's bot instead.",
+   "trigger": "Any integration or test that posts botId/deploymentId expecting them to select the deployment: they are silently ignored.",
+   "fix": "Remove the fields, or honour botId/deploymentId when resolving the bundle.",
+   "prior_ref": "none"
+  },
+  {
+   "id": "SANDBOX-16",
+   "title": "/voice/sandbox/{id}/tune writes die with the session — nothing reaches a deployment",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/voice_sandbox.py:255",
+    "backend/voice_sandbox.py:236",
+    "backend/main.py:3497",
+    "Habibi/src/components/sandbox/TuningStudio.tsx:139"
+   ],
+   "mechanism": "`tune_voice_sandbox` merges the delta into the session store entry and nothing else (backend/voice_sandbox.py:255-281); its own docstring says it only exists so a Restart picks the knobs up. `stop_voice_sandbox` marks the session stopped (backend/voice_sandbox.py:236-252) and no code path copies the merged tuning to bot_deployments or prompt_versions. The panel presents the change as landed (\"Applied\" flash, Habibi/src/components/sandbox/TuningStudio.tsx:139-156) with no indication it is session-scoped.",
+   "trigger": "Spend a Live call dialling in barge_in, idle timeout and style; stop the call. The tuning is gone. The only way to keep it is Promote — which ships the browser's drifted preset values instead (SANDBOX-06/08).",
+   "fix": "Either persist the session tuning back onto the prompt version on stop, or say plainly in the panel that live tuning is session-scoped until promoted.",
+   "prior_ref": "none"
+  }
+ ],
+ "checked_fine": [
+  "Version identity is honoured end to end: Test in Sandbox saves the dirty draft first and navigates with that id plus botId (Habibi/src/routes/prompt-studio.lazy.tsx:1063-1102); the route validates promptVersionId/skillSlug/botId (Habibi/src/routes/sandbox.tsx:3-13); the page follows a later botId param instead of keeping a stale selection (Habibi/src/routes/sandbox.lazy.tsx:52-58) and refuses a version that is not on the selected card with a toast rather than silently swapping (Habibi/src/routes/sandbox.lazy.tsx:100-117).",
+  "When the editor is not dirty, `published` falls back to history[0] for a never-published clone (Habibi/src/routes/prompt-studio.lazy.tsx:423-426), and `dirty` diffs against the published row (Habibi/src/routes/prompt-studio.lazy.tsx:493-521) — so a saved draft still reads dirty and gets re-saved before the navigate. No path sends the operator to a version other than the one on screen.",
+  "The draft card really is the card publish ships: publish only folds the shipped `experiment` back into agent_card (backend/db_prompt_studio.py:1928-1958); prompt, persona, voice, guardrails and the rest of the card are the same row the sandbox loads.",
+  "The skills prefix and the Tool Grant formula are the identical call the live text runtime makes — resolve_mouth(card).prompt().prefix and .tools(channel_tools=CATALOG.for_channel(CHANNEL_TEXT)) (backend/sandbox_runtime.py:214-218, 722-726 vs backend/bot_runtime.py:913-916). ADR-0002 fail-closed behaviour (cardless mouth ⇒ empty grant) is shared (backend/agent_core/skills/runtime.py:189-194).",
+  "The voice sandbox resolves the DRAFT version, not the active deployment (backend/voice/bot.py:401-408 → backend/agent_core/deployment.py:96-137), runs the authored flow (backend/voice/bot.py:1170-1176) and derives bot_id from the version rather than env BOT_ID (backend/voice/bot.py:441-445). Session id rides the offer URL query param with the documented reason (backend/voice_sandbox.py:37-56) and no shared \"latest\" pointer is written (backend/voice_sandbox.py:215-217).",
+  "The voice sandbox binds the persona to a real CRM row and drops an unknown id rather than honouring it (backend/voice_sandbox.py:129-165).",
+  "Concurrent appends to one run serialise correctly: counts and derived turn ids are read under `SELECT ... FOR UPDATE` on sandbox_runs, and the max-turns check is repeated authoritatively inside that transaction (backend/sandbox_runtime.py:920-955).",
+  "Sandbox tool calls would be audited to bot_tool_calls with redacted args and a bounded result preview, and an audit failure cannot take out the run (backend/sandbox_runtime.py:296-322) — correct, just unreachable (SANDBOX-01).",
+  "Tool results fed back to the model are bounded at 4000 chars so they cannot compound per iteration, while the Inspector keeps the full structured result (backend/sandbox_runtime.py:288-300); the exhausted-budget case gets one tool-free completion so tool side effects are not orphaned (backend/sandbox_runtime.py:325-352).",
+  "The enrichment prefetch degrades to the keyword classifiers on timeout and falls back to the inline call on pool failure — it can never fail a turn (backend/sandbox_runtime.py:150-176, 118-148).",
+  "The recording-disclosure guardrail is run-scoped, not turn-scoped: the whole history is scanned once (backend/sandbox_runtime.py:756-761) and pinned by tests (backend/tests/test_sandbox_disclosure_and_grounding.py:40-77). The prior 2026-08-25 finding is fixed.",
+  "Grounding chips, the \"N chunks\" counter and the persisted retrieved_chunk_ids all come from one list, server and client (backend/sandbox_runtime.py:_grounding_sources; Habibi/src/api/sandbox.ts:349-360), with tests at backend/tests/test_sandbox_disclosure_and_grounding.py:88-115.",
+  "POST /sandbox/runs/{id}/turns accepts the exact body the browser posts, including skillSlug, and the test goes through the app rather than the runtime (backend/schemas.py:2579-2589; backend/tests/test_sandbox_turn_schema.py:100-120).",
+  "exportInteraction goes through apiGetBlob so it carries the same auth/credentials/timeout as every other call (Habibi/src/api/sandbox.ts:319-341).",
+  "The voice-status probe treats an unreachable worker as not-live rather than leaving the Start button armed, and does not poll a hidden tab (Habibi/src/routes/sandbox.lazy.tsx:182-206); the embedded host is not probed over HTTP and only reports capacity where the counter is meaningful (backend/voice_sandbox.py:93-124)."
+ ]
+}

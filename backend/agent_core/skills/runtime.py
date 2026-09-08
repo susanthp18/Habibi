@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 from agent_core.skills.intersect import tools_after_references
 from agent_core.skills.pack import SkillPack
@@ -69,15 +69,17 @@ def packs_from_card(card_raw: Any) -> list[SkillPack]:
         card = parse_card(card_raw)
     except Exception:
         return []
-    slugs = [ref.skill_id for ref in card.skills]
-    if not slugs:
-        slugs = list(CARD_SKILLS.get(card.identity.bot_id, ()))
-    if not slugs:
+    refs = list(card.skills)
+    if not refs:
+        from agent_core.skills.defaults import skill_refs
+
+        refs = skill_refs(*CARD_SKILLS.get(card.identity.bot_id, ()))
+    if not refs:
         return []
     try:
-        from agent_core.skills.persist import packs_for_slugs
+        from agent_core.skills.persist import packs_for_skill_refs
 
-        db_packs = packs_for_slugs(slugs)
+        db_packs = packs_for_skill_refs(refs)
         if db_packs:
             return db_packs
     except Exception:
@@ -87,12 +89,20 @@ def packs_from_card(card_raw: Any) -> list[SkillPack]:
         # ``intersect.effective_tools`` gates writes on pack contents, so the
         # bot would regain e.g. create_promise_to_pay for the duration of the
         # blip. No packs means the gate denies, which is the safe direction.
-        logger.error("skill packs unavailable — failing closed · slugs=%s", slugs, exc_info=True)
+        logger.error(
+            "skill packs unavailable — failing closed · slugs=%s",
+            [ref.skill_id for ref in refs],
+            exc_info=True,
+        )
         return []
+    # An empty result is not a fault — a database that simply has no signed rows
+    # yet (a fresh deploy, before boot sync) is the ordinary first-party case,
+    # and those packs ship on disk. Only the ``except`` above is a fault, and it
+    # still fails closed.
     packs: list[SkillPack] = []
-    for slug in slugs:
+    for ref in refs:
         try:
-            packs.append(pack_for_slug(slug))
+            packs.append(pack_for_slug(ref.skill_id))
         except KeyError:
             continue
     return packs
@@ -160,6 +170,7 @@ class MouthTurn:
     card: "AgentCard | None"
     packs: tuple[SkillPack, ...]
     active_slug: str | None
+    frozen_connector_tools: frozenset[str] | None = None
 
     def prompt(self) -> SkillPrompt:
         """The Skill prefix and active body for this turn."""
@@ -177,12 +188,20 @@ class MouthTurn:
         *,
         catalog_names: set[str] | None = None,
         channel_tools: set[str] | None = None,
+        floor: frozenset[str] | None = None,
     ) -> ToolState:
         """What this turn may execute, and what to put in front of the model.
 
         ``channel_tools`` is the catalog names renderable on this channel.
         The publish Gate already forwards it; omitting it here is how a
         voice-only name reached WhatsApp, where no handler exists.
+
+        ``floor`` is the channel's always-on set — ``grant.TEXT_ALWAYS`` on the
+        text path, and on voice the equivalent union the FlowManager already
+        applies to its own registry. It joins *both* halves: a name the runtime
+        will execute but never offers is a name the model cannot reach, which is
+        how ``identify_customer`` came to be named in every WhatsApp system
+        prompt and callable on no WhatsApp turn.
         """
         if self.card is None:
             # ADR-0002: a cardless mouth is granted nothing. Empty, not None —
@@ -194,25 +213,38 @@ class MouthTurn:
 
         names = catalog_names or set(CATALOG.specs)
         attached = list(self.packs) if self.packs else None
-        return ToolState(
-            allowed=frozenset(
-                effective_tools(
-                    self.card,
-                    catalog_names=names,
-                    attached_skills=attached,
-                    channel_tools=channel_tools,
-                )
-            ),
-            offered=tuple(
-                offered_tools(
-                    self.card,
-                    catalog_names=names,
-                    attached_skills=attached,
-                    active_slug=self.active_slug,
-                    channel_tools=channel_tools,
-                )
-            ),
+        frozen = (
+            set(self.frozen_connector_tools) if self.frozen_connector_tools is not None else None
         )
+        # A floor is only a floor for names the channel can actually render.
+        # Intersecting first means a mis-stated floor cannot smuggle a
+        # voice-only tool onto text, which is the failure `channel_tools` exists
+        # to prevent.
+        renderable = set(channel_tools) if channel_tools is not None else names
+        base = (set(floor) & renderable) if floor else set()
+        allowed = set(
+            effective_tools(
+                self.card,
+                catalog_names=names,
+                attached_skills=attached,
+                channel_tools=channel_tools,
+                frozen_connector_tools=frozen,
+            )
+        )
+        offered = list(
+            offered_tools(
+                self.card,
+                catalog_names=names,
+                attached_skills=attached,
+                active_slug=self.active_slug,
+                channel_tools=channel_tools,
+                frozen_connector_tools=frozen,
+            )
+        )
+        # Appended, so the card's own tools keep the positions they had —
+        # ordering is part of what the model sees.
+        offered += sorted(base - set(offered))
+        return ToolState(allowed=frozenset(allowed | base), offered=tuple(offered))
 
 
 def resolve_mouth(
@@ -220,6 +252,7 @@ def resolve_mouth(
     *,
     intent: str | None = None,
     active_slug: str | None = None,
+    frozen_connector_tools: Iterable[str] | None = None,
 ) -> MouthTurn:
     """Resolve a mouth's card, packs and active skill once, for both questions."""
     from agent_core.cards.schema import is_authored, parse_card
@@ -227,17 +260,26 @@ def resolve_mouth(
     if not is_authored(card_raw):
         return MouthTurn(card=None, packs=(), active_slug=None)
     packs = packs_from_card(card_raw)
+    frozen = (
+        frozenset(str(n) for n in frozen_connector_tools)
+        if frozen_connector_tools is not None
+        else None
+    )
     try:
         card = parse_card(card_raw)
     except Exception:
         # Packs resolved, card did not parse. Same as an absent card: there is
         # nothing to filter against, so the grant is empty (ADR-0002).
-        return MouthTurn(card=None, packs=tuple(packs), active_slug=None)
+        return MouthTurn(
+            card=None, packs=tuple(packs), active_slug=None, frozen_connector_tools=frozen
+        )
     resolved = active_slug
     if not resolved:
         hit = resolve_intent_skill(intent, packs)
         resolved = hit.slug if hit else None
-    return MouthTurn(card=card, packs=tuple(packs), active_slug=resolved)
+    return MouthTurn(
+        card=card, packs=tuple(packs), active_slug=resolved, frozen_connector_tools=frozen
+    )
 
 
 def mouth_turn_state(

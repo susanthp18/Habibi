@@ -636,7 +636,13 @@ function FleetIndex() {
                         </Lozenge>
                       ) : (
                         <Lozenge
-                          tone={card.evalStatus === "pass" ? "success" : "neutral"}
+                          tone={
+                            card.evalStatus === "pass"
+                              ? "success"
+                              : card.evalStatus === "fail"
+                                ? "danger"
+                                : "neutral"
+                          }
                           title="Eval suite result. 'skipped' means the suite has not run — not a failure."
                         >
                           evals: {card.evalStatus}

@@ -1,0 +1,171 @@
+{
+ "verdicts": [
+  {
+   "id": "TYPES-01",
+   "verdict": "DOWNGRADED",
+   "reason": "Mechanism is real and I reproduced every link: assert_pack_lints returns non-blocking findings (agent_core/skills/lint.py:63-70, BLOCKING_LINT_CODES=lint.py:40 is only unknown_tools/malformed_tool_name); upsert_skill_from_pack attaches them to the returned row (persist.py:315-317); AgentStudioSkillResponse.lintWarnings is declared (schemas.py:3655) and POST (main.py:2322-2331), PATCH (main.py:2333-2342), GET detail (main.py:2308-2319) all serve that model with response_model_exclude_unset=True, so the key really is on the wire; TS SkillSummary (agent-studio.ts:463-483) omits it and `grep lintWarnings Habibi/src` returns zero hits; the import handler shows an unconditional toast.success(\"Imported as unsigned draft\") (agent-studio.skills.index.tsx:142-144). But MAJOR does not survive. Nothing runs wrong, nothing is lost, and no publish verdict is wrong: the write is correct and the toast (\"saved\"/\"imported\") is true, not a lie. The one warning class at issue (description_too_long) is caught blockingly and legibly later by G6 — compile.py:693-694 appends {\"skill_description_tokens\": n, \"cap\": 800} and compile.py:696-704 fails the gate with the detail \"skill prefix n/800 tokens\" — so the operator IS told, at the publish button, by a gate that fails closed. What is lost is earliness, not correctness. That is incorrect-but-contained: MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/skills/lint.py:40",
+    "backend/agent_core/skills/lint.py:54-70",
+    "backend/agent_core/cards/compile.py:693-704",
+    "Habibi/src/routes/agent-studio.skills.index.tsx:140-146"
+   ]
+  },
+  {
+   "id": "TYPES-02",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at the cited lines. test_top_level_members_match (test_agent_card_schema_drift.py:55-68) compares set(AgentCard.model_fields) to AGENT_CARD_MEMBERS; test_the_declared_type_covers_every_member (:70-85) compares that constant to the `type AgentCard` block via a regex that only captures top-level `^\\s*(\\w+)\\??:` inside `export type AgentCard = {…};`. Both walk 14 names only. Nothing in the file mentions CardIdentity, CardTools, CardHandoff, CardConnector, CardSkillRef, CardMemory, Compaction, HumanGate, CardEval, CardExperiment, CardA2A, CardOutbound, CardObjective, CardCadence, VoicemailPolicy, CardPostCall or PostCallRule; every one of those sets extra=\"forbid\" (schema.py:79-419). I also independently re-checked the nested mirror field-by-field against agent-card.ts:126-300 and it is correct today — CardOutbound's 10, CardObjective's 9 and CardCadence's 8 all match — so this is exactly what the author claimed: correct by luck, not by check. The file's own heading (\"The TypeScript Agent Card and the Pydantic one must describe the same card\", :1) overstates what the tests do. MINOR is right: it is a missing guard, not a live defect.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/tests/test_agent_card_schema_drift.py:55-85",
+    "backend/agent_core/cards/schema.py:79-419",
+    "Habibi/src/api/agent-card.ts:126-300"
+   ]
+  },
+  {
+   "id": "TYPES-03",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. test_agent_studio_response_models.py:1-6 states the check is HTTP-body-vs-mapper-output; _assert_same_shape (:28-46) compares two Python values and never opens a .ts file. nullability.test.ts:11-63 reads only api/types/customer360.ts, api/types/audit.ts and api/customers.ts. I also checked the two other candidate guards in backend/tests: test_schema_parity.py is sql/*.sql vs the migrated database (:1-22), and test_sandbox_turn_schema.py reads sandbox.ts but only for the REQUEST body (:198-213, `test_every_key_the_studio_posts_is_a_field_on_the_request_model`) — no response-side TS assertion anywhere. So the studio's ~14 hand-written response mirrors in agent-studio.ts have a zero-test blast radius, and TYPES-04/06/07/10 are four independently-confirmed drifts inside that surface, which is the evidence the claim needs. MINOR (structural coverage gap, no live wrong behaviour).",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/tests/test_agent_studio_response_models.py:28-46",
+    "backend/tests/test_sandbox_turn_schema.py:198-213",
+    "Habibi/src/api/agent-studio.ts:342",
+    "Habibi/src/api/agent-studio.ts:62-74"
+   ]
+  },
+  {
+   "id": "TYPES-04",
+   "verdict": "CONFIRMED",
+   "reason": "Every link holds. record_publish builds the payload with \"previousVersionId\" (change_log.py:202) and \"hashes\": after (change_log.py:212) where after = component_hashes(version) (change_log.py:197); read_entries spreads the whole payload onto the entry (change_log.py:343); AgentStudioChangeLogEntryResponse declares previousVersionId and hashes: dict[str,str]|None. TS ChangeLogEntry declares neither, and ChangeLogTab renders only entry.entryHash (ChangeLogTab.tsx:166-169) — `grep hashes|previousVersionId ChangeLogTab.tsx` matches nothing but a prose line at :103. Trigger is real and needs no special state: publish anything, open the Change log tab. Note this contradicts the prior audit's own checked_fine line (\"templates/cards/change-log response shapes match their TS types field-for-field\", AGENT_STUDIO_BUG_HUNT.md:39), so it is new information, not a restatement. Line numbers for the two schema fields are wrong by ten — corrected below. MINOR stands: the audit chain link (entryHash) IS rendered, so tamper-evidence is not lost; what is lost is tying an entry to a version's contents.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/schemas.py:3552",
+    "backend/schemas.py:3559",
+    "backend/agent_core/change_log.py:197",
+    "Habibi/src/api/agent-studio.ts:899-921",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:166-169"
+   ]
+  },
+  {
+   "id": "TYPES-05",
+   "verdict": "DOWNGRADED",
+   "reason": "The facts check out but the severity does not. CompileReport.mission_entries is declared at compile.py:78-81 with the docstring \"The Outbound tab renders this beside what the card claims…\", and is populated on every compile at compile.py:953 (not :952, which is skill_description_tokens). TS CompileReport (agent-studio.ts:62-74) declares seven members without it, and `grep -rn \"mission_entries|missionEntries\" Habibi/src` returns nothing. The Outbound tab does get the same fact from GET /outbound/missions, which computes fg.parse_graph(version.flow).entry_objectives() itself and ships it as graphEntries plus per-objective graphEntryNode/agrees (main.py:5337, 5344-5348, 5363). So: a field that is computed and serialised with no consumer, plus a docstring naming a consumer that reads a different endpoint. No wrong runtime behaviour, no unreachable data (the same fact is reachable, from elsewhere), nothing an operator can trip. That is documentation rot plus a dead wire field — TRIVIAL, not MINOR.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/agent_core/cards/compile.py:953",
+    "Habibi/src/api/agent-studio.ts:62-74",
+    "backend/main.py:5344-5348",
+    "backend/main.py:5363"
+   ]
+  },
+  {
+   "id": "TYPES-06",
+   "verdict": "CONFIRMED",
+   "reason": "Confirmed at the code, with lines corrected. get_agent_studio_graph reads the stored draft JSON without parse_card (main.py:2266-2267 `raw.get(\"handoffs\")`) and emits {\"from\": bot_id, \"to\": h.get(\"to_bot_id\")} (main.py:2281-2285) — h.get returns None for a row missing the key. AgentStudioGraphEdgeResponse.to is `str | None = None` (schemas.py:3593), so the model passes the null through rather than 500ing. TS AgentGraph declares `edges: { from: string; to: string }[]` (agent-studio.ts:318). The null is reachable through the real API, not only by hand-editing the DB: patch_prompt_version casts agentCard straight to jsonb with no parse_card and no validation (db_prompt_studio.py:1774-1778), so PATCH /prompt-versions/{id} with {\"agentCard\":{\"handoffs\":[{\"when\":\"x\"}]}} persists it and the next GET .../graph returns to:null. Pydantic CardHandoff.to_bot_id is required (schema.py:118-124) but that model is never on this path. The tell the author names is real: AgentCardPanels.tsx:614 already filters `.filter((e) => e.to)` against a value its own type says cannot exist. MINOR — today's only consumer defends itself.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:2281-2285",
+    "backend/schemas.py:3590-3593",
+    "Habibi/src/api/agent-studio.ts:318",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:614",
+    "backend/db_prompt_studio.py:1774-1778",
+    "Habibi/src/api/agent-card.ts:157"
+   ]
+  },
+  {
+   "id": "TYPES-07",
+   "verdict": "CONFIRMED",
+   "reason": "All four sub-claims verified against the models. AgentStudioSkillSummaryResponse (schemas.py:3624-3644) has 16 required fields including contentHash (:3640), evalSuite (:3639) and latestVersionId: str | None (:3633); AgentStudioSkillResponse subclasses it and adds six optional detail fields (schemas.py:3647-3655). The single TS SkillSummary (agent-studio.ts:463-483) is used as the return type of the list query (:645), the detail query (:655), create (:677) and importSkillZip (:753) — so a list row is indeed typed as if it might carry body/markdown/frontmatter/versions. It omits contentHash, evalSuite and lintWarnings, types latestVersionId as `?: string` where the wire is `str | None`, and types versions as three of the fourteen fields on AgentStudioSkillVersionResponse (schemas.py:3605-3621) — so signedBy, signature, contentHash and allowedTools are unreachable exactly where the version list is drawn (agent-studio.skills.$skillId.tsx:342-360, which already renders v.version/v.status/v.id). One extra drift the author missed, in the same file: bodyTokens and referenceFiles are optional in TS (agent-studio.ts:481-482) and required on the summary model (schemas.py:3643-3644). MINOR: read-only display gap, no wrong behaviour.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/schemas.py:3624-3644",
+    "backend/schemas.py:3647-3655",
+    "backend/schemas.py:3605-3621",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:342-360"
+   ]
+  },
+  {
+   "id": "TYPES-08",
+   "verdict": "CONFIRMED",
+   "reason": "Verified, with the schema lines corrected and one naming error. BotDeploymentResponse spans schemas.py:2339-2358 and carries trafficPct: int = 100 (:2356), shadow: bool = False (:2357) and evalReportId: str | None = None (:2358) — the cited 2320-2341/2338-2340 point at TtsSyncRunResponse instead. TS BotDeployment (prompt-studio.ts:33-46) declares 12 fields and none of those three. There is no `useBotDeployments` hook — the list fetcher is fetchBotDeployments (prompt-studio.ts:452, :477); the type is also the return of rollbackBotDeployment (:708) and fetchActiveBotDeployment (:884-895) and is consumed by VersionHistory (VersionHistory.tsx:20-21). The traffic split is separately reachable via DeploymentExperiment (agent-studio.ts:451-459) consumed at prompt-studio.lazy.tsx:459-467, which softens the split half of the claim — but evalReportId is not: it is selected (db_prompt_studio.py:1448, :1592) and mapped (db_prompt_studio.py:1577) and `grep -rn evalReportId Habibi/src` returns zero hits, so the link from a live deployment to the eval that cleared G7/G8 is genuinely unreachable from the studio. MINOR stands.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/schemas.py:2339-2358",
+    "backend/schemas.py:2356-2358",
+    "Habibi/src/api/prompt-studio.ts:452",
+    "Habibi/src/api/prompt-studio.ts:477",
+    "Habibi/src/api/prompt-studio.ts:884-895",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:459-467",
+    "backend/db_prompt_studio.py:1577"
+   ]
+  },
+  {
+   "id": "TYPES-09",
+   "verdict": "DOWNGRADED",
+   "reason": "The mechanism is exactly as described — PromptVersionResponse.tuning: dict[str, Any] at schemas.py:2224 is served on every version read; TS PromptVersion (api/types/prompt-studio.ts:61-85) names 14 members and not tuning; patch_prompt_version folds the VoicePanel's voice config into tuning on every autosave via apply_voice_config_overlay (db_prompt_studio.py:1735-1749, comment \"publish reads this\") and an explicit Tuning Studio write overrides it (db_prompt_studio.py:1755-1762). But the claim that the derived tuning is invisible does not survive: both ends of the derivation are already on screen. The inputs are readable — voice.speed/pitch/warmth/params are VoiceConfig fields the VoicePanel draws, and VoiceParamsPanel.tsx:340 tells the author in prose that they are \"saved on the version and folded into the deployment's tuning\". The result is readable — BotDeployment.tuning IS typed (prompt-studio.ts:45) and VersionHistory.tsx:164-166 actually reads activeDeployment.tuning.tts.voice. So what is unreachable is only the intermediate on the draft row, a deterministic function of values the editor already shows. Cosmetic type incompleteness: TRIVIAL.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/api/types/prompt-studio.ts:61-85",
+    "backend/db_prompt_studio.py:1735-1749",
+    "backend/db_prompt_studio.py:1755-1762",
+    "Habibi/src/api/prompt-studio.ts:45",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:164-166"
+   ]
+  },
+  {
+   "id": "TYPES-10",
+   "verdict": "CONFIRMED",
+   "reason": "Both halves verified; two schema line numbers were wrong. SandboxBotTurn.toolCalls: list[dict[str, Any]] sits at schemas.py:2634 under the comment \"Tool-loop trace from sandbox_runtime\" at :2633 (the cited 2624 is `tokens`), is populated by the runtime (sandbox_runtime.py:1106 \"toolCalls\": tool_trace, from sandbox_runtime.py:252) and is absent from the TS botTurn object literal (sandbox.ts:67-82). I checked every `toolCalls` hit in Habibi/src: trace.ts:60 (a different endpoint's TraceToolCall, rendered by TurnTraceView.tsx:106 and InspectorPanel.tsx:63,114) and the live-voice event reducer (liveEvents.ts:174, useSandboxLiveCall.ts:366-443) — neither reads this response. So the text-sandbox tool trace has no consumer. Second half also holds: SandboxRunTurnResponse declares sentimentLabel (schemas.py:2487), retrievedChunkIds (:2489), tokenCount (:2494) and createdAt (:2496), and SandboxRunDetail.turns (sandbox.ts:98-115) names none of the four, so a replayed run has a raw sentiment float where a live turn has customerTurn.sentimentLabel. Nothing else guards it — test_sandbox_turn_schema.py only asserts the REQUEST body (:198-213). MINOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/schemas.py:2633-2634",
+    "backend/schemas.py:2487",
+    "backend/schemas.py:2489",
+    "backend/schemas.py:2494",
+    "backend/schemas.py:2496",
+    "backend/sandbox_runtime.py:1106"
+   ]
+  },
+  {
+   "id": "TYPES-11",
+   "verdict": "CONFIRMED",
+   "reason": "Read every cited route: GET /eval/suites (main.py:2796-2798), /eval/reports (:2801-2810), /eval/reports/{id} (:2812-2822, which returns `dict(row)` over `SELECT *`), /eval/critiques (:2847-2851), /eval/disagreements (:2864-2868) and /eval/twin-corpus (:2871-2875) all declare no response_model. list_eval_suites selects `id, kind, name, description, created_at` and returns `[dict(r) for r in rows]` (db_inbox.py:1726-1739), so raw snake_case created_at reaches the wire while TS EvalSuite (agent-studio.ts:342) names four of the five. The test filter is verbatim `route.path.startswith(\"/agent-studio\")` (test_agent_studio_response_models.py:53), and test_every_agent_studio_route_declares_a_response_shape (:57-64) therefore asserts nothing about /eval/*, /flow/*, /sandbox/*, /prompt-versions, /connectors*, /mcp/*, /a2a* or /bot-deployments*. Fair mitigation the author did not note: list_eval_reports does hand-map to camelCase (db_inbox.py:1700-1714), so EvalReport is accurate today — the exposure is that nothing holds it there. MINOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:2796-2798",
+    "backend/main.py:2812-2822",
+    "backend/db_inbox.py:1726-1739",
+    "backend/db_inbox.py:1700-1714",
+    "Habibi/src/api/agent-studio.ts:342",
+    "backend/tests/test_agent_studio_response_models.py:53"
+   ]
+  },
+  {
+   "id": "TYPES-12",
+   "verdict": "DOWNGRADED",
+   "reason": "The observations are accurate but the causal claim inverts. Confirmed: agent-card.ts:76-101 restates Objective (13 members), Direction, VoicemailMode, TimeOfDay, PoolKind and PostCallQa; test_outbound_card_vocabulary.py:1-18 says the whole defence is that \"the frontend restates nothing\"; only ROLLBACK_TRIGGERS has a TS-side assertion (test_agent_card_schema_drift.py:88-101). But the casts are the mitigation, not the aggravation. `available = vocab.objectives.filter(...)` (OutboundCardEditor.tsx:653) and `key: key as Objective` (:660) mean the dropdown's contents come from /outbound/card-vocabulary, so a widened backend list is offered and stored correctly the moment the endpoint returns it — the stale TS union causes no wrong option and no publish 422. The removal direction is likewise safe: the endpoint stops offering the removed member, so nothing draws it. I checked every use of `Objective` in Habibi/src (agent-card.ts:88/206, OutboundCardEditor.tsx:36/653/660) — there is no exhaustive switch, no Record keyed by it, no label map that could go stale; FlowInspector.tsx:178-198 is explicit that its mission list comes from the endpoint, not a constant. So the residual defect is that a test docstring's premise (\"restates nothing\") is factually false while the restatement is load-bearing for nothing: TRIVIAL.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:653",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:660",
+    "Habibi/src/components/flow/FlowInspector.tsx:178-198",
+    "backend/tests/test_outbound_card_vocabulary.py:14-18"
+   ]
+  },
+  {
+   "id": "TYPES-13",
+   "verdict": "DOWNGRADED",
+   "reason": "The coverage facts are right — nullability.test.ts:11-63 reads only api/types/customer360.ts, api/types/audit.ts and api/customers.ts and names no studio file, while AgentStudioGraphEdgeResponse.to (schemas.py:3593), AgentStudioSkillSummaryResponse.latestVersionId (schemas.py:3633) and BotDeploymentResponse's nullables (schemas.py:2347-2353, :2358) are all `X | None`. But this carries no defect of its own. Structurally it is TYPES-03 restricted to the nullability axis: same absent guard, same file set, and its only two concrete instances are TYPES-06 and TYPES-07, both already filed and confirmed separately. Counting it as a third MINOR triple-counts one gap. As a standalone item it is a note that an existing suite was scoped to one work package and never widened: TRIVIAL, and it should be folded into TYPES-03's fix rather than tracked apart.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/api/types/nullability.test.ts:11-63",
+    "backend/schemas.py:3593",
+    "backend/schemas.py:3633",
+    "backend/schemas.py:2347-2353"
+   ]
+  }
+ ],
+ "slice": "types"
+}

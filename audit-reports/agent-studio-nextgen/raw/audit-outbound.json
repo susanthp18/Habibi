@@ -1,0 +1,471 @@
+{
+ "slice": "outbound",
+ "summary": "The Outbound tab is two registers on one screen. The authoring half edits `card.outbound` in the studio draft: DirectionPanel writes direction/number_pool/pool_kind/carrier_amd/ivr_*, MissionsEditor writes objectives (entry_node, success, partial, max_duration_sec, allowed_offers, authority_profile, voicemail, cadence), CadencesEditor writes cadences (max_attempts, per_day, backoff_hours, retry_on, stop_on, escalate_to, time_of_day) and PostCallEditor writes post_call (on_outcome, written_followup, obligations, qa) — all via `patchOutbound` into the shell's `setCard`, which the prompt-studio autosave (prompt-studio.lazy.tsx:632-666) persists onto the open draft and publish stamps into `prompt_versions.agent_card`. Every closed vocabulary is fetched from GET /outbound/card-vocabulary (main.py:5247) which derives its lists from flow_graph.OBJECTIVES, compile.OUTCOME_CODES/POST_CALL_ACTIONS, outbound.RETRYABLE, authority profiles and contact_policy.daily_cap, so the editor cannot offer a value the compiler rejects. G-OB1..9 are previewed live through POST /agent-studio/cards/{botId}/compile (main.py:2194 → db_prompt_studio.py:782 → compile.py:240), debounced 400ms. The reporting half is the whole tenant's live dialling — reach stats, retry ladders, campaign runs, caller-ID pool health, non-payment reasons and outstanding obligations — plus a CohortBuilder that previews a selector (campaigns.py:341) and creates a paused run (campaigns.py:102). At runtime the card is re-resolved on every dial from the *currently active production deployment* (mission.card_for_bot, mission.py:498), never from a deployment pinned on the run, so a republish changes an in-flight campaign's behaviour mid-run. Three dial paths consume the block unevenly: campaigns.process_one (campaigns.py:526-549) honours bot_id and number_pool but never checks `direction`; treatment enact._dial_bot (enact.py:368) checks the mission only when the card already dials; cadence.process_one (cadence.py:418) hardcodes DEFAULT_BOT_ID and passes no pool. Several authored fields — objective.success, objective.partial, cadence.time_of_day, cadence.escalate_to, cadence.per_day, voicemail.max_sec, concurrency_share — reach no runtime reader at all.",
+ "endpoints": [
+  "GET /outbound/missions?botId= → backend/main.py:5318 list_missions → mission.card_for_bot backend/mission.py:498, db.get_agent_studio_card backend/db_prompt_studio.py:208, db.get_active_deployment + flow_graph.parse_graph().entry_objectives()",
+  "GET /outbound/card-vocabulary → backend/main.py:5247 outbound_card_vocabulary → flow_graph.OBJECTIVES backend/flow_graph.py:76, mission.OBJECTIVE_BRIEF backend/mission.py:49, compile.OUTCOME_CODES backend/agent_core/cards/compile.py:123, compile.POST_CALL_ACTIONS backend/agent_core/cards/compile.py:146, outbound.RETRYABLE backend/outbound.py:114, authority config backend/agent_core/authority/config.py:83, inline number_pools SELECT backend/main.py:5275-5285, contact_policy.daily_cap backend/contact_policy.py:91",
+  "GET /outbound/stats?days=14 → backend/main.py:4883 outbound_stats → outbound.reach_stats backend/outbound.py:1127",
+  "GET /outbound/campaigns → backend/main.py:4984 list_campaign_runs → inline SQL over campaign_runs/campaign_targets backend/main.py:4995-5013",
+  "POST /outbound/campaigns/preview → backend/main.py:5070 preview_campaign_cohort → campaigns.preview_selector backend/campaigns.py:341 → campaigns.resolve_selector backend/campaigns.py:292",
+  "POST /outbound/campaigns → backend/main.py:5017 create_campaign_run → campaigns.create backend/campaigns.py:102 + campaigns.add_targets_from_selector backend/campaigns.py:357",
+  "POST /outbound/campaigns/{runId}/status → backend/main.py:5113 set_campaign_status → campaigns.set_status backend/campaigns.py:373",
+  "GET /outbound/cadence?limit=50 → backend/main.py:5160 list_cadence_cases → inline SQL over call_cadence_state backend/main.py:5175-5186",
+  "GET /outbound/number-pools → backend/main.py:5192 list_number_pools → inline SQL over number_pools/pool_numbers backend/main.py:5195-5213",
+  "GET /outbound/reasons?days=30 → backend/main.py:4944 outbound_reasons → inline SQL over call_outcomes backend/main.py:4954-4966",
+  "GET /outbound/obligations?state=open → backend/main.py:5219 list_agent_obligations → inline SQL over agent_obligations backend/main.py:5229-5241",
+  "POST /agent-studio/cards/{botId}/compile → backend/main.py:2194 compile_agent_studio_card → db_prompt_studio.compile_agent_studio_card backend/db_prompt_studio.py:782 → compile.compile_card backend/agent_core/cards/compile.py:519 → compile._outbound_gates backend/agent_core/cards/compile.py:240 (call site :919)",
+  "GET /products → backend/main.py:1251 list_products (MissionEditor's allowed_offers checkbox grid, Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:576-586)",
+  "(exported by Habibi/src/api/outbound.ts but NOT called by this slice) GET /outbound/attempts → backend/main.py:4903; GET /customers/{id}/outbound/hours → backend/main.py:4971; POST /outbound/campaigns/{runId}/targets → backend/main.py:5093; GET /outbound/campaigns/{runId} → backend/main.py:5146"
+ ],
+ "runtime_consumers": [
+  "outbound.direction → backend/mission.py:482 (resolve_outbound_bot_id, bot selection only) and backend/agent_core/treatment/enact.py:368 (fail-open guard condition). NOT read by backend/campaigns.py:526-549 — it is not a dial kill switch. See OUTBOUND-04.",
+  "outbound.number_pool → backend/campaigns.py:539,549 → backend/outbound.py:415 reserve → backend/outbound.py:678-690 pick_number. NONE for backend/cadence.py:429 and backend/agent_core/treatment/enact.py:380,442 (no number_pool argument). See OUTBOUND-03.",
+  "outbound.pool_kind → backend/mission.py:284-285 (clears allowed_offers when service_1600). Also compile G-OB4 backend/agent_core/cards/compile.py:363-372.",
+  "outbound.carrier_amd → backend/outbound.py:458-468 _card_wants_carrier_amd → backend/outbound.py:713 machine_detection.",
+  "outbound.ivr_traversal → backend/mission.py:311 → backend/voice/ivr.py:67-68.",
+  "outbound.ivr_max_sec → backend/mission.py:312 → backend/voice/ivr.py:82.",
+  "outbound.concurrency_share → NONE (dead config). backend/agent_core/cards/schema.py:334 only; backend/outbound.py:187 max_in_flight is a single tenant-wide OUTBOUND_MAX_IN_FLIGHT with no per-card reservation. The editor deliberately ships no control (Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:338-348).",
+  "objective.key → backend/agent_core/cards/schema.py:349 CardOutbound.objective() → backend/mission.py:267.",
+  "objective.entry_node → backend/mission.py:302 → backend/voice/bot.py:555-556 session.extra['entry_node'].",
+  "objective.max_duration_sec → backend/mission.py:303 → backend/voice/bot.py:562-563 session.extra['max_duration_sec'] (and the briefing line backend/mission.py:437-441).",
+  "objective.allowed_offers → backend/mission.py:281-290 → backend/voice/bot.py:557 + mission.prohibited.",
+  "objective.authority_profile → backend/mission.py:304 → backend/voice/tools.py:1448-1455 (ceiling narrowing).",
+  "objective.voicemail.leave → backend/mission.py:344 → backend/voice/amd.py:163 → voice/amd.py:170-180 should_leave_message.",
+  "objective.voicemail.include_grievance_contact → backend/mission.py:346 → backend/voice/amd.py:165 → backend/voice/amd.py:300-303 voicemail_script(include_grievance=).",
+  "objective.voicemail.max_sec → NONE (dead config). Carried to backend/voice/amd.py:164 as 'maxSec' and never read again; backend/voice/amd.py:75-130 voicemail_script takes no length bound. See OUTBOUND-11.",
+  "objective.success → NONE (dead config). backend/mission.py:314 puts it on the mission envelope and nothing reads mission['success']; outcome scoring uses the hardcoded backend/call_closer.py:102 SUCCESS_BY_OBJECTIVE at backend/call_closer.py:949. See OUTBOUND-01.",
+  "objective.partial → NONE (dead config). backend/agent_core/cards/schema.py:238 is its only occurrence outside the editor — no gate and no runtime reader. See OUTBOUND-01.",
+  "objective.cadence → backend/agent_core/cards/schema.py:350-356 cadence_for → backend/call_closer.py:757-773 and backend/cadence.py:209-211.",
+  "cadence.name → backend/agent_core/cards/schema.py:355 (lookup key) → backend/call_closer.py:762.",
+  "cadence.max_attempts → backend/call_closer.py:763 ensure_case → backend/cadence.py:151 → enforced backend/cadence.py:232 and backend/cadence.py:401-403.",
+  "cadence.backoff_hours → backend/cadence.py:242 backoff_for and backend/cadence.py:517 _backoff_curve.",
+  "cadence.retry_on → backend/cadence.py:224-226.",
+  "cadence.stop_on → backend/cadence.py:217.",
+  "cadence.per_day → NONE at runtime. Read only by publish gate G-OB3 backend/agent_core/cards/compile.py:350 and restated in backend/cadence.py:260 _DefaultCadence (never consulted for pacing). The real per-day limit is contact_policy's, which the card cannot lower. See OUTBOUND-09.",
+  "cadence.escalate_to → NONE. backend/cadence.py:600-604 escalation_target has no callers anywhere; backend/cadence.py:57 STATE_ESCALATED is never written; an exhausted ladder stops at backend/cadence.py:233. Publish gate only (backend/agent_core/cards/compile.py:414). See OUTBOUND-08.",
+  "cadence.time_of_day → NONE (dead config). backend/agent_core/cards/schema.py:292 is its only backend occurrence; no gate, no scheduler reader. See OUTBOUND-07.",
+  "post_call.on_outcome → backend/call_closer.py:989 _apply_card_rules → backend/call_closer.py:693-708 → backend/post_call_actions.py:510-545.",
+  "post_call.written_followup → backend/call_closer.py:707 → backend/post_call_actions.py:544 (_WRITTEN_VERBS suppression).",
+  "post_call.obligations → backend/call_closer.py:977-980 (_record_obligations vs 'obligations:off_by_card').",
+  "post_call.qa → backend/qa_autoscore.py:169-170.",
+  "campaign_runs.bot_id (written by CohortBuilder's create) → backend/campaigns.py:526 → mission.card_for_bot backend/mission.py:498.",
+  "campaign_runs.selector (written by CohortBuilder) → backend/campaigns.py:357 add_targets_from_selector at create time only; targets are frozen, never re-resolved at dial time.",
+  "campaign_runs.cadence (defaulted to 'default' by backend/main.py:5040) → NONE. process_one (backend/campaigns.py:453-640) never reads it; the ladder name comes from the card at outcome time (backend/call_closer.py:762).",
+  "campaign_runs.window_start_hour/window_end_hour → backend/campaigns.py:85-95 within_window (backend/campaigns.py:534).",
+  "campaign_runs.max_concurrent → backend/campaigns.py:528 _live_for_run comparison.",
+  "campaign_runs.status → backend/campaigns.py:435-450 _claim_run ('running' only) and backend/cadence.py:374-382 (paused holds open ladders)."
+ ],
+ "findings": [
+  {
+   "id": "OUTBOUND-01",
+   "title": "'Closes the case' and 'Partly worked' are authored, gated, published — and the Closer never reads them",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:536-552",
+    "backend/call_closer.py:99",
+    "backend/call_closer.py:102",
+    "backend/call_closer.py:949",
+    "backend/mission.py:314",
+    "backend/agent_core/cards/schema.py:237",
+    "backend/agent_core/cards/schema.py:238"
+   ],
+   "mechanism": "MissionEditor writes objective.success and objective.partial through two CodeGrids. mission.build copies success onto the mission envelope (mission.py:314) and nothing ever reads mission['success']. The Closer computes the outcome with `success = SUCCESS_BY_OBJECTIVE.get(objective, frozenset({'ptp_captured','paid_in_call'}))` (call_closer.py:949) — a module constant — and the comment directly above that constant claims the opposite: \"``CardObjective.success`` overrides them per published card, which is the point of authoring missions rather than hardcoding them\" (call_closer.py:99-101). `objective.partial` has no reader at all: agent_core/cards/schema.py:238 is its only backend occurrence — no gate, no runtime, no analytics. `objective_met` feeds call_outcomes.objective_met, which drives the Reach pane's 'resolved' column via GET /outbound/reasons (main.py:4954-4958) and treatment attribution.",
+   "trigger": "Author opens a mission, unticks `part_payment_agreed` from 'Closes the case' on dpd_reminder (or ticks it into 'Partly worked'), publishes green. Every subsequent dpd_reminder that ends in part_payment_agreed is still recorded objective_met=true, and the Reach pane counts it as resolved. The four first-party defaults happen to mirror SUCCESS_BY_OBJECTIVE exactly (agent_core/cards/defaults.py:200-232), which is why nobody has noticed.",
+   "fix": "In call_closer.py:949, resolve the card first — `mission.card_for_bot(attempt['bot_id']).outbound.objective(objective).success` — and fall back to SUCCESS_BY_OBJECTIVE only when the card declares no mission. Either implement `partial` (a third axis on call_outcomes, or at minimum exclude partials from objective_met) or delete the field, the CodeGrid and its 'kept apart so a partial is not scored as a win' hint.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-02",
+   "title": "Cadence retries dial as DEFAULT_BOT_ID, so every attempt after the first runs the wrong card",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/cadence.py:418",
+    "backend/cadence.py:419",
+    "backend/cadence.py:429",
+    "backend/mission.py:461",
+    "backend/mission.py:474",
+    "backend/call_closer.py:753",
+    "backend/tests/test_outbound_studio_bindings.py:36"
+   ],
+   "mechanism": "cadence.process_one hardcodes `bot_id = dbmod.DEFAULT_BOT_ID` (cadence.py:418) and builds the retry's mission from that bot's card (cadence.py:419), then stamps it onto the attempt (cadence.py:429 reserve(bot_id=bot_id)). mission.resolve_outbound_bot_id exists precisely for this and its own docstring says \"Hard-coding ``DEFAULT_BOT_ID`` at the call site is how a card authored in Agent Studio still rang as ``kaia-v2-4``\" (mission.py:461-462) — cadence.py is the one caller that still does it. The case row (call_cadence_state) carries no bot_id, so the authoring bot is lost the moment the first attempt closes. The damage compounds: the retry carries the default card's entry_node, max_duration_sec, allowed_offers, authority_profile and voicemail policy, and because attempt.bot_id is now the default bot, call_closer._post_call_policy (call_closer.py:669-671) and _advance_cadence (call_closer.py:753) then read the *default* card's post_call rules and retry ladder for the rest of the ladder.",
+   "trigger": "Author a card on any bot other than kaia-v2-4, give it a mission with its own entry node and a 5-attempt ladder, publish, and run a campaign against it. Attempt 1 dials with the authored mission (campaigns.py:526 honours run.bot_id). Attempt 2 onward dials as kaia-v2-4 with kaia's missions, kaia's voicemail policy and kaia's 3-attempt ceiling.",
+   "fix": "Carry the bot through the ladder: add bot_id to call_cadence_state (or read it off the case's last attempt) and call `mission.resolve_outbound_bot_id(explicit=case_bot_id, objective=objective)` at cadence.py:418. Extend test_outbound_studio_bindings.py's DEFAULT_BOT_ID assertions (:36-51) to cover cadence.py, which they currently skip.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-03",
+   "title": "The caller-ID pool the card names is honoured by campaigns only — engine dials and retries ignore it",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/campaigns.py:539",
+    "backend/campaigns.py:549",
+    "backend/cadence.py:429",
+    "backend/agent_core/treatment/enact.py:380",
+    "backend/agent_core/treatment/enact.py:442",
+    "backend/outbound.py:678",
+    "backend/outbound.py:1062",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:276-303"
+   ],
+   "mechanism": "outbound.place selects a from-number only when the attempt row carries `numberPool` (outbound.py:677-690 → pick_number outbound.py:1062), and reserve only sets it when the caller passes `number_pool=`. campaigns.process_one is the sole caller that does (campaigns.py:539,549). cadence.process_one's reserve (cadence.py:429-441) and both treatment reserves (enact.py:380, enact.py:442) omit the argument entirely, so those dials fall back to the deployment's single TWILIO_PHONE_NUMBER. pick_number's own docstring names the reason this matters: \"BFSI service and transactional calls must originate from the 1600 series\" (outbound.py:1066-1068).",
+   "trigger": "Pick a service_1600 pool in DirectionPanel's 'Caller-ID pool' select (which also adopts pool_kind, OutboundCardEditor.tsx:286-294) and publish. Campaign dials originate from the 1600 series; every treatment-engine dial and every cadence retry for the same borrower originates from the generic number — the same conversation, two caller IDs, one of them off the series the tenant registered for it.",
+   "fix": "Resolve the pool where the card is resolved: pass `number_pool=getattr(card.outbound,'number_pool',None)` at cadence.py:429 and enact.py:380/442. Better, have outbound.reserve derive it from bot_id when the caller does not pass one, so a new dial path cannot silently opt out.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-04",
+   "title": "`direction` is not a kill switch: a card switched to inbound keeps dialling, including mid-campaign",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:455",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:255",
+    "backend/campaigns.py:526",
+    "backend/campaigns.py:540",
+    "backend/agent_core/treatment/enact.py:368",
+    "backend/agent_core/cards/schema.py:357",
+    "backend/voice/bot.py:555"
+   ],
+   "mechanism": "The tab tells the operator \"inbound only — this agent never dials\" (OutboundTab.tsx:455) and the DirectionPanel repeats \"never dials\" (OutboundCardEditor.tsx:255). Nothing on the dial path enforces it. campaigns.process_one resolves the card (campaigns.py:527) and then never consults `card.outbound.dials` or `card.outbound.objective(objective)` before reserving and placing. enact._dial_bot does check, but fail-open: `if card is not None and card.outbound.dials and card.outbound.objectives:` (enact.py:368) — an inbound-only card fails the second conjunct and the mission check is skipped entirely, so the dial proceeds. Because card_for_bot re-reads the *currently active* production deployment on every dial (mission.py:498-515), the answer to 'does changing direction on a live card affect an in-flight campaign' is: it changes the mission envelope but does not stop the run. With the mission removed, mission.build gets objective_spec=None and produces entryNode '' (mission.py:302), so voice/bot.py:555 never sets the entry node and the call falls back to the inbound door — the VS-4D8667B522 failure compile.py:288-292 says the compiler exists to refuse.",
+   "trigger": "A campaign is running. An operator flips Direction to `inbound` (or deletes the mission) and publishes to stop the calls. The run keeps dialling; the next attempt opens on the inbound greeting instead of the mission's entry node.",
+   "fix": "Add the same guard campaigns already has the card for: at campaigns.py:527, skip/pause the run when `not card.outbound.dials` or `card.outbound.objective(run['objective']) is None`, marking the target with a reason rather than dialling. Make enact.py:368 fail closed — `if card is not None and not card.outbound.dials: raise NoExecutor('card_is_inbound_only')`. Until then the tab must not promise 'never dials'.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-05",
+   "title": "Campaign status changes are not tenant-scoped — any run id can be started, paused or cancelled cross-tenant",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "security",
+   "files": [
+    "backend/main.py:5142",
+    "backend/campaigns.py:373",
+    "backend/campaigns.py:386",
+    "backend/campaigns.py:153",
+    "backend/campaigns.py:172",
+    "backend/main.py:5093"
+   ],
+   "mechanism": "Every other campaign read filters on tenant (list: main.py:4993; get: main.py:5150 'AND tenant_id = :t'; add_targets_from_selector: campaigns.py:363). set_campaign_status does not: main.py:5142 calls `campaigns.set_status(conn, run_id, status)` and the UPDATE is `WHERE id = :id` with no tenant predicate (campaigns.py:386). This is the exact call the Outbound tab's Start/Pause button makes (OutboundTab.tsx:594). The sibling POST /outbound/campaigns/{run_id}/targets has the same shape: add_targets inserts `FROM customers c WHERE c.id = :cid` and updates campaign_runs `WHERE id = :run` (campaigns.py:172,182) with no tenant check on either the run or the customer, so a borrower from one tenant can be attached to another tenant's run.",
+   "trigger": "An authenticated user of tenant B posts {status:'running'} to /outbound/campaigns/CR-XXXXXXXXXX/status for a run id belonging to tenant A — a cancelled or paused run resumes and starts ringing tenant A's borrowers. Run ids are `CR-` + 10 uppercase hex (campaigns.py:70), and they leak through the shared attempt ledger.",
+   "fix": "Thread tenant_id into campaigns.set_status and add `AND tenant_id = :t` to the UPDATE at campaigns.py:386, returning 404 when it matches nothing. Do the same for add_targets (both the run update and the customer SELECT) and for the /targets endpoint.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-06",
+   "title": "Five live panes render a failed query as an authoritative zero or empty state",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:618",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:642",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:513",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:554",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:660",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:708",
+    "Habibi/src/components/prompt-studio/NumberPoolTable.tsx:117-127"
+   ],
+   "mechanism": "None of useReachStats, useCadenceCases, useCampaigns, useNonpaymentReasons or useObligations has an isError branch. On failure: the Reach tiles print `${stats.data?.answered ?? 0} of ${stats.data?.attempts ?? 0} dials` and `Blocked by policy: {String(stats.data?.suppressed ?? 0)}` (OutboundTab.tsx:626,642) — i.e. an asserted zero for the compliance figure; Cadence prints the composed empty state 'No open ladders — A ladder opens when a call ends without resolving the case…' (:515-521); Campaign runs prints 'No runs. A run groups missions that were already authorised…' with no loading state at all, so it also flashes that during every load (:554-557); Reasons prints 'Nothing captured yet' (:660-665); Obligations prints 'Nothing outstanding. …an agent that keeps its promises is the whole trust proposition' (:708-713). Each of these is a business claim, not a placeholder. NumberPoolTable in the same pane does it correctly (NumberPoolTable.tsx:117-127: 'Caller-ID pool health unavailable — cannot confirm which numbers are still dialling').",
+   "trigger": "The API is down, the session has expired, or /outbound/obligations 500s on one bad row. The operator reads 'Nothing outstanding' and 'Blocked by policy 0' and concludes the agent owes nobody a callback and the contact gate refused nothing this fortnight.",
+   "fix": "Give each of the five an isError branch modelled on NumberPoolTable.tsx:117-127, and gate the empty copy on `isSuccess`. Add an isLoading branch to the campaign runs list.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-07",
+   "title": "cadence.time_of_day is a published field with no reader anywhere",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:843-861",
+    "backend/agent_core/cards/schema.py:207",
+    "backend/agent_core/cards/schema.py:292",
+    "backend/main.py:5294",
+    "backend/cadence.py:242"
+   ],
+   "mechanism": "CadenceEditor offers a 'Time of day' select over vocab.timeOfDay (engine|fixed|spread), which /outbound/card-vocabulary derives from the schema Literal (main.py:5294). schema.py:292 is the only backend occurrence of the field name outside that endpoint: no compile gate reads it, and cadence.py schedules purely on backoff_for (cadence.py:242) with no time-of-day component. `engine` implies the decision engine will place the retry in a scored hour; nothing does.",
+   "trigger": "Set a ladder to 'spread' and publish. The retry lands at now + backoff_hours exactly as before, at whatever hour that is (bounded only by contact_policy's statutory window at dial time).",
+   "fix": "Either implement it in cadence.process_one's scheduling (cadence.py:242 nxt computation) or remove time_of_day from CardCadence, the vocabulary endpoint and the editor. A published field that does nothing is the failure test_outbound_conduct.py:10-12 was written about.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-08",
+   "title": "'When the attempts run out' escalates to nobody — escalate_to has no runtime caller and the 'escalated' ladder state is never written",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:862-890",
+    "backend/cadence.py:600",
+    "backend/cadence.py:57",
+    "backend/cadence.py:233",
+    "backend/agent_core/cards/schema.py:291",
+    "Habibi/src/api/outbound.ts:135",
+    "backend/agent_core/cards/defaults.py:244"
+   ],
+   "mechanism": "cadence.escalation_target (cadence.py:600-604) is the only reader of CardCadence.escalate_to and it has no callers anywhere in the backend. STATE_ESCALATED is defined (cadence.py:57) and never assigned; an exhausted ladder is written STATE_EXHAUSTED with reason 'max_attempts' (cadence.py:233) and stops. The frontend's CadenceCase type still lists 'escalated' as a reachable state (outbound.ts:135). The first-party collections card ships escalate_to='human' (defaults.py:244), so the panel shows an escalation configured on every seeded card that will never fire. Only publish gate G-OB7 (compile.py:414-430) reads the value.",
+   "trigger": "Set 'When the attempts run out' to a handoff target, publish green (G-OB7 passes), and let a ladder exhaust. The case ends 'exhausted', nothing is handed to anyone, and the Cadence pane shows the stopped_reason 'max_attempts' rather than the escalation the operator configured.",
+   "fix": "Either call escalation_target from the exhaustion branch (cadence.py:232-241) and write STATE_ESCALATED plus whatever handoff/treatment row it implies, or delete escalate_to, escalation_target, STATE_ESCALATED and the editor control. The cadence module docstring (cadence.py:15-17) says followthrough.py owns this decision — if that is the intent, the control belongs there, not on the card.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-09",
+   "title": "'Per borrower per day' bounds nothing at runtime; the hint implies it does",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:812-828",
+    "backend/agent_core/cards/schema.py:265",
+    "backend/agent_core/cards/compile.py:350",
+    "backend/cadence.py:260",
+    "Habibi/src/api/agent-card.ts:238-240"
+   ],
+   "mechanism": "CardCadence.per_day is read in exactly two places: publish gate G-OB3 (compile.py:350) and the _DefaultCadence stub (cadence.py:260, never consulted for pacing). cadence.on_outcome and cadence.process_one schedule on backoff_hours and max_attempts only; the per-day ceiling that actually applies is contact_policy's, checked at dial time (contact_policy.py:919-954), and the card cannot lower it. The TS doc comment restates the false claim: \"Bounded again at runtime by contact_policy's own cap, which a card can only ever lower\" (agent-card.ts:238-240) — the card never enters that computation.",
+   "trigger": "Set per_day=1 on a ladder with backoff_hours=[2,3] and publish. Nothing enforces one contact a day; contact_policy's own cap (default 3) is the only limit.",
+   "fix": "Either enforce it — pass the card's per_day into contact_policy.admit as a per-mission narrowing, or refuse to schedule a retry that would be the (per_day+1)th today at cadence.py:242 — or drop the field and G-OB3 with it. Fix the hint text at OutboundCardEditor.tsx:822-826 either way.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-10",
+   "title": "The borrower cap the editor quotes and G-OB3 enforces ignores published policy rules, so both can be wrong in the permissive direction",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/main.py:5312",
+    "backend/agent_core/cards/compile.py:346",
+    "backend/agent_core/cards/compile.py:348",
+    "backend/contact_policy.py:91",
+    "backend/contact_policy.py:919",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:822-826"
+   ],
+   "mechanism": "/outbound/card-vocabulary returns `contact_policy.daily_cap()` with no rules argument (main.py:5312), and G-OB3 does the same (compile.py:348). daily_cap(None) returns the env value only (contact_policy.py:99-101). The enforcing path resolves the tenant's published rule set first — `rules = _rules_for(...); cap = daily_cap(rules)` (contact_policy.py:918-919) — and a rule set may lower it. So the editor's hint 'borrower cap is 3/day' and a green G-OB3 can both be quoting a cap that is not the one the dialler will apply.",
+   "trigger": "A tenant publishes a policy rule set with daily_cap=1 while CONTACT_DAILY_CAP=3. CadenceEditor shows 'borrower cap is 3/day', per_day=3 passes G-OB3, and every second contact that day is vetoed at dial time — precisely the 'arithmetically guaranteed to be vetoed' case the gate's own comment (compile.py:337-345) says it exists to catch.",
+   "fix": "Resolve the tenant's rules in both places: open a connection and call `contact_policy.daily_cap(policy_rules.resolve(conn, tenant_id=...))` in the vocabulary endpoint and in _outbound_gates, or add a helper that takes tenant_id so the two cannot diverge.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-11",
+   "title": "'Message length' on a voicemail is authored, transported and never applied",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:617-625",
+    "backend/agent_core/cards/schema.py:223",
+    "backend/mission.py:346",
+    "backend/voice/amd.py:164",
+    "backend/voice/amd.py:294-306"
+   ],
+   "mechanism": "VoicemailPolicy.max_sec (5-60) is copied into the mission envelope (mission.py:346) and into the runtime policy dict as 'maxSec' (amd.py:164). Neither the handler that decides to speak (amd.py:294-306) nor voicemail_script (amd.py:75-130) takes a length bound — only `leave` and `includeGrievance` are consumed. `maxSec`/`max_sec` appears nowhere else in the backend.",
+   "trigger": "Set Message length to 5 seconds and publish. The full templated voicemail plays regardless.",
+   "fix": "Either bound the script — truncate or select a shorter template in voicemail_script using policy['maxSec'], or cap the TTS playback — or delete the field, the schema bound and the NumberField.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-12",
+   "title": "A card the compiler could not parse is reported as 'outbound gates skipped — inbound only'",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:107-109",
+    "backend/agent_core/cards/compile.py:264",
+    "backend/agent_core/cards/compile.py:268",
+    "backend/agent_core/cards/compile.py:555-567",
+    "backend/agent_core/cards/compile.py:919"
+   ],
+   "mechanism": "compile_card leaves `card = None` when G0's model_validate raises (compile.py:558-567) and still calls _outbound_gates(None, ...) (compile.py:919), which emits G-OB1 skipped with detail 'no card' (compile.py:264) — the same status the genuinely inbound-only case emits with detail 'inbound-only card' (compile.py:268). OutboundGates keys only on status: `const skipped = gates.every(g => g.status === 'skipped')` and then asserts 'outbound gates skipped — inbound only' (OutboundTab.tsx:108-109), discarding the detail that distinguishes the two.",
+   "trigger": "Any edit anywhere in the studio that makes the draft card fail AgentCard validation (an unknown key, an out-of-range value written by another tab or a hand-edited card) while `outbound.direction` is 'outbound'. The Outbound tab then reassures the author that this agent does not dial, on a card that declares it does.",
+   "fix": "Read the detail: render 'card is not valid — see G0' when the single skipped G-OB1 carries detail 'no card', and keep the inbound-only copy for detail 'inbound-only card'.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-13",
+   "title": "'N outbound gates pass' counts the skipped eval gate as a pass",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:105",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:110-112",
+    "backend/agent_core/cards/compile.py:453",
+    "backend/agent_core/cards/compile.py:464"
+   ],
+   "mechanism": "The lozenge filters on the G-OB prefix (OutboundTab.tsx:105), which picks up G-OB9, then reports `{gates.length} outbound gates pass` whenever no gate has status 'fail' (OutboundTab.tsx:110-112). G-OB9 is skipped whenever OUTBOUND_EVAL_GATE is off or 'outbound' is not in card.eval.require (compile.py:453-464) — the default state. The success lozenge therefore says nine gates pass when eight passed and the outbound eval gate was not evaluated at all. This is the mirror image of the Evals tab's 'skipped shown as failed' problem: here skipped is shown as passing, on the gate that checks whether the outbound suite ever ran.",
+   "trigger": "Open the Outbound tab on any authored outbound card with the outbound eval gate flag off. Lozenge reads '9 outbound gates pass'.",
+   "fix": "Count and label the three statuses separately, e.g. '8 pass · 1 skipped', and never fold skipped into the pass count.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-14",
+   "title": "Start/Pause on a campaign run fails silently — including the 409s that mean outbound is switched off",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:585-601",
+    "Habibi/src/api/outbound.ts:491-498",
+    "backend/main.py:5131-5140",
+    "backend/platform_switches.py:133"
+   ],
+   "mechanism": "useSetCampaignStatus has no error surface and the Campaign runs list renders none — only `setStatus.isPending` is consulted (OutboundTab.tsx:591). The endpoint returns 409 'campaign_runtime_disabled' when CAMPAIGN_RUNTIME_ENABLED is off and 409 'outbound_disabled' when the master switch is off (main.py:5131-5140), and platform_switches.outbound_enabled is \"Off by default, in every deployment\" (platform_switches.py:133-135). Contrast the same file's CohortBuilder, which does render preview.isError (:327-331) and create.isError (:362-366).",
+   "trigger": "Two ways round. (a) Fresh deployment, master switch off: the operator clicks Start on their first run, nothing happens, no message, and the tab gives no indication anywhere that outbound is disabled. (b) The Pause click fails (409/500/expired session): the button re-enables, no error appears, and the run keeps dialling — on the one panel in the product whose buttons ring real phones.",
+   "fix": "Render setStatus.isError beside the run the way create.isError is rendered at :362-366, mapping 'outbound_disabled' and 'campaign_runtime_disabled' to plain sentences. Better still, surface the master switch state in the Campaign runs header so the Start button is not offered against a disabled dialler.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-15",
+   "title": "Campaign progress hides skipped targets, so a completed run reads as one that stopped early",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:577-578",
+    "Habibi/src/api/outbound.ts:120-122",
+    "backend/main.py:5000-5007",
+    "backend/campaigns.py:626-631",
+    "backend/campaigns.py:653-668"
+   ],
+   "mechanism": "targets_done is incremented only when a dial is actually placed (campaigns.py:626-631). A target skipped for 'no_phone_on_file' (campaigns.py:523) or a permanent contact-policy refusal — opted out, DND, customer gone (campaigns.py:576-583) — is marked 'skipped' and never counted. _finish_if_drained then finishes the run once nothing is pending or dialing (campaigns.py:653-668). The list renders only `{r.targets_done}/{r.targets_total}` (OutboundTab.tsx:577), even though the endpoint returns pending/done/skipped per run (main.py:5000-5007) and the TS type carries them (outbound.ts:120-122), both unused.",
+   "trigger": "A 500-borrower run where 180 are opted out finishes with status 'finished' and the line '320/500' — indistinguishable from a run that was cancelled two-thirds through, and it hides the compliance-relevant fact that 180 were suppressed.",
+   "fix": "Render the three counts the API already returns: `{done} called · {skipped} skipped · {pending} waiting of {targets_total}`.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-16",
+   "title": "The mission Cadence select always offers 'default', which silently swaps the authored ladder for the built-in",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:495-511",
+    "backend/agent_core/cards/compile.py:432-443",
+    "backend/agent_core/cards/schema.py:350-356",
+    "backend/agent_core/cards/defaults.py:236-245"
+   ],
+   "mechanism": "MissionEditor hardcodes `<option value=\"default\">default</option>` above the card's own ladder names (OutboundCardEditor.tsx:504). G-OB8 explicitly exempts the literal 'default' from its existence check — `if objective.cadence not in defined and objective.cadence != \"default\"` (compile.py:434-436) — so choosing it publishes green even when the card defines no cadence with that name. cadence_for then returns a bare `CardCadence()` (schema.py:355), i.e. 3 attempts / 1 per day / 4-24-72 / the schema's default retry_on and stop_on. The first-party card names its ladder 'collections' (defaults.py:238), so this is one click away on every seeded card, and nothing in the UI or the compile report says the authored ladder stopped applying.",
+   "trigger": "On a card whose only ladder is 'collections' (5 attempts, custom stop_on), open a mission's Cadence select and pick 'default'. Publish is green; every retry now walks the built-in 3-attempt ladder instead.",
+   "fix": "Only offer 'default' when the card actually defines a cadence named 'default'; otherwise show a warning lozenge on the mission ('falls back to the built-in ladder') the way CadencesEditor's empty state already explains it (OutboundCardEditor.tsx:952-957).",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-17",
+   "title": "Renaming a ladder does not enforce a unique name, and duplicate names collapse silently",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:766-780",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:908-916",
+    "backend/agent_core/cards/schema.py:355",
+    "backend/agent_core/cards/compile.py:432-443"
+   ],
+   "mechanism": "CadencesEditor.add dedupes when creating (`while (used.has(name)) name = \\`${base}-${n++}\\``, :911-915), but the rename onBlur writes whatever was typed with no uniqueness check (:766-780). cadence_for resolves with `next((c for c in self.cadences if c.name == name), CardCadence())` (schema.py:355) — the first match wins. G-OB8 only tests membership (compile.py:434), so two ladders named the same publish green and the second becomes unreachable.",
+   "trigger": "Rename 'ladder-2' to 'collections' on a card that already has a 'collections' ladder. Both render, both show a mission count, and only the first is ever applied.",
+   "fix": "Reject or auto-suffix a duplicate in the rename handler, matching what add already does, and surface a danger lozenge for any duplicated name.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-18",
+   "title": "The New run panel disappears with no explanation when the published card declares no missions, and its mission list never refreshes",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:413",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:543-545",
+    "Habibi/src/api/outbound.ts:440-447",
+    "backend/main.py:5337-5352"
+   ],
+   "mechanism": "objectiveKeys comes from the *published* card via /outbound/missions (OutboundTab.tsx:413) and CohortBuilder is rendered only when that list is non-empty (:543-545) — with no empty state, so on every card that has not yet published a mission the entire 'New run' panel is absent and the Cadence pane offers no way to build a cohort and no sentence saying why. Nothing in Habibi/src invalidates the ['outbound','missions', botId] key: useCreateCampaign and useSetCampaignStatus invalidate only ['outbound','campaigns'] (outbound.ts:487,496), and there is no invalidation on publish. The query also mixes sources — main.py:5337-5347 prefers the studio *draft's* flow for graphEntries but the *published* card for objectives — so the Entry-step dropdown and the mission list can describe two different versions.",
+   "trigger": "Author a first mission, publish, stay on the tab: the Mission dropdown and the New run panel do not appear until the query refetches (tab remount or window focus). On a card with no published mission the panel simply is not there.",
+   "fix": "Render an explicit empty state where CohortBuilder would be ('No published mission on this card — publish one before creating a run'), and invalidate ['outbound','missions'] from the publish mutation.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-19",
+   "title": "The client and the editor claim G-OB6 validates success/partial/stop_on; it validates neither",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "Habibi/src/api/outbound.ts:249-251",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:536-552",
+    "backend/main.py:5299-5301",
+    "backend/agent_core/cards/compile.py:391-408",
+    "backend/agent_core/cards/schema.py:237-238",
+    "backend/agent_core/cards/schema.py:279-289"
+   ],
+   "mechanism": "outbound.ts:249-251 documents outcomeCodes as \"The Closer's taxonomy — `success`, `partial`, `stop_on`, and a post-call rule's `when`. G-OB6 rejects anything outside it\", and main.py:5299-5301 repeats it. G-OB6 (compile.py:391-408) checks only `rule.when in OUTCOME_CODES` and each `rule.do` verb. CardObjective.success/partial (schema.py:237-238) and CardCadence.stop_on (schema.py:279-289) are unvalidated `list[str]` — no Literal, no gate. Today the editor only offers valid codes so nothing drifts, but the safety net the comment promises does not exist for any other authoring path (API PATCH, a restored old card, a hand-written card).",
+   "trigger": "PATCH a card with objective.success=['definitely_paid'] via /agent-studio/cards/{botId}. It validates, compiles green, and the Closer silently never matches it (compounded by OUTBOUND-01, which means it would not be read even if it did).",
+   "fix": "Extend G-OB6 to check objective.success, objective.partial and cadence.stop_on against OUTCOME_CODES, or correct both comments to say what the gate covers.",
+   "prior_ref": ""
+  },
+  {
+   "id": "OUTBOUND-20",
+   "title": "The backend still allows a cancelled run to be restarted; only the UI guard stops it",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:591",
+    "backend/main.py:5121-5130",
+    "backend/campaigns.py:373-392"
+   ],
+   "mechanism": "The UI fix for the prior finding landed — Start is now disabled for both 'finished' and 'cancelled' (OutboundTab.tsx:591). The endpoint validates only that the *target* status is one of running/paused/finished/cancelled (main.py:5121-5130) and set_status writes it unconditionally (campaigns.py:373-392) with no transition table, so cancelled→running and finished→running are both accepted over the API. set_status also re-stamps `started_at = COALESCE(started_at, now())` and clears paused_at, so a resurrected run keeps its original start time.",
+   "trigger": "POST {status:'running'} to a cancelled run's status endpoint (or click Start in any client that lacks this UI's guard). The run resumes dialling a cohort somebody deliberately stopped.",
+   "fix": "Put the transition table in campaigns.set_status where every caller gets it: refuse running from 'cancelled' or 'finished' with 409, rather than relying on a disabled button.",
+   "prior_ref": "2l.4"
+  },
+  {
+   "id": "OUTBOUND-21",
+   "title": "The slice's only frontend test asserts substrings in source files",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "Habibi/src/api/outbound.test.ts:1-24",
+    "backend/tests/test_outbound_studio_bindings.py:36-51",
+    "backend/cadence.py:418"
+   ],
+   "mechanism": "outbound.test.ts is 24 lines and contains two readFileSync/toContain assertions ('botId?: string' appears in outbound.ts; 'agentCard: card, flow' appears in OutboundTab.tsx). Nothing renders OutboundTab or the four sub-editors, so no test covers: that a DirectionPanel/MissionEditor/CadenceEditor/PostCallEditor change reaches card.outbound, the rejected-input banner, the Start/Pause guard states, the OutboundGates status branches, or the empty/error states. On the backend, test_outbound_studio_bindings.py pins enact.py and main.py against a hardcoded DEFAULT_BOT_ID (:36-51) but not cadence.py — the one file where the hardcode survives (cadence.py:418, OUTBOUND-02).",
+   "trigger": "Any of the findings above would ship green: the suite that exists cannot fail on behaviour.",
+   "fix": "Render the tab with a mock vocabulary and assert the writes and guard states; extend the DEFAULT_BOT_ID assertion in test_outbound_studio_bindings.py to cover every module that reserves an attempt (cadence.py, campaigns.py, enact.py).",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Prior 2l.2 is fixed: useCompilePreview now debounces 400ms on a key-order-independent stableStringify and compiles the key rather than the live body (Habibi/src/api/agent-studio.ts:248-281), so the Outbound editors no longer POST one compile per keystroke.",
+  "Prior 2l.3 is fixed: CohortBuilder's num() rejects blank, NaN and negative values (Habibi/src/components/prompt-studio/OutboundTab.tsx:169-173), the limit uses `num(limit) || 500` so 0 falls back to the default (:186), and every discarded field is named in a warning banner ('Ignored (not a non-negative number): …', :211-216).",
+  "Prior 2l.4's UI half is fixed: Start is disabled for both 'finished' and 'cancelled' runs (Habibi/src/components/prompt-studio/OutboundTab.tsx:591). The backend half is OUTBOUND-20.",
+  "Prior audit's refutation still holds: _outbound_gates always emits at least one G-OB1 result for a card-less or inbound-only card (backend/agent_core/cards/compile.py:264,268), so the 'checking…' lozenge cannot persist.",
+  "The cohort is frozen at create time, not re-resolved at dial time: create_campaign_run resolves the selector once into campaign_targets (backend/main.py:5052-5065) and process_one reads targets, never the selector (backend/campaigns.py:530-540) — the population an operator reviewed is the population that gets called.",
+  "Selector fields are a closed set that errors rather than silently drops: SELECTOR_FIELDS + the unknown-key raise (backend/campaigns.py:194-225), capped at SELECTOR_MAX=5000 (backend/campaigns.py:213), and SelectorError surfaces as a 400 the panel renders (backend/main.py:5087-5089, OutboundTab.tsx:327-331).",
+  "excludeOpenPromise uses the statuses promises.status can actually hold — 'upcoming','due_today' — with the comment explaining that 'open' would have matched nothing while the checkbox claimed to exclude people (backend/campaigns.py:262-268).",
+  "Campaign creation cannot dial: runs are inserted with status 'draft' (backend/campaigns.py:130) and _claim_run only picks up status='running' (backend/campaigns.py:435-450).",
+  "Pausing a campaign also holds the ladders it opened, read at firing time rather than scheduling time (backend/cadence.py:373-382).",
+  "carrier_amd is or-ed with the platform flag rather than overriding it, so a card can only strengthen answering-machine detection (backend/outbound.py:704-713).",
+  "pool_kind='service_1600' clears allowed_offers in the runtime mission independently of G-OB4, and NEVER_OFFER clears them again for hardship/mandate/broken-PTP — three subtractive gates (backend/mission.py:281-290).",
+  "voicemail.leave semantics agree end to end: 'engine' behaves as first_attempt_only until the engine scores it, and 'never' short-circuits (backend/voice/amd.py:170-180), matching the schema Literal the vocabulary endpoint publishes (backend/agent_core/cards/schema.py:206, backend/main.py:5293).",
+  "G-OB5 and the editor agree: a voicemail with leave != 'never' and include_grievance_contact false fails publish (backend/agent_core/cards/compile.py:375-388), and voicemail_script returns None — no message left — when the grievance contact is unavailable (backend/voice/amd.py:300-306).",
+  "retryStates offered to 'Try again when' is sorted(outbound.RETRYABLE) (backend/main.py:5306, backend/outbound.py:114-116), and cadence matches retry_on against both the connection outcome and the attempt state (backend/cadence.py:224-226) — the vocabulary and the matcher agree.",
+  "backoff_hours semantics match the UI hint 'A shorter list repeats its last value': backoff_for clamps the index to the last step and caps each wait at CADENCE_MAX_BACKOFF_HOURS (backend/cadence.py:88-98).",
+  "G-OB7's allowlist is exactly what the editor offers: the escalate_to select is built from card.handoffs[].to_bot_id (Habibi/src/components/prompt-studio/OutboundTab.tsx:407-409, OutboundCardEditor.tsx:870-874) and the gate checks membership in card.handoff_targets() (backend/agent_core/cards/compile.py:411-430).",
+  "G-OB6's action vocabulary is the union of the Closer's verbs and the card's own tools, and PostCallEditor offers exactly that union (Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:995-1000 vs backend/agent_core/cards/compile.py:392).",
+  "post_call's three switches are genuinely wired: written_followup suppresses the written verbs (backend/post_call_actions.py:544), obligations gates _record_obligations (backend/call_closer.py:977-980), qa is read by the autoscore sweep (backend/qa_autoscore.py:169-170).",
+  "NumberPoolTable is the model for the rest of the tab: it renders a real error state (Habibi/src/components/prompt-studio/NumberPoolTable.tsx:117-127), never coerces a null answer_rate_7d to 0% (:38-41), and pick_number deliberately does not bump attempts_7d so the '_7d' figures stay rates rather than lifetime counters (backend/outbound.py:1101-1105).",
+  "The direction/voicemail/timeOfDay/poolKind/qa vocabularies really are derived from the schema Literals via get_args rather than restated (backend/main.py:5292-5296), and the frontend's EMPTY_VOCABULARY fallback only ever offers those same closed sets (Habibi/src/api/outbound.ts:264-277).",
+  "useMissions keys the cache by botId so switching cards cannot serve the previous card's missions (Habibi/src/api/outbound.ts:440-447), and /outbound/missions honours the botId query param rather than always answering for the default bot (backend/main.py:5337).",
+  "concurrency_share remains dead (backend/agent_core/cards/schema.py:334; the only fleet limit is the tenant-wide OUTBOUND_MAX_IN_FLIGHT at backend/outbound.py:187-196) and the editor deliberately ships no control for it with the reason written down (Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:338-348) — honest, not a defect.",
+  "NumberField clamps on blur rather than per keystroke, so a field can be cleared and retyped (Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:118-165), and renaming a cadence rewrites the missions that reference it so G-OB8 cannot be tripped by the rename itself (:766-780).",
+  "flow_graph.OBJECTIVES (backend/flow_graph.py:76-90), the schema Objective Literal (backend/agent_core/cards/schema.py:190-204) and the frontend Objective union (Habibi/src/api/agent-card.ts:88-102) are the same thirteen values in the same order; MissionsEditor correctly excludes 'inbound' from the addable set (OutboundCardEditor.tsx:645-647)."
+ ]
+}

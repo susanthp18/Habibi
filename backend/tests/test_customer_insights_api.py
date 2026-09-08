@@ -65,7 +65,8 @@ def test_the_insights_endpoint_serialises_the_engine_row(client) -> None:
 
     assert body["customerId"] == "anita-desai"
     assert body["treatment"] is not None, "the engine always answers; None means it raised"
-    assert body["treatment"]["decisionId"]
+    # GET insights is a preview: it must not persist a decision row.
+    assert body["treatment"]["decisionId"] is None
 
     engine_rows = [item for item in body["nba"] if item.get("source") == "treatment_engine"]
     assert engine_rows, "the engine's row should rank first, not be absent"

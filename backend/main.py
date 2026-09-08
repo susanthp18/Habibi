@@ -109,6 +109,7 @@ from schemas import (
     PromptVersionPatchRequest,
     PromptVersionPublishRequest,
     PromptVersionResponse,
+    EffectiveContractResponse,
     AgentStudioArchiveResponse,
     AgentStudioCardResponse,
     AgentStudioChangeLogResponse,
@@ -425,23 +426,19 @@ _DEFERRED_HARDENING_CONTROLS = (
 
 
 def _assert_hardening_gate() -> None:
-    """Refuse to boot outside a trusted local environment while controls are off."""
-    if not _IS_PROD:
-        return
-    if env_bool("ALLOW_UNHARDENED_PRODUCTION"):
-        logger.error(
-            "Booting with APP_ENV=%s while deferred controls are still "
-            "inactive (%s) — ALLOW_UNHARDENED_PRODUCTION is set. This deployment "
-            "must not receive real customer data.",
-            _APP_ENV,
-            ", ".join(_DEFERRED_HARDENING_CONTROLS),
-        )
+    """Refuse to boot a deployed or production-named process while controls are off.
+
+    Dev/test/local is allowed only on a verified local or CI host. A deployed
+    container (HABIBI_DEPLOYED=1) is always hardened. There is no hatch.
+    """
+    deployed = env_bool("HABIBI_DEPLOYED")
+    unhardened_ok = _APP_ENV in {"dev", "test", "local"} and not deployed
+    if unhardened_ok:
         return
     raise RuntimeError(
         f"APP_ENV={_APP_ENV} but the data layer's deferred controls are not active: "
         + "; ".join(_DEFERRED_HARDENING_CONTROLS)
-        + ". Run this build locally, or set ALLOW_UNHARDENED_PRODUCTION=1 to "
-        "explicitly accept the risk."
+        + ". Run this build locally with APP_ENV=dev, or complete the deferred controls."
     )
 
 
@@ -1091,13 +1088,6 @@ def get_bot_analytics(range: str = "30d", channel: str = "all"):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.get("/offers/tuner-suggestions")
-def get_tuner_suggestions(days: int = Query(14, ge=1, le=90)):
-    from agent_core.tuner import suggestions
-
-    return suggestions(days=days)
-
-
 @app.get("/offers/health", response_model=OfferHealthResponse)
 def get_offer_health(
     window: str = Query("30d", description="24h | 7d | 30d | 90d"),
@@ -1740,13 +1730,17 @@ async def ingest_document_request(
     file: UploadFile = File(...),
 ):
     from agent_core.vision import ingest_customer_document
+    from agent_core.tools.gates import interaction_identity_verified
 
     raw = await _read_upload_capped(file, max_bytes=8 * 1024 * 1024)
     result = ingest_customer_document(
         customer_id=customer_id,
         filename=file.filename or "receipt.jpg",
         mime_type=file.content_type or "image/jpeg",
-        identity_verified=bool(customer_id) and customer_id != "UNKNOWN-CALLER",
+        identity_verified=interaction_identity_verified(
+            interaction_id=interaction_id,
+            customer_id=customer_id,
+        ),
         interaction_id=interaction_id,
         requested_via="inbox",
         size_bytes=len(raw),
@@ -2209,6 +2203,18 @@ def compile_agent_studio_card(bot_id: str, payload: dict[str, Any] | None = None
         voice=body.get("voice") if isinstance(body.get("voice"), dict) else None,
         persona=body.get("persona") if isinstance(body.get("persona"), dict) else None,
     )
+
+
+@app.get(
+    "/agent-studio/cards/{bot_id}/effective-contract",
+    response_model=EffectiveContractResponse,
+)
+def get_agent_studio_effective_contract(bot_id: str):
+    """Read-only compiled artefact: published if persisted, else a draft preview."""
+    try:
+        return db.get_effective_contract(bot_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/agent-studio/cards/{bot_id}/publish", response_model=PromptVersionResponse)
@@ -2712,9 +2718,13 @@ def gateway_status_api():
 def a2a_well_known_card(request: Request, botId: str | None = Query(default=None)):
     from agent_core import a2a as a2a_mod
 
+    bot_id = botId or db.DEFAULT_BOT_ID
     try:
-        a2a_mod.require_partner({k.lower(): v for k, v in request.headers.items()})
-        return a2a_mod.agent_card_document(botId or db.DEFAULT_BOT_ID)
+        a2a_mod.require_partner(
+            {k.lower(): v for k, v in request.headers.items()},
+            bot_id=bot_id,
+        )
+        return a2a_mod.agent_card_document(bot_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
@@ -2726,8 +2736,9 @@ def a2a_protocol_task(request: Request, payload: dict[str, Any]):
     from agent_core import a2a as a2a_mod
 
     headers = {k.lower(): v for k, v in request.headers.items()}
+    bot_id = str(payload.get("botId") or payload.get("bot_id") or db.DEFAULT_BOT_ID)
     try:
-        partner = a2a_mod.require_partner(headers)
+        partner = a2a_mod.require_partner(headers, bot_id=bot_id)
         dn = a2a_mod.client_cert_dn(headers)
         inner = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         if payload.get("inputRequired") and "inputRequired" not in inner:
@@ -2736,7 +2747,7 @@ def a2a_protocol_task(request: Request, payload: dict[str, Any]):
             partner=partner,
             skill_id=str(payload.get("skillId") or payload.get("skill_id") or ""),
             payload=inner or payload,
-            bot_id=str(payload.get("botId") or payload.get("bot_id") or db.DEFAULT_BOT_ID),
+            bot_id=bot_id,
             cert_dn=dn,
         )
     except PermissionError as exc:
@@ -2788,19 +2799,361 @@ def export_policy_bundle(fmt: str = Query(default="opa")):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.get("/compliance/policy-rules")
+def list_policy_rule_sets():
+    import policy_rules
+
+    with db.engine.connect() as conn:
+        return policy_rules.list_rule_sets(conn, tenant_id=db.current_tenant())
+
+
+@app.post("/compliance/policy-rules")
+def create_policy_rule_draft(payload: dict[str, Any]):
+    import policy_rules
+    from schemas import PolicyRuleDraftRequest
+
+    body = PolicyRuleDraftRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            set_id = policy_rules.create_draft(
+                conn,
+                scope=body.scope,
+                version=body.version,
+                label=body.label,
+                effective_from=body.effectiveFrom,
+                effective_to=body.effectiveTo,
+                notes=body.notes,
+                tenant_id=body.tenantId or (
+                    None if body.scope == "statutory" else db.current_tenant()
+                ),
+                product_id=body.productId,
+                rules=body.rules,
+                actor_user_id=db._actor_user_id(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"id": set_id}
+
+
+@app.post("/compliance/policy-rules/{set_id}/submit")
+def submit_policy_rule_set(set_id: str):
+    import policy_rules
+
+    with db.engine.begin() as conn:
+        try:
+            policy_rules.submit_for_approval(
+                conn, set_id, actor_user_id=db._actor_user_id()
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"id": set_id, "state": "pending_approval"}
+
+
+@app.post("/compliance/policy-rules/{set_id}/approve")
+def approve_policy_rule_set(set_id: str):
+    import policy_rules
+
+    with db.engine.begin() as conn:
+        try:
+            policy_rules.approve_publication(
+                conn, set_id, actor_user_id=db._actor_user_id()
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"id": set_id, "state": "published"}
+
+
+@app.post("/compliance/policy-rules/{set_id}/reject")
+def reject_policy_rule_set(set_id: str):
+    import policy_rules
+
+    with db.engine.begin() as conn:
+        policy_rules.reject_publication(
+            conn, set_id, actor_user_id=db._actor_user_id()
+        )
+    return {"id": set_id, "state": "rejected"}
+
+
+@app.post("/compliance/policy-replay")
+def run_policy_replay(payload: dict[str, Any] | None = None):
+    import policy_replay
+    from datetime import datetime, timezone
+
+    body = payload or {}
+    start = (
+        datetime.fromisoformat(str(body.get("windowStart")))
+        if body.get("windowStart")
+        else datetime(1970, 1, 1, tzinfo=timezone.utc)
+    )
+    end = (
+        datetime.fromisoformat(str(body.get("windowEnd")))
+        if body.get("windowEnd")
+        else datetime.now(timezone.utc)
+    )
+    with db.engine.begin() as conn:
+        return policy_replay.replay(
+            conn,
+            window_start=start,
+            window_end=end,
+            expected_digest=body.get("expectedDigest"),
+            tenant_id=db.current_tenant(),
+        )
+
+
+@app.get("/compliance/complaint-pack/{customer_id}")
+def get_complaint_pack(customer_id: str):
+    import complaint_pack
+
+    with db.engine.connect() as conn:
+        try:
+            return complaint_pack.compose(
+                conn, tenant_id=db.current_tenant(), customer_id=customer_id
+            )
+        except complaint_pack.IncompletePack as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/compliance/subject-requests")
+def list_subject_requests(overdueOnly: bool = Query(default=False)):
+    import subject_rights
+
+    with db.engine.connect() as conn:
+        return subject_rights.list_requests(
+            conn, tenant_id=db.current_tenant(), overdue_only=overdueOnly
+        )
+
+
+@app.post("/compliance/subject-requests")
+def create_subject_request(payload: dict[str, Any]):
+    import subject_rights
+    from schemas import SubjectRequestCreateRequest
+
+    body = SubjectRequestCreateRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            return subject_rights.create_request(
+                conn,
+                tenant_id=db.current_tenant(),
+                customer_id=body.customerId,
+                kind=body.kind,
+                actor_user_id=db._actor_user_id(),
+                note=body.note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/compliance/subject-requests/{request_id}/transition")
+def transition_subject_request(request_id: str, payload: dict[str, Any]):
+    import subject_rights
+    from schemas import SubjectRequestTransitionRequest
+    from sqlalchemy import text as _text
+
+    body = SubjectRequestTransitionRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            kind = conn.execute(
+                _text("SELECT kind FROM subject_requests WHERE id = :id"),
+                {"id": request_id},
+            ).scalar()
+            if body.state == "fulfilled" and kind == "erasure":
+                return subject_rights.fulfil_erasure(
+                    conn, request_id, actor_user_id=db._actor_user_id()
+                )
+            return subject_rights.transition(
+                conn,
+                request_id,
+                state=body.state,
+                actor_user_id=db._actor_user_id(),
+                note=body.note,
+                evidence_ref=body.evidenceRef,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/compliance/security-incidents")
+def create_security_incident(payload: dict[str, Any]):
+    from schemas import SecurityIncidentCreateRequest
+    from sqlalchemy import text as _text
+    import uuid as _uuid
+
+    body = SecurityIncidentCreateRequest.model_validate(payload)
+    incident_id = f"INC-{_uuid.uuid4().hex[:10].upper()}"
+    with db.engine.begin() as conn:
+        conn.execute(
+            _text(
+                """
+                INSERT INTO security_incidents (
+                  id, tenant_id, severity, state, summary, evidence_ref,
+                  actor_user_id
+                ) VALUES (
+                  :id, :tid, :severity, 'open', :summary, :evidence, :actor
+                )
+                """
+            ),
+            {
+                "id": incident_id,
+                "tid": db.current_tenant(),
+                "severity": body.severity,
+                "summary": body.summary,
+                "evidence": body.evidenceRef,
+                "actor": db._actor_user_id(),
+            },
+        )
+    return {"id": incident_id, "state": "open"}
+
+
+@app.get("/compliance/security-incidents")
+def list_security_incidents():
+    from sqlalchemy import text as _text
+
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            _text(
+                """
+                SELECT id, severity, state, summary, detected_at
+                FROM security_incidents
+                WHERE tenant_id = :tid
+                ORDER BY detected_at DESC
+                LIMIT 200
+                """
+            ),
+            {"tid": db.current_tenant()},
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/integrations/bank/contracts")
+def bank_contract_status():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.contract_status(conn, tenant_id=db.current_tenant())
+
+
+@app.get("/integrations/bank/manifests")
+def bank_manifests():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.manifests(conn, tenant_id=db.current_tenant())
+
+
+@app.post("/integrations/bank/manifests")
+def bank_ingest_manifest(payload: dict[str, Any]):
+    from bank_boundary import api as bank_api
+    from bank_boundary.ingest import IngestRejected
+    from schemas import BankManifestIngestRequest
+
+    body = BankManifestIngestRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            return bank_api.ingest_manifest(
+                conn, tenant_id=db.current_tenant(), body=body
+            )
+        except IngestRejected as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/integrations/bank/reconciliation")
+def bank_reconciliation():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.reconciliation(conn, tenant_id=db.current_tenant())
+
+
+@app.get("/integrations/bank/readiness")
+def bank_readiness():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.readiness(conn, tenant_id=db.current_tenant())
+
+
+@app.get("/integrations/bank/outbox")
+def bank_outbox():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.outbox_state(conn, tenant_id=db.current_tenant())
+
+
+@app.get("/integrations/bank/breach-coverage")
+def bank_breach_coverage():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.breach_coverage(conn, tenant_id=db.current_tenant())
+
+
+@app.get("/integrations/bank/fairness")
+def bank_fairness():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.fairness(conn, tenant_id=db.current_tenant())
+
+
+@app.post("/integrations/bank/complaints")
+def bank_file_complaint(payload: dict[str, Any]):
+    from bank_boundary import api as bank_api
+    from bank_boundary.ingest import IngestRejected
+    from schemas import BankComplaintFileRequest
+
+    body = BankComplaintFileRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            return bank_api.file_complaint(
+                conn,
+                tenant_id=db.current_tenant(),
+                customer_id=body.customerId,
+                kind=body.kind,
+                actor_user_id=db._actor_user_id(),
+            )
+        except IngestRejected as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/integrations/bank/complaints")
+def bank_list_complaints():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.list_complaints(conn, tenant_id=db.current_tenant())
+
+
 @app.post("/eval/suites/{suite_id}/run")
-def run_eval_suite(suite_id: str, botId: str | None = Query(default=None)):
+def run_eval_suite(
+    suite_id: str,
+    botId: str | None = Query(default=None),
+    promptVersionId: str | None = Query(default=None),
+):
     """Run a suite. ``botId`` files the report against the card that launched it.
 
-    Without it the report falls back to ``bot_id_for_suite``, which guesses from
-    the suite name — so a run started from a cloned card's Evals tab was filed
-    under kaia-v2-4 (or nothing), the tab kept reading "never run", and G7/G8
-    could never find a report for that card.
+    ``promptVersionId`` scopes the report to the draft being published so G7/G8
+    cannot accept last week's green run for this week's card.
     """
     from agent_core.eval.run import run_named_suite
 
     try:
-        return run_named_suite(suite_id, origin="manual", bot_id=botId or None)
+        return run_named_suite(
+            suite_id,
+            origin="manual",
+            bot_id=botId or None,
+            prompt_version_id=promptVersionId or None,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -3230,16 +3583,37 @@ def rollback_deployment_experiment(experiment_id: str, payload: dict[str, Any] |
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+def _require_agent_edit_for_card(body: dict[str, Any]) -> None:
+    """The dedicated Studio card route is the writer of ``agentCard``.
+
+    Generic prompt-version create/patch stay BOT_WRITE for prompt/persona.
+    Carrying a card through those bodies is an AGENT_EDIT act.
+    """
+    if "agentCard" in body or "agent_card" in body:
+        uid = db._actor_user_id()
+        if not uid or not authz.has_permission(uid, authz.AGENT_EDIT):
+            raise HTTPException(status_code=403, detail="agent_edit_required")
+
+
 @app.post("/prompt-versions", response_model=PromptVersionResponse)
 def create_prompt_version(payload: PromptVersionCreateRequest):
     """Create a draft — jsonb validated by nested Pydantic models."""
-    return _handle_write(db.create_prompt_version, payload.model_dump())
+    _require_agent_edit_for_card(payload.model_dump(exclude_unset=True))
+    body = payload.model_dump()
+    return _handle_write(db.create_prompt_version, body)
 
 
 @app.patch("/prompt-versions/{version_id}", response_model=PromptVersionResponse)
 def patch_prompt_version(version_id: str, payload: PromptVersionPatchRequest):
-    """Update draft only — 409 if the version is published/archived."""
+    """Update draft only — 409 if the version is published/archived.
+
+    ``agentCard`` is the compile-time contract, not a prompt slider. Mutating it
+    through the generic BOT_WRITE patch is how a role that cannot open Studio
+    could still rewrite handoffs and tools. AGENT_EDIT is required when the
+    body carries a card.
+    """
     body = payload.model_dump(exclude_unset=True)
+    _require_agent_edit_for_card(body)
     return _handle_write(db.patch_prompt_version, version_id, body)
 
 
@@ -3247,7 +3621,8 @@ def patch_prompt_version(version_id: str, payload: PromptVersionPatchRequest):
 def publish_prompt_version(version_id: str, payload: PromptVersionPublishRequest):
     """Publish draft + swap active prod deployment atomically.
 
-    Optional kbSnapshotId / tuning from Sandbox Promote pin the deployment bundle.
+    Optional kbSnapshotId from Sandbox Promote pins the deployment bundle.
+    Tuning comes from the authored prompt version, never browser rehearsal state.
     Concurrent publish that loses the unique published index returns 409.
     An authored conversation graph with validation errors returns 422
     ``flow_invalid`` — drafts stay savable; publish is the compiler.
@@ -3257,7 +3632,9 @@ def publish_prompt_version(version_id: str, payload: PromptVersionPublishRequest
             version_id,
             payload.summary,
             kb_snapshot_id=payload.kbSnapshotId,
-            tuning=payload.tuning,
+            # Tuning is authored on the prompt version. Rehearsal controls are
+            # ephemeral and cannot overwrite it during promotion.
+            tuning=None,
             traffic_pct=payload.trafficPct,
             shadow=payload.shadow,
             auto_rollback=payload.autoRollback,
@@ -3382,7 +3759,17 @@ def discard_prompt_version(version_id: str):
 @app.post("/bot-deployments/{deployment_id}/rollback", response_model=BotDeploymentResponse)
 def rollback_bot_deployment(deployment_id: str):
     """Activate prior deployment and re-publish its prompt version (invariant)."""
-    return _handle_write(db.rollback_bot_deployment, deployment_id)
+    try:
+        return db.rollback_bot_deployment(deployment_id)
+    except CompileError as exc:
+        raise HTTPException(status_code=exc.report.http_status(), detail=exc.http_detail()) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc.args[0] if exc.args else str(exc))) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        logger.warning("write rejected by a database constraint: %s", exc.orig)
+        raise HTTPException(status_code=409, detail="constraint_violation") from exc
 
 
 @app.post("/sandbox/runs", response_model=SandboxRunResponse)
@@ -3917,6 +4304,7 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
             source="voice_outbound",
             related_id=attempt["id"] if attempt else to,
             actor_kind="human",
+            endpoint=to,
         )
         if not decision.allowed and attempt:
             outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")
@@ -4241,6 +4629,7 @@ async def demo_outbound_call():
             source="voice_outbound",
             related_id=attempt["id"] if attempt else phone,
             actor_kind="human",
+            endpoint=phone,
         )
         # The one override, and its limits.
         #
@@ -4769,10 +5158,8 @@ def treatment_next(
 ):
     """What should happen to this account next, and when.
 
-    Safe to call from a screen: outside ``TREATMENT_MODE=live`` the engine
-    decides, logs and enacts nothing. The decision row is written either way —
-    a supervisor asking "what would you do here?" is exactly the kind of
-    question the shadow corpus should be built from.
+    Safe to call from a screen: this is a preview. It writes no decision row
+    and creates no enactable schedule.
     """
     return _handle_write(
         db.next_treatment, customer_id=customerId, account_id=accountId, trigger=trigger
@@ -4855,6 +5242,31 @@ def release_treatment_hold(hold_id: str, payload: TreatmentHoldReleaseRequest | 
         hold_id,
         payload.model_dump(exclude_none=True) if payload else None,
     )
+
+
+@app.post("/treatment/decisions/{decision_id}/feedback")
+def treatment_decision_feedback(decision_id: str, payload: dict[str, Any]):
+    import decision_feedback
+    from schemas import DecisionFeedbackRequest
+
+    body = DecisionFeedbackRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            return decision_feedback.record_feedback(
+                conn,
+                tenant_id=db.current_tenant(),
+                decision_id=decision_id,
+                verdict=body.verdict,
+                actor_user_id=db._actor_user_id(),
+                reason_code=body.reasonCode,
+                note_redacted=body.noteRedacted,
+                endpoint=body.endpoint,
+                channel=body.channel or "voice",
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/treatment/cases")

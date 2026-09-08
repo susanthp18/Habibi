@@ -1,0 +1,185 @@
+{
+ "verdicts": [
+  {
+   "id": "BINDINGS-1",
+   "verdict": "DOWNGRADED",
+   "reason": "Mechanism is real at the cited lines. BindingsTab.tsx:40 SLOTS includes \"llm\" and :44 labels it \"Language model\"; schemas.py:3429 accepts slot='llm' and the migration CHECK (20260821_0092_provider_registry.py:118) allows it. I counted every ModelSpec in registry.py — kind= appears at 251,262,288,296,317,328,342,350,357,372,390,410,439,474,484, fifteen specs, none kind=\"llm\" — and persist.list_models (persist.py:97-121) reads only that seeded table, so GET /providers/models?kind=llm is []. The runtime half also holds: provider_bind.bind is called only at bot.py:638 ('stt') and bot.py:655 ('tts'), and the LLM is built unconditionally at bot.py:683 from voice_config.azure_openai_voice_* (voice/llm_pool.py:42-57). Grep for resolve_chain/list_bindings across backend/*.py returns only main.py, factory.py, persist.py, two tests and the migration — bot_runtime.py and sandbox_runtime.py never touch it. The picker's empty branch is also real: BindingsTab.tsx:105-111 maps (models.data ?? []) and :141-145 has only an isError message. But MAJOR is inflated: the operator cannot complete the action, so no wrong runtime state is created, no publish verdict changes and nothing is lost — the harm is one dropdown option that leads to a blank picker. Incorrect but contained = MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:40",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:44",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:105",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:141",
+    "backend/agent_core/providers/registry.py:53",
+    "backend/agent_core/providers/persist.py:97",
+    "backend/voice/bot.py:638",
+    "backend/voice/bot.py:655",
+    "backend/voice/bot.py:683",
+    "backend/voice/llm_pool.py:42",
+    "backend/schemas.py:3429"
+   ]
+  },
+  {
+   "id": "BINDINGS-2",
+   "verdict": "CONFIRMED",
+   "reason": "Every link verified. BindingsTab.tsx:85 onValueChange={(v) => setSlot(v as ProviderSlot)} touches only slot; modelId state at :49 is never reset, and canSave at :59 is Boolean(modelId) && priorityValid, so Save stays enabled. The Select is Radix (components/ui/select.tsx:4), so a controlled non-empty value with no matching SelectItem renders a blank trigger (the placeholder at :102 shows only for an empty value) — the operator sees an empty Model field with Save live. save() at :61-69 posts that stale id under the new slot. No guard downstream: ProviderBindingInput validates only the slot pattern (schemas.py:3426-3436); upsert_provider_binding (main.py:5489-5500) passes it straight to persist.upsert_binding (persist.py:151-205), which has no kind check; the table has only CHECK (slot IN ('stt','tts','llm')) at 20260821_0092_provider_registry.py:118 and nothing relating slot to provider_models.kind. At runtime resolve_chain selects m.kind into ResolvedBinding (factory.py:142,171) but filters only on b.slot (factory.py:154) and factory.py never compares kind to slot again — grep for 'kind' in factory.py returns 57,106,142,171 only. So build() (factory.py:224) imports the TTS class into the STT position. Operator action: Bindings tab -> Add binding -> Slot 'Text to speech' -> pick a model -> switch Slot to 'Speech to text' -> Save; the row then renders green Enabled under Speech-to-text (BindingsTab.tsx:178,204). Note the prior audit's cross-cutting theme 4 (AGENT_STUDIO_BUG_HUNT.md:254-255) already named 'stale modelId kept across slot switches', but this adds the backend/DB/runtime half, so it is not a bare restatement.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:49",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:59",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:85",
+    "backend/schemas.py:3426",
+    "backend/main.py:5489",
+    "backend/agent_core/providers/persist.py:151",
+    "backend/alembic/versions/20260821_0092_provider_registry.py:118",
+    "backend/agent_core/providers/factory.py:154",
+    "backend/agent_core/providers/factory.py:224"
+   ]
+  },
+  {
+   "id": "BINDINGS-3",
+   "verdict": "CONFIRMED",
+   "reason": "Verified end to end. main.py:5408-5460 returns configured (:5452), runtime and runtimeDetail (:5455-5456) from registry.runtime_status (registry.py:529-565); the fields are typed at providers.ts:41,49,51 and VoiceParamsPanel.tsx:370-401 already renders them — so the data exists and this picker throws it away: BindingsTab.tsx:105-109 renders only {m.providerName} · {m.displayName}, and persist.list_models filters on m.enabled alone (persist.py:104-105), so preview_only and unavailable models are offered. registry.py:454 declares live_capable=False for fish-audio/s2.1-pro whose service class raises at construction (openrouter_tts.py:192-197), and runtime_status returns preview_only for it (registry.py:547-548). Bind it: the row's State column reads binding.enabled (BindingsTab.tsx:204-208), which POST defaults to true (schemas.py:3436) — a stored boolean, never a health check. On a call, factory.build_first_available catches every construction failure (factory.py:285-292) and raises ProviderUnavailable, which provider_bind's bare `except Exception` (provider_bind.py:80-97) turns into the Azure fallback lambda (bot.py:669-675). Operator action: Bindings -> Add binding -> Slot 'Text to speech' -> 'OpenRouter · Fish Audio S2.1 Pro' -> Save; green forever, Azure speaks. This is an on-screen assertion about which engine runs a regulated collections call, so MAJOR stands. Partial overlap with AGENT_STUDIO_BUG_HUNT.md:247 ('bindings render dead vendors green'), but that was a one-line theme with no location, mechanism or the unused runtime/runtimeDetail fields — not a bare restatement.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:105",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:204",
+    "Habibi/src/api/providers.ts:49",
+    "backend/main.py:5455",
+    "backend/agent_core/providers/registry.py:454",
+    "backend/agent_core/providers/registry.py:529",
+    "backend/agent_core/providers/openrouter_tts.py:192",
+    "backend/agent_core/providers/factory.py:285",
+    "backend/voice/provider_bind.py:80"
+   ]
+  },
+  {
+   "id": "BINDINGS-4",
+   "verdict": "DUPLICATE_OF_PRIOR",
+   "reason": "The prior audit states it outright: AGENT_STUDIO_BUG_HUNT.md:121 — 'Note (accepted risk, flagged): deleting a tenant-default binding is one unconfirmed click.' It was recorded and accepted. The code is unchanged (git log for BindingsTab.tsx shows only e6da33b 'baseline before autonomous development'), so the mechanism is still present — del at :168-173 calls remove.mutate straight from onClick at :218, no confirm step, and delete_binding scopes only to tenant_id (persist.py:210-219) via main.py:5526-5532 — but the finding adds nothing the prior item did not already say except the tooltip/a11y point, which is separately filed as BINDINGS-12. MAJOR is also inflated on its own terms: the toast and the immediately re-fetched table (providers.ts:288) make the removal visible rather than silent, the runtime degrades to a working Azure path (bot.py:646,669), and the row is recreatable — so if re-raised it belongs at MINOR, with the real residual being that the UI cannot recreate a tenant default (BINDINGS-11).",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:168",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:218",
+    "backend/main.py:5526",
+    "backend/agent_core/providers/persist.py:210"
+   ]
+  },
+  {
+   "id": "BINDINGS-5",
+   "verdict": "DOWNGRADED",
+   "reason": "The dead-write is real: provider_bind.record (provider_bind.py:116-127) writes session.extra['providers'] at :124, called at bot.py:653 and bot.py:677, and a Grep for 'providers' across backend/voice/*.py returns only bot.py:679, bot.py:2224/2540 (module names), crm_sink.py:1372 (a comment) and provider_bind.py itself — no reader. voice/persist.py has no occurrence, so it is not persisted. But two parts of the claim fail. First, 'read by nothing' overstates: bot.py:678-682 reads stt_prov/tts_prov and emits `voice.trace setup.providers stt=… tts=…` through call_trace.event, which logs at WARNING precisely because this deployment's root logger sits there (call_trace.py:112-123) — the engine that actually spoke is named in the call trace on every call, not only on error. Second, the stated harm does not occur: the cost meter does not read the binding table at all — sink.usage.configure is fed from tuning (bot.py:700-704) — so nothing is being mis-attributed to Cartesia today. What remains is dead config plus a false module docstring (provider_bind.py:25-27), which is contained and not an operator-facing lie: MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/voice/provider_bind.py:116",
+    "backend/voice/provider_bind.py:124",
+    "backend/voice/bot.py:653",
+    "backend/voice/bot.py:677",
+    "backend/voice/bot.py:678",
+    "backend/voice/bot.py:700"
+   ]
+  },
+  {
+   "id": "BINDINGS-6",
+   "verdict": "CONFIRMED",
+   "reason": "Exact at the cited lines. BindingRow's prop is typed onEdit: (b: ProviderBinding) => void (BindingsTab.tsx:163) and the button calls onEdit(binding) at :212, but the parent renders <BindingRow ... onEdit={() => setAdding(true)} /> at :303, dropping the argument. AddBindingRow takes only { botId, onDone } (:47) and initialises slot='tts', modelId='', locale='', priority='100' (:48-51) with no seeding path, so clicking Edit on an stt/en-IN/priority-50 row opens a blank tts/any/100 form. Worse than described: because save() posts through the same upsert whose identity is (tenant, bot, slot, locale, priority) (persist.py:151-158, ON CONFLICT at :184), completing that form does not edit the clicked row but replaces or creates a different one. Trigger is one click on any row. MINOR is right — a control that lies about what it does, but contained.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:47",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:163",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:212",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:303"
+   ]
+  },
+  {
+   "id": "BINDINGS-7",
+   "verdict": "CONFIRMED",
+   "reason": "Chain verified. save() at BindingsTab.tsx:61-69 sends slot/providerModelId/botId/locale/priority and no voiceRef; ProviderBindingInput defaults voiceRef to None (schemas.py:3433) and main.py:5498 passes voice_ref=payload.voiceRef; upsert_binding's ON CONFLICT (tenant_id, COALESCE(bot_id,''), slot, COALESCE(locale,''), priority) DO UPDATE SET voice_ref = EXCLUDED.voice_ref sits at persist.py:184-188 — the voice_ref line is 187, not 186. Priority defaults to '100' at :51 and the copy at :149-151 warns about replacement but not about the dropped voice. Contained as stated: the only writer of voice_ref is this POST (grep shows writers at persist.py:187/201 and main.py:5498, readers only at factory.py:226-227), and that read is unreachable on the live path (see BINDINGS-8), so the trigger needs an out-of-band curl to set voice_ref first. Real, contained, MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:61",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:149",
+    "backend/schemas.py:3433",
+    "backend/main.py:5498",
+    "backend/agent_core/providers/persist.py:187"
+   ]
+  },
+  {
+   "id": "BINDINGS-8",
+   "verdict": "CONFIRMED",
+   "reason": "The guard is at factory.py:226 (`if binding.voice_ref and \"voice\" not in settings:`) with the assignment on :227, over settings = {**binding.settings, **overrides} on :225. The only live TTS bind passes settings=tts_settings_kwargs(tuning) at bot.py:661 (within the bind call opened at :655), and tts_settings_kwargs builds its kwargs dict with a literal \"voice\": tts[\"voice\"] key at tuning_apply.py:235-236 — unconditional, and key presence alone (even a None value) makes `\"voice\" not in settings` false. So binding.voice_ref can never reach a live TTS service, while the table dedicates a Voice header (:294) and cell (:192) to it. MINOR is right: the column is misleading, but today no UI path even populates voice_ref, so nothing diverges in practice.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:192",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:294",
+    "backend/agent_core/providers/factory.py:226",
+    "backend/voice/tuning_apply.py:235",
+    "backend/voice/bot.py:661"
+   ]
+  },
+  {
+   "id": "BINDINGS-9",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. The Locale control is a bare Input with placeholder 'any' and no validation or hint (BindingsTab.tsx:113-121); save sends locale.trim() || null (:67). The selected model's declared locales array is available on the row (typed at providers.ts:22, not :28) and unused. Match is an exact SQL equality: resolve_chain's WHERE has `AND (b.locale IS NULL OR b.locale = :locale)` at factory.py:158, bound to bind_locale = normalize_tuning(tuning)['stt']['language'] at bot.py:635 (not :636), which tuning.py:302 only strips — no case folding, no BCP-47 normalisation, defaulting to 'en-IN'. A row stored as 'en-in' is simply excluded from the chain, so resolution falls through to the next candidate or, if none, to NoBindingError -> the Azure fallback (provider_bind.py:70-79) — while the row still renders green Enabled (:204) under a footer describing a resolution order it never enters (:310-313). Trigger is one typo in a free-text box. MINOR correct.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:67",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:113",
+    "Habibi/src/api/providers.ts:22",
+    "backend/agent_core/providers/factory.py:158",
+    "backend/voice/bot.py:635",
+    "backend/agent_core/tuning.py:302"
+   ]
+  },
+  {
+   "id": "BINDINGS-10",
+   "verdict": "CONFIRMED",
+   "reason": "The empty state at BindingsTab.tsx:279-285 does say the runtime 'falls back to whatever the registry defaults to' (:282-284), and the registry explicitly refuses to default: build_first_available raises NoBindingError on an empty chain (factory.py:265-269, docstring at :262 'never substitutes a default'), and provider_bind logs and calls the caller's fallback (provider_bind.py:70-79), which is a hardcoded AzureSTTService at bot.py:646-651 and KeepAliveAzureTTSService at bot.py:669-675 built from speech_key/speech_region. The second-order point also checks out: that Azure fallback is constructed with build_tts_settings(tuning) (bot.py:672), which starts from tts_settings_kwargs' unconditional voice (tuning_apply.py:236) and only filters against Azure's declared Settings fields (tuning_apply.py:266-271) — 'voice' is declared, so a Cartesia or Fish voice name is handed to Azure TTS verbatim. MINOR correct: misleading copy plus a latent cross-vendor voice name, not a wrong verdict.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:282",
+    "backend/agent_core/providers/factory.py:265",
+    "backend/voice/provider_bind.py:70",
+    "backend/voice/bot.py:646",
+    "backend/voice/bot.py:669",
+    "backend/voice/tuning_apply.py:266"
+   ]
+  },
+  {
+   "id": "BINDINGS-11",
+   "verdict": "CONFIRMED",
+   "reason": "Both halves verified. AddBindingRow's payload hardcodes botId (BindingsTab.tsx:66) from the tab's own prop (:47, mounted with botId at prompt-studio.lazy.tsx:1408), so every row this screen can create is card-scoped, while the API accepts botId: str | None = None (schemas.py:3431) and the table renders, explains and deletes inherited rows (:197-198, :220-227, :310-313) — a tenant default is creatable only by curl. The State column renders Enabled/Disabled at :204-208 with no toggle anywhere in the file, and POST always sends the schema default enabled: bool = True (schemas.py:3436), so re-enabling requires re-saving at the same identity, which per BINDINGS-7 also nulls voice_ref. MINOR correct: a screen that can read and destroy a class of row it cannot author.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:66",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:197",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:204",
+    "backend/schemas.py:3431",
+    "backend/schemas.py:3436"
+   ]
+  },
+  {
+   "id": "BINDINGS-12",
+   "verdict": "DOWNGRADED",
+   "reason": "The central claim is wrong. Line 229 is `<Trash2 className=\"h-3.5 w-3.5\" />` — the finding's own quotation ('aria-hidden-less icon') is a paraphrase, not the code. Under the HTML-AAM/accname algorithm, a button with no text content and no aria-label/aria-labelledby takes its accessible name from the title attribute, and this button carries one at :223-227 — so a screen-reader user does NOT hear an unnamed button, they hear either 'Inherited from the tenant — removing it affects every card' or 'Remove this binding', i.e. the warning reaches assistive tech, contradicting both sentences of the mechanism. (The lucide-react svg contributes no accessible text: it renders with no role and no title child.) What survives is narrow and cosmetic: title tooltips are not shown on keyboard focus in mainstream browsers and are unreachable on touch, so a sighted keyboard or touch operator sees no warning — a visible tone/label difference would be better. That is TRIVIAL, not MINOR. (Line 128, not 127, is the Priority aria-label.)",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:223",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:229",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:128"
+   ]
+  },
+  {
+   "id": "BINDINGS-13",
+   "verdict": "DOWNGRADED",
+   "reason": "The observation is factually right. Grep for 'providers/bindings|upsert_binding|delete_binding' across backend/tests returns no matches, and the only backend/tests hits for agent_provider_bindings are comments in test_rls.py:45 and test_tenant_scoping.py:61 — the provider test files that exist are test_provider_pool.py, test_provider_preview_routing.py, test_provider_registry_runtime.py and test_voice_provider_bind.py, none of which exercise the CRUD endpoints. On the frontend, enumerating every *.test.* under Habibi/src returns 19 files and none is for BindingsTab or api/providers.ts. But a coverage gap is not itself incorrect behaviour: the defects it fails to catch are already filed as BINDINGS-2 and BINDINGS-7, and severity here would double-count them. TRIVIAL as a standalone item.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/tests/test_voice_provider_bind.py:1",
+    "backend/tests/test_provider_registry_runtime.py:1",
+    "Habibi/src/components/prompt-studio/BindingsTab.tsx:1"
+   ]
+  }
+ ],
+ "slice": "bindings"
+}

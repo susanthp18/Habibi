@@ -1,0 +1,286 @@
+{
+ "slice": "voice",
+ "summary": "The Voice (TTS) tab (Habibi/src/components/prompt-studio/VoicePanel.tsx:171) edits `version.voice` (VoiceConfig: voiceId/azureVoiceName/style/speed/pitch/warmth/pauseMs/sampleText/params) via `onChange=setVoice` in prompt-studio.lazy.tsx:1452; autosave PATCHes /prompt-versions/{id} (main.py:3240 → db_prompt_studio.patch_prompt_version:1703), which whitelists the object through `_prompt_voice` (db_prompt_studio.py:94-123) and folds it into `prompt_versions.tuning.tts` via `apply_voice_config_overlay` (1740-1748; tuning.py:359-408). Publish (main.py:3246 → db_prompt_studio.py:1967-2018) writes the resolved short name to deployments.tts_voice_id, voice_config and tuning.tts.voice so the three agree. The catalog browser (VoiceCatalogBrowser.tsx:151) reads /tts-voices/catalog (keyset-paginated, server-side provider/locale filters, db_prompt_studio.py:1059), provider/locale counts (db.py:7443/7469), pricing (1193), sync runs (1329), and per-voice warnings (1240); the inspector renders the selected model's `params_schema` from /providers/models?kind=tts (main.py:5421). Preview POSTs /tts/preview (main.py:3089): Azure voices go through azure_speech.synthesize with speed/pitch/warmth/pauseMs only (3163-3171); `{provider}:{ref}` voices dispatch to provider_tts.synthesize (provider_tts.py:279) with `params`. At call time voice/bot.py:579-590 resolves tuning (tuning_apply.resolve_session_tuning:372) — explicit tuning.tts.voice wins, stale/removed catalog voices are rewritten to en-IN-AartiNeural (454-464) — then tts_settings_kwargs (tuning_apply.py:218) feeds provider_bind.bind (bot.py:655-677) → agent_core/providers/factory.build (factory.py:204-247) or the Azure fallback. G15 voice_locale (compile.py:194-226) and the panel's lozenge (VoicePanel.tsx:219-224) compare the catalog locale's primary subtag with the persona's language tags.",
+ "endpoints": [
+  "GET /tts-voices/catalog → backend/main.py:3025 list_tts_voice_catalog → backend/db_prompt_studio.py:1059 list_tts_voice_catalog",
+  "GET /tts-voices/catalog/{short_name} → backend/main.py:3059 → backend/db_prompt_studio.py:1169 get_tts_voice_catalog_entry",
+  "GET /tts-voices/catalog/sync-runs → backend/main.py:3053 → backend/db_prompt_studio.py:1329 list_tts_sync_runs",
+  "GET /tts-voices/pricing → backend/main.py:3067 → backend/db_prompt_studio.py:1193 list_tts_price_tiers",
+  "GET /tts-voices/catalog-warning?shortName= → backend/main.py:3072 → backend/db_prompt_studio.py:1240 get_tts_voice_warning",
+  "POST /tts-voices/catalog/sync (admin) → backend/main.py:3077 → backend/tts_catalog_sync.py:149 run_sync (Azure only)",
+  "GET /tts-voices/catalog-provider-counts → backend/main.py:5571 → backend/db.py:7443 list_tts_voice_provider_counts",
+  "GET /tts-voices/catalog-locale-counts → backend/main.py:5583 → backend/db.py:7469 list_tts_voice_locale_counts",
+  "GET /providers/models?kind=tts → backend/main.py:5421 list_provider_models → backend/agent_core/providers/persist.py:97 list_models (+ registry.runtime_status:529)",
+  "POST /tts/preview → backend/main.py:3089 tts_preview → backend/provider_tts.py:279 synthesize (non-Azure) / backend/azure_speech.py:460 synthesize (Azure)",
+  "GET /tts-voices (legacy aliases, only invalidated by Refresh) → backend/main.py:3020 → backend/db_prompt_studio.py:909 list_tts_voices",
+  "PATCH /prompt-versions/{id} (autosave of voice) → backend/main.py:3240 → backend/db_prompt_studio.py:1703 patch_prompt_version",
+  "POST /prompt-versions/{id}/publish → backend/main.py:3246 → backend/db_prompt_studio.py:1820 publish_prompt_version",
+  "POST /agent-studio/cards/{bot_id}/compile (voice+persona passed for G15) → backend/main.py:2194 → backend/db_prompt_studio.py:782 compile_agent_studio_card → voice_locale_facts:983",
+  "POST /stt/transcribe (Habibi/src/api/speech.ts:40; not called from the Voice tab) → backend/main.py:3408"
+ ],
+ "runtime_consumers": [
+  "voice.azureVoiceName / voice.voiceId → db_prompt_studio.resolve_prompt_azure_voice:961 → tuning.tts.voice (patch db_prompt_studio.py:1740-1748, publish 1975 & 2012-2018) → deployments.tts_voice_id (2116) → voice/bot.py:579-590 → tuning_apply.resolve_session_tuning:412-437 (explicit tts.voice wins) → tts_settings_kwargs voice (tuning_apply.py:236) → provider_bind.bind (bot.py:655-677) → factory.build settings (factory.py:225-247) or KeepAliveAzureTTSService fallback (bot.py:669-674)",
+  "voice.speed → tuning.tts.rate (tuning.py:391-393, clamped 0.85-1.25 ×1.03) → tuning_apply.py:238",
+  "voice.pitch → tuning.tts.pitch (tuning.py:394-396) → tuning_apply.py:239",
+  "voice.warmth → tuning.tts.style/style_degree friendly|empathetic (tuning.py:397-406) → tuning_apply.py:243-245",
+  "voice.params → tuning.tts.params (tuning.py:386-387, normalize_tts_params:224) → tuning_apply.py:252-253 setdefault → factory.build Settings filter (factory.py:236-247) / build_tts_settings filter (tuning_apply.py:270-277) / live delta (tuning_apply.py:347-361)",
+  "voice.pauseMs → NONE at runtime (dead config): only /tts/preview main.py:3170; apply_voice_config_overlay has no pause parameter (tuning.py:359-366); build_voice_ssml (agent_core/voice_ssml.py:61) has no caller in main.py, voice/, sandbox_runtime.py or agent_core/",
+  "voice.style → NONE (dead config): not a parameter of apply_voice_config_overlay (tuning.py:359-366); /tts/preview ignores payload.style (main.py:3163-3171 passes speed/pitch/warmth/pause_ms only); copied into deployments.voice_config (db_prompt_studio.py:1992-2000) of which only azureVoiceName is ever read (agent_core/deployment.py:78-80)",
+  "voice.sampleText → preview only (VoicePanel.tsx:439); by design",
+  "tts_voice_catalog.removed_at/status → get_tts_voice_warning (db_prompt_studio.py:1240) → resolve_session_tuning rewrites tts.voice to en-IN-AartiNeural (tuning_apply.py:454-464); also /tts/preview Azure branch (main.py:3161-3163)",
+  "deployments.tts_voice_id / voice_config.azureVoiceName → bundle.ttsVoiceId (agent_core/deployment.py:78-80) → voice_params_from_config (agent_core/voice_ssml.py:29-58) → only .voiceName is used (bot.py:589) and only as the default when tuning.tts.voice is absent (tuning_apply.py:437) — after publish it never is",
+  "provider_bindings.voice_ref (Bindings tab) → NONE: factory.build applies it only when 'voice' not in settings (factory.py:226-227) and tts_settings_kwargs always supplies voice (tuning_apply.py:236; normalize_tuning fills it, tuning.py:283)"
+ ],
+ "findings": [
+  {
+   "id": "VOICE-1",
+   "title": "Catalog Refresh is Azure-only but its soft-removal is not provider-scoped: it either marks every non-Azure voice removed (forcing runtime fallback to Aarti) or, as today, silently skips all removals while toasting 'Catalog refreshed'",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/tts_catalog_sync.py:205-212",
+    "backend/tts_catalog_sync.py:326-347",
+    "backend/main.py:3077-3086",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:257-283",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:553",
+    "backend/db_prompt_studio.py:1265-1272",
+    "backend/voice/tuning_apply.py:454-464"
+   ],
+   "mechanism": "run_sync fetches only Azure voices (tts_catalog_sync.py:192-205) yet its removal UPDATE is `WHERE removed_at IS NULL AND NOT (short_name = ANY(:names))` with no provider_id clause (332-336), so every fish:/cartesia:/deepgram: row is a removal candidate. The only protection is the plausibility guard `len(seen) >= live_prior*0.8` (326-328) where live_prior counts ALL providers. With the catalog the code itself describes (2,113 rows, VoiceCatalogBrowser.tsx:439; 774 Azure, db_prompt_studio.py:1102; 890 Cartesia, provider_tts.py:116) 774 < 1690, so the guard trips on every admin Refresh: nothing is ever soft-removed (a genuinely retired Azure voice is never flagged 'removed', so get_tts_voice_warning never fires for it and the runtime keeps sending the dead name to Azure), a WARNING is logged, and run_sync still returns error=None → the UI toasts 'Catalog refreshed · 774 voices' (Browser:273) under a button titled 'Re-pull the provider voice catalogs' (Browser:553) that pulls one provider. If non-Azure rows ever fall under 20% of the catalog, the guard passes and one click soft-removes all of them; get_tts_voice_warning then returns code 'removed' (db_prompt_studio.py:1265-1272) and resolve_session_tuning rewrites tuning.tts.voice to en-IN-AartiNeural on every call (tuning_apply.py:454-464) — every Fish/Cartesia-voiced card silently speaks Aarti. No code path in the repo writes non-Azure rows (searched main.py, db.py, agent_core/**, scripts/, tts_catalog_sync.py), so Refresh can never restore them either.",
+   "trigger": "Operator with admin role opens Voice tab → Filters → Refresh. Today: toast claims a refresh while removals are skipped and the log warns. With a smaller non-Azure set (<20% of rows): all non-Azure voices vanish from the picker and bound cards fall back to Aarti at call time.",
+   "fix": "Scope both the prefetch and the removal UPDATE to `provider_id IS NULL OR provider_id = 'azure'`, compute live_prior over that same subset, and surface the skipped-removal condition in the TtsSyncRun (e.g. `softRemovalSkipped: true`) so the Browser toast can say so instead of 'Catalog refreshed'. Rename the button/title to 'Refresh Azure catalog' until a multi-provider sync exists.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-2",
+   "title": "Bindings-tab voiceRef is dead config and a provider/voice mismatch is never checked: the Voice tab's short name is force-fed to whatever TTS service is bound (or the Azure fallback)",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/providers/factory.py:225-227",
+    "backend/voice/tuning_apply.py:232-240",
+    "backend/agent_core/tuning.py:283",
+    "backend/voice/bot.py:655-677",
+    "backend/voice/tuning_apply.py:270-277",
+    "backend/agent_core/providers/fish_service.py:139",
+    "backend/voice/provider_bind.py:70-79",
+    "Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:369-405"
+   ],
+   "mechanism": "factory.build applies binding.voice_ref only `if binding.voice_ref and 'voice' not in settings` (factory.py:226-227). bot.py:661 passes settings=tts_settings_kwargs(tuning), which always contains 'voice' (tuning_apply.py:236) because normalize_tuning fills tts.voice with en-IN-AartiNeural when absent (tuning.py:283). So the Bindings tab's voiceRef never speaks. Conversely nothing compares the voice's provider (provider_tts.voice_row / the `{provider}:` prefix) with the bound provider: a card whose Voice tab selected `fish:<ref>` on a tenant with no fish binding hits NoBindingError → Azure fallback (provider_bind.py:70-79) and build_tts_settings hands AzureTTSService voice='fish:<ref>' (tuning_apply.py:270-277); a card with en-IN-AartiNeural on a Fish binding hands FishTTSService reference_id='en-IN-AartiNeural' (fish_service.py:139). The panel's RuntimeNotice (VoiceParamsPanel.tsx:369-405) only reports the model's import status, so both cases show a green 'These settings publish with the version' notice, pass G0-G15 (compile.py has no binding gate — grep 'binding' hits only G3 policy bindings at 594-616), and fail on the first utterance of a live call.",
+   "trigger": "Select any Fish/Cartesia voice in the Voice tab on a bot whose tenant has no binding for that provider (the shipped default), publish, place a call. Or set a voiceRef in Agent Studio → Providers → Bindings and observe it is never used.",
+   "fix": "Add a compile gate (G16 'voice_provider') that resolves provider_tts.voice_row(short) and factory.resolve_chain(tenant, 'tts', bot, locale) and warns/blocks when the voice's provider is not first in the chain; in factory.build let binding.voice_ref win only when the tuning voice belongs to a different provider, or drop voiceRef from the Bindings UI.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-3",
+   "title": "'Speaking style' selector is dead config: preview ignores it and runtime derives style from warmth",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:683-703",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:388",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:447",
+    "backend/main.py:3163-3171",
+    "backend/azure_speech.py:460-469",
+    "backend/azure_speech.py:189-220",
+    "backend/agent_core/tuning.py:359-366",
+    "backend/agent_core/tuning.py:397-406",
+    "backend/db_prompt_studio.py:1740-1748",
+    "backend/db_prompt_studio.py:2012-2018"
+   ],
+   "mechanism": "The Select at VoicePanel.tsx:688-702 writes voice.style and schedules a live preview; previewTts sends `style` (prompt-studio.ts:1118) and TtsPreviewRequest accepts it (schemas.py:2660), but tts_preview never reads payload.style — azure_speech.synthesize has no style parameter (azure_speech.py:460-469) and picks express-as from warmth (189-220). At save/publish apply_voice_config_overlay is called without style (db_prompt_studio.py:1740-1748, 2012-2018; signature tuning.py:359-366) and sets tts.style from warmth (397-406). The stored value only reaches deployments.voice_config (1992-2000), which the runtime reads solely for azureVoiceName (deployment.py:78-80). selectVoice also silently writes styles[0] on every selection (VoicePanel.tsx:388), and the 'style not offered' banner (555-562) advises picking a replacement that changes nothing.",
+   "trigger": "Pick an Azure voice with styles, change 'Speaking style', press Preview — the audio is identical; publish — the call uses friendly/empathetic from warmth regardless.",
+   "fix": "Either pass voice.style through TtsPreviewRequest into azure_speech.synthesize and into apply_voice_config_overlay (tts.style/style_degree, overriding the warmth mapping when set), or remove the selector and the styles[0] write.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-4",
+   "title": "PersistenceNotice promises 'a published call is synthesized with what you hear here' but pause_ms never reaches a call and speed/warmth are rendered differently at runtime",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:333-343",
+    "backend/agent_core/providers/registry.py:121-122",
+    "backend/agent_core/tuning.py:359-366",
+    "backend/agent_core/tuning.py:391-406",
+    "backend/azure_speech.py:246-252",
+    "backend/azure_speech.py:177-220",
+    "backend/voice/tuning_apply.py:236-245",
+    "backend/voice/bot.py:579-590"
+   ],
+   "mechanism": "PARAM_AZURE_TTS declares pause_ms as an SSML control (registry.py:121-122) and the panel writes it to voice.pauseMs (VoicePanel.tsx:740). apply_voice_config_overlay takes no pause argument (tuning.py:359-366) and tts_settings_kwargs emits none (tuning_apply.py:232-254); build_voice_ssml, the only runtime consumer of pauseMs (voice_ssml.py:57,83), has no caller. For the other three: preview clamps speed to 0.5-1.5 and adds a warmth pitch/rate bias plus catalog-aware express-as (azure_speech.py:246-252, 177-220), while runtime uses rate=clamp(0.85..1.25, speed*1.03), pitch=p*2%, and a fixed friendly/empathetic style regardless of the voice's StyleList (tuning.py:391-406). The notice at VoiceParamsPanel.tsx:333-343 asserts equivalence.",
+   "trigger": "Set Sentence pause to 1200 ms (or speed 1.5) on an Azure voice, preview, publish, call: the pause is absent and the speed is capped at 1.25×1.03.",
+   "fix": "Either fold pauseMs into tuning (e.g. tts.params.pause_ms consumed by a sentence-break text filter) and unify the warmth/speed mapping into one shared function used by both azure_speech.build_ssml and apply_voice_config_overlay, or reword the notice to name which controls ship and mark pause_ms 'preview only' in the schema.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-5",
+   "title": "Azure controls display schema defaults while the wire/runtime use the VoiceConfig columns when params lacks the key",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:190",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:254",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:723",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:438-448",
+    "backend/agent_core/providers/registry.py:114-122",
+    "backend/main.py:3163-3171",
+    "backend/db_prompt_studio.py:1740-1748"
+   ],
+   "mechanism": "VoiceParamsPanel renders `values[spec.key] ?? spec.default` (line 190) with values = voice.params (VoicePanel.tsx:254,723). The Azure preview path ignores params and uses payload.speed/pitch/warmth/pauseMs (main.py:3163-3171), and the runtime fold uses voice.speed/pitch/warmth (db_prompt_studio.py:1740-1748). A version whose columns differ from the schema defaults (rate 1.0, pitch 0, warmth 62, pause 320 — registry.py:114-122) but whose params bag lacks those keys (every version saved before params existed, every Sandbox-promoted or restored one: _restorable_voice resets params to {} at 2190) shows the default in the slider while preview and call use the column. Only once the operator drags the slider do the two reconverge (VoicePanel.tsx:733-741 writes both).",
+   "trigger": "Open the Voice tab on a version with e.g. warmth 45 and params {} (the mock seed's v1.1 shape): the Warmth control reads 62, Preview plays warmth 45.",
+   "fix": "In VoicePanel, seed the four Azure display values from the columns: pass `values={{...modelParams, rate: value.speed, pitch: value.pitch, warmth: value.warmth, pause_ms: value.pauseMs}}` for the azure provider (display only, no write).",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-6",
+   "title": "Language-agnostic voices (locale 'und') trip the locale-mismatch lozenge and G15 as 'voice speaks und'",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:219-224",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:63-65",
+    "backend/agent_core/cards/compile.py:191-226",
+    "Habibi/src/components/prompt-studio/VoiceCatalogTable.tsx:341-345",
+    "backend/provider_tts.py:137-140"
+   ],
+   "mechanism": "primarySubtag('und') is 'und' (VoicePanel.tsx:63-65; compile.py:191), which is never in the card's {en, hi, ...} set, so localeMismatch returns {spoken:'und'} and G15 returns warn 'voice speaks und, card speaks en-IN' (compile.py:219-226). The catalog does hold such rows: VoiceCatalogTable renders locale==='und' as 'auto' (341-345) and provider_tts documents 'und means the vendor gave no language' (137-140). The publish dialog then asks the operator to confirm a mismatch that does not exist.",
+   "trigger": "Select a Cartesia voice whose row has locale 'und'; the inspector shows 'Locale mismatch — voice speaks und' and compile reports G15 warn.",
+   "fix": "Treat 'und' (and empty) as 'no claim' in both primarySubtag callers: return null / skip G15 with detail 'voice is language-agnostic'.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-7",
+   "title": "Detail sheet Cost row still attributes Azure pricing to non-Azure voices",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:900-907",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:67-82",
+    "backend/db_prompt_studio.py:1180-1184",
+    "backend/db_prompt_studio.py:1043-1046"
+   ],
+   "mechanism": "tierBadge was fixed to show 'See provider' for providerId !== 'azure' (Browser:67-82), but VoiceDetailCard's Cost row (VoicePanel.tsx:900-907) still prints `~$${approxUsdPer1MChars} / 1M chars` or 'See Azure pricing'. approxUsdPer1MChars comes from LEFT JOIN tts_price_tiers on c.price_tier (db_prompt_studio.py:1180-1184) — Azure's published band — so a Fish/Cartesia row with price_tier 'standard' shows Azure's $15 and one with NULL says 'See Azure pricing'. Both name the wrong vendor.",
+   "trigger": "Click the (i) on any non-Azure row.",
+   "fix": "Reuse the tierBadge rule: when voice.providerId && voice.providerId !== 'azure', render 'See provider pricing' and never the number.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-8",
+   "title": "A failed detail lookup is rendered as the business verdict 'Unknown voice … runtime will speak the fallback'; a failed warning lookup is rendered as no warning",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:1006-1025",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:646-648",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:330-337",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:523-531"
+   ],
+   "mechanism": "useSelectedCatalogVoice's `.catch` stores {voice:null} for any rejection — 404, 500, network, 401 (Browser:1010-1014) — and the header then says 'Unknown voice <id>' (VoicePanel.tsx:646-648), whose comment asserts the runtime will speak the fallback. fetchTtsVoiceWarning's catch sets warning to null (VoicePanel.tsx:334-335), so an API outage hides a real 'removed' warning; openDetail swallows too (528-530). No toast or retry in any branch.",
+   "trigger": "API unreachable or returning 5xx while the Voice tab is open: every selected voice reads 'Unknown voice', no catalog warning is shown, Preview still works.",
+   "fix": "Distinguish isNotFound(err) from other errors in useSelectedCatalogVoice (resolution 'error' with a retry affordance) and toast on non-404 failures of fetchTtsVoiceWarning.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-9",
+   "title": "Table column sort orders only the pages loaded so far while the header implies a catalog-wide sort",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoiceCatalogTable.tsx:108-119",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:226-229",
+    "backend/db_prompt_studio.py:1149"
+   ],
+   "mechanism": "sorted = [...items].sort(...) (Table:108-119) where items is pages.flatMap (Browser:226-229) of a keyset-paginated query ordered by locale, display_name (db_prompt_studio.py:1149). Sorting 'Voice' A→Z on a 774-row result with 50 loaded shows 50 alphabetised rows; scrolling appends the next page, which re-sorts and interleaves, moving rows the operator was reading.",
+   "trigger": "Filter to Azure, click the Voice header, scroll.",
+   "fix": "Pass sort key/dir to /tts-voices/catalog as server-side ORDER BY (with a matching keyset cursor), or disable header sort until hasNextPage is false and say so in the header title.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-10",
+   "title": "Retired provider_models rows are never disabled by the seed upsert, so the panel can bind a Fish/OpenRouter voice to a stale model row that reports runtime 'live'",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "stale",
+   "files": [
+    "backend/agent_core/providers/persist.py:56-88",
+    "backend/main.py:5440-5442",
+    "backend/main.py:5471",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:240-242",
+    "backend/agent_core/providers/registry.py:440-461"
+   ],
+   "mechanism": "sync_seed upserts ON CONFLICT (provider_id, kind, model_id) (persist.py:69) and never disables rows absent from SEED. When the OpenRouter model id moved from the expired free promotion to 'fish-audio/s2.1-pro' (registry.py:440-461 names the old id), the old row stays enabled and list_models returns both. For that row find_model returns None, so runtime defaults to (RUNTIME_LIVE, '') and sampling False (main.py:5440-5442, 5471) — an audition-only provider reported as live. VoicePanel picks the first row per provider (240-242), so which of the two wins depends on display_name ordering.",
+   "trigger": "Any deployment whose provider_models table predates commit 5c143eb: open a voice from that provider and compare RuntimeNotice / 'New take' against the registry.",
+   "fix": "In sync_seed, `UPDATE provider_models SET enabled=false WHERE id NOT IN (seed ids)`; in list_provider_models, report RUNTIME_UNAVAILABLE ('not in registry') when find_model is None.",
+   "prior_ref": ""
+  },
+  {
+   "id": "VOICE-11",
+   "title": "Compact picker still forces status=GA with no status control and can zero the list without attribution",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:174",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:215",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:513-523",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:719-723"
+   ],
+   "mechanism": "Unchanged since 2e.2: status defaults 'GA' (174), the query sends status || 'GA' (215), the Status select renders only in full mode (513-523), and the empty state says 'No voices match these filters.' (719-723) without naming the hidden GA/premium defaults. Deprecated voices (which get_tts_voice_warning flags) are unreachable from either mode because the select offers only GA/Preview.",
+   "trigger": "Compact picker on a locale whose voices are all Preview-status; or trying to locate a deprecated voice the warning banner names.",
+   "fix": "Show the forced filters in the empty state ('No GA, non-premium voices…') and add a 'Deprecated' option or an 'any status' choice.",
+   "prior_ref": "2e.2"
+  },
+  {
+   "id": "VOICE-12",
+   "title": "Provider-chip counts and 'All' total ignore the active status filter",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/db.py:7456-7461",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:386-411",
+    "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:514-522"
+   ],
+   "mechanism": "list_tts_voice_provider_counts hardcodes status='GA' (db.py:7460) while the Browser lets the operator switch status to Preview (514-522); the chips keep GA counts, so 'Azure · 774' sits over a list of 12 Preview voices.",
+   "trigger": "Filters → Status → Preview.",
+   "fix": "Accept ?status= on /tts-voices/catalog-provider-counts and key the query on it, or hide counts when status !== 'GA'.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "2e.1 fixed: locale choices are deduped by value with counts winning (VoiceCatalogBrowser.tsx:368-384) and otherLocales honours prefix presets (323-336)",
+  "2e.3 fixed: opening the tab no longer rewrites style; the stale style is reported, not written (VoicePanel.tsx:535-546)",
+  "2e.4 fixed: orphaned enum values are shown as '(not offered)' and the panel says it is still what gets sent (VoiceParamsPanel.tsx:221-256)",
+  "2e.5 fixed: Preview button stays enabled during synthesis and acts as Stop (VoicePanel.tsx:770-794); requestGen guards superseded responses (428,451,466,470)",
+  "2e.6 fixed: looksLikeShortName accepts `{provider}:{ref}` ids (VoicePanel.tsx:164-169); server counterpart resolve_prompt_azure_voice prefers azureVoiceName (db_prompt_studio.py:968-970)",
+  "2e.7 fixed: Refresh invalidates catalog, sync-runs, provider-counts, locale-counts and tts-voices keys (VoiceCatalogBrowser.tsx:266-271)",
+  "2e.8 fixed: number controls fall back to ±Infinity, not 0 (VoiceParamsPanel.tsx:205-206)",
+  "Three-way voice precedence is consistent after publish: tts_voice_id, voice_config.azureVoiceName and tuning.tts.voice are all set to the same resolved short name (db_prompt_studio.py:1970-1975, 1992-2000, 2012-2018); at runtime the explicit tuning voice wins (tuning_apply.py:412-437) and the panel's selectedShortName reads the same azureVoiceName-first rule (VoicePanel.tsx:111-118)",
+  "Fish free-model expiry is flipped: fish_tts.DEFAULT_MODEL='s2.1-pro' (fish_tts.py:59), openrouter_tts.DEFAULT_MODEL='fish-audio/s2.1-pro' (openrouter_tts.py:40), registry model ids s2.1-pro / fish-audio/s2.1-pro (registry.py:411, 440), .env.example FISH_TTS_MODEL=s2.1-pro / OPENROUTER_TTS_MODEL=fish-audio/s2.1-pro (.env.example:591, 612); the tab does not preselect Fish (DEFAULT_VOICE is en-IN-AartiNeural, prompt-studio-seed.ts:198-207). Only the comment in provider_tts._cache_salt (261-267) still speaks of the promo in the future tense",
+  "Preview cache keys cover everything that changes audio: provider/voice/truncated text/canonical params/Fish model salt (tts_preview_cache.py:112-146, provider_tts.py:310-319); Azure key covers text/voice/speed/pitch/warmth/pause (azure_speech.py:290-311); effectiveParams reads schema defaults so `{}` vs seeded defaults cannot split the key (VoicePanel.tsx:282-291)",
+  "Provider seeding effect only fires on a provider change and replaces rather than merges, so mount does not dirty the draft (VoicePanel.tsx:299-320); apply_voice_config_overlay replaces tts.params the same way (tuning.py:386-387)",
+  "Azure's four controls write both the params bag and the columns in one update (VoicePanel.tsx:726-743); tts_settings_kwargs lets the columns win via setdefault (tuning_apply.py:248-253)",
+  "Non-Azure preview errors surface as 422 with the vendor reason and the UI toasts the message (main.py:3128-3132, VoicePanel.tsx:468, 503); Fish→OpenRouter fall-through only on credential faults (provider_tts.py:220-231)",
+  "CORS expose list includes X-Tts-Cache/Voice/Latency-Ms/Provider so the footer can read them (main.py:667-673); header names are case-insensitive so the Azure branch's X-TTS-* spelling (3181-3183) is read by headers.get('X-TTS-Cache') (prompt-studio.ts:1133-1137)",
+  "Removed/missing voice handling is coherent: preview falls back and the banner says so (main.py:3161-3163; VoicePanel.tsx:550-554), runtime falls back with a warning log (tuning_apply.py:454-464), get_tts_voice_warning returns None on an unsynced catalog (db_prompt_studio.py:1258-1259)",
+  "Sync endpoint is admin-gated and the UI maps 403 to 'Admin role required' (main.py:3078, VoiceCatalogBrowser.tsx:275-282)",
+  "Provider filter is applied server-side and NULL provider_id is treated as azure in list, counts and provider_tts.voice_row (db_prompt_studio.py:1097-1106, db.py:7456, provider_tts.py:56)",
+  "Locale prefix presets ('en-') are honoured by the query as ILIKE prefix (db_prompt_studio.py:1107-1114)",
+  "Card locales passed to the panel mirror agent_core/languages via LANGUAGE_ENTRIES/languageTag (prompt-studio.lazy.tsx:601-608, prompt-studio-seed.ts:108-124); compile receives the unsaved voice/persona so G15 previews what publish will ship (main.py:2206-2210, db_prompt_studio.py:818-823)",
+  "Card demo previews clear the inspector footer rather than mislabel it, and use the same neutral delivery as useVoicePreview (VoicePanel.tsx:474-507, useVoicePreview.ts:9)",
+  "Layout persistence validates the stored split before honouring it (VoicePanel.tsx:95-109) and only persists user drags (186-193)",
+  "Favorites/recent chips fall back to a detail fetch and toast when the voice is not in the catalog (VoiceCatalogBrowser.tsx:586-643); prefs are bounded (tts-voice-prefs.ts:5-6)",
+  "_prompt_voice sanitises params through normalize_tts_params (db_prompt_studio.py:122; tuning.py:224-261) and reserved keys voice/language cannot be smuggled in via the bag (tuning.py:221)",
+  "Restore-as-draft resets a missing/removed voice to the fallback and clears style/params so the new draft can speak (db_prompt_studio.py:2169-2191)"
+ ]
+}

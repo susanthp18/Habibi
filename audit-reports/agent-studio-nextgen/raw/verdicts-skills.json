@@ -1,0 +1,267 @@
+{
+ "verdicts": [
+  {
+   "id": "SKILLS-01",
+   "verdict": "CONFIRMED",
+   "reason": "Mechanism real at the cited lines. `CardSkillRef` carries `version: str = \"1\"` / `pin: PinMode = \"exact\"` (backend/agent_core/cards/schema.py:102-107). The only three readers of `card.skills` in the repo take `ref.skill_id` and nothing else — backend/agent_core/skills/runtime.py:72, backend/agent_core/skills/persist.py:689, backend/agent_core/cards/compile.py:478. A repo-wide grep for `pin` outside the schema returns four literal WRITERS only (backend/agent_core/cards/templates.py:146, backend/agent_core/skills/defaults.py:46, backend/agent_core/skills/persist.py:808, backend/db_prompt_studio.py:450) and zero readers; `ref.version` has zero readers anywhere. `packs_for_slugs` (persist.py:642-677) resolves each slug through `_latest_signed_version`, whose slug branch is `WHERE sv.status='signed' ORDER BY sv.created_at DESC LIMIT 1` (persist.py:592-601). I looked for the obvious guard — `skill_attachments` pins an exact `skill_version_id` at publish (persist.py:704) — and it does not save the finding: a Grep for `skill_attachments` across backend/**.py returns writers, the library display query (persist.py:127), the delete guard (persist.py:530) and tests; NO runtime path reads it. backend/voice/bot.py:1138, backend/bot_runtime.py:913 both go through `resolve_mouth` → `packs_from_card`. Trigger reachable: POST /agent-studio/skills/{id}/sign (AGENT_PUBLISH, backend/authz.py:318) on a slug an already-published card names changes what every live call loads, with no republish and no G9 re-run. Line numbers hold; the only slip is the frontend prose — `useCompilePreview` is at AgentCardPanels.tsx:774, and the attach-time `version` write is at ~800-804, not 790-806. prior_ref: this is adjacent to prior 2h.1 but not the same claim — 2h.1 asserted the hardcoded \"1\" would \"pin stale forever\", which is the opposite of the truth; nothing pins anything. 2h.1's own half (attach omits `pin`) is still open.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:102-107",
+    "backend/agent_core/skills/runtime.py:72",
+    "backend/agent_core/skills/persist.py:642-677",
+    "backend/agent_core/skills/persist.py:592-601",
+    "backend/agent_core/skills/persist.py:704",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:774",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:797-806"
+   ]
+  },
+  {
+   "id": "SKILLS-02",
+   "verdict": "CONFIRMED",
+   "reason": "Real at the lines. `revert_skill` writes only `latest_version_id` + `signature_status` (persist.py:458-471) and never touches any version's `status` or `created_at`. Every Studio read keys on `latest_version_id` (persist.py:43, 162, 209). `_latest_signed_version` never mentions `latest_version_id` — both branches are `AND sv.status='signed' ORDER BY sv.created_at DESC LIMIT 1` (persist.py:572-578 and 590-598). So with two signed rows, Restore on the older moves the lozenge and the `· latest` marker ($skillId.tsx:353-355) and toasts `Reverted to v{version}` ($skillId.tsx:365) while `packs_from_card` keeps loading the newer row. I checked for a guard: `revert_skill` does re-verify the target's HMAC (persist.py:457), so the control is not unchecked — it is simply pointed at a column no runtime reads. Compile agrees with the runtime, not the operator: db_prompt_studio.py:834 and :1886 both feed `packs_for_slugs` into the gate. Trigger reachable on a stock seeded install exactly as claimed — verified independently under SKILLS-16. This is the operator's production rollback control having no production effect: MAJOR stands.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/persist.py:445-471",
+    "backend/agent_core/skills/persist.py:566-601",
+    "backend/agent_core/skills/persist.py:642-677",
+    "backend/db_prompt_studio.py:834",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:246-263",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:353-367"
+   ]
+  },
+  {
+   "id": "SKILLS-03",
+   "verdict": "CONFIRMED",
+   "reason": "Core claim survives, one mechanism sentence does not. `pack.signed = signed and bool(signature) and verify_signature(...)` at persist.py:96-98 is real, and a grep for `\\.signed\\b` across backend/agent_core, backend/voice, backend/main.py, backend/bot_tools.py, backend/sandbox_runtime.py, backend/db_prompt_studio.py returns exactly one reader — backend/agent_core/cards/compile.py:731 — plus four writers (pack.py:166, gardener.py:45, persist.py:373, persist.py:401, main.py:2480). No runtime branches on it. Selection is by the `status` string column (persist.py:575, 594), and `pack_from_version_row` is called with a hardcoded `signed=True` (persist.py:667-671) regardless of what verification says. `MouthTurn.prompt()` injects any pack's body (runtime.py:166-173) and `load_skill` returns it for any attached pack (runtime.py:271-286). CORRECTION to the mechanism: `effective_tools` does NOT union `pack.allowed_tools` into the grant. intersect.py:113-114 reads `gated_ok = union_skill_tools(packs) & SKILL_GATED_TOOLS` then `names = (names - SKILL_GATED_TOOLS) | (names & gated_ok) | ...`, so a pack can only UNLOCK a gated tool the card already includes — it cannot add a tool the card omits. The finding's concrete examples (`create_promise_to_pay`, `flag_dispute`, `apply_goodwill` — all in SKILL_GATED_TOOLS, intersect.py:31-49) are still correct as unlocks. Trigger reachable: the documented rotation runbook at backend/.env.example:336-340. Fail-open on signature verification for the packs that gate money writes on a regulated call is a MAJOR-class defect; the DB-tamper half of the trigger is not needed to reach it.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/persist.py:91-100",
+    "backend/agent_core/skills/persist.py:660-673",
+    "backend/agent_core/skills/intersect.py:113-114",
+    "backend/agent_core/skills/runtime.py:166-173",
+    "backend/agent_core/skills/runtime.py:271-286",
+    "backend/agent_core/cards/compile.py:731",
+    "backend/.env.example:336-340"
+   ]
+  },
+  {
+   "id": "SKILLS-04",
+   "verdict": "CONFIRMED",
+   "reason": "Verified end to end, and it is worse than the report implies. `create_draft_skill` refuses an existing slug at persist.py:354-358 with the comment quoted, pinned by backend/tests/test_skill_crud.py:45. The import handler calls `upsert_skill_from_pack(pack, origin=\"tenant\", signed=False)` bare at backend/main.py:2481 (NOT 2491) with no `slug_exists` check anywhere in main.py:2451-2481. The parent `ON CONFLICT` origin CASE preserves only tenant/gardener (persist.py:249-253), so first_party flips to tenant permanently, and `ensure_first_party_skills` then skips it forever (persist.py:744-745 — `if existing and existing.get(\"origin\") in {\"tenant\",\"gardener\"}: continue`). The version-row collision is not hypothetical: `parse_skill_md` defaults `version` to \"1.0.0\" when frontmatter has no `metadata.version` (pack.py:152), and `_stored_version` collapses \"1.0.0\" to \"1\" (persist.py:20-21), so an import with no version lands on `skill-<slug>-v1` — precisely the row `seed_skills` wrote (seed_postgres.py:1457, 1476) — and takes the `ON CONFLICT (skill_id, version) DO UPDATE` path at persist.py:282-291, overwriting body/allowed_tools/content_hash and setting `signature = NULL`, `status = 'draft'`. AGENT_EDIT is enough (authz.py:324). The UI toast at index.tsx:143 says \"Imported as unsigned draft\". No guard found: `assert_pack_lints` (persist.py:229) checks tool names, not slug ownership.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:2451-2481",
+    "backend/agent_core/skills/persist.py:354-358",
+    "backend/agent_core/skills/persist.py:243-313",
+    "backend/agent_core/skills/persist.py:744-745",
+    "backend/agent_core/skills/pack.py:152",
+    "backend/seed_postgres.py:1457",
+    "Habibi/src/routes/agent-studio.skills.index.tsx:140-149"
+   ]
+  },
+  {
+   "id": "SKILLS-05",
+   "verdict": "CONFIRMED",
+   "reason": "All five citations check out at the exact lines. `_map_skill` derives `\"signed\": row[\"signature_status\"] == \"signed\"` at persist.py:60 from a stored column. `verify_signature` is imported once (persist.py:15) and called at exactly three sites — persist.py:96 (pack_from_version_row), :422 (sign_skill), :457 (revert_skill) — none of which is on the `list_skills`/`get_skill` read path; `get_skill` (persist.py:190-216) just filters `list_skills()` and adds raw version rows. The header copy \"Signing is HMAC, not a badge.\" is at index.tsx:159, the lozenge fed by `skill.signed` is at index.tsx:337-339 and $skillId.tsx:336. I specifically hunted for the recovery path and it is blocked as claimed: the Sign button is `disabled={sign.isPending || skill.signed}` ($skillId.tsx:230) and Revert-to-signed is `disabled={revert.isPending || skill.signed || !skill.hasSignedVersion}` ($skillId.tsx:249) — both keyed on the same unverified column, so after a rotation the operator cannot re-sign or revert from the detail page even though the backend `sign_skill` would happily re-sign (persist.py:422 re-verifies and falls through to `sign_hash` when verification fails). Meanwhile G9 (compile.py:731) fails the publish. Green lozenge over an unverifiable signature plus a disabled recovery is a lie to the operator: MAJOR stands. Shares a root with SKILLS-03 but is a distinct surface and a distinct defect.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/persist.py:60",
+    "backend/agent_core/skills/persist.py:15",
+    "backend/agent_core/skills/persist.py:190-216",
+    "Habibi/src/routes/agent-studio.skills.index.tsx:159",
+    "Habibi/src/routes/agent-studio.skills.index.tsx:337-339",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:230",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:249",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:336"
+   ]
+  },
+  {
+   "id": "SKILLS-06",
+   "verdict": "CONFIRMED",
+   "reason": "I traced every step and the boolean does what is claimed. `patch_skill` sets `pack.origin = current[\"origin\"]` (persist.py:400), so an edited first-party skill keeps `origin='first_party'` and is NOT caught by the tenant/gardener skip at persist.py:744-745. `sign_skill` sets the version row to 'signed' and `skills.signature_status='signed'` (persist.py:427-442). On boot, `expected_vid = _version_row_id(existing[\"id\"], _stored_version(pack.version))` from the DISK pack (persist.py:749-750), so `latest_is_this = existing.latest_version_id in {None, expected_vid}` is False for the operator's bumped row (patch_skill bumps via `_bump_version`, persist.py:403-405), but `set_latest = latest_is_this or existing.signature_status == 'signed'` (persist.py:752) is True — and the upsert then executes `UPDATE skills SET latest_version_id = :vid, signature_status = :sig` (persist.py:310-313) pointing back at the disk row. The only log line is the aggregate counter at persist.py:840-846, which names no slug; there is no `record_change_log` anywhere in persist.py (grepped, zero hits). The runtime-divergence half also holds: the boot upsert's `ON CONFLICT DO UPDATE` (persist.py:282-291) does not touch `created_at`, so the operator's later-inserted signed row still wins `_latest_signed_version`'s `ORDER BY sv.created_at DESC`. Studio and mouth then disagree. Boot entry point is backend/main.py:499-501 (not 499-503). MAJOR stands: silent demotion plus display/runtime divergence.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/persist.py:729-765",
+    "backend/agent_core/skills/persist.py:400",
+    "backend/agent_core/skills/persist.py:403-405",
+    "backend/agent_core/skills/persist.py:427-442",
+    "backend/agent_core/skills/persist.py:310-313",
+    "backend/main.py:499-501"
+   ]
+  },
+  {
+   "id": "SKILLS-07",
+   "verdict": "DOWNGRADED",
+   "reason": "The mechanism is real but the severity is inflated. Verified: `SkillsTab` runs the full compile preview at AgentCardPanels.tsx:774 (the prose's :776 is wrong) and reads only `skill_description_tokens` (:775-777); the pack list renders `skill.allowedTools` as inert grey spans at :883-889 with no comparison to the card; `ToolsTab` does pull G6 out of the same query object and render a fail/warn/pass lozenge at :94-96 and :128-140. G9's `tools_not_on_card` branch is at compile.py:735-748 and is exactly what Attach can cause. HOWEVER, the tab is not silent about G9 as a whole and does not lie: the prose at :813-815 says \"Unsigned skills cannot attach to production (G9)\", and the Attach button is hard-disabled with that same tooltip for any pack with no signed version (:891-899), which covers G9's `unsigned` branch. What is missing is a warning about one specific G9 branch, and the publish verdict itself is still computed correctly — the author is delayed, not misled, and nothing wrong reaches runtime. That is \"incorrect but contained\": MINOR, not MAJOR. The finding's supporting anecdote (`set_contact_preference`, `capture_nonpayment_reason` already out of scope on kaia-v2-4's draft) is a prior-audit live probe I could not re-run read-only, so treat that sentence as unverified.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:774-777",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:883-899",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:94-96",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:128-140",
+    "backend/agent_core/cards/compile.py:724-751"
+   ]
+  },
+  {
+   "id": "SKILLS-08",
+   "verdict": "CONFIRMED",
+   "reason": "Dead config, verified exhaustively. `parse_skill_md` reads `metadata.mouth` into the pack (pack.py:144-146, 155) and `SkillPack.mouth` is declared at pack.py:31. A grep for `\\.mouth\\b|mouth=` across backend/agent_core, backend/voice/bot.py, backend/voice/tools.py, backend/bot_tools.py and backend/sandbox_runtime.py returns exactly ONE hit — pack.py:155, the constructor argument. Zero readers: no gate, no lint, no runtime filter, and `mouth` is absent from the G0-G15 list in compile.py. Confirmed the collision: backend/agent_core/skills/packs/floor-coach/SKILL.md declares `mouth: [internal]` at lines 10-12 with body text \"Whisper copy is for the human agent\" (line 17), and `floor-coach` is the last entry of `COLLECTIONS_SKILLS` (defaults.py:30) which is `CARD_SKILLS[\"kaia-v2-4\"]` (defaults.py:38). `qa-examiner` is the same shape on the supervisor card (SKILL.md lines 10-12, defaults.py:35). `load_skill` matches on slug alone against the attached list (runtime.py:277) and `load_skill` is always offered via `PLATFORM_SKILL_TOOLS` (intersect.py:51, 105). Nothing refuses. Caveat on confidence rather than severity: the mechanism is VERIFIED but the trigger requires the model to choose to call `load_skill(\"floor-coach\")` — reachable, since every attached slug and its description ride the always-on prefix (runtime.py:38-45), but not demonstrated. A safety field that exists precisely to keep internal-only content off a customer-facing regulated call, enforced nowhere, is MAJOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/pack.py:31",
+    "backend/agent_core/skills/pack.py:144-155",
+    "backend/agent_core/skills/defaults.py:22-31",
+    "backend/agent_core/skills/defaults.py:35-42",
+    "backend/agent_core/skills/packs/floor-coach/SKILL.md:10-17",
+    "backend/agent_core/skills/packs/qa-examiner/SKILL.md:10-12",
+    "backend/agent_core/skills/runtime.py:271-286",
+    "backend/agent_core/skills/intersect.py:51"
+   ]
+  },
+  {
+   "id": "SKILLS-09",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at the lines, with one factual correction. `load_skill` returns `\"allowed_tools\": sorted(tools_after_references(pack.allowed_tools, ...))` (runtime.py:280-284) — the pack's raw list; `tools_after_references` is a pass-through that discards its second argument (intersect.py:206-209). Neither handler intersects: backend/voice/tools.py:2828-2833 returns `result.get(\"allowed_tools\") or []` verbatim, and backend/bot_tools.py:744-748 returns every key except `message`. The offer side does intersect correctly — `extra = [n for n in active.allowed_tools if n in allowed and n not in idle]` (intersect.py:198) — so the two halves genuinely disagree. The channel facts hold: `verify_identity` is `channels=VOICE_ONLY` (catalog.py:210, VOICE_ONLY at :21), it is absent from the text registry's `HANDLERS` map (bot_tools.py:769-793), and `_apply_channel` strips it from grant and offer on text (intersect.py:65-68, 115). verify-and-disclose lists it (packs/verify-and-disclose/SKILL.md:5) with the body instruction quoted (SKILL.md:3). CORRECTION: verify-and-disclose is attached to THREE first-party cards, not four — COLLECTIONS_SKILLS (defaults.py:23), INTAKE_SKILLS (defaults.py:33), INSURANCE_SKILLS (defaults.py:34); SUPERVISOR_SKILLS (defaults.py:35) is `(supervisor-brief, qa-examiner)` and does not carry it. Does not change the verdict — kaia-v2-4 and intake-v1 are both named in the trigger. Misinforming the model about its tools on the identity-verification/disclosure path is a regulated-path defect: MAJOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/runtime.py:280-284",
+    "backend/agent_core/skills/intersect.py:206-209",
+    "backend/voice/tools.py:2828-2833",
+    "backend/bot_tools.py:744-748",
+    "backend/bot_tools.py:769-793",
+    "backend/agent_core/skills/intersect.py:65-68",
+    "backend/agent_core/skills/intersect.py:198",
+    "backend/agent_core/tools/catalog.py:210",
+    "backend/agent_core/skills/defaults.py:23",
+    "backend/agent_core/skills/defaults.py:33-34"
+   ]
+  },
+  {
+   "id": "SKILLS-10",
+   "verdict": "CONFIRMED",
+   "reason": "Traced the whole path; the fallback fires by construction for exactly the skills an operator can author. The button sends `botId: skill.attachedCards?.[0] ?? \"kaia-v2-4\"` ($skillId.tsx:202) with the self-congratulating comment at :197-201. `attached_cards` is built only from `skill_attachments` joined through `prompt_versions pv` with `pv.status='published'` and `b.archived_at IS NULL` (persist.py:126-137), and attachment rows are written only by `attach_skill_to_prompt` (which raises `skill_unsigned` unless a signed version exists, persist.py:611-613), by `sync_attachments_from_card` at publish (persist.py:700-708, called db_prompt_studio.py:1962) and by boot-sync (persist.py:830-837) — all of which require a signed version. A freshly created or cloned skill is an unsigned tenant draft (`create_draft_skill` → `signed=False`, persist.py:378; `clone_skill` → `create_draft_skill`, persist.py:487-497), so `attachedCards` is empty and the fallback always wins. The params survive routing (Habibi/src/routes/sandbox.tsx:6-9 → sandbox.lazy.tsx:45,59,283 → api/sandbox.ts:258,311). Backend then resolves `resolve_mouth(version.agentCard, active_slug=skill_slug)` (sandbox_runtime.py:722-726) against kaia's card, whose `skills[]` does not name the draft slug, so `MouthTurn.prompt()` falls through `next((p for p in self.packs if p.slug == self.active_slug), None)` → `body = None` (runtime.py:169-172) with no log line and no error. The header still displays the slug the operator typed (SandboxHeader.tsx:137), so the run presents as exercising the skill. Green run, nothing exercised: a lie to the operator. MAJOR stands. prior_ref 4.7 — the earlier hardcode was addressed but the fix does not reach the case that matters.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:192-206",
+    "backend/agent_core/skills/persist.py:126-137",
+    "backend/agent_core/skills/persist.py:611-613",
+    "backend/agent_core/skills/persist.py:378",
+    "backend/agent_core/skills/runtime.py:166-173",
+    "backend/sandbox_runtime.py:719-726",
+    "Habibi/src/components/sandbox/SandboxHeader.tsx:137"
+   ]
+  },
+  {
+   "id": "SKILLS-11",
+   "verdict": "CONFIRMED",
+   "reason": "Two `resolve_mouth` calls in one turn disagreeing about the active skill, exactly as described. Prompt half: `resolve_mouth(version.agentCard, intent=..., active_slug=skill_slug).prompt().body_message` at sandbox_runtime.py:828-833. Tool half: `_run_sandbox_tool_loop(...)` is invoked at sandbox_runtime.py:852-862 with no `skill_slug` parameter — its signature (sandbox_runtime.py:197-206) has no such argument — and it re-resolves as `mouth = resolve_mouth(agent_card or {}, intent=intent)` at sandbox_runtime.py:214, so `active_slug` comes from `INTENT_TO_SKILL` (runtime.py:213-216 → :99-104). `ctx.active_skill = mouth.active_slug` at :232 compounds it. One nuance that keeps this MINOR rather than MAJOR, and the reporter got the scope right: `active_slug` feeds only `offered_tools` (runtime.py:207-215; intersect.py:194-199) — `effective_tools` depends on the whole pack set, not the active slug — so the divergence changes what the model is OFFERED, not what it may execute. The rehearsal still runs skill A's body against skill B's offer. MINOR confirmed.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/sandbox_runtime.py:197-232",
+    "backend/sandbox_runtime.py:828-833",
+    "backend/sandbox_runtime.py:852-862"
+   ]
+  },
+  {
+   "id": "SKILLS-12",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. `INTENT_TO_SKILL` is a seven-entry module-level dict at runtime.py:28-36 and `resolve_intent_skill` is its only consumer (runtime.py:99-104, called from `resolve_mouth` at :262-264). No card field: `AgentCard` has no intent-map member (cards/schema.py), no DB table carries one, and no Studio control writes one. I re-derived the coverage rather than trusting it: RHS values are hardship-intake, dispute-capture, ptp-negotiate, upsell-pitch, insurance-lapse, verify-and-disclose; `FIRST_PARTY_SKILL_SLUGS` (defaults.py:8-20) has eleven, so FIVE are unreachable by intent — doc-fulfil, broken-ptp-chase, qa-examiner, floor-coach, supervisor-brief (the report says \"four ... plus supervisor-brief\", which is the same set). Every tenant/gardener slug is unreachable by construction. Those packs still pay description tokens in the always-on prefix (`description_block` iterates ALL attached packs, runtime.py:38-45) which G6 caps. The SkillsTab copy \"The body loads on load_skill or intent\" is at AgentCardPanels.tsx:813-815 and does not distinguish them. The `product_faq → insurance-lapse` line (runtime.py:34) is a judgement call, not a defect — note insurance-lapse is only on insurance-v1 (defaults.py:34), so on kaia-v2-4 that intent resolves to a pack that is not attached and `resolve_intent_skill` correctly returns None. Contained: MINOR confirmed.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/runtime.py:28-36",
+    "backend/agent_core/skills/runtime.py:99-104",
+    "backend/agent_core/skills/runtime.py:38-45",
+    "backend/agent_core/skills/defaults.py:8-42",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:813-815"
+   ]
+  },
+  {
+   "id": "SKILLS-13",
+   "verdict": "CONFIRMED",
+   "reason": "Confirmed, with line corrections. `_handle_write` maps KeyError→404, PermissionError→403 and ValueError through `_VALUE_ERROR_STATUS` else 409 (main.py:818-834). The import handler runs `upsert_skill_from_pack` bare at main.py:2481 (the report's :2491 is wrong) and `promote_kb_gap_to_skill` runs `create_draft_skill` bare at main.py:2525. I checked for a catch-all: main.py registers exception handlers only for StarletteHTTPException (:724), RequestValidationError (:729), AzureBusyError (:735) and CircuitOpenError (:743) — no generic ValueError handler — so an uncaught ValueError from either handler is a 500. The three frontmatter codes DO have 422 mappings, at main.py:772-774 (not 770-772), and are raised only from pack.py:126, :136, :139 — the import parser's own path. `skill_lint_failed` has no mapping at all, so it would be a 409 elsewhere and is a 500 here. `zipfile.BadZipFile` (main.py:2467) and `UnicodeDecodeError` (:2468, :2470) likewise. The gardener collision is real: `slug = f\"gardener-{slug_base}\"` derived from the top intent at gardener.py:16-17 (not 17-18), so two gaps sharing an intent hit `skill_slug_taken` (persist.py:358) as a 500. The library toasts whatever is thrown (index.tsx:146-148). MINOR confirmed.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:2451-2481",
+    "backend/main.py:2510-2534",
+    "backend/main.py:818-834",
+    "backend/main.py:772-774",
+    "backend/main.py:724-745",
+    "backend/agent_core/skills/gardener.py:16-17",
+    "Habibi/src/routes/agent-studio.skills.index.tsx:146-148"
+   ]
+  },
+  {
+   "id": "SKILLS-14",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. The endpoints exist at main.py:2404-2413 (attach) and :2415-2424 (detach). No frontend caller: grepping Habibi/src/api/*.ts and both skills routes for `/attach`, `/detach` and `skills/${` returns only get/delete/sign/revert/patch/export/clone (agent-studio.ts:655, 686, 705, 714, 723, 739, 835) — nothing hits either path. The Skills tab attaches by mutating `card.skills[]` locally (AgentCardPanels.tsx:783-807). Server side, `sync_attachments_from_card` opens with `DELETE FROM skill_attachments WHERE prompt_version_id = :pv` and rebuilds from the card (persist.py:680-708), and it is called on publish at db_prompt_studio.py:1960-1962 — so any row the side door wrote is erased by the next publish of that version. The asymmetric semantic is real too: `attach_skill_to_prompt` refuses an unsigned skill with `skill_unsigned` (persist.py:611-613) while the card path defers entirely to G9. Worth adding that the rows are inert regardless of who writes them — a Grep for `skill_attachments` across backend/**.py shows no runtime reader at all (only persist.py:127 for the library's \"Attached:\" line and persist.py:530 for the delete guard). MINOR confirmed.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:2404-2424",
+    "backend/agent_core/skills/persist.py:606-639",
+    "backend/agent_core/skills/persist.py:680-708",
+    "backend/db_prompt_studio.py:1959-1964",
+    "Habibi/src/api/agent-studio.ts:645-760"
+   ]
+  },
+  {
+   "id": "SKILLS-15",
+   "verdict": "CONFIRMED",
+   "reason": "Verified, and the caveats the reporter attached are the right ones. `list_skills` self-heals at persist.py:180-186 (`if not out and not _synced: ensure_first_party_skills(); return list_skills(_synced=True)`) and `get_skill` reaches it through `list_skills()` at persist.py:191. Both GETs are BOT_READ (authz.py:310 and :312). `ensure_first_party_skills` is unambiguously a write: `upsert_skill_from_pack` per pack (persist.py:758-764), `INSERT INTO skill_attachments` (persist.py:830-837), and `UPDATE prompt_versions SET agent_card = CAST(:card AS jsonb)` at persist.py:812-818 against rows selected with `status = 'published'` (persist.py:777-783), injecting `{\"skill_id\": slug, \"version\": \"1\", \"pin\": \"exact\"}` (persist.py:808). I confirmed there is no change-log write: grepping persist.py for `record_change_log|change_log` returns zero hits. Two real narrowing guards, both already acknowledged in the finding: the recursion fires only when the whole catalog is empty, and the card rewrite fires only when the published card's `skills` list is absent or empty (persist.py:806-807). MINOR/SUSPECTED is the honest calibration and I would not raise it.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/persist.py:180-186",
+    "backend/agent_core/skills/persist.py:191",
+    "backend/agent_core/skills/persist.py:777-821",
+    "backend/authz.py:310-312",
+    "backend/main.py:499-501"
+   ]
+  },
+  {
+   "id": "SKILLS-16",
+   "verdict": "CONFIRMED",
+   "reason": "Verified against both writers. `seed_skills` hardcodes `vid = f\"{sid}-v1\"` (seed_postgres.py:1457) and `\"version\": \"1\"` (seed_postgres.py:1476) with `status='signed'` for every pack regardless of frontmatter. `ensure_first_party_skills` derives the row id from `_version_row_id(existing[\"id\"], _stored_version(pack.version))` (persist.py:749-750), and `_stored_version` collapses only \"1\"/\"1.0.0\" to \"1\" (persist.py:20-21), so any pack past 1.0.0 gets a second row. I read the three frontmatters to check the version list rather than take it on trust: ptp-negotiate `version: 1.5.0` (packs/ptp-negotiate/SKILL.md:14), hardship-intake `1.1.0` (SKILL.md:11), verify-and-disclose `1.1.0` (SKILL.md:10). Both rows are signed (seed sets 'signed'; boot passes `signed=True`, persist.py:759-763). The detail page then renders `v{version} · {status}` with `· latest` on one and a Restore link on the other ($skillId.tsx:352-368), which is the exact trigger SKILLS-02 needs. MINOR confirmed.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/seed_postgres.py:1455-1494",
+    "backend/agent_core/skills/persist.py:20-21",
+    "backend/agent_core/skills/persist.py:749-763",
+    "backend/agent_core/skills/packs/ptp-negotiate/SKILL.md:14",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:342-372"
+   ]
+  },
+  {
+   "id": "SKILLS-17",
+   "verdict": "CONFIRMED",
+   "reason": "I read the whole test file — it is 15 lines and the description is exact. `readFileSync` of the route's own source plus `expect(src).not.toContain(\"window.prompt\")`, `expect(src).toContain(\"clonePending\")`, `expect(src).toContain(\"AlertDialog\")` (agent-studio.skills.index.test.ts:8-15). Nothing renders, nothing is pressed, and every assertion would pass on a comment. It is the only test file for the route (Glob over Habibi/src/routes for agent-studio.skills.* tests returns this one file). Import, the delete-guard reasons, the isError-with-cached-data banner (index.tsx:253-263, which I read and which has real logic worth pinning) and the create-form validation (index.tsx:245-250) are uncovered. The contrast with commit f7c6c42 is accurate. MINOR confirmed — a coverage gap, not a runtime defect.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.skills.index.test.ts:1-15",
+    "Habibi/src/routes/agent-studio.skills.index.tsx:245-263"
+   ]
+  },
+  {
+   "id": "SKILLS-18",
+   "verdict": "CONFIRMED",
+   "reason": "Mechanism verified. `get_skill` assigns `markdown` only inside `if latest:` where `latest = next((v for v in summary[\"versions\"] if v[\"id\"] == summary[\"latestVersionId\"]), None)` (persist.py:209-215), so a NULL or dangling `latest_version_id` leaves the key absent. The export writes `zf.writestr(\"SKILL.md\", row.get(\"markdown\") or \"\")` (main.py:2438) and returns 200 with the correct Content-Disposition (main.py:2444-2449) — a valid zip holding a zero-byte SKILL.md. Re-importing it raises `skill_missing_frontmatter` from pack.py:126, which is a 500 per SKILLS-13. The FK is confirmed `ON DELETE SET NULL` at backend/sql/15_skills.sql:44-47. Reachability is the weak link and the reporter labelled it correctly: I found no code path that deletes a single version row — `delete_skill` NULLs the pointer then deletes the whole skill (persist.py:553-563) — so a NULL latest is representable in the schema but not produced by any endpoint I can see. TRIVIAL/SUSPECTED stands as filed.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:2426-2449",
+    "backend/agent_core/skills/persist.py:209-215",
+    "backend/sql/15_skills.sql:44-47"
+   ]
+  },
+  {
+   "id": "SKILLS-19",
+   "verdict": "DOWNGRADED",
+   "reason": "The reading of the comment is correct but MINOR overstates it. The runbook text is at backend/.env.example:336-340 (not 337-341) and does say only that disk packs are re-signed on restart and that \"Tenant drafts stay unsigned until a human signs them again\" — silent on previously-signed tenant packs, which do keep `signature_status='signed'` (persist.py:60 renders them green), keep unlocking their gated tools (intersect.py:113-114) and keep injecting their bodies, failing only at the next G9 (compile.py:731). All of that is true. But it is a comment in an example env file: no behaviour, no runtime path, no operator-facing surface in the product, and every consequence it fails to mention is already carried by SKILLS-03 and SKILLS-05 as the defects that actually need fixing. Documentation that is incomplete about a behaviour reported elsewhere is TRIVIAL under this rubric — fixing the comment without fixing SKILLS-03 would change nothing.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/.env.example:336-340",
+    "backend/agent_core/skills/persist.py:60",
+    "backend/agent_core/skills/persist.py:96-98",
+    "backend/agent_core/skills/intersect.py:113-114"
+   ]
+  }
+ ],
+ "slice": "skills"
+}

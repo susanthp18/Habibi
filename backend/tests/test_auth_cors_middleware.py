@@ -223,7 +223,7 @@ def test_prod_boot_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app_main, "_IS_PROD", True)
     # Deferred-hardening gate would fire first — acknowledge it so this test
     # exercises the credential check specifically.
-    monkeypatch.setenv("ALLOW_UNHARDENED_PRODUCTION", "1")
+    monkeypatch.setattr(app_main, "_assert_hardening_gate", lambda: None)
     actor_context.reload_api_key_map()
 
     async def _boot() -> None:

@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 
 import db
+import db_inbox
 
 
 # --- 1. a queued message must not look delivered ----------------------------
@@ -109,7 +110,7 @@ def test_suggestions_refresh_survives_a_conversation_with_no_messages(
     def _raise(_conn: object, _cid: str) -> str:
         raise ValueError("conversation_has_no_messages")
 
-    monkeypatch.setattr(db, "_conversation_rag_query", _raise)
+    monkeypatch.setattr(db_inbox, "_conversation_rag_query", _raise)
     out = db.refresh_conversation_suggestions("CV-VOICE-0001")
     assert out["conversationId"] == "CV-VOICE-0001"
     assert out["ragSuggestions"] == []
@@ -122,7 +123,7 @@ def test_a_real_retrieval_failure_still_surfaces(monkeypatch: pytest.MonkeyPatch
     def _raise(_conn: object, _cid: str) -> str:
         raise ValueError("conversation_not_found")
 
-    monkeypatch.setattr(db, "_conversation_rag_query", _raise)
+    monkeypatch.setattr(db_inbox, "_conversation_rag_query", _raise)
     with pytest.raises(ValueError, match="conversation_not_found"):
         db.refresh_conversation_suggestions("CV-NOPE")
 

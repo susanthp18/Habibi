@@ -64,7 +64,9 @@ CREATE TABLE IF NOT EXISTS contact_events (
   related_id TEXT,
   touch_counted boolean NOT NULL DEFAULT false,
   occurred_at timestamptz NOT NULL DEFAULT now(),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  policy_binding jsonb,
+  policy_binding_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_contact_events_tenant_id ON contact_events(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_contact_events_customer_occurred
@@ -113,10 +115,20 @@ CREATE TABLE IF NOT EXISTS policy_rule_sets (
   notes TEXT,
   published_at timestamptz NOT NULL DEFAULT now(),
   published_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  approved_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  publication_state TEXT NOT NULL DEFAULT 'draft' CHECK (
+    publication_state IN ('draft','pending_approval','published','rejected')
+  ),
+  changed_rules TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ck_policy_rule_sets_window CHECK (
     effective_to IS NULL OR effective_to > effective_from
+  ),
+  CONSTRAINT ck_policy_rule_sets_maker_checker CHECK (
+    published_by_user_id IS NULL
+    OR approved_by_user_id IS NULL
+    OR published_by_user_id <> approved_by_user_id
   ),
   CONSTRAINT ck_policy_rule_sets_statutory CHECK (
     (scope = 'statutory') = (tenant_id IS NULL)
@@ -134,14 +146,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_policy_rule_sets_version
 CREATE INDEX IF NOT EXISTS idx_policy_rule_sets_effective
   ON policy_rule_sets (scope, effective_from DESC);
 
+CREATE TABLE IF NOT EXISTS policy_rule_kinds (
+  kind TEXT PRIMARY KEY,
+  params_schema TEXT NOT NULL,
+  tighten TEXT NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO policy_rule_kinds (kind, params_schema, tighten) VALUES
+  ('calling_window', 'calling_window.v1', 'strict_only'),
+  ('daily_cap', 'daily_cap.v1', 'strict_only'),
+  ('weekly_cap', 'weekly_cap.v1', 'strict_only'),
+  ('cooling_off', 'cooling_off.v1', 'strict_only'),
+  ('bucket_actions', 'bucket_actions.v1', 'strict_only'),
+  ('mandate_presentation_limit', 'mandate_presentation_limit.v1', 'strict_only'),
+  ('mandate_return_action', 'mandate_return_action.v1', 'strict_only'),
+  ('field_prerequisites', 'field_prerequisites.v1', 'strict_only'),
+  ('recording_retention', 'recording_retention.v1', 'strict_only'),
+  ('visit_intimation', 'visit_intimation.v1', 'strict_only'),
+  ('suppression_state', 'suppression_state.v1', 'strict_only'),
+  ('ratio_ceiling', 'ratio_ceiling.v1', 'strict_only'),
+  ('assignment_check', 'assignment_check.v1', 'strict_only'),
+  ('channel_scrub', 'channel_scrub.v1', 'strict_only'),
+  ('non_discretionary_notice', 'non_discretionary_notice.v1', 'strict_only')
+ON CONFLICT (kind) DO NOTHING;
+
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
 CREATE TABLE IF NOT EXISTS policy_rules (
   id TEXT PRIMARY KEY,
   rule_set_id TEXT NOT NULL REFERENCES policy_rule_sets(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN (
-    'calling_window','daily_cap','weekly_cap','cooling_off','bucket_actions',
-    'mandate_presentation_limit','mandate_return_action','field_prerequisites',
-    'recording_retention','visit_intimation'
-  )),
+  kind TEXT NOT NULL REFERENCES policy_rule_kinds(kind),
   -- Null means every channel. A calling window is per-channel; a daily cap is
   -- across all of them, and saying that with null rather than a sentinel keeps
   -- the resolver from having to know which is which.
@@ -149,8 +183,19 @@ CREATE TABLE IF NOT EXISTS policy_rules (
     'voice','whatsapp','sms','email','chat','field'
   )),
   params jsonb NOT NULL DEFAULT '{}'::jsonb,
+  rule_id TEXT NOT NULL,
+  rule_version INTEGER NOT NULL,
+  citation TEXT NOT NULL CHECK (length(btrim(citation)) > 0),
+  params_schema TEXT NOT NULL,
+  effective tstzrange NOT NULL,
+  scope_key TEXT NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT excl_policy_rules_scope_rule_effective EXCLUDE USING gist (
+    scope_key WITH =,
+    rule_id WITH =,
+    effective WITH &&
+  )
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_policy_rules_kind
   ON policy_rules (rule_set_id, kind, COALESCE(channel,''));
@@ -208,3 +253,116 @@ CREATE INDEX IF NOT EXISTS idx_contact_delivery_events_customer
   ON contact_delivery_events (customer_id, channel, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_contact_delivery_events_related
   ON contact_delivery_events (related_id) WHERE related_id IS NOT NULL;
+
+-- W4: consent overlay, endpoint ownership, window authorisations, DPDP rights
+CREATE TABLE IF NOT EXISTS consent_events (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  endpoint TEXT,
+  channel TEXT NOT NULL CHECK (channel IN (
+    'voice','whatsapp','sms','email','chat','field','all'
+  )),
+  purpose TEXT NOT NULL CHECK (purpose IN ('servicing','promotional','all')),
+  verb TEXT NOT NULL CHECK (verb IN ('withdraw','restrict','expire','opt_out')),
+  source TEXT NOT NULL,
+  evidence_ref TEXT,
+  captured_at timestamptz NOT NULL DEFAULT now(),
+  actor_kind TEXT NOT NULL CHECK (actor_kind IN (
+    'human','bot','customer','system','regulator'
+  )),
+  actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_consent_events_customer
+  ON consent_events (customer_id, captured_at DESC);
+
+CREATE TABLE IF NOT EXISTS endpoint_ownership (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  endpoint TEXT NOT NULL,
+  channel TEXT NOT NULL CHECK (channel IN (
+    'voice','whatsapp','sms','email','chat'
+  )),
+  slot TEXT NOT NULL CHECK (slot IN ('primary','alt','other')),
+  state TEXT NOT NULL CHECK (state IN ('unverified','verified','revoked')),
+  source TEXT NOT NULL DEFAULT 'system',
+  evidence_ref TEXT,
+  verified_at timestamptz,
+  revoked_at timestamptz,
+  revoked_reason TEXT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_endpoint_ownership UNIQUE (tenant_id, endpoint, channel)
+);
+CREATE INDEX IF NOT EXISTS idx_endpoint_ownership_customer
+  ON endpoint_ownership (customer_id, state);
+
+CREATE TABLE IF NOT EXISTS window_authorisations (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  channel TEXT NOT NULL CHECK (channel IN (
+    'voice','whatsapp','sms','email','chat','field'
+  )),
+  start_hour INTEGER NOT NULL,
+  end_hour INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  citation TEXT,
+  expires_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_window_authorisations_hours CHECK (
+    start_hour >= 0 AND start_hour < 24
+    AND end_hour > start_hour AND end_hour <= 24
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_window_authorisations_customer
+  ON window_authorisations (customer_id, channel);
+
+CREATE TABLE IF NOT EXISTS subject_requests (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  kind TEXT NOT NULL CHECK (kind IN ('access','correction','erasure','grievance')),
+  state TEXT NOT NULL CHECK (state IN (
+    'received','verified','in_progress','fulfilled','refused','escalated'
+  )),
+  received_at timestamptz NOT NULL DEFAULT now(),
+  verified_at timestamptz,
+  due_at timestamptz NOT NULL,
+  fulfilled_at timestamptz,
+  evidence_ref TEXT,
+  owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  escalated_to_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_subject_requests_slo CHECK (
+    due_at <= received_at + interval '90 days'
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_subject_requests_due
+  ON subject_requests (tenant_id, due_at)
+  WHERE state NOT IN ('fulfilled','refused');
+
+CREATE TABLE IF NOT EXISTS subject_request_events (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL REFERENCES subject_requests(id) ON DELETE CASCADE,
+  state TEXT NOT NULL,
+  actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_subject_request_events_request
+  ON subject_request_events (request_id, created_at);
+
+CREATE TABLE IF NOT EXISTS erasure_events (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  request_id TEXT NOT NULL REFERENCES subject_requests(id) ON DELETE RESTRICT,
+  cancelled_plans INTEGER NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

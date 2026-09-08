@@ -1,0 +1,260 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from agent_core.cards.compile import CompileReport, GateResult
+from agent_core.fleet.compile import compile_bundle, digest, parity_report
+from agent_core.tools.gates import GATE_FLOOR, GATE_IDENTITY, enforce_human_gate
+from agent_core.tools.grant import TEXT, VOICE, ToolGrant
+from sandbox_runtime import simulate_sandbox_tool
+
+
+def _report() -> CompileReport:
+    return CompileReport(
+        bot_id="collections",
+        gates=[GateResult(gate="G0", name="schema", status="pass")],
+        card={},
+    )
+
+
+def test_compiled_bundle_is_deterministic_and_self_hashing() -> None:
+    first = compile_bundle(
+        report=_report(),
+        prompt="system",
+        persona={"tone": "calm"},
+        guardrails={"maxTurns": 3},
+        flow={"nodes": [], "edges": []},
+        prompt_version_id="pv-1",
+    )
+    second = compile_bundle(
+        report=_report(),
+        prompt="system",
+        persona={"tone": "calm"},
+        guardrails={"maxTurns": 3},
+        flow={"edges": [], "nodes": []},
+        prompt_version_id="pv-1",
+    )
+
+    assert first == second
+    unhashed = first.model_dump(mode="json")
+    unhashed.pop("bundle_hash")
+    assert first.bundle_hash == digest(unhashed)
+    assert parity_report(
+        live_prompt="system",
+        live_persona={"tone": "calm"},
+        live_guardrails={"maxTurns": 3},
+        live_flow={"nodes": [], "edges": []},
+        live_tools=[],
+        bundle=first,
+        bot_id="collections",
+        prompt_version_id="pv-1",
+    )["ok"]
+
+
+def test_compile_bundle_is_stable_under_concurrent_calls() -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def once(_: int) -> str:
+        return compile_bundle(
+            report=_report(),
+            prompt="system",
+            persona={"tone": "calm"},
+            guardrails={"maxTurns": 3},
+            flow={"nodes": [], "edges": []},
+            prompt_version_id="pv-1",
+        ).bundle_hash
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        hashes = list(pool.map(once, range(16)))
+    assert len(set(hashes)) == 1
+
+
+def test_shared_human_gates_fail_closed() -> None:
+    assert (
+        enforce_human_gate(
+            "create_promise_to_pay",
+            card={},
+            identity_verified=False,
+        )
+        == GATE_IDENTITY
+    )
+    assert (
+        enforce_human_gate(
+            "apply_goodwill",
+            card={
+                "human_gates": [
+                    {"tool_name": "apply_goodwill", "require": "floor"}
+                ]
+            },
+            identity_verified=True,
+        )
+        == GATE_FLOOR
+    )
+
+
+def test_sandbox_never_dispatches_writes_or_connectors() -> None:
+    ok, write = simulate_sandbox_tool(
+        "create_promise_to_pay", {"amount": 1000}
+    )
+    assert ok is True
+    assert write["simulated"] is True
+    assert "would write" in write["effect"]
+
+    ok, connector = simulate_sandbox_tool("ext.crm.lookup", {})
+    assert ok is False
+    assert connector["error"] == "sandbox_connector_blocked"
+
+    import inspect
+    import sandbox_runtime
+
+    source = inspect.getsource(sandbox_runtime._run_sandbox_tool_loop)
+    assert "execute_tool(" not in source
+    assert "record_tool_call(" not in source
+
+
+def test_frozen_connectors_are_text_only() -> None:
+    from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
+    from agent_core.cards.schema import parse_card
+
+    raw = card_dump(COLLECTIONS_BOT_ID)
+    raw["connectors"] = [
+        {"connector_id": "crm", "allow_prefixes": ["ext.crm."]}
+    ]
+    card = parse_card(raw)
+    frozen = ["ext.crm.lookup"]
+
+    assert "ext.crm.lookup" in ToolGrant.for_card(
+        card,
+        [],
+        channel=TEXT,
+        frozen_connector_tools=frozen,
+    ).allowed
+    assert "ext.crm.lookup" not in ToolGrant.for_card(
+        card,
+        [],
+        channel=VOICE,
+        frozen_connector_tools=frozen,
+    ).allowed
+
+
+def test_exact_skill_version_is_part_of_the_signed_row_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent_core.skills.persist as persist
+
+    class CaptureConnection:
+        params: dict[str, Any] = {}
+
+        def execute(self, _statement: object, params: dict[str, Any]) -> object:
+            self.params = params
+            return object()
+
+    conn = CaptureConnection()
+    monkeypatch.setattr(persist.db, "_one", lambda _rows: {"id": "sv-2"})
+    row = persist._latest_signed_version(
+        conn,
+        slug="ptp-negotiate",
+        version="2.0.0",
+    )
+
+    assert row == {"id": "sv-2"}
+    assert conn.params["ver"] == "2.0.0"
+
+
+def test_generic_prompt_body_requires_agent_edit_only_when_card_is_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import main
+
+    monkeypatch.setattr(main.db, "_actor_user_id", lambda: "prompt-author")
+    monkeypatch.setattr(main.authz, "has_permission", lambda *_args: False)
+
+    main._require_agent_edit_for_card({"prompt": "ordinary prompt edit"})
+    with pytest.raises(Exception) as denied:
+        main._require_agent_edit_for_card({"agentCard": {}})
+    assert getattr(denied.value, "status_code", None) == 403
+
+
+def test_a2a_registration_rejects_invalid_certificate_text() -> None:
+    from agent_core.a2a import fingerprint_certificate
+
+    with pytest.raises(ValueError, match="a2a_cert_pem_invalid"):
+        fingerprint_certificate(
+            "-----BEGIN CERTIFICATE-----\nnot-base64\n-----END CERTIFICATE-----"
+        )
+
+
+class _Rows:
+    def __init__(self, row: dict[str, Any]) -> None:
+        self.row = row
+
+
+class _Connection:
+    def __init__(self, row: dict[str, Any]) -> None:
+        self.row = row
+
+    def __enter__(self) -> "_Connection":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def execute(self, *_args: object, **_kwargs: object) -> _Rows:
+        return _Rows(self.row)
+
+
+class _Engine:
+    def __init__(self, row: dict[str, Any]) -> None:
+        self.row = row
+
+    def connect(self) -> _Connection:
+        return _Connection(self.row)
+
+
+@pytest.mark.parametrize(
+    ("partner", "code"),
+    [
+        (
+            {
+                "id": "p-1",
+                "tenant_id": "tenant-a",
+                "bot_id": "bot-b",
+                "status": "active",
+            },
+            "a2a_bot_mismatch",
+        ),
+        (
+            {
+                "id": "p-1",
+                "tenant_id": "tenant-b",
+                "bot_id": "bot-a",
+                "status": "active",
+            },
+            "a2a_partner_unknown",
+        ),
+    ],
+)
+def test_a2a_partner_cannot_cross_bot_or_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+    partner: dict[str, Any],
+    code: str,
+) -> None:
+    import agent_core.a2a as a2a
+
+    monkeypatch.setenv("A2A_ENABLED", "true")
+    monkeypatch.setattr(a2a, "_partners_have_bot_id", lambda _conn: True)
+    monkeypatch.setattr(a2a.db, "engine", _Engine(partner))
+    monkeypatch.setattr(a2a.db, "_one", lambda rows: rows.row)
+    monkeypatch.setattr(a2a.db, "current_tenant", lambda: "tenant-a")
+
+    with pytest.raises(PermissionError, match=code):
+        a2a.require_partner(
+            {
+                "x-ssl-client-verify": "SUCCESS",
+                "x-ssl-client-dn": "CN=partner",
+                "x-ssl-client-fingerprint": "ab" * 32,
+            },
+            bot_id="bot-a",
+        )

@@ -49,7 +49,6 @@ set. Never destructive — it does not touch rule sets it did not create.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -151,54 +150,44 @@ RULE_SETS: list[dict[str, Any]] = [
 
 
 def publish(conn: Any) -> None:
-    for spec in RULE_SETS:
-        conn.execute(
-            text(
-                """
-                INSERT INTO policy_rule_sets (
-                  id, tenant_id, scope, product_id, version, label,
-                  effective_from, effective_to, notes
-                ) VALUES (
-                  :id, NULL, 'statutory', NULL, :version, :label,
-                  :effective_from, :effective_to, :notes
-                )
-                ON CONFLICT (id) DO UPDATE SET
-                  version = EXCLUDED.version,
-                  label = EXCLUDED.label,
-                  effective_from = EXCLUDED.effective_from,
-                  effective_to = EXCLUDED.effective_to,
-                  notes = EXCLUDED.notes,
-                  updated_at = now()
-                """
-            ),
-            {
-                "id": spec["id"],
-                "version": spec["version"],
-                "label": spec["label"],
-                "effective_from": spec["effective_from"],
-                "effective_to": spec["effective_to"],
-                "notes": spec["notes"],
-            },
+    from agent_core.treatment import schema_ready
+
+    if not schema_ready.w4_ready(conn):
+        raise SystemExit(
+            "W4 catalogue columns are not on this database; refuse to upsert "
+            "unverified legal text as a production publication."
         )
-        for kind, channel, params in spec["rules"]:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO policy_rules (id, rule_set_id, kind, channel, params)
-                    VALUES (:id, :set_id, :kind, :channel, CAST(:params AS jsonb))
-                    ON CONFLICT (rule_set_id, kind, COALESCE(channel,'')) DO UPDATE
-                      SET params = EXCLUDED.params, updated_at = now()
-                    """
-                ),
-                {
-                    "id": f"{spec['id']}-{kind}-{channel or 'all'}",
-                    "set_id": spec["id"],
-                    "kind": kind,
-                    "channel": channel,
-                    "params": json.dumps(params),
-                },
-            )
-        logger.info("published %s v%s (%s)", spec["id"], spec["version"], spec["label"])
+    actor = None
+    for spec in RULE_SETS:
+        existing = conn.execute(
+            text("SELECT id, publication_state FROM policy_rule_sets WHERE id = :id"),
+            {"id": spec["id"]},
+        ).mappings().first()
+        if existing:
+            logger.info("seed set %s already present state=%s — leaving it", spec["id"], existing["publication_state"])
+            continue
+        rules = [
+            {
+                "kind": kind,
+                "channel": channel,
+                "params": params,
+                "citation": spec["label"],
+            }
+            for kind, channel, params in spec["rules"]
+        ]
+        policy_rules.create_draft(
+            conn,
+            set_id=spec["id"],
+            scope="statutory",
+            version=spec["version"],
+            label=spec["label"],
+            effective_from=spec["effective_from"],
+            effective_to=spec["effective_to"],
+            notes=spec["notes"],
+            rules=rules,
+            actor_user_id=actor,
+        )
+        logger.info("drafted %s v%s — production publication is disabled until cited", spec["id"], spec["version"])
 
 
 def show(conn: Any) -> None:

@@ -15,7 +15,8 @@ export function ToolsTab({ calls }: { calls: LiveToolCall[] }) {
   if (calls.length === 0) {
     return (
       <div className="rounded-medium border border-dashed border-border p-300 text-center text-body-small text-text-subtlest">
-        No tool calls yet. Start a live call — CRM writes appear here with links.
+        No tool calls yet. Text rehearsal lists simulated tools here; live calls list CRM writes
+        with links.
       </div>
     );
   }

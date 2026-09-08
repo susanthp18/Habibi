@@ -159,6 +159,20 @@ def _entry_line(node: dict[str, Any]) -> str:
     return ""
 
 
+def _ends_conversation(node: dict[str, Any]) -> bool:
+    """Does this node hang up? The post-action is the only authority.
+
+    ``flows_dynamic`` re-emits exactly this action from ``endConversation``
+    (:mod:`voice.flows_dynamic`), so deriving it here makes the export and the
+    interpreter agree by construction rather than by a name list kept in step
+    by hand.
+    """
+    return any(
+        isinstance(action, dict) and action.get("type") == "end_conversation"
+        for action in node.get("post_actions") or []
+    )
+
+
 def _node_json(
     key: str, node: dict[str, Any], *, index: int, tools: dict[str, Any]
 ) -> dict[str, Any]:
@@ -184,7 +198,13 @@ def _node_json(
             "entryLine": _entry_line(node),
             "tools": _tool_names(node.get("functions") or [], tools),
             "extractVariables": [],
-            "endConversation": key == "call_ended",
+            # Derived from the script, not from one node's name. `wrap_up`,
+            # `terminate_politely` and `escalate_close` all carry
+            # `post_actions: end_conversation` in voice/flows.py, and hard-coding
+            # `call_ended` here meant that reloading the built-in script into the
+            # canvas and publishing it produced three terminals that say goodbye
+            # and then keep the line open.
+            "endConversation": _ends_conversation(node),
         },
     }
 

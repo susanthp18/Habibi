@@ -288,15 +288,15 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 
 ## WORK PACKAGES
 
-**Total: 73. Status: 49 completed, 24 open.** *(`WP-073` filed from the `WP-041` review.)* *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
+**Total: 73. Status: 50 completed, 23 open.** *(`WP-073` filed from the `WP-041` review.)* *(65 → 72: `WP-066`–`WP-072` filed from findings during execution.)* *(65 → 70: `WP-066`–`WP-070` filed from findings during execution.)* *(65 → 68: `WP-066`, `WP-067`, `WP-068` filed from findings during execution.)*
 
 | Status | Count |
 |---|---:|
-| **READY** — no unmet prerequisite; can begin today | **9** — `WP-029`, `WP-030`, `WP-031`, `WP-033`, `WP-036` *(peels 5-13)*, `WP-038`, `WP-043`, `WP-045`, `WP-048` *(second half)*, `WP-049` |
+| **READY** — no unmet prerequisite; can begin today | **11** — `WP-017`, `WP-027`, `WP-029`, `WP-030`, `WP-031` *(steps 3-5)*, `WP-033`, `WP-036` *(peels 11-13)*, `WP-043`, `WP-045`, `WP-064`, `WP-068` |
 | **BLOCKED** — has an unmet prerequisite | **16** |
 | **BLOCKED (runtime)** — needs a database read first | **0** |
 | **IN PROGRESS** | **0** |
-| **COMPLETED** | **49** |
+| **COMPLETED** | **50** |
 
 > **Correction (2026-09-05).** The `READY` count above stood at **2** for nine batches and was
 > wrong. It was never recomputed after each batch landed, so packages whose only gate had
@@ -313,7 +313,13 @@ Habibi console ──HTTP──► main.py (314 routes, 0 routers, fan-in 0)
 > \* `WP-030` and `WP-027` are ready on prerequisites but each waits on a file another package
 > holds (`db.py`, and `WP-022`'s new test respectively).
 
-### COMPLETED (49)
+### COMPLETED (50)
+
+Batch thirteen added: `WP-048` *(second half — nullability reconciled against `schemas.py`)* · `WP-031` *(steps 1-2 — the Tool Grant's first production importer)* · `WP-036` *(peels 5-8)* · `WP-038` **the work_runtime port is complete and carries a Protocol** · `WP-049` screens ask `api/` for a capability, not the mock flag · `WP-071` **the frontend suite can render, so keyboard paths are asserted by pressing**.
+
+**Two corrections to this board's own arithmetic.** The completed count had drifted: `WP-017` (root log handler + redactor) and `WP-068` (the two timezone tests) were both being carried as done and are not. `WP-068` has been confirmed three times by natural experiment and never fixed; `WP-017` appears only as a *mention* in `WP-018`'s commit noting it is still absent.
+
+**`WP-071` is the one to read.** Its acceptance criterion was a comparison, and running it corrected the implementer's own justification: the inversion they cited (`onReorder(i, i + 1)`) **was** caught by the old source pin, which asserted the exact ternary text. The inversion that escapes a source pin is swapping which menu item fires which handler — every string is still present, wired to the wrong label. A source pin reads what a file contains; it cannot read what a user gets when they press what they can see.
 
 Batch twelve added: `WP-047` a failed list read no longer renders as a statement of fact · `WP-041` **one authority decision posts one waiver, at the amount that was spoken** · `WP-036` *(peels 3-4)* Dashboard and Workspace · `WP-048` *(PARTIAL — the type move; runtime parsing deliberately deferred)* · **`WP-073` the dispute waiver path had the same race, found in review** · `WP-037` `conn` is required in all four Locked Engines.
 

@@ -1,0 +1,331 @@
+{
+ "verdicts": [
+  {
+   "id": "RUNTIME-01",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:53",
+    "backend/agent_core/cards/schema.py:157-162",
+    "backend/agent_core/cards/schema.py:389",
+    "backend/agent_core/cards/defaults.py:131",
+    "backend/agent_core/cards/defaults.py:149-151",
+    "backend/agent_core/cards/defaults.py:171",
+    "backend/agent_core/cards/defaults.py:312",
+    "backend/agent_core/cards/defaults.py:328",
+    "backend/voice/tools.py:516-523",
+    "backend/agent_core/cards/compile.py:519-954"
+   ],
+   "reason": "Verified at the cited lines. A repo-wide grep of backend/**/*.py for `human_gates` returns exactly six hits: schema.py:389 (the field), defaults.py:131/150/171/312/328 (constructor + the four first-party cards). No reader in voice/**, bot_tools.py, sandbox_runtime.py, agent_core/tools/**, and none in compile.py (no G-gate mentions it). HumanGateRequire = Literal[\"identity\",\"floor\",\"both\"] (schema.py:53), so `floor`/`both` are authorable and mean supervisor sign-off; the only write guard that exists is the hardcoded `_require_customer()` at voice/tools.py:516-523, which checks session.identity_verified and customer binding for every write regardless of the card (e.g. create_promise_to_pay at voice/tools.py:1218-1220). Trigger is reachable: publish_prompt_version accepts any parseable card (db_prompt_studio.py:1907-1926 compiles it, no gate reads human_gates), so `require:\"both\"` publishes green and enforces nothing. MAJOR stands — a published contract on a regulated write path claiming human approval that no code implements."
+  },
+  {
+   "id": "RUNTIME-02",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:144-155",
+    "backend/agent_core/cards/schema.py:387",
+    "backend/voice/crm_sink.py:1154-1190",
+    "backend/voice/crm_sink.py:1614",
+    "backend/bot_runtime.py:49-50",
+    "backend/bot_runtime.py:871",
+    "backend/bot_runtime.py:893",
+    "backend/agent_core/compaction.py:12",
+    "backend/agent_core/compaction.py:35-50",
+    "backend/agent_core/turn.py:37"
+   ],
+   "reason": "Verified. Grep for `scopes`, `raw_last_n`, `summarize_over_budget` across backend/**/*.py finds the card's memory sub-model only at schema.py:147-154 — every other `scopes` hit is mcp_http/auth.py key scopes or prose. No runtime reader, no compile gate. No card overrides the default (defaults.py:137-155 never passes memory), so all four first-party cards ship scopes ['turn','call']. Meanwhile voice/crm_sink.py:1154-1190 upserts a persistent cross-call customer_memory row (summary + open commitments) gated only on voice_config.voice_memory() and identity, called at :1614. Compaction bypass confirmed: bot_runtime.py:871 `hist_limit = _history_limit()` (env BOT_HISTORY_LIMIT, default 16, :49-50) is passed as `last_n=hist_limit` at :893, while agent_core/turn.py:37 defaults history_limit=RAW_LAST_N (compaction.py:12 = 8); card.memory.compaction.raw_last_n reaches neither. summarize_over_budget has no branch — bound_history always computes a summary (compaction.py:48-50). MAJOR stands: the card states a retention scope the platform does not honour, on borrower data."
+  },
+  {
+   "id": "RUNTIME-03",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/agent_core/canary.py:57-77",
+    "backend/agent_core/canary.py:87",
+    "backend/agent_core/canary.py:114-129",
+    "backend/agent_core/canary.py:342",
+    "backend/agent_core/deployment.py:37-50",
+    "backend/agent_core/cards/schema.py:365",
+    "backend/agent_core/cards/compile.py:880-895"
+   ],
+   "reason": "Verified. pick_deployment_id (canary.py:57-77) is the only routing function and branches solely on `pct = int(exp.get('traffic_pct') or 0)` plus a sha256 bucket; `shadow` is never read there. shadow is only written (canary.py:87 param, :114/:116/:129 INSERT) and echoed for display (:342). deployment.py:37-49 calls pick_deployment_id for every bundle load (voice, WhatsApp, sandbox) with customer_id, and takes the returned deployment as the one that serves. G12 (compile.py:880-895) inspects only pct and auto_rollback. Also checked the rest of the backend for a shadow consumer: every other `shadow` is engine-mode env config (authority/config.py:24, reco/policy.py:168, live_qa/config.py:35, treatment) — unrelated to this field. MAJOR stands: a rollout switch labelled the way this codebase uses 'shadow' everywhere else routes live borrowers instead."
+  },
+  {
+   "id": "RUNTIME-04",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:1827",
+    "backend/db_prompt_studio.py:1889-1891",
+    "backend/db_prompt_studio.py:1937-1946",
+    "backend/db_prompt_studio.py:2122",
+    "backend/main.py:3262",
+    "backend/schemas.py:2409-2410"
+   ],
+   "reason": "Verified. `pct` and `triggers` fall back to card_raw['experiment'] at db_prompt_studio.py:1890-1891; `shadow` has no such fallback and is only the keyword parameter defaulting to False at :1827 (main.py:3262 forwards payload.shadow, whose request default is False). The shipped-experiment fold at :1937-1946 then writes {'traffic_pct': pct, 'shadow': bool(shadow), 'auto_rollback': ...} back onto prompt_versions.agent_card whenever it differs, so an authored experiment.shadow: true is rewritten to false on the published row. Reachable through any API publish that omits the body. MINOR is correct, not MAJOR: shadow has no runtime consumer at all (see RUNTIME-03), so the loss is confined to the card row, the Ship tab and the change-log digest."
+  },
+  {
+   "id": "RUNTIME-05",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/voice/tools.py:2773-2797",
+    "backend/voice/tools.py:2781",
+    "backend/voice/tools.py:2783-2788",
+    "backend/agent_core/tools/domain.py:1009-1027",
+    "backend/bot_tools.py:400-429",
+    "backend/voice/bot.py:1138"
+   ],
+   "reason": "Verified at the lines. voice/tools.py:2781 imports card_for from agent_core.cards.defaults; :2783 declares `allowlist: set[str] | None = None`; :2786 `allowlist = set(card_for(bot_id).handoff_targets())`; :2787-2788 `except KeyError: allowlist = None`. domain.handoff_to_agent (:1009, param at :1016) enforces only `if allowlist is not None and target not in allowlist` (:1027) — None is unrestricted, exactly as bot_tools.py:400-412 documents for the already-fixed text path (which resolves ctx.agent_card first and returns set() — deny — when no card resolves, bot_tools.py:415-429). The live card is available in the voice process: deployment.py:91 puts it on the bundle and voice/bot.py:1138 already reads bundle['agentCard']. Both consequences hold: edited first-party handoffs are enforced against the Python constants, and any non-first-party bot_id (clone) yields an unrestricted allowlist. MAJOR stands."
+  },
+  {
+   "id": "RUNTIME-06",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/main.py:2711-2721",
+    "backend/agent_core/a2a.py:38-69",
+    "backend/agent_core/a2a.py:72-105",
+    "backend/agent_core/a2a.py:80",
+    "backend/agent_core/a2a.py:108-119",
+    "backend/agent_core/cards/compile.py:897-917",
+    "backend/agent_core/cards/schema.py:369-373",
+    "backend/agent_core/cards/defaults.py:318-331"
+   ],
+   "reason": "Verified. main.py:2711-2717 calls require_partner then agent_card_document(botId or db.DEFAULT_BOT_ID); require_partner (a2a.py:38-69) validates only that an active a2a_partners row matches the client cert DN/fingerprint — no bot scoping, no expose check. agent_card_document (a2a.py:72-105) reads nothing under raw['a2a'] and builds `skills` by iterating raw['skills'] (:80), the internal attachment list, so a2a.skill_ids is inert. create_task authorises against partner['allowed_skills'] (a2a.py:115-119), never against the card. G13 (compile.py:897-899) is skipped whenever card.a2a is falsy, and no first-party card sets a2a at all (defaults.py:137-155 never passes it; supervisor_brief_card at :318-331 likewise), so every card in the tenant is served un-gated. One guard exists but does not save it: a2a_enabled() (a2a.py:40) kills the whole endpoint when A2A is off — with A2A on, the trigger is reachable as described. MAJOR stands."
+  },
+  {
+   "id": "RUNTIME-07",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/agent_core/a2a.py:74-77",
+    "backend/db_prompt_studio.py:429-430",
+    "backend/db_prompt_studio.py:503",
+    "backend/main.py:2711-2717"
+   ],
+   "reason": "Verified. agent_card_document reads db.get_agent_studio_card(bot_id)['agentCard'] (a2a.py:74,77); get_agent_studio_card sets `card = _card_of(draft) or published_card` at db_prompt_studio.py:429 with `source = 'draft' if _card_of(draft) ...` at :430, and the published card is carried separately as 'publishedCard' at :503 and not used by a2a.py. So identity.display_name, identity.purpose and the skill list served to an mTLS partner come from an unpublished, un-gated draft, and reverting/discarding the draft changes the partner-facing document with no publish event. MAJOR stands."
+  },
+  {
+   "id": "RUNTIME-08",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/call_closer.py:99-112",
+    "backend/call_closer.py:949-950",
+    "backend/call_closer.py:1005",
+    "backend/call_closer.py:1032",
+    "backend/call_closer.py:1059",
+    "backend/mission.py:315",
+    "backend/main.py:5366",
+    "backend/agent_core/cards/schema.py:237-238"
+   ],
+   "reason": "Verified. call_closer.py:949 is literally `success = SUCCESS_BY_OBJECTIVE.get(objective, frozenset({'ptp_captured','paid_in_call'}))` and :950 `objective_met = bool(business and business in success)`; the module dict is at :102-112 with document_chase = frozenset({'no_resolution'}), and the docstring at :99-101 claims CardObjective.success overrides it per published card. The card is in scope in that module (mission_mod.card_for_bot is used elsewhere in the closer) and is not consulted. mission.py:315 copies `'success': list(getattr(objective_spec,'success',[]) or [])` into the envelope and a grep for `[\"success\"]` / `get(\"success\")` across backend/**/*.py finds no reader in voice/**, cadence.py or call_closer.py. CardObjective.partial (schema.py:238) likewise has no reader. objective_met is persisted (:1005) and surfaced (:1032, :1059) while GET /outbound/missions shows the authored codes (main.py:5366). MAJOR stands: a published mission definition that decides nothing while the operator is shown it."
+  },
+  {
+   "id": "RUNTIME-09",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/cadence.py:600-604",
+    "backend/cadence.py:231-240",
+    "backend/cadence.py:402-410",
+    "backend/agent_core/cards/compile.py:409-427",
+    "backend/agent_core/cards/compile.py:173",
+    "backend/agent_core/cards/schema.py:289-291",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:860-875"
+   ],
+   "reason": "Verified. escalation_target is defined at cadence.py:600-604 (its own docstring calls it 'Advisory') and a backend-wide grep for the symbol returns only that definition plus the G-OB7 gate label at compile.py:173 — no caller. Both exhaustion paths confirmed: on_outcome `_stop(conn, case['id'], STATE_EXHAUSTED, 'max_attempts', business)` at :232 then `return STATE_EXHAUSTED` at :240, and process_one `_stop(conn, case_id, STATE_EXHAUSTED, 'max_attempts', None)` at :403 then `return True` at :410 — neither creates a work item, handoff or alert. G-OB7 (compile.py:409-427) validates the target against known bots and the handoff allowlist, and the editor renders a select for it (OutboundCardEditor.tsx:860-875, options 'human' + handoff targets). MAJOR stands as an operator-facing lie: green publish, validated target, nothing happens."
+  },
+  {
+   "id": "RUNTIME-10",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:207",
+    "backend/agent_core/cards/schema.py:292",
+    "backend/cadence.py:241-249",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:843-857"
+   ],
+   "reason": "Verified. TimeOfDay = Literal['engine','fixed','spread'] (schema.py:207) and the field at :292; a backend grep for time_of_day returns only schema.py:292, the unrelated {time_of_day} prompt variable (agent_core/clock.py:75, agent_core/prompt.py:47, prompt_render.py:28/38) and tests. cadence.py:241 computes `nxt = _now() + backoff_for(attempts, list(cadence.backoff_hours))` with no time-of-day shaping, and no compile gate references it. Editor select confirmed at OutboundCardEditor.tsx:843-857. MINOR correct — contained dead config with a control."
+  },
+  {
+   "id": "RUNTIME-11",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:263-265",
+    "backend/agent_core/cards/compile.py:340-359",
+    "backend/contact_policy.py:90-101",
+    "backend/contact_policy.py:881-920",
+    "backend/cadence.py:445-458",
+    "backend/campaigns.py:557"
+   ],
+   "reason": "Mechanism verified, but the citation for admit is wrong: contact_policy.py:540-586 is `preview` ('Dry-run. No writes.'), while admit is defined at :881 and computes `cap = daily_cap()` at :897 then `cap = daily_cap(rules)` at :919 — its signature (:881-895) has no card, no objective and no per_day parameter. daily_cap is at :90-101 and takes only env CONTACT_DAILY_CAP narrowed by tenant rules. G-OB3 (compile.py:349-359) only fails a cadence whose per_day *exceeds* that cap, so schema.py:263-265's claim that a card 'can only ever lower' the runtime cap is unimplemented. cadence.py:445 and campaigns.py:557 are the admit call sites and pass neither the card nor per_day. MINOR stands."
+  },
+  {
+   "id": "RUNTIME-12",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:332-334",
+    "backend/tests/test_outbound_card_switches.py:15-18",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:99",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:338-345"
+   ],
+   "reason": "Verified. concurrency_share appears in backend/**/*.py only at schema.py:334 and the test-module docstring; the editor round-trips it in the state reducer (OutboundCardEditor.tsx:99) and the deliberate no-control comment is at :338-345 ('nothing reads it: outbound.place gates on a single tenant-wide OUTBOUND_MAX_IN_FLIGHT count'), matching test_outbound_card_switches.py:15-18. Dead but acknowledged and with no UI control, so TRIVIAL is right."
+  },
+  {
+   "id": "RUNTIME-13",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/agent_core/treatment/enact.py:358-370",
+    "backend/mission.py:450-494",
+    "backend/campaigns.py:526-557",
+    "backend/agent_core/cards/schema.py:324",
+    "backend/agent_core/cards/schema.py:356-358"
+   ],
+   "reason": "Verified. enact.py:368 reads `if card is not None and card.outbound.dials and card.outbound.objectives:` and only inside that branch (:369-370) raises NoExecutor('card_forbids_mission'), so an inbound-only card — dials False via the property at schema.py:356-358, direction default 'inbound' at :324 — skips the guard entirely and the dial proceeds, inverting the comment at :359-363. mission.resolve_outbound_bot_id (:450-494) confirms the compounding: `_claims` (:475-483) requires card.outbound.dials, but the terminal `return default` at :494 (and the `if _claims(default)` short-circuit at :485-486) returns the tenant default whether or not its card dials. campaigns.py:526-552 resolves bot_id from the run row and places without any dials check. MAJOR stands."
+  },
+  {
+   "id": "RUNTIME-14",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/cadence.py:418-440",
+    "backend/cadence.py:127-145",
+    "backend/mission.py:450-463",
+    "backend/mission.py:494",
+    "backend/mission.py:498-530"
+   ],
+   "reason": "Verified. cadence.py:418 is exactly `bot_id = dbmod.DEFAULT_BOT_ID`, followed by `card = mission_mod.card_for_bot(bot_id)` (:419), mission_mod.build(card=card, bot_id=bot_id) (:420-428) and outbound.reserve(bot_id=bot_id) (:429-440) — so voice, mission envelope, number pool, objective spec and authority profile for every retry come from the tenant default agent. ensure_case's INSERT column list (cadence.py:129-136) carries id, tenant_id, customer_id, objective, case_ref, cadence, max_attempts, campaign_run_id, attempts, state, timestamps — no bot column, so the ladder cannot carry the originating agent even though call_attempts does. mission.resolve_outbound_bot_id exists for this (:450-463, docstring names the exact bug) and is not called from cadence.py. MAJOR stands."
+  },
+  {
+   "id": "RUNTIME-15",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:89-90",
+    "backend/agent_core/cards/defaults.py:144-145",
+    "backend/agent_core/cards/defaults.py:170",
+    "backend/agent_core/cards/defaults.py:291",
+    "backend/agent_core/cards/defaults.py:311",
+    "backend/agent_core/cards/defaults.py:327",
+    "backend/agent_core/cards/compile.py:827"
+   ],
+   "reason": "Verified. A backend grep for data_class/regulator_tags shows the card's own fields written only in defaults.py (regulator_tags=['rbi-fair-practices','dpdp'] at :145 for all four cards; data_class at :144 fed from :170/:291/:311/:327) and declared at schema.py:89-90. Every other hit belongs to the mcp_connectors column (agent_core/connectors/persist.py:117/141/155/165/181/200) — and compile.py:827's `data_class_missing` issue is read off `conn.get('dataClass')`, the connector row, not the card (compile.py:818-831). No redaction, compliance-export or gate reader for the card's labels. MINOR correct."
+  },
+  {
+   "id": "RUNTIME-16",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:16",
+    "backend/agent_core/cards/schema.py:88",
+    "backend/agent_core/cards/compile.py:643",
+    "backend/agent_core/cards/compile.py:685",
+    "backend/bot_runtime.py:909-916",
+    "backend/voice/bot.py:1135-1143",
+    "backend/agent_core/tools/grant.py:91-102",
+    "backend/agent_core/cards/defaults.py:324"
+   ],
+   "reason": "Verified. The only two readers of card.identity.channels are compile gates: `voice_or_wa = any(ch in card.identity.channels ...)` at compile.py:643 (G4) and `voice = 'voice' in card.identity.channels` at :685 (G6). The runtimes filter by catalog channel metadata instead — bot_runtime.py:915 `CATALOG.for_channel(CHANNEL_TEXT)` and voice/bot.py:1141-1142 `CATALOG.for_channel(CHANNEL_VOICE)`, both feeding mouth.tools(channel_tools=...), and grant.py:91-102 `_channel_tools` does the same. Nothing compares the serving channel against the card. supervisor-brief-v1 is channels=['internal'] (defaults.py:324). MINOR correct — no privilege is granted by serving it, but the declared channel restriction is inert."
+  },
+  {
+   "id": "RUNTIME-17",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:99",
+    "backend/db_prompt_studio.py:983-1012",
+    "backend/db_prompt_studio.py:1905-1907",
+    "backend/db_prompt_studio.py:822",
+    "backend/agent_core/cards/compile.py:197-208",
+    "backend/agent_core/cards/compile.py:942"
+   ],
+   "reason": "Verified. G15's card_locales argument is produced by voice_locale_facts(voice, persona) — db_prompt_studio.py:983-1012 builds the tag list from `p.get('language')` plus `p.get('fallbackLanguages')` through agent_core.languages.tag_for, never touching the card — and is passed at :1905-1907/:1925 on publish and :822/:855 on preview, reaching _voice_locale_gate at compile.py:942 (:197-208). A backend grep for `.languages` finds mouth.languages only at schema.py:99: no runtime reader, no gate, and no check that the card and persona agree. MINOR correct."
+  },
+  {
+   "id": "RUNTIME-18",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:93-99",
+    "backend/agent_core/deployment.py:87-89",
+    "backend/voice/bot.py:1170-1176"
+   ],
+   "reason": "Verified. flow_ref appears in backend/**/*.py only at schema.py:98 (under the CardMouthRef docstring 'Pointers, not copies' at :94). The flow actually served is `'flow': version.get('flow') if isinstance(...) else {}` (deployment.py:87-89), consumed as `_authored = bundle.get('flow')` at voice/bot.py:1170-1176. No gate validates flow_ref resolves. MINOR correct."
+  },
+  {
+   "id": "RUNTIME-19",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:102-107",
+    "backend/agent_core/skills/runtime.py:56-98",
+    "backend/agent_core/skills/runtime.py:72",
+    "backend/agent_core/skills/persist.py:689",
+    "backend/agent_core/cards/compile.py:478"
+   ],
+   "reason": "Verified and it carries new information beyond prior item 2h.1. runtime.py:72 is `slugs = [ref.skill_id for ref in card.skills]`, handed to packs_for_slugs (:80) with no version or pin; persist.py:689 and compile.py:478 build the same slug-only list. So CardSkillRef.version and PinMode (schema.py:102-107) are never compared to anything. This actually contradicts the prior audit's premise (2h.1 said a hardcoded version '1' would 'pin stale forever'): nothing pins, so a card pinned exact/1 silently follows whatever pack _latest_signed_version returns. Prior item 2h.1 is therefore still open but mis-stated. MINOR correct — no publish and no change-log entry when the effective grant changes."
+  },
+  {
+   "id": "RUNTIME-20",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:118-123",
+    "backend/agent_core/tools/domain.py:1009-1049",
+    "backend/agent_core/cards/compile.py:661-678",
+    "backend/agent_core/cards/templates.py:139"
+   ],
+   "reason": "Verified. CardHandoff.payload_schema (schema.py:122) and .when (:123) have no backend reader: grep finds payload_schema only at schema.py:122 and templates.py:139 (a literal empty dict in a template). domain.handoff_to_agent takes `payload: str | None` (:1015) and forwards `payload=payload` verbatim to db.handoff_to_agent (:1041-1047) with no schema fetch or validation; G5 (compile.py:661-678) checks only that the target bot exists, is known and is not self. `when` is free prose consumed only by the graph editor. MINOR correct."
+  },
+  {
+   "id": "RUNTIME-21",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:87",
+    "Habibi/src/api/agent-card.ts:132"
+   ],
+   "reason": "Verified. The card's identity.owner_user_id exists only at schema.py:87 (and the mirrored TS type at agent-card.ts:132); it is not even set by the first-party constructors (defaults.py:137-146 omits it). Every other owner_user_id in the backend is a leads/promises/work-item column (db.py:4333-4363, db.py:5168, db_dashboard.py:364). No authz, change-log or gate reader. TRIVIAL correct."
+  },
+  {
+   "id": "RUNTIME-22",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:168",
+    "backend/agent_core/cards/defaults.py:132",
+    "backend/agent_core/cards/defaults.py:152",
+    "backend/agent_core/cards/defaults.py:172",
+    "backend/agent_core/cards/defaults.py:292",
+    "backend/agent_core/cards/defaults.py:313",
+    "backend/agent_core/cards/defaults.py:329",
+    "backend/agent_core/eval/run.py:14-36",
+    "backend/main.py:2791-2803",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:361-379"
+   ],
+   "reason": "Verified. All four first-party cards set a suite_id (defaults.py:152 via :172/:292/:313/:329) and eval/run.py:14-36 documents at length why bot_id_for_suite deliberately will not resolve a card from agent_card.eval.suite_id, returning a name match or None (:34-36). No other reader of card.eval.suite_id exists; the run endpoint takes suite in the path and bot in a query param, and the eval gates match on report kind. MINOR rather than TRIVIAL is justified because the field is a live, validated control in the Studio — AgentCardPanels.tsx:361-366 edits it and :377-379 even warns '<id> is not a suite that exists' — so the operator is shown a binding that binds nothing."
+  },
+  {
+   "id": "RUNTIME-23",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:20",
+    "backend/agent_core/cards/schema.py:133-141",
+    "backend/agent_core/cards/compile.py:594-616",
+    "backend/agent_core/reco/config.py:54",
+    "backend/agent_core/treatment/config.py:51",
+    "backend/agent_core/authority/config.py:24",
+    "backend/agent_core/live_qa/config.py:35"
+   ],
+   "reason": "Verified. PolicyBinding = Literal['required'] at schema.py:20 with all six PolicyBindings fields defaulting to 'required' (:133-141), so the `getattr(card.policy_bindings, key, None) != 'required'` comparison at compile.py:601 cannot be true for any card that parsed (extra='forbid' + the Literal make any other value fail parse first); only missing_locked (:604) can fail G3. policy_bindings has no reader outside compile.py:596-616, and the four engines take their mode from env config modules. TRIVIAL correct — the visible symptom is a display-only control set."
+  }
+ ],
+ "slice": "runtime"
+}

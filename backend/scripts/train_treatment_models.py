@@ -999,7 +999,7 @@ def _samples(
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--target", choices=(*TARGETS, "all"), default="all")
-    ap.add_argument("--out-dir", default="models")
+    ap.add_argument("--out-dir", default="models/challengers")
     ap.add_argument("--holdout", type=float, default=0.25)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--min-control", type=int, default=models.MIN_CONTROL_N)
@@ -1027,7 +1027,14 @@ def main() -> int:
     logger.info("%d decisions in scope", len(rows))
 
     corpus = "simulated" if args.include_simulated else "live"
-    out_dir = Path(args.out_dir)
+    out_dir = Path(args.out_dir).resolve()
+    serving_dir = Path("models").resolve()
+    if out_dir == serving_dir:
+        logger.error(
+            "refusing to write challengers into the serving path %s — use models/challengers",
+            out_dir,
+        )
+        return 2
     out_dir.mkdir(parents=True, exist_ok=True)
     wanted = TARGETS if args.target == "all" else (args.target,)
     written = 0

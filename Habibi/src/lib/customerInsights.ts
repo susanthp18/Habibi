@@ -203,20 +203,6 @@ function mockOfferPolicy(customer: Customer): OfferPolicy {
       suppressionLabel: "DND is on — do not pitch",
     };
   }
-  const presented = customer.interactions.some((i) => i.intents?.upsellPresented);
-  if (presented) {
-    return {
-      ...emptyOfferPolicy(),
-      status: "presented",
-      customerId: customer.id,
-      productId: "topup-loan",
-      productName: "Top-up Loan",
-      suggestedAmount: 150000,
-      talkTrack: "You may be eligible for a Top-up Loan of about one point five lakh rupees.",
-      preferredWindow: customer.contact.preferredWindow,
-      presented: true,
-    };
-  }
   return { ...emptyOfferPolicy(), customerId: customer.id };
 }
 

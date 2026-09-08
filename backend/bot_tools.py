@@ -292,12 +292,17 @@ def _tool_flag_dispute(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
 
 
 def _tool_evaluate_authority(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.tools.gates import interaction_identity_verified
+
     result = domain.evaluate_authority(
         customer_id=ctx.customer_id,
         fee_type=args.get("fee_type") or "late_fee",
         asked_amount=args.get("asked_amount"),
         interaction_id=ctx.interaction_id,
-        identity_verified=True,
+        identity_verified=interaction_identity_verified(
+            interaction_id=ctx.interaction_id,
+            customer_id=ctx.customer_id,
+        ),
     )
     ctx.authority_decision_id = (result.data or {}).get("decisionId")
     return {"ok": True, **(result.data or {})}
@@ -410,23 +415,9 @@ def _handoff_allowlist(ctx: ToolContext) -> set[str]:
     Resolution order is live card → built-in card → deny. Denying is the safe
     end: the model stays on topic and ``escalate_to_human`` is still there.
     """
-    from agent_core.cards.defaults import card_for
-    from agent_core.cards.schema import parse_card
+    from agent_core.tools.handoff_allowlist import handoff_allowlist
 
-    if ctx.agent_card:
-        try:
-            return set(parse_card(ctx.agent_card).handoff_targets())
-        except Exception:
-            logger.warning("handoff allowlist: live card unreadable, falling back to built-in")
-
-    if ctx.bot_id:
-        try:
-            return set(card_for(ctx.bot_id).handoff_targets())
-        except KeyError:
-            logger.warning(
-                "handoff allowlist: no card for bot_id=%s — denying every target", ctx.bot_id
-            )
-    return set()
+    return handoff_allowlist(agent_card=ctx.agent_card, bot_id=ctx.bot_id)
 
 
 def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -618,13 +609,17 @@ def _tool_request_documents(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
 
 
 def _tool_ingest_customer_document(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from agent_core.tools.gates import interaction_identity_verified
     from agent_core.vision import ingest_customer_document
 
     result = ingest_customer_document(
         customer_id=ctx.customer_id,
         filename=(args.get("filename") or "").strip(),
         mime_type=(args.get("mime_type") or "").strip(),
-        identity_verified=bool(ctx.customer_id) and ctx.customer_id != "UNKNOWN-CALLER",
+        identity_verified=interaction_identity_verified(
+            interaction_id=ctx.interaction_id,
+            customer_id=ctx.customer_id,
+        ),
         interaction_id=ctx.interaction_id,
         requested_via="bot_chat",
     )
@@ -806,6 +801,26 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
     if ctx.allowed_tools is None or name not in ctx.allowed_tools:
         latency = int((time.perf_counter() - t0) * 1000)
         return False, {"error": "tool_not_on_card_or_skill", "tool": name}, latency
+
+    from agent_core.tools.gates import (
+        enforce_human_gate,
+        floor_approved,
+        interaction_identity_verified,
+    )
+
+    identity_ok = interaction_identity_verified(
+        interaction_id=ctx.interaction_id,
+        customer_id=ctx.customer_id,
+    )
+    blocked = enforce_human_gate(
+        name,
+        card=ctx.agent_card,
+        identity_verified=identity_ok,
+        floor_ok=floor_approved(interaction_id=ctx.interaction_id, tool_name=name),
+    )
+    if blocked:
+        latency = int((time.perf_counter() - t0) * 1000)
+        return False, {"ok": False, "error": blocked, "tool": name}, latency
 
     if name.startswith("ext."):
         from agent_core.connectors.persist import dispatch

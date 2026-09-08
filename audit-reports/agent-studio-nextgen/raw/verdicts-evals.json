@@ -1,0 +1,301 @@
+{
+ "verdicts": [
+  {
+   "id": "EVALS-1",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at the cited lines. publish hands compile_card the newest report for the BOT only: db_prompt_studio.py:1914 eval_report=get_latest_eval_report(bot_id=bot_id, kind=\"regression\"), :1915 redteam, :1917 outbound; that query is db_inbox.py:1582-1600 and its WHERE is exactly `r.bot_id = :bot AND s.kind = :kind ORDER BY r.created_at DESC LIMIT 1` (db_inbox.py:1592-1594) — no prompt_version_id, no age check. eval_reports.prompt_version_id exists (sql/14_agent_factory.sql:46) and save_eval_report accepts it (db_inbox.py:1610, bound at :1631) but the only production writer, run_named_suite, omits it (agent_core/eval/run.py:92-99); a repo-wide grep for save_eval_report finds only db.py:7282 re-export, db_inbox.py:1603 and run.py:92, so the column is NULL on every real row. _eval_gate then passes on status==\"pass\" alone (compile.py:965-971). Operator path: Evals tab Run button (AgentCardPanels.tsx:438 → POST /eval/suites/{id}/run, main.py:2779-2791) files a green report; edit the prompt/flow/tools and publish with EVAL_GATE_ENABLED on and \"regression\" in card.eval.require (default per schema.py:168) and G7 passes citing that pre-change report. Compounding claims also hold: llm_gateway/canary.py:180 files three canary reports and run.py:26-33 attributes any *collections* suite to kaia-v2-4.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:1914",
+    "backend/db_inbox.py:1592",
+    "backend/db_inbox.py:1610",
+    "backend/agent_core/eval/run.py:92",
+    "backend/agent_core/cards/compile.py:965",
+    "backend/sql/14_agent_factory.sql:46",
+    "backend/llm_gateway/canary.py:180"
+   ]
+  },
+  {
+   "id": "EVALS-2",
+   "verdict": "CONFIRMED",
+   "reason": "Two different tables, verified. G11 is blocking when twin is in card.eval.require (compile.py:721-722) and its report comes from db_prompt_studio.py:1916 → db_inbox.py:1572-1579 → agent_core/twin.py:150-175, which selects the newest row of twin_runs for the tenant. A Grep for twin_runs across backend returns only twin.py:123 (the INSERT inside replay_bounce_ladder, reachable solely via POST /twins/{id}/run, main.py:1007-1013), twin.py:160, and the DDL (sql/17_phase4.sql:84, alembic 20260815_0077). No eval path writes it. The Evals tab instead shows the twin requirement from latestByKind over eval_reports (AgentCardPanels.tsx:301-304, 392-404), which is what running the seeded kind='twin' suite \"Collections twin outcomes\" produces (corpus.py:141-150 / fixtures.py:620-627). Operator path: tick Twin (checkbox AgentCardPanels.tsx:256, writes card.eval.require), click Run on that suite (:438) — the requirement row goes green — then publish: with twin_runs empty latest_gate_report returns None (twin.py:171-172) and _eval_gate fails \"twin suite has not been run\" (compile.py:969). latest_gate_report is also neither bot- nor version-scoped, so one old bounce-twin row decides G11 for every card in the tenant.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/agent_core/cards/compile.py:721",
+    "backend/agent_core/cards/compile.py:722",
+    "backend/db_prompt_studio.py:1916",
+    "backend/db_inbox.py:1572",
+    "backend/agent_core/twin.py:150",
+    "backend/agent_core/twin.py:160",
+    "backend/agent_core/twin.py:123",
+    "backend/main.py:1007",
+    "backend/agent_core/eval/corpus.py:141",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:256",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:392"
+   ]
+  },
+  {
+   "id": "EVALS-3",
+   "verdict": "CONFIRMED",
+   "reason": "Verified: EvalRequire admits \"capability\" (schema.py:21) and the tab renders it as a shipping requirement with a live badge (AgentCardPanels.tsx:255 checkbox, :284 required list, :392-404 status row), under copy that says a failed suite blocks publish (:314-316). Every _eval_gate call site in compile.py is enumerated by grep: :464 outbound, :716 regression, :718 redteam, :722 twin — no capability. card.eval.require is read only at compile.py:721 and :966, neither of which can synthesise a capability gate, and a grep for 'capability' in backend finds it only in the schema literal, the seeder (fixtures.py:612), the scheduler kind list (schedule.py:22,36) and the eval_suites CHECK (sql/14_agent_factory.sql:11) — never in a gate. Operator path: tick Capability (a checkbox on any authored card), run the seeded \"Collections capability\" suite (which the nightly job also runs, schedule.py:36), let it go red — the tab shows capability · fail while publish compiles with no capability gate in the report at all, so the omission is invisible. Declared publish bar that cannot block a publish: MAJOR stands.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:255",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:314",
+    "backend/agent_core/cards/schema.py:21",
+    "backend/agent_core/cards/compile.py:716",
+    "backend/agent_core/cards/compile.py:718",
+    "backend/agent_core/cards/compile.py:722",
+    "backend/agent_core/cards/compile.py:464",
+    "backend/agent_core/cards/compile.py:966"
+   ]
+  },
+  {
+   "id": "EVALS-4",
+   "verdict": "DOWNGRADED",
+   "reason": "Mechanism real: EvalsTab has no isPending/isError branch for suitesQuery — every read is `(suitesQuery.data ?? [])` (AgentCardPanels.tsx:371, :378, :423) and useEvalSuites (agent-studio.ts:344-357) exposes no error handling, so the pinned-suite warning at :377-379 asserts \"<id> is not a suite that exists\" whenever data is undefined, and the Run list at :423-443 is empty on both first paint and failure. But MAJOR is inflated. (a) The false lozenge is gated on card.eval.suite_id being set, which is non-default (schema.py:168 suite_id: str | None = None) and only becomes true if an operator uses the Pinned-suite select — and even then it is a sub-second flash unless GET /eval/suites is actually failing. (b) The empty Run list is an ambiguous empty state, not business advice: unlike prior 2i.1, which told the author to go approve connectors on Integrations while the live API returned two, nothing here instructs an action or contradicts live data. The closest precedent for a false system statement rendered from a failed query is prior 2h.2 (Skills tab), rated MINOR. Contrast also EvalReportsList in the same file, which handles isPending/isError correctly (AgentCardPanels.tsx:477-484) — so the gap is real, just contained.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:269",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:377",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:378",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:379",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:423",
+    "Habibi/src/api/agent-studio.ts:344",
+    "backend/agent_core/cards/schema.py:168"
+   ]
+  },
+  {
+   "id": "EVALS-5",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at the lines: onClick={() => void run.mutateAsync(suite.id)} (AgentCardPanels.tsx:438) with no catch; useRunEvalSuite (agent-studio.ts:366-383) declares only onSuccess at :377-382 — no onError; the sole feedback render is `run.data ? … : null` (:445-451) and nothing renders run.isError. On rejection react-query clears mutation data, so the previous run's banner disappears and the button returns from \"Running…\" to \"Run\" with no message. Reachable: POST /eval/suites/{id}/run 404s eval_suite_not_found (main.py:2792-2793 via run.py:48-49) for a deleted suite id, and any DB error 500s. The sibling Critique control in the same file does it properly (AgentCardPanels.tsx:496-517 onError + per-row status + toast), which is the contrast the finding claims.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:438",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:445",
+    "Habibi/src/api/agent-studio.ts:366",
+    "Habibi/src/api/agent-studio.ts:377",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:496"
+   ]
+  },
+  {
+   "id": "EVALS-6",
+   "verdict": "CONFIRMED",
+   "reason": "Verified, with line corrections. run_suite_fixtures loops `verdict = run_grader(...)` with no try/except (harness.py:14-15) and computes status as only pass/fail (harness.py:27), while eval_reports.status permits 'error' (sql/14_agent_factory.sql:47) — nothing in the repo writes it. run_grader itself only converts an UNKNOWN grader name into a failing verdict (graders.py end-of-file dispatch); an exception inside a grader body propagates: grade_skill_jailbreak imports agent_core.skills.intersect at call time (graders.py:122-125) and grade_crm_card_injection calls format_untrusted_crm_card (graders.py:61). The raise escapes run_suite_fixtures before save_eval_report is reached (run.py:89-99), and the endpoint catches only KeyError (main.py:2790-2793), so it 500s, no report row exists and the other N-1 graded trials are discarded. Combined with EVALS-5 the operator gets no message, and the gate then reads as \"suite has not been run\" (compile.py:969).",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/eval/harness.py:14",
+    "backend/agent_core/eval/harness.py:27",
+    "backend/agent_core/eval/graders.py:122",
+    "backend/agent_core/eval/graders.py:61",
+    "backend/sql/14_agent_factory.sql:47",
+    "backend/agent_core/eval/run.py:89",
+    "backend/main.py:2790"
+   ]
+  },
+  {
+   "id": "EVALS-7",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. The Pinned-suite select writes card.eval.suite_id (AgentCardPanels.tsx:349-370, default option \"— latest report of each required kind —\" at :368). A Grep of backend for `eval.suite_id` returns exactly one hit, the comment at agent_core/eval/run.py:18 explaining the relation was deliberately not used for attribution; the field itself is schema.py:168. No consumer: get_latest_eval_report keys on bot_id + suite kind only (db_inbox.py:1592-1594) and _eval_gate reads only card.eval.require (compile.py:966). Pinning therefore changes nothing at publish, while the default option's wording implies it replaces the latest-of-each-kind behaviour.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:349",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:361",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:368",
+    "backend/agent_core/cards/schema.py:168",
+    "backend/agent_core/eval/run.py:18",
+    "backend/db_inbox.py:1592",
+    "backend/agent_core/cards/compile.py:966"
+   ]
+  },
+  {
+   "id": "EVALS-8",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. run_continuous defaults wanted=(\"regression\",\"redteam\",\"twin\",\"capability\") (schedule.py:35-36) and `continue`s on any other kind (schedule.py:53-54); scheduled_suite_ids filters the same four kinds (schedule.py:20-22). 'outbound' is admitted by the eval_suites CHECK (sql/14_agent_factory.sql:11) and the first-party \"Outbound conduct\" suite is seeded kind='outbound' (fixtures.py:469-482), so the suite G-OB9 gates on (compile.py:464 with outbound_eval_gate_enabled) is never run by the nightly job (worker.py:346 calls run_continuous() with no kinds) nor by POST /eval/schedule/run (main.py:2824-2831, likewise no kinds). scheduled_suite_ids has no caller: a repo grep for the name returns only its definition at schedule.py:12 — dead. Manual runs from the tab can still satisfy the gate, which is why MINOR is the right level.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/eval/schedule.py:12",
+    "backend/agent_core/eval/schedule.py:20",
+    "backend/agent_core/eval/schedule.py:35",
+    "backend/agent_core/eval/schedule.py:53",
+    "backend/worker.py:346",
+    "backend/main.py:2824",
+    "backend/agent_core/eval/fixtures.py:469"
+   ]
+  },
+  {
+   "id": "EVALS-9",
+   "verdict": "CONFIRMED",
+   "reason": "Verified, with two line corrections: \"emi\" is graders.py:209 and \"due\" is :211 (tuple opens at :201). All three consumers use bare substring membership over a lower-cased join with no word boundary: graders.py:256 (`w in script`, voicemail), :276 (`w in said`, third party) and :393 (`w in first`, outbound opening). \"emi\" is a substring of \"reminder\"/\"remind\", so a compliant callback voicemail fails grade_voicemail_discloses_nothing with the detail \"voicemail names emi\" (:262-263), a word the operator never wrote. Latent only because the shipped fixtures avoid it (fixtures.py PUBLISH_OUTBOUND_TASKS) — the trap fires on any author-supplied voicemail_script or opening turn.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/eval/graders.py:201",
+    "backend/agent_core/eval/graders.py:209",
+    "backend/agent_core/eval/graders.py:211",
+    "backend/agent_core/eval/graders.py:256",
+    "backend/agent_core/eval/graders.py:276",
+    "backend/agent_core/eval/graders.py:393"
+   ]
+  },
+  {
+   "id": "EVALS-10",
+   "verdict": "REFUTED",
+   "reason": "The precedence claim is arithmetically right but the defect is not established, and one supporting claim is false. graders.py:394 is a SINGLE physical line — `asks_why = \"how can i help\" in first or \"what can i\" in first or \"calling about\" in first and \"?\" in first` — not three stacked siblings, so the \"layout reads as three sibling phrases\" argument does not exist in the file. On intent, the grader's contract is explicitly about ASKING, not stating: the docstring says it catches \"an outbound call that opens by *asking* why they are calling\" (graders.py:381-384) and the failure detail is \"outbound call opened by asking the borrower why we called\" (graders.py:401). Under that contract the \"?\"-conditional third clause is coherent — it targets \"…what are you calling about?\", the inbound script — while a declarative \"calling about …\" is the normal outbound behaviour and is still policed by the separate confirms check (:392) and the _DEBT_WORDS leak check (:393). The only test in the repo for this grader exercises \"how can I help you today?\" (tests/test_outbound_conduct.py:358-364) and asserts nothing about \"calling about\". What would settle it: a fixture, ADR or test asserting that a declarative \"calling about\" opening must fail; absent that, this is a style observation, not wrong runtime behaviour.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/eval/graders.py:394",
+    "backend/agent_core/eval/graders.py:381",
+    "backend/agent_core/eval/graders.py:401",
+    "backend/tests/test_outbound_conduct.py:358"
+   ]
+  },
+  {
+   "id": "EVALS-11",
+   "verdict": "CONFIRMED",
+   "reason": "Verified exactly at the cited lines: critique_from_report selects r.bot_id (critique.py:31) and never uses it, chooses the suggested line by grader name (critique.py:41-45), then hardcodes \"slug\": \"ptp-negotiate\" on the INSERT (critique.py:67) and \"skill_slug\": \"ptp-negotiate\" on the returned row (critique.py:72). CritiquesPanel renders diff.path (\"SKILL.md\") beside critique.skillSlug (CritiquesPanel.tsx:25, :28-30), and the grader that produced it is shown only as a footnote (:47). So a crm_card_injection or skill_jailbreak critique from any card's red-team report is filed and displayed against kaia's PTP-negotiation skill. Reachable from the Critique button on any failed report row (AgentCardPanels.tsx:496 → POST /eval/reports/{id}/critique, main.py authz EVAL_RUN at authz.py:358).",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/eval/critique.py:67",
+    "backend/agent_core/eval/critique.py:72",
+    "backend/agent_core/eval/critique.py:31",
+    "Habibi/src/components/prompt-studio/CritiquesPanel.tsx:25",
+    "Habibi/src/components/prompt-studio/CritiquesPanel.tsx:28"
+   ]
+  },
+  {
+   "id": "EVALS-12",
+   "verdict": "CONFIRMED",
+   "reason": "Verified; line numbers are off by seven. The eval_trials INSERT binds \"transcript\": _jsonb([]), \"tools\": _jsonb([]), \"crm\": _jsonb({}) at db_inbox.py:1662-1664 — literal, never derived from the trial — while the columns exist for it (sql/14_agent_factory.sql:60-63) and the harness holds the fixture and verdict at that moment (harness.py:19-26). Only grader_verdicts is preserved (db_inbox.py:1665). GET /eval/reports/{id} returns the raw eval_reports row only (main.py:2812-2822), no trials endpoint exists, and no Habibi screen renders trials — so a red report is uninspectable beyond count + one-line detail.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/db_inbox.py:1662",
+    "backend/db_inbox.py:1663",
+    "backend/db_inbox.py:1664",
+    "backend/sql/14_agent_factory.sql:60",
+    "backend/agent_core/eval/harness.py:19",
+    "backend/main.py:2812"
+   ]
+  },
+  {
+   "id": "EVALS-13",
+   "verdict": "CONFIRMED",
+   "reason": "Verified: the handler runs `SELECT * FROM eval_reports WHERE id = :id` with no tenant predicate and returns dict(row) including tenant_id (main.py:2812-2822). Every sibling read is tenant-scoped — list_eval_reports opens with r.tenant_id = :tenant (db_inbox.py:1674), list_critiques (critique.py:84-85), and load_suite_fixtures filters tenant_id (run.py:42-44). authz maps (GET, /eval/reports/{report_id}) to BOT_READ (authz.py:356), so the only guard is permission, not tenancy. No Habibi caller exists for this route, which bounds it to a deliberate API call with a known EVR id — MINOR is the right level.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/main.py:2812",
+    "backend/main.py:2818",
+    "backend/db_inbox.py:1674",
+    "backend/authz.py:356",
+    "backend/agent_core/eval/critique.py:84"
+   ]
+  },
+  {
+   "id": "EVALS-14",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at canary.py:381-384: `if \"eval_fail\" in triggers: report = db.get_latest_eval_report(bot_id=exp[\"bot_id\"], kind=\"redteam\")` and the rollback fires only when that red-team report is 'fail'. No branch anywhere in the watchdog samples kind='regression' or kind='outbound', although both are gate kinds at publish (compile.py:716, :464) and \"eval_fail\" is offered as one generic trigger in the shared vocabulary (schema.py:41-49 RollbackTrigger). So a canary at traffic_pct=40 whose nightly regression suite turns red keeps taking traffic. The version-scoping caveat is real too — get_latest_eval_report is bot-keyed only (db_inbox.py:1592).",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/canary.py:381",
+    "backend/agent_core/canary.py:382",
+    "backend/agent_core/canary.py:384",
+    "backend/agent_core/cards/schema.py:41",
+    "backend/db_inbox.py:1592"
+   ]
+  },
+  {
+   "id": "EVALS-15",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. The Twin hint is literally \"replays of real calls against the candidate\" (AgentCardPanels.tsx:256). What the twin suite actually contains: grow_from_kept_promises inserts eval_tasks with grader 'ptp_row' over a scrubbed {amount, promise_date, status} promise row (corpus.py:78-104), and every suite kind runs through the same fixture loop — run.py's module docstring says \"No LLM on this path\" (run.py:1), load_suite_fixtures reads stored JSON fixtures (run.py:60-79) and run_suite_fixtures dispatches a grader name against them (harness.py:10-28, docstring \"No LLM on this path\"). No prompt, persona, flow, grant or model is loaded, so the card being published cannot influence any suite result. The tab's own top paragraph is accurate (\"Code graders hit CRM-shaped fixtures\", :313-316), which is what makes the twin hint the contradicting line.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:256",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:313",
+    "backend/agent_core/eval/harness.py:10",
+    "backend/agent_core/eval/run.py:1",
+    "backend/agent_core/eval/corpus.py:78"
+   ]
+  },
+  {
+   "id": "EVALS-16",
+   "verdict": "CONFIRMED",
+   "reason": "Verified: _outbound_gates returns immediately after appending G-OB1 'skipped — inbound-only card' when the card does not dial (compile.py:267-269), so the G-OB9 append at compile.py:461-464 is unreachable for an inbound card; compile_card's own comment at :919-920 states the whole G-OB block is skipped there. Meanwhile the checkbox hint promises \"gated by G-OB9, on the same terms as G7/G8\" (AgentCardPanels.tsx:257) and ticking it puts an outbound row with a live pass/fail lozenge into the requirements list (:388-418). The requirement disappears from the compile report rather than being reported skipped by name, so the operator cannot see that the box has no effect. Contained (no wrong publish outcome, only an invisible no-op) — MINOR is right.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:257",
+    "backend/agent_core/cards/compile.py:267",
+    "backend/agent_core/cards/compile.py:268",
+    "backend/agent_core/cards/compile.py:464",
+    "backend/agent_core/cards/compile.py:919"
+   ]
+  },
+  {
+   "id": "EVALS-17",
+   "verdict": "CONFIRMED",
+   "reason": "Verified: EvalCockpit reads `const rows = reports.data ?? []` (EvalCockpit.tsx:13) from useEvalReports() (:11) and the only branch is `rows.length === 0 ? \"No eval reports yet.\"` (:40-41) — no isPending, no isError anywhere in the file. A 403/500 on GET /eval/reports therefore reads as a tenant that has never evaluated anything. The \"Run continuous suite\" button (:21-31) calls `void schedule.mutateAsync()` at :27 and useRunEvalSchedule (agent-studio.ts:425-435) declares only onSuccess, so a 422 redteam_required (main.py:2829-2831) or a timeout is silent. CritiquesPanel.tsx:63-81, rendered directly below in the same tab, handles isPending/isError/empty correctly — the contrast is real.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:11",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:13",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:27",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:40",
+    "Habibi/src/api/agent-studio.ts:425",
+    "Habibi/src/components/prompt-studio/CritiquesPanel.tsx:63"
+   ]
+  },
+  {
+   "id": "EVALS-18",
+   "verdict": "CONFIRMED",
+   "reason": "Verified: EvalsTab renders <EvalCockpit /> with no props (AgentCardPanels.tsx:453) so compact defaults to false (EvalCockpit.tsx:10); inside it useEvalReports() is called with no botId (:11), i.e. the tenant's newest 50 rows (main.py:2800-2808 → db_inbox.py:1671-1695), and ReportRow prints suite, kind, origin and date but never botId (:50-71). It sits directly under EvalReportsList headed \"Eval reports for this card\" (AgentCardPanels.tsx:519-521 header, empty copy \"No eval reports for this card\" at :486-489). Because compact is false, the tenant-wide \"Run continuous suite\" button also renders (EvalCockpit.tsx:21-31) and POST /eval/schedule/run executes every regression/red-team/twin/capability suite in the tenant synchronously (schedule.py:44-56), unconfirmed, from one card's tab.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:453",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:10",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:11",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:21",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:50",
+    "backend/agent_core/eval/schedule.py:44"
+   ]
+  },
+  {
+   "id": "EVALS-19",
+   "verdict": "CONFIRMED",
+   "reason": "Mechanism verified as stated, trigger correctly left undemonstrated. The bot-less fallback is a client-side filter over a server-side page: tenantReportsQuery = useEvalReports() (AgentCardPanels.tsx:300) with no limit argument, so the request carries no limit param (agent-studio.ts:415-421) and the server default of 50 applies (main.py:2803 limit: int = Query(default=50, ge=1, le=200) → db_inbox.py:1675 clamp, ORDER BY r.created_at DESC at :1693), then rows with a botId are skipped at AgentCardPanels.tsx:307-308. If the 50 newest tenant reports all carry a botId — plausible given manual runs file botId (main.py:2779-2791) and the gateway canary attributes three runs per stage to kaia-v2-4 (llm_gateway/canary.py:180 + run.py:26-33) — no bot-less row is in the window and the row falls back to \"never run on <botId>\" (:415). SUSPECTED is the correct confidence; MINOR is the correct severity.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:300",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:307",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:415",
+    "Habibi/src/api/agent-studio.ts:415",
+    "backend/main.py:2803",
+    "backend/db_inbox.py:1675"
+   ]
+  },
+  {
+   "id": "EVALS-20",
+   "verdict": "CONFIRMED",
+   "reason": "Verified: eval_tasks.pass_bar exists (sql/14_agent_factory.sql:26) and every insert path sets it — fixtures.py:452 and :494 (regression/outbound), :631/:643 (capability/twin), corpus.py:78-83 ('all' hardcoded in the INSERT), graduate.py:40-41. load_suite_fixtures selects only id, name, grader, fixture (run.py:47-52) so pass_bar never reaches the harness, and run_suite_fixtures hardcodes all-must-pass: `status = \"pass\" if failed == 0 else \"fail\"` (harness.py:27). A task written with any other bar is graded as 'all' silently. TRIVIAL is right — no shipped row uses another value.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/sql/14_agent_factory.sql:26",
+    "backend/agent_core/eval/run.py:47",
+    "backend/agent_core/eval/harness.py:27",
+    "backend/agent_core/eval/corpus.py:78",
+    "backend/agent_core/eval/graduate.py:40",
+    "backend/agent_core/eval/fixtures.py:452"
+   ]
+  },
+  {
+   "id": "EVALS-21",
+   "verdict": "CONFIRMED",
+   "reason": "Verified and correctly rated TRIVIAL: get_latest_eval_report's WHERE is `r.bot_id = :bot AND s.kind = :kind` with no tenant predicate (db_inbox.py:1588-1594), while the neighbouring list_eval_reports opens its clause list with r.tenant_id = :tenant (db_inbox.py:1674). It is the sole input to G7/G8/G-OB9 (db_prompt_studio.py:1914-1917). Not exploitable today because eval_reports.bot_id references the global bots primary key (sql/14_agent_factory.sql:45), so a bot id belongs to one tenant. Note this overlaps EVALS-1 on the same query but reports a distinct missing predicate, so it is not a duplicate.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/db_inbox.py:1588",
+    "backend/db_inbox.py:1592",
+    "backend/db_inbox.py:1674",
+    "backend/sql/14_agent_factory.sql:45"
+   ]
+  }
+ ],
+ "slice": "evals"
+}

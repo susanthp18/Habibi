@@ -1,0 +1,249 @@
+{
+ "slice": "persona",
+ "summary": "The Persona tab (Habibi/src/components/prompt-studio/PersonaSliders.tsx) edits one jsonb column, prompt_versions.persona = {traits{empathy,firmness,formality,verbosity,upsell}, language, fallbackLanguages}, held in studio state (prompt-studio.lazy.tsx:203) and autosaved/published with the rest of the mouth; the server whitelists it via _prompt_persona (db_prompt_studio.py:71-95) with no range or registry validation. Preset chips call the shared applyPreset → confirm dialog → commitPreset pipeline (lazy.tsx:765-845, 1611-1650), which writes prompt+traits and offers an Undo toast; presets come from GET /persona-presets (main.py:3015 → db_prompt_studio.list_persona_presets:860). At runtime the persona reaches the LLM in every channel: voice via _system_instruction_from_bundle → build_voice_system_prompt (voice/bot.py:64-92 → voice/natural.py:127-179, traits become directions only when <35 or >65, language+fallbacks become a \"Speak X… fluent in Y\" line, and persona.language is substituted for {language}); WhatsApp and sandbox text via build_system_prompt (agent_core/prompt.py:143-152, numeric traits, but {language} there comes from the customer row / sandbox context, not the card). G15 derives the card's locales from persona.language+fallbackLanguages (db_prompt_studio.voice_locale_facts:983-1011 → compile.py:194-225); card.mouth.languages is read by nothing. The tab claims persona.language also binds speech recognition (PersonaSliders.tsx:223-227), but that binding (voice/tuning_apply.resolve_session_tuning:415-450) treats any stt.language in the tuning as explicit, and every tuning that reaches it has already been normalised to stt.language=\"en-IN\" (agent_core/tuning.py:302; db_prompt_studio.py:183,1620,2009; agent_core/deployment.py:70,110), so on real calls the recogniser never follows the Persona tab. \"Hear tone\" posts renderPersonaPreview text (English-only, prompt-studio-seed.ts:296-322) to POST /tts/preview with the Voice tab's prosody but without the model params VoicePanel sends and without any language.",
+ "endpoints": [
+  "GET /persona-presets → backend/main.py:3015 list_persona_presets → backend/db_prompt_studio.py:860 list_persona_presets (SELECT persona_presets WHERE tenant_id)",
+  "POST /tts/preview → backend/main.py:3089 tts_preview → provider_tts.synthesize (non-Azure) or azure_speech.synthesize (Azure); no db fn (cache inside azure_speech); lang never passed, build_ssml defaults xml:lang en-IN (backend/azure_speech.py:236)",
+  "POST /prompt-versions/estimate-tokens → backend/main.py:3295 estimate_prompt_tokens (persona.language substituted at 3341; build_voice_system_prompt/build_system_prompt with persona) — called from PromptEditor footer, not the Persona tab itself",
+  "POST /agent-studio/cards/{bot_id}/compile → backend/main.py:2194 → backend/db_prompt_studio.py:782 compile_agent_studio_card → voice_locale_facts:983 (persona → card_locales for G15) — runCompile passes the live persona (lazy.tsx:812)",
+  "PUT/POST /prompt-versions* (autosave/publish carry persona) → backend/db_prompt_studio.py:1670-1690 insert, 1730-1732 update, 1905-1906 publish gate reads target.persona — owned by the editor-shell slice, cited here only as the write path",
+  "Preset apply / Undo / confirm dialog / slider & language edits → no backend (local state until autosave)"
+ ],
+ "runtime_consumers": [
+  "persona.traits.* (5 sliders) → voice: voice/natural.py:95-124 persona_style_line (only <35 / >65 emit a direction; 35-65 emits nothing) via voice/bot.py:78-82; text (WhatsApp): agent_core/prompt.py:151-152 numeric 'Traits (0-100): empathy=..' via bot_runtime.py:512-517; sandbox text: agent_core/turn.py:70-79 → prompt.py:151; token estimate main.py:3348-3357",
+  "persona.language → voice {language} token: voice/bot.py:64-78 _persona_context → render_system_prompt; voice 'Speak X' line: voice/natural.py:127-146; text '- Language: X' line: agent_core/prompt.py:150 (WhatsApp {language} token instead comes from customers.language, bot_runtime.py:69,501; sandbox {language} from the simulated caller, agent_core/turn.py:56 + Habibi/src/api/sandbox.ts:121); G15 card_locales: db_prompt_studio.py:1004-1011; STT binding: voice/tuning_apply.py:418-450 — INTENDED consumer, but unreachable in production (see PERSONA-1); voicemail: voice/amd.py:91-103 reads persona.agentName/name/issuer/brand which PersonaState never carries → effectively NONE",
+  "persona.fallbackLanguages → voice 'You are fluent in ..' line: voice/natural.py:133-146; text '- Fallback languages:' line: agent_core/prompt.py:150; G15 card_locales: db_prompt_studio.py:1005-1011; STT fallback_languages (AgentTuning.stt.fallback_languages, bot.py:1670, _live_language bot.py:1594) → NONE (never derived from persona; tuning_apply.py:445-450 only re-fronts the primary tag)",
+  "card.mouth.languages (agent_core/cards/schema.py:99, default ['English','Hindi']; Habibi/src/api/agent-card.ts:139-141) → NONE (dead config: no backend reader, no UI editor; G15 uses persona instead)",
+  "persona (whole) → agent_core/deployment.py:65,84 / 108,122 bundle['persona']; voice/flows.py:118,157 persona param forwarded to build_tools (sandbox simulated-caller persona, not the card's); voice/bot.py:1470 attach_voicemail_handlers(persona=card persona) → amd.py voicemail_script (keys never match)",
+  "Preset chips → no card field; write prompt + persona.traits locally (lazy.tsx:775-777)",
+  "Hear tone → nothing stored; POST /tts/preview with voice.{voiceId,azureVoiceName,speed,pitch,warmth,pauseMs,style} and renderPersonaPreview(persona) text"
+ ],
+ "findings": [
+  {
+   "id": "PERSONA-1",
+   "title": "Persona language never binds the recogniser on a real call — every tuning reaching resolve_session_tuning is pre-normalised to stt.language='en-IN', which the function treats as an explicit override",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/voice/tuning_apply.py:415",
+    "backend/voice/tuning_apply.py:444",
+    "backend/agent_core/tuning.py:302",
+    "backend/agent_core/tuning.py:37-39",
+    "backend/agent_core/deployment.py:70",
+    "backend/agent_core/deployment.py:110",
+    "backend/db_prompt_studio.py:183",
+    "backend/db_prompt_studio.py:1620-1621",
+    "backend/db_prompt_studio.py:2009-2029",
+    "backend/voice/bot.py:81-85",
+    "backend/voice/bot.py:589-597",
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:223-227",
+    "backend/tests/test_language_is_one_setting.py:57,67"
+   ],
+   "mechanism": "resolve_session_tuning decides precedence by reading `explicit_lang = raw['stt']['language']` (tuning_apply.py:415) and only applies the persona tag when that is empty (:444). But `normalize_tuning` always writes `stt['language'] = str(stt.get('language') or 'en-IN')` (tuning.py:302) and default_tuning() already carries 'en-IN' (tuning.py:37-39). Every producer of the dict handed to resolve_session_tuning runs normalisation first: get_prompt_version (_map_prompt_version, db_prompt_studio.py:183), the draft insert seeds tuning from apply_voice_config_overlay(default_tuning()) (:1620-1621), publish persists normalize_tuning(...) into prompt_versions.tuning and deployments.tuning (:2009-2029), load_active_bundle/resolve_prompt_bundle normalise again (deployment.py:70,110), and the voice sandbox path normalises the version tuning (bot.py:85). So `raw` at bot.py:589 always has stt.language set, `explicit_lang` is never empty, and the persona tag is never applied; the log at tuning_apply.py:428-433 will report \"using tuning 'en-IN' over persona 'Hindi'\" on every Hindi card. The unit tests only call resolve_session_tuning({}, ...) — a shape no production path produces.",
+   "trigger": "Set Primary language = Hindi (or any non-English) on the Persona tab, publish, place or receive a call without having set stt.language in the Sandbox Tuning Studio and promoted it. The prompt says 'Speak Hindi' but AzureSTT is bound to en-IN; the tab's own hint ('Sets … what speech recognition listens for (hi-IN)') is false.",
+   "fix": "Make the precedence decision on the *stored* raw jsonb before normalisation (thread deployment/version tuning raw into resolve_session_tuning, or record an explicit `stt.language_source`/`explicit` marker when the Tuning Studio sets it) and add a test that feeds `normalize_tuning({})` / default_tuning() with persona_language='Hindi' and asserts stt.language == 'hi-IN'.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-2",
+   "title": "Vernacular fallback chips never reach AgentTuning.stt.fallback_languages, so the recogniser cannot switch to a language the prompt promises fluency in",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:228-246",
+    "backend/voice/natural.py:133-146",
+    "backend/voice/tuning_apply.py:445-450",
+    "backend/voice/bot.py:1594",
+    "backend/voice/bot.py:1670",
+    "backend/agent_core/tuning.py:303-308"
+   ],
+   "mechanism": "persona.fallbackLanguages is rendered into the system prompt as 'You are fluent in Tamil, Telugu' (natural.py:145) and into G15's card_locales, but the STT fallback list the mid-call `_live_language` switch is bounded by (bot.py:1594, 1670) comes solely from tuning.stt.fallback_languages, which normalisation fills with ['hi-IN','en-IN'] (tuning.py:303) and which resolve_session_tuning only re-orders (tuning_apply.py:449-450) — it never adds tags derived from persona.fallbackLanguages. The model is instructed to switch to Tamil; the recogniser is not allowed to.",
+   "trigger": "Tick Tamil as a vernacular fallback, publish, have a caller open in Tamil: the LLM is told to switch, `_live_language` refuses because ta-IN is not in stt.fallback_languages, and transcription stays en-IN/hi-IN.",
+   "fix": "In resolve_session_tuning, map persona.fallbackLanguages through languages.tag_for and union them into stt.fallback_languages (after the primary), and say so in the PersonaSliders hint; or drop the 'fluent in' clause when the tag is not in the recogniser list.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-3",
+   "title": "Persona tab renders a presets fetch failure (and an empty table) as silently 'no presets' — Prompt tab has an empty state, Persona tab has none",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:334",
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:159-177",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:392-397",
+    "Habibi/src/api/prompt-studio.ts:496-500"
+   ],
+   "mechanism": "`presets = presetsQuery.data ?? []` (lazy.tsx:334) collapses loading, error and empty into the same empty array; presetsQuery.isError/isPending are never read. PersonaSliders maps the array under a 'Presets' heading with no fallback (159-177), so a 500 from /persona-presets shows a heading with nothing under it. PromptEditor at least prints 'No presets configured…' (392-397) — but that copy is also wrong on an error, and the two tabs show different things for the same failure.",
+   "trigger": "Break /persona-presets (or run against a tenant with an empty persona_presets table) and open the Persona tab.",
+   "fix": "Read presetsQuery.isError/isPending in the route and pass a status to both panels; render 'Presets could not be loaded' vs 'No presets configured' distinctly, in both tabs.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-4",
+   "title": "'Hear tone' auditions a different voice configuration than the Voice tab's Preview: it omits the model params and any language, so non-Azure voices play with backend defaults and a Hindi persona is spoken in English",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:107-120",
+    "Habibi/src/components/prompt-studio/VoicePanel.tsx:438-450",
+    "Habibi/src/api/prompt-studio.ts:1105-1130",
+    "backend/main.py:3110-3122",
+    "backend/azure_speech.py:236",
+    "Habibi/src/data/prompt-studio-seed.ts:296-322"
+   ],
+   "mechanism": "PersonaSliders.hearPreview builds the previewTts body without `params` (110-120), so previewTts sends `params: {}` (prompt-studio.ts:1126); VoicePanel sends `params: modelParamsRef.current` (VoicePanel.tsx:448). main.py:3110 merges `{'speed': payload.speed, **params}` and provider_tts caches on params, so for a Fish/Cartesia/Deepgram voice the persona preview uses vendor defaults and a different cache key than the Voice tab — two 'preview' buttons, two voices. Separately, renderPersonaPreview is hardcoded English ('Namaste Rahul-ji…', ₹18,450) and the request carries no language, so Azure synthesises with xml:lang en-IN (build_ssml default, azure_speech.py:236) regardless of persona.language; the panel's caption says only that prosody comes from the Voice tab, so the language omission is undisclosed.",
+   "trigger": "Pick a Fish voice with temperature 0.3 on the Voice tab, set Primary language Hindi, press Hear tone on the Persona tab.",
+   "fix": "Pass `params: voice.params` (and `fresh`) from PersonaSliders exactly as VoicePanel does — ideally share one previewTts call-site helper — and either send languageTag(persona.language) to /tts/preview or state in the caption that the preview is English regardless of the language chosen.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-5",
+   "title": "card.mouth.languages is dead config: defaulted to ['English','Hindi'] on every card, never edited, never read — G15 and every runtime use persona.language instead",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:96-99",
+    "backend/agent_core/cards/schema.py:381",
+    "backend/db_prompt_studio.py:983-1011",
+    "backend/agent_core/cards/compile.py:194-225",
+    "Habibi/src/api/agent-card.ts:139-141"
+   ],
+   "mechanism": "CardMouthRef.languages (schema.py:99) is stamped into agent_card on every card, but no backend module reads `.mouth.languages` (the only `languages` readers in backend/*.py are provider_voice_sync.py:149,251,274, about vendor voices), the frontend declares the field (agent-card.ts:141) and never renders or edits it, and G15's 'card locales' are computed from prompt_versions.persona (voice_locale_facts, db_prompt_studio.py:1004-1011). Two 'what languages does this card speak' fields exist and can disagree with nothing reporting it; the Agent Card — the publish-time contract per CONTEXT.md — carries a language claim that is not the one the compiler checks.",
+   "trigger": "Set Primary language = Tamil with no fallbacks on the Persona tab; publish. agent_card.mouth.languages still says ['English','Hindi'] on the published row; anything (analytics, a future gate, an export) reading the card gets the wrong languages.",
+   "fix": "Either derive mouth.languages from persona at publish (write [language, *fallbackLanguages] into the card and make G15 read the card) or delete the field from the schema and the TS type.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-6",
+   "title": "Text channels put two languages in one system message: the '{language}' token follows the customer row / sandbox caller while the Persona block follows the card",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/bot_runtime.py:69",
+    "backend/bot_runtime.py:501",
+    "backend/bot_runtime.py:512-514",
+    "backend/agent_core/prompt.py:150",
+    "backend/agent_core/turn.py:56",
+    "Habibi/src/api/sandbox.ts:116-124",
+    "backend/voice/bot.py:64-78",
+    "backend/main.py:3341"
+   ],
+   "mechanism": "Voice (bot.py:64-78) and the token estimate (main.py:3341) substitute persona.language for {language}. bot_runtime substitutes customers.language (:69, :501 `conv.get('language') or 'English'`) and the sandbox substitutes the simulated caller's language (turn.py:56 from sandbox.ts:121), then both append '## Persona\\n- Language: <persona.language>' (prompt.py:150). A Hindi card talking to a customer whose row says English renders 'Speak in English.' followed by '- Language: Hindi'. The estimate-tokens footer, which claims to assemble 'the message the runtime actually sends' (PromptEditor.tsx:183), models the voice behaviour only.",
+   "trigger": "Publish a card with Primary language Hindi and a preset template containing 'Speak in {language}'; open a WhatsApp conversation for a customer whose customers.language is 'English' (or run a sandbox text turn with an English persona).",
+   "fix": "Decide one owner: either drop customer language into the delimited CRM card as a 'preferred language' hint and substitute persona.language for {language} on every channel (matching voice), or render the Persona block's language line from the same source the token used.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-7",
+   "title": "Voicemail script reads persona keys (agentName/name/issuer/brand) that PersonaState can never carry, so the voicemail identifies as the hardcoded 'Priya from HDFC Bank' while the live prompt uses AGENT_NAME/BANK_NAME",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/voice/amd.py:91-104",
+    "backend/voice/amd.py:42-43",
+    "backend/voice/bot.py:1468-1470",
+    "backend/schemas.py:2157-2162",
+    "backend/db_prompt_studio.py:71-95",
+    "backend/agent_core/prompt.py:9-16"
+   ],
+   "mechanism": "attach_voicemail_handlers is given the card persona (bot.py:1470) and voicemail_script looks up p['agentName'] / p['name'] / p['issuer'] / p['brand'] (amd.py:95-103). PersonaState is extra='forbid' with exactly traits/language/fallbackLanguages (schemas.py:2157-2162) and _prompt_persona whitelists to those keys (db_prompt_studio.py:87-95), and tuning has no 'persona' block (no match in agent_core/tuning.py), so every lookup misses and the message falls to _DEFAULT_AGENT_NAME='Priya' / _DEFAULT_ISSUER='HDFC Bank' (amd.py:42-43) or tenant_contacts().issuer. The live system prompt names the agent from AGENT_NAME (prompt.py:9-11). A tenant that renames the agent gets a call that says 'I am Kaia' and a voicemail that says 'this is Priya'.",
+   "trigger": "Set AGENT_NAME=Kaia (or BANK_NAME) in the voice container env; an outbound call hits voicemail.",
+   "fix": "Have voicemail_script take agent_name()/bank_name() from agent_core.prompt (the same source as the system prompt) and delete the dead persona key lookups, or add the fields to PersonaState and the Persona tab if per-card naming is wanted.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-8",
+   "title": "Persona sliders and the language select are unlabeled for assistive tech; fallback chips lack type='button'",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "a11y",
+   "files": [
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:181-201",
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:204-216",
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:233-244",
+    "Habibi/src/components/ui/slider.tsx:9-21"
+   ],
+   "mechanism": "Each trait's name is a <span> (184) next to a Radix Slider whose Thumb has no aria-label/aria-labelledby (slider.tsx:19), so five sliders announce as 'slider 82' with no name. 'Primary language' is a <div> (205-207), not a <label htmlFor>, for the <select> (208). The fallback chips are <button> without type='button' (233) — the preset chips in the same file were fixed for exactly this (164-167) — and their pressed state is colour-only (no aria-pressed).",
+   "trigger": "Tab through the Persona tab with a screen reader.",
+   "fix": "Pass aria-label={t.label} (or aria-labelledby to an id on the span) into Slider, wrap 'Primary language' in <label htmlFor>, and give the chips type='button' aria-pressed={on}.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-9",
+   "title": "Changing the primary language leaves the old primary (or the new one) inside fallbackLanguages, hidden by the chip filter but persisted and rendered on text channels",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:208-216",
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:230",
+    "backend/agent_core/prompt.py:150",
+    "backend/voice/natural.py:133-137",
+    "Habibi/src/data/prompt-studio-seed.ts:209-213"
+   ],
+   "mechanism": "update({language}) (210) does not touch fallbackLanguages, and the chip list filters `l !== value.language` (230), so with DEFAULT_PERSONA {language:'English', fallbackLanguages:['Hindi']} choosing Hindi as primary stores fallbackLanguages:['Hindi'] with no visible chip to remove it. Voice dedupes (natural.py:136), G15 dedupes (db_prompt_studio.py:1009), but build_system_prompt prints '- Language: Hindi\\n- Fallback languages: Hindi' (prompt.py:150) and the stored row is self-contradictory.",
+   "trigger": "Open a fresh card, change Primary language from English to Hindi, save.",
+   "fix": "In the select's onChange, also filter the new primary out of fallbackLanguages.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-10",
+   "title": "Server accepts any persona.language string and any trait integer; an unregistered language publishes with G15 silently skipping and the recogniser silently unchanged",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "backend/schemas.py:2147-2162",
+    "backend/db_prompt_studio.py:76-95",
+    "backend/db_prompt_studio.py:1004-1011",
+    "backend/agent_core/cards/compile.py:208-210",
+    "backend/voice/tuning_apply.py:418-427",
+    "backend/voice/natural.py:117-121"
+   ],
+   "mechanism": "PersonaTraits are unbounded ints and PersonaState.language is a bare str (schemas.py:2147-2162); _prompt_persona coerces but does not clamp or check the registry (db_prompt_studio.py:76-95). A language outside agent_core.languages yields no tag, so voice_locale_facts returns [] and G15 reports 'skipped — no voice or no card language' rather than a warning (compile.py:209-210); at call time tuning_apply only logs a warning (:419-427). Traits of 500 or -20 pass straight into persona_style_line's cut-points. The UI cannot author these values (select bound to LANGUAGES, sliders 0-100), so the trigger is API/legacy-row only.",
+   "trigger": "PUT /prompt-versions/{id} with persona.language='Hinglish' or traits.empathy=500; publish succeeds with a green/skipped G15.",
+   "fix": "Constrain PersonaTraits with Field(ge=0, le=100) and validate language against languages.names() (or make G15 'warn' when the primary language has no tag instead of 'skipped').",
+   "prior_ref": ""
+  },
+  {
+   "id": "PERSONA-11",
+   "title": "No frontend test covers PersonaSliders and the backend STT-binding test only exercises a raw dict that production never produces",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "backend/tests/test_language_is_one_setting.py:56-69",
+    "backend/tests/test_voice_persona_reaches_the_call.py:37-97",
+    "Habibi/src/components/prompt-studio/PersonaSliders.tsx:1"
+   ],
+   "mechanism": "test_the_persona_language_binds_the_recogniser calls resolve_session_tuning({}, persona_language='Tamil') — an empty tuning, whereas every caller passes a normalised dict (see PERSONA-1); no test asserts the binding through load_active_bundle/deployment tuning. test_voice_persona_reaches_the_call covers prompt text only. Glob **/*Persona*.test.tsx finds nothing, so preset confirm/undo, the language hint and Hear tone have no component test.",
+   "trigger": "n/a (coverage).",
+   "fix": "Add a test feeding default_tuning() (and a publish-shaped tuning) with persona_language and asserting stt.language; add a PersonaSliders test for preset → confirm → Undo and the presets error state.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "2a.9 (prior) is FIXED: blob URL is now revoked on `audio.onended` and on error as well as Stop/unmount (PersonaSliders.tsx:133-140, 71-85, 94).",
+  "Preset apply pipeline is shared by both tabs: PersonaSliders receives onApplyPreset=applyPreset (lazy.tsx:1447) and PromptEditor the same (1429); applyPreset asks first only when authored text would be lost (829-845); commitPreset writes prompt AND traits and its Undo restores both (765-790); the AlertDialog names the preset via presetShown ref so the closing frame is not blank (212-213, 1621).",
+  "Preset label badge is derived (prompt text AND traits must match a preset) rather than stored (lazy.tsx:587-594).",
+  "Persona traits reach the voice loop as words, not numbers, only at the ends of the scale (natural.py:66-124), and the voice builder degrades on None/{}/'not a dict' persona (natural.py:110-113, 131-133) — covered by test_voice_persona_reaches_the_call.py:77-83.",
+  "Voice {language} token follows persona.language via _persona_context, with default_context as fallback (voice/bot.py:64-78, prompt.py:22, 47).",
+  "G15 inputs are computed in one place for compile preview and publish (voice_locale_facts, db_prompt_studio.py:983-1011; callers :822-825 and :1905-1906), the compile endpoint accepts the editor's unsaved persona (main.py:2210) and runCompile sends it (lazy.tsx:812); frontend cardLocales (lazy.tsx:602-611) uses the same [primary, *fallbacks] → tag mapping.",
+  "Language registry is single-sourced: LANGUAGE_ENTRIES (prompt-studio-seed.ts:108-117) mirrors agent_core/languages.py:37-46 and test_language_registry_drift.py:38-58 asserts the name/tag pairs and that each tag binds a distinct pipecat Language; normalize_language builds its map from the registry (tuning_apply.py:40-70).",
+  "Hear tone guards: refuses with a toast when no voice is chosen (PersonaSliders.tsx:101-104), generation counter discards stale responses (105, 121, 142-148), onerror resets the button (137-140), and the button toggles Stop while loading/playing (259-261).",
+  "Fallback chip toggle keeps the array immutable and de-duplicated per click (PersonaSliders.tsx:62-69).",
+  "_prompt_persona never returns a partial shape: missing/invalid traits fall to _DEFAULT_PERSONA (db_prompt_studio.py:71-95), and the studio hydrates with `?? DEFAULT_PERSONA` on every load path (lazy.tsx:395, 501, 856, 902, 1148).",
+  "list_persona_presets orders the four seeded ids first and coerces traits with 50/20 defaults (db_prompt_studio.py:860-906); response_model PersonaPresetResponse is extra='forbid' and matches the TS PersonaPreset type (schemas.py:2240-2249; api/types/prompt-studio.ts:87-93).",
+  "Preset templates are CRM-token-free and identical across sql/, seed_postgres.py and the latest migration (test_persona_preset_templates.py), so applying a preset cannot inject a line strip_unrendered_crm_tokens would delete.",
+  "estimate-tokens assembles the voice message with the same builders the runtime uses, including persona (main.py:3339-3357), and the client debounces on a serialised key so fresh persona object literals do not restart the timer (api/prompt-studio.ts:573-580).",
+  "Sandbox text and voice sandbox both load persona from the version row (sandbox_runtime.py:718, 815; deployment.py:108-122) — the Studio's 'test in sandbox' exercises the same persona publish would ship.",
+  "agent_core/cards/templates.py does not touch persona at all (clone recipes rewrite identity/tools/handoffs/skills only, :133-171), so cloning a card inherits the source's persona via the version copy, not via the template."
+ ]
+}

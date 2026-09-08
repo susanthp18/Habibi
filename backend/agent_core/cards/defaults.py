@@ -68,6 +68,14 @@ _COLLECTIONS_TOOLS = [
     "search_knowledge_base",
     "recommend_next_offer",
     "request_documents",
+    # The other half of request_documents, and the reason that tool has ever
+    # been useful: the borrower sends a receipt or a KYC photo back, and the
+    # agent that asked for it files it. TEXT_ONLY, so `_apply_channel` drops it
+    # on a voice turn — the spec's own words are "never on a live voice turn".
+    # It sat in the catalog on no card's include list and in no pack, so the
+    # only way to file a customer-sent document was the operator-facing route
+    # in main.py.
+    "ingest_customer_document",
     "add_customer_note",
     # Why the borrower has not paid, as a code. On the collections card only:
     # an intake or insurance agent asking a servicing caller why they are behind

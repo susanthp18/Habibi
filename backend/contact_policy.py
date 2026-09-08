@@ -6,7 +6,9 @@ raises — "no contact" is always valid, same as reco's ``recommend()``.
 Purposes
 --------
 ``statutory``  PTP confirm / payment receipt. Channel opt-out still binds.
-               Hours, DND, cap, cooling-off do not block. Still *counts*.
+               Hours, DND, window, endpoint, consent overlay, and suppression
+               bind; the send is deferred to the next lawful instant. Cap and
+               fatigue stay exempt. Still *counts*.
 ``in_session`` Reply on a customer-initiated thread / live inbound call.
                Channel opt-out binds. Cap does not block or count.
 ``outreach``   Outbound dial, due reminder, doc chase, agent-initiated thread.
@@ -21,11 +23,12 @@ concurrent dials cannot both take slot 3. Session coalescing: one
 from __future__ import annotations
 
 import logging
+import json
 import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
@@ -55,6 +58,12 @@ REASON_WEEKLY = "weekly_cap"
 #: to sell something is a different purpose and needs its own consent basis.
 #: Absence of that basis is a refusal, not a fallback to the servicing one.
 REASON_NO_PROMO_CONSENT = "no_promotional_consent"
+REASON_SUPPRESSED = "suppressed"
+REASON_ENDPOINT = "endpoint_unverified"
+REASON_CONSENT_OVERLAY = "consent_withdrawn"
+REASON_EXPIRED_CONSENT = "consent_expired"
+REASON_NO_ENDPOINT = "endpoint_missing"
+REASON_WINDOW_DEFERRED_STATUTORY = "window_deferred_statutory"
 
 #: The DPDP purposes a contact can be made for. Deliberately a different axis
 #: from :data:`PURPOSES` — that one is *why we may contact now* (outreach vs a
@@ -73,7 +82,12 @@ DEFAULT_TZ = "Asia/Kolkata"
 _DAY_NAME_TO_NUM = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
 
 
-def _rules_for(conn: Any, customer: dict[str, Any] | None, at: datetime) -> Any:
+def _rules_for(
+    conn: Any,
+    customer: dict[str, Any] | None,
+    at: datetime,
+    product_id: str | None = None,
+) -> Any:
     """Resolve the rule set in force at ``at`` for this customer's tenant.
 
     Resolution needs a tenant, and the tenant comes off the customer row — so
@@ -85,7 +99,12 @@ def _rules_for(conn: Any, customer: dict[str, Any] | None, at: datetime) -> Any:
 
     if customer is None:
         return policy_rules.EMPTY
-    return policy_rules.resolve(conn, tenant_id=customer.get("tenant_id"), at=at)
+    return policy_rules.resolve(
+        conn,
+        tenant_id=customer.get("tenant_id"),
+        at=at,
+        product_id=product_id or customer.get("product_id"),
+    )
 
 
 def daily_cap(rules: Any | None = None) -> int:
@@ -128,9 +147,11 @@ class Decision:
     today_count: int = 0
     daily_cap: int = 3
     coalesced: bool = False
+    policy_binding: tuple[dict[str, Any], ...] = ()
+    policy_binding_hash: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "allowed": self.allowed,
             "reason": self.reason,
             "touchCounted": self.touch_counted,
@@ -138,6 +159,19 @@ class Decision:
             "dailyCap": self.daily_cap,
             "coalesced": self.coalesced,
         }
+        if self.policy_binding_hash:
+            payload["policyBindingHash"] = self.policy_binding_hash
+            payload["policyBinding"] = list(self.policy_binding)
+        return payload
+
+
+def chosen_phone(customer: Mapping[str, Any] | None, *, slot: str | None = None) -> str | None:
+    """The named endpoint. Never falls through from primary to alt."""
+    if not customer:
+        return None
+    if slot == "alt":
+        return str(customer.get("phone_alt") or "").strip() or None
+    return str(customer.get("phone_primary") or "").strip() or None
 
 
 def normalize_channel(raw: str | None) -> str:
@@ -299,6 +333,176 @@ def _load_customer(conn: Any, customer_id: str) -> dict[str, Any] | None:
         {"id": customer_id},
     ).mappings().first()
     return dict(row) if row else None
+
+
+def _endpoint_enforcement_enabled() -> bool:
+    from env_utils import env_bool
+
+    return env_bool("ENDPOINT_ENFORCEMENT", False)
+
+
+def _active_hold_kind(conn: Any, customer_id: str) -> str | None:
+    try:
+        row = conn.execute(
+            text(
+                """
+                SELECT kind FROM treatment_holds
+                WHERE customer_id = :cid
+                  AND released_at IS NULL
+                  AND starts_at <= now()
+                  AND (expires_at IS NULL OR expires_at > now())
+                ORDER BY starts_at DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": customer_id},
+        ).mappings().first()
+    except Exception:
+        logger.exception("treatment hold lookup failed customer=%s", customer_id)
+        return "unreadable"
+    if not row:
+        return None
+    return str(row["kind"])
+
+
+def _consent_overlay_blocks(
+    conn: Any,
+    *,
+    customer_id: str,
+    channel: str,
+    endpoint: str | None,
+    data_purpose: str,
+) -> bool:
+    from agent_core.treatment import schema_ready
+
+    if not schema_ready.has_table(conn, "consent_events"):
+        return False
+    row = conn.execute(
+        text(
+            """
+            SELECT verb FROM consent_events
+            WHERE customer_id = :cid
+              AND (channel = :ch OR channel = 'all')
+              AND (purpose = :purpose OR purpose = 'all')
+              AND (endpoint IS NULL OR :endpoint IS NULL OR endpoint = :endpoint)
+            ORDER BY captured_at DESC
+            LIMIT 1
+            """
+        ),
+        {
+            "cid": customer_id,
+            "ch": channel,
+            "purpose": data_purpose,
+            "endpoint": endpoint,
+        },
+    ).mappings().first()
+    if not row:
+        return False
+    return str(row["verb"]) in {"withdraw", "restrict", "expire", "opt_out"}
+
+
+def _endpoint_state(
+    conn: Any, *, tenant_id: str, endpoint: str | None, channel: str
+) -> str | None:
+    from agent_core.treatment import schema_ready
+
+    if not endpoint or not schema_ready.has_table(conn, "endpoint_ownership"):
+        return None
+    row = conn.execute(
+        text(
+            """
+            SELECT state FROM endpoint_ownership
+            WHERE tenant_id = :tid AND endpoint = :ep AND channel = :ch
+            """
+        ),
+        {"tid": tenant_id, "ep": endpoint, "ch": channel},
+    ).mappings().first()
+    return str(row["state"]) if row else None
+
+
+def _veto_extras(
+    conn: Any,
+    *,
+    customer: dict[str, Any] | None,
+    customer_id: str,
+    channel: str,
+    endpoint: str | None,
+    data_purpose: str,
+    instant: datetime,
+    purpose: str,
+) -> dict[str, Any]:
+    if conn is None:
+        return {
+            "hold_kind": None,
+            "overlay_blocked": False,
+            "consent_expired": False,
+            "endpoint_state": None,
+            "enforce_endpoint": False,
+        }
+    hold_kind = None
+    overlay = False
+    expired = False
+    if customer and purpose != "in_session":
+        hold_kind = _active_hold_kind(conn, customer_id)
+    if customer:
+        overlay = _consent_overlay_blocks(
+            conn,
+            customer_id=customer_id,
+            channel=channel,
+            endpoint=endpoint,
+            data_purpose=data_purpose,
+        )
+        expires = customer.get("expires_at")
+        if expires is not None:
+            expired = _aware(expires) <= instant
+    ep_state = (
+        _endpoint_state(
+            conn,
+            tenant_id=str(customer.get("tenant_id") or ""),
+            endpoint=endpoint,
+            channel=channel,
+        )
+        if customer
+        else None
+    )
+    return {
+        "hold_kind": hold_kind,
+        "overlay_blocked": overlay,
+        "consent_expired": expired,
+        "endpoint_state": ep_state,
+        "enforce_endpoint": _endpoint_enforcement_enabled() and bool(endpoint),
+    }
+
+
+def _fired_ids(rules: Any, reason: str | None) -> list[str]:
+    if not reason or rules is None:
+        return []
+    kind_map = {
+        REASON_HOURS: "calling_window",
+        REASON_WINDOW_DEFERRED_STATUTORY: "calling_window",
+        REASON_DAILY: "daily_cap",
+        REASON_WEEKLY: "weekly_cap",
+        REASON_COOLING: "cooling_off",
+        REASON_SUPPRESSED: "suppression_state",
+        REASON_CUSTOMER_DND: "channel_scrub",
+    }
+    kind = kind_map.get(reason)
+    if not kind:
+        return []
+    return [item.rule_id for item in getattr(rules, "consulted", ()) if item.kind == kind]
+
+
+def _binding_for(
+    rules: Any, *, fired: list[str], at: datetime
+) -> tuple[tuple[dict[str, Any], ...], str | None]:
+    try:
+        import policy_binding
+
+        bindings, digest = policy_binding.pair(rules, fired_rule_ids=fired, evaluated_at=at)
+        return tuple(bindings), digest
+    except Exception:
+        logger.exception("policy binding failed")
+        return (), None
 
 
 def _channel_status(conn: Any, customer_id: str, channel: str) -> str | None:
@@ -467,62 +671,67 @@ def _veto(
     rules: Any | None = None,
     data_purpose: str = "servicing",
     promo_status: str | None = None,
+    hold_kind: str | None = None,
+    overlay_blocked: bool = False,
+    consent_expired: bool = False,
+    endpoint_state: str | None = None,
+    enforce_endpoint: bool = False,
 ) -> str | None:
     if customer is None:
         return REASON_NO_CUSTOMER if purpose == "outreach" else None
+
+    if hold_kind:
+        return REASON_SUPPRESSED
+
+    if overlay_blocked:
+        return REASON_CONSENT_OVERLAY
+
+    if consent_expired and purpose != "in_session":
+        return REASON_EXPIRED_CONSENT
 
     if status in BLOCKING_CONSENT:
         return _consent_reason(status)
 
     if data_purpose == "promotional" and promo_status != "opted_in":
-        # Checked before the in_session shortcut below on purpose. "They are
-        # already on the line" is a reason the timing is acceptable; it is not a
-        # consent basis for using their contact data to market to them, and the
-        # two are separate questions that a single early return would merge.
         return REASON_NO_PROMO_CONSENT
 
     if purpose == "in_session":
         return None
 
-    if purpose == "outreach" and (customer.get("dnd") or customer.get("dnd_registry")):
+    if enforce_endpoint and endpoint_state in {None, "unverified", "revoked"}:
+        return REASON_ENDPOINT
+
+    if rules is not None:
+        _ = rules.required_certifications()
+        _ = rules.channel_scrub_lists()
+        _ = rules.notice_obeys_window()
+
+    if customer.get("dnd") or customer.get("dnd_registry"):
         return REASON_CUSTOMER_DND
 
-    if purpose == "outreach":
-        # A published window applies to whatever channel it names. Absent one,
-        # only voice is bounded — which is the rule this module shipped with and
-        # the behaviour every existing caller depends on.
-        window = rules.calling_window(channel) if rules is not None else None
-        if window is None and channel == "voice":
-            window = (RBI_VOICE_START, RBI_VOICE_END)
-        if window is not None:
-            start_h, end_h = window
-            if now_local.hour < start_h or now_local.hour >= end_h:
-                return REASON_HOURS
+    # Published window, else the conservative 08:00–19:00 platform bound.
+    # Messages use that bound until counsel cites a distinct instrument.
+    window = rules.calling_window(channel) if rules is not None else None
+    if window is None:
+        window = (RBI_VOICE_START, RBI_VOICE_END)
+    start_h, end_h = window
+    if now_local.hour < start_h or now_local.hour >= end_h:
+        if purpose == "statutory":
+            return REASON_WINDOW_DEFERRED_STATUTORY
+        return REASON_HOURS
 
-    if purpose == "outreach":
-        # A borrower with neither `allowed_hours` nor `customers.preferred_window`
-        # on file used to get no hour check at all here: `_preferred_hours`
-        # returns None for "nothing recorded", and None read as "skip". On voice
-        # the statutory window above still bounded them; on WhatsApp, SMS and
-        # email nothing did, and they were contactable at any hour.
-        #
-        # `contact_window.window_hours` has always answered this same question
-        # the other way, in as many words — "an unparseable window is not a
-        # licence to call at 03:00: it falls back to the default bounds rather
-        # than to 'no restriction'." Absence is the same case as unparseable.
-        # This is that answer, not a new rule, and it is deliberately the
-        # borrower-preference default (09:00-20:00) rather than the statutory
-        # voice window: they are different rules and merging them would be worse
-        # than either gap.
-        hours = _preferred_hours(customer) or contact_window.window_hours(None)
-        days = _parse_days(customer.get("allowed_days"))
-        start_h, end_h = hours
-        if now_local.hour < start_h or now_local.hour >= end_h:
+    hours = _preferred_hours(customer) or contact_window.window_hours(None)
+    days = _parse_days(customer.get("allowed_days"))
+    start_h, end_h = hours
+    if now_local.hour < start_h or now_local.hour >= end_h:
+        if purpose == "statutory":
+            return REASON_WINDOW_DEFERRED_STATUTORY
+        return REASON_WINDOW
+    if days is not None:
+        if (now_local.isoweekday() % 7) not in days:
+            if purpose == "statutory":
+                return REASON_WINDOW_DEFERRED_STATUTORY
             return REASON_WINDOW
-        if days is not None:
-            # Consent days: 0=Sun … 6=Sat. isoweekday()%7 matches that.
-            if (now_local.isoweekday() % 7) not in days:
-                return REASON_WINDOW
     return None
 
 
@@ -535,6 +744,8 @@ def evaluate(
     session_key: str | None = None,
     now: datetime | None = None,
     data_purpose: str = "servicing",
+    endpoint: str | None = None,
+    product_id: str | None = None,
 ) -> Decision:
     """Dry-run. No writes. Used by the UI and later as a P3 veto."""
     cap = daily_cap()
@@ -552,12 +763,19 @@ def evaluate(
         instant = _aware(now or datetime.now(timezone.utc))
         tz = _zone((customer or {}).get("timezone"))
         local = instant.astimezone(tz)
-        # Resolved at the instant being asked about, not at "now": this function
-        # is also the scheduling gate, and a slot next January must be judged
-        # against the rules that will be in force then.
-        rules = _rules_for(conn, customer, instant)
+        rules = _rules_for(conn, customer, instant, product_id=product_id)
         cap = daily_cap(rules)
         status = _channel_status(conn, cid, channel) if customer else None
+        extras = _veto_extras(
+            conn,
+            customer=customer,
+            customer_id=cid,
+            channel=channel,
+            endpoint=endpoint,
+            data_purpose=data_purpose,
+            instant=instant,
+            purpose=purpose,
+        )
         reason = _veto(
             purpose=purpose,
             channel=channel,
@@ -571,24 +789,67 @@ def evaluate(
                 if customer and data_purpose == "promotional"
                 else None
             ),
+            **extras,
         )
+        binding, digest = _binding_for(rules, fired=_fired_ids(rules, reason), at=instant)
         today = _today_count(conn, cid, local.date()) if customer else 0
         if reason:
-            return Decision(False, reason, today_count=today, daily_cap=cap)
+            return Decision(
+                False,
+                reason,
+                today_count=today,
+                daily_cap=cap,
+                policy_binding=binding,
+                policy_binding_hash=digest,
+            )
         coalesced = _session_coalesced(conn, customer_id=cid, session_key=session_key, now=instant)
         if coalesced or purpose == "in_session":
-            return Decision(True, today_count=today, daily_cap=cap, coalesced=coalesced)
+            return Decision(
+                True,
+                today_count=today,
+                daily_cap=cap,
+                coalesced=coalesced,
+                policy_binding=binding,
+                policy_binding_hash=digest,
+            )
         if purpose == "outreach":
             last = _last_counted_at(conn, cid)
             cool = cooling_off(rules)
             if cool.total_seconds() > 0 and last is not None and instant - last < cool:
-                return Decision(False, REASON_COOLING, today_count=today, daily_cap=cap)
+                return Decision(
+                    False,
+                    REASON_COOLING,
+                    today_count=today,
+                    daily_cap=cap,
+                    policy_binding=binding,
+                    policy_binding_hash=digest,
+                )
             if today >= cap:
-                return Decision(False, REASON_DAILY, today_count=today, daily_cap=cap)
+                return Decision(
+                    False,
+                    REASON_DAILY,
+                    today_count=today,
+                    daily_cap=cap,
+                    policy_binding=binding,
+                    policy_binding_hash=digest,
+                )
             week_n = _week_counted(conn, cid, channel, now=instant, tz=tz)
             if week_n >= _weekly_cap_for(conn, cid, channel, rules):
-                return Decision(False, REASON_WEEKLY, today_count=today, daily_cap=cap)
-        return Decision(True, today_count=today, daily_cap=cap)
+                return Decision(
+                    False,
+                    REASON_WEEKLY,
+                    today_count=today,
+                    daily_cap=cap,
+                    policy_binding=binding,
+                    policy_binding_hash=digest,
+                )
+        return Decision(
+            True,
+            today_count=today,
+            daily_cap=cap,
+            policy_binding=binding,
+            policy_binding_hash=digest,
+        )
     except Exception:
         logger.exception("contact_policy.evaluate failed customer=%s", cid)
         return Decision(False, REASON_UNREADABLE, daily_cap=cap)
@@ -609,6 +870,12 @@ SCHEDULING_VETOES = frozenset(
         REASON_CUSTOMER_DND,
         REASON_HOURS,
         REASON_WINDOW,
+        REASON_WINDOW_DEFERRED_STATUTORY,
+        REASON_SUPPRESSED,
+        REASON_ENDPOINT,
+        REASON_CONSENT_OVERLAY,
+        REASON_EXPIRED_CONSENT,
+        REASON_NO_ENDPOINT,
     }
 )
 
@@ -772,38 +1039,52 @@ def _insert_event(
     touch_counted: bool,
     account_id: str | None,
     occurred_at: datetime,
+    policy_binding: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    policy_binding_hash: str | None = None,
 ) -> None:
+    extra_cols = ""
+    extra_vals = ""
+    params: dict[str, Any] = {
+        "id": _event_id(),
+        "tenant_id": customer["tenant_id"],
+        "customer_id": customer["id"],
+        "account_id": account_id,
+        "channel": channel,
+        "purpose": purpose,
+        "actor_kind": actor_kind if actor_kind in ACTORS else "system",
+        "actor_user_id": actor_user_id,
+        "outcome": outcome,
+        "reason": reason,
+        "session_key": session_key,
+        "source": source,
+        "related_id": related_id,
+        "touch_counted": touch_counted,
+        "occurred_at": occurred_at,
+    }
+    from agent_core.treatment import schema_ready
+
+    if schema_ready.has_column(conn, "contact_events", "policy_binding"):
+        extra_cols = ", policy_binding, policy_binding_hash"
+        extra_vals = ", CAST(:policy_binding AS jsonb), :policy_binding_hash"
+        params["policy_binding"] = json.dumps(list(policy_binding))
+        params["policy_binding_hash"] = policy_binding_hash
     conn.execute(
         text(
-            """
+            f"""
             INSERT INTO contact_events (
               id, tenant_id, customer_id, account_id, channel, direction,
               purpose, actor_kind, actor_user_id, outcome, reason,
               session_key, source, related_id, touch_counted, occurred_at
+              {extra_cols}
             ) VALUES (
               :id, :tenant_id, :customer_id, :account_id, :channel, 'outbound',
               :purpose, :actor_kind, :actor_user_id, :outcome, :reason,
               :session_key, :source, :related_id, :touch_counted, :occurred_at
+              {extra_vals}
             )
             """
         ),
-        {
-            "id": _event_id(),
-            "tenant_id": customer["tenant_id"],
-            "customer_id": customer["id"],
-            "account_id": account_id,
-            "channel": channel,
-            "purpose": purpose,
-            "actor_kind": actor_kind if actor_kind in ACTORS else "system",
-            "actor_user_id": actor_user_id,
-            "outcome": outcome,
-            "reason": reason,
-            "session_key": session_key,
-            "source": source,
-            "related_id": related_id,
-            "touch_counted": touch_counted,
-            "occurred_at": occurred_at,
-        },
+        params,
     )
 
 
@@ -892,6 +1173,8 @@ def admit(
     account_id: str | None = None,
     now: datetime | None = None,
     data_purpose: str = "servicing",
+    endpoint: str | None = None,
+    product_id: str | None = None,
 ) -> Decision:
     """Evaluate, reserve, log. Never raises."""
     cap = daily_cap()
@@ -915,9 +1198,19 @@ def admit(
 
         tz = _zone(customer.get("timezone"))
         local = instant.astimezone(tz)
-        rules = _rules_for(conn, customer, instant)
+        rules = _rules_for(conn, customer, instant, product_id=product_id)
         cap = daily_cap(rules)
         status = _channel_status(conn, cid, channel)
+        extras = _veto_extras(
+            conn,
+            customer=customer,
+            customer_id=cid,
+            channel=channel,
+            endpoint=endpoint,
+            data_purpose=data_purpose,
+            instant=instant,
+            purpose=purpose,
+        )
         reason = _veto(
             purpose=purpose,
             channel=channel,
@@ -931,7 +1224,9 @@ def admit(
                 if data_purpose == "promotional"
                 else None
             ),
+            **extras,
         )
+        binding, digest = _binding_for(rules, fired=_fired_ids(rules, reason), at=instant)
         today = _today_count(conn, cid, local.date())
 
         def _deny(why: str, count: int = today) -> Decision:
@@ -950,8 +1245,17 @@ def admit(
                 touch_counted=False,
                 account_id=account_id,
                 occurred_at=instant,
+                policy_binding=binding,
+                policy_binding_hash=digest,
             )
-            return Decision(False, why, today_count=count, daily_cap=cap)
+            return Decision(
+                False,
+                why,
+                today_count=count,
+                daily_cap=cap,
+                policy_binding=binding,
+                policy_binding_hash=digest,
+            )
 
         if reason:
             return _deny(reason)
@@ -995,6 +1299,8 @@ def admit(
             touch_counted=bool(counts),
             account_id=account_id,
             occurred_at=instant,
+            policy_binding=binding,
+            policy_binding_hash=digest,
         )
         if counts:
             nested = conn.begin_nested()
@@ -1010,6 +1316,8 @@ def admit(
             today_count=today,
             daily_cap=cap,
             coalesced=coalesced,
+            policy_binding=binding,
+            policy_binding_hash=digest,
         )
     except Exception:
         logger.exception("contact_policy.admit failed customer=%s", cid)

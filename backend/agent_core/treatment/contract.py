@@ -32,7 +32,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agent_core import logging_contract
 from agent_core.treatment import actions as A
+from bank_boundary import ACTION_CONTRACT_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,18 @@ ALWAYS_PROHIBITED: tuple[str, ...] = (
     "pressure_language",
     "threat_of_legal_action",
     "calling_outside_permitted_hours",
+    "cross_sell",
+    "promotional_content",
 )
+
+REQUIRED_ASSERTIONS: tuple[str, ...] = (
+    "identify_lender",
+    "state_automated",
+    "offer_human_handoff",
+    "grievance_officer_contact",
+)
+
+RETENTION_CLASS = "collections_operational"
 
 
 def build(
@@ -102,25 +115,66 @@ def build(
     bucket = getattr(features, "bucket", None) or A.B_0_30
     action = result.action
     spec = A.spec(action) if action in A.SPECS else None
+    arm_p = getattr(result, "arm_propensity", None)
+    action_p = getattr(result, "action_propensity", None)
+    if arm_p is None:
+        arm_p = propensity
+    if action_p is None:
+        action_p = 1.0 if propensity is not None else None
+    ev_paise = int(round(float(result.expected_value or 0) * 100))
+    endpoint = None
+    if features is not None:
+        endpoint = getattr(features, "phone_primary", None) or getattr(
+            features, "endpoint", None
+        )
+    tenant_id = getattr(features, "tenant_id", None) or getattr(result, "tenant_id", None)
+    portfolio_id = getattr(features, "portfolio_id", None) or ""
+    binding_hash = getattr(result, "policy_binding_hash", None)
+    image = getattr(result, "engine_image_digest", None) or logging_contract.engine_image_digest()
+    config_ver = getattr(result, "config_version", None) or logging_contract.config_version()
 
     contract: dict[str, Any] = {
-        "decisionId": result.decision_id,
-        "policyVersion": policy_version,
+        "version": ACTION_CONTRACT_VERSION,
+        "decision_id": result.decision_id,
+        "tenant_id": tenant_id,
+        "portfolio_id": portfolio_id,
+        "policy_binding": list(getattr(result, "policy_binding", None) or []),
+        "policy_binding_hash": binding_hash,
+        "engine_image_digest": image,
+        "config_version": config_ver,
+        "veto_stack_version": logging_contract.VETO_STACK_VERSION,
+        "arm_propensity": arm_p,
+        "action_propensity": action_p,
         "propensity": propensity,
         "action": action,
         "channel": result.channel,
-        "scheduledAt": result.at.isoformat() if result.at else None,
-        "expectedValueInr": round(result.expected_value, 2),
+        "endpoint": endpoint,
+        "scheduled_at": result.at.isoformat() if result.at else None,
+        "expected_value_paise": ev_paise,
+        "ev_lcb_paise": ev_paise,
+        "expected_value_inr": round(result.expected_value, 2),
         "variant": result.variant,
         "objective": OBJECTIVE_BY_BUCKET.get(bucket, "payment_commitment"),
         "strategy": STRATEGY_BY_BUCKET.get(bucket, "soft_reminder"),
+        "prohibitions": list(_prohibited(features)),
+        "required_assertions": list(REQUIRED_ASSERTIONS),
+        "retention_class": RETENTION_CLASS,
+        "policy_version": policy_version,
+        # Collections contracts never carry promotional offers.
+        "allowed_offers": [],
+        # CamelCase aliases for the existing operator payload.
+        "decisionId": result.decision_id,
+        "policyVersion": policy_version,
+        "scheduledAt": result.at.isoformat() if result.at else None,
+        "expectedValueInr": round(result.expected_value, 2),
         "prohibited": list(_prohibited(features)),
     }
 
     if spec is not None and spec.channel == "voice":
         contract["maxDurationSec"] = MAX_DURATION_BY_BUCKET.get(bucket, 180)
+        contract["max_duration_sec"] = contract["maxDurationSec"]
 
-    contract["allowedOffers"] = list(_allowed_offers(features))
+    contract["allowedOffers"] = list(contract["allowed_offers"])
 
     waiver = _waiver_ceiling(conn, result, features)
     if waiver is not None:
@@ -137,6 +191,101 @@ def build(
         # answer instead of being silently baked into it.
         contract["waiverRequiresIdentityCheck"] = True
     return contract
+
+
+def require_for_enactment(
+    conn: Any, decision: dict[str, Any], customer: dict[str, Any]
+) -> dict[str, Any]:
+    """Load or persist the send-time snapshot after a freshness re-check.
+
+    Handlers must consume this object. They may not reconstruct authorisation
+    from loose decision fields.
+    """
+    from bank_boundary import freshness, snapshots
+    from bank_boundary import schema_ready as w5_schema
+    from bank_boundary.snapshots import ContractError
+
+    decision_id = str(decision.get("id") or "")
+    if not decision_id:
+        raise ContractError("missing")
+    tenant_id = str(customer.get("tenant_id") or decision.get("tenant_id") or "")
+    action = str(decision.get("chosen_action") or "")
+    channel = decision.get("chosen_channel")
+    if w5_schema.w5_ready(conn):
+        ready = freshness.resolve(
+            conn,
+            tenant_id=tenant_id,
+            action=action,
+            channel=channel,
+            endpoint=customer.get("phone_primary"),
+            customer_id=customer.get("id"),
+        )
+        if ready.veto:
+            raise ContractError(f"stale:{ready.veto}")
+
+    try:
+        existing = snapshots.load(conn, decision_id)
+        expected = {
+            "decision_id": decision_id,
+            "tenant_id": tenant_id,
+            "action": action,
+            "channel": channel,
+            "policy_binding_hash": decision.get("policy_binding_hash"),
+            "veto_stack_version": logging_contract.VETO_STACK_VERSION,
+        }
+        if any(existing.get(key) != value for key, value in expected.items()):
+            raise ContractError("stale")
+        return existing
+    except ContractError as exc:
+        if str(exc) != "missing":
+            raise
+
+    payload = {
+        "version": ACTION_CONTRACT_VERSION,
+        "decision_id": decision_id,
+        "tenant_id": tenant_id,
+        "portfolio_id": "",
+        "policy_binding": list(decision.get("policy_binding") or []),
+        "policy_binding_hash": decision.get("policy_binding_hash"),
+        "engine_image_digest": decision.get("engine_image_digest")
+        or logging_contract.engine_image_digest(),
+        "config_version": decision.get("config_version")
+        or logging_contract.config_version(),
+        "veto_stack_version": logging_contract.VETO_STACK_VERSION,
+        "arm_propensity": decision.get("arm_propensity"),
+        "action_propensity": decision.get("action_propensity"),
+        "propensity": decision.get("propensity"),
+        "action": action,
+        "channel": channel,
+        "endpoint": customer.get("phone_primary"),
+        "scheduled_at": (
+            decision["scheduled_at"].isoformat()
+            if hasattr(decision.get("scheduled_at"), "isoformat")
+            else decision.get("scheduled_at")
+        ),
+        "expected_value_paise": int(
+            round(float(decision.get("expected_value") or 0) * 100)
+        ),
+        "ev_lcb_paise": int(round(float(decision.get("expected_value") or 0) * 100)),
+        "expected_value_inr": float(decision.get("expected_value") or 0),
+        "variant": decision.get("variant"),
+        "objective": OBJECTIVE_BY_BUCKET.get(
+            str(decision.get("bucket") or A.B_0_30), "payment_commitment"
+        ),
+        "strategy": STRATEGY_BY_BUCKET.get(
+            str(decision.get("bucket") or A.B_0_30), "soft_reminder"
+        ),
+        "prohibitions": list(ALWAYS_PROHIBITED),
+        "required_assertions": list(REQUIRED_ASSERTIONS),
+        "retention_class": RETENTION_CLASS,
+        "allowed_offers": [],
+        "decisionId": decision_id,
+        "policyVersion": decision.get("policy_version"),
+        "expectedValueInr": float(decision.get("expected_value") or 0),
+        "prohibited": list(ALWAYS_PROHIBITED),
+        "allowedOffers": [],
+    }
+    return snapshots.persist(conn, payload)
 
 
 def _waiver_ceiling(conn: Any, result: Any, features: Any | None) -> float | None:

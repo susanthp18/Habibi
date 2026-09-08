@@ -56,7 +56,7 @@ export type TreatmentNext = {
   reason: string | null;
   reasonText: string | null;
   rationale: string;
-  decisionId: string;
+  decisionId: string | null;
   propensity: number | null;
   policyVersion: number;
   /** off | shadow | live. Outside live the engine decides and enacts nothing. */

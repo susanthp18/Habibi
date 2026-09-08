@@ -54,6 +54,12 @@ export type PromptVersionDraftInput = {
   summary?: string;
   /** Omitted (not sent empty) leaves the stored graph untouched. */
   flow?: FlowGraph;
+  /**
+   * Deliberately replace a stored graph that does not parse. The PATCH refuses
+   * the empty sentinel over an unreadable column without it, which is what
+   * stopped an autosave from erasing one.
+   */
+  replaceUnreadable?: boolean;
   botId?: string;
   agentCard?: Record<string, unknown>;
 };
@@ -67,6 +73,8 @@ export type PromptVersionPatchInput = {
   summary?: string;
   /** Omitted leaves the stored graph untouched. Explicit `{}` clears it. */
   flow?: FlowGraph;
+  /** See `PromptVersionDraftInput.replaceUnreadable`. */
+  replaceUnreadable?: boolean;
   /** Omitted leaves the stored card untouched — same key-present rule as flow. */
   agentCard?: Record<string, unknown>;
   /**
@@ -112,6 +120,7 @@ export function toPatchInput(body: PromptVersionDraftInput): PromptVersionPatchI
   };
   if (body.summary !== undefined) patch.summary = body.summary;
   if (body.flow) patch.flow = body.flow;
+  if (body.replaceUnreadable) patch.replaceUnreadable = true;
   if (body.agentCard) patch.agentCard = body.agentCard;
   return patch;
 }
@@ -126,6 +135,9 @@ function invalidatePromptStudio(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: VERSIONS_KEY });
   void qc.invalidateQueries({ queryKey: PUBLISHED_KEY });
   void qc.invalidateQueries({ queryKey: DEPLOYMENTS_KEY });
+  // Experiments live under ["deployments"], not ["bot-deployments"]. A rollback
+  // that only invalidates one of those two left Ship reading a stale canary.
+  void qc.invalidateQueries({ queryKey: ["deployments"] });
   // A publish is the single biggest thing that happens to a card, and it lands
   // in two places this key set does not otherwise reach: the fleet list (which
   // shows deploymentStatus / lastPublish / draft chips) and the change log,
@@ -653,7 +665,6 @@ export async function publishPromptVersion(
   summary = "",
   opts?: {
     kbSnapshotId?: string | null;
-    tuning?: unknown;
     trafficPct?: number | null;
     shadow?: boolean;
     autoRollback?: string[] | null;
@@ -679,7 +690,6 @@ export async function publishPromptVersion(
   return apiPost<PromptVersion>(`/prompt-versions/${versionId}/publish`, {
     summary,
     kbSnapshotId: opts?.kbSnapshotId ?? null,
-    tuning: opts?.tuning ?? null,
     trafficPct: opts?.trafficPct ?? null,
     shadow: opts?.shadow ?? false,
     autoRollback: opts?.autoRollback ?? null,
@@ -997,6 +1007,7 @@ export async function ensureStudioDraft(opts: {
   voice: VoiceConfig;
   guardrails: Guardrails;
   flow?: FlowGraph;
+  replaceUnreadable?: boolean;
   agentCard?: Record<string, unknown>;
   summary?: string;
   botId?: string;
@@ -1014,6 +1025,7 @@ export async function ensureStudioDraft(opts: {
   // when the key is absent, so a save issued before the flow tab ever loaded
   // cannot wipe an authored graph. Same rule for the card.
   if (opts.flow) body.flow = opts.flow;
+  if (opts.replaceUnreadable) body.replaceUnreadable = true;
   if (opts.agentCard) body.agentCard = opts.agentCard;
   if (opts.draftId) {
     try {

@@ -94,12 +94,19 @@ EVAL_RUN = "perm-eval-run"
 REDTEAM_RUN = "perm-redteam-run"
 CONNECTOR_ATTACH = "perm-connector-attach"
 POLICY_EXPORT = "perm-policy-export"
+POLICY_READ = "perm-policy-read"
+POLICY_PUBLISH = "perm-policy-publish"
+POLICY_APPROVE = "perm-policy-approve"
+SUBJECT_RIGHTS_READ = "perm-subject-rights-read"
+SUBJECT_RIGHTS_WRITE = "perm-subject-rights-write"
 VOICE_OPERATE = "perm-voice-operate"
 SUPERVISOR_READ = "perm-supervisor-read"
 SUPERVISOR_WRITE = "perm-supervisor-write"
 INTEGRATIONS_READ = "perm-integrations-read"
 INTEGRATIONS_WRITE = "perm-integrations-write"
 OBSERVABILITY_READ = "perm-observability-read"
+BANK_BOUNDARY_READ = "perm-bank-boundary-read"
+BANK_BOUNDARY_WRITE = "perm-bank-boundary-write"
 
 
 #: ``(id, module, action, description)`` — upserted at boot by
@@ -134,12 +141,19 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     (REDTEAM_RUN, "redteam", "run", "Run red-team suites against a card"),
     (CONNECTOR_ATTACH, "connector", "attach", "Bind an approved connector to an agent card"),
     (POLICY_EXPORT, "policy", "export", "Download the OPA/Cedar projection of live Python policy"),
+    (POLICY_READ, "policy", "read", "Read the versioned policy catalogue"),
+    (POLICY_PUBLISH, "policy", "publish", "Submit a policy draft for approval"),
+    (POLICY_APPROVE, "policy", "approve", "Approve or reject a policy publication"),
+    (SUBJECT_RIGHTS_READ, "subject_rights", "read", "Read DPDP subject requests and evidence packs"),
+    (SUBJECT_RIGHTS_WRITE, "subject_rights", "write", "Create and progress DPDP subject requests"),
     (VOICE_OPERATE, "voice", "operate", "Place outbound calls and run voice sandbox sessions"),
     (SUPERVISOR_READ, "supervisor", "read", "View the live floor: agent presence, live alerts"),
     (SUPERVISOR_WRITE, "supervisor", "write", "Floor supervision, takeover and handoff actions"),
     (INTEGRATIONS_READ, "integrations", "read", "View providers, connectors, vault refs and our MCP"),
     (INTEGRATIONS_WRITE, "integrations", "write", "Configure providers, connectors, vault secrets and MCP keys"),
     (OBSERVABILITY_READ, "observability", "read", "Scrape /metrics (service accounts and operators)"),
+    (BANK_BOUNDARY_READ, "bank_boundary", "read", "Read bank-boundary contracts, manifests, readiness and outbox"),
+    (BANK_BOUNDARY_WRITE, "bank_boundary", "write", "Ingest bank-boundary manifests and file complaints"),
 )
 
 ALL_PERMISSIONS: frozenset[str] = frozenset(p[0] for p in PERMISSION_CATALOG)
@@ -160,6 +174,7 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             ANALYTICS_READ, BILLING_READ,
             QA_REVIEW, QA_WRITE,
             COMPLIANCE_READ,
+            POLICY_READ, SUBJECT_RIGHTS_READ, BANK_BOUNDARY_READ,
             KB_READ, BOT_READ,
             VOICE_OPERATE, SUPERVISOR_READ, SUPERVISOR_WRITE, WORKQUEUE_WRITE,
             INTEGRATIONS_READ, OBSERVABILITY_READ,
@@ -196,6 +211,9 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             CUSTOMERS_READ, INTERACTIONS_READ, COLLECTIONS_READ, CONSENT_READ,
             ANALYTICS_READ, QA_REVIEW,
             COMPLIANCE_READ, COMPLIANCE_WRITE,
+            POLICY_READ, POLICY_PUBLISH, POLICY_APPROVE,
+            SUBJECT_RIGHTS_READ, SUBJECT_RIGHTS_WRITE,
+            BANK_BOUNDARY_READ, BANK_BOUNDARY_WRITE,
             KB_READ,
         }
     ),
@@ -265,7 +283,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/bot-analytics"): ANALYTICS_READ,
     ("GET", "/dashboard"): ANALYTICS_READ,
     ("GET", "/offers/health"): ANALYTICS_READ,
-    ("GET", "/offers/tuner-suggestions"): ANALYTICS_READ,
     ("GET", "/workspace/summary"): ANALYTICS_READ,
     # Reading the queue is a read. This was WORKQUEUE_WRITE, which meant an
     # oversight role could not open the screen it oversees while anyone able to
@@ -277,7 +294,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/bot-deployments/active"): BOT_READ,
     ("GET", "/bot-deployments/experiments"): BOT_READ,
     ("POST", "/bot-deployments/experiments/{experiment_id}/rollback"): AGENT_PUBLISH,
-    ("POST", "/bot-deployments/{deployment_id}/rollback"): BOT_WRITE,
+    ("POST", "/bot-deployments/{deployment_id}/rollback"): AGENT_PUBLISH,
     ("GET", "/flow/reserved-keys"): BOT_READ,
     ("GET", "/flow/tools"): BOT_READ,
     ("POST", "/flow/validate"): BOT_READ,
@@ -303,6 +320,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/agent-studio/cards/{bot_id}/archive"): AGENT_EDIT,
     ("POST", "/agent-studio/cards/{bot_id}/restore"): AGENT_EDIT,
     ("POST", "/agent-studio/cards/{bot_id}/compile"): AGENT_EDIT,
+    ("GET", "/agent-studio/cards/{bot_id}/effective-contract"): BOT_READ,
     ("POST", "/agent-studio/cards/{bot_id}/connectors"): CONNECTOR_ATTACH,
     ("POST", "/agent-studio/cards/{bot_id}/publish"): AGENT_PUBLISH,
     ("GET", "/agent-studio/cards/{bot_id}/graph"): BOT_READ,
@@ -450,6 +468,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # collections writes, and lifting is the one that needs the audit trail.
     ("POST", "/treatment/holds"): COLLECTIONS_WRITE,
     ("POST", "/treatment/holds/{hold_id}/release"): COLLECTIONS_WRITE,
+    ("POST", "/treatment/decisions/{decision_id}/feedback"): COLLECTIONS_WRITE,
     # --- outbound attempt ledger (O0) --------------------------------------
     # Reach figures are an analytics read; the dial log names borrowers and is
     # a collections read. Splitting them means a floor analyst can be shown the
@@ -534,6 +553,28 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("PATCH", "/violations/{violation_id}"): COMPLIANCE_WRITE,
     ("POST", "/violations/{violation_id}/notes"): COMPLIANCE_WRITE,
     ("GET", "/compliance/policy-export"): POLICY_EXPORT,
+    ("GET", "/compliance/policy-rules"): POLICY_READ,
+    ("POST", "/compliance/policy-rules"): POLICY_PUBLISH,
+    ("POST", "/compliance/policy-rules/{set_id}/submit"): POLICY_PUBLISH,
+    ("POST", "/compliance/policy-rules/{set_id}/approve"): POLICY_APPROVE,
+    ("POST", "/compliance/policy-rules/{set_id}/reject"): POLICY_APPROVE,
+    ("POST", "/compliance/policy-replay"): POLICY_READ,
+    ("GET", "/compliance/complaint-pack/{customer_id}"): SUBJECT_RIGHTS_READ,
+    ("GET", "/compliance/subject-requests"): SUBJECT_RIGHTS_READ,
+    ("POST", "/compliance/subject-requests"): SUBJECT_RIGHTS_WRITE,
+    ("POST", "/compliance/subject-requests/{request_id}/transition"): SUBJECT_RIGHTS_WRITE,
+    ("POST", "/compliance/security-incidents"): COMPLIANCE_WRITE,
+    ("GET", "/compliance/security-incidents"): COMPLIANCE_READ,
+    ("GET", "/integrations/bank/contracts"): BANK_BOUNDARY_READ,
+    ("GET", "/integrations/bank/manifests"): BANK_BOUNDARY_READ,
+    ("POST", "/integrations/bank/manifests"): BANK_BOUNDARY_WRITE,
+    ("GET", "/integrations/bank/reconciliation"): BANK_BOUNDARY_READ,
+    ("GET", "/integrations/bank/readiness"): BANK_BOUNDARY_READ,
+    ("GET", "/integrations/bank/outbox"): BANK_BOUNDARY_READ,
+    ("GET", "/integrations/bank/breach-coverage"): BANK_BOUNDARY_READ,
+    ("GET", "/integrations/bank/fairness"): BANK_BOUNDARY_READ,
+    ("POST", "/integrations/bank/complaints"): BANK_BOUNDARY_WRITE,
+    ("GET", "/integrations/bank/complaints"): BANK_BOUNDARY_READ,
     # --- knowledge base ----------------------------------------------------
     ("GET", "/kb/documents"): KB_READ,
     ("GET", "/kb/documents/{document_id}"): KB_READ,

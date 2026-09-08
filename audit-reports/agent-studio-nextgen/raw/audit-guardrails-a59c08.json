@@ -1,0 +1,245 @@
+{
+ "slice": "guardrails",
+ "summary": "The Guardrails tab (Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:16-47) edits one JSON blob — six booleans, two sliders (maxTurns 4-40, maxSeconds 120-900) and a prohibited-word list — held in prompt-studio.lazy.tsx:205 state, autosaved via ensureDraft (prompt-studio.lazy.tsx:646-658) into prompt_versions.guardrails jsonb (backend/db_prompt_studio.py:1671-1688, 1750-1752) and read back through _prompt_guardrails (db_prompt_studio.py:126-147) with schemas.Guardrails extra=forbid (schemas.py:2194-2205). At runtime the blob does two things: (1) agent_core.prompt.guardrail_rules (agent_core/prompt.py:66-100) turns the toggles into \"## Guardrails\" prompt lines on every channel, dropping the recording line on text channels and adding a \"this is NOT a phone call, never disclose\" framing (prompt.py:120-127); voice goes through voice/natural.py:182, WhatsApp through bot_runtime.py:512-522, sandbox through agent_core/turn.py:78-84 (default channel=text). (2) agent_core.guardrails.evaluate_guardrails (agent_core/guardrails.py:154-259) scores each bot turn and emits flags: the sandbox halts on should_halt (sandbox_runtime.py:897-909), voice evaluates after TTS via crm_sink.py:1532-1548 → persist.py:820-895 (interaction flags, live alerts, compliance violations, live-QA findings, turn-critic directive), and WhatsApp evaluates after the message is sent (bot_runtime.py:1098-1103 then 1272-1290). The tab's PII section is a read-only mirror of GET /redaction-rules (GuardrailsPanel.tsx:59-70, 183-220). The big gaps are that \"hard-block\" is true only in the sandbox, the escalate toggles cannot switch escalation off on live channels, maxTurns/maxSeconds are dead or silently capped on voice, and WhatsApp is filing RBI-DISC-01 recording-disclosure violations on every turn while its own prompt forbids the disclosure.",
+ "endpoints": [
+  "GET /prompt-versions?botId= → backend/main.py:2032-2060 handler → backend/db_prompt_studio.py:175-194 _map_prompt_version (guardrails via _prompt_guardrails :126-147)",
+  "POST /prompt-versions (ensureDraft create) → backend/main.py:3233+ → backend/db_prompt_studio.py:1671-1688 (CAST(:guardrails AS jsonb))",
+  "PATCH /prompt-versions/{id} (ensureDraft update) → backend/main.py:3233+ → backend/db_prompt_studio.py:1750-1752",
+  "POST /prompt-versions/lint → backend/main.py:3278-3291 → backend/prompt_lint.py:47-215 lint_prompt (guardrails.alwaysDiscloseRecording + prohibited)",
+  "POST /prompt-versions/estimate-tokens → backend/main.py:3294-3365 → agent_core/prompt.py:151 build_system_prompt / voice/natural.py:148 build_voice_system_prompt (assembled figure includes guardrail lines)",
+  "GET /redaction-rules (PII mirror in the tab) → backend/main.py:1934-1936 → db.list_redaction_rules (backend/db_redaction.py); client Habibi/src/api/redaction.ts:56-76",
+  "Prohibited-word add/remove, six Switches, two Sliders → no backend of their own (state only; persisted by the editor's autosave above)"
+ ],
+ "runtime_consumers": [
+  "prohibited → prompt line all channels agent_core/prompt.py:98-99; flag agent_core/guardrails.py:174-176; voice voice/crm_sink.py:1532→voice/persist.py:820-895 (alert medium + lexicon-classified violation persist.py:597-610, critic crm_sink.py:1560); WhatsApp backend/bot_runtime.py:1272-1290 (post-send only); sandbox backend/sandbox_runtime.py:897-909 (halts)",
+  "escalateAbuse → prompt line prompt.py:95; flag guardrails.py:225-226; voice escalation NOT gated by it (voice/crm_sink.py:943-944 detect_abuse unconditional); WhatsApp NOT gated (bot_runtime.py:815, 823 hard_abuse unconditional) → toggle-off has no runtime effect on live channels",
+  "escalateLegal → prompt line prompt.py:93; flag guardrails.py:217-223; voice escalation NOT gated (crm_sink.py:945 detect_legal unconditional); WhatsApp gated via auto-escalate (bot_runtime.py:816-831); sandbox flag only (not in should_halt)",
+  "neverQuoteRate → prompt line prompt.py:89; flag rate-quoted guardrails.py:189-196 → voice/WhatsApp alert + violation r-false (persist.py:583, 877-895) after the reply is spoken/sent; sandbox halts (sandbox_runtime.py:907)",
+  "neverPromiseWaiver → prompt line prompt.py:91; flag waiver-blocked guardrails.py:178-180 (refusal-aware :56-150) → violation r-guarantee persist.py:577; live-QA whisper live_qa/checks.py:292-304; sandbox halts",
+  "alwaysDiscloseRecording → voice prompt line only (prompt.py:75-86, voice/natural.py:182; dropped on text channels); flag guardrails.py:250-253; voice: crm_sink.py:1051,1548 threads recording_disclosed → persist.py:820-834; WhatsApp: bot_runtime.py:1272-1290 evaluated WITHOUT channel gate or recording_disclosed (see GUARDRAILS-1); sandbox: sandbox_runtime.py:755-761, 897-906 with text-framed prompt (see GUARDRAILS-7); disclosure itself on voice comes from flows.py:210-243 greet_disclose regardless of the toggle",
+  "refusePoliticsReligion → prompt line prompt.py:97; flags guardrails.py:200-216; sandbox halts on politics-religion-engaged; voice/WhatsApp: interaction flag + critic only — 'politics-religion-engaged' is unmapped in persist.py:574-593 so no alert and no violation",
+  "maxTurns → sandbox_runtime.py:711-716 min(SANDBOX_HARD_MAX_TURNS=3, maxTurns); WhatsApp bot_runtime.py:849-864 min(maxTurns, BOT_HARD_MAX_TURNS=12) then escalate; voice: flag 'max-turns' only (persist.py:828 hard 50; :591 non-bot, no alert) → NONE for call control",
+  "maxSeconds → flag 'max-seconds' guardrails.py:243-245; voice: NONE ends the call (fixed 600s cap backend/voice/bot.py:164, 1743-1752); WhatsApp: elapsed_seconds=0 always (bot_runtime.py:1283) → never fires; sandbox: should_halt (guardrails.py:264)"
+ ],
+ "findings": [
+  {
+   "id": "GUARDRAILS-1",
+   "title": "WhatsApp files an RBI recording-disclosure violation on every bot turn while its own prompt forbids the disclosure",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/prompt.py:75-86",
+    "backend/agent_core/prompt.py:120-127",
+    "backend/bot_runtime.py:519-522",
+    "backend/bot_runtime.py:1272-1290",
+    "backend/agent_core/guardrails.py:250-253",
+    "backend/voice/persist.py:820-834",
+    "backend/voice/persist.py:574",
+    "backend/voice/persist.py:877-895",
+    "backend/agent_core/live_qa/checks.py:185-197"
+   ],
+   "mechanism": "build_system_prompt(channel='whatsapp') drops the recording rule and tells the model 'never state a call-recording disclosure' (prompt.py:75-86, 120-127). But bot_runtime.py:1272-1290 then calls persist.evaluate_and_flag_bot_turn with the same guardrails dict (alwaysDiscloseRecording=True on every seeded card), turn_index=turn_count (>=1 from the first reply, bot_runtime.py:709), no recording_disclosed argument and no channel gate; evaluate_guardrails flags 'missing-recording-disclosure' whenever turn_index >= _DISCLOSURE_DEADLINE_TURN and the reply lacks the disclosure (guardrails.py:250-253). persist.py:877-895 then writes an interaction flag, a medium live alert (flag is in _LIVE_ALERT_FLAGS :779) and an r-rec compliance violation (_FLAG_RULE_MAP :574), and live_qa.check_recording raises a critical finding with no channel gate (checks.py:185-197; compare check_hours :162 which does gate). The bot is penalised for obeying the platform.",
+   "trigger": "Any WhatsApp conversation handled by the bot with alwaysDiscloseRecording on (the default and every seeded card, seed_postgres.py:946-957): after the first reply, every turn adds an RBI-DISC-01 violation and a compliance alert to the interaction.",
+   "fix": "Gate the disclosure check on channel: either add a channel parameter to evaluate_guardrails and skip the alwaysDiscloseRecording block for _TEXT_CHANNELS (mirroring guardrail_rules), or in bot_runtime pass recording_disclosed=True / strip the flag for channel='whatsapp'; add the same channel guard to live_qa.check_recording.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-2",
+   "title": "'Hard-blocks' hints are true only in the sandbox; on voice and WhatsApp the rule is evaluated after the reply was spoken/sent",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:26-45",
+    "backend/sandbox_runtime.py:897-909",
+    "backend/voice/crm_sink.py:541-545",
+    "backend/voice/crm_sink.py:1532-1548",
+    "backend/bot_runtime.py:1098-1103",
+    "backend/bot_runtime.py:1272-1290",
+    "backend/voice/persist.py:574-593"
+   ],
+   "mechanism": "The hints for neverQuoteRate ('Hard-blocks APR / % rate quotes in bot replies'), neverPromiseWaiver ('Hard-blocks waiver promises') and refusePoliticsReligion ('Hard-blocks political/religious digressions') describe should_halt, which only the sandbox calls (sandbox_runtime.py:907). On voice the evaluation runs in the CrmSink drain after the TTS has played (crm_sink.py:543 'The audio for this turn has already been spoken') and produces an alert plus a next-turn critic nudge. On WhatsApp the message is persisted and sent at bot_runtime.py:1098-1103 and evaluate_and_flag_bot_turn runs afterwards at :1272-1290; there is no pre-send evaluate/should_halt anywhere in bot_runtime.py (grep: no should_halt, no rate-quoted). 'politics-religion-engaged' additionally maps to no alert and no violation on live channels (persist.py:574-593). Operators reading the tab believe a rate quote cannot reach a customer; it can, and does, on both live channels.",
+   "trigger": "Publish a card with neverQuoteRate on; on a live call or WhatsApp thread the model quotes '18% p.a.' — the customer hears/reads it, and the operator sees a medium alert afterwards.",
+   "fix": "Either add a pre-send evaluate_guardrails + should_halt in bot_runtime (regenerate once, then fall back to a safe line) and reword the voice reality honestly, or change the three hints to 'Sandbox: halts the run. Live: flags the turn, alerts the floor and self-corrects on the next reply' so the tab stops promising a block it does not perform.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-3",
+   "title": "maxSeconds ('Max call duration') has no consumer that ends a call; voice uses a fixed 10-minute cap and WhatsApp passes elapsed=0",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:163-176",
+    "backend/agent_core/guardrails.py:243-245",
+    "backend/voice/bot.py:164",
+    "backend/voice/bot.py:1743-1752",
+    "backend/voice/persist.py:591-593",
+    "backend/bot_runtime.py:1283",
+    "backend/voice/crm_sink.py:1560-1565"
+   ],
+   "mechanism": "The slider stores 120-900s. On voice the only consumer is evaluate_guardrails producing a 'max-seconds' flag (guardrails.py:243-245); the flag is listed as a non-bot flag with no alert and no violation (persist.py:591-593) and nothing in voice/bot.py reads maxSeconds — the call is ended by _max_duration_watchdog on a hard-coded _MAX_CALL_DURATION_SECS = 600 (bot.py:164, 1743-1752). So 900 is silently 600 and 120 does nothing except feed the turn critic a bogus 'compliance rule' directive (see GUARDRAILS-5). On WhatsApp elapsed_seconds is always 0 (bot_runtime.py:1283) so the flag can never fire. Only the sandbox halts on it (guardrails.py:264).",
+   "trigger": "Set Max call duration to 2m and place a live call: it runs 10 minutes. Set it to 15m: it still ends at 10.",
+   "fix": "Read bundle['guardrails']['maxSeconds'] in bot.py and use min(maxSeconds, _MAX_CALL_DURATION_SECS) for the watchdog sleep, or drop the slider and show the fixed cap as read-only text.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-4",
+   "title": "maxTurns slider range 4-40 is honest on no channel: sandbox caps at 3, WhatsApp at 12, voice never enforces",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:150-160",
+    "backend/sandbox_runtime.py:366",
+    "backend/sandbox_runtime.py:711-716",
+    "backend/agent_core/guardrails.py:8-15",
+    "backend/bot_runtime.py:57-58",
+    "backend/bot_runtime.py:849-864",
+    "backend/.env.example:115",
+    "backend/voice/persist.py:828",
+    "backend/voice/persist.py:591-593"
+   ],
+   "mechanism": "Sandbox: effective = min(_HARD_MAX_TURNS=SANDBOX_HARD_MAX_TURNS default 3, maxTurns) (sandbox_runtime.py:366, 711-716; guardrails.py:8-15), so with the slider floor at 4 the slider is never the binding value. WhatsApp: max_turns = min(maxTurns, BOT_HARD_MAX_TURNS=12) (bot_runtime.py:57-58, 859; .env.example:115), so 13-40 are silently 12. Voice: evaluate_and_flag_bot_turn passes hard_max_turns=50 (persist.py:828) and the resulting 'max-turns' flag is a non-bot flag (persist.py:591-593) with no alert; nothing in voice/bot.py, voice/tools.py or crm_sink.py reads maxTurns or acts on the flag, so a voice call never ends or escalates on turn count. The panel labels it 'Max turns per call'.",
+   "trigger": "Set Max turns to 30 and publish; a WhatsApp thread escalates to a human at turn 13, a sandbox run halts at exchange 3, a voice call runs indefinitely.",
+   "fix": "Surface the per-channel effective ceiling in the panel (return SANDBOX_HARD_MAX_TURNS / BOT_HARD_MAX_TURNS from an endpoint and render 'effective: min(x, cap)'), and on voice have crm_sink treat 'max-turns' as a graceful close/escalate trigger or remove 'per call' from the label.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-5",
+   "title": "Turn critic tells the live model it 'broke a compliance rule' for session-limit and caller-conduct flags",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/voice/crm_sink.py:1560-1565",
+    "backend/agent_core/turn_critic.py:161-215",
+    "backend/voice/persist.py:588-593"
+   ],
+   "mechanism": "crm_sink passes every flag returned by evaluate_and_flag_bot_turn to enqueue_critique (crm_sink.py:1560-1565). _guardrail_correction has no filter (turn_critic.py:172-186) and, for any non-omission flag, injects 'Your last reply broke a compliance rule (max-turns). Do not repeat that wording' (:207-212). persist.py:588-593 explicitly documents 'max-turns', 'max-seconds', 'auto-escalate' and 'politics-religion' as flags describing the caller or a session limit, not bot misconduct — so once maxTurns/maxSeconds is crossed on a voice call the model receives a high-severity correction about a mistake it did not make, spending one of the per-call correction budget slots (crm_sink.py:638-649).",
+   "trigger": "A voice call exceeds guardrails.maxSeconds (default 480s) or the customer says something abusive: the next bot turn is preceded by a bogus 'you broke a compliance rule' developer directive.",
+   "fix": "Filter persist._NON_BOT_FLAGS (export it) out of guardrail_flags before enqueue_critique, or inside _guardrail_correction.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-6",
+   "title": "Sandbox judges the voice-only disclosure guardrail against a prompt that tells the model it is in a text chat and must not disclose",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/agent_core/turn.py:78-84",
+    "backend/agent_core/prompt.py:151-155",
+    "backend/agent_core/prompt.py:120-127",
+    "backend/sandbox_runtime.py:755-761",
+    "backend/sandbox_runtime.py:897-906",
+    "backend/tests/test_sandbox_disclosure_and_grounding.py:194-204"
+   ],
+   "mechanism": "assemble_turn_messages calls build_system_prompt without a channel (turn.py:78-84), so the sandbox system message takes channel='text' (prompt.py:151), drops the disclosure rule and adds 'This is NOT a phone call ... never state a call-recording disclosure' (prompt.py:120-127). sandbox_runtime.py:897-906 nevertheless evaluates alwaysDiscloseRecording and reports 'missing-recording-disclosure' on every bot turn of any run whose persona openingBot does not itself disclose (recording_disclosed comes only from history, :755-761). The model cannot clear the flag without violating its prompt; test_the_flag_still_fires_when_nothing_ever_disclosed pins the behaviour. The Guardrails tab's 'Prompt rehearsal' therefore shows a compliance flag the voice runtime would not raise the same way (voice's greet_disclose node always discloses).",
+   "trigger": "Run a sandbox rehearsal with a persona whose openingBot lacks 'this call is recorded' (or edit a seeded one): every bot turn carries missing-recording-disclosure in guardrailFlags.",
+   "fix": "Pass channel='voice' through assemble_turn_messages for voice-card rehearsals (and use build_voice_system_prompt or guardrail_rules(channel='voice')), or skip the alwaysDiscloseRecording evaluation whenever the prompt was framed as a text channel.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-7",
+   "title": "Lint 'recording_disclosure_unenforced' claims nothing on the card discloses recording, but inbound voice always discloses via the greet_disclose flow node",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/prompt_lint.py:156-170",
+    "Habibi/src/api/prompt-studio.ts:791-796",
+    "backend/voice/flows.py:210-243",
+    "backend/voice/flows.py:935-945",
+    "backend/voice/tools.py:579-588"
+   ],
+   "mechanism": "With alwaysDiscloseRecording off and no disclosure in the prompt, lint_prompt warns 'Nothing on this card discloses call recording' (prompt_lint.py:156-170; mock mirror prompt-studio.ts:791-796). On inbound voice the entry node is greet_disclose (flows.py:942), whose task message says 'say the call is recorded for quality and compliance' and requires the disclose_recording tool (flows.py:213-222, 243), which records the disclosure and injects the never-repeat note (tools.py:579-613) — none of it conditioned on the toggle. The toggle therefore does not remove the disclosure on inbound voice; only outbound (entry confirm_identity, flows.py:938-941) and text channels are actually silent. The lint's advice ('turn the guardrail on') is fine, its factual claim is not.",
+   "trigger": "Turn 'Always disclose recording' off on a card with no disclosure text: the tab warns nothing discloses, yet every inbound test call still opens with the disclosure.",
+   "fix": "Reword the finding to state what actually happens per channel ('inbound voice still discloses through the greeting node; outbound calls and WhatsApp will not'), or make greet_disclose read the toggle so the lint statement becomes true.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-8",
+   "title": "WhatsApp's own 'already disclosed' detector uses substring markers that diverge from the canonical disclosure regex",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/bot_runtime.py:258-266",
+    "backend/agent_core/guardrails.py:31-46",
+    "backend/agent_core/guardrails.py:22-26"
+   ],
+   "mechanism": "_history_already_disclosed_recording matches 'recorded for quality', 'call is recorded', 'whatsapp is recorded', 'recorded for compliance' as bare substrings (bot_runtime.py:259) and drives the dialog-control line 'Recording disclosure was already given — do not repeat it' (:280-283). mentions_recording_disclosure (guardrails.py:31-46) is the declared canonical home ('so the authoring gate and the runtime detector cannot drift apart') and does not accept 'this WhatsApp is recorded' (subject must be call/conversation/chat) while it does accept wordings the substring list misses ('we are recording this conversation'). The same turn can be 'disclosed' for the prompt and 'missing' for the guardrail, or vice versa.",
+   "trigger": "Bot writes 'This WhatsApp chat is recorded for quality' — dialog block says disclosed; evaluate_guardrails (once GUARDRAILS-1 is fixed by threading recording_disclosed) would still count it as missing unless both use one predicate.",
+   "fix": "Replace the marker tuple with agent_core.guardrails.mentions_recording_disclosure and pass the result as recording_disclosed to evaluate_and_flag_bot_turn.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-9",
+   "title": "Toggle hint 'Flags missing disclosure on turn 1' understates the check; the mock lint uses a looser 'record' substring than the server",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:37-40",
+    "backend/agent_core/guardrails.py:18-22",
+    "backend/agent_core/guardrails.py:250-253",
+    "Habibi/src/api/prompt-studio.ts:779",
+    "backend/prompt_lint.py:140"
+   ],
+   "mechanism": "The flag fires on every bot turn with turn_index >= 1 until a disclosure has been heard (guardrails.py:250-253), not 'on turn 1'. Separately the USE_MOCK lint path tests /record/i (prompt-studio.ts:779) while the server uses the strict mentions_recording_disclosure regex (prompt_lint.py:140), so mock mode reports 'duplicated' for a prompt containing 'record your promise to pay' that the real server would not flag.",
+   "trigger": "Read the hint; or run the UI in mock mode with such a prompt.",
+   "fix": "Change the hint to 'Flags every turn until the disclosure has been made' and reuse the same disclosure regex in the mock.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GUARDRAILS-10",
+   "title": "Duration readout rounds half-minutes and out-of-range stored values are shown clamped while state keeps the raw number",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "a11y",
+   "files": [
+    "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:163-176",
+    "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:150-160",
+    "backend/db_prompt_studio.py:145-146"
+   ],
+   "mechanism": "The slider steps by 30s but the label prints Math.round(maxSeconds/60)+'m', so 150s reads '3m' and 450s reads '8m'. _prompt_guardrails coerces but does not clamp (db_prompt_studio.py:145-146), so a row holding maxTurns=3 or maxSeconds=60 renders the thumb at the slider minimum while the fingerprint/autosave keeps the raw value; nudging the thumb silently rewrites it into range. The word input also still has no aria-label (prior 2f trivia).",
+   "trigger": "Drag Max call duration to 2.5 minutes; or open a version whose guardrails were written outside the Studio.",
+   "fix": "Format as m:ss (or step by 60), and clamp in _prompt_guardrails or show the raw value in the readout.",
+   "prior_ref": "2f"
+  },
+  {
+   "id": "GUARDRAILS-11",
+   "title": "escalateAbuse / escalateLegal cannot switch escalation off on voice (or abuse on WhatsApp); the toggles only edit the prompt line and a flag",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:17-26",
+    "backend/voice/crm_sink.py:943-945",
+    "backend/voice/crm_sink.py:824-848",
+    "backend/bot_runtime.py:815",
+    "backend/bot_runtime.py:823-826",
+    "backend/agent_core/guardrails.py:217-226"
+   ],
+   "mechanism": "On voice, CrmSink's customer-turn tripwire calls detect_abuse / detect_legal unconditionally and escalates via _trigger_escalate → _live_escalate (crm_sink.py:943-945, 824-848; bot.py:1568-1577) without consulting self.guardrails. On WhatsApp hard_abuse = lexicon.is_abusive(customer_text) is unconditional (bot_runtime.py:815, 823-826); only the legal path is gated through evaluate_guardrails' auto-escalate (guardrails.py:217-223). Switching either toggle off therefore changes the '## Guardrails' prompt text and whether an 'auto-escalate' flag is written, but not whether the call/thread is handed to a human. This is the safe direction, but the switch labelled 'Escalate on abusive language' does not control escalation on abusive language.",
+   "trigger": "Turn both escalate toggles off (as seeded v1_0 does for abuse, seed_postgres.py:1029), publish, and have a caller swear: the call still escalates.",
+   "fix": "Either gate the tripwires on self.guardrails.get('escalateAbuse'/'escalateLegal') (and hard_abuse on guardrails in bot_runtime), or mark the two switches as 'always on for live channels; affects prompt wording and QA flags only'.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Six switches map 1:1 onto the Guardrails keys and the server rejects unknown keys: GuardrailsPanel.tsx:16-47 ↔ schemas.py:2194-2205 (extra=forbid) ↔ db_prompt_studio.py:126-147 (typed coercion with _DEFAULT_GUARDRAILS :58-68); Switch uses Boolean(value[key]) so a null cannot render indeterminate (GuardrailsPanel.tsx:133-137)",
+  "Prohibited-word add path lowercases, trims and dedups (GuardrailsPanel.tsx:52-57); runtime match is whole-word (guardrails.py:174-176); lint match is whole-word and negation-aware so 'Never threaten legal action' does not trip (prompt_lint.py:175-212); live channels alert (medium) and file a violation only when the term classifies as legal/abusive (persist.py:597-610), with tests test_guardrail_violations.py:60-79",
+  "Double-disclosure defences on voice are consistent: guardrail_rules wording is once-only (prompt.py:75-86), disclose_recording injects a standing never-repeat developer note (tools.py:589-613), recording_disclosed is threaded per call (crm_sink.py:129, 1051, 1072-1073, 1548), turn-critic omission directive says 'once' and _corrected_flags prevents re-raising (turn_critic.py:196-205; crm_sink.py:646-648), and the lint is now inverted correctly (prompt_lint.py:118-170) with the editor invalidating stale lint on any guardrail change (prompt-studio.lazy.tsx:216-224, 555-575, 1040-1042)",
+  "Seeded prompts carry no disclosure text of their own (_emp/_firm/_comp/_upsell prompts, seed_postgres.py:918-945; grep for 'recorded' in prompt strings hits only sandbox openingBot lines :1358-1430) — the 'recording_disclosure_duplicated' info in the screenshot therefore describes a prompt edited in the DB after seeding, not the seed",
+  "WhatsApp system prompt drops the recording rule and names the medium (prompt.py:66-69, 120-127; bot_runtime.py:512-522) and the dialog block suppresses repeats once disclosed (bot_runtime.py:280-283)",
+  "PII section is honest: loading / error ('not a statement about what is redacted') / empty states (GuardrailsPanel.tsx:183-198), read-only with a working /redaction route (Habibi/src/routes/redaction.tsx), GET /redaction-rules (main.py:1934-1936) mapped onto DEFAULT_RULES keyed by piiType with unknown types skipped (redaction.ts:56-69), matching RedactionRuleResponse (schemas.py:1754-1762)",
+  "Guardrails flow through hydration with DEFAULT_GUARDRAILS fallback (prompt-studio.lazy.tsx:394-409), autosave/ensureDraft (:646-658), fingerprint dirtiness (:166-175, 498-535), publish and restore copies (db_prompt_studio.py:2229-2246), and the PATCH path writes jsonb only when supplied (:1750-1752)",
+  "Token estimate assembles the real system message with the guardrail lines via the runtime builders for both channels (main.py:3330-3355; prompt-studio.ts:536-564) and auto-lint is keyed on prompt+guardrails with no placeholderData (prompt-studio.ts:856-870)",
+  "neverPromiseWaiver detector is refusal-aware per sentence (guardrails.py:56-150) and only judged on waiver_request intent (:178-180), pinned by test_guardrail_violations.py:238-310",
+  "WhatsApp maxTurns handles non-numeric values by falling back to the hard ceiling (bot_runtime.py:849-859) and the sandbox fail-fasts before paying for an LLM call (sandbox_runtime.py:713-716)",
+  "evaluate_guardrails de-dups 'auto-escalate' across intent, legal and abuse detectors (guardrails.py:255-259); voice and text share lexicon patterns (voice/safety.py:22-27; guardrails.py:220-226)"
+ ]
+}

@@ -46,15 +46,91 @@ def record(
     score: float | None,
     suppression_reason: str | None,
     latency_ms: int | None,
+    arm_propensity: float | None = None,
+    action_propensity: float | None = None,
+    replay_nonce: str | None = None,
+    veto_stack_version: str | None = None,
+    engine_image_digest: str | None = None,
+    config_version: str | None = None,
+    lambda_bucket: str | None = None,
+    logging_contract_version: int | None = None,
+    policy_binding: Any = None,
+    policy_binding_hash: str | None = None,
 ) -> str | None:
     """Persist one decision. Returns the id, or None if logging failed."""
     import db
 
     decision_id = _id()
     try:
-        conn.execute(
+        extra_cols = ""
+        extra_vals = ""
+        params = {
+            "id": decision_id,
+            "tenant": db.current_tenant(),
+            "customer_id": customer_id,
+            "interaction_id": interaction_id,
+            "channel": channel,
+            "mode": mode,
+            "variant": variant,
+            "recommender": recommender,
+            "recommender_version": recommender_version,
+            "feature_schema_version": feature_schema_version,
+            "features": json.dumps(features, default=str),
+            "candidates": json.dumps(list(candidates), default=str),
+            "excluded": json.dumps(dict(excluded), default=str),
+            "chosen_product_id": chosen_product_id,
+            "suggested_amount": suggested_amount,
+            "score": score,
+            "suppression_reason": suppression_reason,
+            "latency_ms": latency_ms,
+        }
+        has_w2 = conn.execute(
             text(
                 """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'offer_decisions' AND column_name = 'arm_propensity'
+                """
+            )
+        ).first()
+        if has_w2:
+            extra_cols = (
+                ", arm_propensity, action_propensity, replay_nonce, "
+                "veto_stack_version, engine_image_digest, config_version, "
+                "lambda_bucket, logging_contract_version"
+            )
+            extra_vals = (
+                ", :arm_propensity, :action_propensity, :replay_nonce, "
+                ":veto_stack_version, :engine_image_digest, :config_version, "
+                ":lambda_bucket, :logging_contract_version"
+            )
+            params.update(
+                {
+                    "arm_propensity": arm_propensity if arm_propensity is not None else 1.0,
+                    "action_propensity": action_propensity if action_propensity is not None else 1.0,
+                    "replay_nonce": replay_nonce,
+                    "veto_stack_version": veto_stack_version,
+                    "engine_image_digest": engine_image_digest,
+                    "config_version": config_version,
+                    "lambda_bucket": lambda_bucket or "none",
+                    "logging_contract_version": logging_contract_version or 2,
+                }
+            )
+            if conn.execute(
+                text(
+                    """
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'offer_decisions'
+                      AND column_name = 'policy_binding'
+                    """
+                )
+            ).first():
+                extra_cols += ", policy_binding, policy_binding_hash"
+                extra_vals += ", CAST(:policy_binding AS jsonb), :policy_binding_hash"
+                params["policy_binding"] = json.dumps(list(policy_binding or []), default=str)
+                params["policy_binding_hash"] = policy_binding_hash
+        conn.execute(
+            text(
+                f"""
                 INSERT INTO offer_decisions (
                   id, tenant_id, customer_id, interaction_id, channel, mode,
                   variant, recommender, recommender_version,
@@ -62,41 +138,21 @@ def record(
                   features, candidates, excluded,
                   chosen_product_id, suggested_amount, score,
                   suppression_reason, latency_ms, created_at
+                  {extra_cols}
                 ) VALUES (
                   :id, :tenant, :customer_id, :interaction_id, :channel, :mode,
                   :variant, :recommender, :recommender_version,
                   :feature_schema_version,
                   CAST(:features AS jsonb), CAST(:candidates AS jsonb),
                   CAST(:excluded AS jsonb),
-                  -- Resolve inside the INSERT: a product deleted between
-                  -- scoring and logging must null the column, not raise a
-                  -- foreign-key error that loses the whole row.
                   (SELECT p.id FROM products p WHERE p.id = :chosen_product_id),
                   :suggested_amount, :score,
                   :suppression_reason, :latency_ms, now()
+                  {extra_vals}
                 )
                 """
             ),
-            {
-                "id": decision_id,
-                "tenant": db.current_tenant(),
-                "customer_id": customer_id,
-                "interaction_id": interaction_id,
-                "channel": channel,
-                "mode": mode,
-                "variant": variant,
-                "recommender": recommender,
-                "recommender_version": recommender_version,
-                "feature_schema_version": feature_schema_version,
-                "features": json.dumps(features, default=str),
-                "candidates": json.dumps(list(candidates), default=str),
-                "excluded": json.dumps(dict(excluded), default=str),
-                "chosen_product_id": chosen_product_id,
-                "suggested_amount": suggested_amount,
-                "score": score,
-                "suppression_reason": suppression_reason,
-                "latency_ms": latency_ms,
-            },
+            params,
         )
         return decision_id
     except Exception:

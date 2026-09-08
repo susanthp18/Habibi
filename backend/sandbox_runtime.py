@@ -181,6 +181,71 @@ _SANDBOX_MAX_TOOL_ITERS = 4
 # for the rest of the loop.
 _SANDBOX_MAX_TOOL_RESULT_CHARS = 4000
 
+#: Writes that used to hit production from rehearsal. Simulated only.
+_SANDBOX_MUTATING_TOOLS = frozenset(
+    {
+        "create_promise_to_pay",
+        "flag_dispute",
+        "evaluate_authority",
+        "apply_goodwill",
+        "request_callback",
+        "add_customer_note",
+        "capture_nonpayment_reason",
+        "set_contact_preference",
+        "escalate_to_human",
+        "handoff_to_agent",
+        "capture_lead",
+        "decline_offer",
+        "request_documents",
+        "ingest_customer_document",
+        "identify_customer",
+        "run_skill_script",
+    }
+)
+_SANDBOX_READ_TOOLS = frozenset(
+    {
+        "get_customer_context",
+        "get_payment_history",
+        "get_emi_schedule",
+        "search_knowledge_base",
+        "recommend_next_offer",
+        "check_product_eligibility",
+        "load_skill",
+    }
+)
+
+
+def simulate_sandbox_tool(name: str, args: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    """Side-effect-free rehearsal. Never calls a carrier, CRM write, or connector."""
+    if name.startswith("ext."):
+        return False, {
+            "ok": False,
+            "error": "sandbox_connector_blocked",
+            "simulated": True,
+            "tool": name,
+        }
+    if name in _SANDBOX_MUTATING_TOOLS:
+        return True, {
+            "ok": True,
+            "simulated": True,
+            "effect": f"{name} would write in production",
+            "args": args,
+        }
+    if name in _SANDBOX_READ_TOOLS:
+        return True, {
+            "ok": True,
+            "simulated": True,
+            "notice": "sandbox_read_not_live",
+            "tool": name,
+            "data": {},
+        }
+    return False, {
+        "ok": False,
+        "error": "sandbox_tool_unsupported",
+        "simulated": True,
+        "tool": name,
+    }
+
 
 def _sandbox_tools_enabled(payload: dict[str, Any], context: dict[str, Any] | None) -> bool:
     if payload.get("enableTools") is False:
@@ -189,18 +254,14 @@ def _sandbox_tools_enabled(payload: dict[str, Any], context: dict[str, Any] | No
         return True
     if env_bool("SANDBOX_TEXT_TOOLS"):
         return True
-    # Auto-enable when a CRM customer is pinned on the run context.
     ctx = context or {}
-    return bool(ctx.get("customerId") or ctx.get("customer_id"))
+    return bool(ctx.get("customerId") or ctx.get("customer_id") or payload.get("customerId"))
 
 
 def _run_sandbox_tool_loop(
     *,
     messages: list[dict[str, Any]],
-    customer_text: str,
     intent: str,
-    customer_id: str,
-    run_id: str,
     temperature: float,
     max_tokens: int,
     agent_card: dict[str, Any] | None = None,
@@ -209,30 +270,18 @@ def _run_sandbox_tool_loop(
     from agent_core.skills.runtime import resolve_mouth
     from agent_core.tools.catalog import CATALOG
     from agent_core.tools.schema import CHANNEL_TEXT
-    from bot_tools import ToolContext, execute_tool
 
     mouth = resolve_mouth(agent_card or {}, intent=intent)
     tool_state = mouth.tools(
         channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
     )
     tools = CATALOG.openai_tools(list(tool_state.offered or ()))
-    ctx = ToolContext(
-        job_id=f"sandbox-{run_id}",
-        conversation_id=f"sandbox-{run_id}",
-        customer_id=customer_id,
-        interaction_id=None,
-        bot_id=db.DEFAULT_BOT_ID,
-        customer_text=customer_text,
-        intent=intent or "general",
-    )
-    ctx.allowed_tools = tool_state.allowed
-    ctx.attached_skills = list(mouth.packs)
-    ctx.active_skill = mouth.active_slug
     working = list(messages)
     tool_trace: list[dict[str, Any]] = []
     total_tokens = 0
     total_latency = 0
     bot_text = ""
+    simulated_identity_verified = False
 
     tools_pending = False
     for _ in range(_SANDBOX_MAX_TOOL_ITERS):
@@ -277,53 +326,45 @@ def _run_sandbox_tool_loop(
             name = c.get("name") or ""
             args_json = c.get("arguments") or "{}"
             try:
-                ok, result, tool_ms = execute_tool(ctx, name, args_json)
-                # Tool round-trips are real turn latency — dropping them made
-                # sandbox latencyMs understate what a live caller experiences.
-                total_latency += int(tool_ms or 0)
-            except Exception as exc:
-                logger.exception("sandbox tool %s failed", name)
+                args = json.loads(args_json) if isinstance(args_json, str) else (args_json or {})
+                if not isinstance(args, dict):
+                    args = {}
+            except json.JSONDecodeError:
+                args = {}
+            allowed = tool_state.allowed
+            if allowed is not None and name not in allowed:
                 ok = False
-                tool_ms = 0
-                result = {"error": f"tool_failed:{type(exc).__name__}"}
-            # Serialize once, and bound what goes into the prompt. An unbounded
-            # tool result (a wide KB hit, a long payment history) was appended
-            # verbatim and then re-sent on every subsequent loop iteration, so
-            # the tokens compounded per iteration.
+                result = {"ok": False, "error": "tool_not_on_card_or_skill", "tool": name, "simulated": True}
+            else:
+                from agent_core.tools.gates import enforce_human_gate
+
+                gate_error = enforce_human_gate(
+                    name,
+                    card=agent_card,
+                    identity_verified=simulated_identity_verified,
+                )
+                if gate_error:
+                    ok = False
+                    result = {
+                        "ok": False,
+                        "error": gate_error,
+                        "simulated": True,
+                        "tool": name,
+                    }
+                else:
+                    ok, result = simulate_sandbox_tool(name, args)
+                    if ok and name == "identify_customer":
+                        simulated_identity_verified = True
             serialized = json.dumps(result if isinstance(result, dict) else {"result": result})
             if len(serialized) > _SANDBOX_MAX_TOOL_RESULT_CHARS:
                 serialized = (
                     serialized[:_SANDBOX_MAX_TOOL_RESULT_CHARS] + "…[truncated]"
                 )
-            # The Inspector keeps the structured result; only the model-visible
-            # copy is bounded (the response shape is part of the sandbox API).
-            tool_trace.append({"name": name, "ok": ok, "result": result})
-            # And audit it. The sandbox executes the *real* catalog tools against
-            # a real customer_id -- a rehearsal here can create a promise-to-pay
-            # on a live borrower -- and it was the one executor of the four that
-            # wrote no bot_tool_calls row at all. So the least supervised path in
-            # the product was also the only unlogged one.
-            #
-            # Never raises into the run: an audit failure must not take out the
-            # rehearsal, and record_tool_call redacts the arguments itself.
-            try:
-                import bot_jobs
-
-                with db.engine.begin() as audit_conn:
-                    bot_jobs.record_tool_call(
-                        audit_conn,
-                        job_id=ctx.job_id,
-                        conversation_id=ctx.conversation_id,
-                        channel="sandbox",
-                        tool_name=name,
-                        args=json.loads(args_json) if isinstance(args_json, str) else {},
-                        result_ok=bool(ok),
-                        error=None if ok else str((result or {}).get("error") or "")[:200],
-                        result_preview=serialized,
-                        latency_ms=int(tool_ms or 0),
-                    )
-            except Exception:
-                logger.warning("sandbox audit write failed · %s", name, exc_info=True)
+            tool_trace.append({"name": name, "ok": ok, "result": result, "simulated": True})
+            # The trace is returned on the sandbox turn. Do not write it to
+            # bot_tool_calls: that table is a production-job ledger and its FK
+            # would either reject this synthetic job or turn rehearsal into a
+            # production mutation.
             working.append(
                 {
                     "role": "tool",
@@ -335,10 +376,8 @@ def _run_sandbox_tool_loop(
 
     if tools_pending:
         # The iteration budget ran out with tool results appended but never fed
-        # back to the model: the tools really ran (a promise row was written),
-        # yet the reply was whatever the model said *before* them — or the
-        # generic fallback. One tool-free completion turns the results into the
-        # answer the customer is owed.
+        # back to the model. One tool-free completion turns the simulated
+        # results into the answer the operator is owed.
         try:
             final = azure_openai.chat_with_tools(
                 working,
@@ -707,7 +746,38 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not version:
         raise KeyError(f"prompt_version_not_found: {run['prompt_version_id']}")
 
-    guardrails = version["guardrails"] if isinstance(version.get("guardrails"), dict) else {}
+    compiled = version.get("compiled") if isinstance(version.get("compiled"), dict) else None
+    if not compiled or not compiled.get("bundle_hash"):
+        # Drafts are not persisted as compiled artefacts. Compile the exact
+        # version pinned on the run, using the same wrapper publish uses.
+        compiled_report = db.compile_agent_studio_card(
+            str(version.get("botId") or db.DEFAULT_BOT_ID),
+            prompt_version_id=str(version["id"]),
+        )
+        compiled = (
+            compiled_report.get("bundle")
+            if isinstance(compiled_report.get("bundle"), dict)
+            else {}
+        )
+    from agent_core.fleet.compile import bundle_hash_valid
+    from agent_core.fleet.schema import CompiledBundle
+
+    parsed_contract = CompiledBundle.model_validate(compiled)
+    if not bundle_hash_valid(parsed_contract):
+        raise RuntimeError("sandbox_compiled_bundle_hash_invalid")
+    compiled = parsed_contract.model_dump(mode="json")
+    contract_prompt = str(compiled.get("prompt") or version.get("prompt") or "")
+    contract_card = (
+        compiled.get("agent_card")
+        if isinstance(compiled.get("agent_card"), dict)
+        else version.get("agentCard") or {}
+    )
+    contract_flow = compiled.get("flow") if isinstance(compiled.get("flow"), dict) else {}
+    guardrails = (
+        compiled.get("guardrails")
+        if isinstance(compiled.get("guardrails"), dict)
+        else version["guardrails"] if isinstance(version.get("guardrails"), dict) else {}
+    )
     max_turns = int(guardrails.get("maxTurns") or 0)
     effective_max = min(_HARD_MAX_TURNS, max_turns) if max_turns else _HARD_MAX_TURNS
     # Cheap fail-fast so we don't pay for an LLM call on an already-capped run.
@@ -715,15 +785,17 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if prior_customers >= effective_max:
         raise ValueError(f"sandbox_max_turns:{effective_max}")
 
-    persona = version["persona"] if isinstance(version.get("persona"), dict) else {}
+    persona = (
+        compiled.get("persona")
+        if isinstance(compiled.get("persona"), dict)
+        else version["persona"] if isinstance(version.get("persona"), dict) else {}
+    )
     from agent_core.skills.runtime import resolve_mouth
 
     skill_slug = str(payload.get("skillSlug") or payload.get("skill_slug") or "").strip() or None
     # Prompt only. Intent is not known until the messages below are assembled,
     # so the active skill body is resolved separately once it is.
-    skill_prefix = resolve_mouth(
-        version.get("agentCard") or {}, active_slug=skill_slug
-    ).prompt().prefix
+    skill_prefix = resolve_mouth(contract_card, active_slug=skill_slug).prompt().prefix
     # Server-authoritative history — prefer DB turns over client payload.
     history: list[dict[str, Any]] = []
     with db.engine.connect() as hist_conn:
@@ -811,7 +883,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             enrichment_wait_ms,
         ) = _collect_enrichment(enrichment_future, customer_text)
     assembled = assemble_turn_messages(
-        prompt_template=version["prompt"],
+        prompt_template=contract_prompt,
         persona=persona,
         guardrails=guardrails,
         customer_text=customer_text,
@@ -827,7 +899,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     messages = assembled["messages"]
     intent = assembled["intent"]
     skill_body = resolve_mouth(
-        version.get("agentCard") or {},
+        contract_card,
         intent=str(intent or ""),
         active_slug=skill_slug,
     ).prompt().body_message
@@ -840,25 +912,17 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     t0 = time.perf_counter()
     tool_trace: list[dict[str, Any]] = []
     turn_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
-    customer_id = str(
-        turn_context.get("customerId")
-        or turn_context.get("customer_id")
-        or (payload.get("customerId") or "")
-    ).strip()
     from agent_core.telemetry import span as _span
 
     try:
         with _span("gen_ai.invoke_agent", gen_ai_operation_name="invoke_agent", gen_ai_agent_name="sandbox"):
-            if _sandbox_tools_enabled(payload, turn_context) and customer_id:
+            if _sandbox_tools_enabled(payload, turn_context):
                 bot_text, chat_latency, tokens, tool_trace = _run_sandbox_tool_loop(
                     messages=messages,
-                    customer_text=customer_text,
                     intent=str(intent or "general"),
-                    customer_id=customer_id,
-                    run_id=run_id,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    agent_card=version.get("agentCard") if isinstance(version.get("agentCard"), dict) else None,
+                    agent_card=contract_card,
                 )
             else:
                 with _span("gen_ai.chat", gen_ai_operation_name="chat"):
@@ -904,6 +968,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         customer_bot_exchanges=exchange_n,
         hard_max_turns=_HARD_MAX_TURNS,
         recording_disclosed=recording_disclosed,
+        channel="sandbox_text",
     )
     halted = should_halt(flags)
     _t_guardrails_end = time.perf_counter()
@@ -1074,6 +1139,12 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "runId": run_id,
         "promptVersionId": version["id"],
+        "compiledBundleHash": compiled.get("bundle_hash"),
+        "flowStatus": (
+            "validated_not_executed_in_text_rehearsal"
+            if contract_flow
+            else "not_authored"
+        ),
         "customerTurn": {
             "id": customer_turn_id,
             "role": "customer",

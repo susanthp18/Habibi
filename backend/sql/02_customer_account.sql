@@ -114,7 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_accounts_delinquent
 CREATE TABLE IF NOT EXISTS ledger_entries (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('charge','payment','fee','adjustment','waiver')),
+  type TEXT NOT NULL CHECK (type IN ('charge','payment','fee','adjustment','waiver','reversal')),
   description TEXT,
   amount numeric(14,2) NOT NULL,
   balance numeric(14,2),
@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   -- if the posting wording changes.
   decision_id TEXT,
   dispute_id TEXT,
+  reverses_id TEXT,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_account_id ON ledger_entries(account_id);

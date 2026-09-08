@@ -165,10 +165,15 @@ def test_midnight_ingest_opens_case_and_sends_digital(db_tx, monkeypatch: pytest
         {"id": out["eventId"]},
     ).mappings().first()
     assert event is not None
-    assert event["status"] == "in_progress"
-    assert event["first_touch_channel"] in {"whatsapp", "sms"}
-    assert event["first_touch_at"] is not None
-    assert event["next_voice_at"] is None
+    # Midnight is outside the statutory 08:00–19:00 bound. Digital is
+    # deferred, not sent. The bounce case still opens.
+    assert event["first_touch_channel"] is None
+    assert event["first_touch_at"] is None
+    assert event["suppression_reason"] in {
+        "window_deferred_statutory",
+        "outside_calling_hours",
+        "outside_allowed_window",
+    }
     emi = db_tx.execute(
         text("SELECT status FROM emi_installments WHERE id = :id"),
         {"id": emi_id},

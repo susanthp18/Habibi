@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 #: more here: a decision logged at v2 had no mandate state, so an uplift model
 #: trained across the boundary would read every pre-v3 row as "no mandate on
 #: this account" and learn that mandates are rare.
-SCHEMA_VERSION = "v3"
+SCHEMA_VERSION = "v4"
 
 DEFAULT_TZ = "Asia/Kolkata"
 
@@ -168,6 +168,7 @@ class AccountFeatures:
     days_overdue: int | None = None
     account_status: str | None = None
     product_category: str | None = None
+    product_id: str | None = None
     secured: bool = False
 
     # --- the live event -----------------------------------------------------
@@ -339,6 +340,7 @@ class AccountFeatures:
             "daysOverdue": self.days_overdue,
             "accountStatus": self.account_status,
             "productCategory": self.product_category,
+            "productId": self.product_id,
             "secured": self.secured,
             "openBounce": bool(self.open_bounce_id),
             "bounceReason": self.bounce_reason,
@@ -510,6 +512,7 @@ class SqlFeatureProvider:
             days_overdue=instalment["days_overdue"],
             account_status=account.get("status") if account else None,
             product_category=account.get("category") if account else None,
+            product_id=account.get("product_id") if account else None,
             secured=bool(account.get("secured")) if account else False,
             assigned_user_id=base["assigned_user_id"],
             # ``dnd_registry`` is the TRAI/NDND scrub; ``customers.dnd`` is the
@@ -556,7 +559,8 @@ class SqlFeatureProvider:
             text(
                 f"""
                 SELECT a.id, a.dpd, a.bucket, a.outstanding, a.minimum_due,
-                       a.status, COALESCE(p.category, p.type) AS category,
+                       a.status, a.product_id,
+                       COALESCE(p.category, p.type) AS category,
                        -- Secured lending is what makes a field visit
                        -- proportionate at 31-60 and mandatory at 61-90.
                        -- category is frequently NULL in practice, so type is

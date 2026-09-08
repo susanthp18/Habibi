@@ -152,6 +152,7 @@ def _policy_gate(engine: Engine, conv: dict[str, Any]) -> str | None:
                 source="bot_reply",
                 related_id=conv.get("id"),
                 actor_kind="bot",
+                endpoint=conv.get("phone_primary"),
             )
         if not decision.allowed:
             return decision.reason or "contact_policy"
@@ -821,6 +822,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         turn_index=turn_count,
         elapsed_seconds=0,
         customer_bot_exchanges=turn_count,
+        channel="whatsapp",
     )
     if hard_abuse or "auto-escalate" in early_flags or intent == "escalation":
         if hard_abuse:
@@ -908,12 +910,21 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             history = [{"role": "user", "content": customer_text}]
         from agent_core.skills.runtime import resolve_mouth
         from agent_core.tools.catalog import CATALOG
+        from agent_core.tools.grant import TEXT_ALWAYS
         from agent_core.tools.schema import CHANNEL_TEXT
 
-        mouth = resolve_mouth(bundle.get("agentCard") or {}, intent=intent)
+        mouth = resolve_mouth(
+            bundle.get("agentCard") or {},
+            intent=intent,
+            frozen_connector_tools=bundle.get("frozenTools"),
+        )
         skill_prompt = mouth.prompt()
         text_channel_tools = {spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
-        tool_state = mouth.tools(channel_tools=text_channel_tools)
+        # TEXT_ALWAYS is the text analogue of the floor voice/tools.py applies to
+        # its own registry. Without it the system prompt below told the model to
+        # call `identify_customer` on a turn where the name was neither offered
+        # nor executable.
+        tool_state = mouth.tools(channel_tools=text_channel_tools, floor=TEXT_ALWAYS)
         messages = _build_messages(
             bundle=bundle,
             conv=conv,
@@ -946,7 +957,25 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         # The handoff allowlist belongs to the card this turn is running, not
         # to whatever BOT_ID the process was started with.
         tool_ctx.agent_card = bundle.get("agentCard") or None
-        turn_tools = CATALOG.openai_tools(list(tool_state.offered or ()))
+
+        def _turn_tools(offered: list[str]) -> list[dict]:
+            """OpenAI tool dicts for this turn, with the card's own handoffs in
+            ``handoff_to_agent``'s schema rather than the catalog's two example
+            bot ids. Built from the same card the allowlist enforces."""
+            from agent_core.tools.handoff_allowlist import handoff_tool_spec
+
+            specs = [CATALOG.get(n) for n in offered]
+            return [
+                (
+                    handoff_tool_spec(s, agent_card=tool_ctx.agent_card, bot_id=_bot_id())
+                    if s.name == "handoff_to_agent"
+                    else s
+                ).to_openai_tool()
+                for s in specs
+                if s is not None
+            ]
+
+        turn_tools = _turn_tools(list(tool_state.offered or ()))
 
         tool_failures = 0
         for _ in range(_max_tool_iterations()):
@@ -1033,8 +1062,12 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                         # deliberately untouched: activating a skill changes
                         # what the model is shown, never what it may run.
                         activated = _replace(mouth, active_slug=tool_ctx.active_skill)
-                        turn_tools = CATALOG.openai_tools(
-                            list(activated.tools(channel_tools=text_channel_tools).offered)
+                        turn_tools = _turn_tools(
+                            list(
+                                activated.tools(
+                                    channel_tools=text_channel_tools, floor=TEXT_ALWAYS
+                                ).offered
+                            )
                         )
                 if tool_ctx.escalated:
                     with engine.begin() as conn:
@@ -1102,7 +1135,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             body=final_text,
         )
 
-    to_phone = wa.normalize_phone(fresh.get("phone_primary")) or wa.normalize_phone(fresh.get("phone_alt"))
+    to_phone = wa.normalize_phone(fresh.get("phone_primary"))
     if not to_phone:
         # No deliverable number on the customer record. This is not a transport
         # failure — retrying and escalating would both be noise.

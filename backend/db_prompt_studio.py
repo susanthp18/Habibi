@@ -22,6 +22,46 @@ from typing import Any
 
 from sqlalchemy import text
 
+_FROZEN_TOOLS_COL: bool | None = None
+_CHAIN_HEADS_TABLE: bool | None = None
+_COMPILED_COL: bool | None = None
+_BUNDLE_HASH_COL: bool | None = None
+
+
+def _column_exists(conn: Any, table: str, column: str) -> bool:
+    row = conn.execute(
+        text(
+            """
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = :t AND column_name = :c
+            """
+        ),
+        {"t": table, "c": column},
+    ).first()
+    return bool(row)
+
+
+def _frozen_tools_select(conn: Any) -> str:
+    """``d.frozen_tools`` once migrated; NULL alias until then so SELECTs do not 500."""
+    global _FROZEN_TOOLS_COL
+    if _FROZEN_TOOLS_COL is None:
+        _FROZEN_TOOLS_COL = _column_exists(conn, "bot_deployments", "frozen_tools")
+    return "d.frozen_tools" if _FROZEN_TOOLS_COL else "NULL::jsonb AS frozen_tools"
+
+
+def _compiled_select(conn: Any) -> str:
+    global _COMPILED_COL
+    if _COMPILED_COL is None:
+        _COMPILED_COL = _column_exists(conn, "prompt_versions", "compiled")
+    return "p.compiled" if _COMPILED_COL else "NULL::jsonb AS compiled"
+
+
+def _bundle_hash_select(conn: Any) -> str:
+    global _BUNDLE_HASH_COL
+    if _BUNDLE_HASH_COL is None:
+        _BUNDLE_HASH_COL = _column_exists(conn, "bot_deployments", "bundle_hash")
+    return "d.bundle_hash" if _BUNDLE_HASH_COL else "NULL::text AS bundle_hash"
+
 
 def _db():
     """The ``db`` module object, resolved at call time.
@@ -174,6 +214,44 @@ def _prompt_flow(raw: Any) -> dict[str, Any]:
     return {"flow": raw, "flowUnreadable": False}
 
 
+def _refuses_flow_write(
+    conn: Any, version_id: str, flow_val: Any, payload: dict[str, Any]
+) -> bool:
+    """True when this write would erase an unreadable graph by accident.
+
+    Only one shape is refused: the *empty sentinel* landing on a column that
+    does not parse, without ``replaceUnreadable``. That is exactly the autosave
+    path — ``_prompt_flow`` serves ``{}`` for an unreadable row, the response
+    model materialises it into ``{version:1,globalTools:[],nodes:[],edges:[]}``,
+    the editor stores that non-null object, and the "omit when null" protection
+    then does not apply. One keystroke in the prompt tab and the corrupt row is
+    gone, along with the only signal that it was ever there.
+
+    A real graph still overwrites freely: recovering by loading the built-in
+    script must not need a flag. Starting from blank does, because that write is
+    indistinguishable on the wire from the accident.
+    """
+    if payload.get("replaceUnreadable"):
+        return False
+    import flow_graph
+
+    if isinstance(flow_val, dict) and flow_val and not flow_graph.is_unauthored(flow_val):
+        return False
+    stored = _db()._one(
+        conn.execute(
+            text("SELECT flow FROM prompt_versions WHERE id = :id"), {"id": version_id}
+        )
+    )
+    raw = (stored or {}).get("flow")
+    if not isinstance(raw, dict) or not raw:
+        return False
+    try:
+        flow_graph.parse_graph(raw)
+    except Exception:
+        return True
+    return False
+
+
 def _map_prompt_version(r: dict[str, Any]) -> dict[str, Any]:
     from agent_core.tuning import default_tuning, normalize_tuning
 
@@ -207,6 +285,11 @@ def _map_prompt_version(r: dict[str, Any]) -> dict[str, Any]:
         **_prompt_flow(r.get("flow")),
         "botId": r.get("bot_id") or DEFAULT_BOT_ID,
         "agentCard": r.get("agent_card") if isinstance(r.get("agent_card"), dict) else {},
+        "compiled": (
+            r.get("compiled")
+            if isinstance(r.get("compiled"), dict) and r.get("compiled").get("bundle_hash")
+            else None
+        ),
     }
 
 
@@ -228,6 +311,7 @@ def list_prompt_versions(
     if bot_id:
         params["bot_id"] = bot_id
     with engine.connect() as conn:
+        compiled = _compiled_select(conn)
         rows = _rows(
             conn.execute(
                 text(
@@ -235,7 +319,7 @@ def list_prompt_versions(
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
                       p.persona, p.voice, p.guardrails, p.tuning, p.flow,
-                      p.bot_id, p.agent_card, p.created_at,
+                      p.bot_id, p.agent_card, p.created_at, {compiled},
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
@@ -257,14 +341,15 @@ def get_published_prompt_version(bot_id: str | None = None) -> dict[str, Any] | 
     _one = _mod._one
     bid = (bot_id or DEFAULT_BOT_ID).strip() or DEFAULT_BOT_ID
     with engine.connect() as conn:
+        compiled = _compiled_select(conn)
         r = _one(
             conn.execute(
                 text(
-                    """
+                    f"""
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
                       p.persona, p.voice, p.guardrails, p.tuning, p.flow,
-                      p.bot_id, p.agent_card, p.created_at,
+                      p.bot_id, p.agent_card, p.created_at, {compiled},
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
@@ -283,14 +368,15 @@ def get_prompt_version(version_id: str) -> dict[str, Any] | None:
     engine = _mod.engine
     _one = _mod._one
     with engine.connect() as conn:
+        compiled = _compiled_select(conn)
         r = _one(
             conn.execute(
                 text(
-                    """
+                    f"""
                     SELECT
                       p.id, p.label, p.summary, p.status, p.prompt,
                       p.persona, p.voice, p.guardrails, p.tuning, p.flow,
-                      p.bot_id, p.agent_card, p.created_at,
+                      p.bot_id, p.agent_card, p.created_at, {compiled},
                       COALESCE(u.name, 'Unknown') AS author_name
                     FROM prompt_versions p
                     LEFT JOIN users u ON u.id = p.author_user_id
@@ -351,7 +437,11 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
     # A retired card cannot carry traffic, so its handoffs are not a path: leaving
     # them in made a card look reachable through an agent that no longer answers.
     routes = reachability(
-        [(c["botId"], c["agentCard"]) for c in out if not c.get("archivedAt")],
+        [
+            (c["botId"], c.get("publishedCard") or {})
+            for c in out
+            if not c.get("archivedAt")
+        ],
         entry=entry,
         # A card holding its own active deployment is addressable by bot_id, so
         # it seeds the walk too. deploymentStatus is already computed per card.
@@ -399,6 +489,17 @@ def _studio_card_versions(bot_id: str) -> tuple[dict[str, Any] | None, dict[str,
         _map_prompt_version(pub) if pub else None,
         _map_prompt_version(draft) if draft else None,
     )
+
+
+def _worst_eval_status(bot_id: str, get_latest_eval_report) -> str:
+    red = (get_latest_eval_report(bot_id=bot_id, kind="redteam") or {}).get("status")
+    reg = (get_latest_eval_report(bot_id=bot_id, kind="regression") or {}).get("status")
+    statuses = [str(s) for s in (red, reg) if s]
+    if any(s in {"fail", "error"} for s in statuses):
+        return "fail"
+    if any(s == "pass" for s in statuses):
+        return "pass"
+    return statuses[0] if statuses else "skipped"
 
 
 def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
@@ -475,11 +576,7 @@ def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
             if isinstance(s, dict) and s.get("skill_id")
         ],
         "toolCount": len(tools.get("include") or []),
-        "evalStatus": (
-            (get_latest_eval_report(bot_id=bot_id, kind="redteam") or {}).get("status")
-            or (get_latest_eval_report(bot_id=bot_id, kind="regression") or {}).get("status")
-            or "skipped"
-        ),
+        "evalStatus": _worst_eval_status(bot_id, get_latest_eval_report),
         # None, not 100: a card with no active deployment takes no traffic, and
         # claiming 100% made every unpublished clone look live on the fleet index.
         "trafficPct": (dep or {}).get("trafficPct") if dep else None,
@@ -526,7 +623,7 @@ def _handoff_edges() -> list[tuple[str, Any]]:
                      WHERE p.status IN ('published', 'draft')
                        AND b.archived_at IS NULL
                        AND b.tenant_id = :tenant
-                     ORDER BY p.bot_id, (p.status = 'draft') DESC, p.created_at DESC
+                     ORDER BY p.bot_id, (p.status = 'published') DESC, p.created_at DESC
                     """
                 ),
                 {"tenant": _tenant()},
@@ -782,6 +879,7 @@ def agent_change_log(bot_id: str | None = None, *, limit: int = 50) -> dict[str,
 def compile_agent_studio_card(
     bot_id: str,
     *,
+    prompt_version_id: str | None = None,
     card_raw: dict[str, Any] | None = None,
     flow: Any = None,
     traffic_pct: int | None = None,
@@ -798,12 +896,17 @@ def compile_agent_studio_card(
     from agent_core.tools.catalog import CATALOG
 
     published, draft = _studio_card_versions(bot_id)
+    explicit = get_prompt_version(prompt_version_id) if prompt_version_id else None
+    if prompt_version_id and explicit is None:
+        raise KeyError(f"prompt_version_not_found: {prompt_version_id}")
+    if explicit and explicit.get("botId") != bot_id:
+        raise ValueError("prompt_version_bot_mismatch")
     card = card_raw if isinstance(card_raw, dict) and card_raw else None
     if card is None:
         # Compile preview must gate what publish will actually ship, and publish
         # ships the draft. Falling straight to published reported a green compile
         # for a draft whose card had not been checked.
-        for row in (draft, published):
+        for row in (explicit, draft, published):
             candidate = (row or {}).get("agentCard")
             if isinstance(candidate, dict) and candidate:
                 card = candidate
@@ -813,12 +916,12 @@ def compile_agent_studio_card(
             card = card_dump(bot_id)
         except KeyError:
             card = {}
-    graph = flow if flow is not None else ((draft or published or {}).get("flow") or {})
+    graph = flow if flow is not None else ((explicit or draft or published or {}).get("flow") or {})
     # Same precedence the card itself follows: preview what publish will ship,
     # which is the draft. The caller may pass the editor's unsaved voice and
     # persona instead — without that the preview gates the last autosave, and
     # G15 is exactly the gate an operator would trip between two of them.
-    mouth = draft or published or {}
+    mouth = explicit or draft or published or {}
     voice_short, voice_locale, card_locales = voice_locale_facts(
         voice if voice is not None else mouth.get("voice"),
         persona if persona is not None else mouth.get("persona"),
@@ -826,24 +929,32 @@ def compile_agent_studio_card(
     attached = None
     try:
         from agent_core.cards.schema import is_authored, parse_card
-        from agent_core.skills.persist import packs_for_slugs
+        from agent_core.skills.persist import packs_for_skill_refs
 
         raw = card if isinstance(card, dict) else {}
         if is_authored(raw):
+            attached = []
             parsed = parse_card(raw)
-            attached = packs_for_slugs([r.skill_id for r in parsed.skills]) or None
+            attached = packs_for_skill_refs(parsed.skills)
     except Exception:
-        attached = None
+        pass
+    version_id = mouth.get("id")
     report = compile_card(
         bot_id=bot_id,
         card_raw=card,
         flow=graph,
         catalog_names=set(CATALOG.specs),
         known_bot_ids=list_bot_ids(),
-        eval_report=get_latest_eval_report(bot_id=bot_id, kind="regression"),
-        redteam_report=get_latest_eval_report(bot_id=bot_id, kind="redteam"),
+        eval_report=get_latest_eval_report(
+            bot_id=bot_id, kind="regression", prompt_version_id=version_id
+        ),
+        redteam_report=get_latest_eval_report(
+            bot_id=bot_id, kind="redteam", prompt_version_id=version_id
+        ),
         twin_report=_latest_twin_gate_report(),
-        outbound_report=get_latest_eval_report(bot_id=bot_id, kind="outbound"),
+        outbound_report=get_latest_eval_report(
+            bot_id=bot_id, kind="outbound", prompt_version_id=version_id
+        ),
         attached_skills=attached,
         # Without these the preview read the card's stored experiment while
         # publish used the Ship tab's, so G12 reported "full ship" green and the
@@ -853,8 +964,46 @@ def compile_agent_studio_card(
         voice_short_name=voice_short,
         voice_locale=voice_locale,
         card_locales=card_locales,
+        prompt=mouth.get("prompt"),
+        prompt_guardrails=mouth.get("guardrails") if isinstance(mouth.get("guardrails"), dict) else {},
     )
-    return report.model_dump()
+    from agent_core.fleet.compile import compile_bundle
+
+    bundle = compile_bundle(
+        report=report,
+        prompt=str(mouth.get("prompt") or ""),
+        persona=mouth.get("persona") if isinstance(mouth.get("persona"), dict) else {},
+        guardrails=mouth.get("guardrails") if isinstance(mouth.get("guardrails"), dict) else {},
+        flow=graph if isinstance(graph, dict) else {},
+        prompt_version_id=version_id,
+        attached_skills=attached,
+        source_ids={"bot_id": bot_id, "prompt_version_id": str(version_id or "")},
+    )
+    return report.model_copy(update={"bundle": bundle.model_dump(mode="json")}).model_dump()
+
+
+def get_effective_contract(bot_id: str) -> dict[str, Any]:
+    """Published artefact if persisted, else a dry-run compile of the draft."""
+    published = get_published_prompt_version(bot_id)
+    stored = (published or {}).get("compiled") if isinstance(published, dict) else None
+    if isinstance(stored, dict) and stored.get("bundle_hash"):
+        return {
+            "source": "published",
+            "botId": bot_id,
+            "promptVersionId": published.get("id") if published else None,
+            "compiled": stored,
+        }
+    dumped = compile_agent_studio_card(bot_id)
+    compiled = dumped.get("bundle") if isinstance(dumped.get("bundle"), dict) else {}
+    if not compiled.get("bundle_hash"):
+        raise KeyError("effective_contract_unavailable")
+    return {
+        "source": "preview",
+        "botId": bot_id,
+        "promptVersionId": compiled.get("prompt_version_id"),
+        "compiled": compiled,
+        "gates": dumped.get("gates") or [],
+    }
 
 
 def list_persona_presets() -> list[dict[str, Any]]:
@@ -1440,12 +1589,15 @@ def list_bot_deployments(
 
 DEFAULT_BOT_ID = os.getenv("BOT_ID", "kaia-v2-4")
 
-_ACTIVE_DEPLOYMENT_SELECT = """
+def _active_deployment_sql(conn: Any) -> str:
+    frozen = _frozen_tools_select(conn)
+    bundle = _bundle_hash_select(conn)
+    return f"""
     SELECT
       d.id, d.bot_id, d.prompt_version_id, d.kb_snapshot_id,
       d.tts_voice_id, d.environment, d.status,
       d.published_at, d.rollback_deployment_id, d.voice_config, d.tuning,
-      d.traffic_pct, d.shadow, d.eval_report_id,
+      d.traffic_pct, d.shadow, d.eval_report_id, {frozen}, {bundle},
       COALESCE(u.name, d.published_by_user_id) AS published_by
     FROM bot_deployments d
     LEFT JOIN users u ON u.id = d.published_by_user_id
@@ -1468,7 +1620,7 @@ def _fetch_active_deployment_row(
     _one = _mod._one
     return _one(
         conn.execute(
-            text(_ACTIVE_DEPLOYMENT_SELECT),
+            text(_active_deployment_sql(conn)),
             {"bot_id": bot_id, "environment": environment},
         )
     )
@@ -1575,21 +1727,29 @@ def _map_bot_deployment_row(r: dict[str, Any]) -> dict[str, Any]:
         "trafficPct": int(r.get("traffic_pct") or 100),
         "shadow": bool(r.get("shadow")),
         "evalReportId": r.get("eval_report_id"),
+        "frozenTools": (
+            list(r["frozen_tools"])
+            if isinstance(r.get("frozen_tools"), list)
+            else (r.get("frozen_tools") if r.get("frozen_tools") is not None else None)
+        ),
+        "bundleHash": r.get("bundle_hash"),
     }
 
 
 def _fetch_bot_deployment(conn: Any, deployment_id: str) -> dict[str, Any] | None:
     _mod = _db()
     _one = _mod._one
+    frozen = _frozen_tools_select(conn)
+    bundle = _bundle_hash_select(conn)
     r = _one(
         conn.execute(
             text(
-                """
+                f"""
                 SELECT
                   d.id, d.bot_id, d.prompt_version_id, d.kb_snapshot_id,
                   d.tts_voice_id, d.environment, d.status,
                   d.published_at, d.rollback_deployment_id, d.voice_config, d.tuning,
-                  d.traffic_pct, d.shadow, d.eval_report_id,
+                  d.traffic_pct, d.shadow, d.eval_report_id, {frozen}, {bundle},
                   COALESCE(u.name, d.published_by_user_id) AS published_by
                 FROM bot_deployments d
                 LEFT JOIN users u ON u.id = d.published_by_user_id
@@ -1769,6 +1929,10 @@ def patch_prompt_version(version_id: str, payload: dict[str, Any]) -> dict[str, 
             flow_val = payload["flow"]
             if hasattr(flow_val, "model_dump"):
                 flow_val = flow_val.model_dump()
+            if _refuses_flow_write(conn, version_id, flow_val, payload):
+                # 409 through _handle_write's ValueError mapping, like every
+                # other refusal in this module.
+                raise ValueError("flow_unreadable_not_replaced")
             sets.append("flow = CAST(:flow AS jsonb)")
             params["flow"] = _jsonb(flow_val or {})
         card_val = payload["agentCard"] if "agentCard" in payload else payload.get("agent_card") if "agent_card" in payload else None
@@ -1851,7 +2015,8 @@ def publish_prompt_version(
             conn.execute(
                 text(
                     """
-                    SELECT id, status, voice, persona, label, tuning, flow, bot_id, agent_card
+                    SELECT id, status, voice, persona, label, tuning, flow, bot_id, agent_card,
+                           prompt, guardrails
                     FROM prompt_versions WHERE id = :id
                     """
                 ),
@@ -1864,6 +2029,14 @@ def publish_prompt_version(
             raise ValueError("prompt_version_not_draft")
 
         bot_id = str(target.get("bot_id") or DEFAULT_BOT_ID).strip() or DEFAULT_BOT_ID
+        archived = _one(
+            conn.execute(
+                text("SELECT archived_at FROM bots WHERE id = :id"),
+                {"id": bot_id},
+            )
+        )
+        if archived and archived.get("archived_at") is not None:
+            raise ValueError("bot_archived")
         # Serialize publish/rollback for this bot+env (single-active invariant).
         conn.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
@@ -1879,13 +2052,14 @@ def publish_prompt_version(
         attached = None
         try:
             from agent_core.cards.schema import is_authored, parse_card
-            from agent_core.skills.persist import packs_for_slugs, sync_attachments_from_card
+            from agent_core.skills.persist import packs_for_skill_refs, sync_attachments_from_card
 
             if is_authored(card_raw):
+                attached = []
                 parsed = parse_card(card_raw)
-                attached = packs_for_slugs([r.skill_id for r in parsed.skills]) or None
+                attached = packs_for_skill_refs(parsed.skills)
         except Exception:
-            attached = None
+            pass
         exp = card_raw.get("experiment") if isinstance(card_raw.get("experiment"), dict) else {}
         pct = traffic_pct if traffic_pct is not None else int(exp.get("traffic_pct") or 100)
         triggers = auto_rollback if auto_rollback is not None else list(exp.get("auto_rollback") or [])
@@ -1911,10 +2085,16 @@ def publish_prompt_version(
             flow=target.get("flow"),
             catalog_names=set(_CATALOG.specs),
             known_bot_ids=known_bots,
-            eval_report=get_latest_eval_report(bot_id=bot_id, kind="regression"),
-            redteam_report=get_latest_eval_report(bot_id=bot_id, kind="redteam"),
+            eval_report=get_latest_eval_report(
+                bot_id=bot_id, kind="regression", prompt_version_id=version_id
+            ),
+            redteam_report=get_latest_eval_report(
+                bot_id=bot_id, kind="redteam", prompt_version_id=version_id
+            ),
             twin_report=_latest_twin_gate_report(),
-            outbound_report=get_latest_eval_report(bot_id=bot_id, kind="outbound"),
+            outbound_report=get_latest_eval_report(
+                bot_id=bot_id, kind="outbound", prompt_version_id=version_id
+            ),
             attached_skills=attached,
             traffic_pct=pct,
             auto_rollback=triggers,
@@ -1923,6 +2103,11 @@ def publish_prompt_version(
             voice_short_name=voice_short,
             voice_locale=voice_locale,
             card_locales=card_locales,
+            shadow=bool(shadow),
+            prompt=target.get("prompt"),
+            prompt_guardrails=(
+                target.get("guardrails") if isinstance(target.get("guardrails"), dict) else {}
+            ),
         )
         _assert_card(report)
         # Fold the shipped experiment back into the card. The deployment row
@@ -1956,6 +2141,28 @@ def publish_prompt_version(
                     )
         except Exception:
             logger.exception("could not persist the shipped experiment onto the card")
+        # Compile the persisted artifact from the exact card that is about to
+        # become live. Ship controls can rewrite ``experiment`` above; hashing
+        # the pre-rewrite card would make the deployment point at a contract
+        # that production never ran.
+        from agent_core.cards.compile import CompileReport
+        from agent_core.fleet.compile import compile_bundle
+
+        shipped_report = CompileReport.model_validate(
+            {**report.model_dump(mode="json"), "card": shipped_card}
+        )
+        compiled_bundle = compile_bundle(
+            report=shipped_report,
+            prompt=str(target.get("prompt") or ""),
+            persona=target.get("persona") if isinstance(target.get("persona"), dict) else {},
+            guardrails=target.get("guardrails") if isinstance(target.get("guardrails"), dict) else {},
+            flow=target.get("flow") if isinstance(target.get("flow"), dict) else {},
+            prompt_version_id=version_id,
+            attached_skills=attached,
+            source_ids={"bot_id": bot_id, "prompt_version_id": version_id},
+        )
+        compiled_dump = compiled_bundle.model_dump(mode="json")
+        bundle_hash = compiled_bundle.bundle_hash
         try:
             from agent_core.skills.persist import sync_attachments_from_card
 
@@ -2057,17 +2264,23 @@ def publish_prompt_version(
                 ),
                 {"bot_id": bot_id},
             )
+            compiled_sql = ""
+            compiled_params: dict[str, Any] = {"id": version_id, "summary": note}
+            if _column_exists(conn, "prompt_versions", "compiled"):
+                compiled_sql = ", compiled = CAST(:compiled AS jsonb)"
+                compiled_params["compiled"] = _jsonb(compiled_dump)
             conn.execute(
                 text(
-                    """
+                    f"""
                     UPDATE prompt_versions
                     SET status = 'published',
                         summary = CASE WHEN :summary = '' THEN summary ELSE :summary END,
                         updated_at = now()
+                        {compiled_sql}
                     WHERE id = :id AND status = 'draft'
                     """
                 ),
-                {"id": version_id, "summary": note},
+                compiled_params,
             )
             # Force unique-index check before we leave the transaction half-done.
             promoted = _one(
@@ -2092,35 +2305,59 @@ def publish_prompt_version(
                 )
 
             dep_id = _id("DEP")
+            frozen_names: list[str] = []
+            try:
+                from agent_core.connectors.persist import bound_tool_names
+                from agent_core.cards.schema import is_authored as _authored_card, parse_card as _parse_card
+
+                snap_card = shipped_card if isinstance(shipped_card, dict) else card_raw
+                if _authored_card(snap_card):
+                    frozen_names = sorted(
+                        bound_tool_names([c.model_dump() for c in _parse_card(snap_card).connectors])
+                    )
+            except Exception:
+                logger.exception("could not snapshot connector tools for deployment")
+                frozen_names = []
+            frozen_sql = ""
+            frozen_val = ""
+            params = {
+                "id": dep_id,
+                "bot_id": bot_id,
+                "prompt_version_id": version_id,
+                "kb_snapshot_id": resolved_snap,
+                "tts_voice_id": tts_voice_id,
+                "actor": _actor_user_id(),
+                "rollback_id": prior["id"] if prior else None,
+                "voice_config": _jsonb(voice_config),
+                "tuning": _jsonb(resolved_tuning),
+                "traffic_pct": pct,
+                "shadow": False,
+            }
+            if _column_exists(conn, "bot_deployments", "frozen_tools"):
+                frozen_sql = ", frozen_tools"
+                frozen_val = ", CAST(:frozen AS jsonb)"
+                params["frozen"] = _jsonb(frozen_names)
+            if _column_exists(conn, "bot_deployments", "bundle_hash"):
+                frozen_sql += ", bundle_hash"
+                frozen_val += ", :bundle_hash"
+                params["bundle_hash"] = bundle_hash
             conn.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO bot_deployments (
                       id, bot_id, prompt_version_id, kb_snapshot_id, tts_voice_id,
                       environment, status, published_by_user_id, published_at,
                       rollback_deployment_id, voice_config, tuning,
-                      traffic_pct, shadow, created_at, updated_at
+                      traffic_pct, shadow{frozen_sql}, created_at, updated_at
                     ) VALUES (
                       :id, :bot_id, :prompt_version_id, :kb_snapshot_id, :tts_voice_id,
                       'production', 'active', :actor, now(),
                       :rollback_id, CAST(:voice_config AS jsonb), CAST(:tuning AS jsonb),
-                      :traffic_pct, :shadow, now(), now()
+                      :traffic_pct, :shadow{frozen_val}, now(), now()
                     )
                     """
                 ),
-                {
-                    "id": dep_id,
-                    "bot_id": bot_id,
-                    "prompt_version_id": version_id,
-                    "kb_snapshot_id": resolved_snap,
-                    "tts_voice_id": tts_voice_id,
-                    "actor": _actor_user_id(),
-                    "rollback_id": prior["id"] if prior else None,
-                    "voice_config": _jsonb(voice_config),
-                    "tuning": _jsonb(resolved_tuning),
-                    "traffic_pct": pct,
-                    "shadow": bool(shadow),
-                },
+                params,
             )
             try:
                 from agent_core.canary import record_experiment
@@ -2340,6 +2577,62 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
         if not pv:
             raise KeyError(f"prompt_version_not_found: {prompt_version_id}")
 
+        version_row = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT prompt, guardrails, flow, agent_card, voice, persona
+                      FROM prompt_versions WHERE id = :id
+                    """
+                ),
+                {"id": prompt_version_id},
+            )
+        )
+        from agent_core.cards.compile import compile_card, assert_publishable as _assert_card
+        from agent_core.tools.catalog import CATALOG as _CATALOG
+        import authz as _authz
+
+        uid = _actor_user_id()
+        has_publish = bool(uid and _authz.has_permission(uid, _authz.AGENT_PUBLISH))
+        card_raw = version_row.get("agent_card") if version_row else {}
+        if not isinstance(card_raw, dict):
+            card_raw = {}
+        attached = None
+        try:
+            from agent_core.cards.schema import is_authored, parse_card
+            from agent_core.skills.persist import packs_for_skill_refs
+
+            if is_authored(card_raw):
+                attached = []
+                parsed = parse_card(card_raw)
+                attached = packs_for_skill_refs(parsed.skills)
+        except Exception:
+            pass
+        known_bots = {r["id"] for r in _mod._rows(conn.execute(text("SELECT id FROM bots")))}
+        voice_short, voice_locale, card_locales = voice_locale_facts(
+            (version_row or {}).get("voice"), (version_row or {}).get("persona")
+        )
+        report = compile_card(
+            bot_id=target["bot_id"],
+            card_raw=card_raw,
+            flow=(version_row or {}).get("flow"),
+            catalog_names=set(_CATALOG.specs),
+            known_bot_ids=known_bots,
+            attached_skills=attached,
+            has_publish=has_publish,
+            skip_eval_gates=True,
+            prompt=(version_row or {}).get("prompt"),
+            prompt_guardrails=(
+                (version_row or {}).get("guardrails")
+                if isinstance((version_row or {}).get("guardrails"), dict)
+                else {}
+            ),
+            voice_short_name=voice_short,
+            voice_locale=voice_locale,
+            card_locales=card_locales,
+        )
+        _assert_card(report)
+
         current = _fetch_active_deployment_row(
             conn, bot_id=target["bot_id"], environment="production"
         )
@@ -2422,6 +2715,17 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                 from_deployment_id=current["id"] if current else None,
                 version_id=prompt_version_id,
             )
+            try:
+                from agent_core.canary import close_running_experiments
+
+                close_running_experiments(
+                    conn,
+                    bot_id=target["bot_id"],
+                    environment="production",
+                    reason="deployment_rollback",
+                )
+            except Exception:
+                logger.exception("could not close running experiments after deployment rollback")
         except IntegrityError as exc:
             raise ValueError("publish_conflict") from exc
 

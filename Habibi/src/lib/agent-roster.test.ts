@@ -159,11 +159,13 @@ describe("groupRoster", () => {
 });
 
 describe("changeVerb", () => {
-  it("maps the four actions the change log writes", () => {
+  it("maps the lifecycle actions the change log writes", () => {
     expect(changeVerb("agent.publish")).toBe("published");
     expect(changeVerb("agent.rollback")).toBe("rolled back");
     expect(changeVerb("agent.archive")).toBe("archived");
     expect(changeVerb("agent.restore")).toBe("restored");
+    expect(changeVerb("agent.role_grants")).toBe("updated role grants");
+    expect(changeVerb("agent.experiment_rollback")).toBe("rolled back experiment");
   });
 
   it("degrades an unknown action into something readable", () => {

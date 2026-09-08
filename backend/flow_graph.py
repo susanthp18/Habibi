@@ -804,22 +804,41 @@ _TRANSITIONING_TOOLS = frozenset(
 
 
 def tool_catalog() -> list[dict[str, Any]]:
-    """Tools an authored node may call, as the editor should offer them.
+    """Tools the Studio may offer an author, on every channel.
 
-    Assembled from the pipecat-free ``agent_core.tools.CATALOG`` (filtered to
-    the voice channel — ``identify_customer`` is text-only and would be dead
-    weight on a call) plus :data:`_FLOW_CONTROL_TOOLS`.
+    Assembled from the pipecat-free ``agent_core.tools.CATALOG`` plus
+    :data:`_FLOW_CONTROL_TOOLS`.
+
+    **No longer filtered to voice.** This one endpoint feeds three pickers —
+    the flow node's tools, the card's Tool Grant, and a skill pack's
+    ``allowed-tools`` — and only the first of them is voice. Dropping every
+    text-only spec here is why ``identify_customer`` and
+    ``ingest_customer_document`` could not be granted from the Studio at all:
+    they were absent from the palette, so no author could add them, so they
+    appeared on no card and in no pack, so the runtime refused them —
+    while the WhatsApp system prompt named one of them on every turn.
+
+    Each row now states its own ``channels`` and each consumer filters to what
+    it is for. The Flow tab keeps voice, because a flow node is a voice node.
     """
     from agent_core.cards.schema import LOCKED_MOUTH_TOOLS
     from agent_core.tools import CATALOG
+    from agent_core.tools.grant import TEXT_ALWAYS, VOICE_ALWAYS, VOICE_FLOW_TOOLS
 
     entries: dict[str, str] = {}
+    channels: dict[str, list[str]] = {}
+    catalog_keys: set[str] = set()
     for key, spec in CATALOG.specs.items():
-        channels = getattr(spec, "channels", None) or ()
-        if "voice" not in channels:
-            continue
         entries[key] = (getattr(spec, "description", "") or "").strip()
+        channels[key] = sorted(getattr(spec, "channels", None) or ())
+        catalog_keys.add(key)
     entries.update(_FLOW_CONTROL_TOOLS)
+
+    #: Names the runtime keeps regardless of what a card granted. Adding one to
+    #: ``tools.include`` is at best a no-op and at worst — for the nine
+    #: flow-control verbs, which are not catalog specs — a G4 failure the author
+    #: only discovers at Publish.
+    floor = VOICE_ALWAYS | TEXT_ALWAYS
 
     return [
         {
@@ -827,6 +846,14 @@ def tool_catalog() -> list[dict[str, Any]]:
             "description": entries[key],
             "transitions": key in _TRANSITIONING_TOOLS,
             "locked": key in LOCKED_MOUTH_TOOLS,
+            "alwaysOn": key in floor,
+            # Flow-control verbs live only inside voice.tools.build_tools.
+            "channels": channels.get(key) or ["voice"],
+            "kind": (
+                "flow_control"
+                if key in VOICE_FLOW_TOOLS and key not in catalog_keys
+                else "catalog"
+            ),
         }
         for key in sorted(entries)
     ]

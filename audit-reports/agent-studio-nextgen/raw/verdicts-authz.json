@@ -1,0 +1,243 @@
+{
+ "verdicts": [
+  {
+   "id": "AUTHZ-1",
+   "verdict": "CONFIRMED",
+   "reason": "Mechanism real and reachable. bound_tool_names re-reads the live registry and admits ext.* names only for status=='approved' (backend/agent_core/connectors/persist.py:222) and only from tools_cache (persist.py:230-233); both columns are mutable after publish by INTEGRATIONS_WRITE — approve() at persist.py:193-206 and health_test()'s UPDATE mcp_connectors SET tools_cache at persist.py:306-312, routed from main.py:2547-2559 (both INTEGRATIONS_WRITE, authz.py:330-332). The grant is NOT pinned at publish: it is recomputed per turn — bot_runtime.py:913-916 resolve_mouth(bundle['agentCard']).tools() -> intersect.effective_tools -> bound_tool_names (intersect.py:117-123), and the result is the only execution gate, bot_tools.py:806-808 'if ctx.allowed_tools is None or name not in ctx.allowed_tools' with ext.* dispatched at bot_tools.py:810-818 (fed from bot_runtime.py:943). change_log records only PUBLISH/ROLLBACK/ARCHIVE/RESTORE (change_log.py:41-44) and change_log.py:162 is the ONLY INSERT INTO audit_log in backend/ (verified by grep), so neither mutation appears anywhere. Operator action: POST /connectors/{id}/test (or /approve) with INTEGRATIONS_WRITE, no republish. One correction: the executing runtime is bot_tools/bot_runtime, not voice/tools.py — the voice handler table (voice/tools.py:2885-2920) contains no ext.* entry, so on the voice leg a widened ext.* name is allowed but has no handler.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/intersect.py:117-123",
+    "backend/agent_core/connectors/persist.py:193",
+    "backend/agent_core/connectors/persist.py:222",
+    "backend/agent_core/connectors/persist.py:230",
+    "backend/agent_core/connectors/persist.py:306",
+    "backend/bot_runtime.py:916",
+    "backend/bot_runtime.py:943",
+    "backend/bot_tools.py:806",
+    "backend/bot_tools.py:810",
+    "backend/voice/bot.py:1141",
+    "backend/agent_core/change_log.py:162"
+   ]
+  },
+  {
+   "id": "AUTHZ-2",
+   "verdict": "CONFIRMED",
+   "reason": "Read rollback_bot_deployment in full (backend/db_prompt_studio.py:2292-2424): no compile_card, no assert_publishable, no has_publish anywhere in the function, while it executes UPDATE prompt_versions SET status='published' (2358-2365) and INSERT INTO bot_deployments ... 'production','active' (2378-2405). Contrast publish_prompt_version, which builds has_publish=_authz.has_permission(uid, AGENT_PUBLISH) at db_prompt_studio.py:1902-1903, passes it to compile_card (1908-1926) and asserts the report (1926), with G14 at compile.py:932-938 and the 403 at compile.py:93. Route POST /bot-deployments/{deployment_id}/rollback -> main.py:3371 -> db.rollback_bot_deployment, permission BOT_WRITE (authz.py:279) against AGENT_PUBLISH on publish (authz.py:290). Operator action: a BOT_WRITE holder POSTs the rollback and production serves a different prompt version, G14 never evaluated. Two scope notes that do not change the verdict: the target must be an existing non-active production deployment row (2323-2331), so the version was compiled once at its own publish, and listing candidates via GET /bot-deployments also needs BOT_READ (authz.py:275); the gate state (signed skills, connector approval, canary, A2A cert) is still not re-checked at rollback time.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:2292",
+    "backend/db_prompt_studio.py:2358",
+    "backend/db_prompt_studio.py:2378",
+    "backend/agent_core/cards/compile.py:932",
+    "backend/main.py:3371"
+   ]
+  },
+  {
+   "id": "AUTHZ-3",
+   "verdict": "CONFIRMED",
+   "reason": "Both writes land on the same column through the same function. PATCH /agent-studio/cards/{bot_id} (AGENT_EDIT, authz.py:301) ends at main.py:2144 with _handle_write(db.patch_prompt_version, draft['id'], {'agentCard': card}); PATCH /prompt-versions/{version_id} (BOT_WRITE, authz.py:288) -> main.py:3228 -> the same db.patch_prompt_version, whose agent_card branch is db_prompt_studio.py:1774-1778 ('agent_card = CAST(:agent_card AS jsonb)'). PromptVersionPatchRequest declares agentCard: dict[str, Any] | None at schemas.py:2388 (not 2389). The escalation is even shorter than described: POST /prompt-versions is also BOT_WRITE (authz.py:287) and PromptVersionCreateRequest carries agentCard at schemas.py:2373, so a BOT_WRITE holder can create a draft with an arbitrary card without touching restore-as-draft (authz.py:291). AGENT_EDIT is catalogued as 'Author agent cards, tools and handoff allowlists' (authz.py:131) and gates none of it. Reachable API action: POST /prompt-versions {botId, agentCard:{...tools.include widened...}} with BOT_WRITE only.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/schemas.py:2388",
+    "backend/schemas.py:2373",
+    "backend/authz.py:287",
+    "backend/main.py:2144",
+    "backend/db_prompt_studio.py:1774"
+   ]
+  },
+  {
+   "id": "AUTHZ-4",
+   "verdict": "DOWNGRADED",
+   "reason": "The permission-ordering half is real: archive is AGENT_EDIT (authz.py:302), experiment rollback is AGENT_PUBLISH (authz.py:278), deployment rollback is BOT_WRITE (authz.py:279), and archive_agent_studio_card really does retire the active production deployment (docstring db_prompt_studio.py:633-638; UPDATE bot_deployments SET status='retired' at 683-687). But the MAJOR framing — 'takes a live agent off the air' — is not reachable. archive refuses the runtime entry bot at db_prompt_studio.py:654-655 (if bid == runtime_entry_bot_id(): raise 'entry_card_not_archivable') and refuses first-party ids at 652-653, and this audit's established fact is that inbound traffic ALWAYS resolves to that one entry bot (agent_core/cards/routing.py:34-45); the phone runtimes load the bundle with no bot_id at all (bot_runtime.py:712, voice/bot.py:427). So the only cards an AGENT_EDIT holder can archive are cards that take no inbound traffic; the trigger as written ('inbound traffic to that card has no active deployment') cannot happen for kaia-v2-4, which is the entry card. What survives is a contained separation-of-duties inconsistency across three sibling routes plus loss of the card's deployment row for copilot/sandbox resolution (copilot.py:285, sandbox_runtime.py:512). MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:652",
+    "backend/db_prompt_studio.py:654",
+    "backend/db_prompt_studio.py:683",
+    "backend/agent_core/cards/routing.py:34"
+   ]
+  },
+  {
+   "id": "AUTHZ-5",
+   "verdict": "DOWNGRADED",
+   "reason": "The SQL is exactly as claimed — ON CONFLICT (id) DO UPDATE at agent_core/a2a.py:238-245 with the id taken from the caller's payload (a2a.py:221), tenant_id absent from the SET list, while list_partners IS tenant-scoped (a2a.py:213). But the cross-tenant trigger is not reachable through the real UI or API today, and the finding concedes it. tenant_context binds nothing per request: current_tenant() falls back to db.TENANT_ID (tenant_context.py:75-77) and a grep of backend/*.py shows the ONLY callers of tenant_context.bind/set_tenant are tests (tests/test_tenant_context.py, test_connector_governance.py, test_connector_read_hygiene.py) — no middleware, no dependency, and no RLS policy exists. Within the one tenant a process serves, the same INTEGRATIONS_WRITE that reaches POST /a2a/partners (authz.py:344, main.py:2746) can already upsert that partner by slug/id, so no boundary is crossed. Real latent defect, worth the tenant predicate, but not MAJOR: MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/a2a.py:220",
+    "backend/agent_core/a2a.py:238",
+    "backend/tenant_context.py:75"
+   ]
+  },
+  {
+   "id": "AUTHZ-6",
+   "verdict": "CONFIRMED",
+   "reason": "Verified line by line. publish_prompt_version calls partner_has_cert(bot_id) when the card exposes A2A (db_prompt_studio.py:1894-1900) and passes it as a2a_cert_ok into compile_card (1922); compile.py:897-917 makes G13 blocking and emits 'pass' with the message 'partner mTLS cert on file' at compile.py:917. partner_has_cert does 'del bot_id' at a2a.py:264 and then asks only whether the tenant has ANY active partner with a non-empty cert_fingerprint (a2a.py:267-279). That fingerprint is self-asserted: upsert_partner takes certFingerprint verbatim or computes fingerprint_dn(dn) = sha256 of a typed DN string (a2a.py:222-227, 35-36); no certificate is parsed. Worse than stated — require_partner authenticates inbound A2A by hashing the x-ssl-client-dn header and comparing to that same column (a2a.py:31, 48, 57), so the typed string is the credential, and that SELECT carries no tenant predicate either. Reachable API action: one POST /a2a/partners {'name':'x','certDn':'CN=x'} with INTEGRATIONS_WRITE (authz.py:344) makes G13 pass for every A2A-exposing card in the tenant. Wrong publish verdict on a blocking gate: MAJOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/a2a.py:222",
+    "backend/agent_core/a2a.py:262",
+    "backend/agent_core/a2a.py:264",
+    "backend/agent_core/cards/compile.py:897",
+    "backend/agent_core/cards/compile.py:917",
+    "backend/db_prompt_studio.py:1894"
+   ]
+  },
+  {
+   "id": "AUTHZ-7",
+   "verdict": "CONFIRMED",
+   "reason": "Read replace_role_permissions end to end (backend/db.py:215-268): it UPDATEs roles SET configured_at/updated_at (243-251), DELETEs every role_permissions row (253) and re-INSERTs the caller's set (254-264), then invalidates the cache — and writes nothing else. No audit_log, no activity_events, no actor column: grep of backend for 'INSERT INTO audit_log' returns exactly one hit, agent_core/change_log.py:162, whose vocabulary is PUBLISH/ROLLBACK/ARCHIVE/RESTORE (change_log.py:41-44); grep of backend/alembic for changed_by/configured_by on roles/role_permissions returns nothing (only 20260904_0104 adds configured_at, a bare timestamp). Route PATCH /roles/{role_id}/permissions -> main.py:2984, ADMIN_WRITE (authz.py:363). The grant being written is the one that feeds G14 (compile.py:932-938) and, via ADMIN_WRITE or an admin-named role, ALL_PERMISSIONS (authz.py:695-696, 743-747). Reachable action: an admin grants perm-agent-publish, a publish happens, the grant is revoked — the audit chain shows the publish and nothing explains the authority. Unattributable privilege change on a regulated path: MAJOR stands.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/db.py:215",
+    "backend/db.py:243",
+    "backend/db.py:253",
+    "backend/main.py:2984",
+    "backend/agent_core/change_log.py:162"
+   ]
+  },
+  {
+   "id": "AUTHZ-8",
+   "verdict": "DOWNGRADED",
+   "reason": "The code is exactly as described: revoke_key (agent_core/mcp_http/auth.py:158-163) runs the UPDATE and returns None without checking rowcount, and the route discards it and returns a literal {'ok': True} (main.py:2620-2626), while rotate_key does check and raises KeyError -> 404 (auth.py:166-175) and delete_provider_binding 404s on a no-op (main.py:5527-5528). But the trigger is thin. The console revokes with an id it just listed from GET /mcp/keys (auth.py:126-155), there is no delete path that could strand a stale id, and re-revoking an already-revoked key or a rotated predecessor is a genuine idempotent success, not a lie. The false success requires a hand-typed or scripted wrong id, and cross-tenant ids are unreachable because nothing binds a second tenant (tenant_context.py:75-77, only tests call bind). Real convention violation with contained impact: MINOR, not MAJOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/mcp_http/auth.py:158",
+    "backend/main.py:2620",
+    "backend/main.py:2626"
+   ]
+  },
+  {
+   "id": "AUTHZ-9",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. rollback_experiment (agent_core/canary.py:136-191) retires the canary deployment and flips the baseline back to 'active' (canary.py:167-174) — and canary.deployment_for (canary.py:59-77) is what actually routes callers, so this moves live traffic. The function writes no change_log entry (no import, no record_* call anywhere in it) and stamps no actor on either bot_deployments row; the only trace is deployment_experiments.rollback_reason, a free-text string from the request body defaulting to the literal 'manual' (main.py:3214). Its sibling rollback_bot_deployment does record one and says why in a comment ('A rollback changes what callers hear exactly as much as a publish does', db_prompt_studio.py:2410-2424). Reachable operator action: POST /bot-deployments/experiments/{id}/rollback (main.py:3211, AGENT_PUBLISH authz.py:278); GET /agent-studio/change-log then shows nothing between the publish that started the canary and the next one. Audit-chain gap on a production traffic change: MAJOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/canary.py:136",
+    "backend/agent_core/canary.py:167",
+    "backend/agent_core/canary.py:175",
+    "backend/main.py:3211",
+    "backend/main.py:3214",
+    "backend/db_prompt_studio.py:2410"
+   ]
+  },
+  {
+   "id": "AUTHZ-10",
+   "verdict": "CONFIRMED",
+   "reason": "All three verified. mcp_connectors DDL (alembic/versions/20260815_0076_mcp_phase3.py:72-99) has no approved_by/approved_at column, and approve() writes only status (connectors/persist.py:201-205). mint_key INSERTs id/tenant_id/name/key_hash/key_prefix/scopes with no created_by (mcp_http/auth.py:100-122; the INSERT is at 110-121, not :106). upsert_provider_binding passes tenant/slot/model/locale/voice/priority/settings/enabled and no actor (main.py:5489-5501), for a write the registry itself calls a data-residency decision (authz.py:392-394). None of the three writes audit_log — grep confirms change_log.py:162 is the only writer in backend. MINOR is the right level: contained to attribution, no runtime behaviour change.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/mcp_http/auth.py:100",
+    "backend/agent_core/mcp_http/auth.py:110",
+    "backend/alembic/versions/20260815_0076_mcp_phase3.py:72"
+   ]
+  },
+  {
+   "id": "AUTHZ-11",
+   "verdict": "CONFIRMED",
+   "reason": "The asymmetry is real at the lines given (small drift corrected). Tenant-scoped: get_agent_studio_card (db_prompt_studio.py:595), archive (661), restore (730, 740). Unscoped, id only: patch_prompt_version (1713), publish_prompt_version (1855), restore_prompt_version_as_draft (2212), discard_prompt_version (2269), rollback_bot_deployment (2316). restore_prompt_version_as_draft is the sharpest as claimed: it SELECTs prompt/persona/voice/guardrails/agent_card by bare id (2207-2216) and INSERTs the copy stamped with the caller's _tenant() (2226-2239). attach/detach_skill_to_prompt take a prompt_version_id with no tenant and no draft check (skills/persist.py:606-638). Correctly labelled latent by the author: nothing binds a per-request tenant (tenant_context.py:75-77; only tests call bind) and no CREATE POLICY/ENABLE ROW LEVEL SECURITY exists in backend/alembic, so today the Python predicate is the whole boundary. MINOR is right.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:1713",
+    "backend/db_prompt_studio.py:1855",
+    "backend/db_prompt_studio.py:2212",
+    "backend/db_prompt_studio.py:2269",
+    "backend/db_prompt_studio.py:2316",
+    "backend/db_prompt_studio.py:661",
+    "backend/agent_core/skills/persist.py:606"
+   ]
+  },
+  {
+   "id": "AUTHZ-12",
+   "verdict": "CONFIRMED",
+   "reason": "Grep of all of backend for REDTEAM_RUN|perm-redteam-run returns exactly two hits: the constant (authz.py:94) and the catalog row (authz.py:134). It appears in no ROUTE_PERMISSIONS entry, so no route enforces it; it is nonetheless upserted into permissions at boot (ensure_permission_catalog, authz.py:875-881) and rendered as a live checkbox by the Roles screen, which maps the whole catalog (Habibi/src/routes/roles.tsx:84-90). Red-team suites actually run through POST /eval/suites/{suite_id}/run (main.py:2779, run_named_suite), gated EVAL_RUN (authz.py:351) — the same permission as a regression suite. Untick it and nothing changes; grant it and nothing is enabled. One correction: the frontend path is Habibi/src/routes/roles.tsx, not backend/Habibi/....",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/roles.tsx:84",
+    "backend/main.py:2779"
+   ]
+  },
+  {
+   "id": "AUTHZ-13",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at every citation. GET /me is public (authz.py:245) and MeResponse is extra='forbid' with id/name/kind/team/status/tenantId and no grants (schemas.py:531-543; handler main.py:1314). GET /roles returns the tenant's whole role table, not the caller's grants (main.py:2965-2980). No component gates on authorization: StudioHeader's publishDisabled is '!(canPublish ?? dirty) || publishBlocked' (StudioHeader.tsx:67) fed 'Boolean(draftId) || dirty' (prompt-studio.lazy.tsx:1252) — draft state, not permission. The Roles screen is the sharpest case as claimed: GET /roles is BOT_READ and PATCH /roles/{id}/permissions is ADMIN_WRITE (authz.py:362-363), and ROLE_DEFAULTS['supervisor'] holds BOT_READ but not ADMIN_WRITE (authz.py:153-166), so a supervisor renders the full checkbox grid (roles.tsx:80-96) and every toggle 403s. The toast text is the API detail verbatim (api/config.ts:103-106) over the body main.py:577 builds, f'forbidden:{exc.permission}'. Trigger reachable by signing in as a supervisor and ticking a box. MINOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:577",
+    "backend/schemas.py:531",
+    "backend/main.py:1314",
+    "Habibi/src/api/config.ts:103"
+   ]
+  },
+  {
+   "id": "AUTHZ-14",
+   "verdict": "CONFIRMED",
+   "reason": "Chain verified end to end. enforcement_enabled returns env_bool('AUTHZ_ENFORCE', default=bool(API_KEY or API_KEY_MAP)) at authz.py:640-641, so a single API_KEY turns enforcement on. With API_KEY set and API_KEY_MAP empty, resolve_authenticated_actor falls through to _resolve_shared_key_actor (actor_context.py:229-238), which returns default_actor_user_id() = 'priya-nair' (actor_context.py:35-37) for every caller unless ALLOW_ACTOR_HEADER is on, and its default is 'non-prod only' with staging and typos treated as prod (actor_context.py:54-73). seed_postgres.py:688-692 assigns priya-nair role-admin, and _load_grants short-circuits any admin-named role to ALL_PERMISSIONS (authz.py:743-747). .env.example ships API_KEY= and API_KEY_MAP= both blank with the 'Preferred multi-user keys' comment at :190 (API_KEY at :189). Every check therefore passes and every write is attributed to one identity. MINOR as filed, though this is the finding I would most consider promoting.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/authz.py:640",
+    "backend/actor_context.py:229",
+    "backend/actor_context.py:35",
+    "backend/seed_postgres.py:691",
+    "backend/authz.py:743"
+   ]
+  },
+  {
+   "id": "AUTHZ-15",
+   "verdict": "REFUTED",
+   "reason": "The resolver behaviour is real (authz.py:691-694: 'if explicit_set or configured: granted = set(explicit_set)') and migration 20260815_0079:52-65 does insert ROLE_DEFAULTS rows for the four stock roles — but the consequence the finding rests on is false. tests/test_authz.py:550-567 test_stock_role_grants_cover_the_built_in_defaults reads role_permissions for each stock role and asserts 'set(authz.ROLE_DEFAULTS[role_key]) - granted' is empty against the migrated db_tx database. Adding a permission to ROLE_DEFAULTS['supervisor'] without a backfill migration makes that assertion fail with the exact missing id — CI does catch it, and the divergence is reported, contradicting 'nothing reports the divergence' and 'test_authz.py:550 passes'. It skips only when the role has no rows at all (:564), which is not the post-migration state. The attribution is also wrong: 20260812_0064:89-97 already made all four stock roles explicit on 2026-08-12, three months of migrations ago, and its docstring plus 0074 and 0079 establish a deliberate convention — a top-up migration accompanies each new permission — rather than an oversight. What is left is a design note about ROLE_DEFAULTS being a fallback, which authz.py:143-151 already documents.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/tests/test_authz.py:550",
+    "backend/alembic/versions/20260812_0064_backfill_stock_role_grants.py:89",
+    "backend/authz.py:691"
+   ]
+  },
+  {
+   "id": "AUTHZ-16",
+   "verdict": "REFUTED",
+   "reason": "Both preconditions the finding says are escaped are enforced by the very function it points at. upsert_connector rejects a non-HTTPS remote_mcp url itself at connectors/persist.py:138-139 — 'if kind == \"remote_mcp\" and not _https_ok(url): raise ValueError(\"connector_url_https_only\")' — the identical check approve() makes at persist.py:197-198; and dataClass can never be empty because persist.py:141 defaults it to ['pii'], so approve()'s second precondition (persist.py:199-200) is unreachable-by-construction rather than skipped. It is true that status is written from the payload (persist.py:185, INSERT 155-159, ON CONFLICT SET 169) and that POST /connectors takes a raw dict (main.py:2534-2538), but both routes require the same INTEGRATIONS_WRITE (authz.py:328, 331), so nothing is escalated and no review step is bypassed — 'approved' as a field rather than a transition is a design smell with no reachable consequence. The related clone.py:104 claim is also inert: binding a draft connector grants nothing, because bound_tool_names skips non-approved connectors (persist.py:222) and dispatch refuses them (persist.py:264-265).",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/connectors/persist.py:138",
+    "backend/agent_core/connectors/persist.py:141",
+    "backend/agent_core/connectors/persist.py:264"
+   ]
+  },
+  {
+   "id": "AUTHZ-17",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. authz.py:33 documents 'AUTHZ_ENFORCE=1|0 overrides in either direction' and check() early-returns when enforcement is off (authz.py:856-857). POST /tts-voices/catalog/sync carries both the registry entry ADMIN_WRITE (authz.py:387) and Depends(require_admin) (main.py:3066). require_admin (main.py:838-847) computes auth_required from API_KEY/API_KEY_MAP alone and never consults enforcement_enabled, so AUTHZ_ENFORCE=0 with API_KEY set leaves this one route 403ing 'admin_required'. The second definition also differs: db_redaction.actor_is_admin (:99-127) matches role name 'admin' or a literal role_permissions row for perm-admin-write, ignoring roles.configured_at and the ROLE_DEFAULTS fallback that resolve_role_grants applies (authz.py:689-697), so a role whose ADMIN_WRITE is resolved rather than stored passes one enforcer and fails the other. Trigger is a staging debug session. MINOR, contained to one route. Correction: require_admin's def is main.py:838.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:838",
+    "backend/authz.py:856",
+    "backend/db_redaction.py:99"
+   ]
+  },
+  {
+   "id": "AUTHZ-18",
+   "verdict": "CONFIRMED",
+   "reason": "The coverage claim holds. tests/test_authz.py enumerates registry totality (:40), no-phantom-routes (:45), catalog membership (:124) and the read-side converse test_no_read_route_requires_a_write_permission (:579), and pins exactly one production-mutating route's permission, test_agent_cannot_publish_an_agent_card (:592). Nothing in the file's 638 lines asserts that a production-mutating path template requires AGENT_PUBLISH — I listed every test in the module to check. Of the three defects it says such a test would catch, AUTHZ-2 (rollback re-publishes on BOT_WRITE) and AUTHZ-3 (agentCard patchable on BOT_WRITE) survived verification, so the gap is demonstrated, not hypothetical; AUTHZ-4 downgraded but its route table entry would still be pinned by such a test. MINOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/tests/test_authz.py:579",
+    "backend/tests/test_authz.py:592"
+   ]
+  },
+  {
+   "id": "AUTHZ-19",
+   "verdict": "CONFIRMED",
+   "reason": "Real, at MINOR, but the finding's own mitigation is backwards. delete_skill guards first-party packs (skills/persist.py:514 'if current.get(\"origin\") not in (\"tenant\",\"gardener\"): raise skill_first_party_not_deletable') and the registry cites that guard as why DELETE may be AGENT_EDIT (authz.py:313-316); patch_skill (persist.py:381-410) has no such guard, carries the existing origin forward (:400) and re-upserts with signed=False (:410), and the route applies no check either (main.py:2333-2342, AGENT_EDIT authz.py:312). Correction: because pack.origin stays 'first_party', ensure_first_party_skills does NOT protect the edit — its skip is only for origin in {tenant,gardener} (persist.py:744) — so a boot re-seed overwrites the tenant's edit instead of preserving it, the opposite of what the mechanism claims. Production is unaffected until an AGENT_PUBLISH holder signs, because packs_for_slugs resolves the latest SIGNED version (persist.py:660) and sign_skill never overwrites an older signed row; the AGENT_EDIT holder alone can only mutate the draft. Contained, so MINOR is correct.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/persist.py:381",
+    "backend/agent_core/skills/persist.py:400",
+    "backend/agent_core/skills/persist.py:514",
+    "backend/agent_core/skills/persist.py:660",
+    "backend/agent_core/skills/persist.py:744",
+    "backend/main.py:2333"
+   ]
+  }
+ ],
+ "slice": "authz"
+}

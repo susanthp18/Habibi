@@ -239,15 +239,13 @@ export function useTunerSuggestions(days = 14) {
   return useQuery({
     queryKey: ["tuner-suggestions", days],
     queryFn: async () =>
-      USE_MOCK
-        ? mockDelay({
-            mode: "shadow",
-            applied: false,
-            note: "insufficient_log",
-            copyToEnv: [],
-            treatment: { mode: "shadow", applied: false, note: "insufficient_log", copyToEnv: [] },
-          } satisfies TunerSuggestions)
-        : apiGet<TunerSuggestions>(`/offers/tuner-suggestions?days=${days}`),
+      ({
+        mode: "retired",
+        applied: false,
+        note: "tuner_removed",
+        copyToEnv: [],
+        treatment: { mode: "retired", applied: false, note: "tuner_removed", copyToEnv: [] },
+      }) satisfies TunerSuggestions,
     staleTime: 60_000,
   });
 }

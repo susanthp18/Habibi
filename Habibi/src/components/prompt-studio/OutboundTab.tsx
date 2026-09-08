@@ -551,7 +551,11 @@ export function OutboundTab({
                 a batch of missions with a window and a pace
               </span>
             </div>
-            {(campaigns.data ?? []).length === 0 ? (
+            {campaigns.isError ? (
+              <p className="px-150 py-100 text-body-small text-text-danger">
+                Could not load campaign runs — this is not an empty book.
+              </p>
+            ) : (campaigns.data ?? []).length === 0 ? (
               <p className="px-150 py-100 text-body-small text-text-subtle">
                 No runs. A run groups missions that were already authorised and meters them out; it
                 never decides that somebody who should not be called should be.
@@ -615,7 +619,11 @@ export function OutboundTab({
             created once media connects, so a ring-out, a busy tone and a dead number were all
             recorded identically: not at all.
           </p>
-          {stats.isLoading ? (
+          {stats.isError ? (
+            <p className="text-body-small text-text-danger">
+              Could not load reach — these figures are not zero.
+            </p>
+          ) : stats.isLoading ? (
             <LoadingState label="Loading reach" />
           ) : (
             <>
@@ -657,7 +665,11 @@ export function OutboundTab({
             <div className="border-b border-border px-150 py-100 text-body-small font-semibold">
               Why the book is not paying
             </div>
-            {(reasons.data ?? []).length === 0 ? (
+            {reasons.isError ? (
+              <p className="px-150 py-100 text-body-small text-text-danger">
+                Could not load non-payment reasons — this is not an empty book.
+              </p>
+            ) : (reasons.data ?? []).length === 0 ? (
               <p className="px-150 py-100 text-body-small text-text-subtle">
                 Nothing captured yet. The agent records a reason code when the borrower gives one —
                 the field the system never had, and the one that says whether a call was worth
@@ -705,6 +717,10 @@ export function OutboundTab({
               <div className="px-150 py-100">
                 <LoadingState label="Loading obligations" />
               </div>
+            ) : obligations.isError ? (
+              <p className="px-150 py-100 text-body-small text-text-danger">
+                Could not load obligations — this is not an empty book.
+              </p>
             ) : (obligations.data ?? []).length === 0 ? (
               <p className="px-150 py-100 text-body-small text-text-subtle">
                 Nothing outstanding. When the agent says &ldquo;I&rsquo;ll call you Tuesday at

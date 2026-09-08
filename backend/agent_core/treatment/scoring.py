@@ -598,8 +598,6 @@ def build_scorer(name: str) -> Recommender:
     only reorder an already-approved list, so it is safe to layer on any of
     them.
     """
-    from agent_core.treatment import config, rerank
-
     from agent_core.treatment import models
 
     resolved = (name or "").strip().lower()
@@ -616,6 +614,4 @@ def build_scorer(name: str) -> Recommender:
         logger.warning("unknown TREATMENT_SCORER=%r — falling back to ev", name)
         scorer = EVScorer()
 
-    if config.llm_rerank_enabled():
-        scorer = rerank.LLMReranker(scorer)
     return scorer

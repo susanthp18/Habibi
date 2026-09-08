@@ -1,0 +1,243 @@
+{
+ "slice": "changelog",
+ "summary": "The Change log tab is a single read-only surface over one endpoint. `ChangeLogTab` (Habibi/src/components/prompt-studio/ChangeLogTab.tsx:177) calls `useChangeLog(botId)` (Habibi/src/api/agent-studio.ts:977) → GET /agent-studio/change-log?botId&limit=50 → backend/main.py:2177 → db.agent_change_log (backend/db_prompt_studio.py:761), which in one connection returns `change_log.read_entries(tenant, botId, 50)` and `change_log.verify_chain(tenant)` (backend/agent_core/change_log.py:307, :349). The fleet's \"Recent changes\" panel (Habibi/src/routes/agent-studio.index.tsx:216-380) calls the same endpoint tenant-wide with limit 10. Writes into the chain come from exactly four `record_*` functions, all called inside the caller's transaction: publish (db_prompt_studio.py:2147), rollback of a bot_deployment (:2415), archive (:693) and restore (:748). Each `_write` (change_log.py:137) reads the tenant's newest entry for `prevHash`/`seq`, appends `action`/`botId`/`seq`/`prevHash` to the payload, digests that, and INSERTs into `audit_log` with entity_type='bot'. Publish entries hash all six mouth components — prompt, persona, voice, guardrails, flow AND agent_card (change_log.py:48-55) — read back from `prompt_versions` after the transaction has rewritten agent_card/tuning (`_change_log_components`, db_prompt_studio.py:1794), plus the compile report's gate→status map. Nothing in the runtime reads any of it: `audit_log` is written and read only by change_log.py, the seeder and a prune script — this is an audit artefact, not configuration. The prior audit's three findings for this tab (1.1 stale invalidation, 2n.1 warn-as-fail, 2n.2 missing restore verb) are all fixed. What is left is structural: the chain hashes the payload but the screen renders the unhashed columns, tail deletion verifies clean, and the one live-traffic control that is not in the chain — canary rollback — is wired to a button on the Ship tab.",
+ "endpoints": [
+  "GET /agent-studio/change-log?botId&limit → backend/main.py:2177 get_agent_change_log → db.agent_change_log backend/db_prompt_studio.py:761 → agent_core/change_log.py:307 read_entries + agent_core/change_log.py:349 verify_chain (the ONLY endpoint this slice calls; ChangeLogTab.tsx:177 passes botId + default limit 50, agent-studio.index.tsx:229 passes no botId + limit 10)"
+ ],
+ "runtime_consumers": [
+  "audit_log.payload.hashes (6 SHA-256 component digests) → NONE — audit artefact only; no backend/voice/**, bot_runtime.py, bot_tools.py, sandbox_runtime.py, outbound.py, mission.py, cadence.py or agent_core/** module reads audit_log (grep of backend/**.py for `audit_log` returns only agent_core/change_log.py, seed_postgres.py:2275, scripts/prune_probe_cards.py and tests)",
+  "audit_log.payload.gates (gate→status at publish) → NONE (audit only; recomputed by agent_core/cards/compile.py on every publish)",
+  "audit_log.payload.rollout.autoRollback → NONE from the log's copy; the value the sweep actually acts on is the deployment_experiments row written by agent_core/canary.py record_experiment (db_prompt_studio.py:2128) and read by agent_core/canary.py:420",
+  "audit_log.payload.seq / prevHash / entryHash → agent_core/change_log.py:110 _chain_head and :349 verify_chain only",
+  "audit_log.actor_user_id / action / entity_id / created_at columns → agent_core/change_log.py:324 read_entries (rendered by the UI) — deliberately NOT part of the hashed body; see CHANGELOG-1",
+  "localStorage bigbound.agent-studio.change-log-open → Habibi/src/routes/agent-studio.index.tsx:200 readChangeLogOpen only (per-browser panel state, no backend)"
+ ],
+ "findings": [
+  {
+   "id": "CHANGELOG-1",
+   "title": "The chain hashes the payload; the screen renders the unhashed columns — who, when and which agent are all forgeable under a green \"Chain intact\"",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "security",
+   "files": [
+    "backend/agent_core/change_log.py:159",
+    "backend/agent_core/change_log.py:324",
+    "backend/agent_core/change_log.py:343",
+    "backend/agent_core/change_log.py:373",
+    "backend/sql/12_crosscutting.sql:20",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:129"
+   ],
+   "mechanism": "`_write` digests `body` = payload + action + botId + seq + prevHash (change_log.py:157). `actor_user_id` and `created_at` are NEVER in that body — they are only INSERT columns (change_log.py:162-177). `read_entries` then renders the COLUMNS for all four visible identity fields and explicitly drops the hashed copies: `\"actorUserId\": row[\"actor_user_id\"]`, `\"action\": row[\"action\"]`, `\"botId\": row[\"entity_id\"]`, `\"at\": str(row[\"created_at\"])`, with `**{k: v for k, v in payload.items() if k not in {\"action\", \"botId\"}}` (change_log.py:336-345). `verify_chain` rebuilds the digest from the payload alone (`body = {k: v for k, v in payload.items() if k != \"entryHash\"}`, change_log.py:373). So an UPDATE that rewrites actor_user_id, created_at, action or entity_id changes every field the operator reads while verify_chain still returns ok:true and ChangeLogTab.tsx:98 prints \"Chain intact\". The same hole opens without an attacker: `actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL` (sql/12_crosscutting.sql:23) — deleting a departed employee's users row nulls the \"who\" on every entry they ever wrote, and ChangeLogTab.tsx:129 renders `entry.actorUserId ?? \"unknown\"` beneath the green banner.",
+   "trigger": "`UPDATE audit_log SET actor_user_id='someone-else', created_at=now() WHERE id='AUD-…'` — or simply `DELETE FROM users WHERE id='priya-nair'`. Reload the tab: entries now name a different person (or \"unknown\") at a different time, banner still green, reason null.",
+   "fix": "Put the identity in the hash. In `_write`, add `\"actorUserId\": actor_user_id` and an explicit `\"at\": <ISO string generated in Python>` to `body` before `_digest(body)`, and have `read_entries` render `payload[\"actorUserId\"]`, `payload[\"action\"]`, `payload[\"botId\"]` and `payload[\"at\"]` rather than the columns (keep the columns for indexing/FK, and surface a column-vs-payload disagreement as its own chain reason). Drop `ON DELETE SET NULL` on audit_log.actor_user_id — an audit row must not be mutated by an unrelated delete.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-2",
+   "title": "Deleting the newest entries leaves the chain verifying clean — tail truncation is invisible, and verify_chain never checks seq contiguity",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/change_log.py:349",
+    "backend/agent_core/change_log.py:369",
+    "backend/tests/test_agent_change_log.py:186",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:207"
+   ],
+   "mechanism": "`verify_chain` walks oldest→newest and only reports a break when an entry's `prevHash` disagrees with its predecessor's `entryHash` (change_log.py:369-378). Removing the last N rows removes the only entries that could disagree: the remaining prefix still verifies genesis→head and returns `{ok: True, checked: N-k}`. `seq` is in the hashed body and is read for ordering (change_log.py:363) but never checked for contiguity, so the loop cannot notice that the walk ended at seq 7 when the last publish wrote seq 12. The UI states the opposite in three places: \"a removed or rewritten entry shows up as a break rather than as an absence\" (ChangeLogTab.tsx:207-209), the file header \"a rewritten or deleted historical entry is visible rather than merely absent\" (:6-8), and change_log.py:23-26 \"Editing or deleting a historical row breaks every later link\" — true only when a later link exists. The test suite pins only the oldest-row case: `first_entry = _entries(cloned_bot)[-1][\"id\"]` (test_agent_change_log.py:186), and `read_entries` is seq DESC (change_log.py:327), so `[-1]` is the OLDEST entry. No test deletes the head.",
+   "trigger": "Publish twice, then `DELETE FROM audit_log WHERE id = <newest entry id>`. `db.agent_change_log(bot)[\"chain\"]` returns `{\"ok\": true, \"reason\": null}` and the tab renders the green \"Chain intact — every link points at the entry before it\" banner over a log that is missing its most recent publish.",
+   "fix": "Assert seq contiguity inside the existing walk — track an index and fail with a new reason `seq_gap` when `int(payload.get(\"seq\") or 0) != i + 1`. That catches head, middle and tail deletion in one check and costs nothing (seq is already hashed, so it cannot be patched up without breaking entryHash). Optionally also persist a per-tenant head pointer (seq + entryHash) outside audit_log and compare it to the walked head.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-3",
+   "title": "Canary rollback swaps the live deployment and writes nothing to the chain — including the auto-rollback the publish entry promised",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/canary.py:136",
+    "backend/agent_core/canary.py:166",
+    "backend/agent_core/canary.py:420",
+    "backend/main.py:3222",
+    "backend/db_prompt_studio.py:2413",
+    "Habibi/src/api/agent-studio.ts:869",
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:77"
+   ],
+   "mechanism": "`rollback_experiment` retires the canary deployment and reactivates the baseline — `UPDATE bot_deployments SET status='retired' WHERE id=:canary` / `SET status='active' WHERE id=:baseline` (canary.py:166-174) — which is exactly what `rollback_bot_deployment` does, and that one records `change_log.record_rollback` (db_prompt_studio.py:2413-2422) with the comment \"A rollback changes what callers hear exactly as much as a publish does, so it belongs in the same chain\". `rollback_experiment` imports no change_log and writes no audit_log row. It has two callers: the wired button POST /bot-deployments/experiments/{id}/rollback (main.py:3222, agent-studio.ts:869-881, ShipTab.tsx:77) and the automatic sweep at canary.py:420, which fires on the very `auto_rollback` triggers the publish entry faithfully records (`rollout.autoRollback`, change_log.py:206-210). So the log names the trigger and never records it firing: after an automatic rollback the tab still shows the publish as the last event and the operator reads a card as live on a version it is no longer serving. The frontend even assumes the write happened — `useRollbackExperiment` onSuccess calls `invalidateAgentStudio(qc)`, which invalidates `[\"agent-change-log\"]` (agent-studio.ts:202-204) and refetches an unchanged log.",
+   "trigger": "Publish at 40% with auto-rollback on error_rate, then click Roll back on the Ship tab (or let the sweep fire). bot_deployments flips to the baseline; GET /agent-studio/change-log returns the same entries it did before.",
+   "fix": "Give `rollback_experiment` the connection it already holds and call `change_log.record_rollback(conn, tenant_id=…, actor_user_id=db._actor_user_id() or 'system', entry_id=db._id('AUD'), bot_id=exp['bot_id'], to_deployment_id=baseline, from_deployment_id=canary, version_id=<baseline's prompt_version_id>)` inside the `engine.begin()` block at canary.py:149, and carry the `rollback_reason` into the payload so an automatic rollback is distinguishable from a manual one. Record it only when `baseline` is set, matching the `baselineRestored` distinction the function already draws.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-4",
+   "title": "The chain head is read without a tenant-scoped lock — two concurrent publishes of different bots fork the chain into a permanent, unclearable \"tampered with\" banner",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/change_log.py:110",
+    "backend/agent_core/change_log.py:149",
+    "backend/db_prompt_studio.py:1867",
+    "backend/sql/12_crosscutting.sql:20",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:67"
+   ],
+   "mechanism": "The chain is per TENANT (`_chain_head` filters on tenant_id + entity_type only, change_log.py:120-129), but the only serialization publish takes is per BOT: `pg_advisory_xact_lock(hashtext(:k))` with `k = f\"{bot_id}:production\"` (db_prompt_studio.py:1867-1871), and rollback uses the same bot-scoped key (:2327-2329). Two publishes for two different bots in one tenant therefore hold different locks, both read the same `(prev_hash, prev_seq)`, both compute `seq = prev_seq + 1` and `prevHash = H_n`, and both INSERT. `audit_log` has no unique constraint that would turn this into an IntegrityError — it is `id TEXT PRIMARY KEY` plus one index on tenant_id (sql/12_crosscutting.sql:20-30). `verify_chain` then walks A (prevHash H_n == expected, expected := H_A) and B (prevHash H_n != H_A) and returns `{ok: false, reason: \"prev_hash_mismatch\"}` forever. The tab renders that as \"Chain BROKEN — this change log has been tampered with … Treat this as an integrity incident, not a display problem\" (ChangeLogTab.tsx:67-76), and there is no repair path: the entries are append-only by design and every later entry chains off the fork.",
+   "trigger": "Two operators press Publish on two different cards in the same tenant within the same instant (or one operator publishes while the canary sweep at canary.py:420 is mid-transaction on another bot). Both succeed; every subsequent load of the change log reports tamper.",
+   "fix": "Serialize on the thing the chain is scoped to. Take `pg_advisory_xact_lock(hashtext(:tenant || ':agent-change-log'))` as the first statement of `_write` (change_log.py:149), so every appender of the tenant chain queues regardless of which bot it is publishing. Belt and braces: add `CREATE UNIQUE INDEX ON audit_log (tenant_id, entity_type, ((payload->>'seq')::bigint)) WHERE entity_type = 'bot'` so a lost race becomes a 409 retry rather than a permanent fork.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-5",
+   "title": "In production the \"who\" column collapses to the ACTOR_USER_ID default, so every entry names one real, seeded human regardless of who acted",
+   "severity": "MAJOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "backend/actor_context.py:60",
+    "backend/actor_context.py:36",
+    "backend/db_core.py:124",
+    "backend/agent_core/change_log.py:170",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:129"
+   ],
+   "mechanism": "`_allow_actor_header()` defaults to `not _app_is_prod()` (actor_context.py:60-73), so in production the console's `X-Actor-User-Id` is dropped and `get_actor_user_id()` falls through to `default_actor_user_id()` = `ACTOR_USER_ID` env, defaulting to the literal `\"priya-nair\"` (actor_context.py:36-37, db_core.py:124, .env.example:195) — a real seeded user whose existence is enforced at boot by `validate_configured_actors` (actor_context.py:161-177). `change_log.record_publish` stores `uid or \"system\"` from that resolution (db_prompt_studio.py:1903, :2151) and the tab prints it verbatim (ChangeLogTab.tsx:129). Unless API_KEY_MAP gives every operator their own key, the tamper-evident record attributes every publish, rollback, archive and restore to one named individual. The code itself flags the alternative as a known trade-off (WP-070, actor_context.py:64-67), but that comment is about dropping the header, not about the audit trail it feeds.",
+   "trigger": "Deploy with APP_ENV=prod and no per-user API_KEY_MAP, publish as any operator: the change log records priya-nair. Not demonstrated here because it depends on the deployed env; the resolution path is unambiguous in code.",
+   "fix": "Fail closed for the audit path specifically: when no actor can be resolved from an authenticated identity, write a synthetic id (e.g. `unattributed:<api-key-fingerprint>`) rather than a real users.id, so the log never puts a name on an action that name did not take. Longer term this is WP-070 / the Phase 5 JWT `sub` note at db_core.py:360.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-6",
+   "title": "Entries are silently capped at 50 with no truncation indicator, beside a chain count over every row in the tenant",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:177",
+    "Habibi/src/api/agent-studio.ts:977",
+    "backend/agent_core/change_log.py:316",
+    "backend/agent_core/change_log.py:327"
+   ],
+   "mechanism": "`useChangeLog(botId)` uses the default `limit = 50` (agent-studio.ts:977) and the tab never passes another (ChangeLogTab.tsx:177). `read_entries` clamps to `max(1, min(limit, 500))` and applies `ORDER BY seq DESC … LIMIT :n` (change_log.py:316, :327). A card with more than 50 lifecycle events therefore shows the newest 50 with no \"showing 50 of N\", no pagination and no limit control, directly beneath a banner reading \"{chain.checked} entries verified across the tenant\" — a number computed over every audit row and unrelated to what is listed. On the screen the file itself calls \"the first artefact an auditor asks for\", truncation renders as completeness.",
+   "trigger": "Any card with >50 publish/rollback/archive/restore entries: the 51st-oldest is unreachable from the UI and nothing on screen says so.",
+   "fix": "Have `read_entries` return a total count (a windowed `count(*) OVER ()` costs one column) and render \"showing 50 of 137 for this card\" with a Load more that raises `limit` toward the 500 ceiling; or paginate on `seq`.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-7",
+   "title": "The fleet Recent-changes panel feeds the raw Postgres timestamp to new Date() without the space→T fix the tab documents as necessary",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:304",
+    "Habibi/src/routes/agent-studio.index.tsx:366",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:54",
+    "backend/agent_core/change_log.py:342"
+   ],
+   "mechanism": "`read_entries` returns `\"at\": str(row[\"created_at\"])` (change_log.py:342), i.e. Python's `str(datetime)` — `\"2026-09-05 12:34:56.789012+00:00\"`, space-separated and not ISO-8601. `ChangeLogTab.stamp()` handles exactly this: `Date.parse(at.replace(\" \", \"T\"))` plus a `Number.isNaN` guard that falls back to printing the raw string (ChangeLogTab.tsx:54-59). The fleet panel does neither — it calls `new Date(latest.at).toLocaleDateString(...)` in the collapsed header (agent-studio.index.tsx:302-306) and `new Date(entry.at).toLocaleString(...)` in the expanded list (:365-372). V8 accepts the space form through a lenient fallback parser; engines that do not (Safari has historically returned Invalid Date for a space-separated datetime with an offset) render \"Invalid Date\" as the when of every audit row, and the collapsed header reads \"priya-nair published kaia-v2-4 · Invalid Date\".",
+   "trigger": "Open the Agent Studio fleet index in a browser whose Date parser rejects the non-ISO form. Not reproduced here (no browser run), but the asymmetry with the sibling component — which carries a comment explaining why the replace exists — is unambiguous in code.",
+   "fix": "Export `stamp`/a shared `parseLogTimestamp` from ChangeLogTab (or Habibi/src/lib) and use it in both places; better, normalise on the server — `row[\"created_at\"].isoformat()` in `read_entries` — so no consumer has to know Postgres's repr.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-8",
+   "title": "Both empty states enumerate three of the four recorded verbs, dropping \"restored\" — the same omission the file header says was already fixed",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:88",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:219",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:39",
+    "Habibi/src/routes/agent-studio.index.tsx:307"
+   ],
+   "mechanism": "`agent.restore` is a recorded action (change_log.py:45, :275) and the tab's own header comment (ChangeLogTab.tsx:31-34) narrates adding it to ACTION_LABEL/ACTION_TONE (:39, :46) precisely because \"the one screen an auditor reads\" must not spell an action in wire format. Two prose strings on the same screen were not updated: the zero-chain banner says \"No agent has been published, rolled back or archived in this tenant\" (:88-90) and the empty-list state says \"This card has never been published, rolled back or archived\" (:219-221). The fleet panel gets it right in both of its equivalents — \"nothing published, rolled back, archived or restored yet\" (agent-studio.index.tsx:307, :340). So the tab's empty state asserts a scope narrower than what the endpoint actually records, on the screen whose job is to state its own scope precisely.",
+   "trigger": "Open the Change log tab for a card with no entries: the copy tells the reader restores are outside this record when they are inside it.",
+   "fix": "Add \"or restored\" to both strings, and pull the verb list from `Object.values(ACTION_LABEL)` so the maps and the prose cannot drift again.",
+   "prior_ref": "2n.2 (the maps half was fixed; the prose half was not)"
+  },
+  {
+   "id": "CHANGELOG-9",
+   "title": "The evidence is fetched and dropped — the six component digests, prevHash, seq, versionId and deploymentId are never rendered anywhere",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:109",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:166",
+    "Habibi/src/api/agent-studio.ts:900",
+    "backend/agent_core/change_log.py:199",
+    "backend/schemas.py:3531"
+   ],
+   "mechanism": "`record_publish` stores `hashes` — one SHA-256 per prompt/persona/voice/guardrails/flow/agent_card (change_log.py:197, :212) — plus `versionId`, `deploymentId`, `previousVersionId`, `seq` and `prevHash`. All are typed on `ChangeLogEntry` (agent-studio.ts:900-923) and returned by the API (schemas.py:3531-3562). `EntryRow` renders none of them: it shows the action lozenge, version labels, actor, timestamp, summary, the `changed` component NAMES, the rollout line, the gate line, and a 12-character prefix of `entryHash` (ChangeLogTab.tsx:117-171). So the screen tells the auditor WHICH components moved but never lets them check a digest against a `prompt_versions` row, and shows no `prevHash`, so the chain cannot be followed by hand from the artefact the doc calls the first thing an auditor asks for. The digests are the whole reason the module stores hashes instead of copies (change_log.py:18-21).",
+   "trigger": "Open any publish entry: `hashes` arrives over the wire on every request and is discarded by the renderer.",
+   "fix": "Render the digests behind a disclosure on each entry — component name, 12-char digest, and the full value in a title/copy affordance — and show `prevHash` beside `entryHash` so the link is checkable. At minimum surface them in the row's title attribute rather than dropping the response's most load-bearing field.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-10",
+   "title": "\"What the compiler said at the time\" is true only for publishes — rollback never recompiles, so it records no gate verdict at all",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "backend/db_prompt_studio.py:2292",
+    "backend/agent_core/change_log.py:226",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:207",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:149"
+   ],
+   "mechanism": "`record_rollback`'s payload is `{deploymentId, replacedDeploymentId, versionId}` — no gates and no hashes (change_log.py:238-242) — because `rollback_bot_deployment` never calls `compile_card`: it locks, validates the deployment is production and not already active, and inserts a fresh active row (db_prompt_studio.py:2292-2380; the only `compile_card` calls in the module are at :837 preview and :1908 publish). A rollback therefore re-activates a prompt version whose gates may no longer pass — a skill signature revoked since, a connector disapproved, an eval suite now failing — and the record says nothing about it. The tab's header promises \"who changed what this agent says, and what the compiler said at the time\" (ChangeLogTab.tsx:207) and the gate line is simply omitted when `gateCount === 0` (:149), so the absence reads as \"no gates to report\" rather than \"no gates were run\". Same for archive and restore, though those change the roster rather than the words.",
+   "trigger": "Roll back a deployment after a skill has been unsigned: the chain records the rollback with no gate map, and the tab shows a Rolled-back row with no compiler verdict beside it.",
+   "fix": "Either run `compile_card` against the deployment's prompt version inside `rollback_bot_deployment` and pass `report=` through to `record_rollback` (recording, not blocking — a rollback should not be gated), or make the UI say \"no compile report — rollbacks re-ship a previously gated version without recompiling\" instead of rendering nothing.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CHANGELOG-11",
+   "title": "The \"introspective\" verb test asserts over a Python set and cannot see either of the two TypeScript maps it claims to protect",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "backend/tests/test_agent_change_log.py:130",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:35",
+    "Habibi/src/lib/agent-roster.ts:152"
+   ],
+   "mechanism": "`test_every_lifecycle_action_has_a_verb_the_log_can_render` says \"A new `record_*` writing an unlisted action fails here rather than rendering as a raw `agent.whatever` on the fleet index\" (test_agent_change_log.py:130-134), but its assertion is `emitted == {\"agent.publish\", \"agent.rollback\", \"agent.archive\", \"agent.restore\"}` over `vars(change_log)` — a Python-side self-check. The two maps that actually decide whether an action renders as a verb are `ACTION_LABEL`/`ACTION_TONE` (ChangeLogTab.tsx:35-47) and `CHANGE_VERBS` (agent-roster.ts:152-157), in a different language and a different test runner. Adding `RESTORE`-style constant #5 keeps this test green while both frontends fall through to their raw-string fallbacks (ChangeLogTab.tsx:121 `?? entry.action`, agent-roster.ts:160) — which is exactly the failure prior finding 2n.2 recorded. The two TS maps are also duplicated: same four keys, different strings (\"Rolled back\" vs \"rolled back\"), with nothing tying them together.",
+   "trigger": "Add a fifth `record_*` action to change_log.py; the backend suite passes and the new action renders as a bare wire string in both the tab and the fleet panel.",
+   "fix": "Move the four action ids into one exported TS constant consumed by both maps, and add a vitest that asserts every key of the backend's action list has a label and a tone — or generate the TS list from the Python constants at build time. Reword the Python test's docstring so it stops claiming coverage it does not have.",
+   "prior_ref": "2n.2"
+  },
+  {
+   "id": "CHANGELOG-12",
+   "title": "The tab's error state has no retry control, unlike the identical error state on the fleet panel",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "code-organization",
+   "files": [
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:187",
+    "Habibi/src/routes/agent-studio.index.tsx:311"
+   ],
+   "mechanism": "`ChangeLogTab` destructures only `{data, isPending, isError, error}` (ChangeLogTab.tsx:177) and its error branch renders a warning box with no action (:187-197), so recovering from a transient failure requires switching tabs or reloading. The fleet panel destructures `refetch`/`isFetching` and renders a Retry button beside the same failure (agent-studio.index.tsx:229, :311-321). Both error copies are honest — neither renders the failure as an empty log — so this is a control gap, not a lie.",
+   "trigger": "Change log request fails on the tab: the only affordance is to navigate away.",
+   "fix": "Pull `refetch`/`isFetching` off the hook and add the same Retry button the fleet panel uses.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Prior 2n.1 is FIXED and fixed properly: the gate line now uses the shared `partitionGates` (Habibi/src/lib/gate-status.ts:60-76) with `isGateFailure` = `status === \"fail\"` only (:43) and a separate warned branch rendering \"gates warned: …\" in warning tone (ChangeLogTab.tsx:116, :149-164). `warn` is no longer bucketed as failure.",
+  "Prior 2n.2 is FIXED in the maps: `agent.restore` has both a label (\"Restored\") and a tone (\"information\") in ChangeLogTab.tsx:39, :46, and a verb in agent-roster.ts:156.",
+  "Prior 1.1 is FIXED: `invalidateAgentStudio` (Habibi/src/api/agent-studio.ts:202-205) invalidates both `[\"agent-studio\"]` and `[\"agent-change-log\"]`, and `invalidatePromptStudio` (Habibi/src/api/prompt-studio.ts:125-137) does the same after publish/rollback/restore-as-draft. Archive, restore, connector attach and experiment rollback all route through it.",
+  "Question (3): the chain DOES cover agent_card and flow, not just the prompt — `COMPONENTS` is prompt, persona, voice, guardrails, flow, agent_card (change_log.py:48-55), one SHA-256 each, and `_change_log_components` re-reads the row from `prompt_versions` inside the publishing transaction (db_prompt_studio.py:1794-1815) precisely because publish has already rewritten agent_card and tuning in memory. Pinned by test_agent_change_log.py:96.",
+  "Question (4): the tenant-vs-card asymmetry is handled honestly. `verify_chain` is tenant-scoped and `read_entries` is bot-filtered (change_log.py:312-320, :366), and the banner says so: \"{checked} entries verified across the tenant — none of them on this card\" when `entryCount === 0` (ChangeLogTab.tsx:100-104), with a distinct \"Nothing recorded yet … This is not the same as a verified empty log\" for `checked === 0` (:80-92) and a separate empty-list card explaining the verdict is tenant-wide (:215-222). Three states, three different messages, none of them claiming verification of the empty set.",
+  "Question (6): draft writes are correctly outside the chain, and correctly so. PATCH /agent-studio/cards/{bot_id} always retargets a draft, creating one from published if needed (main.py:2138-2156); `attach_connector_to_card` does the same (agent_core/cards/clone.py:113-126); PATCH /prompt-versions 409s on a published version (main.py:3239-3243). None of these change what a live caller hears, so their absence from the chain is right — though nothing on the screen states that scope explicitly.",
+  "The record is written inside the publishing transaction and deliberately not wrapped in try/except (db_prompt_studio.py:2140-2144, comment: \"if the agent's configuration history cannot be written, the configuration must not change either\"), and a compile failure leaves no entry — `_assert_card(report)` raises before the INSERT (db_prompt_studio.py:1927). Pinned by test_agent_change_log.py:193-204.",
+  "`_chain_head` orders by `COALESCE((payload->>'seq')::bigint, 0) DESC, id DESC`, not by created_at, with the reason stated: Postgres `now()` is transaction-start time so two publishes in one second would tie (change_log.py:110-117). `read_entries` and `verify_chain` use the same ordering (:327, :363).",
+  "A recorded publish entry can never carry a `fail` gate — `assert_publishable` raises `CompileError` when `report.ok` is false, and `ok` is `not blocking` where `blocking` is the fail-status gates (agent_core/cards/compile.py:84-90, :977-980) — so the tab's red \"gates failed\" branch (ChangeLogTab.tsx:159-161) is defensive rather than reachable. It cannot lie about a publish that shipped.",
+  "`response_model_exclude_unset=True` on the endpoint (main.py:2178-2181) is required and present: `AgentStudioChangeLogEntryResponse` is one flat model over four different payload shapes, so without it every rollback entry would sprout `hashes: null`, `gates: null`, `rollout: null` (schemas.py:3531-3540 documents exactly this). Every key `_write` can emit is modelled, so `extra=\"forbid\"` does not 500 the route.",
+  "`audit_log` rows with `entity_type='bot'` are written only by `change_log._write` — the seeder writes `entity_type='tenant'` (seed_postgres.py:2275) and `scripts/prune_probe_cards.py:24-27` explicitly never touches audit_log when deleting probe cards. So no foreign writer can inject an unhashed row into the chain.",
+  "Skill attach/detach (main.py:2404, :2415 → agent_core/skills/persist.py:606-639) writes only `skill_attachments`, which is read for the fleet \"attached cards\" badge (persist.py:125-135) and the delete guard (:526-541) — the runtime grant comes from `packs_for_slugs` over the card's own skills list (persist.py:642-661). Its absence from the chain is therefore not a hole in \"what the agent says\". It also has no frontend caller.",
+  "The fleet panel's collapsed header keeps the chain verdict visible when the rows are hidden (agent-studio.index.tsx:260-275), and renders the error whether or not the panel is open, with the reasoning spelled out: \"An audit log that removes itself when its request fails is worse than one that is down\" (:329-334, :344-348). The error copy — \"this is not a record of nothing happening — it is a record that could not be shown\" — is the correct distinction and is mirrored on the tab (ChangeLogTab.tsx:191-194).",
+  "`ChangeLogTab`'s missing-chain fallback fails loud, not quiet: `data?.chain ?? {ok: false, checked: 0, reason: \"no_verdict\"}` (ChangeLogTab.tsx:200) renders the danger banner rather than a green one, so a malformed response cannot be mistaken for verification.",
+  "`gate_summary` records only gate→status and deliberately drops the free-text detail (change_log.py:86-107), which is the right call for a control test; and `changed_components` returns all six on a first publish because there was no live configuration before it (change_log.py:76-83), pinned by test_agent_change_log.py:55."
+ ]
+}

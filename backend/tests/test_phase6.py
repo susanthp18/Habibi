@@ -12,7 +12,6 @@ from sqlalchemy import text
 
 from agent_core.eval.fixtures import CAPABILITY_TASKS, REDTEAM_CASES, TWIN_TASKS
 from agent_core.eval.harness import run_suite_fixtures
-from agent_core.tuner import suggestions
 from llm_gateway import canary as gw_canary
 
 
@@ -60,21 +59,11 @@ def test_schedule_refuses_to_skip_redteam() -> None:
         run_continuous(kinds=("regression", "twin"))
 
 
-def test_tuner_visible_not_auto_applied(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("RECO_W_FATIGUE", raising=False)
-    monkeypatch.delenv("TREATMENT_FATIGUE_COST", raising=False)
-    before = {k: os.getenv(k) for k in (
-        "RECO_W_AFFINITY",
-        "RECO_W_FATIGUE",
-        "TREATMENT_FATIGUE_COST",
-        "TREATMENT_MAX_ATTEMPTS_PER_CASE",
-    )}
-    out = suggestions(days=14)
-    assert out["mode"] == "shadow"
-    assert out["applied"] is False
-    assert out["treatment"]["applied"] is False
-    for key, val in before.items():
-        assert os.getenv(key) == val
+def test_tuner_is_gone() -> None:
+    import importlib
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_core.tuner")
 
 
 def test_canary_rejects_skip_redteam(db_tx) -> None:

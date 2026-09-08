@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from agent_core import logging_contract
 from agent_core.treatment import (
     actions as A,
     arbitration,
@@ -62,7 +63,12 @@ CONTROL_ARM = "control_arm"
 #: What a control-arm borrower may still receive. ``wait`` because the engine
 #: must always have a legal action, and ``legal_notice`` because a statutory
 #: demand runs on a clock that a measurement does not get to stop.
-CONTROL_ARM_PERMITS: frozenset[str] = frozenset({A.WAIT, A.LEGAL_NOTICE})
+CONTROL_ARM_PERMITS: frozenset[str] = frozenset(
+    {A.WAIT, A.LEGAL_NOTICE, A.REPRESENT_MANDATE, A.EMI_DATE_CHANGE, A.SELF_SERVICE_PLAN}
+)
+
+PERSIST_RECORD = "record"
+PERSIST_PREVIEW = "preview"
 
 
 @dataclass(frozen=True)
@@ -90,7 +96,12 @@ class TreatmentResult:
     #: be off-policy evaluated, and the corpus acquires the exact defect P0
     #: existed to remove.
     propensity: float = 1.0
+    arm_propensity: float = 1.0
+    action_propensity: float = 1.0
     policy_version: int | None = None
+    policy_binding_hash: str | None = None
+    engine_image_digest: str | None = None
+    config_version: str | None = None
     #: The features this was decided against. Carried so the Action Contract can
     #: state what the channel may and may not do without re-reading the
     #: database from inside a live call.
@@ -165,6 +176,7 @@ def recommend_treatment(
     provider: FeatureProvider | None = None,
     force_mode: str | None = None,
     variant: str | None = None,
+    persist: str = PERSIST_RECORD,
 ) -> TreatmentResult:
     """Decide what should happen next for one borrower. Never raises.
 
@@ -211,6 +223,7 @@ def recommend_treatment(
             mode=mode,
             arm=arm,
             started=started,
+            persist=persist,
         )
     except Exception:
         # Whatever this module gets wrong, the caller's transaction survives it.
@@ -237,6 +250,7 @@ def _recommend(
     mode: str,
     arm: config.Variant | None,
     started: float,
+    persist: str = PERSIST_RECORD,
 ) -> TreatmentResult:
     arm_name = arm.name if arm else None
     active_policy = config.apply_variant(config.policy(), arm)
@@ -256,6 +270,7 @@ def _recommend(
         active_policy=active_policy,
         unit_costs=unit_costs,
         started=started,
+        persist=persist,
     )
 
 
@@ -274,6 +289,7 @@ def _decide(
     active_policy: config.Policy,
     unit_costs: config.Costs,
     started: float,
+    persist: str = PERSIST_RECORD,
 ) -> TreatmentResult:
     """The pipeline itself, against one connection.
 
@@ -343,7 +359,7 @@ def _decide(
     )
     chosen = verdict.chosen
 
-    rules = _rules(conn, features.tenant_id, now)
+    rules = _rules(conn, features.tenant_id, now, product_id=features.product_id)
 
     line = narrate.rationale(
         features=features,
@@ -355,53 +371,76 @@ def _decide(
     )
     latency_ms = int((time.perf_counter() - started) * 1000)
 
-    decision_id = decisions.record(
-        conn=conn,
-        tenant_id=features.tenant_id,
-        customer_id=customer_id,
-        account_id=features.account_id,
-        interaction_id=interaction_id,
-        trigger_kind=trigger.kind,
-        trigger_ref=trigger.ref,
-        mode=mode,
-        variant=arm_name,
-        recommender=scorer.name,
-        recommender_version=scorer.version,
-        feature_schema_version=SCHEMA_VERSION,
-        features={
-            **features.to_log(),
-            "trigger": trigger.to_log(now),
-            # Full provenance of the rules that approved this: statutory,
-            # client and product layers with their labels and versions. The
-            # indexed policy_version column carries the statutory one, which is
-            # the number a regulator's question is about; this carries the rest
-            # so nothing is lost.
-            "policy": rules.to_log(),
-        },
-        # The full ranked list, not just the winner. The counterfactual is what
-        # offline evaluation compares against, and it cannot be recovered later.
-        candidates=_candidate_log(
-            features, trigger, scored, now=now, distribution=verdict.distribution
-        ),
-        excluded=excluded,
-        chosen_action=chosen.action if chosen else A.WAIT,
-        chosen_channel=chosen.channel if chosen else None,
-        # A suppressed decision has no schedule. Writing one would leave a row
-        # the executor's index considers due.
-        scheduled_at=(chosen.at if chosen and not suppressed else None),
-        expected_value=round(chosen.expected_value, 2) if chosen else 0.0,
-        # A suppressed decision has a propensity of 1.0 and that is not a
-        # placeholder: silence was not drawn from anything, it was the only
-        # thing left after the gates. Writing NULL instead would make every
-        # suppression invisible to an off-policy estimator, which is exactly
-        # the negative class the corpus exists to carry.
-        propensity=verdict.propensity,
-        explore_kind=verdict.explore_kind,
-        policy_version=rules.version,
-        suppression_reason=reason,
-        rationale=line,
-        latency_ms=latency_ms,
-    )
+    decision_id = None
+    if persist != PERSIST_PREVIEW:
+        record_kwargs = dict(
+            conn=conn,
+            tenant_id=features.tenant_id,
+            customer_id=customer_id,
+            account_id=features.account_id,
+            interaction_id=interaction_id,
+            trigger_kind=trigger.kind,
+            trigger_ref=trigger.ref,
+            mode=mode,
+            variant=arm_name,
+            recommender=scorer.name,
+            recommender_version=scorer.version,
+            feature_schema_version=SCHEMA_VERSION,
+            features={
+                **features.to_log(),
+                "trigger": trigger.to_log(now),
+                "policy": rules.to_log(),
+                "loggingContract": {
+                    "version": logging_contract.CONTRACT_VERSION,
+                    "armPropensity": verdict.arm_propensity,
+                    "actionPropensity": verdict.action_propensity,
+                    "nonce": verdict.replay_nonce,
+                    "vetoStackVersion": logging_contract.VETO_STACK_VERSION,
+                    "engineImageDigest": logging_contract.engine_image_digest(),
+                    "lambdaBucket": logging_contract.LAMBDA_BUCKET_NONE,
+                },
+            },
+            candidates=_candidate_log(
+                features, trigger, scored, now=now, distribution=verdict.distribution
+            ),
+            excluded=excluded,
+            chosen_action=chosen.action if chosen else A.WAIT,
+            chosen_channel=chosen.channel if chosen else None,
+            scheduled_at=(chosen.at if chosen and not suppressed else None),
+            expected_value=round(chosen.expected_value, 2) if chosen else 0.0,
+            propensity=verdict.propensity,
+            explore_kind=verdict.explore_kind,
+            policy_version=rules.version,
+            suppression_reason=reason,
+            rationale=line,
+            latency_ms=latency_ms,
+            arm_propensity=verdict.arm_propensity,
+            action_propensity=verdict.action_propensity,
+            replay_nonce=verdict.replay_nonce,
+            veto_stack_version=logging_contract.VETO_STACK_VERSION,
+            engine_image_digest=logging_contract.engine_image_digest(),
+            config_version=logging_contract.config_version(),
+            lambda_bucket=logging_contract.LAMBDA_BUCKET_NONE,
+            logging_contract_version=logging_contract.CONTRACT_VERSION,
+            **_binding_kwargs(rules, reason, now),
+        )
+        savepoint = None
+        try:
+            savepoint = conn.begin_nested()
+        except Exception:
+            savepoint = None
+        try:
+            decision_id = decisions.record(**record_kwargs)
+            if savepoint is not None:
+                savepoint.commit()
+        except Exception:
+            if savepoint is not None:
+                savepoint.rollback()
+            logger.exception(
+                "treatment decision log failed for customer=%s — caller transaction kept",
+                customer_id,
+            )
+            decision_id = None
 
     return TreatmentResult(
         action=chosen.action if chosen else A.WAIT,
@@ -420,6 +459,11 @@ def _decide(
         propensity=verdict.propensity,
         policy_version=rules.version,
         features=features,
+        arm_propensity=verdict.arm_propensity,
+        action_propensity=verdict.action_propensity,
+        policy_binding_hash=_binding_kwargs(rules, reason, now).get("policy_binding_hash"),
+        engine_image_digest=logging_contract.engine_image_digest(),
+        config_version=logging_contract.config_version(),
     )
 
 
@@ -467,22 +511,42 @@ def _chooser(
     """
     greed = config.greediness()
     arm_p = config.arm_probability(arm.name if arm else None)
+    nonce = logging_contract.new_nonce()
     seed = explore.seed_for(
         customer_id=customer_id,
         trigger_kind=trigger.kind,
         trigger_ref=trigger.ref,
         actions=[s.action for s in scored],
+        nonce=nonce,
     )
 
     def _choose(approved):
         if arm is not None and arm.suppress_discretionary:
-            # Nothing was drawn: the arm withheld every discretionary option
-            # and what remains was forced. The only randomness in this path is
-            # the arm assignment, and recording an imaginary within-arm draw
-            # would understate every importance weight computed off these rows.
-            return explore.control_arm_choice(approved[0], arm_probability=arm_p)
-        return explore.choose(
+            choice = explore.control_arm_choice(approved[0], arm_probability=arm_p)
+            return explore.Choice(
+                chosen=choice.chosen,
+                propensity=choice.propensity,
+                distribution=choice.distribution,
+                kind=choice.kind,
+                arm_propensity=choice.arm_propensity,
+                action_propensity=choice.action_propensity,
+                nonce=nonce,
+                seed=seed,
+            )
+        picked = explore.choose(
             approved, greediness=greed, seed=seed, arm_probability=arm_p
+        )
+        if picked is None:
+            return None
+        return explore.Choice(
+            chosen=picked.chosen,
+            propensity=picked.propensity,
+            distribution=picked.distribution,
+            kind=picked.kind,
+            arm_propensity=picked.arm_propensity,
+            action_propensity=picked.action_propensity,
+            nonce=nonce,
+            seed=picked.seed or seed,
         )
 
     return _choose
@@ -543,15 +607,39 @@ def _generate(
     return candidates, excluded
 
 
-def _rules(conn: Any, tenant_id: str, now: datetime) -> Any:
+def _rules(
+    conn: Any, tenant_id: str, now: datetime, product_id: str | None = None
+) -> Any:
     """The rule set in force at decision time. Never raises."""
     import policy_rules
 
     try:
-        return policy_rules.resolve(conn, tenant_id=tenant_id, at=now)
+        return policy_rules.resolve(
+            conn, tenant_id=tenant_id, at=now, product_id=product_id
+        )
     except Exception:
         logger.exception("policy rule resolution failed for tenant=%s", tenant_id)
         return policy_rules.EMPTY
+
+
+def _binding_kwargs(rules: Any, reason: str | None, now: datetime) -> dict[str, Any]:
+    try:
+        import policy_binding
+
+        fired = []
+        if reason:
+            fired = [
+                item.rule_id
+                for item in getattr(rules, "consulted", ())
+                if item.kind in {reason, "calling_window", "suppression_state"}
+            ]
+        bindings, digest = policy_binding.pair(
+            rules, fired_rule_ids=fired, evaluated_at=now
+        )
+        return {"policy_binding": bindings, "policy_binding_hash": digest}
+    except Exception:
+        logger.exception("policy binding failed")
+        return {}
 
 
 def _candidate_log(

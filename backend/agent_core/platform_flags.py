@@ -33,6 +33,16 @@ def a2a_enabled() -> bool:
     return _flag("A2A_ENABLED")
 
 
+def fleet_enabled() -> bool:
+    """Phase-1 compiled bundle is loaded and compared either way.
+
+    Off (default): production still uses the live grant/prompt path; mismatches
+    are logged. On: the persisted artefact is the mouth. Do not turn this on
+    until one-member parity is measured green.
+    """
+    return _flag("FLEET_ENABLED")
+
+
 def eval_gate_enabled() -> bool:
     return _flag("EVAL_GATE_ENABLED")
 

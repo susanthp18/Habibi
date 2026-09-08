@@ -28,12 +28,13 @@ CREATE TABLE IF NOT EXISTS a2a_partners (
   card_url TEXT NOT NULL,
   cert_fingerprint TEXT NOT NULL,
   cert_dn TEXT,
+  bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
   allowed_skills TEXT[] NOT NULL DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active','disabled')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (tenant_id, cert_fingerprint)
+  UNIQUE (tenant_id, bot_id, cert_fingerprint)
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_partners_tenant ON a2a_partners(tenant_id);
 

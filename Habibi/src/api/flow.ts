@@ -146,6 +146,26 @@ export type FlowTool = {
   transitions: boolean;
   /** Locked policy engine — visible and disabled in the Tools tab. */
   locked?: boolean;
+  /**
+   * The runtime keeps this tool whatever the card granted. Adding it to
+   * `tools.include` changes nothing at best, and for a flow-control verb — not
+   * a catalog spec — fails G4 at Publish after the tab showed no error.
+   */
+  alwaysOn?: boolean;
+  /**
+   * Channels this tool renders on. `/flow/tools` serves every channel and each
+   * picker filters: the Flow tab keeps voice, the Tools tab keeps what the card
+   * declares.
+   */
+  channels?: string[];
+  /** Catalog tools are grantable; flow_control verbs are voice transitions. */
+  kind?: "catalog" | "flow_control";
+  /**
+   * Client-side only, never served: a tool a step already names that this
+   * card's grant does not cover. Shown so the author can see and remove the one
+   * thing the runtime is going to drop.
+   */
+  ungranted?: boolean;
 };
 
 /**

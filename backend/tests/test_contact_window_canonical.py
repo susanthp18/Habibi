@@ -197,27 +197,31 @@ def _customer(**over) -> dict:
     return base
 
 
-@pytest.mark.parametrize("hour", [3, 6, 8, 21, 23])
+@pytest.mark.parametrize("hour", [3, 6, 21, 23])
 def test_a_borrower_with_no_window_on_file_is_still_bounded(hour: int) -> None:
-    """Outside 09:00-20:00 with nothing recorded is refused, not waved through.
+    """Outside the statutory 08:00–19:00 bound is hours, not a missing preference.
 
-    ``_preferred_hours`` returns None for "nothing recorded" and the outreach
-    check used to read that as "skip". contact_window has always answered the
-    same question the other way — "an unparseable window is not a licence to
-    call at 03:00" — and absence is the same case as unparseable.
+    Preference 09:00–20:00 is a tighter overlay inside that bound. Hours 08 and
+    19 are the two edges where the two clocks disagree; they are covered below.
     """
     at = datetime(2026, 9, 7, hour, 0, tzinfo=IST)  # a Monday
+    assert _veto_at(_customer(), at) == contact_policy.REASON_HOURS
+
+
+def test_preference_tightens_inside_the_statutory_bound() -> None:
+    """08:00 is lawful under RBI and outside the 09:00–20:00 preference."""
+    at = datetime(2026, 9, 7, 8, 0, tzinfo=IST)
     assert _veto_at(_customer(), at) == contact_policy.REASON_WINDOW
 
 
-@pytest.mark.parametrize("hour", [9, 12, 19])
+@pytest.mark.parametrize("hour", [9, 12, 18])
 def test_the_same_borrower_is_contactable_inside_those_bounds(hour: int) -> None:
     at = datetime(2026, 9, 7, hour, 0, tzinfo=IST)
     assert _veto_at(_customer(), at) is None
 
 
-def test_a_recorded_window_still_wins_over_the_default() -> None:
-    """The fallback must not override a borrower who did state a preference."""
+def test_a_recorded_window_cannot_widen_the_statutory_bound() -> None:
+    """Preference may tighten 08:00–19:00. It may not extend it to 21:00."""
     at = datetime(2026, 9, 7, 21, 0, tzinfo=IST)
     stated = _customer(preferred_window="18:00-22:00 IST")
-    assert _veto_at(stated, at) is None
+    assert _veto_at(stated, at) == contact_policy.REASON_HOURS

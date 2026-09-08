@@ -251,7 +251,7 @@ def send(
             return result
         body = f"{body} {footer}"
 
-        phone = customer.get("phone_primary") or customer.get("phone_alt")
+        phone = customer.get("phone_primary")
         if not phone:
             result.reason = "no_phone_on_file"
             return result
@@ -286,6 +286,7 @@ def send(
             related_id=related_id,
             actor_kind="bot",
             account_id=account_id,
+            endpoint=phone,
         )
         if not decision.allowed:
             result.channel = channel

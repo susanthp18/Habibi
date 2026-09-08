@@ -1,0 +1,508 @@
+{
+ "slice": "runtime",
+ "summary": "The AgentCard (backend/agent_core/cards/schema.py, 419 lines) is stored as prompt_versions.agent_card, edited through PATCH /agent-studio/cards/{bot_id} (main.py:2138), gated at publish by compile.py G0-G15/G-OB1-9, and then read back at runtime by exactly three routes: (a) the mouth path — agent_core/skills/runtime.py:218 resolve_mouth parses the card out of the deployment bundle and agent_core/skills/intersect.py:85 effective_tools turns tools.include/tools.locked/skills/connectors into the per-turn Tool Grant (voice/bot.py:1138-1144, bot_runtime.py:913, sandbox_runtime.py:214); (b) the outbound path — mission.py:498 card_for_bot re-reads the published card by deployment and mission.py:242 flattens outbound.objectives into a Mission envelope that voice/bot.py:550-573, voice/amd.py:153, voice/ivr.py:67 and voice/tools.py:1448 consume, with cadence.py, call_closer.py and qa_autoscore.py:143 reading outbound.cadences and outbound.post_call; (c) the A2A path — agent_core/a2a.py:72 renders identity.display_name/purpose and skills[] into the served partner card. Everything else on the card is compile-only or has no reader at all. Whole sub-models are dead: memory (zero readers anywhere in the backend, not even a gate), human_gates (zero readers — identity gating is hardcoded in voice/tools.py:516-523 and card-independent, and \"floor\"/\"both\" is implemented nowhere), mouth (both fields dead — G15's \"card locales\" come from persona, not mouth.languages), a2a.skill_ids, and eval.suite_id (deliberately refused by agent_core/eval/run.py:14-34). Three fields are worse than dead because a live path reads a hardcoded value instead: CardObjective.success (call_closer.py:949 uses its own SUCCESS_BY_OBJECTIVE table while the comment at :99-101 claims the card overrides it), CardCadence.escalate_to (cadence.escalation_target at :600 has no caller, so an exhausted ladder escalates to nobody), and experiment.shadow (canary.pick_deployment_id at :57-77 never consults it, so a \"shadow\" canary is served to real callers).",
+ "endpoints": [
+  "GET /.well-known/agent-card.json → backend/main.py:2711 handler → backend/agent_core/a2a.py:72 agent_card_document → backend/db_prompt_studio.py:569 get_agent_studio_card",
+  "POST /a2a → backend/main.py:2724 handler → backend/agent_core/a2a.py:108 create_task (partner.allowed_skills only; no card read)",
+  "GET /a2a/partners → backend/main.py:2750 handler → backend/agent_core/a2a.py:209 list_partners",
+  "POST /a2a/partners → backend/main.py:2757 handler → backend/agent_core/a2a.py:220 upsert_partner",
+  "GET /a2a/tasks → backend/main.py:2764 handler → backend/agent_core/a2a.py:176 list_tasks",
+  "POST /a2a/tasks/{task_id}/signal → backend/main.py:2771 handler → backend/agent_core/a2a.py:194 signal_task",
+  "GET /agent-studio/cards/{bot_id} → backend/main.py:2130 handler → backend/db_prompt_studio.py:569 get_agent_studio_card (draft-preferred, db_prompt_studio.py:429)",
+  "PATCH /agent-studio/cards/{bot_id} → backend/main.py:2138 handler → backend/db_prompt_studio.py:1774 patch_prompt_version (agent_card jsonb)",
+  "POST /agent-studio/cards/{bot_id}/compile → backend/main.py:2194 handler → backend/db_prompt_studio.py:782 compile_agent_studio_card → backend/agent_core/cards/compile.py:519 compile_card",
+  "POST /agent-studio/cards/{bot_id}/publish → backend/main.py:2214 handler → backend/db_prompt_studio.py:1820 publish_prompt_version",
+  "POST /prompt-versions/{version_id}/publish → backend/main.py:3246 handler → backend/db_prompt_studio.py:1820 publish_prompt_version (traffic_pct/auto_rollback fall back to card.experiment at :1890-1891; shadow does not)",
+  "GET /bot-deployments/experiments → backend/main.py:3215 handler → backend/agent_core/canary.py:320 list rows (returns shadow at :342)",
+  "GET /outbound/missions → backend/main.py:5318 handler → backend/mission.py:498 card_for_bot (renders objective.success to the Outbound tab at main.py:5366)",
+  "GET /outbound/card-vocabulary → backend/main.py:5247 handler → backend/agent_core/cards/schema.py Literals + backend/contact_policy.py daily_cap",
+  "GET /outbound/number-pools → backend/main.py:5192 handler → number_pools table (card.outbound.number_pool is free text against it, main.py:5289)"
+ ],
+ "runtime_consumers": [
+  "identity.bot_id → RUNTIME: backend/agent_core/skills/runtime.py:74 (CARD_SKILLS fallback when card.skills is empty); also backend/agent_core/skills/intersect.py:133 (log only)",
+  "identity.slug → COMPILE-ONLY: backend/agent_core/cards/compile.py:765 (connector scope identity); runtime reader NONE",
+  "identity.display_name → RUNTIME: backend/agent_core/a2a.py:94 (served A2A card name)",
+  "identity.purpose → RUNTIME: backend/agent_core/a2a.py:95 (served A2A card description)",
+  "identity.owner_user_id → NONE (dead config; no reader in backend outside schema.py:87)",
+  "identity.channels → COMPILE-ONLY: backend/agent_core/cards/compile.py:643 (G4 voice_or_wa), :685 (G6 voice cap). No runtime refusal — bot_runtime.py:911-916 filters by agent_core/tools/schema.py CHANNEL_TEXT from the catalog, voice/bot.py:1142 by CHANNEL_VOICE; neither consults identity.channels",
+  "identity.data_class → NONE (dead config; every data_class hit in backend is the mcp_connectors column, agent_core/connectors/persist.py:141, or the SKILL.md metadata, agent_core/skills/pack.py:141 — never the card's)",
+  "identity.regulator_tags → NONE (dead config; only written, backend/agent_core/cards/defaults.py:145)",
+  "mouth.flow_ref → NONE (dead config; the flow comes from prompt_versions.flow via agent_core/deployment.py:89, never from flow_ref)",
+  "mouth.languages → NONE (dead config; G15's card_locales come from persona.language/fallbackLanguages, backend/db_prompt_studio.py:1004-1011)",
+  "skills[].skill_id → RUNTIME: backend/agent_core/skills/runtime.py:72 packs_from_card → agent_core/skills/persist.py:689 packs_for_slugs; gates writes in agent_core/skills/intersect.py:108-114",
+  "skills[].version → NONE (dead config; packs_for_slugs resolves by slug only)",
+  "skills[].pin → NONE (dead config; PinMode exact/caret is never branched on anywhere)",
+  "tools.include → RUNTIME: backend/agent_core/skills/intersect.py:106 and :74 (order)",
+  "tools.locked → RUNTIME: backend/agent_core/skills/intersect.py:55 _locked_mouth, :106, :114 (locked mouth tools survive the skill gate); also COMPILE G3 at compile.py:603",
+  "tools.max_voice_tools → COMPILE-ONLY: backend/agent_core/cards/compile.py:688 (G6). Runtime never caps — agent_core/skills/intersect.py:149 idle_offered_tools has no cap",
+  "handoffs[].to_bot_id → RUNTIME (text): backend/bot_tools.py:418 _handoff_allowlist → agent_core/tools/domain.py:1027; RUNTIME (voice mesh): backend/agent_core/cards/handoff_policy.py:29 ← voice/bot.py:1524. Voice handoff_to_agent reads the BUILT-IN card instead (voice/tools.py:2786) — see RUNTIME-05",
+  "handoffs[].payload_schema → NONE (dead config; agent_core/tools/domain.py:1009-1049 passes payload through as a string and validates nothing)",
+  "handoffs[].when → NONE (prose; UI/graph label only, agent_core/cards/templates.py:139)",
+  "connectors[].connector_id → RUNTIME: backend/agent_core/skills/intersect.py:123 → agent_core/connectors/persist.py:220-222",
+  "connectors[].allow_prefixes → RUNTIME: backend/agent_core/connectors/persist.py:224-234 (prefix filter on bound tool names)",
+  "policy_bindings.{reco,treatment,authority,live_qa,routing,dnd} → COMPILE-ONLY: backend/agent_core/cards/compile.py:598-604 (G3). Unfalsifiable — PolicyBinding is Literal[\"required\"] (schema.py:20), so the != check can never fire. No runtime reader",
+  "memory.scopes → NONE (dead config). voice/crm_sink.py:1161-1184 writes cross-call customer memory gated on voice_config.voice_memory() and identity, never on scopes",
+  "memory.compaction.raw_last_n → NONE (dead config). bot_runtime.py:871 uses _history_limit() = env BOT_HISTORY_LIMIT (bot_runtime.py:49-50); agent_core/turn.py:37 defaults to the module constant RAW_LAST_N",
+  "memory.compaction.summarize_over_budget → NONE (dead config). agent_core/compaction.py:35-50 always summarizes; there is no flag",
+  "outbound.direction → RUNTIME (partial): backend/mission.py:482 (_claims, bot selection) and agent_core/treatment/enact.py:368. Does NOT block a dial — see RUNTIME-13",
+  "outbound.objectives[].key → RUNTIME: backend/mission.py:268 objective(), agent_core/treatment/enact.py:369, mission.py:483",
+  "outbound.objectives[].entry_node → RUNTIME: backend/mission.py:302 → backend/voice/bot.py:555-556 → voice/flows_dynamic.py entry; also COMPILE G-OB2 (compile.py:305-326)",
+  "outbound.objectives[].success → NONE at the verdict (dead config). Carried to mission.py:315 and read by nobody; call_closer.py:949 uses the hardcoded SUCCESS_BY_OBJECTIVE (call_closer.py:102-112). Surfaced to the operator at main.py:5366 — see RUNTIME-08",
+  "outbound.objectives[].partial → NONE (dead config; no reader anywhere, not even a gate)",
+  "outbound.objectives[].max_duration_sec → RUNTIME: backend/mission.py:303 → voice/bot.py:562-563 (session.extra.max_duration_sec) and mission.py:437-442 (briefing)",
+  "outbound.objectives[].allowed_offers → RUNTIME: backend/mission.py:281-289 → voice/bot.py:557-561 (upsell_blocked latch)",
+  "outbound.objectives[].authority_profile → RUNTIME: backend/mission.py:304 → backend/voice/tools.py:1448-1454 (ceiling narrowing)",
+  "outbound.objectives[].voicemail.leave → RUNTIME: backend/mission.py:345 → backend/voice/amd.py:161-166, :294",
+  "outbound.objectives[].voicemail.max_sec → RUNTIME: backend/mission.py:346 → backend/voice/amd.py:161, :300",
+  "outbound.objectives[].voicemail.include_grievance_contact → RUNTIME: backend/mission.py:347 → backend/voice/amd.py:294-300; also COMPILE G-OB5 (compile.py:378-388)",
+  "outbound.objectives[].cadence → RUNTIME: backend/agent_core/cards/schema.py:352 cadence_for ← cadence.py:517, call_closer.py:756",
+  "outbound.cadences[].name → RUNTIME: backend/agent_core/cards/schema.py:354 (lookup key), call_closer.py:763",
+  "outbound.cadences[].max_attempts → RUNTIME: backend/call_closer.py:764 → cadence.py:151 (row) → cadence.py:232, :401",
+  "outbound.cadences[].per_day → COMPILE-ONLY: backend/agent_core/cards/compile.py:350 (G-OB3). Runtime uses contact_policy.daily_cap() from env/rules (contact_policy.py:91-101); the card cannot lower it",
+  "outbound.cadences[].backoff_hours → RUNTIME: backend/cadence.py:242, and cadence.py:517 _backoff_curve → cadence.py:576",
+  "outbound.cadences[].retry_on → RUNTIME: backend/cadence.py:224-228",
+  "outbound.cadences[].stop_on → RUNTIME: backend/cadence.py:217-219",
+  "outbound.cadences[].escalate_to → NONE at runtime (dead config). backend/cadence.py:600 escalation_target has no caller; COMPILE-ONLY G-OB7 (compile.py:412-427)",
+  "outbound.cadences[].time_of_day → NONE (dead config; no reader anywhere, no gate)",
+  "outbound.post_call.on_outcome[].when/.do → RUNTIME: backend/call_closer.py:693-708 → post_call_actions.apply; also COMPILE G-OB6 (compile.py:393-407)",
+  "outbound.post_call.written_followup → RUNTIME: backend/call_closer.py:707",
+  "outbound.post_call.obligations → RUNTIME: backend/call_closer.py:979",
+  "outbound.post_call.qa → RUNTIME: backend/qa_autoscore.py:143-170",
+  "outbound.number_pool → RUNTIME: backend/campaigns.py:539-549 → backend/outbound.py:326, :415",
+  "outbound.pool_kind → RUNTIME: backend/mission.py:284-285 (forces allowed_offers empty); also COMPILE G-OB4 (compile.py:365-374)",
+  "outbound.concurrency_share → NONE (dead config, acknowledged: backend/tests/test_outbound_card_switches.py:16-19 says the fleet gate has no per-card reservation)",
+  "outbound.carrier_amd → RUNTIME: backend/outbound.py:458-468 _card_wants_carrier_amd",
+  "outbound.ivr_traversal → RUNTIME: backend/mission.py:311 → backend/voice/ivr.py:67-68",
+  "outbound.ivr_max_sec → RUNTIME: backend/mission.py:312 → backend/voice/ivr.py:82",
+  "human_gates[].tool_name → NONE (dead config). No reader in backend/voice/**, bot_tools.py, agent_core/tools/**, or even compile.py. Voice write tools are gated by the hardcoded voice/tools.py:516-523 _require_customer()",
+  "human_gates[].require → NONE (dead config). \"floor\" and \"both\" (supervisor approval) have no implementation at all; /floor/approvals (main.py:1494) is a work-runtime screen no tool consults",
+  "eval.suite_id → NONE (dead by design; backend/agent_core/eval/run.py:14-34 explicitly refuses to resolve a bot from it, and no runner reads it)",
+  "eval.require → COMPILE-ONLY: backend/agent_core/cards/compile.py:966-968 (_eval_gate G7/G8/G11 and outbound eval)",
+  "experiment.traffic_pct → RUNTIME: backend/db_prompt_studio.py:1890 → agent_core/canary.py:93, :128 → canary.pick_deployment_id:70-77 (hash split)",
+  "experiment.shadow → NONE at routing (dead config). Persisted (canary.py:129, db_prompt_studio.py:2122) and echoed back (canary.py:342) but pick_deployment_id:57-77 never reads it; also not sourced from the card on publish (db_prompt_studio.py:1942)",
+  "experiment.auto_rollback → RUNTIME: backend/db_prompt_studio.py:1891 → agent_core/canary.py:94, :130 → the rollback watchdog conditions",
+  "a2a.expose → COMPILE-ONLY: backend/agent_core/cards/compile.py:898 (G13) and db_prompt_studio.py:1894. Not checked when the card is actually served (main.py:2711-2717, a2a.py:72)",
+  "a2a.skill_ids → NONE (dead config). agent_core/a2a.py:80 builds the served skill list from card.skills[], and create_task:116-120 authorises against a2a_partners.allowed_skills",
+  "schema_version → COMPILE-ONLY: Literal[\"1\"] parse check (schema.py:379)"
+ ],
+ "findings": [
+  {
+   "id": "RUNTIME-01",
+   "title": "human_gates is enforced nowhere — the card's identity/floor requirement has no reader at all",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:158-162",
+    "backend/agent_core/cards/schema.py:389",
+    "backend/agent_core/cards/defaults.py:150-151",
+    "backend/agent_core/cards/defaults.py:171",
+    "backend/agent_core/cards/defaults.py:312",
+    "backend/voice/tools.py:516-523",
+    "backend/agent_core/cards/compile.py:519-954"
+   ],
+   "mechanism": "`human_gates` appears in exactly four places in the backend: the schema (schema.py:158,389), the first-party card constructors (defaults.py:150-151, :171, :312) and the frontend type (Habibi/src/api/agent-card.ts:317,335). There is no reader in backend/voice/**, bot_tools.py, sandbox_runtime.py, agent_core/tools/** — and no gate in compile.py either, so it is not even compile-only. What actually gates voice writes is the hardcoded `_require_customer()` at voice/tools.py:516-523, which checks `session.identity_verified` for every write regardless of what the card says. The two stronger modes are worse: `require=\"floor\"` and `require=\"both\"` mean supervisor sign-off, and nothing in the codebase implements a per-tool approval hold — /floor/approvals (main.py:1494) is a work-runtime screen no tool consults.",
+   "trigger": "Publish a card with `human_gates: [{tool_name: \"apply_goodwill\", require: \"both\"}]`. Every gate passes (no gate reads the field), the change log records the new contract, and at runtime apply_goodwill executes on identity alone with no supervisor step. Symmetrically, removing `{tool_name: \"create_promise_to_pay\", require: \"identity\"}` from kaia's card changes nothing — PTP stays identity-gated by voice/tools.py:1218.",
+   "fix": "Either enforce it or stop publishing it. Enforcement: resolve the card's human_gates in the tool dispatch path (voice/tools.py `_spec` wrapper and bot_tools.py:770-800 dispatch table), map `identity` onto the existing `_require_customer()` result and implement `floor`/`both` as a real approval hold before the write. If floor approval is not going to exist this quarter, narrow HumanGateRequire to Literal[\"identity\"], add a compile gate asserting every gated tool_name is in the effective tool set, and say in the Policy tab that identity gating is platform-wide rather than card-authored.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-02",
+   "title": "card.memory is dead in its entirety — including the scopes that describe what is retained about a borrower",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:144-155",
+    "backend/agent_core/cards/schema.py:387",
+    "backend/voice/crm_sink.py:1161-1184",
+    "backend/voice/crm_sink.py:1609-1614",
+    "backend/bot_runtime.py:49-50",
+    "backend/bot_runtime.py:871",
+    "backend/bot_runtime.py:891-895",
+    "backend/agent_core/compaction.py:35-50"
+   ],
+   "mechanism": "Grepping the whole backend for a reader of the card's `memory` sub-model returns nothing — not a runtime reader, not a compile gate. Every card therefore ships the schema default `scopes: [\"turn\", \"call\"]` (no card in defaults.py or templates.py overrides it), which reads as \"this agent retains nothing across calls\". Meanwhile voice/crm_sink.py:1161-1184 writes a persistent `customer_memory` row — a cross-call summary plus open commitments — after every verified call, gated only on the env flag `voice_config.voice_memory()` and identity. Separately, `compaction.raw_last_n` is bypassed: bot_runtime.py:871 uses `_history_limit()` = env BOT_HISTORY_LIMIT (default 16, bot_runtime.py:49-50) and passes that as `last_n` at :893, while agent_core/turn.py:37 uses the module constant. `summarize_over_budget` has no flag to switch — compaction.py:47 always produces a summary.",
+   "trigger": "Any published card (all four first-party ones today) declares customer-scoped memory off and gets a customer_memory row written on every verified voice call. An operator setting `raw_last_n: 4` to shorten context sees 16 turns still sent to the model.",
+   "fix": "Thread the card into the two consumers: pass `card.memory.compaction.raw_last_n` as `last_n` in bot_runtime.py:891 and agent_core/turn.py:90 (falling back to the env value only when there is no card), and make voice/crm_sink.py:1165 require `\"customer\" in card.memory.scopes` in addition to the env flag. If the retention decision is genuinely platform-wide, delete CardMemory from the schema rather than publishing a retention claim the runtime does not honour.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-03",
+   "title": "experiment.shadow never reaches routing — a shadow canary serves real callers",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/agent_core/canary.py:57-77",
+    "backend/agent_core/canary.py:86-133",
+    "backend/agent_core/canary.py:341-342",
+    "backend/agent_core/deployment.py:37-50",
+    "backend/agent_core/cards/schema.py:365"
+   ],
+   "mechanism": "`shadow` is written into deployment_experiments (canary.py:116,129) and read back for display (canary.py:342), but `pick_deployment_id` (canary.py:57-77) — the only routing function, called from agent_core/deployment.py:40 for voice, WhatsApp and the sandbox — branches solely on `traffic_pct`. A running experiment with `shadow=true, traffic_pct=25` therefore routes 25% of real borrowers onto the canary version and speaks its output to them. Everywhere else in this codebase \"shadow\" means decide-and-log-but-never-act (agent_core/reco/config.py:23, treatment/config.py:29, authority/README.md:22), so the word is load-bearing and here it is inert.",
+   "trigger": "Ship a 25% canary with Shadow on from the Ship tab. G12 passes (compile.py:882 only looks at pct and triggers), the experiment row records shadow=true, and one caller in four is served by the unproven version with nothing marking their transcript as an experiment.",
+   "fix": "In `pick_deployment_id`, return the baseline (or active) deployment whenever `exp[\"shadow\"]` is true, and run the canary version out-of-band if a true shadow evaluation is wanted. Failing that, reject shadow at publish (compile.py G12) with \"shadow is not implemented\" rather than accepting a flag that changes nothing but the label.",
+   "prior_ref": "2m.2"
+  },
+  {
+   "id": "RUNTIME-04",
+   "title": "publish reads traffic_pct and auto_rollback off the card but not shadow, then overwrites the card's shadow with the request default",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/db_prompt_studio.py:1827",
+    "backend/db_prompt_studio.py:1889-1891",
+    "backend/db_prompt_studio.py:1940-1946",
+    "backend/db_prompt_studio.py:2122",
+    "backend/schemas.py:2409-2410"
+   ],
+   "mechanism": "publish_prompt_version derives `pct` and `triggers` from `card_raw[\"experiment\"]` when the request omits them (db_prompt_studio.py:1890-1891), but `shadow` has no such fallback — it is the function parameter, defaulting to False (:1827), matching PromptVersionPublishRequest.shadow's default (schemas.py:2410). The shipped-experiment fold at :1940-1946 then writes `\"shadow\": bool(shadow)` back onto the card, so an authored `experiment.shadow: true` is silently rewritten to false on the version row and in the change-log digest. The Studio happens to send it (prompt-studio.lazy.tsx:959 from card.experiment at :470-473), so the loss only bites API callers, clones published through POST /agent-studio/cards/{bot_id}/publish without a body, and any path that publishes a card it did not itself edit.",
+   "trigger": "POST /prompt-versions/{id}/publish with `{}` on a draft whose card has `experiment: {traffic_pct: 30, shadow: true, auto_rollback: [...]}`: pct 30 and the triggers survive, shadow becomes false, and the card is rewritten to say so.",
+   "fix": "Mirror the pct/triggers pattern: `shadow = shadow if shadow is not None else bool(exp.get(\"shadow\"))`, with the request field typed `bool | None = None` in schemas.py:2410.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-05",
+   "title": "voice handoff_to_agent allowlists against the built-in card, not the live one — and denies nothing when the bot is not first-party",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/voice/tools.py:2781-2797",
+    "backend/bot_tools.py:400-429",
+    "backend/agent_core/tools/domain.py:1016",
+    "backend/agent_core/tools/domain.py:1027",
+    "backend/agent_core/cards/routing.py:13-16"
+   ],
+   "mechanism": "voice/tools.py:2786 builds the allowlist from `card_for(bot_id)` — the four Python constants in agent_core/cards/defaults.py — rather than from the card this call is actually running (`bundle[\"agentCard\"]`, which voice/bot.py:1138 already has in hand). Two consequences. (1) A clone or a first-party card whose published `handoffs` were edited is enforced against the built-in list, so a target removed in the Studio is still reachable and a target added is refused. (2) `card_for` raises KeyError for any non-first-party bot_id, the except at :2787-2788 sets `allowlist = None`, and domain.handoff_to_agent:1027 reads None as unrestricted (`if allowlist is not None and ...`) — so a cloned agent may hand off to any bot in the tenant. This is precisely the failure bot_tools.py:400-412 documents as fixed on the text path; the voice path was not fixed with it, and routing.py:13-16 still describes the intended behaviour as if it were.",
+   "trigger": "Publish a clone (bot_id \"kaia-clone-1\") with a single handoff to intake-v1 and take a voice call on it. The model calls handoff_to_agent(target_bot_id=\"insurance-v1\"): card_for(\"kaia-clone-1\") raises KeyError, allowlist becomes None, and the transfer is allowed and written to interactions.handler_bot_id.",
+   "fix": "Replace voice/tools.py:2783-2788 with the same resolution order bot_tools._handoff_allowlist uses — live card from the bundle first, built-in card second, empty set (deny) last — and pass the bundle's agentCard into build_collections_flow/build_authored_flow alongside `allowed_tool_names`. Denying on an unknown card is the safe end; escalate_to_human remains available.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-06",
+   "title": "a2a.expose and a2a.skill_ids are both dead: the well-known card is served for any bot to any authenticated partner, and lists card.skills instead",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "security",
+   "files": [
+    "backend/main.py:2711-2721",
+    "backend/agent_core/a2a.py:72-105",
+    "backend/agent_core/a2a.py:116-120",
+    "backend/agent_core/cards/compile.py:897-917",
+    "backend/agent_core/cards/schema.py:369-373"
+   ],
+   "mechanism": "G13 (compile.py:898) only fires when `card.a2a.expose` is true, and publish only checks for a partner cert in that case (db_prompt_studio.py:1894). But the serving side never asks: main.py:2711-2717 calls `agent_card_document(botId or DEFAULT_BOT_ID)` after `require_partner`, and a2a.py:72-105 reads nothing under `raw[\"a2a\"]`. So any active partner can pull the card document for any bot_id in the tenant, including cards with `expose: false` that were never gated for A2A exposure. Separately, `a2a.skill_ids` — the field whose whole purpose is to say which skills are offered to partners — is ignored: a2a.py:80 iterates `raw[\"skills\"]`, i.e. the internal skill attachment list, so a card exposing one skill advertises all of them; and create_task:116-120 authorises against a2a_partners.allowed_skills, never against the card.",
+   "trigger": "GET /.well-known/agent-card.json?botId=supervisor-brief-v1 with a valid partner cert. That card has `a2a` unset (defaults.py:318-333), so expose is false and G13 was skipped at publish — yet the document is returned, listing every attached skill including internal ones.",
+   "fix": "In a2a.agent_card_document, parse the card and raise KeyError('agent_card_not_exposed') unless `a2a.expose` is true; build `skills_out` from `a2a.skill_ids` (intersected with card.skills so it cannot widen), and intersect partner.allowed_skills with the same list in create_task.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-07",
+   "title": "the A2A partner card is rendered from the DRAFT card, not the published one",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/a2a.py:74-77",
+    "backend/db_prompt_studio.py:429-430",
+    "backend/db_prompt_studio.py:502-503",
+    "backend/main.py:2711-2717"
+   ],
+   "mechanism": "agent_card_document reads `db.get_agent_studio_card(bot_id)[\"agentCard\"]`. That key is deliberately draft-preferred — db_prompt_studio.py:429 sets `card = _card_of(draft) or published_card` so the editor reads back its own unsaved-to-production edits, and the summary even reports which it chose in `cardSource`. The published card is available on the same row as `publishedCard` (:503) and is not used. So the identity, purpose and skill list an external partner is served come from an in-progress draft that has passed no gate and may never be published.",
+   "trigger": "Open a card in Agent Studio, change display_name/purpose and detach a skill (the editor PATCHes the draft), then have a partner fetch /.well-known/agent-card.json — it returns the unpublished draft's name and skill list. Discarding the draft silently changes the partner-facing contract back.",
+   "fix": "Read `publishedCard` in a2a.agent_card_document (falling back to 404 rather than to the draft), or resolve the card through the active deployment the way mission.card_for_bot:516-521 does. The A2A document is a publish-time contract; it must not follow an editor's draft.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-08",
+   "title": "CardObjective.success does not decide whether a mission succeeded — the closer uses a hardcoded table, and both the comment and the Outbound tab say otherwise",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "backend/call_closer.py:99-112",
+    "backend/call_closer.py:949-950",
+    "backend/mission.py:315",
+    "backend/main.py:5366",
+    "backend/agent_core/cards/schema.py:237-238"
+   ],
+   "mechanism": "call_closer.py:949 computes `success = SUCCESS_BY_OBJECTIVE.get(objective, ...)` from the module-level dict at :102-112 and never looks at the card, even though it already resolves the card two lines of context away (`mission_mod.card_for_bot` at :669 and :754). The comment at :99-101 states the opposite — \"``CardObjective.success`` overrides them per published card, which is the point of authoring missions rather than hardcoding them\". mission.py:315 does copy `success` into the Mission envelope, and nothing reads it back: `mission[\"success\"]` has no consumer in voice/**, cadence.py or call_closer.py. `CardObjective.partial` has no reader at all, not even a gate. Meanwhile GET /outbound/missions returns `success` per objective (main.py:5366) so the Outbound tab shows the operator the codes they authored.",
+   "trigger": "Author `success: [\"callback_requested\"]` on a document_chase objective and publish. The tab shows it, the change log diffs it, and a call ending in callback_requested is still scored `objective_met=false` because SUCCESS_BY_OBJECTIVE[\"document_chase\"] is {\"no_resolution\"}. Every downstream reach/outcome metric and the abandon_rate rollback trigger inherit the wrong verdict.",
+   "fix": "In call_closer, resolve the card once (it already does, for post_call and cadence) and use `card.outbound.objective(objective).success` when the objective declares one, falling back to SUCCESS_BY_OBJECTIVE only when it is empty. Do the same for `partial` or delete the field. Fix the comment at :99-101 either way.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-09",
+   "title": "cadence.escalate_to is gated at publish and read by nobody — an exhausted ladder escalates to no one",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/cadence.py:600-604",
+    "backend/cadence.py:232-240",
+    "backend/cadence.py:400-410",
+    "backend/agent_core/cards/compile.py:409-427",
+    "backend/agent_core/cards/schema.py:289-291",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:867-868"
+   ],
+   "mechanism": "`escalation_target(card_outbound, objective)` at cadence.py:600-604 is the only code that reads `escalate_to`, and it has no caller anywhere in the backend. Both exhaustion paths — on_outcome at :232-240 and process_one at :400-410 — call `_stop(..., STATE_EXHAUSTED, \"max_attempts\", ...)` and return; nothing hands the case to the named bot or to a human queue. The field is nevertheless validated by G-OB7 (compile.py:412-427, which even checks the target is on the handoff allowlist) and has an editor control (OutboundCardEditor.tsx:867), so an operator authoring \"escalate_to: human\" after 3 attempts gets a green publish and a case that simply stops.",
+   "trigger": "Publish a cadence with max_attempts 3 and escalate_to \"human\", then let a borrower's ladder run out. call_cadence_state flips to `exhausted` with stopped_reason `max_attempts`; no work item, no handoff, no alert.",
+   "fix": "Call `escalation_target` at both exhaustion sites and act on it — enqueue a human work item for \"human\", or record a handoff to the named bot — or drop escalate_to and G-OB7 and remove the control, so the card stops promising a rung it does not have.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-10",
+   "title": "cadence.time_of_day has no reader and no gate",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:292",
+    "backend/cadence.py:242",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:849-855"
+   ],
+   "mechanism": "`time_of_day` (engine | fixed | spread) exists on CardCadence, has a select control in the Outbound editor, and is read nowhere in the backend — cadence.py:242 schedules `next_attempt_at` purely as now() + backoff, and the only other `time_of_day` hits in the repo are the unrelated `{time_of_day}` prompt variable (agent_core/clock.py:75, agent_core/prompt.py:47). Not even a compile gate references it.",
+   "trigger": "Set a cadence to \"spread\" and every retry still fires at now()+backoff, clustering exactly as \"fixed\" would.",
+   "fix": "Either implement the three modes in cadence.py:242 (engine = current behaviour, fixed = snap to the campaign window, spread = jitter within it), or remove the field and its control.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-11",
+   "title": "cadence.per_day cannot lower the runtime contact cap, contrary to the field's own docstring",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "backend/agent_core/cards/schema.py:263-265",
+    "backend/agent_core/cards/compile.py:343-359",
+    "backend/contact_policy.py:91-101",
+    "backend/contact_policy.py:540-586",
+    "backend/cadence.py:445-458"
+   ],
+   "mechanism": "schema.py:263-265 says per_day is \"Bounded again at runtime by contact_policy's own cap, which a card can only ever lower.\" The runtime does the opposite: contact_policy.admit (called from cadence.py:445 and campaigns.py:557) computes its budget from `daily_cap(rules)` — env CONTACT_DAILY_CAP narrowed by tenant rules (contact_policy.py:99-101) — and never receives the card or per_day. G-OB3 (compile.py:350) only refuses a card whose per_day *exceeds* the global cap. So per_day is a publish-time sanity check that lowers nothing.",
+   "trigger": "Author per_day=1 on a cadence while CONTACT_DAILY_CAP=3. The ladder's backoff (default 4h) allows a second and third attempt within a day and contact_policy admits both.",
+   "fix": "Pass the card's per_day into contact_policy.admit as an additional per-purpose ceiling (min with daily_cap), or correct the docstring and the editor copy to say per_day is a validation bound, not a runtime limit.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-12",
+   "title": "outbound.concurrency_share is publishable and reserves nothing",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:332-334",
+    "backend/tests/test_outbound_card_switches.py:16-19",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:99",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:338"
+   ],
+   "mechanism": "The field is validated (0-100), round-tripped by the editor's state reducer (OutboundCardEditor.tsx:99) and read by nothing — outbound.place has no per-card reservation. This is acknowledged rather than accidental: the test file header (test_outbound_card_switches.py:16-19) and an editor comment (:338) both say a control for it would be \"this exact failure authored on purpose\", which is why no slider exists.",
+   "trigger": "Set concurrency_share via the API (the editor omits the control but the schema accepts it) and publish; the outbound fleet gate allocates identically.",
+   "fix": "Delete the field until the fleet gate can honour it. A card member that is documented as deliberately inert still ships in the published contract and in the change-log diff.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-13",
+   "title": "outbound.direction never blocks a dial — an inbound-only card is dialled from, and the objective guard is skipped precisely when the card forbids dialling",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/treatment/enact.py:358-370",
+    "backend/mission.py:476-495",
+    "backend/campaigns.py:526-552",
+    "backend/agent_core/cards/schema.py:324",
+    "backend/agent_core/cards/schema.py:356-358"
+   ],
+   "mechanism": "enact.py:368 reads `if card is not None and card.outbound.dials and card.outbound.objectives:` and only then refuses an unclaimed objective. When `direction == \"inbound\"` (the schema default, and what every first-party card carries), `dials` is False, so the entire guard is skipped and the dial proceeds — the inverse of the comment above it at :359-363 (\"a dial placed against a card that forbids it should not happen at all\"). mission.resolve_outbound_bot_id compounds it: `_claims` requires `dials`, but every fall-through returns `default` unconditionally (:486-495), so the tenant default bot is selected whether or not its card dials. campaigns.py:526-552 does not check `dials` at all before reserving and placing.",
+   "trigger": "Run a bounce_cure campaign (or let the treatment engine enact one) against kaia-v2-4, whose published card has `outbound.direction: \"inbound\"` and no objectives. resolve_outbound_bot_id returns kaia, the enact guard is skipped because dials is False, and the borrower is dialled by an agent whose published contract says it never dials.",
+   "fix": "Invert the guard: refuse when `card is not None and not card.outbound.dials` (raise NoExecutor(\"card_forbids_outbound\")), and check `card.outbound.dials` in campaigns.py before reserve. Keep the objective check as a second, narrower refusal for cards that do dial.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-14",
+   "title": "cadence retries are always placed as the tenant default bot, so the ladder abandons the card that opened it",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/cadence.py:418-440",
+    "backend/cadence.py:120-156",
+    "backend/mission.py:451-495",
+    "backend/mission.py:498-530"
+   ],
+   "mechanism": "cadence.process_one hardcodes `bot_id = dbmod.DEFAULT_BOT_ID` at :418 and resolves the card, the Mission and the dial from it (:419-440). The ladder row has no bot column to lose it from — ensure_case's INSERT (:130-135) never stores one — even though the originating attempt does (call_attempts.bot_id, referenced at call_closer.py:754 and qa_autoscore.py:161). So every retry after the first is placed by kaia's card: kaia's objective spec, voicemail policy, allowed_offers, authority profile, number pool and prompt version, regardless of which agent placed attempt 1. mission.resolve_outbound_bot_id exists for exactly this resolution (:451-463, whose docstring names the bug: \"Hard-coding DEFAULT_BOT_ID at the call site is how a card authored in Agent Studio still rang as kaia-v2-4\") and is not called here.",
+   "trigger": "A campaign run with bot_id=insurance-v1 places attempt 1 with insurance-v1's mission; the call goes to no_answer; four hours later the cadence worker dials attempt 2 as kaia-v2-4 with kaia's mission envelope and voice. The borrower hears a different agent about the same case, and the two attempts sit on one ladder with two version numbers.",
+   "fix": "Add `bot_id` to call_cadence_state (populated by ensure_case from the attempt), select it in claim_due, and use `mission_mod.resolve_outbound_bot_id(explicit=case[\"bot_id\"], objective=objective)` at cadence.py:418. Until the column exists, read it back from `call_attempts` via `case[\"last_attempt_id\"]`.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-15",
+   "title": "identity.data_class and identity.regulator_tags have no consumer anywhere",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:89-90",
+    "backend/agent_core/cards/defaults.py:144-145",
+    "backend/agent_core/cards/defaults.py:170",
+    "backend/agent_core/cards/compile.py:827"
+   ],
+   "mechanism": "Every `data_class` reference in the backend belongs to something else: the mcp_connectors column (agent_core/connectors/persist.py:141,199 and the G10 issue at compile.py:827) or SKILL.md pack metadata (agent_core/skills/pack.py:141). The card's own identity.data_class and regulator_tags are only ever written (defaults.py:144-145 sets `regulator_tags=[\"rbi-fair-practices\",\"dpdp\"]` on all four cards) — never read by redaction, by the compliance export (/compliance/policy-export, main.py:2779), by pii_redact.py, or by any gate. They are labels on a contract that nothing keys off.",
+   "trigger": "Publish a card with `data_class: [\"marketing\"]` and no \"pii\": the agent still reads and speaks PII through the same CRM tools, and the compliance policy bundle is unchanged.",
+   "fix": "Either key something off them — the obvious candidates are the compliance policy export and a G10-style gate refusing a connector whose data_class exceeds the card's — or drop them from the schema so the published contract stops asserting a classification nothing enforces.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-16",
+   "title": "identity.channels never refuses a channel at runtime; only the publish gates read it",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:88",
+    "backend/agent_core/cards/compile.py:643",
+    "backend/agent_core/cards/compile.py:685",
+    "backend/bot_runtime.py:909-916",
+    "backend/voice/bot.py:1138-1144",
+    "backend/agent_core/tools/grant.py:91-102"
+   ],
+   "mechanism": "The two readers are both gates: compile.py:643 (G4 decides whether locked mouth tools are required) and :685 (G6 decides whether the voice tool cap applies). The runtimes filter tools by the *catalog's* channel metadata, not the card's: bot_runtime.py:915 uses `CATALOG.for_channel(CHANNEL_TEXT)` and voice/bot.py:1142 `CHANNEL_VOICE`, and grant.py:91-102 does the same. Nothing anywhere asks whether the inbound channel is on `identity.channels` before serving the call or the message.",
+   "trigger": "Publish supervisor-brief-v1 (channels: [\"internal\"], defaults.py:324) and address it as the WhatsApp bot via BOT_ID, or activate a production deployment for it: bot_runtime serves the conversation normally. The card says the agent is internal-only and nothing acts on that.",
+   "fix": "Check `channel in card.identity.channels` at the two entry points — bot_runtime's job intake and voice/bot's session start — and refuse (or fall back to the entry bot) when it is not, logging the refusal. That is also what makes the fleet index's reachability story true.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-17",
+   "title": "mouth.languages is dead — the voice-locale gate reads persona, not the card",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:99",
+    "backend/db_prompt_studio.py:1004-1012",
+    "backend/db_prompt_studio.py:1905-1907",
+    "backend/agent_core/cards/compile.py:201",
+    "backend/agent_core/cards/compile.py:942"
+   ],
+   "mechanism": "G15 is the only thing that reasons about a card's languages, and its `card_locales` argument comes from `voice_locale_facts(target[\"voice\"], target[\"persona\"])`, which builds the tag list from `persona.language` and `persona.fallbackLanguages` (db_prompt_studio.py:1004-1011). `mouth.languages` is never passed in and has no other reader in the backend — so the card can declare [\"English\",\"Tamil\"] while the gate judges against the persona's Hindi and no one is told the two disagree.",
+   "trigger": "Set mouth.languages to [\"Tamil\"] on a card whose persona says Hindi and pick a Hindi voice: G15 passes on the persona and the card's language claim is inert.",
+   "fix": "Make G15 compare all three (voice locale, persona languages, card mouth.languages) and warn when the card and persona disagree, or delete CardMouthRef.languages — one of them has to be the answer.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-18",
+   "title": "mouth.flow_ref points at nothing",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:93-98",
+    "backend/agent_core/deployment.py:87-89",
+    "backend/voice/bot.py:1170-1176"
+   ],
+   "mechanism": "CardMouthRef documents itself as \"Pointers, not copies\", but the flow is resolved straight off the prompt version — `\"flow\": version.get(\"flow\")` (deployment.py:89), consumed at voice/bot.py:1170. `flow_ref` has no reader in the backend at all, and no gate validates that it resolves to anything.",
+   "trigger": "Set flow_ref to a nonexistent id and publish: every gate passes and the call runs the version's own flow.",
+   "fix": "Remove the field, or make G1/G2 resolve it and fail when it names a flow that does not exist.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-19",
+   "title": "skills[].version and skills[].pin are ignored — every attachment resolves by slug alone",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:102-107",
+    "backend/agent_core/skills/runtime.py:72-98",
+    "backend/agent_core/skills/persist.py:689",
+    "backend/agent_core/cards/compile.py:478"
+   ],
+   "mechanism": "packs_from_card collects `[ref.skill_id for ref in card.skills]` (runtime.py:72) and hands the slugs to packs_for_slugs; the same is true of the compile path (compile.py:478) and the publish sync (persist.py:689). `version` and the exact/caret `pin` mode are never compared against anything, so a card pinned to version \"1\" silently runs whatever signed pack is current for that slug.",
+   "trigger": "Sign a v2 of ptp-negotiate that adds a tool. Every card pinned `version: \"1\", pin: \"exact\"` picks it up on the next call, with no publish and no change-log entry.",
+   "fix": "Store a version on signed packs and have packs_for_slugs resolve (slug, version, pin); fail closed when an exact pin cannot be satisfied. Otherwise remove both fields so the card stops claiming a pin it does not have.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-20",
+   "title": "handoffs[].payload_schema is never validated and handoffs[].when is never evaluated",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:118-123",
+    "backend/agent_core/tools/domain.py:1009-1049",
+    "backend/agent_core/cards/compile.py:661-678"
+   ],
+   "mechanism": "domain.handoff_to_agent takes `payload: str | None` and passes it through to db.handoff_to_agent as an opaque string (:1043-1049) — the target's declared payload_schema is never fetched or checked, and neither is it checked at publish (G5 at compile.py:665-666 only verifies the target bot exists and is not self). `when` is free prose with no reader; it renders in the graph editor and nothing routes on it.",
+   "trigger": "Declare `payload_schema: {\"required\": [\"policy_no\"]}` on the insurance handoff. The model hands off with an empty payload and the transfer succeeds.",
+   "fix": "Validate the payload against the target's schema inside domain.handoff_to_agent (soft-fail with a spoken summary on mismatch, as the other failure branches do), and add a G5 check that payload_schema is a well-formed JSON Schema. Mark `when` as prose in the schema comment so nobody expects it to route.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-21",
+   "title": "identity.owner_user_id has no reader",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:87"
+   ],
+   "mechanism": "Every `owner_user_id` in the backend belongs to leads, promises or work items (db.py:4333, db_dashboard.py:364, etc.). The card's own owner is never read — not by authz.py for a permission check, not by the change log for attribution (which uses the acting user, agent_core/change_log.py), and not by any gate.",
+   "trigger": "Set an owner and nothing changes about who may edit, publish, archive or restore the card.",
+   "fix": "Either use it (an ownership check in authz's card write path, or an \"owner\" column on the fleet index) or drop it.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-22",
+   "title": "eval.suite_id is authored on every first-party card and deliberately refused by the runner",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:168",
+    "backend/agent_core/cards/defaults.py:152",
+    "backend/agent_core/cards/defaults.py:172",
+    "backend/agent_core/eval/run.py:14-34",
+    "backend/main.py:2791-2803"
+   ],
+   "mechanism": "All four first-party cards set a suite_id (defaults.py:172, :292, :313, :329), and agent_core/eval/run.py:14-34 documents at length why it will not resolve a card from it — the relation is one-to-many, so it returns a name match or None instead. No other code reads `card.eval.suite_id`: POST /eval/suites/{suite_id}/run takes the suite in the path and the bot in a query param (main.py:2792-2803), and the eval gates match by kind, not by suite id (compile.py:966-968).",
+   "trigger": "Change eval.suite_id on a card and no suite selection, scheduling or gate behaviour changes.",
+   "fix": "Delete the field. run.py's reasoning is sound and the field's continued presence on the card invites exactly the wrong inference; if a card must name its regression suite, make the gate read it and fail when the report's suite_id does not match.",
+   "prior_ref": ""
+  },
+  {
+   "id": "RUNTIME-23",
+   "title": "policy_bindings can only ever hold one value, so G3's binding half is unfalsifiable",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:20",
+    "backend/agent_core/cards/schema.py:133-141",
+    "backend/agent_core/cards/compile.py:598-616"
+   ],
+   "mechanism": "`PolicyBinding = Literal[\"required\"]` (schema.py:20), so `getattr(card.policy_bindings, key, None) != \"required\"` at compile.py:601 can never be true for a card that parsed — any other value fails G0 first. Only the second half of G3 (`missing_locked`, :604) can actually fail. The six bindings are therefore a display-only structure, and no runtime path reads them: the reco/treatment/authority/live_qa engines take their mode from env (agent_core/reco/config.py:54, treatment/config.py:51, authority/config.py:24, live_qa/config.py:35), not from the card.",
+   "trigger": "None — the branch is unreachable by construction. The visible symptom is a Policy tab presenting six controls whose only legal value is the one shown.",
+   "fix": "Say so: collapse the six fields to a single computed assertion in the compile report, and have the Policy tab render the engines' actual runtime modes (which are env-driven and can legitimately be shadow) rather than six lozenges that cannot change.",
+   "prior_ref": "2j"
+  }
+ ],
+ "checked_fine": [
+  "tools.include / tools.locked genuinely bound the runtime grant: agent_core/skills/intersect.py:106 intersects include ∪ locked-mouth ∪ platform with the catalog, :114 removes skill-gated writes with no attached pack, and agent_core/skills/runtime.py:187-190 returns an empty frozenset for a cardless mouth (ADR-0002) rather than None — so a missing card denies rather than opens",
+  "connectors[].connector_id and allow_prefixes are honoured end to end: intersect.py:117-123 binds only when mcp_client_enabled(), and connectors/persist.py:222-234 admits only approved connectors and only names matching the card's prefixes",
+  "The connector-binding failure path degrades loudly rather than silently dropping ext.* tools — intersect.py:124-145 logs and appends CONNECTOR_BIND_FAILED to the compile issues",
+  "outbound.post_call.{written_followup,obligations,qa,on_outcome} all have real readers with permissive fallbacks: call_closer.py:655-675 returns CardPostCall() on any lookup failure, :707 and :979 read the switches, qa_autoscore.py:143-173 returns \"always\" on failure — the safe direction in each case",
+  "The Mission envelope carries the card's per-objective settings to the audio path intact: mission.py:302-313 → voice/bot.py:555-566, voice/amd.py:153-166, voice/ivr.py:67-82, voice/tools.py:1447-1454",
+  "outbound.pool_kind=\"service_1600\" strips allowed_offers at runtime as well as at publish — mission.py:284-285 subtracts independently of G-OB4 (compile.py:365-374), so a service pool cannot pitch even if the gate were bypassed",
+  "cadence_for never returns None (schema.py:345-354), so a card naming an undefined cadence falls back to CardCadence() rather than reading as \"retry forever\"",
+  "The rollback-trigger vocabulary is derived once and shared — RollbackTrigger/ROLLBACK_TRIGGERS at schema.py:41-52 are imported by both canary.py:94 and compile.py, so the three lists cannot drift",
+  "tools.max_voice_tools is compile-only (compile.py:688) and that is correct by design — G6 is a publish gate and PLATFORM_SKILL_TOOLS are excluded from the count (intersect.py:50-51, compile.py:687)",
+  "bot_tools._handoff_allowlist (bot_tools.py:400-429) resolves live card → built-in card → deny-all, which is the correct shape; it is the voice twin at voice/tools.py:2781-2788 that does not",
+  "agent_core/tools/grant.py:88 VOICE_ALWAYS keeps verify_identity and the flow-control tools on the call regardless of what a card granted, so a narrow card cannot produce a voice call that verifies nobody",
+  "mission.card_for_bot (mission.py:498-530) prefers the *published* card resolved through the active deployment and falls back to the first-party default — the right precedence for anything a regulator would be shown"
+ ]
+}

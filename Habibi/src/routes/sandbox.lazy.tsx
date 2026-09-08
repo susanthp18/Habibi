@@ -11,6 +11,7 @@ import { TuningStudio } from "@/components/sandbox/TuningStudio";
 import { SplitPanes } from "@/components/inbox/SplitPanes";
 import { useMinWidth } from "@/hooks/use-min-width";
 import { useSandboxLiveCall } from "@/components/sandbox/voice/useSandboxLiveCall";
+import { EMPTY_INSIGHTS, type LiveToolCall } from "@/components/sandbox/voice/liveEvents";
 import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
 import {
   appendSandboxTurn,
@@ -92,6 +93,7 @@ function SandboxPage() {
   const [tuning, setTuning] = useState<AgentTuning>(DEFAULT_AGENT_TUNING);
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [liveMetrics, setLiveMetrics] = useState<TurnMetric[]>([]);
+  const [textToolCalls, setTextToolCalls] = useState<LiveToolCall[]>([]);
   const [nextCallDirty, setNextCallDirty] = useState(false);
   const bootstrapped = useRef(false);
   const tuningBaseline = useRef(DEFAULT_AGENT_TUNING);
@@ -213,6 +215,7 @@ function SandboxPage() {
       setScriptIndex(0);
       setRun(null);
       setHalted(false);
+      setTextToolCalls([]);
     },
     [bootstrapLocal],
   );
@@ -224,6 +227,7 @@ function SandboxPage() {
     setRun(null);
     setHalted(false);
     setLiveMetrics([]);
+    setTextToolCalls([]);
     toast.info("Conversation reset");
   }, [scenario, bootstrapLocal]);
 
@@ -338,6 +342,21 @@ function SandboxPage() {
           return next;
         });
 
+        const simulatedCalls = (result.botTurn.toolCalls ?? []).map((call, i): LiveToolCall => {
+          const at = Date.now();
+          return {
+            id: `${result.botTurn.id}-${call.name}-${i}`,
+            name: call.name,
+            status: call.ok ? "done" : "error",
+            result: call.result,
+            startedAt: at,
+            endedAt: at,
+          };
+        });
+        if (simulatedCalls.length) {
+          setTextToolCalls((prev) => [...prev, ...simulatedCalls]);
+        }
+
         if (result.botTurn.halted) {
           setHalted(true);
           setRun((r) => (r ? { ...r, status: "completed" } : r));
@@ -445,11 +464,10 @@ function SandboxPage() {
     const snap = kbSnapshotId === "current" ? null : kbSnapshotId;
     void publishPromptVersion(activePrompt.id, `Sandbox promote · ${activeKb.label}`, {
       kbSnapshotId: snap,
-      tuning,
     })
       .then(() => {
         toast.success(`Promoted ${activePrompt.label} to Production`, {
-          description: `KB: ${activeKb.label} · tuning pinned in deployment bundle`,
+          description: `KB: ${activeKb.label} · authored tuning preserved`,
         });
       })
       .catch((err: Error) => toast.error("Promote failed", { description: err.message }));
@@ -553,7 +571,7 @@ function SandboxPage() {
       className="flex w-full"
       turns={turns}
       metrics={liveMetrics}
-      insights={live.insights}
+      insights={mode === "text" ? { ...EMPTY_INSIGHTS, toolCalls: textToolCalls } : live.insights}
       // Without this the Trace tab silently fell back to its client-derived
       // sketch on every live call, reporting "0 chunks · 0ms · 0t".
       interactionId={live.insights.interactionId}
@@ -604,6 +622,7 @@ function SandboxPage() {
             setBotId(id);
             setPromptVersionId("");
             setRun(null);
+            setTextToolCalls([]);
           }}
           skillSlug={skillSlug}
           skills={(skillsQuery.data ?? []).map((s) => ({ slug: s.slug, label: s.slug }))}
@@ -616,6 +635,7 @@ function SandboxPage() {
             setHalted(false);
             setTurns(bootstrapLocal(scenario.id));
             setScriptIndex(0);
+            setTextToolCalls([]);
           }}
           kbSnapshotId={kbSnapshotId}
           kbSnapshots={kbOptions}
@@ -648,6 +668,13 @@ function SandboxPage() {
           onPromote={() => setPromoteOpen(true)}
         />
 
+        <div className="shrink-0 border-b border-border bg-surface-sunken px-150 py-075 text-body-tiny text-text-subtle">
+          Rehearsal evidence: {turnsUsed} customer {turnsUsed === 1 ? "turn" : "turns"} — a low
+          sample, not a production guarantee. Text tools are simulated with no production side
+          effects; text/WhatsApp does not walk the authored flow graph. Verify voice behavior in
+          Live mode.
+        </div>
+
         <div className="flex min-h-0 flex-1">{panes}</div>
 
         <PromoteDialog
@@ -656,7 +683,6 @@ function SandboxPage() {
           promptLabel={activePrompt.label}
           kbLabel={activeKb.label}
           scenarioLabel={scenario.title}
-          tuningSummary={`${tuning.tts.style} · temp ${tuning.llm.temperature}`}
           onConfirm={promote}
         />
       </div>

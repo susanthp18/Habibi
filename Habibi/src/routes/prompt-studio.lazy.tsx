@@ -232,6 +232,11 @@ export function PromptStudioPage({
   // and a card-only edit was orphaned when publish created its own draft.
   const [card, setCard] = useState<AgentCard | null>(null);
   const [loadingBuiltIn, setLoadingBuiltIn] = useState(false);
+  // Set by the two buttons on the "could not be read" panel, and by nothing
+  // else. The PATCH refuses the empty sentinel over an unparseable column
+  // without it, so an autosave cannot erase a corrupt graph while an explicit
+  // "replace it" still can.
+  const [replaceUnreadable, setReplaceUnreadable] = useState(false);
 
   const [tab, setTab] = useState<Tab>("prompt");
   const tabStripRef = useRef<HTMLDivElement>(null);
@@ -260,6 +265,7 @@ export function PromptStudioPage({
     setDraftId(null);
     setCard(null);
     setCompileReport(null);
+    setReplaceUnreadable(false);
   }, [botId]);
 
   // A scrollable strip can leave the selected tab off-screen — after a publish
@@ -395,7 +401,14 @@ export function PromptStudioPage({
       setPersona(start.persona ?? DEFAULT_PERSONA);
       setVoice(start.voice ?? DEFAULT_VOICE);
       setGuardrails(start.guardrails ?? DEFAULT_GUARDRAILS);
-      setFlow(start.flow ?? null);
+      // `?? null` was not enough on its own. The backend serves `flow: {}` for a
+      // row it cannot parse, the response model materialises that into the
+      // populated empty sentinel, so `flow` was a non-null object and the
+      // "omit when null" protection below did not apply — the first autosave
+      // triggered by any other edit wrote the sentinel over the unreadable
+      // column, and the red panel became "No authored flow" before the operator
+      // could act on it. Held at null until they explicitly replace it.
+      setFlow(start.flowUnreadable ? null : (start.flow ?? null));
       setCard(asCard(start.agentCard));
       setDraftId(newestDraft?.id ?? null);
       draftSummary.current = newestDraft?.summary || "draft autosave";
@@ -405,7 +418,7 @@ export function PromptStudioPage({
           start.persona ?? DEFAULT_PERSONA,
           start.voice ?? DEFAULT_VOICE,
           start.guardrails ?? DEFAULT_GUARDRAILS,
-          start.flow ?? null,
+          start.flowUnreadable ? null : (start.flow ?? null),
           asCard(start.agentCard),
         ),
       );
@@ -457,7 +470,7 @@ export function PromptStudioPage({
    * having no experiment at all.
    */
   const legacyShipBaseline = useMemo<ShipState>(() => {
-    const live = (experimentsQuery.data ?? []).find((e) => e.status === "active");
+    const live = (experimentsQuery.data ?? []).find((e) => e.status === "running");
     if (!live) return { trafficPct: 100, shadow: false, autoRollback: [] };
     return {
       trafficPct: live.trafficPct,
@@ -651,11 +664,16 @@ export function PromptStudioPage({
             voice,
             guardrails,
             flow: flow ?? undefined,
+            replaceUnreadable,
             agentCard: asCard(effectiveCard) ?? undefined,
             summary: draftSummary.current,
             botId,
           });
           setDraftId(draft.id);
+          // The replacement is stored, so the next autosave is an ordinary one
+          // again. Left set, a later accidental sentinel would sail through the
+          // guard this flag exists to open.
+          if (replaceUnreadable) setReplaceUnreadable(false);
           markSaved(
             fingerprint(
               draft.prompt,
@@ -703,6 +721,7 @@ export function PromptStudioPage({
     autosaveNonce,
     ensureDraft,
     markSaved,
+    replaceUnreadable,
     cardQuery.isError,
   ]);
 
@@ -1408,7 +1427,12 @@ export function PromptStudioPage({
               {tab === "bindings" && <BindingsTab botId={botId} />}
               {tab === "changelog" && <ChangeLogTab botId={botId} />}
               {tab === "evals" && (
-                <EvalsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
+                <EvalsTab
+                  botId={botId}
+                  card={effectiveCard}
+                  onChange={(next) => setCard(next)}
+                  promptVersionId={draftId ?? undefined}
+                />
               )}
               {tab === "ship" && (
                 <ShipTab
@@ -1416,6 +1440,8 @@ export function PromptStudioPage({
                   value={ship}
                   onChange={setShip}
                   activeDeploymentId={activeDeployment?.id}
+                  priorDeploymentId={priorDeployment?.id}
+                  rollbackDeploymentId={activeDeployment?.rollbackDeploymentId}
                   compileReport={compileReport}
                   onCompile={() => void runCompile()}
                   compileBusy={compileMutation.isPending}
@@ -1429,6 +1455,8 @@ export function PromptStudioPage({
                   onApplyPreset={applyPreset}
                   presets={presets}
                   lintFindings={freshLint}
+                  lintFailed={autoLint.isError}
+                  lintPending={autoLint.isPending && !autoLint.data}
                   // The footer's cost figure is only honest if it can assemble
                   // the message the runtime actually sends. Guardrails are most
                   // of the difference; persona decides the language line.
@@ -1471,10 +1499,52 @@ export function PromptStudioPage({
                         <p className="text-body-small leading-relaxed text-text-subtle">
                           The saved JSON does not match the flow schema, so the editor is showing
                           nothing rather than showing you something that is not what is stored.
-                          Nothing has been changed. Restore an earlier version from History, or load
-                          the built-in script to start a fresh graph — either one replaces the
-                          unreadable row on publish.
+                          {/* It used to say "Nothing has been changed" and mean it
+                              only until the next keystroke: the first autosave
+                              wrote the empty sentinel over the column. The editor
+                              now holds this version's flow at null so no save
+                              touches it, and the server refuses the same write,
+                              so replacing it takes one of these two buttons. */}{" "}
+                          Editing another tab will not touch it — saves leave this column alone
+                          until you replace it here, or restore an earlier version from History.
                         </p>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-100">
+                        <Button
+                          variant="primary"
+                          disabled={loadingBuiltIn}
+                          onClick={() => {
+                            setLoadingBuiltIn(true);
+                            void fetchBuiltInFlow()
+                              .then((g) => {
+                                setReplaceUnreadable(true);
+                                setFlow(g);
+                                toast.success(
+                                  `Loaded the built-in script — ${g.nodes.length} nodes. Publish to make it live.`,
+                                );
+                              })
+                              .catch((err: unknown) =>
+                                toast.error(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Could not load the built-in flow",
+                                ),
+                              )
+                              .finally(() => setLoadingBuiltIn(false));
+                          }}
+                        >
+                          <Workflow className="mr-050 h-4 w-4" />
+                          {loadingBuiltIn ? "Loading…" : "Replace with the built-in script"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setReplaceUnreadable(true);
+                            setFlow(emptyGraph());
+                          }}
+                        >
+                          Replace with a blank graph
+                        </Button>
                       </div>
                     </div>
                   ) : isEmptyGraph(flow) ? (
@@ -1535,6 +1605,7 @@ export function PromptStudioPage({
                       graph={flow as FlowGraph}
                       onChange={setFlow}
                       onValidation={onFlowValidation}
+                      grantTools={compileReport?.effective_tools}
                     />
                   )}
                 </div>

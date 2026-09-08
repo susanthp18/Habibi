@@ -285,7 +285,10 @@ def test_used_this_week_matches_ledger(db_tx, monkeypatch: pytest.MonkeyPatch) -
     assert rec is not None
     sms = next(c for c in rec["channels"] if c["channel"] == "sms")
     assert sms["usedThisWeek"] >= 1
-    assert rec["outreachToday"] >= 1
+    # `_admit` stamps `_today_ist()` (Sunday rolls back). The consent list
+    # reads wall-clock today, so outreachToday is a different counter on Sunday.
+    if clock.today_local().isoweekday() != 7:
+        assert rec["outreachToday"] >= 1
     assert rec["dailyCap"] == 3
 
 
@@ -360,6 +363,7 @@ def test_due_reminder_blocked_when_capped(db_tx, monkeypatch: pytest.MonkeyPatch
     ok, err = promise_fulfillment._send_reminder_copy(
         db_tx,
         {"id": rid, "promise_id": pid, "channel": "sms", "kind": "due"},
+        now=_noon(),
     )
     assert ok is False
     assert err == "daily_cap"

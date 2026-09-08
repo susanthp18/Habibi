@@ -166,7 +166,7 @@ def upsert_connector(payload: dict[str, Any]) -> dict[str, Any]:
                   ttl_ms = EXCLUDED.ttl_ms,
                   timeout_ms = EXCLUDED.timeout_ms,
                   allowed_env = EXCLUDED.allowed_env,
-                  status = EXCLUDED.status
+                  status = mcp_connectors.status
                 """
             ),
             {

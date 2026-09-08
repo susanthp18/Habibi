@@ -36,7 +36,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from agent_core.treatment import actions as A, config, decisions
+from agent_core.treatment import actions as A, config, decisions, kill_switch
 from agent_core.treatment.features import CONNECT_MIN_SECONDS, Trigger
 
 logger = logging.getLogger(__name__)
@@ -94,12 +94,15 @@ def _aware(value: Any) -> datetime | None:
 
 def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = BATCH) -> int:
     """Label decisions whose result is now knowable. Returns how many."""
+    if not kill_switch.labels_allowed():
+        return 0
     instant = now or datetime.now(timezone.utc)
     rows = conn.execute(
         text(
             """
             SELECT id, customer_id, account_id, trigger_kind, trigger_ref,
-                   chosen_action, enacted, enacted_at, created_at
+                   chosen_action, chosen_channel, enacted, enacted_at, created_at,
+                   variant, mode, enacted_ref
             FROM treatment_decisions
             WHERE outcome IS NULL
               -- The synthetic corpus writes its own outcomes, sampled from a
@@ -139,7 +142,18 @@ def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = B
         if outcome is None:
             inconclusive.append(str(row["id"]))
             continue
-        decisions.record_outcome(row["id"], outcome, conn=conn)
+        reach, cure = _reach_and_cure(conn, dict(row), outcome, now=instant)
+        decisions.record_outcome(
+            row["id"],
+            outcome,
+            conn=conn,
+            reach_outcome=reach,
+            cure_outcome=cure,
+            observed_days=(instant - since).days if (since := _aware(row.get("created_at"))) else None,
+            event_at=instant,
+            label_mature_at=instant + timedelta(days=90) if cure is None else instant,
+            label_definition_version="w3-v1",
+        )
         labelled += 1
 
     if inconclusive:
@@ -219,6 +233,31 @@ def _withheld_on_purpose(row: dict[str, Any]) -> bool:
     return bool(arm and arm.suppress_discretionary)
 
 
+def _reach_and_cure(
+    conn: Any, row: dict[str, Any], outcome: str, *, now: datetime
+) -> tuple[str | None, str | None]:
+    """Split attempt reach from borrower cure.
+
+    Reach closes at one evaluation instant. Cure stays open for the 90-day
+    window; a PTP never closes it.
+    """
+    reach = None
+    if outcome in {"reached", "no_answer", "undeliverable", "refused"}:
+        reach = outcome
+    elif outcome == "ptp":
+        reach = "reached"
+    elif outcome == "paid" and bool(row.get("enacted")):
+        reach = "reached"
+    cure = None
+    if outcome == "paid":
+        cure = "paid"
+    elif outcome == "unresolved":
+        cure = "unresolved"
+    elif outcome == "ptp":
+        cure = None
+    return reach, cure
+
+
 def _superseded(conn: Any, row: dict[str, Any]) -> bool:
     """A newer decision exists for the same case.
 
@@ -257,11 +296,25 @@ def _superseded(conn: Any, row: dict[str, Any]) -> bool:
 def _paid_since(conn: Any, row: dict[str, Any], since: datetime) -> bool:
     if not row.get("account_id"):
         return False
+    reversal = ""
+    try:
+        from agent_core.treatment import schema_ready
+
+        if schema_ready.has_column(conn, "ledger_entries", "reverses_id"):
+            reversal = """
+              AND NOT EXISTS (
+                SELECT 1 FROM ledger_entries r
+                WHERE r.reverses_id = ledger_entries.id
+              )
+            """
+    except Exception:
+        reversal = ""
     found = conn.execute(
         text(
-            """
+            f"""
             SELECT 1 FROM ledger_entries
             WHERE account_id = :aid AND type = 'payment' AND posted_at > :since
+              {reversal}
             LIMIT 1
             """
         ),
@@ -331,6 +384,28 @@ def _reached_since(conn: Any, row: dict[str, Any], since: datetime) -> bool:
         ),
         {"cid": row["customer_id"], "since": since},
     ).fetchone()
+    if found is not None:
+        return True
+    try:
+        found = conn.execute(
+            text(
+                """
+                SELECT 1 FROM contact_delivery_events
+                WHERE customer_id = :cid
+                  AND channel = COALESCE(:ch, channel)
+                  AND state IN ('delivered','read')
+                  AND occurred_at > :since
+                LIMIT 1
+                """
+            ),
+            {
+                "cid": row["customer_id"],
+                "ch": row.get("chosen_channel"),
+                "since": since,
+            },
+        ).fetchone()
+    except Exception:
+        return False
     return found is not None
 
 
@@ -418,6 +493,12 @@ def _case_still_open(conn: Any, case: dict[str, Any]) -> bool:
             text("SELECT status FROM emi_installments WHERE id = :id"), {"id": ref}
         ).scalar()
         return status in {"upcoming", "partial", "overdue"}
+    if kind == "dpd_tick":
+        dpd = conn.execute(
+            text("SELECT dpd FROM accounts WHERE id = :id"),
+            {"id": case.get("account_id")},
+        ).scalar()
+        return dpd is not None and int(dpd) > 0
     return False
 
 

@@ -1,0 +1,171 @@
+{
+ "slice": "graph",
+ "verdicts": [
+  {
+   "id": "GRAPH-1",
+   "verdict": "CONFIRMED",
+   "reason": "Read every cited line. CONTEXT.md:46-48 defines Handoff as 'the receiving agent brings its own card, and therefore its own grant'; grant.py:15-18 and :168-175 repeat it ('the receiving agent's bundle is resolved by bot id and handed straight here'). No caller does this. VOICE: backend/voice/tools.py _handoff_to_agent_handler ends `return result.to_llm(), None` on both the failure and the success branch — a None second element is 'stay on this node', so FlowManager keeps the same NodeConfig, the same `tools` dict built by build_tools, and the same system prompt. Its only extra effect is `voice_mesh.activate_role(role, session.session_id)`, and voice/mesh.py:126-152 shows active_role is only read by active_role()/status(); nothing selects tools or prompt from it. TEXT: backend/bot_tools.py:448 `ctx.bot_id = target` mutates the ToolContext for the remainder of one turn only; the next turn re-enters bot_runtime.py:712-714 `load_active_bundle(..., bot_id=_bot_id(), ...)` (env BOT_ID) and rebuilds ToolContext with `bot_id=_bot_id()` (:933) and `tool_ctx.agent_card = bundle.get('agentCard')` (:947), so the target card is never loaded. The only durable write is db_inbox.handoff_to_agent's UPDATE of transferred_from_bot_id/handler_bot_id (:1479-1492) plus an _activity row; handler_bot_id has no bundle-loading consumer. Operator path: Agent graph tab → Allow a target → autosave → Publish; then on WhatsApp the model calls handoff_to_agent and the caller keeps talking to the BOT_ID card while the graph tab's lozenge (AgentCardPanels.tsx:754 'Reached mid-conversation from a live card's allowlist') asserts a transfer happened. MAJOR stands: it is a documented behaviour the code does not implement, and the UI repeats the claim.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "CONTEXT.md:46-48",
+    "backend/agent_core/tools/grant.py:15-18",
+    "backend/agent_core/tools/grant.py:168-175",
+    "backend/agent_core/cards/routing.py:12-16",
+    "backend/voice/tools.py:2789-2808",
+    "backend/bot_tools.py:448",
+    "backend/bot_runtime.py:712-714",
+    "backend/bot_runtime.py:933",
+    "backend/bot_runtime.py:947",
+    "backend/db_inbox.py:1479-1501",
+    "backend/voice/mesh.py:126-152",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:754"
+   ]
+  },
+  {
+   "id": "GRAPH-2",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at the lines. backend/voice/tools.py:2781-2788 is literally `allowlist: set[str] | None = None` / `if bot_id: try: allowlist = set(card_for(bot_id).handoff_targets()) except KeyError: allowlist = None`, and card_for (defaults.py:342-346) raises KeyError for any bot id not in _BUILDERS (the four first-party constants). backend/agent_core/tools/domain.py:1026 is `if allowlist is not None and target not in allowlist:` — None is unrestricted, so every cloned card deployed to voice hands off to any id that satisfies db_inbox.py:1459 `SELECT 1 FROM bots WHERE id = :id` (no tenant, no archived predicate). bot_id comes from the bundle (voice/bot.py:444-448 `bundle.get('botId') or promptVersion.botId or DEFAULT_BOT_ID`), so a clone deployment reaches the KeyError branch. build_tools' signature (voice/tools.py:278-305) has no agent_card/bundle parameter, confirmed by both call sites (flows.py:145, flows_dynamic.py:190), so removing a target from a first-party card in the graph tab and publishing cannot affect voice — card_for still returns the constant list. The contrast the auditor draws is real: bot_tools._handoff_allowlist (:400-429) resolves live card → built-in → `return set()` (deny), and its docstring names this exact bug. Reachability on voice: flows_dynamic.py:414-424 builds each authored node's functions from node.data.tools against the `tools` dict, and flow_graph.tool_catalog (:805-821) offers every voice-channel CATALOG spec — handoff_to_agent has channels=BOTH (catalog.py:594) — so an operator who places handoff_to_agent on an authored Flow node and publishes a clone reaches this. MAJOR: a security control that disables itself precisely when identity is non-first-party.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/voice/tools.py:2781-2788",
+    "backend/voice/tools.py:278-305",
+    "backend/agent_core/tools/domain.py:1026-1032",
+    "backend/agent_core/cards/defaults.py:342-346",
+    "backend/db_inbox.py:1457-1460",
+    "backend/bot_tools.py:400-429",
+    "backend/voice/bot.py:444-448",
+    "backend/voice/flows_dynamic.py:414-424"
+   ]
+  },
+  {
+   "id": "GRAPH-3",
+   "verdict": "CONFIRMED",
+   "reason": "Mechanism verified end to end. The only editor for `when` is AgentCardPanels.tsx:705-712 (input, committed on blur via setHandoff), and the help paragraph immediately above it (:669-673) tells the author 'The condition is guidance for the model, not a rule the runtime enforces — the allowlist itself is the rule.' The model never receives it: catalog.py:577-596 HANDOFF_TO_AGENT's description and its three ArgSpec descriptions are static literals with no card interpolation, and those are what voice (to_flows_schema) and text (CATALOG.openai_tools, bot_runtime.py:949) render. I grepped every backend *.py for `handoffs` and for `handoff_targets|\\.when\\b`: the only readers of card.handoffs are compile.py G5 (:665-666) and G-OB7 (:412), handoff_policy.py:29, routing.py:52/110, bot_tools.py:418/424, voice/tools.py:2786 and schema.py:406 — all of which read to_bot_id only. compile.py:394's `.when` is PostCallRule.when, not CardHandoff.when. No prompt builder reads card.handoffs at all, so the model is never told which specialists exist or under what condition. The default cards' when strings ('in-policy upsell after PTP', defaults.py:288; 'collections intent', :167) are decorative. Operator path: type a condition in the graph tab, autosave, publish — behaviour is byte-identical to leaving it blank. MAJOR under 'a lie to the operator': the UI states the field reaches the model, and it does not; combined with GRAPH-1 the author believes they have steered routing they have not touched.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:669-673",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:705-712",
+    "backend/agent_core/tools/catalog.py:577-596",
+    "backend/agent_core/cards/schema.py:123",
+    "backend/agent_core/cards/defaults.py:167-168",
+    "backend/agent_core/cards/defaults.py:288-289"
+   ]
+  },
+  {
+   "id": "GRAPH-4",
+   "verdict": "CONFIRMED",
+   "reason": "schema.py:122 `payload_schema: dict[str, Any] = Field(default_factory=dict)` and Habibi/src/api/agent-card.ts:158 declare the field. A grep for payload_schema across backend/*.py returns only schema.py:122, templates.py:139 (stamping an empty dict into a template) and three tests; across Habibi/src only the TS type and the AgentCardPanels.tsx:607 comment explaining the spread. There is no editor and no validator. The `payload` argument (catalog.py:588-592 'Compact JSON context for the receiving card') is stringified in both handlers, passed to db_inbox.handoff_to_agent, and dropped: the UPDATE at db_inbox.py:1479-1492 writes only transferred_from_bot_id/handler_bot_id/handler_kind/handler_user_id/updated_at, the _activity row at :1493-1501 carries only the reason, and while the return dict at :1502-1509 echoes `payload`, domain.py:1071-1080 rebuilds ToolResult.data with fromBotId/targetBotId/reason only, so even the echo dies before the model sees it. MINOR is correct — inert config plus a silently discarded tool argument, with no receiving agent to consume it anyway.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/schema.py:122",
+    "Habibi/src/api/agent-card.ts:158",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:600-609",
+    "backend/agent_core/tools/catalog.py:588-592",
+    "backend/db_inbox.py:1479-1509",
+    "backend/agent_core/tools/domain.py:1071-1080"
+   ]
+  },
+  {
+   "id": "GRAPH-5",
+   "verdict": "CONFIRMED",
+   "reason": "Every link verified. db_inbox.list_bot_ids (:1511-1514) is `SELECT id FROM bots` with no archived_at and no tenant_id predicate; db_prompt_studio.compile_agent_studio_card passes it straight into compile_card as known_bot_ids (:842), and compile.py:665 tests `h.to_bot_id not in known_bot_ids` — so an archived or other-tenant target passes G5. The graph endpoint's nodes come from `db.list_agent_studio_cards()` with the default include_archived=False (main.py:2291; db_prompt_studio.py:306, :326 appends ' AND archived_at IS NULL'), so the archived target has no node. The editable list renders `nodes.filter((n) => n.id !== botId).map(...)` (AgentCardPanels.tsx:685-687), so a card handoff whose target is not a node gets no row and no Remove button — while `edges`/`legalTargets` (:611-615) are built from card.handoffs and still report 'Legal walk'. At runtime db_inbox.handoff_to_agent:1458-1459 only checks `SELECT 1 FROM bots WHERE id = :id`, so the hop succeeds as a re-attribution to a card that takes no traffic. Reachability does exclude archived cards' edges (db_prompt_studio.py:351-356, _handoff_edges' `b.archived_at IS NULL`), so the two vocabularies genuinely disagree about one edge. MINOR is right: contained, needs the archive step, and the worst outcome is a dead handoff plus an unremovable row.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/db_inbox.py:1511-1514",
+    "backend/db_prompt_studio.py:842",
+    "backend/agent_core/cards/compile.py:665",
+    "backend/main.py:2284-2291",
+    "backend/db_prompt_studio.py:326",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:685-687",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:611-615",
+    "backend/db_inbox.py:1458-1459"
+   ]
+  },
+  {
+   "id": "GRAPH-6",
+   "verdict": "CONFIRMED",
+   "reason": "Core mechanism verified: AgentCardPanels.tsx:585-589 destructures only `graphQuery.data` — isPending and isError are never read anywhere in AgentGraphTab. useAgentGraph (agent-studio.ts:322-340) is a plain useQuery with no placeholder, so on error or first render `graph` is undefined, `nodes = []`, the chip row renders nothing, the hint reads 'Select a card above to check whether this card may hand off to it' with nothing selectable, and the editable 'Handoff allowlist' <ul> (:684-725) is empty — no target rows, no Remove buttons, no explanation, while the reachability lozenges and the unreachable warning silently disappear. One sub-claim of the auditor's is wrong and I am correcting it: the dashed 'No handoffs on this card' box is NOT a statement made without data — `edges` is derived from the `card` prop's handoffs first (:611-613) and only falls back to graph.edges, so with a loaded card that box is accurate even when /graph fails. The finding survives on the empty node list alone. MINOR is correct.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:585-589",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:684-725",
+    "Habibi/src/api/agent-studio.ts:322-340"
+   ]
+  },
+  {
+   "id": "GRAPH-7",
+   "verdict": "CONFIRMED",
+   "reason": "`grep -n handoff backend/voice/flows.py` returns zero matches — the string handoff_to_agent appears nowhere in the built-in flow builder, neither in any _fns(...) node list nor in global_functions (flows.py:922-932, which names exactly escalate_to_human, search_knowledge_base, add_customer_note, pause_for_caller, end_call). voice/tools.py:2911 does register it in the returned registry, and defaults.py:67 / :91 / :113 grant it on the Collections, Intake and Insurance cards, so the Tools tab and the grant show it while no node ever offers it. Only an authored graph can surface it (flows_dynamic.py:414-424 builds functions from node.data.tools; flow_graph.tool_catalog:805-821 offers every voice-channel catalog spec). So on a card published with the built-in flow, the graph tab's 'Legal walk' is unexercisable on voice and the hardcoded insurance mesh pre_action (bot.py:1519-1544) is the only in-call specialist path. MINOR is right — a gap in what is offered, not a wrong behaviour.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/defaults.py:67",
+    "backend/agent_core/cards/defaults.py:91",
+    "backend/agent_core/cards/defaults.py:113",
+    "backend/voice/tools.py:2911",
+    "backend/voice/flows.py:922-932",
+    "backend/voice/flows_dynamic.py:414-424",
+    "backend/flow_graph.py:805-821"
+   ]
+  },
+  {
+   "id": "GRAPH-8",
+   "verdict": "CONFIRMED",
+   "reason": "Verified, with a name correction: the function is `_run_sandbox_tool_loop`, not `run_tools` (backend/sandbox_runtime.py:197). It takes `agent_card` at :206 and uses it only for `resolve_mouth(agent_card or {}, intent=intent)` at :214; the ToolContext built at :219-228 sets `bot_id=db.DEFAULT_BOT_ID` (:224) and never assigns ctx.agent_card, unlike bot_runtime.py:947. bot_tools._handoff_allowlist (:416-424) therefore skips the live-card branch and returns `set(card_for(DEFAULT_BOT_ID).handoff_targets())` — the Collections constants — whatever card the sandbox is exercising. domain.handoff_to_agent checks the allowlist at :1026 before the interaction check at :1034, so a clone whose only handoff is kaia-v2-4 is refused with handoff_not_allowlisted and the model is told 'stay on this topic; do not say you are transferring'. Trigger is a real operator action: open the sandbox on a cloned card and ask to be transferred. MINOR is correct — contained to sandbox fidelity (a live handoff would fail on no_interaction anyway), but the author is shown a card-configuration error that their card does not have.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/sandbox_runtime.py:206",
+    "backend/sandbox_runtime.py:219-228",
+    "backend/bot_tools.py:416-424",
+    "backend/agent_core/tools/domain.py:1026-1038"
+   ]
+  },
+  {
+   "id": "GRAPH-9",
+   "verdict": "CONFIRMED",
+   "reason": "voice/tools.py:2800-2806 calls `voice_mesh.activate_role(role, session.session_id)` directly. mesh.activate_role (mesh.py:129-133) only mutates the per-session MeshState — it does not publish. The two flow-driven paths both go through mesh_bus.activate_and_publish with session/customer/interaction/bot ids (bot.py:1115-1121 and bot.py:1528-1534), and activate_and_publish (mesh_bus.py:114-158) is the sole place that calls publish_role_change and, when the resolved role is 'insurance' and the bus is not the local one, emits BusActivateWorkerMessage with customerId/interactionId/botId. So under Redis a flow-driven hop activates the insurance sidecar and a model-driven handoff_to_agent does not, while mesh.status() reports 'insurance' in both cases. MINOR is right: it is gated on VOICE_MULTI_AGENT_ENABLED plus REDIS_URL, and per GRAPH-1/GRAPH-7 the tool path is not offered on the shipped voice script at all.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/voice/tools.py:2800-2806",
+    "backend/voice/mesh.py:129-133",
+    "backend/voice/bot.py:1115-1121",
+    "backend/voice/bot.py:1528-1534",
+    "backend/voice/mesh_bus.py:114-158"
+   ]
+  },
+  {
+   "id": "GRAPH-10",
+   "verdict": "CONFIRMED",
+   "reason": "defaults.py:171 declares `human_gates=[HumanGate(tool_name='handoff_to_agent', require='identity')]` on the Intake card. I grepped human_gates across schema.py, defaults.py, compile.py, bot_tools.py, voice/tools.py and bot_runtime.py: the only hits are the field declaration (schema.py:389), the _card() plumbing (defaults.py:131, :150) and the three card literals (:171, :312, :328). Neither handler consults it — voice/tools.py:2773-2808 goes straight from CATALOG.normalize to domain.handoff_to_agent, and bot_tools.py:432-449 does the same via _handoff_allowlist; nothing reads verification state first. So an unverified caller on intake-v1 can be re-attributed. MINOR is correct: it is dead config on a card that is 'direct' reachability (BOT_ID defaults to kaia-v2-4), and given GRAPH-1 the only consequence is a CRM re-attribution row, not an unverified caller reaching a different agent.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/defaults.py:171",
+    "backend/agent_core/cards/schema.py:389",
+    "backend/voice/tools.py:2773-2808",
+    "backend/bot_tools.py:432-449"
+   ]
+  },
+  {
+   "id": "GRAPH-11",
+   "verdict": "CONFIRMED",
+   "reason": "Verified in the source: `const [whenDraft, setWhenDraft] = useState<Record<string,string>>({})` (AgentCardPanels.tsx:587) is never reset — there is no setWhenDraft call other than the input's onChange (:710). The input renders `value={whenDraft[n.id] ?? on.when ?? ''}` (:709), and the Allow/Remove button passes `whenDraft[n.id] ?? ''` back into setHandoff on re-Allow (:718). So after typing a condition, Removing, and Allowing again the stale text is written back to the card, and a draft discard that leaves the tab mounted keeps showing text the card no longer holds. Confidence SUSPECTED is fair but the code is unambiguous. TRIVIAL is correct — the value is dead config anyway (GRAPH-3) and the next blur rewrites it.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:587",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:705-712",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:714-721"
+   ]
+  },
+  {
+   "id": "CHECKED-FINE-3",
+   "verdict": "REFUTED",
+   "reason": "The claim is 'Fleet and single-card reachability agree by construction'. They do not agree by construction — the two paths build the edge map from different sources. list_agent_studio_cards (db_prompt_studio.py:306-365) builds its rows from FIRST_PARTY_BOTS plus tenant bots and, for any card with no draft and no published prompt_versions row, _agent_studio_card_summary falls back to `card_dump(bot_id)` (:430-433) — the Python constants, complete with their handoffs. get_agent_studio_card (:569-620) instead builds `edges = {b: c for b, c in _handoff_edges()}`, and _handoff_edges (:537-565) is a pure `SELECT ... FROM prompt_versions p JOIN bots b` with no first-party fallback; only the queried card is patched in (`edges[bid] = summary['agentCard']`). routing.reachability then walks `edges.get(node, ())` (routing.py:114), so an entry card that exists only as a Python constant contributes zero outbound edges. Concretely: with no prompt_versions row for kaia-v2-4, the fleet index reports insurance-v1 as 'handoff' (kaia's default card lists it) while GET /agent-studio/cards/insurance-v1 reports 'unreachable' (or 'direct' if it holds a live deployment). This is contingent on data — a seeded tenant where every first-party bot has a prompt_versions row will agree — which is exactly why 'by construction' is the wrong claim. The cited tests do not settle it: test_agent_card_routing.py exercises routing.reachability directly and test_agent_studio_edge_cases.py:27-40 covers archived-card exclusion, neither the constants-only first-party case. What would settle it: query GET /agent-studio/cards and GET /agent-studio/cards/insurance-v1 on a tenant with prompt_versions rows deleted for kaia-v2-4.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:537-565",
+    "backend/db_prompt_studio.py:606-619",
+    "backend/db_prompt_studio.py:430-433",
+    "backend/agent_core/cards/routing.py:110-114"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,254 @@
+{
+ "verdicts": [
+  {
+   "id": "CATALOG-1",
+   "verdict": "DOWNGRADED",
+   "reason": "Mechanism is real at the cited lines. `_FLOW_CONTROL_TOOLS` (backend/flow_graph.py:774-785) holds ten names; nine are deliberately absent from CATALOG (grant.py:56-68 VOICE_FLOW_TOOLS). `tool_catalog()` unions them onto the voice-filtered catalog (flow_graph.py:806-822) and /flow/tools serves that (main.py:2059). ToolsTab consumes exactly that endpoint via useFlowTools (AgentCardPanels.tsx:79, api/flow.ts:254-255,295) and `toggle` pushes t.key into card.tools.include (AgentCardPanels.tsx:104-115); the only disabled state is `locked` (:163). G4 then fails: `unknown = [n for n in card.tools.include if n not in catalog_names]` (compile.py:623) with catalog_names = set(_CATALOG.specs) (db_prompt_studio.py:1912), and assert_publishable blocks at db_prompt_studio.py:1927. I found no filter or guard between palette and include. It is worse than reported in one respect: CompileReportList renders only g.detail and drops the evidence list (AgentCardPanels.tsx:1020-1032), so the author sees 'G4 tools fail — include names not in catalog' without the offending names, and only inside PublishDialog (PublishDialog.tsx:178) — the Tools tab shows G6 alone. Downgraded from MAJOR because the failure mode is a blocked, fail-closed publish that is fully recoverable by unticking the row: no wrong runtime behaviour, no wrong publish verdict (G4's verdict is correct), no data loss. Contained to the Studio editing loop => MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/flow_graph.py:774-785",
+    "backend/flow_graph.py:806-822",
+    "backend/agent_core/tools/grant.py:56-68",
+    "backend/agent_core/cards/compile.py:623",
+    "backend/agent_core/cards/compile.py:644-646",
+    "backend/db_prompt_studio.py:1912",
+    "backend/db_prompt_studio.py:1927",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:79",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:104-115",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:155-172",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1020-1032"
+   ]
+  },
+  {
+   "id": "CATALOG-2",
+   "verdict": "CONFIRMED",
+   "reason": "Every link traced. identify_customer (catalog.py:213-232) and ingest_customer_document (catalog.py:684-709) are the only TEXT_ONLY specs; neither appears in _COLLECTIONS_TOOLS/_INTAKE_TOOLS/_INSURANCE_TOOLS/_SUPERVISOR_TOOLS (defaults.py:54-117). allowed comes from MouthTurn.tools -> effective_tools, whose base set is (card.tools.include | locked_mouth | platform) & catalog_names (skills/runtime.py:196-203, intersect.py:104-107) — a skill pack can only subtract, never add, so no pack can rescue the name. bot_runtime.py:943 assigns it to tool_ctx.allowed_tools and execute_tool refuses on the allowed check, returning tool_not_on_card_or_skill. The WhatsApp system prompt line is unconditional: _build_messages appends the '## WhatsApp behaviour' block on every turn (bot_runtime.py:482,525-546) including 'If the caller identity is unclear, call identify_customer with phone digits or account last-4 before money or lead tools.' The handler exists and is registered (bot_tools.py:661,790) but is unreachable. The palette hides both names because tool_catalog() filters on 'voice' in spec.channels (flow_graph.py:815-820), so no Studio control can add them. One citation correction: the allowed-tools guard is bot_tools.py:806-808, not 820-822 (820-822 is the ext.* dispatch/unknown_tool path).",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/tools/catalog.py:213-232",
+    "backend/agent_core/tools/catalog.py:684-709",
+    "backend/agent_core/cards/defaults.py:54-117",
+    "backend/agent_core/skills/intersect.py:104-107",
+    "backend/agent_core/skills/runtime.py:196-203",
+    "backend/agent_core/tools/grant.py:88",
+    "backend/bot_runtime.py:525-546",
+    "backend/bot_runtime.py:943-949",
+    "backend/bot_tools.py:806-808",
+    "backend/bot_tools.py:789-790",
+    "backend/flow_graph.py:815-820"
+   ]
+  },
+  {
+   "id": "CATALOG-3",
+   "verdict": "CONFIRMED",
+   "reason": "_TRANSITIONING_TOOLS (backend/flow_graph.py:787-803) lists twelve names and omits all four cited. Verified each returns a node: capture_call_goal -> _node('verify_identity') (voice/tools.py:681-683), flag_dispute -> _node('escalate_close') (voice/tools.py:1391), request_callback -> _node('wrap_up') if upsell_node (voice/tools.py:1608), capture_lead -> _node('wrap_up') if upsell_node (voice/tools.py:2358). The frozenset feeds FlowToolResponse.transitions (flow_graph.py:828) which the canvas maps to `moves` (FlowCanvas.tsx:642) and the inspector badge renders from tool.transitions (FlowInspector.tsx:379-386). The contradiction is real: implicit_transitions() is AST-derived and resolves _spec(...) bindings through the delegate pass (flow_graph.py:938-957), and the validator raises redundant_with_tool from those hops (flow_graph.py:678-703) — so the same screen warns that an edge duplicates a tool whose badge says it does not move. Two of the four (request_callback, capture_lead) transition only when upsell_node is set, which the badge cannot express either way; that nuance does not weaken the finding. MINOR is right: editor-only, no runtime effect.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/flow_graph.py:787-803",
+    "backend/flow_graph.py:828",
+    "backend/flow_graph.py:678-703",
+    "backend/flow_graph.py:938-957",
+    "backend/voice/tools.py:681-683",
+    "backend/voice/tools.py:1391",
+    "backend/voice/tools.py:1608",
+    "backend/voice/tools.py:2358",
+    "Habibi/src/components/flow/FlowCanvas.tsx:642",
+    "Habibi/src/components/flow/FlowInspector.tsx:379-386"
+   ]
+  },
+  {
+   "id": "CATALOG-4",
+   "verdict": "CONFIRMED",
+   "reason": "ToolResult.analytics is declared at domain.py:43 and normalised at :53-55. A Grep for `\\.analytics\\b` across backend/**/*.py returns exactly two hits, both inside __post_init__ (domain.py:54-55) — zero read sites. to_llm() (domain.py:57-72) copies only data/ok/error/say; voice's _announce reads entity/entity_id/deep_link/spoken_summary only (voice/tools.py:454-469); bot_tools handlers return {**result.data}. Write sites confirmed at domain.py:348,591,691,791,860,934,1005,1079 plus kb.py:499 and kb.py:809 (the finding says ten; it is eleven counting kb's second site). The false comment is verbatim at domain.py:544-546: 'Bot Analytics reads this list…' — Bot Analytics in fact aggregates from interactions/commercial_events (db_bot_analytics.py:124-129). The emitted=analytics out-parameter threading (domain.py:503-505) and the conditional append (:565) are load-bearing for no consumer. Keeping MINOR rather than TRIVIAL: this is a whole dead field plus a comment that actively misdirects the next maintainer of the funnel, which is exactly the dead-config class this audit is asked to surface. No runtime misbehaviour, as reported.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/tools/domain.py:12",
+    "backend/agent_core/tools/domain.py:43",
+    "backend/agent_core/tools/domain.py:53-72",
+    "backend/agent_core/tools/domain.py:503-505",
+    "backend/agent_core/tools/domain.py:544-546",
+    "backend/agent_core/tools/domain.py:565",
+    "backend/agent_core/tools/kb.py:499",
+    "backend/agent_core/tools/kb.py:809",
+    "backend/db_bot_analytics.py:124-129"
+   ]
+  },
+  {
+   "id": "CATALOG-5",
+   "verdict": "CONFIRMED",
+   "reason": "Both read-only claims are at the cited lines (mcp_tools.py:1-16, catalog.py:26-35). check_product_eligibility carries BOTH_AND_MCP (catalog.py:773) and is not in DENIED (mcp_tools.py:40-58) and is registered (mcp_tools.py:126). Stronger than reported: the public domain.check_product_eligibility (domain.py:296-347) has no record_event parameter at all, so the MCP path cannot opt out — it always reaches _check_and_record_eligibility with record_event defaulting True (domain.py:190-197) and runs capture.record_eligibility_checked inside db.engine.begin() (domain.py:236-248). The MCP handler passes neither interaction_id nor bot_id (mcp_tools.py:100-106), so record_eligibility_checked writes entity_type='customer' with actor_bot_id=None (capture.py:1526-1554). The offer-sourcing asymmetry is real: voice applies domain.offer_sourcing_violation before evaluating (voice/tools.py:1810-1813) and text does too (bot_tools.py:536-539), the MCP handler does not. The bot_tool_calls audit row is written only when the customer has a prior interaction (mcp_tools.py:250-260). Severity kept at the reporter's MINOR, though it is arguably understated: this is an unattributable write emitted from a surface documented as read-only.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/mcp_tools.py:1-16",
+    "backend/mcp_tools.py:40-58",
+    "backend/mcp_tools.py:100-106",
+    "backend/mcp_tools.py:126",
+    "backend/mcp_tools.py:250-260",
+    "backend/agent_core/tools/catalog.py:26-35",
+    "backend/agent_core/tools/catalog.py:756-774",
+    "backend/agent_core/tools/domain.py:190-197",
+    "backend/agent_core/tools/domain.py:236-248",
+    "backend/agent_core/tools/domain.py:296-347",
+    "backend/capture.py:1526-1554",
+    "backend/voice/tools.py:1810-1813",
+    "backend/bot_tools.py:536-539"
+   ]
+  },
+  {
+   "id": "CATALOG-6",
+   "verdict": "CONFIRMED",
+   "reason": "Bounds are declared (catalog.py:101-118 limit 1..20 default 8; catalog.py:119-135 limit 1..24 default 6). json_schema drops minimum/maximum/default whenever strict is set (schema.py:72-79) and to_openai_tool defaults strict=True (schema.py:104); every production call site uses that default (bot_runtime.py:949,1036; sandbox_runtime.py:218), so the text model never sees the bounds. Voice clamps: max(1, min(int(...), 20)) at voice/tools.py:1133 and max(1, min(int(...), 24)) at voice/tools.py:1164. Text does not: int(args.get('limit') or 8) then ledger[:limit] (bot_tools.py:172-173, 181-182); MCP identical (mcp_tools.py:86-87, 96-97). The negative-slice consequence is correct — a negative limit silently truncates the newest rows. One nuance that does not refute it: the MCP wire schema is rendered non-strict (schema.py:141-152) so an MCP client is shown the bounds while the server still ignores them, which is a second flavour of the same gap.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/tools/catalog.py:101-118",
+    "backend/agent_core/tools/catalog.py:119-135",
+    "backend/agent_core/tools/schema.py:72-79",
+    "backend/agent_core/tools/schema.py:104",
+    "backend/agent_core/tools/schema.py:141-152",
+    "backend/voice/tools.py:1133",
+    "backend/voice/tools.py:1164",
+    "backend/bot_tools.py:172-173",
+    "backend/bot_tools.py:181-182",
+    "backend/mcp_tools.py:86-87",
+    "backend/mcp_tools.py:96-97"
+   ]
+  },
+  {
+   "id": "CATALOG-7",
+   "verdict": "CONFIRMED",
+   "reason": "domain.flag_dispute derives prio = priority if in {low,normal,high} else ('high' if dtype=='fraud' else 'normal') (domain.py:817-819). The voice handler calls it with customer_id/dispute_type/interaction_id/account_id/amount/summary/idempotency_key and no priority (voice/tools.py:1355-1364), so voice inherits the fraud rule. The text handler passes priority='high' unconditionally (bot_tools.py:278) for every dispute_type. The catalog's FLAG_DISPUTE spec exposes no priority argument, so neither the author nor the model chooses it — it is a per-channel constant, exactly as claimed. Same grievance, different queue priority by channel. MINOR is right: contained to disputes.priority ordering, no data loss.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/bot_tools.py:270-292",
+    "backend/bot_tools.py:278",
+    "backend/agent_core/tools/domain.py:817-819",
+    "backend/voice/tools.py:1355-1364"
+   ]
+  },
+  {
+   "id": "CATALOG-8",
+   "verdict": "CONFIRMED",
+   "reason": "Mechanism verified: execute_tool normalises with CATALOG.normalize (bot_tools.py:834) after the allowed check, normalize_args drops keys whose value is None and keys not on the spec (schema.py:186-200), and there is no missing_required check before dispatch — _tool_add_note then does args['text'] (bot_tools.py:342), whose KeyError falls to the generic handler and returns {'error': 'tool_failed:KeyError'} (bot_tools.py:848-862). The asymmetry is exact: _tool_create_promise guards with a comment naming this failure (bot_tools.py:238-241) and the voice handler returns empty_note (voice/tools.py:1631-1633). One caveat that lowers confidence on the TRIGGER rather than the mechanism: ADD_CUSTOMER_NOTE.text is required=True (catalog.py:529-534), so under strict function calling — the default everywhere (schema.py:104) — the property is typed plain 'string' and listed in required, and the API is supposed to guarantee it. So the reachable path is a non-strict or non-conforming deployment. I still confirm at MINOR because the repo's own PTP guard comment ('The model can omit a \"required\" property') documents that the team observed this class against equally required=True args (catalog.py:244-257). Treat the confidence as SUSPECTED on the trigger, VERIFIED on the mechanism.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/bot_tools.py:341-343",
+    "backend/bot_tools.py:238-241",
+    "backend/bot_tools.py:834",
+    "backend/bot_tools.py:848-862",
+    "backend/agent_core/tools/schema.py:104-124",
+    "backend/agent_core/tools/schema.py:186-200",
+    "backend/agent_core/tools/catalog.py:529-534",
+    "backend/voice/tools.py:1629-1634"
+   ]
+  },
+  {
+   "id": "CATALOG-9",
+   "verdict": "CONFIRMED",
+   "reason": "grade_stops_after_opt_out accepts either fixture['optout_recorded'] or the literal name 'record_optout' in the observed tool-call list (graders.py:285-308, the disjunction at :299), and the shipped fixture evt-ob-optout asserts a pass using exactly that tool call (fixtures.py:299-307, mirrored in sql/23_outbound_evals.sql:116). A repo grep for record_optout shows it exists only as a post-call action verb: defaults.py:265 PostCallRule(when='opt_out_requested', do=['record_optout','stop_cadence']), the executor at post_call_actions.py:284-301 and its registry at :487, plus the action vocabulary in compile.py:160. It is in no tool registry — not CATALOG, not voice/tools.py, not bot_tools.HANDLERS, not mcp_tools.HANDLERS. I checked the obvious refutation: set_contact_preference is not an opt-out substitute — it only narrows the calling window in hours and its own description forbids widening (catalog.py:393-433). So the second half stands too: no in-call tool records 'stop calling me'. MINOR is right.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/eval/graders.py:285-308",
+    "backend/agent_core/eval/fixtures.py:299-307",
+    "backend/agent_core/cards/defaults.py:265",
+    "backend/post_call_actions.py:284-301",
+    "backend/post_call_actions.py:487",
+    "backend/agent_core/cards/compile.py:160",
+    "backend/agent_core/tools/catalog.py:393-433"
+   ]
+  },
+  {
+   "id": "CATALOG-10",
+   "verdict": "DOWNGRADED",
+   "reason": "Factually correct. The docstring says these tools 'are absent from the channel-agnostic agent_core.tools.CATALOG' (flow_graph.py:766-773), yet 'verify_identity' is a key of the dict (flow_graph.py:775) while VERIFY_IDENTITY is in CATALOG (catalog.py:188-211, channels=VOICE_ONLY) and grant.py:73-80 argues at length for keeping it there. Because entries.update(_FLOW_CONTROL_TOOLS) runs after the catalog loop (flow_graph.py:822), the short flow-control string wins, and both pickers render t.description (AgentCardPanels.tsx:159, skills.$skillId.tsx via useCatalogTools) — so the author never sees 'never with placeholder text'. The entry is pure redundancy: the catalog loop already emits verify_identity on the voice filter, so deleting the key changes nothing but the description. Downgraded to TRIVIAL because the only consumer is descriptive text in an editor: the model's actual instruction comes from the ToolSpec via to_flows_schema (schema.py:158-176), unaffected; no runtime, publish or grant behaviour changes. The finding's phrase 'the authoritative statement of what the model is told' overstates it — the palette description is not what the model is told.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/flow_graph.py:766-775",
+    "backend/flow_graph.py:815-822",
+    "backend/agent_core/tools/catalog.py:188-211",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:159",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:13"
+   ]
+  },
+  {
+   "id": "CATALOG-11",
+   "verdict": "CONFIRMED",
+   "reason": "domain.apply_goodwill returns entity='dispute', entity_id=posted.get('disputeId') and no deep_link (domain.py:928-935), and APPLY_GOODWILL declares neither entity nor deep_link (catalog.py:465-489). The sibling contrast is exact: flag_dispute sets entity=_entity('flag_dispute') and deep_link=_link('flag_dispute', dispute_id) (domain.py:857-859), and _link reads ToolSpec.deep_link (domain.py:73-75). The voice path does announce it — _announce is called for apply_goodwill (voice/tools.py:1536) and forwards deep_link=result.deep_link, i.e. None, on the RTVI crm.entity message (voice/tools.py:461-468). So the Inspector chip for the money-moving write is labelled 'dispute' with no link while the flag_dispute chip minutes earlier links through. MINOR is right.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/tools/domain.py:928-935",
+    "backend/agent_core/tools/domain.py:73-75",
+    "backend/agent_core/tools/domain.py:857-859",
+    "backend/agent_core/tools/catalog.py:465-489",
+    "backend/voice/tools.py:454-475",
+    "backend/voice/tools.py:1536"
+   ]
+  },
+  {
+   "id": "CATALOG-12",
+   "verdict": "CONFIRMED",
+   "reason": "The asymmetry is at the cited lines. capture_lead still builds f\"voice-lead:{session.interaction_id or 'no-ix'}:{cid}:{product_id}\" (voice/tools.py:2334-2337) while PTP (voice/tools.py:1264-1265), dispute (voice/tools.py:1349-1352), callback (voice/tools.py:1563-1565) and documents (voice/tools.py:2388-2392) all use call_scope = session.provider_call_id or session.interaction_id or 'no-ix' with a shared comment naming the media-stream reconnect. The reporter's own containment argument holds: domain.capture_lead checks find_open_lead and returns the existing row with duplicate=True before any insert (domain.py:448-465), so a reconnect re-capture resolves to the same lead rather than a second row. SUSPECTED and MINOR are both correctly calibrated — this is an un-migrated fifth call site, not a demonstrated duplicate.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/voice/tools.py:2334-2337",
+    "backend/voice/tools.py:1264-1265",
+    "backend/voice/tools.py:1349-1352",
+    "backend/voice/tools.py:1563-1565",
+    "backend/voice/tools.py:2388-2392",
+    "backend/agent_core/tools/domain.py:448-465"
+   ]
+  },
+  {
+   "id": "CATALOG-13",
+   "verdict": "CONFIRMED",
+   "reason": "_capture_call_goal_handler opens with goal = str(args.get('goal_summary') or '').strip() and returns {'error':'empty_goal','say':'ask what they need, then call again'} when empty (voice/tools.py:628-637) — no CATALOG.normalize call anywhere in the handler. Every sibling normalises, e.g. verify_identity at voice/tools.py:719, add_customer_note at :1630, request_callback at :1555, check_product_eligibility at :1804. CAPTURE_CALL_GOAL.goal_summary declares aliases=('goalSummary',) (catalog.py:167-178) and the tool is VOICE_ONLY (catalog.py:180), so the alias resolves on no channel — normalize_args (schema.py:186-200) is the only thing that would apply it. TRIVIAL is right: it needs a model that drifts from the published schema.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/voice/tools.py:628-637",
+    "backend/voice/tools.py:719",
+    "backend/agent_core/tools/catalog.py:167-180",
+    "backend/agent_core/tools/schema.py:186-200"
+   ]
+  },
+  {
+   "id": "CATALOG-14",
+   "verdict": "CONFIRMED",
+   "reason": "Both halves check out. ESCALATION_REASONS holds seven values (catalog.py:55-63) and ESCALATE_TO_HUMAN.reason is required with that enum (catalog.py:549-554). The routing-context builder branches on reason_l in {'compliance','abuse','legal'} (voice/tools.py:2687), {'sentiment_drop','angry'} (:2691) and {'verification_failed','verify_failed'} (:2693) — abuse, legal, angry and verify_failed are in no vocabulary I can find. Both write paths coerce an unknown reason to customer_requested (db_routing.py:552-562, voice/persist.py:1167-1177), so nothing errors. The live consequence is confirmed and is the sharper half: reason='compliance' takes the elif at :2687 and, because 'legal' is not a substring of 'compliance', sets guardrail_flag='abusive-language' (:2688-2690) — a compliance escalation is handed to the routing rules tagged as abuse, and 'legal-threat' is unreachable from this path. I am flagging a severity UPGRADE, not a downgrade: mis-tagging a compliance escalation as abusive-language is wrong runtime behaviour on a routed, regulated path, which is more than cosmetic. MINOR rather than TRIVIAL.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/voice/tools.py:2682-2695",
+    "backend/agent_core/tools/catalog.py:55-63",
+    "backend/agent_core/tools/catalog.py:541-565",
+    "backend/db_routing.py:552-562",
+    "backend/voice/persist.py:1167-1177"
+   ]
+  },
+  {
+   "id": "CATALOG-15",
+   "verdict": "REFUTED",
+   "reason": "The 'no gate' claim is false — there is a blocking guard the finding did not open. The palette half is right (skills.$skillId.tsx:13 aliases useFlowTools as useCatalogTools, :37 calls it, :98 PATCHes allowedTools, and the palette carries the nine catalog-absent names). But the write is refused, not silently discarded: patch_skill builds a SkillPack and calls upsert_skill_from_pack (agent_core/skills/persist.py:410), whose first act is warnings = assert_pack_lints(pack) (persist.py:233, under the comment 'Every write into the skill catalog funnels through here … Linting at this choke point is what stops an unknown allowed-tool becoming a stored version'). lint_pack computes unknown = [n for n in pack.allowed_tools if n not in catalog_names] and emits code 'unknown_tools' (lint.py:27-29); 'unknown_tools' is in BLOCKING_LINT_CODES (lint.py:40) and assert_pack_lints raises ValueError('skill_lint_failed: unknown_tools (...)') (lint.py:63-71) with catalog_names = set(CATALOG.specs) (lint.py:42-51). So a skill listing pause_for_caller or end_call cannot be saved, cannot be signed, and never reaches a pack row — the claimed outcome 'the pack row stores it, the signature covers it, and the runtime silently ignores it' does not happen. What remains is the CATALOG-1 palette defect surfacing here as a failed Save (and the error string carries a dynamic suffix so it misses main.py's exact-key status map at :760-780, likely yielding a 400/500 rather than a 422) — a strictly smaller, already-reported problem.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/agent_core/skills/persist.py:229-234",
+    "backend/agent_core/skills/persist.py:381-410",
+    "backend/agent_core/skills/lint.py:27-29",
+    "backend/agent_core/skills/lint.py:40",
+    "backend/agent_core/skills/lint.py:42-51",
+    "backend/agent_core/skills/lint.py:54-71",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:13"
+   ]
+  },
+  {
+   "id": "CATALOG-16",
+   "verdict": "DOWNGRADED",
+   "reason": "The observation is factually accurate: timeout_secs is set on exactly one spec in the whole catalog (catalog.py:859, search_knowledge_base, 20s — verified by grep across catalog.py/schema.py/voice/tools.py), it is rendered into FlowsFunctionSchema only when not None (schema.py:174-176), and none of the CRM writes declare one while running domain.* inside asyncio.to_thread (voice/tools.py:1268-1281 and siblings). I also checked for a wrapper-level bound in the _spec factory region (voice/tools.py:1034-1040) and found none. But the reporter states outright that the consequence is not traced — whether Pipecat Flows applies a default handler timeout is unknown, so 'unbounded dead air on a hung db.create_promise' is asserted, not shown. Under the rule that an undecidable trigger defaults against the finding, this stays as an unproven design asymmetry rather than a defect: no demonstrated wrong behaviour, no operator-visible lie. TRIVIAL.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/agent_core/tools/catalog.py:859",
+    "backend/agent_core/tools/schema.py:158-176",
+    "backend/voice/tools.py:1034-1040",
+    "backend/voice/tools.py:1268-1281"
+   ]
+  }
+ ],
+ "slice": "catalog"
+}

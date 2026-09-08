@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Lozenge } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
+import { flowToolChoices } from "@/lib/studio-contract";
 import { FlowEdgeMarkers, flowEdgeTypes } from "./FlowConditionEdge";
 import { flowNodeTypes, type CanvasNodeData, type NodeTool } from "./FlowNodes";
 import { EdgeInspector, GraphInspector, NodeInspector } from "./FlowInspector";
@@ -386,11 +387,14 @@ export function FlowCanvas({
   onChange,
   onValidation,
   readOnly = false,
+  grantTools,
 }: {
   graph: FlowGraph;
   onChange: (next: FlowGraph) => void;
   onValidation?: (result: { ok: boolean; issues: FlowIssue[] }) => void;
   readOnly?: boolean;
+  /** Compiled grant. Flow choices intersect this with the catalog. */
+  grantTools?: string[];
 }) {
   return (
     <ReactFlowProvider>
@@ -399,6 +403,7 @@ export function FlowCanvas({
         onChange={onChange}
         onValidation={onValidation}
         readOnly={readOnly}
+        grantTools={grantTools}
       />
     </ReactFlowProvider>
   );
@@ -409,11 +414,13 @@ function FlowCanvasInner({
   onChange,
   onValidation,
   readOnly,
+  grantTools,
 }: {
   graph: FlowGraph;
   onChange: (next: FlowGraph) => void;
   onValidation?: (result: { ok: boolean; issues: FlowIssue[] }) => void;
   readOnly: boolean;
+  grantTools?: string[];
 }) {
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
   const [issues, setIssues] = useState<FlowIssue[]>([]);
@@ -458,6 +465,7 @@ function FlowCanvasInner({
     [onChange],
   );
   const toolsQuery = useFlowTools();
+  const pickerTools = flowToolChoices(toolsQuery.data ?? [], grantTools);
   const reservedQuery = useReservedKeys();
   const transitionsQuery = useFlowTransitions();
   const dark = useDarkMode();
@@ -548,6 +556,28 @@ function FlowCanvasInner({
    * the tool, not of the authored flow, and inventing real edges here would
    * publish transitions the runtime then applies twice.
    */
+  /**
+   * Tools this card cannot grant, so a hop of theirs is not a way out.
+   *
+   * A node may name any tool in the catalog — the picker allowed it,
+   * `/flow/validate` allowed it and G1 allowed it — and the runtime then
+   * filters its registry to the grant and skips the rest with a log line. The
+   * canvas drew the hop anyway, so a step whose only exit the call would never
+   * be offered looked like a step with an exit, and "Nothing leaves this step"
+   * never fired on it. G16 reports the same intersection at compile.
+   *
+   * Flow-control verbs are on the runtime floor and are never dropped.
+   */
+  const ungranted = useMemo(() => {
+    if (!grantTools) return null;
+    const allowed = new Set(grantTools);
+    return new Set(
+      (toolsQuery.data ?? [])
+        .filter((t) => t.kind !== "flow_control" && !t.alwaysOn && !allowed.has(t.key))
+        .map((t) => t.key),
+    );
+  }, [toolsQuery.data, grantTools]);
+
   const implicitEdges: Edge[] = useMemo(() => {
     const map = transitionsQuery.data;
     if (!map) return [];
@@ -567,6 +597,7 @@ function FlowCanvasInner({
     const out: Edge[] = [];
     for (const node of graph.nodes) {
       for (const tool of node.data.tools) {
+        if (ungranted?.has(tool)) continue;
         for (const targetKey of map[tool] ?? []) {
           const target = byKey.get(targetKey);
           if (!target || target === node.id) continue;
@@ -593,7 +624,7 @@ function FlowCanvasInner({
       }
     }
     return out;
-  }, [transitionsQuery.data, graph.nodes, graph.edges]);
+  }, [transitionsQuery.data, graph.nodes, graph.edges, ungranted]);
 
   /**
    * Everything a node card shows that is not stored on the node.
@@ -1278,7 +1309,7 @@ function FlowCanvasInner({
               <NodeInspector
                 key={selectedNode.id}
                 node={selectedNode}
-                tools={toolsQuery.data ?? []}
+                tools={pickerTools}
                 reservedKeys={reservedQuery.data ?? {}}
                 issues={issuesByNode.get(selectedNode.id) ?? []}
                 readOnly={readOnly}
@@ -1305,6 +1336,7 @@ function FlowCanvasInner({
                 targetName={nodeName(selectedEdge.target)}
                 issues={issuesByEdge.get(selectedEdge.id) ?? []}
                 readOnly={readOnly}
+                graph={graph}
                 onChange={(next) =>
                   commit({
                     ...graph,
@@ -1316,7 +1348,7 @@ function FlowCanvasInner({
             ) : (
               <GraphInspector
                 globalTools={graph.globalTools ?? []}
-                tools={toolsQuery.data ?? []}
+                tools={pickerTools}
                 issues={issues}
                 nodeNames={new Map(graph.nodes.map((n) => [n.id, n.data.name || n.key]))}
                 readOnly={readOnly}

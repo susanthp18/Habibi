@@ -495,7 +495,12 @@ def resolve_outbound_bot_id(
     return default
 
 
-def card_for_bot(bot_id: str | None, *, environment: str = "production") -> Any | None:
+def card_for_bot(
+    bot_id: str | None,
+    *,
+    environment: str = "production",
+    customer_id: str | None = None,
+) -> Any | None:
     """The published card for this agent, or the first-party default, or None.
 
     Order matters. The *published* card is what the compiler gated and what a
@@ -513,7 +518,12 @@ def card_for_bot(bot_id: str | None, *, environment: str = "production") -> Any 
     try:
         import db as dbmod
 
-        deployment = dbmod.get_active_deployment(bot_id=bot, environment=environment)
+        from agent_core.canary import pick_deployment_id
+
+        dep_id = pick_deployment_id(bot, environment=environment, customer_id=customer_id)
+        deployment = dbmod.get_deployment(dep_id) if dep_id else None
+        if not deployment:
+            deployment = dbmod.get_active_deployment(bot_id=bot, environment=environment)
         if deployment and deployment.get("promptVersionId"):
             version = dbmod.get_prompt_version(deployment["promptVersionId"])
             raw = (version or {}).get("agentCard") or (version or {}).get("agent_card")

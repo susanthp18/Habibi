@@ -1,0 +1,278 @@
+{
+ "slice": "prompt",
+ "summary": "The System Prompt tab is one textarea (`Habibi/src/components/prompt-studio/PromptEditor.tsx:145-152`) whose value lives in the Studio shell's `prompt` state and is persisted only through the generic draft autosave/publish writes — the tab itself has no write endpoint. Three read-only services hang off it: a debounced deterministic lint (`useAutoLint`, prompt-studio.ts:856-878 → POST /prompt-versions/lint → prompt_lint.lint_prompt), a debounced token/cost estimate (`usePromptTokenEstimate`, prompt-studio.ts:571-597 → POST /prompt-versions/estimate-tokens), and GET /persona-presets for the right-rail preset buttons. The lint is genuinely the runtime's truth on the server side: prompt_lint.py:16 imports TOKEN_RE, KNOWN_VARIABLES and SYSTEM_SAFE_VARIABLES straight from prompt_render.py and prompt_lint.py:15 imports the recording-disclosure regex from agent_core/guardrails.py, so there is no second copy of those rules in Python — but the browser holds a hand-written third copy of the same regexes and constants in Habibi/src/data/prompt-studio-seed.ts:21-88, and only the two constant lists are pinned by a drift test. The estimate is honest about its method (main.py:3336-3357 calls the real `build_voice_system_prompt` / `build_system_prompt` after running `render_system_prompt` + `strip_unrendered_crm_tokens`), but it stops one step short of what the voice loop actually sends, because voice/bot.py:102-106 appends the Skills description prefix after the builder returns. At runtime the authored string is rendered with operator tokens only and every line still carrying a CRM token is deleted (prompt_render.py:99-115) before it reaches voice/natural.py:148, bot_runtime.py:510 or agent_core/turn.py:59. Nothing in the publish path reads the lint: prompt_lint has exactly one caller in the tree (main.py:3286), the compile gates G0–G15 never look at prompt text, and PublishDialog is handed flowIssues and the compile report but no lint findings — so a prompt that will lose every CRM line ships with, at most, a warning the author had to be standing on the Prompt tab to see.",
+ "endpoints": [
+  "POST /prompt-versions/lint → backend/main.py:3278 lint_prompt_version → backend/prompt_lint.py:45 lint_prompt (no DB; optional Azure via backend/prompt_lint.py:301 azure_openai.chat_complete)",
+  "POST /prompt-versions/estimate-tokens → backend/main.py:3294 estimate_prompt_tokens → kb_chunking.count_tokens + backend/agent_core/prompt.py:25 default_context / :138 build_system_prompt + backend/voice/natural.py:148 build_voice_system_prompt + backend/prompt_render.py:88,99 (no DB)",
+  "GET /persona-presets → backend/main.py:3015 list_persona_presets → backend/db_prompt_studio.py:860 list_persona_presets (SELECT id,name,config FROM persona_presets WHERE tenant_id=…)",
+  "(prompt text itself has no endpoint of its own — it rides POST /prompt-versions backend/main.py:3232, PATCH /prompt-versions/{id} backend/main.py:3239, POST /prompt-versions/{id}/publish backend/main.py:3247, which are outside this slice)"
+ ],
+ "runtime_consumers": [
+  "prompt (authored system prompt text) → backend/voice/bot.py:93-95 render_system_prompt + strip_unrendered_crm_tokens → backend/voice/natural.py:148 build_voice_system_prompt (voice)",
+  "prompt → backend/bot_runtime.py:510-511 build_system_prompt (WhatsApp/text)",
+  "prompt → backend/agent_core/turn.py:59-75 (shared turn builder)",
+  "prompt → backend/sandbox_runtime.py (sandbox, via the same render pair)",
+  "{agent_name} {bank_name} {language} {time_of_day} → backend/prompt_render.py:88 render_system_prompt with backend/agent_core/prompt.py:25-52 default_context (AGENT_NAME/BANK_NAME env, agent_core.clock.part_of_day)",
+  "{customer_name} {account_no} {overdue_amount} {due_date} {last_payment} in a system prompt → NONE as substitutions; the whole line is DELETED at backend/prompt_render.py:114. Their values reach the model only on the developer card backend/prompt_render.py:135 format_untrusted_crm_card (backend/bot_runtime.py:564, backend/agent_core/turn.py:85)",
+  "lint findings (all codes) → NONE. backend/prompt_lint.py has exactly one caller, backend/main.py:3286; nothing persists them, no publish gate reads them, backend/agent_core/cards/compile.py never inspects prompt text",
+  "token estimate tokens/assembledTokens/costUsd → NONE (display only, Habibi/src/components/prompt-studio/PromptEditor.tsx:155-205); no billing or budget path reads it",
+  "dismissed AI-review suggestions → NONE beyond the viewer's localStorage key `prompt-studio:ai-review-dismissed:<botId>` (Habibi/src/components/prompt-studio/PromptEditor.tsx:98-121)",
+  "persona preset promptTemplate → written into the editor's `prompt` state only (Habibi/src/routes/prompt-studio.lazy.tsx:776); no runtime reads persona_presets",
+  "persona preset traits → Habibi/src/routes/prompt-studio.lazy.tsx:777 → persona.traits → backend/voice/natural.py persona_style_line / backend/agent_core/prompt.py:150-170"
+ ],
+ "findings": [
+  {
+   "id": "PROMPT-1",
+   "title": "The seeded prompt_versions rows still carry the CRM tokens and the duplicate disclosure; only persona_presets were ever repaired",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "backend/alembic/versions/20260722_0018_prompt_studio_schema_seed.py:36",
+    "backend/alembic/versions/20260722_0018_prompt_studio_schema_seed.py:148",
+    "backend/alembic/versions/20260819_0084_persona_presets_crm_free.py:83",
+    "backend/alembic/versions/20260825_0101_persona_presets_drop_redundant_disclosure.py:69",
+    "backend/seed_postgres.py:917"
+   ],
+   "mechanism": "Migration 0018 defines EMPATHETIC_PROMPT at :36-41 as \"Greet {customer_name} warmly…\\nReference their account {account_no} and the overdue amount of {overdue_amount} due on {due_date}.\\n…\\nAlways disclose that the call is recorded for quality and compliance.\" and seeds it verbatim as the prompt of v1_4, status='published' (:148-158) — the row the entry bot kaia-v2-4 resolves to. FIRM_PROMPT (:43-47), COMPLIANCE_PROMPT (:49-52) and UPSELL_PROMPT (:54-57) carry the same tokens and seed v1_2/v1_1/v1_3. The two repair migrations only ever touch persona_presets: 0084's upgrade() loops `SELECT config FROM persona_presets` (:83-101) and 0101's loops `SELECT id, config FROM persona_presets` (:69-87). A grep of every alembic revision for `UPDATE prompt_versions` returns only 0018's own status flip (:355), 0029 (tuning) and 0073 (bot_id backfill) — nothing rewrites the prompt text. seed_postgres.py:917-924 was fixed (its _emp_prompt is CRM-free and disclosure-free) and it upserts on every run, so a database rebuilt from the seeder is clean — but a database that replayed 0018 and then migrated forward still serves the old text, and `upsert` on prompt_versions only reaches it if the seeder is re-run. At runtime prompt_render.py:114 deletes lines 2 and 3 of that six-line prompt before the model sees them, so the live Collections policy is four lines, not six, and the surviving disclosure line is a second copy of the rule agent_core/prompt.py:82-87 already injects (which is documented at agent_core/prompt.py:76-80 as having caused a live call to disclose three times).",
+   "trigger": "Open Prompt Studio on kaia-v2-4 in any environment whose database replayed migration 0018 (i.e. any long-lived dev/demo DB rather than one re-seeded from seed_postgres.py). The auto-lint returns four crm_variable_in_system_prompt warnings plus one recording_disclosure_duplicated info on the published prompt, and every card cloned or restored from it inherits them.",
+   "fix": "Add a migration that applies the same rewrite 0084/0101 applied to persona_presets to prompt_versions.prompt — replace the CRM-token lines with the CRM-context-card wording and drop the DROP_LINE disclosure — for the seeded ids v1_0…v1_4 and any row whose prompt still matches one of 0018's four constants. Alternatively rewrite 0018's four constants to the seed_postgres.py text so a fresh replay is born clean, and ship the data migration for databases already past it.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-2",
+   "title": "A spaceless flow token naming a CRM field silently deletes its line, while the lint and the editor both say the braces are read aloud — and the CRM warning is masked away",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/prompt_lint.py:62",
+    "backend/prompt_lint.py:89",
+    "backend/prompt_render.py:94",
+    "backend/prompt_render.py:114",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:251",
+    "Habibi/src/data/prompt-studio-seed.ts:78",
+    "backend/tests/test_prompt_lint.py:155",
+    "backend/tests/test_prompt_lint.py:192"
+   ],
+   "mechanism": "prompt_lint.py:65-67 asserts that \"a double-brace token here matches neither TOKEN_RE nor the CRM stripper, so it is not substituted, not dropped, and not reported\", and the flow_syntax_in_prompt message (:73-79) tells the author \"the braces are spoken aloud\". Both are false for the spaceless form. _CRM_TOKEN_RE (prompt_render.py:94-96) is `\\{(account_no|customer_name|due_date|last_payment|overdue_amount)\\}` and searches the raw line; in `Greet {{customer_name}} warmly.` the substring `{customer_name}` starts at the second brace and matches, so strip_unrendered_crm_tokens (:114) deletes the entire line. The lint cannot see this because it masks flow tokens to spaces before the single-brace scan (:89) — the mask is correct for the spaced form `{{ customer_name }}`, where the inner text is ` customer_name ` and _CRM_TOKEN_RE genuinely does not match, but it is wrong for the spaceless one. The frontend repeats the mask (prompt-studio-seed.ts:78-81) so detectCrmVars returns nothing and the amber CRM banner (PromptEditor.tsx:245-262) never fires; only the red flow banner shows, and it says at :251 \"never substitutes them and never strips them, so the braces are read aloud\". The same asymmetry runs the other way for operator tokens: `{{agent_name}}` has its inner token substituted by prompt_render.py:80, so the model receives `{Priya}`. Two tests lock the wrong model in: test_prompt_lint.py:155 is docstringed \"one is spoken aloud, the other deletes its line\", and test_prompt_lint.py:192-211 asserts that `Greet {{customer_name}} now.` produces flow_syntax_in_prompt and no crm_variable_in_system_prompt.",
+   "trigger": "Type `Greet {{customer_name}} warmly and confirm the overdue balance.` into the System Prompt tab. The editor shows one red banner saying the braces will be spoken. At runtime the line is deleted outright, so the greeting instruction and the balance instruction both vanish from the live policy with no trace.",
+   "fix": "Run the CRM check against the unmasked text and reconcile the two messages: report a spaceless flow token whose name is a CRM field as line-deleting (the strictest true consequence) rather than as spoken, and keep the spoken-aloud wording only for the spaced form and for non-CRM names. The masking at prompt_lint.py:89 and prompt-studio-seed.ts:78 should mask for the unknown_variable scan but not for the CRM scan. Update test_prompt_lint.py:155 and :192 to assert the runtime's actual behaviour.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-3",
+   "title": "A failed deterministic lint renders as a clean prompt: the prohibited-word ERROR and both recording-disclosure findings exist only server-side and have no error or pending surface",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:569",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1424",
+    "Habibi/src/api/prompt-studio.ts:871",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:194",
+    "backend/prompt_lint.py:140",
+    "backend/prompt_lint.py:203"
+   ],
+   "mechanism": "freshLint (lazy.tsx:569-573) is `[...(autoLint.data ?? []), ...advisory]`. `autoLint` is a react-query useQuery (prompt-studio.ts:871-877); on any failure `data` is undefined and freshLint collapses to `[]`. Neither `autoLint.isError`, `autoLint.error` nor `autoLint.isPending` is passed to PromptEditor (lazy.tsx:1424-1437 passes only `lintFindings={freshLint}`), and PromptEditor renders the \"Lint findings\" panel only when `otherFindings.length > 0` (PromptEditor.tsx:194), so a failed pass and a clean pass are pixel-identical. The three findings that exist ONLY on the server — prohibited_word_in_prompt at severity \"error\" (prompt_lint.py:203-212), recording_disclosure_duplicated (:143-155) and recording_disclosure_unenforced (:161-173) — therefore disappear silently. The client-side banners cover CRM, flow and unknown tokens, which is exactly why the absence is invisible: the author sees banners firing normally and concludes the lint ran. The module comment at prompt-studio.ts:874-877 states \"'your prompt is clean' is the one thing this must never say by accident\" and then omits the error branch that makes it say it. There is also no first-load pending state, so between mount and the 400 ms debounce plus round trip the panel reads clean.",
+   "trigger": "Any 5xx, timeout, gateway drop or auth expiry on POST /prompt-versions/lint while an author is editing. A prompt containing \"we will threaten legal escalation\" against the seeded prohibited list ([\"guarantee\",\"police\",\"arrest\",\"threaten\",\"family will pay\",\"harassment\"]) shows no error at all, and publish is not gated on the lint either (see PROMPT-9).",
+   "fix": "Pass autoLint.isError/isPending into PromptEditor and render an explicit \"Lint could not run — findings unknown\" strip in the findings slot, distinct from both the empty and the populated states. Given the prohibited-word rule is severity error and compliance-relevant, also surface the lint state in PublishDialog.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-4",
+   "title": "The \"sent/call\" figure omits the Skills description block the voice loop appends after the builder returns",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/main.py:3346",
+    "backend/voice/bot.py:102",
+    "backend/agent_core/skills/runtime.py:164",
+    "backend/agent_core/skills/runtime.py:39",
+    "backend/agent_core/skills/defaults.py:22",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:180"
+   ],
+   "mechanism": "main.py:3346-3348 assembles the voice figure as `build_voice_system_prompt(rendered, guardrails, persona=…)` and counts that. The live voice path does the same at voice/bot.py:95-99 and then appends more: `resolve_mouth(bundle['agentCard']).prompt().prefix` (voice/bot.py:102-106), which is `description_block(packs)` — a \"## Skills\" header, a load_skill instruction line, and one `- <slug>: <description>` line per attached pack (agent_core/skills/runtime.py:39-45, :164-173). kaia-v2-4 attaches eight packs (agent_core/skills/defaults.py:22-31), so the shipped system message carries roughly 150–250 tokens the footer never counts. The footer's tooltip (PromptEditor.tsx:180-184) claims the number is \"The assembled system message… Re-sent on every LLM call\", which is a completeness claim the figure does not meet. The platform already computes this quantity elsewhere as CompileReport.skill_description_tokens.",
+   "trigger": "Open the System Prompt tab on any card with attached skills — all four first-party cards qualify. The \"N sent/call\" figure and its cost are understated by the skills block on every one of them.",
+   "fix": "Have the estimate endpoint accept the agent card (or the bot id) and append `resolve_mouth(card).prompt().prefix` before counting, mirroring voice/bot.py:102-106; or reuse the compile report's skill_description_tokens and add it. Failing that, retitle the tooltip so it does not claim to be the whole assembled message.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-5",
+   "title": "The text-channel branch of the estimate omits the ~450-token WhatsApp behaviour block and the dialog-control block bot_runtime appends",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/main.py:3350",
+    "backend/bot_runtime.py:527",
+    "backend/bot_runtime.py:556",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:43"
+   ],
+   "mechanism": "main.py:3350-3356 builds the text figure as `build_system_prompt(rendered_prompt=…, context_blocks=[], channel=\"whatsapp\")` with no skill_catalog. The live text path (bot_runtime.py:511-526) passes `skill_catalog=skill_prefix`, and then bot_runtime.py:527-556 concatenates a hard-coded \"## WhatsApp behaviour\" section of roughly a dozen multi-line bullets plus `_dialog_control_block(...)` onto the same system string. None of that is counted. The defect is latent today only because PromptEditor.tsx:39-43 hardcodes `channel: \"voice\"` and no UI ever requests the text figure — but the endpoint accepts `channel: \"text\"` (schemas.py:2733) and test_prompt_token_estimate.py:79-84 exercises it, so any caller that trusts it gets a figure that understates the WhatsApp system message by several hundred tokens.",
+   "trigger": "Call POST /prompt-versions/estimate-tokens with channel=\"text\", or wire a channel toggle into the footer for a messaging-only card.",
+   "fix": "Move the WhatsApp behaviour + dialog-control concatenation out of bot_runtime.py:527-556 into a named builder in agent_core/prompt.py and call it from both bot_runtime and the estimate, the same way the voice branch shares build_voice_system_prompt. Also thread skill_catalog into the text branch.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-6",
+   "title": "The cost footer labels a per-LLM-request figure \"/call\" on a product where \"call\" means the phone call",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:189",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:198",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:200"
+   ],
+   "mechanism": "The footer renders `{shipped} sent/call` (:189) and `${shippedCostUsd}/call` (:200) under the title \"Prompt-input only — excludes completion + RAG context\" (:198). The token figure's own tooltip (:180-184) correctly says the message is \"Re-sent on every LLM call — 2-3x per turn\", but the cost figure's tooltip says nothing about multiplicity, and both visible labels read \"/call\". On a collections voice product a \"call\" is a phone call of twenty-odd turns, so the operator's natural reading of \"$0.0024/call\" is 40–60x below the actual prompt-input cost of one conversation. The cost tooltip also omits the largest remaining prompt-input component — the JSON tool schemas for the whole Tool Grant, re-sent on every request alongside the system message.",
+   "trigger": "Any operator budgeting from the footer: multiply \"$0.0024/call\" by expected daily call volume and the answer is short by roughly the number of LLM requests per conversation.",
+   "fix": "Relabel both figures \"/LLM request\" (or \"/model call\"), and add the per-turn multiplier to the cost tooltip as it already is on the token tooltip. Mention that tool schemas are excluded, the same way completion and RAG already are.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-7",
+   "title": "A failed token estimate renders as a permanent \"counting tokens…\", so an outage looks like work in progress",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:127",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:163",
+    "Habibi/src/api/prompt-studio.ts:594"
+   ],
+   "mechanism": "`estimate = estimateQuery.data` (:127) and the footer branches on `tokens == null` to render `<span>counting tokens…</span>` (:163-165). `estimateQuery.isError` is never consulted. Because prompt-studio.ts:594 sets `retry: retryUnlessClientError`, a 400/422 fails once and stops immediately, and a 500 exhausts its retries — either way `data` stays undefined and the footer says \"counting tokens…\" indefinitely while the cost cell shows \"—\". There is no way for the author to tell an in-flight request from a dead endpoint.",
+   "trigger": "Paste a prompt over 200 000 characters (main.py:3325-3326 returns 400 prompt_too_large) or take the API down while the tab is open.",
+   "fix": "Branch on estimateQuery.isError and render \"token count unavailable\" with the error, distinct from the pending text.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-8",
+   "title": "unknown_variable is reported twice — once as a server lint row and once as the client-side banner — because INLINE_CODES omits it",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:70",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:59",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:264",
+    "backend/prompt_lint.py:109",
+    "Habibi/src/data/prompt-studio-seed.ts:292"
+   ],
+   "mechanism": "INLINE_CODES (:70-74) excludes only crm_variable_in_system_prompt, flow_syntax_in_prompt and llm_checklist from the \"Lint findings\" panel, on the stated invariant (\":62-65\") that a finding shown as a banner must not also appear as a row. `unknown_variable` is not in the set, so the server row from prompt_lint.py:109-116 renders in the panel — \"warn Unknown variable {foo} — will not be substituted at runtime.\" — while detectUndefinedVars (:59, prompt-studio-seed.ts:292-294) independently renders the amber \"Unknown variable(s): {foo} — they won't be substituted at runtime\" banner at :264-281. Same defect, same remedy, two rows. (Distinct from prior 2a.2, which was per-occurrence duplication inside the panel; that is fixed by the (code,message) dedupe at :83-92.)",
+   "trigger": "Type `{foo}` into the prompt. Two identical warnings appear, one above the other.",
+   "fix": "Add \"unknown_variable\" to INLINE_CODES, since the banner already states the same consequence for the same token set.",
+   "prior_ref": "2a.2"
+  },
+  {
+   "id": "PROMPT-9",
+   "title": "Nothing gates or even mentions the lint at publish — a prompt whose every CRM line will be deleted ships warn-only, and the publish dialog never sees the findings",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/main.py:3286",
+    "backend/agent_core/cards/compile.py:1",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1583",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:940",
+    "backend/main.py:3247"
+   ],
+   "mechanism": "prompt_lint.lint_prompt has exactly one caller in the whole tree, the advisory endpoint at main.py:3286 (verified by grep over backend/**.py: every other hit is a test or a comment). publish_prompt_version (main.py:3247-3276) raises only on FlowInvalidError, CompileError, KeyError, ValueError and IntegrityError — it never lints. The publish compiler's gate list (compile.py:1-15, G0–G15 plus G-OB*) contains no gate that reads prompt text: G15 reads the voice locale, G12 the canary split, G14 the actor's permission, and so on. On the client, `publish` (lazy.tsx:940-945) blocks only on `!flowValid`, and PublishDialog (lazy.tsx:1583-1606) receives fromLabel/toLabel/from/to/flowIssues/compileReport/compileError/compileBusy — no lint findings, no lint state. So the only place a CRM-token warning or a prohibited-word ERROR is ever shown is the Prompt tab itself, and an author who publishes from the Guardrails or Ship tab sees nothing. Combined with PROMPT-1 this is how three published cards (per the comment at prompt-studio.ts:841-847) came to carry line-deleting tokens.",
+   "trigger": "Author a prompt whose every substantive line references a CRM field, switch to any other tab, click Publish, type PUBLISH. It ships; the live system prompt is the two or three lines that had no CRM token.",
+   "fix": "Either surface the deterministic lint in PublishDialog as a blocking-severity section beside the compile report (errors block Confirm, warnings require acknowledgement), or add a publish-time gate that re-runs lint_prompt on the version being published and fails on severity=\"error\" plus a card-level count of CRM lines that would be deleted. The lint is already deterministic and LLM-free, so it is safe to run inside the compiler.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-10",
+   "title": "lint_prompt's role parameter is unreachable — the request schema has no field for it",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/prompt_lint.py:50",
+    "backend/prompt_lint.py:59",
+    "backend/main.py:3286",
+    "backend/schemas.py:2702"
+   ],
+   "mechanism": "lint_prompt takes `role: str = \"system\"` (:50) and uses it at :59 to pick `SYSTEM_SAFE_VARIABLES` vs `KNOWN_VARIABLES` and at :94 to choose between the crm_variable_in_system_prompt and unknown_variable codes. PromptLintRequest (schemas.py:2702-2709) has `model_config = ConfigDict(extra=\"forbid\")` and declares only prompt/guardrails/includeLlm, and main.py:3286-3290 never forwards a role. No test passes role either. The whole non-system branch is dead.",
+   "trigger": "None — it is unreachable by construction.",
+   "fix": "Drop the parameter, or add `role` to PromptLintRequest and have the caller send it if a developer/user-role linting surface is actually planned.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-11",
+   "title": "The browser holds a hand-copied third implementation of the token regexes with no drift test",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "Habibi/src/data/prompt-studio-seed.ts:57",
+    "Habibi/src/data/prompt-studio-seed.ts:65",
+    "backend/prompt_render.py:42",
+    "backend/prompt_lint.py:23",
+    "backend/tests/test_agent_card_schema_drift.py:126"
+   ],
+   "mechanism": "test_agent_card_schema_drift.py:126-146 pins SYSTEM_SAFE_VARIABLES and CRM_VARIABLES between prompt_render.py and prompt-studio-seed.ts by parsing the TS source — but only the two constant lists. FLOW_TOKEN_RE (prompt-studio-seed.ts:57) is a hand copy of prompt_lint.py:23, PROMPT_TOKEN_RE (:65) of prompt_render.py:42, and the masking rule at :78-81 of prompt_lint.py:89. None is pinned. PROMPT-2 is a live demonstration of what that costs: the masking rule is subtly wrong and it is wrong identically in both copies, so a Python-only fix would leave the browser still hiding the CRM banner.",
+   "trigger": "Any change to TOKEN_RE or the flow-token pattern on either side.",
+   "fix": "Extend test_agent_card_schema_drift.py to extract the two regex literals from the TS source and compare their pattern strings to the Python ones, the way it already does for the constant lists.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-12",
+   "title": "The mock lint client reimplements the rules wrongly, so mock mode gives a clean bill of health for the exact defects the real lint exists to catch",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "Habibi/src/api/prompt-studio.ts:761",
+    "Habibi/src/api/prompt-studio.ts:764",
+    "Habibi/src/api/prompt-studio.ts:778",
+    "Habibi/src/api/prompt-studio.ts:797"
+   ],
+   "mechanism": "In USE_MOCK the client synthesises findings itself (:761-806) instead of calling the endpoint, and its rules diverge from prompt_lint.py in four ways: (1) the unknown-variable filter uses the full KNOWN_VARIABLES list (:765), so the five CRM names are treated as valid and no crm_variable_in_system_prompt is ever produced; (2) flow_syntax_in_prompt does not exist at all; (3) the disclosure detector is `/record/i` (:778) rather than agent_core.guardrails._DISCLOSURE_RE, so \"I'll record that in the CRM\" — the exact phrase guardrails.py:24-28 says must not count — satisfies it; (4) the prohibited check is a bare `.includes()` (:797) with neither the whole-word boundary of prompt_lint.py:184-189 nor the clause-scoped negation of :193-202, so it flags the first-party prompt's own \"Never threaten legal action\" as an error.",
+   "trigger": "Run the frontend against the mock API (demo, storybook, offline dev) with the seeded EMPATHETIC_PROMPT loaded: the four CRM tokens produce no lint finding at all, and a prompt saying \"Never threaten legal action\" produces a false error.",
+   "fix": "Reuse the shared helpers already exported from prompt-studio-seed.ts (detectCrmVars/detectFlowVars/detectUndefinedVars) inside the mock branch so the mock and the inline banners agree, and drop the disclosure and prohibited rules from the mock rather than approximate them.",
+   "prior_ref": ""
+  },
+  {
+   "id": "PROMPT-13",
+   "title": "llm_lint_failed / llm_lint_unavailable survive only as a transient toast — nothing on the Prompt tab records that the critique did not run",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1043",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:569",
+    "Habibi/src/components/prompt-studio/PromptEditor.tsx:97",
+    "backend/prompt_lint.py:304",
+    "backend/prompt_lint.py:369"
+   ],
+   "mechanism": "When Azure is unconfigured or errors, _llm_checklist returns a single info finding coded llm_lint_unavailable (prompt_lint.py:304-310) or llm_lint_failed (:369-376). onLint stores the whole response in `lintFindings` (lazy.tsx:1041) and toasts the failure (:1048-1050), but freshLint keeps only `f.code === \"llm_checklist\"` (lazy.tsx:570) and PromptEditor's aiFindings filter does the same (PromptEditor.tsx:97). Once the toast expires there is no record: the Critique panel is simply absent, which is indistinguishable from \"nothing was flagged\". The toast copy is correctly worded as an error, so this is only a persistence gap, not a false verdict at the moment of the click.",
+   "trigger": "Press \"Critique wording\" with AZURE_OPENAI unset, dismiss the toast, look at the tab.",
+   "fix": "Let the two unavailable codes through into a persistent row in the Critique section, styled as a failure rather than a suggestion.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "The variable palette is exactly SYSTEM_SAFE_VARIABLES and nothing else: Habibi/src/data/prompt-studio-seed.ts:21-26 lists agent_name/bank_name/language/time_of_day, matching backend/prompt_render.py:33-40, and the CRM five are deliberately not offered with an explanation in place of buttons (Habibi/src/components/prompt-studio/PromptEditor.tsx:326-354). Both constant lists are pinned against the Python source by backend/tests/test_agent_card_schema_drift.py:126-146.",
+  "The server lint is not a re-implementation: backend/prompt_lint.py:16 imports KNOWN_VARIABLES, SYSTEM_SAFE_VARIABLES and TOKEN_RE from prompt_render, and :15 imports mentions_recording_disclosure from agent_core.guardrails, so the authoring gate and the runtime detector share one regex (backend/agent_core/guardrails.py:33-56).",
+  "The drop-the-whole-line rule is modelled correctly in the lint's message text: prompt_lint.py:99-105 says \"the runtime drops the whole line it sits on\", which is what prompt_render.py:114 does, and backend/tests/test_prompt_lint.py:107-119 pins that wording.",
+  "The prohibited-word rule is whole-word matched and clause-scoped, so the first-party prompt's own \"Never threaten legal action\" does not trip prohibited=[\"threaten\"] (backend/prompt_lint.py:184-202, _is_negated at :34-42).",
+  "The recording-disclosure rule is the right way round: an authored disclosure alongside an enabled guardrail is info-level \"you can delete this line\" (prompt_lint.py:141-155), and the warn fires only when neither the guardrail nor the prompt discloses (:156-173). agent_core/prompt.py:82-87 injects the once-only wording, and agent_core/prompt.py:74-88 suppresses it entirely on text channels.",
+  "The token estimate assembles with the real builders rather than duplicating the concatenation (backend/main.py:3336-3357), and runs render_system_prompt + strip_unrendered_crm_tokens before counting, so a CRM line that will be deleted raises the authored count and leaves the assembled count untouched — pinned by backend/tests/test_prompt_token_estimate.py:98-113.",
+  "The estimate refuses to invent an assembled figure when no guardrails were sent (backend/main.py:3339, schemas.py:2748-2752), and the footer renders that as \"(authored only)\" rather than as a complete number (Habibi/src/components/prompt-studio/PromptEditor.tsx:196-205).",
+  "The AI review quotes the audited prompt between named sentinels and splits every angle bracket with a zero-width space, so a prompt cannot forge its own closing marker (backend/prompt_lint.py:230-251); backend/tests/test_prompt_lint_ai_review.py:27-48 covers the seam case. Azure exception strings never reach the UI (backend/prompt_lint.py:365-376).",
+  "The AI review is handed the enforced guardrail rules as settled and a post-filter drops any bullet that names a guardrail key and calls it absent (backend/prompt_lint.py:315-330, :280-294, :399-405).",
+  "\"Critique wording\" (Habibi/src/components/prompt-studio/StudioHeader.tsx:144-153 → lazy.tsx:1262 → :1038) disables itself while pending, keeps only llm_checklist rows from the response, and distinguishes three outcomes — unavailable (toast.error), clean (toast.success), suggestions (toast.message) — so a review that could not run never reads as a clean bill of health at the moment of the click (lazy.tsx:1043-1057).",
+  "AI suggestions are advisory-only and never mutate the prompt; the sole write is a dismissal into a per-botId localStorage key read in an effect so switching cards re-reads (Habibi/src/components/prompt-studio/PromptEditor.tsx:96-124), degrading to \"nothing dismissed\" on a parse failure.",
+  "Advisory rows are dropped the instant the prompt or guardrails move away from what was critiqued (lintedFp vs lintFp, Habibi/src/routes/prompt-studio.lazy.tsx:569-573).",
+  "Prior 2a.8 is fixed: both useAutoLint and usePromptTokenEstimate guard on a non-empty prompt and use retryUnlessClientError so a deterministic 4xx is not resent three times (Habibi/src/api/prompt-studio.ts:591-596, :869-877). Prior 2a.2 is fixed: the findings panel now dedupes by (code, message) with an occurrence count rather than a hardcoded exclusion list (Habibi/src/components/prompt-studio/PromptEditor.tsx:78-92).",
+  "Applying a preset asks first in the app's own AlertDialog when there is authored work to lose, and the Undo restores both the prompt and the five trait values (Habibi/src/routes/prompt-studio.lazy.tsx:829-845, :765-791, :1610-1645). The preset badge is derived from prompt+traits rather than stored (:588-600).",
+  "The empty-presets case is stated honestly rather than falling back to hardcoded rows — \"No presets configured. They are seeded per tenant in persona_presets\" (Habibi/src/components/prompt-studio/PromptEditor.tsx:364-369).",
+  "The sandbox opening-message template legitimately uses the full-substitution renderer, because it is a spoken user-facing greeting rather than system policy (backend/sandbox_runtime.py:531, template at backend/seed_postgres.py:1358); prompt_render.py:83-85 scopes render_prompt to non-system channels for exactly this reason.",
+  "seed_postgres.py — the copy that upserts on every run — is CRM-free and disclosure-free for both persona presets (backend/seed_postgres.py:915-945) and the five prompt_versions rows (:1015-1085), and the frontend mock presets match it (Habibi/src/data/prompt-studio-seed.ts:131-152).",
+  "default_context computes time_of_day from agent_core.clock rather than the old hardcoded \"day\", and every palette token is asserted to substitute to a non-empty speakable value (backend/agent_core/prompt.py:36-49, backend/tests/test_prompt_variables_are_real.py:51-78).",
+  "format_untrusted_crm_card flattens whitespace and splits every angle bracket so a customer-controlled value cannot close the block (backend/prompt_render.py:118-142), and the three runtimes agree on one render rule (backend/tests/test_system_prompt_rendering.py:41-90)."
+ ]
+}

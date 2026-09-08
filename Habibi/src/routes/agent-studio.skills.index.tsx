@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell/AppShell";
 import {
   importSkillZip,
+  invalidateAgentStudio,
   SKILL_MUTATIONS_AVAILABLE,
   useAgentStudioSkills,
   useCloneSkill,
@@ -114,7 +115,15 @@ function SkillsIndex() {
   };
 
   const onClone = (skillId: string, sourceSlug: string) => {
-    setCloneSlug(toSlug(`${sourceSlug}-clone`));
+    const used = new Set((data ?? []).map((skill) => skill.slug));
+    const base = toSlug(`${sourceSlug}-clone`);
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate)) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    setCloneSlug(candidate);
     setClonePending({ id: skillId, slug: sourceSlug });
   };
 
@@ -141,7 +150,7 @@ function SkillsIndex() {
     try {
       const created = await importSkillZip(file);
       toast.success("Imported as unsigned draft");
-      await qc.invalidateQueries({ queryKey: ["agent-studio", "skills"] });
+      invalidateAgentStudio(qc);
       void navigate({ to: "/agent-studio/skills/$skillId", params: { skillId: created.id } });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Import failed");
@@ -207,7 +216,13 @@ function SkillsIndex() {
               Creates an unsigned tenant draft. Add the body and tools in the editor, then sign it —
               unsigned packs cannot attach to production (G9).
             </p>
-            <div className="flex flex-wrap items-end gap-100">
+            <form
+              className="flex flex-wrap items-end gap-100"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void onCreate();
+              }}
+            >
               <label className="text-body-small">
                 Name
                 <Input
@@ -227,17 +242,13 @@ function SkillsIndex() {
                   placeholder="One line — this is the only text the mouth always sees."
                 />
               </label>
-              <Button
-                type="button"
-                disabled={createSkill.isPending || !newSlug || slugTaken}
-                onClick={() => void onCreate()}
-              >
+              <Button type="submit" disabled={createSkill.isPending || !newSlug || slugTaken}>
                 Create draft
               </Button>
               <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
                 Cancel
               </Button>
-            </div>
+            </form>
             <div className="mt-100 text-body-tiny text-text-subtle">
               Slug: <span className="font-mono">{newSlug || "—"}</span>
               {slugTaken ? <span className="ml-100 text-text-danger">already taken</span> : null}
@@ -395,36 +406,41 @@ function SkillsIndex() {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clone {clonePending?.slug}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Creates an unsigned draft. A second clone of the same skill needs its own slug —
-              reusing one overwrites the first.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <label className="text-body-small">
-            Slug
-            <Input
-              className="mt-075"
-              value={cloneSlug}
-              onChange={(e) => setCloneSlug(toSlug(e.target.value))}
-              placeholder="skill-clone"
-            />
-          </label>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!toSlug(cloneSlug) || cloneSkill.isPending}
-              onClick={() => {
-                const target = clonePending;
-                const slug = toSlug(cloneSlug);
-                setClonePending(null);
-                if (target && slug) void runClone(target.id, slug);
-              }}
-            >
-              Clone
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const target = clonePending;
+              const slug = toSlug(cloneSlug);
+              setClonePending(null);
+              if (target && slug) void runClone(target.id, slug);
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Clone {clonePending?.slug}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Creates an unsigned draft. The suggested slug skips existing copies; an edited
+                collision is rejected without overwriting either skill.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <label className="mt-150 block text-body-small">
+              Slug
+              <Input
+                className="mt-075"
+                value={cloneSlug}
+                onChange={(e) => setCloneSlug(toSlug(e.target.value))}
+                placeholder="skill-clone"
+              />
+            </label>
+            <AlertDialogFooter className="mt-150">
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                type="submit"
+                disabled={!toSlug(cloneSlug) || cloneSkill.isPending}
+              >
+                Clone
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </form>
         </AlertDialogContent>
       </AlertDialog>
       {/* Replaces a window.confirm — see onDelete above. */}

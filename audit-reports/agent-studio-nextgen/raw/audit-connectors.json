@@ -1,0 +1,361 @@
+{
+ "slice": "connectors",
+ "summary": "The slice has two front doors onto one registry table (`mcp_connectors`). Integrations → MCP console (`Habibi/src/components/integrations/McpConsole.tsx:34-213`) registers, approves, health-tests and CIMD-connects connectors through `GET/POST /connectors`, `/approve`, `/test`, `/cimd` (`backend/main.py:2537-2580` → `backend/agent_core/connectors/persist.py`). Prompt Studio → Connectors tab (`Habibi/src/components/prompt-studio/AgentCardPanels.tsx:914-1014`) lists only `status === \"approved\"` rows and Bind/Unbind writes `card.connectors[]` into React state, which the shell's 1200 ms autosave PATCHes onto the draft prompt version (`routes/prompt-studio.lazy.tsx:1397,646-657` → `PATCH /prompt-versions/{id}` → `db_prompt_studio.py:1703`). At publish, G10 (`agent_core/cards/compile.py:757-862`) re-reads the registry and checks approved/HTTPS/data-class/health, degrading to `warn` (not `fail`) when the registry read or import throws. At compile and at runtime the binding is turned into `ext.*` names by `bound_tool_names` (`persist.py:209-235`), unioned into `effective_tools` (`agent_core/skills/intersect.py:117-123`) and so into the Tool Grant (`agent_core/tools/grant.py:211`, `agent_core/skills/runtime.py:196-215`). The chain then dead-ends: `idle_offered_tools` strips every `ext.*` name (`intersect.py:164,168`), no shipped skill pack lists one, and `ToolCatalog.openai_tools` silently drops names absent from the catalog (`agent_core/tools/schema.py:238`), while the voice runtime builds its tool dict from a hardcoded handler map (`voice/tools.py:2880-2919`) that has no `ext.*` key at all. The only `ext.*` dispatch that actually happens at runtime is the hardcoded paylink prefetch inside `_tool_get_customer_context` (`bot_tools.py:145-165`), which never consults `card.connectors`. Net: the registry, its approval status and its circuit breaker are load-bearing for that one prefetch; the Studio Bind button, the per-card `allow_prefixes`, `allowed_env`, `data_class`, `health` and CIMD are not read by any runtime path.",
+ "endpoints": [
+  "GET /connectors → backend/main.py:2537 list_connectors_api → backend/agent_core/connectors/persist.py:76 list_connectors (client Habibi/src/api/integrations.ts:289-296 useConnectors, queryKey [\"connectors\"])",
+  "POST /connectors → backend/main.py:2544 upsert_connector_api → backend/agent_core/connectors/persist.py:132 upsert_connector (client Habibi/src/api/integrations.ts:302-306)",
+  "GET /connectors/{connector_id} → backend/main.py:2551 get_connector_api → backend/agent_core/connectors/persist.py:87 get_connector (NO frontend caller)",
+  "POST /connectors/{connector_id}/approve → backend/main.py:2561 approve_connector_api → backend/agent_core/connectors/persist.py:193 approve (client Habibi/src/api/integrations.ts:307-311)",
+  "POST /connectors/{connector_id}/test → backend/main.py:2568 test_connector_api → backend/agent_core/connectors/persist.py:292 health_test (client Habibi/src/api/integrations.ts:312-318)",
+  "POST /connectors/{connector_id}/cimd → backend/main.py:2575 cimd_connector_api → backend/agent_core/connectors/persist.py:424 cimd_connect (client Habibi/src/api/integrations.ts:319-325)",
+  "POST /agent-studio/cards/{bot_id}/connectors → backend/main.py:2256 attach_agent_studio_connector → backend/agent_core/cards/clone.py:98 attach_connector_to_card → backend/db_prompt_studio.py:1703 patch_prompt_version (client Habibi/src/api/agent-studio.ts:840-845 useAttachConnector — DEFINED BUT NEVER CALLED)",
+  "PATCH /prompt-versions/{version_id} → backend/main.py:3228 patch_prompt_version → backend/db_prompt_studio.py:1703 (the path a ConnectorsTab Bind actually takes, via Habibi/src/api/prompt-studio.ts:992-1027 ensureStudioDraft and routes/prompt-studio.lazy.tsx:646-657)",
+  "PATCH /agent-studio/cards/{bot_id} → backend/main.py:2127 patch_agent_studio_card → backend/db_prompt_studio.py:1703 (third writer of the same agent_card column)",
+  "POST /agent-studio/cards/{bot_id}/compile → backend/main.py:2183 → backend/agent_core/cards/compile.py:757-862 (G10)",
+  "GET /vault/refs → backend/main.py:2583 list_vault_refs_api → backend/agent_core/vault/persist.py list_refs (auth-ref picker, Habibi/src/components/integrations/McpConsole.tsx:41,142-146)",
+  "GET /mcp/status → backend/main.py:2658 mcp_status_api → no db fn (Habibi/src/api/integrations.ts:421-427)",
+  "GET /mcp/keys → backend/main.py:2609 → backend/agent_core/mcp_http/auth.py list_keys",
+  "POST /mcp/keys → backend/main.py:2616 → backend/agent_core/mcp_http/auth.py mint_key",
+  "POST /mcp/keys/{key_id}/rotate → backend/main.py:2626 → agent_core/mcp_http/auth.py rotate_key",
+  "POST /mcp/keys/{key_id}/revoke → backend/main.py:2633 → agent_core/mcp_http/auth.py revoke_key",
+  "GET /mcp/tasks → backend/main.py:2641 → backend/agent_core/mcp_http/tasks.py list_tasks",
+  "GET /mcp/tasks/{task_id} → backend/main.py:2648 → backend/agent_core/mcp_http/tasks.py get_task (NO frontend caller)"
+ ],
+ "runtime_consumers": [
+  "card.connectors[].connector_id → backend/agent_core/skills/intersect.py:123 → backend/agent_core/connectors/persist.py:219-235 bound_tool_names → ToolGrant.allowed (backend/agent_core/tools/grant.py:211, backend/agent_core/skills/runtime.py:198-205, backend/bot_runtime.py:943, backend/voice/bot.py:1141-1144). Reaches the Grant but NEVER an Offer: backend/agent_core/skills/intersect.py:164,168 strip ext.*, and backend/agent_core/tools/schema.py:238 drops names absent from the catalog.",
+  "card.connectors[].allow_prefixes → backend/agent_core/connectors/persist.py:224 (bind-time name filter only) and backend/agent_core/cards/compile.py:808-809 (G10 ext. prefix check). NOT consulted at dispatch: backend/agent_core/connectors/persist.py:238-289 never reads them.",
+  "mcp_connectors.status → backend/agent_core/connectors/persist.py:262 (dispatch refuses non-approved), :222 (bound_tool_names skips), backend/agent_core/cards/compile.py:820-822 (G10 not_approved).",
+  "mcp_connectors.circuit_opened_at / circuit_fails → backend/agent_core/connectors/circuit.py:51-70 via backend/agent_core/connectors/persist.py:264.",
+  "mcp_connectors.url → backend/agent_core/connectors/persist.py:360 and :393 via _guard_outbound_url (:29-60, SSRF resolve at dial time); backend/agent_core/cards/compile.py:823-825 (G10 https).",
+  "mcp_connectors.auth_ref → backend/agent_core/connectors/persist.py:326-333 _auth_header → agent_core/vault/persist.reveal.",
+  "mcp_connectors.timeout_ms → backend/agent_core/connectors/persist.py:359 and :392.",
+  "mcp_connectors.tools_cache / last_tools_list_at → backend/agent_core/connectors/persist.py:230 (remote name binding), written at :304-314.",
+  "mcp_connectors.allow_prefixes (registry copy) → backend/agent_core/connectors/persist.py:224, but only as the fallback when the card ref carries none; a card that snapshotted prefixes wins forever.",
+  "mcp_connectors.allowed_env → NONE (dead config). Written at backend/agent_core/connectors/persist.py:184 (default \"sandbox\"), surfaced at :120, and read by no runtime module and by no gate — grep over agent_core/, voice/, bot_tools.py, bot_runtime.py, sandbox_runtime.py, outbound.py returns zero readers.",
+  "mcp_connectors.data_class → NONE at runtime. Only backend/agent_core/cards/compile.py:826-827 checks it is non-empty; no runtime path reads which classes.",
+  "mcp_connectors.health → NONE at runtime (dispatch reads status + circuit only, backend/agent_core/connectors/persist.py:262-265). Only backend/agent_core/cards/compile.py:829-830 (G10 unhealthy).",
+  "mcp_connectors.ttl_ms → NONE (dead config). Written at backend/agent_core/connectors/persist.py:182, surfaced at :118, never read.",
+  "mcp_connectors.cimd_issuer / cimd_client_id → NONE (dead config). Written at backend/agent_core/connectors/persist.py:433-443, surfaced at :126, never read — outbound auth is still the static vault bearer at :326-333.",
+  "ext.paylink.get_status (the one live dispatch) → backend/bot_tools.py:158-160 inside _tool_get_customer_context, hardcoded and independent of card.connectors → backend/agent_core/connectors/persist.py:272-273 → backend/agent_core/connectors/first_party.py:78-79.",
+  "ext.lms.get_balance → NONE at runtime. Registered (backend/agent_core/connectors/persist.py:408) and dispatchable (first_party.py:80-81) but no runtime caller and no card binds it (backend/agent_core/cards/defaults.py:294 binds paylink only).",
+  "ext.* execution branch → backend/bot_tools.py:810-823 (text channel only). Voice has no ext.* handler at all: backend/voice/tools.py:2880-2919 filters a fixed handler dict."
+ ],
+ "findings": [
+  {
+   "id": "CONNECTORS-1",
+   "title": "\"Test\" toasts success for a failed or SSRF-blocked health probe, and a blocked probe leaves health untouched",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/integrations/McpConsole.tsx:108",
+    "Habibi/src/components/integrations/McpConsole.tsx:112",
+    "backend/agent_core/connectors/persist.py:317",
+    "backend/agent_core/connectors/persist.py:320",
+    "backend/agent_core/connectors/persist.py:322",
+    "backend/main.py:2568"
+   ],
+   "mechanism": "health_test returns {\"ok\": False, \"error\": ...} on a 200 rather than raising (persist.py:317-323), so _handle_write passes it straight through. The button does `void mut.test.mutateAsync(r.id).then(() => toast.success(\"Health test ran\"))` with no inspection of `ok` and no `.catch`. Worse for the blocked-URL branch (persist.py:318-321): it returns early WITHOUT calling circuit.record_failure and WITHOUT touching the health column, so the row keeps whatever health it had (\"unknown\"/\"healthy\") forever.",
+   "trigger": "Operator clicks Test on a remote_mcp connector whose URL now resolves to a private/metadata address (or is simply unreachable). UI shows a green \"Health test ran\" toast; the Health column still reads healthy or unknown; nothing on screen says the target is refused.",
+   "fix": "Read the result: `const r = await mut.test.mutateAsync(id); r.ok ? toast.success(...) : toast.error(`Health test failed: ${r.error}`)`, and add a `.catch`. In persist.health_test, set `health = 'down'` (or a new 'blocked') on the connector_url_* branch so the table reflects the refusal even without the toast.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-2",
+   "title": "allowed_env is written, displayed and never enforced — a sandbox-only connector dispatches in production",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/connectors/persist.py:184",
+    "backend/agent_core/connectors/persist.py:120",
+    "backend/agent_core/connectors/persist.py:238",
+    "backend/agent_core/cards/compile.py:800",
+    "Habibi/src/api/integrations.ts:126"
+   ],
+   "mechanism": "upsert_connector defaults allowed_env to \"sandbox\" (persist.py:184) and _public surfaces it as allowedEnv (:120), but no runtime module reads it: dispatch (persist.py:238-289) checks status and circuit only, and G10 (compile.py:800-830) checks approved/https/dataClass/health and never env. A grep for allowed_env/allowedEnv across agent_core/, voice/, bot_tools.py, bot_runtime.py, sandbox_runtime.py and outbound.py returns no reader.",
+   "trigger": "Register a bank connector for sandbox testing (the form sends no env, so it lands as \"sandbox\"), approve it, bind it. Its tools dispatch identically on the production bot — the field that exists to prevent exactly this is inert.",
+   "fix": "Gate dispatch on env: read the deployment env once and return {\"ok\": False, \"error\": \"connector_env_not_allowed\"} when conn[\"allowedEnv\"] is neither \"both\" nor the running env. Add the same check to G10 so the publish is blocked rather than the call failing at runtime.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-3",
+   "title": "Re-saving an existing connector through \"Add connector\" silently reverts approved → draft",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/integrations/McpConsole.tsx:148",
+    "Habibi/src/components/integrations/McpConsole.tsx:152",
+    "backend/agent_core/connectors/persist.py:185",
+    "backend/agent_core/connectors/persist.py:169"
+   ],
+   "mechanism": "The form posts no `status`, so upsert_connector computes `str(payload.get(\"status\") or \"draft\")` (persist.py:185), and the ON CONFLICT (tenant_id, slug) branch does `status = EXCLUDED.status` (persist.py:169). Re-submitting an existing slug therefore overwrites an approved row back to draft. The toast still says \"Connector saved\".",
+   "trigger": "Operator fixes a typo in a live connector's URL by retyping the same slug and clicking Add connector. The row silently de-approves; every card bound to it now fails G10 not_approved on the next publish and dispatch returns connector_not_bound at runtime.",
+   "fix": "In upsert_connector, only set status when the payload explicitly carries one: change the conflict clause to `status = COALESCE(:status_explicit, mcp_connectors.status)`, or have the UI send the row's current status when editing. Registration should never be able to change approval state implicitly.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-4",
+   "title": "\"Connect IdP\" always writes the CIMD issuer to rows[0], not to a selected connector",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/integrations/McpConsole.tsx:192",
+    "Habibi/src/components/integrations/McpConsole.tsx:195",
+    "backend/agent_core/connectors/persist.py:424",
+    "backend/agent_core/connectors/persist.py:433"
+   ],
+   "mechanism": "The button is disabled on `!rows[0]` and mutates `{ id: rows[0].id, issuer }` — the first row of a list the backend returns ORDER BY slug (persist.py:80). There is no connector selector anywhere in the panel, and the success toast reports only the generated clientId, never which connector it landed on.",
+   "trigger": "With connectors lms, paylink and bank-mcp registered, an operator types the bank's IdP issuer and clicks Connect IdP. cimd_issuer and cimd_client_id are stamped on `lms` (alphabetically first). The screen shows \"CIMD client cimd-xxxx\" and the operator believes the bank connector is federated.",
+   "fix": "Add a row-level Connect IdP action (or a connector select bound to the issuer input) and name the connector in the toast. Until then, disable the button rather than defaulting to rows[0].",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-5",
+   "title": "Bind/Unbind in the Connectors tab changes nothing any model can ever call — ext.* is in the Grant but in no Offer, and voice has no ext handler at all",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1003",
+    "backend/agent_core/skills/intersect.py:164",
+    "backend/agent_core/skills/intersect.py:168",
+    "backend/agent_core/skills/intersect.py:198",
+    "backend/agent_core/tools/schema.py:238",
+    "backend/voice/tools.py:2918",
+    "backend/bot_tools.py:158"
+   ],
+   "mechanism": "bound_tool_names puts ext.* into effective_tools/Grant (intersect.py:117-123), but idle_offered_tools strips every name starting with \"ext.\" (:164,:168) and the only widening branch adds names from the ACTIVE skill pack's allowed_tools (:198) — no shipped pack under backend/agent_core/skills/packs/ lists an ext.* tool. Even if one did, ToolCatalog.openai_tools does `[self.specs[n] for n in names if n in self.specs]` (schema.py:238) and ext.* names are not catalog specs, so they would be dropped from the OpenAI tool list. On voice, build_tools filters a hardcoded handler dict by `keep` (voice/tools.py:2918-2919) and no key starts with ext., so an ext.* tool has no handler and cannot be registered. The one paylink dispatch that does happen is hardcoded in _tool_get_customer_context (bot_tools.py:158-160) and never reads card.connectors.",
+   "trigger": "Bind or Unbind `paylink` on the collections card and publish. The compile report's effective_tools changes; the running bot's behaviour does not — the paylink prefetch fires either way, and no ext.* tool is ever offered on voice or text.",
+   "fix": "Decide which it is. If connector tools are meant to be callable, register ToolSpecs for bound ext.* names so openai_tools can render them and add an ext.* branch to voice/tools.py's dispatch; if they are meant to be internal prefetches only, make the paylink prefetch conditional on the card actually binding paylink and relabel the tab so it does not read as a capability grant.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-6",
+   "title": "A binding to a connector that is no longer approved disappears from the tab, leaving no way to unbind it and a permanently unpublishable card",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:925",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:985",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1003",
+    "backend/agent_core/cards/compile.py:820"
+   ],
+   "mechanism": "The list renders only `connectorsQuery.data.filter(c => c.status === \"approved\")` (:925) and the Unbind control lives inside that map (:985-1006). A card whose connectors[] still names a connector that has since been de-approved (see CONNECTORS-3, or an explicit disable) has no row, so no Unbind button exists — while G10 keeps emitting {\"not_approved\": id} and failing the publish (compile.py:820-822). The only hint is the yellow prefix banner at :949-953, which shows the prefix string but names no connector and offers no action.",
+   "trigger": "Connector `bank-mcp` is bound to a card, then de-approved on Integrations. The author opens the Connectors tab, sees only paylink and lms, sees no binding, hits Publish and gets G10 fail naming a connector the tab will not show them.",
+   "fix": "Render bound-but-not-approved connectors as a separate section (from `card.connectors` minus the approved list) with a status lozenge and a working Unbind, so the offending binding is both visible and removable.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-7",
+   "title": "Connector registration and approval write no audit row and require no admin role",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "security",
+   "files": [
+    "backend/main.py:2544",
+    "backend/main.py:2561",
+    "backend/main.py:2575",
+    "backend/agent_core/connectors/persist.py:193",
+    "backend/agent_core/connectors/persist.py:149",
+    "backend/db.py:404"
+   ],
+   "mechanism": "approve() (persist.py:193-206), upsert_connector() (:132-190) and cimd_connect() (:424-444) each run a bare UPDATE/INSERT and return; none calls db.record_activity (db.py:404-416), the convention used elsewhere (agent_core/authority/enact.py:245). The endpoints take no `Depends(require_admin)` — require_admin exists (main.py:843-852) and is used exactly once in the whole file, on /tts/voices/sync (main.py:3078). Approval is the control that decides whether a remote MCP server receives a vault bearer token and answers with payment data.",
+   "trigger": "Any authenticated non-admin actor POSTs /connectors/{id}/approve. The connector goes live; nothing records who approved it or when, and there is no change-log entry for an auditor to reconstruct.",
+   "fix": "Add `Depends(require_admin)` to POST /connectors, /approve and /cimd, and write a db.record_activity row (entity_type=\"connector\") inside each write, carrying the actor from actor_context. The hash-chained agent change-log at main.py:2166-2180 is the model to follow.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-8",
+   "title": "Approve and Add-connector mutations have no error handler — a rejected write is rendered as nothing happening",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/integrations/McpConsole.tsx:104",
+    "Habibi/src/components/integrations/McpConsole.tsx:152",
+    "Habibi/src/api/integrations.ts:302",
+    "Habibi/src/api/integrations.ts:307"
+   ],
+   "mechanism": "useConnectorMutations defines only onSuccess (integrations.ts:302-311). `mut.approve.mutate(r.id)` (McpConsole.tsx:104) swallows the rejection entirely; `void mut.upsert.mutateAsync(...).then(...)` (:152-160) leaves an unhandled rejection with no toast. The backend rejects both with real 409/422s — connector_data_class_required and connector_url_https_only from approve() (persist.py:198-200), connector_slug_required / connector_url_https_only from upsert (persist.py:135,139). The `cimd` button is the one that gets it right (:203-205).",
+   "trigger": "Operator clicks Approve on a connector with an empty data_class, or an http:// URL. The button does nothing visible, the row stays draft, no message appears; the operator retries or concludes the button is broken.",
+   "fix": "Give the mutations an onError that toasts the detail, or mirror the cimd button's `.catch((err) => toast.error(err.message))` on approve and upsert.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-9",
+   "title": "Connectors tab warns that connector tools count toward the voice cap; they cannot reach voice at all",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:949",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:951",
+    "backend/voice/tools.py:2918",
+    "backend/agent_core/skills/intersect.py:164"
+   ],
+   "mechanism": "The warning-styled banner reads \"Activated connector tools still count toward the voice cap.\" G6 counts idle_offered_tools, which strips every ext.* name (intersect.py:164,168), and voice/tools.py:2918-2919 filters a hardcoded handler dict that contains no ext.* key, so no connector tool exists on voice under any activation.",
+   "trigger": "Author binds a connector, sees a warning telling them their 12-tool voice budget is at risk, and removes a real tool to make room for a cost that does not exist.",
+   "fix": "Replace the sentence with the truth: connector tools are text-channel-only and are never offered on voice, so they do not count against G6.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-10",
+   "title": "The tab promises \"Compiler G10 checks HTTPS, data-class, and health\" while MCP_CLIENT_ENABLED=false makes G10 skip entirely, and no screen reports that flag",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:944",
+    "backend/agent_core/cards/compile.py:759",
+    "backend/agent_core/connectors/persist.py:254",
+    "backend/main.py:2658",
+    "backend/.env.example:325"
+   ],
+   "mechanism": "compile.py:758-760 emits G10 \"skipped — MCP client flag is off\" when mcp_client_enabled() is false, and dispatch returns {\"ok\": False, \"error\": \"mcp_client_disabled\"} (persist.py:254-255). The shipped default is MCP_CLIENT_ENABLED=false (.env.example:325). GET /connectors still lists every row regardless of the flag (main.py:2537-2541), and GET /mcp/status reports httpEnabled, tasksEnabled and appsEnabled but not clientEnabled (main.py:2660-2670) — so neither the Studio tab nor the Integrations MCP panel can tell the operator the whole connector subsystem is switched off.",
+   "trigger": "On a default deployment an author binds connectors, sees a green G10 skipped (not fail), publishes, and believes the HTTPS/data-class/health checks ran. They did not, and no connector tool binds.",
+   "fix": "Add `clientEnabled: mcp_client_enabled()` to GET /mcp/status and surface it on both screens; when it is false, render a banner on the Connectors tab saying bindings are inert and G10 will skip rather than check.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-11",
+   "title": "Snapshotted allow_prefixes outrank the registry forever, so narrowing a connector's prefixes revokes nothing from bound cards",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "backend/agent_core/connectors/persist.py:224",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1003",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:949"
+   ],
+   "mechanism": "Bind copies `conn.allowPrefixes` into the card (AgentCardPanels.tsx:1003). bound_tool_names then prefers the card's copy: `ref.allow_prefixes or ref.allowPrefixes or conn[\"allowPrefixes\"]` (persist.py:224). Tightening the registry's prefix list — the natural way to revoke one remote tool without de-approving the whole connector — has no effect on any card that already snapshotted the wider list, and the tab's banner (:949-953) prints the stale card copy with no comparison against the registry.",
+   "trigger": "Ops narrows bank-mcp's allow_prefixes from [\"ext.bank.\"] to [\"ext.bank.read_\"] to revoke a write tool. Every already-published card keeps binding the full ext.bank. set.",
+   "fix": "Intersect rather than override — `set(card_prefixes) & set(registry_prefixes)` — so a registry narrowing always applies; and show a staleness badge in the tab when the two lists differ.",
+   "prior_ref": "2i.2 (still present)"
+  },
+  {
+   "id": "CONNECTORS-12",
+   "title": "Postgres array literals are built by string concatenation, so a comma in a slug or allowPrefix injects extra array elements — including an empty prefix that matches every remote tool",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "security",
+   "files": [
+    "backend/agent_core/connectors/persist.py:140",
+    "backend/agent_core/connectors/persist.py:180",
+    "backend/agent_core/connectors/persist.py:181",
+    "backend/agent_core/connectors/persist.py:233"
+   ],
+   "mechanism": "prefixes default to [f\"ext.{slug}.\"] (persist.py:140) and both arrays are serialised as `\"{\" + \",\".join(prefixes) + \"}\"` (:180-181) rather than bound as a list. A slug or an explicit allowPrefixes entry containing a comma splits into extra elements. Nothing validates registry prefixes: attach_connector_to_card validates only card-side prefixes (clone.py:111-112) and G10 only checks `ref.allow_prefixes` (compile.py:808-809). An injected empty-string element makes `prefixed.startswith(p)` (persist.py:233) true for every cached remote tool name.",
+   "trigger": "POST /connectors with allowPrefixes=[\"ext.bank.,\"] (or a slug containing a comma) writes {ext.bank.,\"\"}; every tool in that connector's tools_cache then binds regardless of the intended prefix restriction.",
+   "fix": "Pass the lists as bound parameters (psycopg adapts a Python list to a text[]) instead of concatenating, and reject slugs/prefixes that do not match ^[a-z0-9._-]+$ in upsert_connector.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-13",
+   "title": "allow_prefixes are a bind-time filter only — dispatch never checks them",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/connectors/persist.py:238",
+    "backend/agent_core/connectors/persist.py:260",
+    "backend/agent_core/connectors/persist.py:275",
+    "backend/bot_tools.py:158"
+   ],
+   "mechanism": "dispatch resolves the connector from `connector_id` or from `name.split(\".\")[1]` (persist.py:258-261), checks status and circuit, then calls _call_remote — it never asks whether `name` falls inside the connector's or the card's allow_prefixes. Enforcement lives only in bot_tools.execute_tool's `ctx.allowed_tools` membership check (bot_tools.py:806), which is derived from the Grant. Any caller that reaches dispatch directly — _tool_get_customer_context (bot_tools.py:158-160) does exactly that — bypasses the prefix restriction entirely.",
+   "trigger": "A future direct dispatch call (or a Grant computed from a different card than the one running) invokes an ext.* name outside the bound prefixes; the registry lets it through.",
+   "fix": "Move the prefix check into dispatch: resolve the connector, then refuse with {\"ok\": False, \"error\": \"connector_prefix_not_bound\"} unless `name` starts with one of the connector's allow_prefixes. Enforcement belongs at the point of execution, the way grant.may_execute does for catalog tools.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-14",
+   "title": "Three uncoordinated writers of prompt_versions.agent_card with no version guard; the connector-attach client is dead code",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "code-organization",
+   "files": [
+    "backend/main.py:2256",
+    "backend/main.py:2127",
+    "backend/main.py:3228",
+    "backend/agent_core/cards/clone.py:113",
+    "backend/agent_core/cards/clone.py:126",
+    "backend/db_prompt_studio.py:1774",
+    "Habibi/src/api/agent-studio.ts:840"
+   ],
+   "mechanism": "POST /agent-studio/cards/{bot_id}/connectors read-modify-writes the latest draft's agentCard (clone.py:113-126); PATCH /agent-studio/cards/{bot_id} (main.py:2127-2145) and PATCH /prompt-versions/{id} (main.py:3228-3232) each replace the whole agent_card column (db_prompt_studio.py:1774-1777). None carries an etag/updated_at precondition, so it is last-write-wins. The Studio's 1200 ms autosave (routes/prompt-studio.lazy.tsx:646-657) re-PATCHes its in-memory card after every edit, so a connector attached out-of-band is silently reverted by the next keystroke. Additionally all three call restore_prompt_version_as_draft when no draft exists (clone.py:119, main.py:2137), so two concurrent calls can produce two drafts and the next publish 409s ambiguous_draft_to_publish (main.py:2244-2252). The frontend client for the attach endpoint, useAttachConnector (agent-studio.ts:840-845), is exported and called from nowhere.",
+   "trigger": "A script (or agent) POSTs /agent-studio/cards/kaia-v2-4/connectors while an author has the Studio open. 1.2 s after their next edit, the autosave PATCH writes the card without the new connector; the attach silently vanishes with no conflict and no message.",
+   "fix": "Give the draft an updated_at/version precondition and 409 on mismatch (the publish path already does this for the unique published index), or delete the attach endpoint and its unused client and keep PATCH as the single writer.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-15",
+   "title": "attach_connector_to_card binds an unapproved connector without complaint",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/cards/clone.py:107",
+    "backend/agent_core/cards/clone.py:110",
+    "backend/main.py:2256",
+    "backend/agent_core/cards/compile.py:820"
+   ],
+   "mechanism": "The docstring says \"Stamp an approved connector onto the latest draft card\" but the function checks only existence (clone.py:107-109) and that prefixes start with \"ext.\" (:111-112). Status is never read. The Studio tab filters to approved rows client-side (AgentCardPanels.tsx:925), so the API is looser than the only UI that uses it. G10 does catch it at publish (compile.py:820-822).",
+   "trigger": "POST /agent-studio/cards/{id}/connectors with a draft connector returns 200; the failure surfaces much later as a G10 not_approved at publish, and per CONNECTORS-6 the tab will not show the binding so it cannot be removed.",
+   "fix": "Raise ValueError(\"connector_not_approved\") in attach_connector_to_card when conn_row[\"status\"] != \"approved\" — _handle_write already maps it to a 409 — so the rejection lands where the operator made the mistake.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-16",
+   "title": "\"Add connector\" hardcodes dataClass to [\"pii\"] with no control, and G10 only checks the list is non-empty",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/integrations/McpConsole.tsx:158",
+    "backend/agent_core/connectors/persist.py:141",
+    "backend/agent_core/cards/compile.py:826"
+   ],
+   "mechanism": "The registration form sends `dataClass: [\"pii\"]` unconditionally (McpConsole.tsx:158) — there is no input for it. upsert_connector would default to [\"pii\"] anyway (persist.py:141). G10's only data-class test is `if not conn.get(\"dataClass\")` (compile.py:826-827), so any non-empty value passes and the declared class is never compared against what the connector actually returns or against the card's own data_class.",
+   "trigger": "A core-banking connector returning balances and payment references is registered through the UI and permanently labelled pii-only. The Connectors tab renders \"pii · healthy\" (AgentCardPanels.tsx:995) and every downstream data-class review reads the wrong classification.",
+   "fix": "Add a multi-select for data class to the form (money / pii / marketing / internal), and have G10 compare the connector's declared classes against the binding card's identity.data_class rather than only checking non-emptiness.",
+   "prior_ref": ""
+  },
+  {
+   "id": "CONNECTORS-17",
+   "title": "ext.* names sit in the Tool Grant but in no Offer, so the only way one executes is a name the model was never shown — and that path skips skill gating",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "security",
+   "files": [
+    "backend/bot_tools.py:806",
+    "backend/bot_tools.py:810",
+    "backend/agent_core/skills/intersect.py:123",
+    "backend/agent_core/skills/intersect.py:164"
+   ],
+   "mechanism": "effective_tools unions ext.* into the Grant (intersect.py:117-123) and bot_runtime assigns it to ctx.allowed_tools (bot_runtime.py:943). execute_tool's only guard is `name in ctx.allowed_tools` (bot_tools.py:806-808), and the ext.* branch (:810-823) runs before the handler lookup, before CATALOG.normalize, and outside the SKILL_GATED_TOOLS machinery. Because ext.* is stripped from every offer (intersect.py:164,168), a model can only emit such a name by hallucination or by prompt injection carrying the string — precisely the case the Offer⊆Grant design is supposed to make harmless, except here the Grant is strictly wider than anything ever offered.",
+   "trigger": "A borrower message containing `ext.paylink.get_status` induces the model to emit that tool call on a card that binds paylink; it executes against real payment_intents rows with no skill attached and no verification step in the path.",
+   "fix": "Either register ext.* names in the catalog so they are offered deliberately, or keep them out of ctx.allowed_tools until a pack activates them — the Grant should not be permanently wider than the union of reachable offers.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Prior 2i.1 is FIXED. The Connectors tab now routes through QueryState (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:955-983), which returns a LoadingState on isPending and a QueryErrorBanner on isError (query-state.tsx:59-68); the \"No approved connectors… Approve connectors on Integrations\" copy is reachable only after a successful empty response, and the comment at AgentCardPanels.tsx:965-968 records exactly that.",
+  "SSRF guard is correct and correctly placed: _guard_outbound_url resolves at dial time rather than registration (persist.py:29-60), is applied on both legs (_call_remote persist.py:360, _remote_tools_list persist.py:393), and _blocked_url_code (persist.py:63-73) deliberately narrows to connector_url_* so a json.JSONDecodeError still counts against the circuit. dispatch spares the circuit on a blocked URL (persist.py:279-284) and counts a real transport fault (persist.py:285-287). Pinned by backend/tests/test_connector_ssrf_guard.py:83-221.",
+  "Circuit breaker fails closed on corrupt state and logs the reason (circuit.py:56-64), reads circuit_opened_at only with circuit_fails counting toward the open (circuit.py:39-70), and health_test is deliberately not gated by allow() so a probe is the documented recovery path (circuit.py:12-20 with persist.py:292-323).",
+  "First-party reads are tenant-scoped: paylink_status joins customers and predicates both c.tenant_id and pi.tenant_id (first_party.py:33-45), pinned by backend/tests/test_connector_read_hygiene.py:128-160.",
+  "Registry status and circuit are checked BEFORE the first-party shortcut (persist.py:262-273), so a draft or disabled paylink cannot answer — the ordering comment at persist.py:266-271 is accurate and pinned by backend/tests/test_connector_governance.py:192-214.",
+  "Result stripping is a real allowlist, not a denylist: strip.py:23-28 keeps only ALLOWED_RESULT_KEYS, so a remote connector cannot smuggle a tool name back through a result field.",
+  "Multi-tenant PK collision on slug is fixed: the default id is tenant-scoped (persist.py:148) so ON CONFLICT (tenant_id, slug) can absorb a second tenant registering the same slug — pinned by backend/tests/test_connector_governance.py:257-272.",
+  "dispatch forwards the model's own arguments to remote tools with customer_id as a default the caller can layer over (_remote_arguments persist.py:336-347, _call_remote persist.py:370, bot_tools.py:818) — pinned by backend/tests/test_connector_dispatch_args.py:72-167.",
+  "G10 separates registry outage from authoring error correctly: lookup_issues stay out of g10_issues, an import or read failure produces warn rather than fail (compile.py:840-862), the pure prefix check still runs and still blocks without the registry (compile.py:806-809), and warn does not enter report.blocking — pinned by backend/tests/test_g10_connector_lookup_degrades.py:80-160 and test_connector_bind_degrades_loudly.py:135-167.",
+  "bound_tool_names reads the registry once and indexes it twice rather than calling list_connectors twice on the compile hot path (persist.py:216-218), and resolves a card ref by either id or slug (persist.py:221) — pinned by backend/tests/test_connector_read_hygiene.py:36-62.",
+  "The tab's slug/id alias handling is correct: toggle passes [conn.slug, conn.id] so an Unbind matches a card bound through either writer (AgentCardPanels.tsx:932-939, 986, 1003), and get_connector resolves both (persist.py:91).",
+  "Non-authored (legacy) cards cannot bind: editable is gated on isAuthoredCard (AgentCardPanels.tsx:927, agent-card.ts:347-349) and a NotAuthoredNotice renders instead (AgentCardPanels.tsx:948).",
+  "Vault secrets never round-trip through the connector API: authRef is a reference, the bearer is resolved server-side at call time (persist.py:326-333), and the registration form offers a vault-ref select rather than a token field (McpConsole.tsx:136-147).",
+  "The Integrations connectors table distinguishes loading, error and empty properly — RecordsTable receives isLoading/isError/error/errorLabel rather than an `?? []` empty fallback (McpConsole.tsx:166-177).",
+  "approve() re-validates HTTPS and requires a non-empty data class before flipping status (persist.py:197-200), and cimd_connect rejects a non-HTTPS issuer (persist.py:426-428); both map to 422 via main.py:775-776."
+ ]
+}

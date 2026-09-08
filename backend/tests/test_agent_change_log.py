@@ -144,7 +144,14 @@ def test_every_lifecycle_action_has_a_verb_the_log_can_render(cloned_bot: str) -
         for name, value in vars(change_log).items()
         if name.isupper() and isinstance(value, str) and value.startswith("agent.")
     }
-    assert emitted == {"agent.publish", "agent.rollback", "agent.archive", "agent.restore"}
+    assert emitted == {
+        "agent.publish",
+        "agent.rollback",
+        "agent.archive",
+        "agent.restore",
+        "agent.role_grants",
+        "agent.experiment_rollback",
+    }
 
     db.archive_agent_studio_card(cloned_bot)
     db.restore_agent_studio_card(cloned_bot)

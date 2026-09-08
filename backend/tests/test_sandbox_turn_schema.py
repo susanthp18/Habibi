@@ -205,8 +205,11 @@ def test_every_key_the_studio_posts_is_a_field_on_the_request_model() -> None:
     import schemas
 
     source = SANDBOX_TS.read_text(encoding="utf-8")
+    # The POST body is the second argument. A third `init` (response schema)
+    # must not be read as posted keys — `.*?}\s*)` used to swallow it and then
+    # keep going until `exportInteraction(interactionId, format)`.
     match = re.search(
-        r"apiPost<SandboxTurnResult>\(\s*`[^`]*/turns`\s*,\s*\{(?P<body>.*?)\n\s*\}\s*\)",
+        r"apiPost<SandboxTurnResult>\(\s*`[^`]*/turns`\s*,\s*\{(?P<body>[^{}]+)\}",
         source,
         re.S,
     )

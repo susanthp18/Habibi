@@ -5,12 +5,14 @@ import {
   clampAgentTuning,
   tuningFingerprint,
   type AgentTuning,
+  type AgentTuningPreset,
 } from "@/data/agent-tuning";
 import { VoiceCatalogBrowser } from "@/components/prompt-studio/VoiceCatalogBrowser";
 import { VoiceDetailCard } from "@/components/prompt-studio/VoicePanel";
 import { useVoicePreview } from "@/components/prompt-studio/useVoicePreview";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { fetchTtsVoiceDetail, type TtsCatalogVoice } from "@/api/prompt-studio";
+import { fetchTuningPresets } from "@/api/voice-sandbox";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -101,6 +103,8 @@ export function TuningStudio({
     listening: false,
     turn: false,
   });
+  const [presets, setPresets] = useState<AgentTuningPreset[]>(AGENT_TUNING_PRESETS);
+  const [presetsError, setPresetsError] = useState(false);
   const [presetId, setPresetId] = useState("empathetic-collections");
   // There is no Apply button here — every control writes straight through. That
   // is the right behaviour for a tuning panel you are meant to move while
@@ -109,11 +113,30 @@ export function TuningStudio({
   // a change landed, and here is the proof.
   const [appliedAt, setAppliedAt] = useState(0);
 
-  const activePreset = AGENT_TUNING_PRESETS.find((p) => p.id === presetId);
+  const activePreset = presets.find((p) => p.id === presetId);
   const dirtyVsPreset = useMemo(() => {
     if (!activePreset) return false;
     return tuningFingerprint(value) !== tuningFingerprint(activePreset.tuning);
   }, [value, activePreset]);
+
+  useEffect(() => {
+    let current = true;
+    void fetchTuningPresets()
+      .then((rows) => {
+        if (!current || rows.length === 0) return;
+        setPresets(rows);
+        setPresetsError(false);
+        setPresetId((currentId) =>
+          rows.some((row) => row.id === currentId) ? currentId : rows[0].id,
+        );
+      })
+      .catch(() => {
+        if (current) setPresetsError(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, []);
 
   // Live applies are debounced: each one is an HTTP PUT plus a data-channel
   // message, and the range inputs / free-text pitch field below fire on every
@@ -200,7 +223,7 @@ export function TuningStudio({
             onChange={(e) => {
               const id = e.target.value;
               setPresetId(id);
-              const p = AGENT_TUNING_PRESETS.find((x) => x.id === id);
+              const p = presets.find((x) => x.id === id);
               if (p) {
                 // Same live path every other control uses. Gating on callLive
                 // here meant a preset switch was the one change the parent
@@ -213,13 +236,19 @@ export function TuningStudio({
             }}
             className="min-w-0 flex-1 rounded border border-border bg-surface px-075 py-050 text-body-small"
           >
-            {AGENT_TUNING_PRESETS.map((p) => (
+            {presets.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
               </option>
             ))}
           </select>
         </label>
+        {presetsError ? (
+          <p className="mt-050 text-body-tiny text-text-danger">
+            Server presets could not be loaded. The displayed fallback is not publishable from
+            Sandbox.
+          </p>
+        ) : null}
         {/*
           The panel has no Apply button because every control applies itself.
           Left unsaid, that reads as a missing button rather than a design, and

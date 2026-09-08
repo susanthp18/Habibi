@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import ssl
 import uuid
 from typing import Any
 
@@ -32,57 +33,129 @@ def client_cert_dn(headers: dict[str, str]) -> str | None:
     return dn or None
 
 
-def fingerprint_dn(dn: str) -> str:
-    return hashlib.sha256(dn.encode("utf-8")).hexdigest()
+def fingerprint_certificate(pem: str) -> str:
+    """SHA-256 of a syntactically valid certificate's DER bytes."""
+    try:
+        der = ssl.PEM_cert_to_DER_cert(pem)
+    except ValueError as exc:
+        raise ValueError("a2a_cert_pem_invalid") from exc
+    return hashlib.sha256(der).hexdigest()
 
 
-def require_partner(headers: dict[str, str]) -> dict[str, Any]:
+def client_cert_fingerprint(headers: dict[str, str]) -> str | None:
+    """Fingerprint asserted by the trusted TLS terminator after verification."""
+    lowered = {k.lower(): v for k, v in headers.items()}
+    if client_cert_dn(lowered) is None:
+        return None
+    raw = (
+        lowered.get("x-ssl-client-fingerprint")
+        or lowered.get("ssl-client-fingerprint")
+        or ""
+    )
+    normalized = raw.replace(":", "").strip().lower()
+    if len(normalized) != 64 or any(c not in "0123456789abcdef" for c in normalized):
+        return None
+    return normalized
+
+
+def _partners_have_bot_id(conn: Any) -> bool:
+    row = conn.execute(
+        text(
+            """
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'a2a_partners'
+               AND column_name = 'bot_id'
+            """
+        )
+    ).first()
+    return bool(row)
+
+
+def require_partner(headers: dict[str, str], *, bot_id: str | None = None) -> dict[str, Any]:
     if not a2a_enabled():
         raise PermissionError("a2a_disabled")
     auth = (headers.get("authorization") or "").strip()
-    dn = client_cert_dn({k.lower(): v for k, v in headers.items()})
-    if not dn:
+    lowered = {k.lower(): v for k, v in headers.items()}
+    dn = client_cert_dn(lowered)
+    fp = client_cert_fingerprint(lowered)
+    if not dn or not fp:
         if auth.lower().startswith("bearer "):
             raise PermissionError("a2a_mtls_required")
         raise PermissionError("a2a_mtls_required")
-    fp = fingerprint_dn(dn)
     try:
         with db.engine.connect() as conn:
+            if not _partners_have_bot_id(conn):
+                raise PermissionError("a2a_partner_scope_unavailable")
             row = db._one(
                 conn.execute(
                     text(
                         """
                         SELECT * FROM a2a_partners
-                         WHERE status = 'active'
-                           AND (cert_fingerprint = :fp OR cert_dn = :dn)
-                         ORDER BY CASE WHEN tenant_id = :t THEN 0 ELSE 1 END
+                         WHERE tenant_id = :t
+                           AND status = 'active'
+                           AND cert_fingerprint = :fp
+                           AND bot_id = :bot
                          LIMIT 1
                         """
                     ),
-                    {"t": db.current_tenant(), "fp": fp, "dn": dn},
+                    {"t": db.current_tenant(), "fp": fp, "bot": bot_id},
                 )
             )
+    except PermissionError:
+        raise
     except Exception:
         raise PermissionError("a2a_partner_unknown") from None
     if not row:
         raise PermissionError("a2a_partner_unknown")
-    return dict(row)
+    partner = dict(row)
+    if partner.get("tenant_id") != db.current_tenant():
+        raise PermissionError("a2a_partner_unknown")
+    bound = str(partner.get("bot_id") or "").strip()
+    if not bound:
+        raise PermissionError("a2a_partner_unscoped")
+    if not bot_id or bound != bot_id:
+        raise PermissionError("a2a_bot_mismatch")
+    return partner
 
 
-def agent_card_document(bot_id: str) -> dict[str, Any]:
-    """A2A Agent Card. Skills = skill names + descriptions."""
-    card_row = db.get_agent_studio_card(bot_id)
-    if card_row is None:
+def _published_card(bot_id: str) -> dict[str, Any]:
+    """The live published mouth only. Drafts are not an A2A surface."""
+    published = db.get_published_prompt_version(bot_id)
+    if published is None:
         raise KeyError("agent_card_not_found")
-    raw = card_row.get("agentCard") or {}
-    ident = raw.get("identity") if isinstance(raw.get("identity"), dict) else {}
-    skills_out: list[dict[str, Any]] = []
+    raw = published.get("agentCard") if isinstance(published.get("agentCard"), dict) else {}
+    if not raw:
+        raise KeyError("agent_card_not_found")
+    return published
+
+
+def exposed_skill_ids(raw: dict[str, Any]) -> list[str]:
+    a2a = raw.get("a2a") if isinstance(raw.get("a2a"), dict) else {}
+    declared = [str(s) for s in (a2a.get("skill_ids") or []) if s]
+    attached = []
     for ref in raw.get("skills") or []:
         if not isinstance(ref, dict):
             continue
         slug = str(ref.get("skill_id") or "")
-        if not slug:
-            continue
+        if slug:
+            attached.append(slug)
+    if not declared:
+        return []
+    attached_set = set(attached)
+    return [s for s in declared if s in attached_set]
+
+
+def agent_card_document(bot_id: str) -> dict[str, Any]:
+    """A2A Agent Card for the *published* mouth. Honours ``a2a.expose`` / ``skill_ids``."""
+    published = _published_card(bot_id)
+    raw = published.get("agentCard") or {}
+    a2a = raw.get("a2a") if isinstance(raw.get("a2a"), dict) else {}
+    if not a2a.get("expose"):
+        raise KeyError("a2a_not_exposed")
+    ident = raw.get("identity") if isinstance(raw.get("identity"), dict) else {}
+    skills_out: list[dict[str, Any]] = []
+    for slug in exposed_skill_ids(raw):
         desc = slug
         try:
             pack = pack_for_slug(slug)
@@ -90,11 +163,16 @@ def agent_card_document(bot_id: str) -> dict[str, Any]:
         except KeyError:
             pass
         skills_out.append({"id": slug, "name": slug, "description": desc})
+    summary = None
+    try:
+        summary = db.get_agent_studio_card(bot_id)
+    except Exception:
+        summary = None
     return {
-        "name": ident.get("display_name") or card_row.get("name"),
-        "description": ident.get("purpose") or card_row.get("purpose") or "",
+        "name": ident.get("display_name") or (summary or {}).get("name"),
+        "description": ident.get("purpose") or (summary or {}).get("purpose") or "",
         "url": "/a2a",
-        "version": card_row.get("version") or "1.0",
+        "version": (summary or {}).get("version") or published.get("id") or "1.0",
         "protocolVersion": "0.2.2",
         "capabilities": {"streaming": False, "pushNotifications": False},
         "defaultInputModes": ["application/json"],
@@ -113,6 +191,17 @@ def create_task(
     bot_id: str,
     cert_dn: str | None,
 ) -> dict[str, Any]:
+    bound = str(partner.get("bot_id") or partner.get("botId") or "").strip()
+    if bound and bound != bot_id:
+        raise PermissionError("a2a_bot_mismatch")
+    published = _published_card(bot_id)
+    raw = published.get("agentCard") or {}
+    a2a = raw.get("a2a") if isinstance(raw.get("a2a"), dict) else {}
+    if not a2a.get("expose"):
+        raise PermissionError("a2a_not_exposed")
+    card_skills = set(exposed_skill_ids(raw))
+    if skill_id not in card_skills:
+        raise PermissionError("a2a_skill_not_allowed")
     allowed = list(partner.get("allowed_skills") or partner.get("allowedSkills") or [])
     if hasattr(allowed, "tolist"):
         allowed = list(allowed)
@@ -219,62 +308,86 @@ def list_partners() -> list[dict[str, Any]]:
 
 def upsert_partner(payload: dict[str, Any]) -> dict[str, Any]:
     pid = str(payload.get("id") or f"a2a-p-{uuid.uuid4().hex[:8]}")
+    pem = str(payload.get("certPem") or payload.get("cert_pem") or "").strip()
+    if "BEGIN CERTIFICATE" not in pem:
+        raise ValueError("a2a_cert_pem_required")
+    fp = fingerprint_certificate(pem)
     dn = str(payload.get("certDn") or payload.get("cert_dn") or "").strip()
-    fp = str(payload.get("certFingerprint") or payload.get("cert_fingerprint") or "").strip()
-    if not fp and dn:
-        fp = fingerprint_dn(dn)
-    if not fp:
-        raise ValueError("a2a_cert_required")
+    if not dn:
+        raise ValueError("a2a_cert_dn_required")
+    bot_id = str(payload.get("botId") or payload.get("bot_id") or "").strip()
+    if not bot_id:
+        raise ValueError("a2a_bot_required")
     skills = payload.get("allowedSkills") or payload.get("allowed_skills") or []
     with db.engine.begin() as conn:
+        scoped = _partners_have_bot_id(conn)
+        if not scoped:
+            raise RuntimeError("a2a_partner_scope_unavailable")
+        cols = (
+            "id, tenant_id, name, card_url, cert_fingerprint, cert_dn, allowed_skills, status"
+        )
+        vals = ":id, :t, :n, :url, :fp, :dn, CAST(:sk AS text[]), 'active'"
+        extra_update = ""
+        params: dict[str, Any] = {
+            "id": pid,
+            "t": db.current_tenant(),
+            "n": str(payload.get("name") or "Partner"),
+            "url": str(payload.get("cardUrl") or payload.get("card_url") or ""),
+            "fp": fp,
+            "dn": dn,
+            "sk": "{" + ",".join(str(s) for s in skills) + "}",
+        }
+        cols += ", bot_id"
+        vals += ", :bot"
+        extra_update = ", bot_id = EXCLUDED.bot_id"
+        params["bot"] = bot_id
         conn.execute(
             text(
-                """
-                INSERT INTO a2a_partners (
-                  id, tenant_id, name, card_url, cert_fingerprint, cert_dn, allowed_skills, status
-                ) VALUES (
-                  :id, :t, :n, :url, :fp, :dn, CAST(:sk AS text[]), 'active'
-                )
+                f"""
+                INSERT INTO a2a_partners ({cols})
+                VALUES ({vals})
                 ON CONFLICT (id) DO UPDATE SET
                   name = EXCLUDED.name,
                   card_url = EXCLUDED.card_url,
                   cert_fingerprint = EXCLUDED.cert_fingerprint,
                   cert_dn = EXCLUDED.cert_dn,
                   allowed_skills = EXCLUDED.allowed_skills,
-                  status = EXCLUDED.status,
+                  status = EXCLUDED.status
+                  {extra_update},
                   updated_at = now()
                 """
             ),
-            {
-                "id": pid,
-                "t": db.current_tenant(),
-                "n": str(payload.get("name") or "Partner"),
-                "url": str(payload.get("cardUrl") or payload.get("card_url") or ""),
-                "fp": fp,
-                "dn": dn or None,
-                "sk": "{" + ",".join(str(s) for s in skills) + "}",
-            },
+            params,
         )
     partners = [p for p in list_partners() if p["id"] == pid]
     return partners[0]
 
 
 def partner_has_cert(bot_id: str) -> bool:
-    """G13: exposing A2A requires at least one partner cert on the tenant."""
-    del bot_id
+    """G13: exposing A2A requires a partner cert bound to this bot.
+
+    Fail closed when the bot-scope column is missing (unmigrated) or when no
+    active partner with a non-empty fingerprint is bound to ``bot_id``.
+    """
     if not a2a_enabled():
         return False
+    if not bot_id:
+        return False
     with db.engine.connect() as conn:
+        if not _partners_have_bot_id(conn):
+            return False
         row = conn.execute(
             text(
                 """
                 SELECT 1 FROM a2a_partners
                  WHERE tenant_id = :t AND status = 'active'
+                   AND bot_id = :b
                    AND cert_fingerprint IS NOT NULL AND cert_fingerprint <> ''
+                   AND cert_dn IS NOT NULL AND cert_dn <> ''
                  LIMIT 1
                 """
             ),
-            {"t": db.current_tenant()},
+            {"t": db.current_tenant(), "b": bot_id},
         ).first()
     return bool(row)
 
@@ -289,6 +402,7 @@ def _map_partner(row: dict[str, Any]) -> dict[str, Any]:
         "cardUrl": row.get("card_url"),
         "certFingerprint": row.get("cert_fingerprint"),
         "certDn": row.get("cert_dn"),
+        "botId": row.get("bot_id"),
         "allowedSkills": list(skills),
         "status": row.get("status"),
     }

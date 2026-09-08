@@ -61,8 +61,11 @@ def send(
     digits = "".join(ch for ch in raw if ch.isdigit())
     if not digits:
         raise ValueError("sms_missing_recipient")
+    from agent_core.carrier_guard import refuse_real_carrier
+
     if not configured():
         raise ValueError("sms_not_configured")
+    refuse_real_carrier("twilio.sms")
     if raw.startswith("+"):
         to = "+" + digits
     elif len(digits) == 10:

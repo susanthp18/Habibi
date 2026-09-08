@@ -176,9 +176,18 @@ def test_system_variables_are_available_without_being_stored() -> None:
 
 
 def test_values_are_coerced_to_strings() -> None:
-    variables = FlowVariables({"n": 42, "b": True})
+    """Booleans get the spelling the condition editor teaches.
+
+    This used to pin ``"True"``, which was the defect: the extract tool declares
+    ``type: boolean``, the model returns JSON ``true``, and an authored
+    ``equals true`` clause on the captured variable then never matched — while
+    the same clause on ``identity_verified``, which is lower-cased where it is
+    set, did.
+    """
+    variables = FlowVariables({"n": 42, "b": True, "c": False})
     assert variables.get("n") == "42"
-    assert variables.get("b") == "True"
+    assert variables.get("b") == "true"
+    assert variables.get("c") == "false"
 
 
 # --- condition evaluation --------------------------------------------------

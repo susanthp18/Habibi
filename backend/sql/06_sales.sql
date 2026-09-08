@@ -99,7 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_product_campaigns_enabled ON product_campaigns(en
 CREATE TABLE IF NOT EXISTS offer_decisions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   channel TEXT NOT NULL,
   -- shadow rows are scored but never spoken. They are the counterfactual half
@@ -130,6 +130,16 @@ CREATE TABLE IF NOT EXISTS offer_decisions (
   lead_id TEXT REFERENCES leads(id) ON DELETE SET NULL,
   suppression_reason TEXT,
   latency_ms INTEGER,
+  arm_propensity double precision,
+  action_propensity double precision,
+  replay_nonce TEXT,
+  veto_stack_version TEXT,
+  engine_image_digest TEXT,
+  config_version TEXT,
+  lambda_bucket TEXT DEFAULT 'none',
+  logging_contract_version INTEGER DEFAULT 2,
+  policy_binding jsonb,
+  policy_binding_hash TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   -- Named to match the migration that created them in existing deployments.
   -- Inline CHECKs auto-name as offer_decisions_<col>_check, which left the two

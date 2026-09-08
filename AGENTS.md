@@ -210,7 +210,9 @@ Re-run any container failure on the host — `cd backend && .venv/Scripts/python
 
 - `backend/.venv` is **Python 3.14**; the Docker images and CI are **3.12**. `pip freeze` from the venv is not what ships.
 - `docker compose up -d voice` **without** `-f docker-compose.dev.yml` drops the `/app` bind mount, so you would be testing the built image, not your edits.
-- The root logger has no handler in `api` / `voice_insurance`, so `logger.info` never prints. Absence of a log line is not evidence.
+- Logging is configured in `api` and `voice_insurance` as of `ce74870`; `logger.info` prints, and
+  PII is scrubbed on the way out by a filter on the handler (`observability.RedactingFilter`),
+  regardless of `LOG_FORMAT`. Do not remove that filter to make a log easier to read.
 - Postgres access is `docker exec collections_db psql -U collections` — the role is not `postgres`, and `docker compose exec` hangs here.
 
 ## Scope discipline
@@ -218,6 +220,12 @@ Re-run any container failure on the host — `cd backend && .venv/Scripts/python
 The single most damaging thing you can do on this repository is a correct fix plus 46 unrequested ones. Two specific traps the audit already found:
 
 - A `knip` / `vulture` / `F401` sweep will report working diagnostics as dead — `rls.py weak_policies`, `orphan_rows`, `role_bypasses_rls`, `assert_registry_covers`, `invalidate_permission_cache`, `voice/node_contracts.py`, `DialRefused`, `record_offer_suppressed`. **These are on an allowlist. Do not delete them.**
+- Peeling a section out of `db.py` breaks any test that does
+  `monkeypatch.setattr(db, "_some_moved_name", ...)`. The name is a **string**, so no
+  attribute-usage scan finds it, and re-exporting the name is not enough: rebinding it on
+  `db` is invisible to the carved module, which reads its own globals. Grep the suite for
+  `setattr(db, "` before moving a section, and repoint those patches at the new module.
+  Peel 11 found exactly one (`_conversation_rag_query`, two files) and it failed four tests.
 - Grouping or reordering routes in `backend/main.py` reverses ordering-sensitive static-before-parameterised pairs. There are five. Do not reorder routes unless the work package is specifically about them.
 
 If you finish early, **stop**. Do not look for more to do.

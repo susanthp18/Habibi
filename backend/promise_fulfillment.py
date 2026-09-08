@@ -413,6 +413,7 @@ def enqueue_whatsapp_paylink(
     template_env_name: str = "WHATSAPP_PTP_TEMPLATE_NAME",
     template_env_lang: str = "WHATSAPP_PTP_TEMPLATE_LANG",
     template_params: list[str] | None = None,
+    decision_id: str | None = None,
 ) -> None:
     """Queue a pay-link WhatsApp (PTP confirm or bounce notice)."""
     import db as dbmod
@@ -448,6 +449,7 @@ def enqueue_whatsapp_paylink(
         template_params=params,
         purpose=purpose,
         source=source,
+        decision_id=decision_id,
     )
 
 
@@ -547,7 +549,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
 
     already_sent = intent["status"] in {"sent", "opened"} and not resend
     consent = capture.latest_consent_by_channel(conn, promise["customer_id"])
-    phone = promise.get("phone_primary") or promise.get("phone_alt")
+    phone = promise.get("phone_primary")
     last4 = _phone_last4(phone)
     body = _confirm_copy(
         amount=intent["amount"],
@@ -602,6 +604,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
             related_id=intent["id"],
             actor_kind="bot",
             account_id=promise.get("account_id"),
+            endpoint=phone,
         )
 
     if channel is not None:
@@ -964,7 +967,9 @@ def settle_promises(engine: Engine | Any) -> dict[str, int]:
     return {"due_today": due, "broken": broken, "expired": expired}
 
 
-def _send_reminder_copy(conn: Any, reminder: dict[str, Any]) -> tuple[bool, str | None]:
+def _send_reminder_copy(
+    conn: Any, reminder: dict[str, Any], *, now: datetime | None = None
+) -> tuple[bool, str | None]:
     """Send a due/confirm reminder. Returns (ok, error)."""
     promise = _load_promise(conn, reminder["promise_id"])
     if promise is None:
@@ -991,7 +996,7 @@ def _send_reminder_copy(conn: Any, reminder: dict[str, Any]) -> tuple[bool, str 
         expires_at=intent.get("expires_at"),
     )
     channel = reminder["channel"]
-    phone = promise.get("phone_primary") or promise.get("phone_alt")
+    phone = promise.get("phone_primary")
     purpose = "statutory" if reminder.get("kind") == "confirm" else "outreach"
     source = "ptp_confirm" if purpose == "statutory" else "due_reminder"
     if channel == "sms":
@@ -1008,6 +1013,8 @@ def _send_reminder_copy(conn: Any, reminder: dict[str, Any]) -> tuple[bool, str 
             related_id=reminder.get("id"),
             actor_kind="system",
             account_id=promise.get("account_id"),
+            endpoint=phone,
+            now=now,
         )
         if not decision.allowed:
             return False, decision.reason or "contact_policy"

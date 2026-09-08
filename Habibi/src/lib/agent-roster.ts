@@ -154,6 +154,8 @@ const CHANGE_VERBS: Record<string, string> = {
   "agent.rollback": "rolled back",
   "agent.archive": "archived",
   "agent.restore": "restored",
+  "agent.role_grants": "updated role grants",
+  "agent.experiment_rollback": "rolled back experiment",
 };
 
 export function changeVerb(action: string): string {

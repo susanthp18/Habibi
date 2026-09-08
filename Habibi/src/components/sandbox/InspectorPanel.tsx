@@ -37,7 +37,7 @@ type Tab =
 type Props = {
   turns: SandboxTurn[];
   metrics?: TurnMetric[];
-  /** Live-call domain events; empty in text mode. */
+  /** Live-call domain events; text rehearsal supplies simulated toolCalls. */
   insights?: LiveCallInsights;
   /** Force-show Context tab (PII) outside DEV — off by default. */
   showContextDebug?: boolean;

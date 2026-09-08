@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { modelBindingLabel, modelBindingSelectable } from "@/lib/studio-trust";
 import { cn } from "@/lib/utils";
 
 const SLOTS: ProviderSlot[] = ["stt", "tts", "llm"];
@@ -82,7 +83,13 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
       <div className="grid grid-cols-1 gap-100 md:grid-cols-[140px_minmax(0,1fr)_120px_100px_auto] md:items-end">
         <label className="text-body-small">
           <span className="mb-050 block text-text-subtlest">Slot</span>
-          <Select value={slot} onValueChange={(v) => setSlot(v as ProviderSlot)}>
+          <Select
+            value={slot}
+            onValueChange={(v) => {
+              setSlot(v as ProviderSlot);
+              setModelId("");
+            }}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -103,8 +110,8 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
             </SelectTrigger>
             <SelectContent>
               {(models.data ?? []).map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.providerName} · {m.displayName}
+                <SelectItem key={m.id} value={m.id} disabled={!modelBindingSelectable(m.runtime)}>
+                  {modelBindingLabel(`${m.providerName} · ${m.displayName}`, m.runtime)}
                 </SelectItem>
               ))}
             </SelectContent>

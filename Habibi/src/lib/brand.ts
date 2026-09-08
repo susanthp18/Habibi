@@ -3,6 +3,13 @@ export const BRAND = {
   name: "BigBound AI",
   shortName: "BigBound",
   tagline: "Collections workspace",
-  tenantLine: "HDFC · Loans & Insurance",
+  /**
+   * The tenant strip under the wordmark. Defaults to a neutral demo tenant so
+   * screenshots and any public build never carry a real institution's name.
+   * Set VITE_TENANT_LINE in .env.local to dress the app for a specific demo.
+   */
+  tenantLine:
+    (import.meta.env.VITE_TENANT_LINE as string | undefined)?.trim() ||
+    "Demo tenant · Loans & insurance",
   titleSuffix: "BigBound AI",
 } as const;

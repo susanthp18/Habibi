@@ -159,7 +159,7 @@ export function PublishDialog({
         <div className="space-y-150 text-body">
           {compileBusy && (
             <div className="rounded-medium border border-border bg-surface-sunken p-150 text-body-small text-text-subtle">
-              Running compiler G0–G15…
+              Running compiler G0–G16…
             </div>
           )}
           {compileError && !compileBusy && (

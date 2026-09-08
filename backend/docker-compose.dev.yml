@@ -13,13 +13,27 @@
 
 services:
   api:
+    environment:
+      # Laptop bind-mount is not a deployed image. HABIBI_DEPLOYED stays 1 on
+      # docker-compose.yml so shipping containers remain hardened.
+      HABIBI_DEPLOYED: "0"
     volumes:
       - .:/app
       - /app/__pycache__
       - ../source_db:/source_db:ro
       - voice_sessions:/app/.cache/voice_sandbox_sessions
 
+  worker:
+    environment:
+      HABIBI_DEPLOYED: "0"
+
+  bot_worker:
+    environment:
+      HABIBI_DEPLOYED: "0"
+
   voice:
+    environment:
+      HABIBI_DEPLOYED: "0"
     volumes:
       - .:/app
       - /app/__pycache__

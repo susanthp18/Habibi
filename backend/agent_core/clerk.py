@@ -135,6 +135,12 @@ def _defer_hitl_plan(decision_id: str | None) -> None:
 def _run(job: dict[str, Any]) -> dict[str, Any]:
     payload = job.get("payload") or {}
     wf = str(job.get("workflowType") or "")
+    from bank_boundary.clerk_allowlist import allow
+
+    park_reason = allow(wf, contract_version=payload.get("contractVersion"))
+    if park_reason:
+        park_input_required(job["id"], park_reason)
+        raise _Parked()
     if wf == "a2a_remote":
         return _finish_a2a_remote(payload)
     if wf in {DOC_SLA, CALLBACK}:

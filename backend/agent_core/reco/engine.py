@@ -221,6 +221,26 @@ def _recommend(
     latency_ms = int((time.perf_counter() - started) * 1000)
     top = verdict.offers[0] if verdict.offers else None
 
+    from agent_core import logging_contract
+    import db
+    import policy_binding
+    import policy_rules
+
+    drawn = logging_contract.draw(
+        [o.product_id for o in (verdict.offers or [])] or ["none"],
+        greediness=1.0,
+        arm_probability=1.0,
+    )
+    try:
+        rules = policy_rules.resolve(
+            conn,
+            tenant_id=db.current_tenant(),
+            product_id=top.product_id if top else None,
+        )
+        reco_binding, reco_digest = policy_binding.pair(rules)
+    except Exception:
+        logger.exception("reco policy binding failed")
+        reco_binding, reco_digest = [], None
     decision_id = decisions.record(
         conn=conn,
         customer_id=customer_id,
@@ -231,9 +251,17 @@ def _recommend(
         recommender=scorer.name,
         recommender_version=scorer.version,
         feature_schema_version=SCHEMA_VERSION,
-        features={**features.to_log(), "call": signals.to_log()},
-        # Log the full ranked list, not just the winner: the counterfactual is
-        # what offline evaluation compares against.
+        features={
+            **features.to_log(),
+            "call": signals.to_log(),
+            "loggingContract": {
+                "version": logging_contract.CONTRACT_VERSION,
+                "armPropensity": drawn.arm_propensity if drawn else 1.0,
+                "actionPropensity": drawn.action_propensity if drawn else 1.0,
+                "nonce": drawn.nonce if drawn else "",
+                "lambdaBucket": logging_contract.LAMBDA_BUCKET_NONE,
+            },
+        },
         candidates=_candidate_log(features, signals, vetted, scored),
         excluded=excluded,
         chosen_product_id=top.product_id if top else None,
@@ -241,6 +269,16 @@ def _recommend(
         score=top.score if top else None,
         suppression_reason=verdict.reason,
         latency_ms=latency_ms,
+        arm_propensity=drawn.arm_propensity if drawn else 1.0,
+        action_propensity=drawn.action_propensity if drawn else 1.0,
+        replay_nonce=drawn.nonce if drawn else None,
+        veto_stack_version=logging_contract.VETO_STACK_VERSION,
+        engine_image_digest=logging_contract.engine_image_digest(),
+        config_version=logging_contract.config_version(),
+        lambda_bucket=logging_contract.LAMBDA_BUCKET_NONE,
+        logging_contract_version=logging_contract.CONTRACT_VERSION,
+        policy_binding=reco_binding,
+        policy_binding_hash=reco_digest,
     )
 
     # Shadow mode scores and logs exactly as live does, then declines to speak.

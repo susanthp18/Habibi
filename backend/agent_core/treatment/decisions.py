@@ -88,14 +88,85 @@ def record(
     propensity: float | None = None,
     explore_kind: str | None = None,
     policy_version: int | None = None,
+    arm_propensity: float | None = None,
+    action_propensity: float | None = None,
+    replay_nonce: str | None = None,
+    veto_stack_version: str | None = None,
+    engine_image_digest: str | None = None,
+    config_version: str | None = None,
+    lambda_bucket: str | None = None,
+    logging_contract_version: int | None = None,
+    policy_binding: Any = None,
+    policy_binding_hash: str | None = None,
 ) -> str | None:
     """Persist one decision. Returns its id, or None if logging failed."""
     decision_id = _id()
     try:
+        from agent_core.treatment import partitions, schema_ready
+
+        extra_cols = ""
+        extra_vals = ""
+        params: dict[str, Any] = {
+            "id": decision_id,
+            "tenant_id": tenant_id,
+            "customer_id": customer_id,
+            "account_id": account_id,
+            "interaction_id": interaction_id,
+            "trigger_kind": trigger_kind,
+            "trigger_ref": trigger_ref,
+            "mode": mode,
+            "variant": variant,
+            "recommender": recommender,
+            "recommender_version": recommender_version,
+            "feature_schema_version": feature_schema_version,
+            "features": json.dumps(dict(features), default=str),
+            "candidates": json.dumps(list(candidates), default=str),
+            "excluded": json.dumps(dict(excluded), default=str),
+            "chosen_action": chosen_action,
+            "chosen_channel": chosen_channel,
+            "scheduled_at": scheduled_at,
+            "expected_value": expected_value,
+            "propensity": (
+                None if propensity is None else max(1e-9, min(1.0, float(propensity)))
+            ),
+            "explore_kind": explore_kind,
+            "policy_version": policy_version,
+            "suppression_reason": suppression_reason,
+            "rationale": rationale,
+            "latency_ms": latency_ms,
+        }
         with _writer(conn) as active:
+            if schema_ready.w2_ready(active):
+                extra_cols = (
+                    ", arm_propensity, action_propensity, replay_nonce, "
+                    "veto_stack_version, engine_image_digest, config_version, "
+                    "lambda_bucket, logging_contract_version"
+                )
+                extra_vals = (
+                    ", :arm_propensity, :action_propensity, :replay_nonce, "
+                    ":veto_stack_version, :engine_image_digest, :config_version, "
+                    ":lambda_bucket, :logging_contract_version"
+                )
+                params.update(
+                    {
+                        "arm_propensity": arm_propensity,
+                        "action_propensity": action_propensity,
+                        "replay_nonce": replay_nonce,
+                        "veto_stack_version": veto_stack_version,
+                        "engine_image_digest": engine_image_digest,
+                        "config_version": config_version,
+                        "lambda_bucket": lambda_bucket or "none",
+                        "logging_contract_version": logging_contract_version or 2,
+                    }
+                )
+            if schema_ready.has_column(active, "treatment_decisions", "policy_binding"):
+                extra_cols += ", policy_binding, policy_binding_hash"
+                extra_vals += ", CAST(:policy_binding AS jsonb), :policy_binding_hash"
+                params["policy_binding"] = json.dumps(list(policy_binding or []), default=str)
+                params["policy_binding_hash"] = policy_binding_hash
             active.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO treatment_decisions (
                       id, tenant_id, customer_id, account_id, interaction_id,
                       trigger_kind, trigger_ref, mode, variant,
@@ -105,11 +176,9 @@ def record(
                       expected_value, propensity, explore_kind, policy_version,
                       suppression_reason, rationale,
                       latency_ms, created_at
+                      {extra_cols}
                     ) VALUES (
                       :id, :tenant_id, :customer_id,
-                      -- Resolved inside the INSERT: an account closed between
-                      -- scoring and logging must null the column, not raise a
-                      -- foreign-key error that loses the whole row.
                       (SELECT a.id FROM accounts a WHERE a.id = :account_id),
                       (SELECT i.id FROM interactions i WHERE i.id = :interaction_id),
                       :trigger_kind, :trigger_ref, :mode, :variant,
@@ -119,50 +188,19 @@ def record(
                       :chosen_action, :chosen_channel, :scheduled_at,
                       :expected_value, :propensity, :explore_kind, :policy_version,
                       :suppression_reason, :rationale,
-                      -- clock_timestamp(), not now(). This is an append-only
-                      -- log, so created_at should say when the row was written;
-                      -- now() is transaction start, and two decisions written
-                      -- in one transaction would share a timestamp with no way
-                      -- left to tell which came second.
                       :latency_ms, clock_timestamp()
+                      {extra_vals}
                     )
                     """
                 ),
-                {
-                    "id": decision_id,
-                    "tenant_id": tenant_id,
-                    "customer_id": customer_id,
-                    "account_id": account_id,
-                    "interaction_id": interaction_id,
-                    "trigger_kind": trigger_kind,
-                    "trigger_ref": trigger_ref,
-                    "mode": mode,
-                    "variant": variant,
-                    "recommender": recommender,
-                    "recommender_version": recommender_version,
-                    "feature_schema_version": feature_schema_version,
-                    "features": json.dumps(dict(features), default=str),
-                    "candidates": json.dumps(list(candidates), default=str),
-                    "excluded": json.dumps(dict(excluded), default=str),
-                    "chosen_action": chosen_action,
-                    "chosen_channel": chosen_channel,
-                    "scheduled_at": scheduled_at,
-                    "expected_value": expected_value,
-                    # Clamped rather than trusted. The column's CHECK forbids
-                    # zero because every off-policy estimator divides by this,
-                    # and a caller that computes 0.0 through some future path
-                    # would lose the whole decision row to an IntegrityError —
-                    # a logging bug costing a borrower their decision is the
-                    # one failure this module exists to prevent.
-                    "propensity": (
-                        None if propensity is None else max(1e-9, min(1.0, float(propensity)))
-                    ),
-                    "explore_kind": explore_kind,
-                    "policy_version": policy_version,
-                    "suppression_reason": suppression_reason,
-                    "rationale": rationale,
-                    "latency_ms": latency_ms,
-                },
+                params,
+            )
+            partitions.maybe_dual_write(
+                active,
+                decision_id=decision_id,
+                features=params["features"],
+                candidates=params["candidates"],
+                excluded=params["excluded"],
             )
         return decision_id
     except Exception:
@@ -326,7 +364,17 @@ OUTCOMES = frozenset(
 
 
 def record_outcome(
-    decision_id: str | None, outcome: str, *, conn: Any | None = None
+    decision_id: str | None,
+    outcome: str,
+    *,
+    conn: Any | None = None,
+    cancel_reason: str | None = None,
+    reach_outcome: str | None = None,
+    cure_outcome: str | None = None,
+    observed_days: int | None = None,
+    event_at: datetime | None = None,
+    label_mature_at: datetime | None = None,
+    label_definition_version: str | None = None,
 ) -> None:
     """Label what happened. This is the training signal."""
     if not decision_id:
@@ -335,55 +383,102 @@ def record_outcome(
         logger.warning("ignoring unknown treatment outcome %r", outcome)
         return
     try:
+        from agent_core.treatment import cancel as cancel_mod, schema_ready
+
         with _writer(conn) as active:
+            extra = ""
+            params: dict[str, Any] = {"id": decision_id, "outcome": outcome}
+            if cancel_reason and schema_ready.has_column(active, "treatment_decisions", "cancel_reason"):
+                if cancel_reason not in cancel_mod.REASONS:
+                    cancel_reason = cancel_mod.from_note(cancel_reason)
+                extra += ", cancel_reason = :cancel_reason"
+                params["cancel_reason"] = cancel_reason
+            if schema_ready.labels_ready(active):
+                if reach_outcome is not None:
+                    extra += ", reach_outcome = :reach_outcome"
+                    params["reach_outcome"] = reach_outcome
+                if cure_outcome is not None:
+                    extra += ", cure_outcome = :cure_outcome"
+                    params["cure_outcome"] = cure_outcome
+                if observed_days is not None:
+                    extra += ", observed_days = :observed_days"
+                    params["observed_days"] = observed_days
+                if event_at is not None:
+                    extra += ", event_at = :event_at"
+                    params["event_at"] = event_at
+                if label_mature_at is not None:
+                    extra += ", label_mature_at = :label_mature_at"
+                    params["label_mature_at"] = label_mature_at
+                if label_definition_version is not None:
+                    extra += ", label_definition_version = :label_def"
+                    params["label_def"] = label_definition_version
             active.execute(
                 text(
-                    """
+                    f"""
                     UPDATE treatment_decisions
                     SET outcome = :outcome, outcome_at = now()
+                    {extra}
                     WHERE id = :id AND outcome IS NULL
                     """
                 ),
-                {"id": decision_id, "outcome": outcome},
+                params,
             )
     except Exception:
         logger.exception("record_outcome failed for %s", decision_id)
 
 
-def claim_due(conn: Any, *, limit: int = 1) -> list[dict[str, Any]]:
+def claim_due(conn: Any, *, limit: int = 1, owner: str | None = None) -> list[dict[str, Any]]:
     """Plans whose moment has arrived, locked for one worker.
 
-    ``SKIP LOCKED`` so two workers drain in parallel without either waiting,
-    and without both sending the same message.
+    ``FOR NO KEY UPDATE SKIP LOCKED`` so two workers drain in parallel without
+    either waiting, and without taking a lock that blocks the FK insert the
+    voice path needs on ``call_attempts``.
     """
+    from agent_core.treatment import schema_ready
+
+    lease_sql = ""
+    if schema_ready.has_column(conn, "treatment_decisions", "lease_until"):
+        lease_sql = """
+              AND (lease_until IS NULL OR lease_until < now())
+              AND claimed_at IS NULL
+        """
     rows = conn.execute(
         text(
-            """
+            f"""
             SELECT * FROM treatment_decisions
             WHERE enacted IS FALSE
-              -- Never a simulated row. The synthetic corpus writes decisions
-              -- that look exactly like live ones because that is the point of
-              -- it; the only thing standing between a generated borrower and a
-              -- real outbound message is this predicate.
               AND mode <> 'simulated'
               AND suppression_reason IS NULL
-              -- An outcome is the terminal marker for a plan that was claimed
-              -- and deliberately not carried out (no executor, borrower paid,
-              -- consent withdrawn). Without this the executor spins on it.
               AND outcome IS NULL
               AND chosen_action IS NOT NULL
               AND chosen_action <> 'wait'
               AND scheduled_at IS NOT NULL
               AND scheduled_at <= now()
               AND created_at >= now() - interval '7 days'
+              {lease_sql}
             ORDER BY scheduled_at ASC
-            FOR UPDATE SKIP LOCKED
+            FOR NO KEY UPDATE SKIP LOCKED
             LIMIT :limit
             """
         ),
         {"limit": max(1, limit)},
     ).mappings().all()
-    return [dict(r) for r in rows]
+    claimed = [dict(r) for r in rows]
+    if claimed and schema_ready.has_column(conn, "treatment_decisions", "lease_until"):
+        ids = [r["id"] for r in claimed]
+        conn.execute(
+            text(
+                """
+                UPDATE treatment_decisions
+                SET claimed_at = now(),
+                    lease_until = now() + interval '2 minutes',
+                    lease_owner = :owner
+                WHERE id = ANY(:ids)
+                """
+            ),
+            {"ids": ids, "owner": owner or "treatment_executor"},
+        )
+    return claimed
 
 
 def claim_by_id(conn: Any, decision_id: str) -> dict[str, Any] | None:
@@ -396,7 +491,7 @@ def claim_by_id(conn: Any, decision_id: str) -> dict[str, Any] | None:
               AND enacted IS FALSE
               AND mode <> 'simulated'
               AND outcome IS NULL
-            FOR UPDATE SKIP LOCKED
+            FOR NO KEY UPDATE SKIP LOCKED
             """
         ),
         {"id": decision_id},

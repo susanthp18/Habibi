@@ -15,6 +15,8 @@ type Props = {
   onApplyPreset: (preset: PersonaPreset) => void;
   presets?: PersonaPreset[];
   lintFindings?: PromptLintFinding[];
+  lintFailed?: boolean;
+  lintPending?: boolean;
   onClearLint?: () => void;
   /** Scopes the dismissed-suggestion list. One card's dismissals must not
    *  silence another's — the advice is about this prompt, not the tenant. */
@@ -30,6 +32,8 @@ export function PromptEditor({
   onApplyPreset,
   presets = [],
   lintFindings = [],
+  lintFailed = false,
+  lintPending = false,
   onClearLint,
   guardrails,
   persona,
@@ -204,6 +208,17 @@ export function PromptEditor({
             </span>
           </div>
         </div>
+        {lintFailed ? (
+          <div className="flex items-start gap-100 rounded-medium border border-border-danger bg-background-danger-subtler p-100 text-body-small text-text-danger-bolder">
+            <AlertTriangle className="mt-025 h-3.5 w-3.5 shrink-0" />
+            <div>
+              Lint could not run — this is not a clean prompt. Fix the connection and wait for
+              findings before publishing.
+            </div>
+          </div>
+        ) : lintPending ? (
+          <p className="text-body-small text-text-subtlest">Linting…</p>
+        ) : null}
         {otherFindings.length > 0 && (
           <div className="space-y-050 rounded-medium border border-border-accent-gray-subtle bg-background-accent-gray-subtlest p-100">
             <div className="flex items-center justify-between text-body-small font-semibold text-text-subtlest">

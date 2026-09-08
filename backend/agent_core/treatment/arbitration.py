@@ -48,6 +48,9 @@ class Verdict:
     explore_kind: str | None = None
     #: action → π over the approved set, when there was a draw.
     distribution: Mapping[str, float] = field(default_factory=dict)
+    arm_propensity: float = 1.0
+    action_propensity: float = 1.0
+    replay_nonce: str = ""
 
 
 def arbitrate(
@@ -166,6 +169,7 @@ def arbitrate(
 
     best = affordable[0]
     propensity, kind, distribution = 1.0, None, {}
+    arm_p, action_p, nonce = arm_probability, 1.0, ""
     if chooser is not None:
         choice = chooser(affordable)
         if choice is not None:
@@ -173,6 +177,9 @@ def arbitrate(
             propensity = choice.propensity
             kind = choice.kind
             distribution = choice.distribution
+            arm_p = getattr(choice, "arm_propensity", arm_probability) or arm_probability
+            action_p = getattr(choice, "action_propensity", 1.0) or 1.0
+            nonce = getattr(choice, "nonce", "") or ""
 
     return Verdict(
         chosen=best,
@@ -182,6 +189,9 @@ def arbitrate(
         propensity=propensity,
         explore_kind=kind,
         distribution=distribution,
+        arm_propensity=arm_p,
+        action_propensity=action_p,
+        replay_nonce=nonce,
     )
 
 
@@ -198,6 +208,8 @@ def _hold(
         suppressed=True,
         reason=reason,
         propensity=max(1e-9, min(1.0, arm_probability)),
+        arm_propensity=max(1e-9, min(1.0, arm_probability)),
+        action_propensity=1.0,
     )
 
 

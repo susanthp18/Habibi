@@ -1,0 +1,381 @@
+{
+ "slice": "flow",
+ "summary": "The Flow tab edits prompt_versions.flow (a FlowGraph JSON: nodes with key/instructions/tools/entryFor/extractVariables, edges with prompt|expression|always conditions, globalTools) inside the Prompt Studio editor shell; the canvas (FlowCanvas.tsx) debounces POST /flow/validate on every change and the parent gates Publish on the result, autosave PATCHes the draft with the graph, and Publish runs the same validator as gate G1 (agent_core/cards/compile.py:569-582) before the row goes live. The only runtime that executes an authored graph is the voice bot: backend/voice/bot.py:1167-1210 builds the built-in Python flow first, then, when VOICE_FLOW_GRAPH is auto/db/required and the published row has nodes, compiles the graph via voice/flows_dynamic.py:build_authored_flow (prompt edges become go_to_<key> tools, expression/always edges are post-action/tool-wrapper evaluated through voice/flow_vars.py, node tools are looked up in the grant-filtered voice registry); WhatsApp/text (bot_runtime.py) and the text sandbox (sandbox_runtime.py) never read the flow column. \"Load/Reload built-in script\" calls GET /flow/built-in, which materialises voice/flows.py via voice/flow_export.py — an import chain that requires pipecat, which the compose `api` image (Dockerfile target base) does not install, so that endpoint 500s in the documented deployment. The tool picker, /flow/validate and G1 all use the full catalog, not the card's Tool Grant, so a node can carry a tool the runtime silently drops; the built-in export also mis-declares endConversation on three terminal nodes, so a reloaded-and-published script stops hanging up where the Python did. Several prior findings (2b.1, 2b.2, 2b.3, 2b.5) are fixed at the cited lines; 2b.4 survives on the non-canvas validation path.",
+ "endpoints": [
+  "GET /flow/tools → backend/main.py:2059 list_flow_tools → flow_graph.tool_catalog backend/flow_graph.py:806 (agent_core CATALOG voice-channel specs + _FLOW_CONTROL_TOOLS :767)",
+  "GET /flow/built-in → backend/main.py:2070 get_built_in_flow (imports voice.flow_export at :2079) → backend/voice/flow_export.py:255 built_in_collections_graph → voice/flows.py build_collections_flow",
+  "GET /flow/transitions → backend/main.py:2083 get_flow_transitions → flow_graph.implicit_transitions backend/flow_graph.py:857 (AST parse of voice/tools.py)",
+  "GET /flow/reserved-keys → backend/main.py:2095 list_flow_reserved_keys → flow_graph.RESERVED_NODE_KEYS backend/flow_graph.py:47",
+  "POST /flow/validate → backend/main.py:3003 validate_flow → flow_graph.validate_graph backend/flow_graph.py:440 with known_tools = full tool_catalog",
+  "GET /outbound/card-vocabulary (MissionEntries checkbox list) → backend/main.py:5247 outbound_card_vocabulary → flow_graph.OBJECTIVES backend/flow_graph.py:73 + mission.OBJECTIVE_BRIEF",
+  "PATCH /prompt-versions/{id} (autosave/publish of flow) → backend/main.py:3233-3390 → backend/db_prompt_studio.py:1768-1773 (key-present rule, `flow_val or {}`)",
+  "POST /prompt-versions (first autosave creates draft with flow) → backend/db_prompt_studio.py:1671-1692",
+  "POST /prompt-versions/{id}/publish → backend/db_prompt_studio.py:1850-1915 → compile_card G1 backend/agent_core/cards/compile.py:569 (assert_publishable backend/flow_graph.py:401)",
+  "POST /agent-studio/cards/{id}/compile (runCompile sends flow) → backend/db_prompt_studio.py:786 compile_agent_studio_card → compile_card",
+  "GET /prompt-versions?botId (flow + flowUnreadable read) → backend/db_prompt_studio.py:155-174 _prompt_flow, :207 _map_prompt_version; response model backend/schemas.py:2226,2235"
+ ],
+ "runtime_consumers": [
+  "node.key → backend/voice/flows_dynamic.py:496 nodes[node.key] factory registry; backend/voice/tools.py:422 _node(name) lookup for built-in hops; go_to_<key> tool name flows_dynamic.py:203-233",
+  "node.type=end → backend/voice/flows_dynamic.py:371-380 (functions=[], respond_immediately=True, post_actions end_conversation)",
+  "node.data.isStart → backend/flow_graph.py:246 start_node → backend/voice/flows_dynamic.py:160-183 (entry fallback, role_message restated at :365)",
+  "node.data.entryFor → backend/flow_graph.py:257 entry_for → backend/voice/flows_dynamic.py:171-176; backend/agent_core/cards/compile.py:302-330 (G-OB2); backend/main.py /outbound/missions; mission entry_node wins via bot.py:556 → flows_dynamic.py:167",
+  "node.data.instructions → backend/voice/flows_dynamic.py:384,393 (conversation) and :371-380 (end node, hidden in UI)",
+  "node.data.instructionType=say → backend/voice/flows_dynamic.py:386-392 (tts_say pre_action; entryLine ignored on this branch)",
+  "node.data.entryLine → backend/voice/flows_dynamic.py:385,399-407 (only on prompt nodes); flow_graph.py:569 silent_outbound_entry",
+  "node.data.respondImmediately → backend/voice/flows_dynamic.py:478-488 (forced True when session.last_speaker == customer)",
+  "node.data.tools → backend/voice/flows_dynamic.py:414-424 looked up in grant-filtered registry (voice/tools.py:2918-2919); unknown/ungranted silently skipped",
+  "node.data.extractVariables → backend/voice/flows_dynamic.py:246-292 extract_details tool → flow_vars.FlowVariables.update backend/voice/flow_vars.py:72",
+  "node.data.endConversation → backend/voice/flows_dynamic.py:500-505 post_actions end_conversation",
+  "node.data.name → only as transition-tool description fallback backend/voice/flows_dynamic.py:233 ('Move to {name}'); otherwise canvas-only",
+  "node.position → NONE (canvas only)",
+  "graph.version → NONE (never read by any runtime or migration)",
+  "edge condition.type=prompt + prompt text → backend/voice/flows_dynamic.py:203-235 FlowsFunctionSchema go_to_<target key>",
+  "edge condition.type=expression/always, match, clauses → backend/voice/flows_dynamic.py:190-200 _deterministic_target → backend/voice/flow_vars.py:159 evaluate_condition (:118 evaluate_clause)",
+  "graph.globalTools → backend/voice/flows_dynamic.py:510-518 (get_customer_context/get_payment_history/get_emi_schedule/request_documents silently stripped)",
+  "{{variable}} in instructions/entryLine/prompt → backend/voice/flow_vars.py:98 render; context = flows_dynamic.session_variables backend/voice/flows_dynamic.py:95-124",
+  "whole flow column → backend/voice/bot.py:1167-1210 (voice only); backend/bot_runtime.py → NONE; backend/sandbox_runtime.py → NONE; backend/outbound.py/mission.py → only entry_node from the card (mission.py:302), never the graph"
+ ],
+ "findings": [
+  {
+   "id": "FLOW-1",
+   "title": "GET /flow/built-in cannot run in the API container: import chain requires pipecat",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/main.py:2079",
+    "backend/voice/flow_export.py:35",
+    "backend/voice/flows.py:28",
+    "backend/voice/tools.py:26",
+    "backend/requirements.txt:23",
+    "backend/Dockerfile:23-24",
+    "backend/Dockerfile:54-55",
+    "backend/docker-compose.yml:79-83",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1503-1527",
+    "Habibi/src/components/flow/FlowCanvas.tsx:995-1013"
+   ],
+   "mechanism": "main.py:2079 does `from voice.flow_export import built_in_collections_graph`; flow_export.py:35 imports `voice.flows`, flows.py:28 imports `voice.tools`, and tools.py:26 does a module-level `from pipecat.flows import NO_RESPONSE, flows_tool_options`. requirements.txt:23 states pipecat lives only in requirements-voice.txt, which the Dockerfile installs only in the builder/voice stages (:54-55); docker-compose.yml:79-83 builds the `api` service from `target: base`. In that process the import raises ModuleNotFoundError → HTTP 500. flow_graph.py's own docstring (:756-762) and test_flow_tool_catalog.py:5-8 confirm the API process is designed to run without pipecat, and the sibling /flow/transitions deliberately parses tools.py as text for exactly this reason (flow_graph.py:846-850) — /flow/built-in did not get the same treatment.",
+   "trigger": "In the compose deployment open any card's Flow tab and click 'Load the built-in script' (empty state) or '⋯ → Reload built-in script…'. The toast shows the 500 body; the graph never loads. This also voids the mitigation the prior audit relied on for 2b.6 (stale kaia draft).",
+   "fix": "Make the export importable without pipecat: move MONEY_GOAL_INTENTS and the export into a pipecat-free module and have voice/flows.py import lazily, or have the API proxy GET /flow/built-in to the voice runner (VOICE_RUNNER_URL) which has the stack. Add a test in the API-import CI job (b4e1f47) that calls the endpoint.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-2",
+   "title": "Built-in export marks only call_ended as endConversation — wrap_up, terminate_politely and escalate_close stop hanging up once reloaded and published",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/voice/flow_export.py:187",
+    "backend/voice/flows.py:722",
+    "backend/voice/flows.py:740",
+    "backend/voice/flows.py:770",
+    "backend/voice/flows_dynamic.py:500-505",
+    "backend/tests/test_flow_export.py:156",
+    "Habibi/src/components/flow/FlowNodes.tsx:74-75"
+   ],
+   "mechanism": "_node_json sets `\"endConversation\": key == \"call_ended\"` (flow_export.py:187) and never reads the node's `post_actions`. The Python script ends the call with `post_actions: end_conversation` on wrap_up (:722), terminate_politely (:740) and escalate_close (:770). flows_dynamic.py:500-505 only emits end_conversation when data.endConversation is true, so under the authored graph those three nodes speak their closing line and then wait: wrap_up and terminate_politely have `functions: []` and no authored edges, so the only exit is the model spontaneously calling the global end_call; terminate_politely's instruction is 'Do not ask further questions', so a refused/third-party caller sits in dead air until the idle ladder hangs up. test_flow_export.py only checks call_ended (:156), so the export's claim of being 'derived, not transcribed' (flow_export.py:9-14) is untested for post_actions. The canvas does surface 'Nothing leaves this step and it does not end the call' on two of the three (FlowNodes.tsx:74-75), but the reload toast still says the built-in script was loaded.",
+   "trigger": "Reload built-in script (where the endpoint works), publish, place a call that refuses verification: the built-in Python hangs up after the apology; the authored graph does not.",
+   "fix": "In _node_json derive `endConversation` from `any(a.get('type') == 'end_conversation' for a in node.get('post_actions') or [])`, and add a test asserting wrap_up/terminate_politely/escalate_close export with endConversation true.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-3",
+   "title": "Tool picker, /flow/validate and G1 accept any catalog tool; the card's Tool Grant silently drops it at runtime and the canvas still counts its hop as an exit",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "Habibi/src/components/flow/FlowInspector.tsx:408-430",
+    "Habibi/src/components/flow/FlowInspector.tsx:738-746",
+    "backend/main.py:3003-3011",
+    "backend/flow_graph.py:401-440",
+    "backend/agent_core/cards/compile.py:569-573",
+    "backend/voice/bot.py:1141-1146",
+    "backend/voice/tools.py:2918-2919",
+    "backend/voice/flows_dynamic.py:414-424",
+    "Habibi/src/components/flow/FlowCanvas.tsx:562-590",
+    "Habibi/src/components/flow/FlowCanvas.tsx:626",
+    "Habibi/src/components/flow/FlowNodes.tsx:74-75"
+   ],
+   "mechanism": "ToolList offers every entry of /flow/tools (the full voice catalog, flow_graph.py:806-832) with no reference to card.tools/skills. /flow/validate (main.py:3011) and G1's assert_publishable (compile.py:573 → flow_graph.py:429-432) both validate node tools against that same full catalog, so a node carrying e.g. create_promise_to_pay on a card whose skill pack was detached compiles green. At runtime bot.py:1141-1146 computes the grant, tools.py:2918-2919 filters the registry to grant ∪ ALWAYS_ON, and flows_dynamic.py:414-424 skips the missing key with only a logger.warning. No compile gate compares flow tools with the grant (compile.py's only graph read is :302, G-OB2). Worse, the canvas derives ghost edges and the node's out-degree from the tool's hop (FlowCanvas.tsx:562-590, :626) so a node whose sole exit is an ungranted tool shows an exit and no 'Nothing leaves this step' hint (FlowNodes.tsx:74-75) while at runtime it is a dead end — the same failure class node_contracts.py was written for, but NODE_REQUIRED covers only built-in keys and is not applied to authored graphs.",
+   "trigger": "Detach the skill pack that grants create_promise_to_pay on the Skills tab, keep it on negotiate_ptp in the Flow tab, publish (all gates pass), call: the model is never offered the tool on that node.",
+   "fix": "Add a compile gate (or extend G4) that intersects every node's tools and globalTools with the card's effective grant and fails/warns on the difference; surface the same intersection in ToolList (disabled row with 'not on this card') and exclude ungranted tools from implicitEdges/degree counts.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-4",
+   "title": "A version flagged flowUnreadable is silently overwritten with the empty sentinel by the first autosave, while the tab says 'Nothing has been changed'",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/db_prompt_studio.py:170-174",
+    "backend/schemas.py:2226",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:398",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:646-653",
+    "Habibi/src/api/prompt-studio.ts:1013-1016",
+    "backend/db_prompt_studio.py:1768-1773",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1167-1172",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1459-1479",
+    "backend/db_prompt_studio.py:199-203"
+   ],
+   "mechanism": "_prompt_flow serves `flow: {}` for an unparseable row (db_prompt_studio.py:172-173); the response model materialises it as `{version:1,globalTools:[],nodes:[],edges:[]}` (schemas.py:2226). The editor stores that object as `flow` (lazy.tsx:398) — non-null — so the 'omit when null' protection (lazy.tsx:224-226, prompt-studio.ts:1013-1016) does not apply: the first autosave triggered by any other edit sends `flow: <sentinel>`, and the PATCH writes it over the column (db_prompt_studio.py:1768-1773). If the unreadable row is the published one, the new draft carries the sentinel, `flowUnreadable` is then read from the draft (lazy.tsx:1167-1172) and the red panel is replaced by 'No authored flow' — the signal disappears before the operator acts. The panel text (:1471-1476) claims nothing has changed and that only restore/load-built-in replace the row; in fact one keystroke in the prompt does. db_prompt_studio.py:199-203 names 'a write from a newer build' as a cause, i.e. the destroyed JSON can be a graph a newer build reads.",
+   "trigger": "Open a bot whose draft has an out-of-schema flow (the panel shows 'stored graph could not be read'), type one character in the System Prompt, wait 1.2 s: the draft's flow column is now the empty sentinel and the panel is gone.",
+   "fix": "When the loaded row has flowUnreadable=true keep `flow` state at null (so autosave/publish omit the key and the backend leaves the column alone) until the author explicitly loads the built-in script or starts blank; alternatively have the PATCH refuse to overwrite an unparseable column with the sentinel unless a `replaceUnreadable` flag is sent.",
+   "prior_ref": "2b.2"
+  },
+  {
+   "id": "FLOW-5",
+   "title": "Captured yes/no variables serialise as 'True'/'False' while identity_verified is 'true'/'false' — an `equals true` expression edge on a captured boolean never fires",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/voice/flows_dynamic.py:246-292",
+    "backend/voice/flows_dynamic.py:272",
+    "backend/voice/flow_vars.py:60-63",
+    "backend/voice/flow_vars.py:131-134",
+    "backend/voice/flows_dynamic.py:116-118",
+    "Habibi/src/components/flow/FlowInspector.tsx:775-785",
+    "Habibi/src/components/flow/FlowInspector.tsx:930-960",
+    "backend/tests/test_flow_graph_authoring.py:178-181"
+   ],
+   "mechanism": "The extract tool declares `type: boolean` for yes/no variables (flows_dynamic.py:246-256), so the model returns JSON true/false; `variables.update(captured)` (:272) → FlowVariables.set stores `str(value)` = 'True'/'False' (flow_vars.py:63). evaluate_clause compares strings exactly (flow_vars.py:131-134). The system variable identity_verified is deliberately lower-cased 'so an authored `equals true` clause matches' (flows_dynamic.py:116-118), so the editor teaches authors to write `true`; the same clause against a captured boolean is always false. test_flow_graph_authoring.py:178-181 pins the 'True' spelling. The condition editor offers a free-text value with no boolean picker (FlowInspector.tsx:930-960).",
+   "trigger": "Add variable `wants_plan` type yes/no on a step; add an expression edge `wants_plan is true` to negotiate_ptp; publish; in a call the model records wants_plan=true and the edge never fires (nor does `is false`).",
+   "fix": "Normalise booleans in FlowVariables.set (`'true'/'false'` for bool) or in the extract handler, and render a true/false picker in the clause editor when the referenced variable is boolean.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-6",
+   "title": "Graph-level 'Tools available from every step' offers four CRM reads that flows_dynamic silently strips from globals",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/flow/FlowInspector.tsx:499-520",
+    "backend/flow_graph.py:517-519",
+    "backend/voice/flows_dynamic.py:510-518"
+   ],
+   "mechanism": "GraphInspector renders the full catalog as global-tool checkboxes and counts the selection in its label (FlowInspector.tsx:500). validate_graph only checks membership in the catalog (flow_graph.py:517-519). flows_dynamic.py:510-518 builds global_functions excluding get_customer_context, get_payment_history, get_emi_schedule and request_documents with no log and no validator warning, so an author who adds them as globals sees a green graph and a counter that includes tools the runtime never exposes.",
+   "trigger": "Deselect everything, tick request_documents under 'Tools available from every step', publish: the tool is offered on no node.",
+   "fix": "Either drop the strip (the card grant already decides exposure) or surface it: emit a validate_graph warning `global_not_allowed` for those keys and disable the rows in GraphInspector with the reason.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-7",
+   "title": "Validator outage reports '0 flow errors — publish blocked' and a stale canvas verdict; the off-canvas path still keeps the last verdict",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/flow/FlowCanvas.tsx:496-518",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:744-746",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:98-101",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:941-943",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:227",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:724-731"
+   ],
+   "mechanism": "On a failed /flow/validate the canvas now reports `{ok:false, issues:[warning validator_unreachable]}` (FlowCanvas.tsx:505-517) — but it does not put that warning into its own `issues`, so the toolbar pill and the GraphInspector issue list keep showing the previous verdict (dimmed) with nothing about the outage. The parent sets flowValid=false (lazy.tsx:745) while flowErrorCount counts severity=error only, so the header renders '0 flow errors — publish blocked' (StudioHeader.tsx:100) and Publish toasts 'Fix conversation-flow errors before publishing' (lazy.tsx:942) with no error to fix. Off the Flow tab the effect at lazy.tsx:724-731 still swallows the failure and keeps the last verdict with the gate starting open (:227) — the original 2b.4 shape.",
+   "trigger": "Stop the API mid-edit on the Flow tab: header shows '0 flow errors — publish blocked'; switch to Prompt tab first and the gate instead stays whatever it last was.",
+   "fix": "Merge the validator_unreachable issue into the canvas `issues` and treat it as blocking in the header copy ('flow not checked — publish blocked'); apply the same unreachable handling in the lazy.tsx:724 effect.",
+   "prior_ref": "2b.4"
+  },
+  {
+   "id": "FLOW-8",
+   "title": "MissionEntries renders a failed vocabulary query as 'No outbound missions available' and hides the node's existing entryFor claims",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/flow/FlowInspector.tsx:183-236",
+    "Habibi/src/components/flow/FlowInspector.tsx:203-206",
+    "Habibi/src/api/outbound.ts:282-290"
+   ],
+   "mechanism": "The section branches on `missions.length === 0` and distinguishes only `vocab.isPending`; `vocab.isError` falls through to 'No outbound missions available. They come from the card vocabulary.' (FlowInspector.tsx:203-206) — an error rendered as a business statement, the pattern 2i.1 flagged on Connectors. The checkbox list is the only view of `node.data.entryFor`, so while the query fails a node's existing claims are neither visible nor removable, yet G-OB2 keeps failing on them.",
+   "trigger": "Break /outbound/card-vocabulary (or open the inspector while it 500s) and select the confirm_identity node.",
+   "fix": "Add an isError branch ('Could not load missions — this is not a statement about this step') and render the already-claimed keys from node.data.entryFor regardless of catalog availability.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-9",
+   "title": "ToolList shows 'Tool catalog unavailable.' for loading, error and empty alike; a node's attached tools vanish from the inspector",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/flow/FlowInspector.tsx:408-430",
+    "Habibi/src/components/flow/FlowCanvas.tsx:1281",
+    "Habibi/src/components/flow/FlowCanvas.tsx:1319"
+   ],
+   "mechanism": "FlowCanvas passes `toolsQuery.data ?? []` (:1281, :1319) with no pending/error signal; ToolList renders one string for all three states (FlowInspector.tsx:421-424). Because the node's tools are shown only as checked rows of the catalog, a node with five tools shows none while the catalog is unavailable, and the 'Tools · N' label (:738) still counts them.",
+   "trigger": "Open a node inspector while /flow/tools is slow or failing.",
+   "fix": "Pass isPending/isError into NodeInspector/GraphInspector and, when the catalog is absent, list node.data.tools as plain removable chips.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-10",
+   "title": "'Line spoken on entry' is ignored on 'Say verbatim' nodes, yet the validator demands it for listen-first outbound entries",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/voice/flows_dynamic.py:385-407",
+    "Habibi/src/components/flow/FlowInspector.tsx:710-722",
+    "backend/flow_graph.py:562-575",
+    "Habibi/src/components/flow/FlowNodes.tsx:416"
+   ],
+   "mechanism": "flows_dynamic.py:386-392 handles `instructionType == 'say'` by emitting a single tts_say pre_action from `instructions`; `entry_line` is only emitted in the else branch (:399-407). The inspector shows the entry-line field whenever 'Listen before speaking' is on, regardless of instruction type (FlowInspector.tsx:710-722), and the card renders it as spoken (FlowNodes.tsx:416). silent_outbound_entry (flow_graph.py:562-575) errors on `not respondImmediately and not entryLine` even though a say node speaks its text on entry, so the author is forced to add a line that is then discarded.",
+   "trigger": "Make a 'Say verbatim' step the entry for dpd_reminder with 'Listen before speaking' on; validator errors; add an entry line; publish; the line is never spoken.",
+   "fix": "In the say branch prepend the entry line as a second tts_say (or hide the field for say nodes) and make silent_outbound_entry accept a non-empty say text as speech on entry.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-11",
+   "title": "End-node instructions are consumed at runtime but hidden from the inspector",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/voice/flows_dynamic.py:371-380",
+    "Habibi/src/components/flow/FlowInspector.tsx:661",
+    "backend/voice/flow_export.py:187",
+    "Habibi/src/api/flow.ts:191-207"
+   ],
+   "mechanism": "For `type == 'end'` flows_dynamic renders `node.data.instructions` as the farewell developer message, falling back to 'Close the call politely in one short sentence.' (:373-378). NodeInspector wraps every content section in `!isEnd &&` (FlowInspector.tsx:661), so the farewell can never be seen or edited: a reloaded built-in graph carries _FAREWELL_TASK on call_ended invisibly, and a hand-added End node (emptyGraph flow.ts:191-207 or the 'End' button) ships the hardcoded fallback with no way to change wording.",
+   "trigger": "Select the End node: no instruction field; publish; the farewell wording is whatever the JSON holds.",
+   "fix": "Show a single 'Farewell line' textarea for end nodes bound to data.instructions (and render it on the EndNode card).",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-12",
+   "title": "'moves' badge is a hand list that misses four tools whose ghost edges the canvas draws (capture_call_goal, flag_dispute, request_callback, capture_lead)",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "backend/flow_graph.py:788-803",
+    "backend/flow_graph.py:828",
+    "backend/voice/tools.py:682",
+    "backend/voice/tools.py:1391",
+    "backend/voice/tools.py:1608",
+    "backend/voice/tools.py:2358",
+    "backend/tests/test_flow_transitions.py:81-82",
+    "backend/tests/test_flow_tool_catalog.py:60-64",
+    "Habibi/src/components/flow/FlowInspector.tsx:379-386"
+   ],
+   "mechanism": "`transitions` in /flow/tools comes from the frozenset _TRANSITIONING_TOOLS (flow_graph.py:788-803, :828), while ghost edges come from the AST reader implicit_transitions(). tools.py returns `_node(...)` from capture_call_goal (:682), flag_dispute (:1391), request_callback (:1608) and capture_lead (:2358) — and test_flow_transitions.py:81-82 asserts two of them — but none is in the frozenset. test_flow_tool_catalog.py:60-64 only checks the listed keys are flagged, not the converse. So ToolRow shows no 'moves' badge (FlowInspector.tsx:379) and the node card no arrow for tools that do transition, while the canvas draws their hop.",
+   "trigger": "Tick request_callback on a node: no 'moves' badge, yet a dotted edge to wrap_up appears.",
+   "fix": "Compute `transitions` as `key in implicit_transitions()` (or assert `_TRANSITIONING_TOOLS == set(implicit_transitions())` in the test).",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-13",
+   "title": "Export and runtime drop the non-tts pre_actions and the close-probe offer clause: summarize_context/mesh_activate_insurance are dead under an authored graph",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/voice/flow_export.py:143-160",
+    "backend/voice/flows.py:640-644",
+    "backend/voice/flows.py:683-687",
+    "backend/voice/bot.py:1499-1544",
+    "backend/voice/flows_dynamic.py:386-407",
+    "backend/voice/flows_dynamic.py:450-464"
+   ],
+   "mechanism": "_entry_line keeps only `tts_say` pre_actions (flow_export.py:154), so gated_upsell's `summarize_context` and `mesh_activate_insurance` (flows.py:640-644) are not represented in FlowNodeData and flows_dynamic can only ever emit tts_say/function/end_conversation actions. bot.py:1515 and :1540 still register both actions on every call, so under VOICE_FLOW_GRAPH=auto with a published graph they are registered and never invoked (topic-hop summarisation is lost on the upsell hop). Likewise pre_close's `_PRE_CLOSE_TASK.format(offer=state.close_probe_offer_clause)` (flows.py:683-687) is rendered at export time with an empty offer, and flows_dynamic's pre_close special-case (:450-464) appends a KB message but never the live offer clause.",
+   "trigger": "Publish the reloaded built-in graph; reach gated_upsell or pre_close on a call.",
+   "fix": "Either add an explicit `actions: [\"summarize_context\", ...]` node field (validated against bot.py's registered names) or document in the export/tab that these hooks are built-in-only; render the pre_close offer clause in flows_dynamic when the node key is pre_close.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-14",
+   "title": "Flow tab is shown for every card and its empty state claims the version 'runs the built-in collections script', but only the voice runtime reads the graph",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1111",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1490-1500",
+    "backend/bot_runtime.py",
+    "backend/sandbox_runtime.py",
+    "backend/voice/bot.py:1167-1176"
+   ],
+   "mechanism": "TABS always includes flow (lazy.tsx:1111). bot_runtime.py (WhatsApp/text) and sandbox_runtime.py contain no reference to `flow`/FlowGraph (grep: zero matches), and the only consumer is bot.py:1167-1176. The empty-state copy (lazy.tsx:1490-1500) tells the author of a text-channel card that this version 'runs the built-in collections script' and that loading the graph will change what it does, which is false for that channel; nothing in the tab says the graph governs voice only.",
+   "trigger": "Open a WhatsApp-only card's Flow tab.",
+   "fix": "State 'Voice calls only' in the tab header/empty state and, if the card has no voice channel, render the tab read-only with that note.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-15",
+   "title": "Runtime special-cases node keys (confirm_identity, escalate_close, pre_close) invisibly; confirm_identity is not in the reserved-key list the editor shows",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "backend/voice/flows_dynamic.py:437-464",
+    "backend/flow_graph.py:47-53",
+    "Habibi/src/components/flow/FlowInspector.tsx:614-628"
+   ],
+   "mechanism": "flows_dynamic appends extra developer messages when node.key is confirm_identity (:437-449) or escalate_close/pre_close (:450-464). The inspector's only hint about key semantics is RESERVED_NODE_KEYS (FlowInspector.tsx:614-628), which deliberately excludes confirm_identity (flow_graph.py:47-53) and says nothing about injected instructions, so an author renaming or reusing those keys changes behaviour they cannot see, and an author who reads the 'Reserved key' hint believes the list is exhaustive.",
+   "trigger": "Rename node key confirm_identity to outbound_greet: the 'no tool before confirmation' guard silently disappears.",
+   "fix": "Move the injected text into the exported node instructions (so it is visible and editable) or list these keys in /flow/reserved-keys with a 'runtime adds instructions' note.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-16",
+   "title": "Condition/variable editor advertises no variable names; flows_dynamic's claim that SESSION_VARIABLES is 'the contract the Flow editor advertises' is false",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "backend/voice/flows_dynamic.py:81-93",
+    "Habibi/src/components/flow/FlowInspector.tsx:692-695",
+    "Habibi/src/components/flow/FlowInspector.tsx:935-941",
+    "backend/voice/flow_vars.py:98-110"
+   ],
+   "mechanism": "SESSION_VARIABLES (call_goal, identity_verified, outstanding, …) plus date/time are the only system names an instruction can interpolate or an edge can test, but no endpoint exposes them (grep: only flows_dynamic.py/flow_export.py reference the tuple) and the inspector offers a free-text `variable` input (FlowInspector.tsx:935-941) and a generic '{{variable}}' hint (:692-695). A typo renders literally into the developer message (flow_vars.py:98-110, by design) and an expression edge on it evaluates false forever, with no validator warning.",
+   "trigger": "Type `{{customer_name}}` in a step or `identity_verfied is true` on an edge: validates green, never resolves.",
+   "fix": "Expose GET /flow/variables (SESSION_VARIABLES + date/time) and offer a datalist of system + captured variables in both editors; warn in validate_graph on unknown names.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLOW-17",
+   "title": "Copy drift: card-vocabulary returns 'inbound' although the inspector comment says the endpoint excludes it; reload toasts say 'steps' vs 'nodes'",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "Habibi/src/components/flow/FlowInspector.tsx:194-197",
+    "backend/main.py:5292",
+    "Habibi/src/components/flow/FlowCanvas.tsx:1003",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1512"
+   ],
+   "mechanism": "main.py:5292 returns `list(fg.OBJECTIVES)` which starts with 'inbound'; FlowInspector.tsx:196 says 'The endpoint already excludes it; this is belt and braces' (only the client filter does). The two load-built-in success toasts describe the same count as 'steps' (FlowCanvas.tsx:1003) and 'nodes' (lazy.tsx:1512).",
+   "trigger": "Read the code / trigger both loads.",
+   "fix": "Correct the comment or filter server-side; unify the toast wording.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "2b.1 fixed: isEmptyGraph keys on nodes AND edges (Habibi/src/api/flow.ts:151-154); assert_publishable only short-circuits on the true sentinel (backend/flow_graph.py:426) and dangling edges reach the validator (:486-500); tests test_flow_graph_authoring.py:275,297,305.",
+  "2b.2 fixed: per-row degradation with flowUnreadable flag (backend/db_prompt_studio.py:155-174,207; backend/schemas.py:2235) — GET /prompt-versions no longer 500s for the whole bot (but see FLOW-4).",
+  "2b.3 fixed: implicit-edge lookup ignores duplicate keys instead of last-wins (Habibi/src/components/flow/FlowCanvas.tsx:555-563).",
+  "2b.5 fixed: publish baseline and compare payload include flow and agentCard (Habibi/src/routes/prompt-studio.lazy.tsx:1141-1152, 1236-1244).",
+  "Validate contract end-to-end: FlowIssue {severity,code,message,nodeId,edgeId} (backend/flow_graph.py:281-288) = TS FlowIssue (Habibi/src/api/flow.ts:130-136); /flow/validate and G1 use the same validator and the same known_tools (backend/main.py:3005-3011; backend/agent_core/cards/compile.py:569-573 → flow_graph.py:429-432).",
+  "Operator vocabulary is identical in three places: FlowOperator Literal (backend/flow_graph.py:124-135), TS union + OPERATOR_LABELS (Habibi/src/api/flow.ts:18-42), evaluate_clause branches (backend/voice/flow_vars.py:118-150); UNARY_OPERATORS mirrored (flow_graph.py:137, flow.ts:31) and the value input is hidden for them (FlowInspector.tsx:952).",
+  "FlowNodeData fields authored by the inspector (name,instructionType,instructions,isStart,entryFor,respondImmediately,entryLine,tools,extractVariables,endConversation) exactly match the pydantic model with extra=forbid (backend/flow_graph.py:150-181 vs Habibi/src/api/flow.ts:51-88); newNodeData/emptyGraph send every key (flow.ts:159-224).",
+  "{{double}} vs {single}: the two syntaxes are deliberately different and the Prompt tab documents it (Habibi/src/components/prompt-studio/PromptEditor.tsx:355-363); flow instructions are task_messages and never pass through the prompt substitution, so no collision (backend/voice/flows_dynamic.py:384-395).",
+  "entryFor ⇄ card.outbound.objectives.entry_node: the inspector writes entryFor (FlowInspector.tsx:183-236, 590-596), G-OB2 checks both directions and existence (backend/agent_core/cards/compile.py:298-330), runtime prefers the card's entry_node then entry_for(objective) then start (backend/voice/flows_dynamic.py:160-183; bot.py:556, 1194-1195); the built-in export claims the four default missions on confirm_identity (flow_export.py:75-80,182).",
+  "Autosave omits the flow key when state is null and the backend leaves the column alone when the key is absent (Habibi/src/api/prompt-studio.ts:1013-1016; backend/db_prompt_studio.py:1764-1773); publish/sandbox-try send the same shape (lazy.tsx:955, 1074).",
+  "Reload built-in is behind an overflow menu with an AlertDialog naming what is lost (FlowCanvas.tsx:1097-1120, 1349-1372), disabled while loading, and its rejection is toasted (:1008-1010) — consistent with the Persona preset confirmation pattern.",
+  "Canvas deletion composes node+edges atomically through graphRef (FlowCanvas.tsx:451-467, 700-745) and toasts the transition count; implicit edges are neither selectable nor deletable (:580-586, 754-758, 1193-1197).",
+  "Connection rules match the validator: self-edge, edge-from-end and duplicate pair are refused at drag time with a toast (FlowCanvas.tsx:771-795) and errored by validate_graph (flow_graph.py:497-530).",
+  "Only one start node: the inspector's onChange clears isStart on siblings (FlowCanvas.tsx:1284-1296); addNode claims start on a blank canvas and the reserved call_ended key for the first End node (FlowCanvas.tsx:857-880).",
+  "Validation loop is gone: callback held in a ref, effect depends on [graph] only, 400 ms debounce (FlowCanvas.tsx:470-521); parent dedupes identical issue lists (lazy.tsx:744-758) and skips its own validate while the canvas is mounted (lazy.tsx:722).",
+  "Tool catalog parity is pinned by tests that run where pipecat exists (backend/tests/test_flow_tool_catalog.py:38-77) and /flow/transitions is derived without importing pipecat (backend/flow_graph.py:846-990; tests/test_flow_transitions.py).",
+  "Unknown-tool rendering waits for the catalog to load before flagging (FlowCanvas.tsx:643-648), and node/edge issue badges use defined tokens (FlowNodes.tsx:88-104; FlowConditionEdge.tsx:129-136).",
+  "Runtime fallback is safe: a graph that fails to compile keeps the already-built Python flow unless VOICE_FLOW_GRAPH=required (backend/voice/bot.py:1167-1210); VOICE_FLOW_GRAPH vocabulary matches the empty-state copy (backend/voice/config.py:247-297; lazy.tsx:1494-1497).",
+  "Business tools keep their own next node; the deterministic follow-up wrapper copies FlowsFunctionSchema per node rather than mutating the shared registry (backend/voice/flows_dynamic.py:295-345; tests test_flows_dynamic.py:298-365)."
+ ]
+}

@@ -375,6 +375,26 @@ def _maybe_drain_mcp_tasks() -> None:
         logger.exception("mcp task drain failed")
 
 
+_POLICY_SCAN_HOUR_UTC = 22
+_POLICY_CUTOVER_HOUR_UTC = 23
+
+
+def _maybe_policy_jobs() -> None:
+    """Horizon scan from 22:00 UTC, cutover from 23:00. Jobs are daily-idempotent."""
+    now = datetime.now(timezone.utc)
+    if now.hour < _POLICY_SCAN_HOUR_UTC:
+        return
+    try:
+        import policy_jobs
+
+        with db.engine.begin() as conn:
+            policy_jobs.horizon_scan(conn, now=now, report_only=True)
+            if now.hour >= _POLICY_CUTOVER_HOUR_UTC:
+                policy_jobs.cutover_cancel(conn, now=now)
+    except Exception:
+        logger.exception("policy jobs failed")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="KB index worker (SKIP LOCKED)")
     parser.add_argument("--once", action="store_true", help="Process one job and exit")
@@ -415,6 +435,7 @@ def main() -> None:
             _maybe_garden_kb_gaps()
             _maybe_run_eval_schedule()
             _maybe_drain_mcp_tasks()
+            _maybe_policy_jobs()
             did = process_one(db.engine)
         except Exception:
             logger.exception("kb worker iteration crashed — backing off")

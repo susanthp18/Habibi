@@ -113,8 +113,10 @@ def session_variables(session: Any) -> dict[str, str]:
     return {
         "call_goal": getattr(session, "call_goal", None) or "",
         "call_goal_intent": getattr(session, "call_goal_intent", None) or "",
-        # Lower-cased so an authored `equals true` clause matches — Python's
-        # str(True) is "True" and the comparison is exact.
+        # Left explicit rather than passing the bool through: this dict is a
+        # context projection read at render time, not a value set through
+        # FlowVariables.set, so it does not pass the boolean normalisation
+        # there. Both doors spell it the same way, which is the point.
         "identity_verified": "true" if verified else "false",
         "outstanding": str(getattr(session, "outstanding", "") or ""),
         "turn_index": str(getattr(session, "turn_index", 0) or 0),
@@ -144,6 +146,7 @@ def build_authored_flow(
     initial_variables: dict[str, Any] | None = None,
     allowed_tool_names: set[str] | None = None,
     attached_skills: list[Any] | None = None,
+    agent_card: dict[str, Any] | None = None,
     objective: str | None = None,
     entry_node: str | None = None,
 ) -> tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
@@ -204,6 +207,7 @@ def build_authored_flow(
         sink=sink,
         allowed_tool_names=allowed_tool_names,
         attached_skills=attached_skills,
+        agent_card=agent_card,
     )
 
     by_id = {node.id: node for node in graph.nodes}

@@ -6,10 +6,13 @@ resolve runtime config through this module so they cannot drift.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import db
 from agent_core.tuning import default_tuning, normalize_tuning
+
+logger = logging.getLogger(__name__)
 
 
 def load_active_bundle(
@@ -69,7 +72,11 @@ def load_active_bundle(
     raw_tuning = deployment.get("tuning") if isinstance(deployment.get("tuning"), dict) else {}
     tuning = normalize_tuning(raw_tuning) if raw_tuning else default_tuning()
 
-    return {
+    compiled = version.get("compiled") if isinstance(version.get("compiled"), dict) else None
+    frozen_tools = (
+        deployment.get("frozenTools") if deployment.get("frozenTools") is not None else []
+    )
+    bundle = {
         "deployment": deployment,
         "deploymentId": deployment["id"],
         "promptVersionId": prompt_version_id,
@@ -90,7 +97,79 @@ def load_active_bundle(
         "promptVersion": version,
         "agentCard": version.get("agentCard") if isinstance(version.get("agentCard"), dict) else {},
         "botId": version.get("botId"),
+        # Frozen at publish. None on a sandbox resolve_prompt_bundle; empty list
+        # on a production deployment that predates the snapshot (fail closed).
+        "frozenTools": frozen_tools,
+        "compiled": compiled,
+        "bundleHash": deployment.get("bundleHash"),
     }
+    _dual_compute_parity(bundle)
+    return bundle
+
+
+def _dual_compute_parity(bundle: dict[str, Any]) -> None:
+    """Compare the live mouth against the persisted artefact. Log, don't switch.
+
+    ``FLEET_ENABLED`` on is the later cutover. Until then production keeps the
+    live grant; mismatches are observable rather than silent.
+    """
+    compiled = bundle.get("compiled")
+    if not isinstance(compiled, dict) or not compiled.get("bundle_hash"):
+        return
+    pinned_hash = str(bundle.get("bundleHash") or "")
+    if pinned_hash and pinned_hash != str(compiled.get("bundle_hash") or ""):
+        logger.error(
+            "compiled-bundle deployment hash mismatch bot=%s pinned=%s stored=%s",
+            bundle.get("botId"),
+            pinned_hash,
+            compiled.get("bundle_hash"),
+        )
+        return
+    try:
+        from agent_core.fleet.compile import bundle_hash_valid, parity_report
+        from agent_core.fleet.schema import CompiledBundle
+        from agent_core.platform_flags import fleet_enabled
+        from agent_core.tools.grant import ToolGrant
+
+        parsed = CompiledBundle.model_validate(compiled)
+        if not bundle_hash_valid(parsed):
+            logger.error(
+                "compiled-bundle content hash invalid bot=%s hash=%s",
+                bundle.get("botId"),
+                parsed.bundle_hash,
+            )
+            return
+        live_grant = ToolGrant.for_bundle(bundle, channel="voice")
+        report = parity_report(
+            live_prompt=str(bundle.get("prompt") or ""),
+            live_persona=bundle.get("persona") if isinstance(bundle.get("persona"), dict) else {},
+            live_guardrails=(
+                bundle.get("guardrails")
+                if isinstance(bundle.get("guardrails"), dict)
+                else {}
+            ),
+            live_flow=bundle.get("flow") if isinstance(bundle.get("flow"), dict) else {},
+            live_tools=live_grant.allowed,
+            bundle=parsed,
+            channel="voice",
+            bot_id=str(bundle.get("botId") or ""),
+            prompt_version_id=str(bundle.get("promptVersionId") or ""),
+        )
+        if not report["ok"]:
+            logger.warning(
+                "compiled-bundle parity mismatch bot=%s hash=%s mismatches=%s",
+                bundle.get("botId"),
+                parsed.bundle_hash,
+                report.get("mismatches"),
+            )
+        if fleet_enabled():
+            bundle["prompt"] = parsed.prompt
+            bundle["persona"] = parsed.persona
+            bundle["guardrails"] = parsed.guardrails
+            bundle["flow"] = parsed.flow
+            bundle["agentCard"] = parsed.agent_card
+    except Exception:
+        logger.exception("compiled-bundle parity check failed")
 
 
 def resolve_prompt_bundle(
@@ -129,6 +208,9 @@ def resolve_prompt_bundle(
             # sandbox" did not exercise what publish was about to ship.
             "agentCard": version.get("agentCard") if isinstance(version.get("agentCard"), dict) else {},
             "botId": version.get("botId"),
+            "frozenTools": None,
+            "compiled": version.get("compiled") if isinstance(version.get("compiled"), dict) else None,
+            "bundleHash": None,
         }
     return load_active_bundle(
         environment,

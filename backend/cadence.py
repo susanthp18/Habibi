@@ -16,6 +16,10 @@ mission, and when the attempts run out it stops and says so. What happens next
 to a case whose cadence is exhausted is ``treatment/followthrough.py``'s
 decision, made with the outcome codes this loop produced.
 
+The card's ``escalate_to`` is written onto the exhausted case rather than acted
+on, for the same reason: naming who owns a case is evidence, and choosing to
+hand it to them is a decision this module does not get to make.
+
 The case, not the attempt
 -------------------------
 State lives in ``call_cadence_state``, keyed on (customer, objective, case_ref),
@@ -116,6 +120,7 @@ def ensure_case(
     max_attempts: int = 3,
     campaign_run_id: str | None = None,
     attempts: int = 0,
+    bot_id: str | None = None,
 ) -> dict[str, Any]:
     """Open (or return) the ladder for one case. Idempotent.
 
@@ -123,21 +128,39 @@ def ensure_case(
     at the first *outcome*, not the first dial — so the row has to be able to
     catch up to an attempt that already happened, and a later call with a
     stale count must not undo it.
+
+    ``bot_id`` is the agent that opened the ladder, so every rung runs the card
+    the first dial ran. It is only ever filled in, never cleared: a later call
+    that does not know the bot must not erase the one that did.
     """
+    # The column arrives with 20260906_0112. Until it is applied the ladder
+    # still works, it just cannot remember the card — which is the behaviour
+    # that existed before this change, not a new failure.
+    from agent_core.treatment.schema_ready import has_column
+
+    carries_bot = has_column(conn, "call_cadence_state", "bot_id")
+    columns = "bot_id, " if carries_bot else ""
+    values = ":bot, " if carries_bot else ""
+    on_conflict = (
+        ",\n                  bot_id = COALESCE(call_cadence_state.bot_id, EXCLUDED.bot_id)"
+        if carries_bot
+        else ""
+    )
     row = conn.execute(
         text(
-            """
+            f"""
             INSERT INTO call_cadence_state (
               id, tenant_id, customer_id, objective, case_ref, cadence,
-              max_attempts, campaign_run_id, attempts, state, created_at, updated_at
+              max_attempts, campaign_run_id, attempts, {columns}state,
+              created_at, updated_at
             ) VALUES (
               :id, :tenant, :customer, :objective, :case_ref, :cadence,
-              :max_attempts, :run, :attempts, 'open', now(), now()
+              :max_attempts, :run, :attempts, {values}'open', now(), now()
             )
             ON CONFLICT (customer_id, objective, case_ref) DO UPDATE
               SET updated_at = now(),
                   attempts = GREATEST(call_cadence_state.attempts, EXCLUDED.attempts),
-                  max_attempts = EXCLUDED.max_attempts
+                  max_attempts = EXCLUDED.max_attempts{on_conflict}
             RETURNING *
             """
         ),
@@ -151,6 +174,7 @@ def ensure_case(
             "max_attempts": max(1, int(max_attempts)),
             "run": campaign_run_id,
             "attempts": max(0, int(attempts)),
+            **({"bot": (bot_id or "").strip() or None} if carries_bot else {}),
         },
     ).mappings().first()
     return dict(row)
@@ -230,14 +254,20 @@ def on_outcome(
     # 3. Attempts left?
     attempts = int(case["attempts"] or 0)
     if attempts >= int(case["max_attempts"] or 3):
-        _stop(conn, case["id"], STATE_EXHAUSTED, "max_attempts", business)
+        state = _exhaust(
+            conn,
+            case["id"],
+            card_outbound=card_outbound,
+            objective=objective,
+            outcome=business,
+        )
         logger.info(
             "cadence exhausted · customer=%s · mission=%s · %s attempts",
             attempt["customer_id"],
             objective,
             attempts,
         )
-        return STATE_EXHAUSTED
+        return state
 
     nxt = _now() + backoff_for(attempts, list(cadence.backoff_hours))
     conn.execute(
@@ -296,6 +326,39 @@ def _stop(conn: Any, case_id: str, state: str, reason: str, outcome: str | None)
     )
 
 
+def _exhaust(
+    conn: Any,
+    case_id: str,
+    *,
+    card_outbound: Any,
+    objective: str,
+    outcome: str | None,
+) -> str:
+    """The ladder ran out. Record who the card says owns it next.
+
+    Recorded, not acted on. ``escalate_to`` was authored, gated by G-OB7 and
+    published, and until now had no reader at all — an exhausted ladder
+    escalated to nobody. Writing it here keeps this module inside its own
+    boundary: cadence may retry an action and never change it, so the card's
+    answer becomes evidence on the case and the decision stays
+    ``treatment/followthrough.py``'s.
+    """
+    from agent_core.treatment.schema_ready import has_column
+
+    target = escalation_target(card_outbound, objective)
+    if not target or not has_column(conn, "call_cadence_state", "escalate_to"):
+        _stop(conn, case_id, STATE_EXHAUSTED, "max_attempts", outcome)
+        return STATE_EXHAUSTED
+
+    _stop(conn, case_id, STATE_ESCALATED, f"max_attempts:escalate_to={target}", outcome)
+    conn.execute(
+        text("UPDATE call_cadence_state SET escalate_to = :t WHERE id = :id"),
+        {"id": case_id, "t": target},
+    )
+    logger.info("cadence exhausted · case=%s · card escalates to %s", case_id, target)
+    return STATE_ESCALATED
+
+
 # ---------------------------------------------------------------------------
 # The retry worker
 # ---------------------------------------------------------------------------
@@ -316,15 +379,20 @@ def claim_due(conn: Any) -> dict[str, Any] | None:
     firing — and so a paused campaign with a hundred due ladders cannot sit at
     the head of the queue and starve every other borrower's retry, which a
     plain ``ORDER BY next_attempt_at`` would do.
+
+    ``last_attempt_bot_id`` covers ladders opened before ``bot_id`` existed on
+    the case: the bot that placed the previous rung is the same answer the
+    column would have held, and it is the one the borrower already heard.
     """
     row = conn.execute(
         text(
             """
             SELECT s.*, c.phone_primary, c.phone_alt, c.tenant_id AS cust_tenant,
-                   r.status AS run_status
+                   r.status AS run_status, a.bot_id AS last_attempt_bot_id
             FROM call_cadence_state s
             JOIN customers c ON c.id = s.customer_id
             LEFT JOIN campaign_runs r ON r.id = s.campaign_run_id
+            LEFT JOIN call_attempts a ON a.id = s.last_attempt_id
             WHERE s.state = 'open'
               AND s.next_attempt_at IS NOT NULL
               AND s.next_attempt_at <= now()
@@ -351,7 +419,6 @@ def process_one(engine: Engine) -> bool:
 
     import campaigns
     import contact_policy
-    import db as dbmod
     import mission as mission_mod
 
     with engine.begin() as conn:
@@ -396,11 +463,24 @@ def process_one(engine: Engine) -> bool:
         # `attempts` counts dials already spent, so the dial about to be placed
         # is number `attempts + 1`: there is room only while `attempts` is below
         # the ceiling. Same comparison `on_outcome` makes, and the same
-        # mechanism — `_stop` to `exhausted` — so an operator sees one story.
+        # mechanism — `_exhaust` — so an operator sees one story, including the
+        # card's escalation target when it names one.
         attempts_so_far = int(case["attempts"] or 0)
         ceiling = int(case["max_attempts"] or 3)
         if attempts_so_far >= ceiling:
-            _stop(conn, case_id, STATE_EXHAUSTED, "max_attempts", None)
+            _exhaust(
+                conn,
+                case_id,
+                card_outbound=getattr(
+                    mission_mod.card_for_bot(
+                        case.get("bot_id") or case.get("last_attempt_bot_id")
+                    ),
+                    "outbound",
+                    None,
+                ),
+                objective=str(case["objective"]),
+                outcome=None,
+            )
             logger.info(
                 "cadence retry not placed · case=%s is exhausted · %s of %s attempts spent",
                 case_id,
@@ -410,13 +490,26 @@ def process_one(engine: Engine) -> bool:
             return True
 
         objective = str(case["objective"])
-        phone = case.get("phone_primary") or case.get("phone_alt")
+        phone = case.get("phone_primary")
         if not phone:
             _stop(conn, case_id, STATE_STOPPED, "no_phone_on_file", None)
             return True
 
-        bot_id = dbmod.DEFAULT_BOT_ID
+        # The card that opened the ladder runs every rung of it. Hard-coding
+        # DEFAULT_BOT_ID here meant attempt 1 ran the authored card and every
+        # retry ran the tenant default — a different prompt, grant and voice,
+        # to the same borrower about the same case.
+        bot_id = mission_mod.resolve_outbound_bot_id(
+            explicit=case.get("bot_id") or case.get("last_attempt_bot_id"),
+            objective=objective,
+        )
         card = mission_mod.card_for_bot(bot_id)
+        # A card that has since been switched to inbound stops the ladder
+        # rather than dialling on: the operator's answer to "should this agent
+        # call people" is the same answer for attempt 3 as for attempt 1.
+        if card is not None and not card.outbound.dials:
+            _stop(conn, case_id, STATE_STOPPED, "card_forbids_outbound", None)
+            return True
         built = mission_mod.build(
             conn,
             customer_id=case["customer_id"],
@@ -455,6 +548,7 @@ def process_one(engine: Engine) -> bool:
             source="cadence",
             related_id=attempt["id"],
             actor_kind="bot",
+            endpoint=case.get("phone_primary"),
         )
         if not decision.allowed:
             outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")

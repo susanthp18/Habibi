@@ -41,22 +41,21 @@ evaluated before it is allowed near a borrower.
 
 from __future__ import annotations
 
-import hashlib
-import random
 from dataclasses import dataclass
 from typing import Sequence
 
+from agent_core import logging_contract
 from agent_core.treatment.scoring import ScoredAction
 
-KIND_GREEDY = "greedy"
-KIND_RANKED = "ranked"
-KIND_CONTROL_ARM = "control_arm"
+KIND_GREEDY = logging_contract.KIND_GREEDY
+KIND_RANKED = logging_contract.KIND_RANKED
+KIND_CONTROL_ARM = logging_contract.KIND_CONTROL_ARM
 
 #: Ceiling on the rank exponent. Beyond roughly this the distribution is argmax
 #: with extra arithmetic — at alpha=6 the second-ranked action already has a
 #: 1.6% share — and the floating-point tail starts producing propensities so
 #: small that their reciprocals dominate any estimate they appear in.
-ALPHA_MAX = 6.0
+ALPHA_MAX = logging_contract.ALPHA_MAX
 
 #: Nothing is logged with a smaller probability than this. It doubles as
 #: importance-weight clipping: a decision logged at p=1e-9 contributes a weight
@@ -64,7 +63,7 @@ ALPHA_MAX = 6.0
 #: an estimator built on unclipped weights has a variance nobody can defend.
 #: Clipping at the point of *logging* rather than at the point of estimation
 #: means every downstream consumer inherits the bound without having to know.
-MIN_PROPENSITY = 1e-6
+MIN_PROPENSITY = logging_contract.MIN_PROPENSITY
 
 
 @dataclass(frozen=True)
@@ -72,13 +71,17 @@ class Choice:
     """One pick, and the distribution it was picked from."""
 
     chosen: ScoredAction
-    #: π(a|x) for the action actually taken.
+    #: π(a|x) for the action actually taken (arm × within-arm).
     propensity: float
     #: action → π, over the whole approved set. Written into the candidate log
     #: so an off-policy estimate can be recomputed for actions *not* taken,
     #: which is what doubly-robust estimation needs and IPS alone does not.
     distribution: dict[str, float]
     kind: str
+    arm_propensity: float = 1.0
+    action_propensity: float = 1.0
+    nonce: str = ""
+    seed: str = ""
 
     @property
     def explored(self) -> bool:
@@ -119,20 +122,29 @@ def choose(
             propensity=max(MIN_PROPENSITY, min(1.0, arm_p)),
             distribution={top.action: 1.0},
             kind=KIND_GREEDY,
+            arm_propensity=arm_p,
+            action_propensity=1.0,
+            nonce=seed,
+            seed=seed,
         )
 
-    weights = _rank_weights(len(eligible), greediness)
+    weights = logging_contract.rank_weights(len(eligible), greediness)
     distribution = {
         action.action: weight for action, weight in zip(eligible, weights)
     }
 
-    index = _draw(weights, seed=seed)
+    index = logging_contract.sample(weights, seed=seed)
     chosen = eligible[index]
+    action_p = weights[index]
     return Choice(
         chosen=chosen,
-        propensity=max(MIN_PROPENSITY, min(1.0, weights[index] * arm_p)),
+        propensity=max(MIN_PROPENSITY, min(1.0, action_p * arm_p)),
         distribution=distribution,
         kind=KIND_RANKED,
+        arm_propensity=arm_p,
+        action_propensity=action_p,
+        nonce=seed,
+        seed=seed,
     )
 
 
@@ -151,62 +163,40 @@ def control_arm_choice(action: ScoredAction, *, arm_probability: float) -> Choic
         propensity=p,
         distribution={action.action: 1.0},
         kind=KIND_CONTROL_ARM,
+        arm_propensity=p,
+        action_propensity=1.0,
     )
 
 
 def _rank_weights(n: int, greediness: float) -> list[float]:
-    """Normalised ``i**-alpha`` over ranks 1..n.
-
-    ``greediness`` maps to the exponent through ``g / (1 - g)``: 0 is uniform,
-    0.5 is harmonic, 0.8 is a fourth power, and 1.0 is handled by the caller as
-    a pure argmax. The map is smooth and monotone, so turning the dial up never
-    makes the engine explore more.
-    """
-    g = _clamp01(greediness)
-    alpha = min(ALPHA_MAX, g / (1.0 - g)) if g < 1.0 else ALPHA_MAX
-    raw = [(i + 1) ** -alpha for i in range(n)]
-    total = sum(raw)
-    if total <= 0:  # pragma: no cover - unreachable while n >= 1
-        return [1.0 / n] * n
-    weights = [w / total for w in raw]
-    # Renormalise after flooring so the distribution still sums to one. Without
-    # this a long candidate list quietly sums to 1.0000x and the log carries a
-    # distribution that is not a distribution.
-    floored = [max(MIN_PROPENSITY, w) for w in weights]
-    scale = sum(floored)
-    return [w / scale for w in floored]
+    return logging_contract.rank_weights(n, greediness)
 
 
 def _draw(weights: Sequence[float], *, seed: str) -> int:
-    """Index sampled from ``weights``, reproducibly for a given seed.
-
-    ``blake2b`` rather than :func:`hash`, whose per-process randomisation would
-    make a replay of yesterday's decisions disagree with yesterday.
-    """
-    digest = hashlib.blake2b(
-        seed.encode("utf-8"), digest_size=8, person=b"explore\x00"
-    ).digest()
-    rng = random.Random(int.from_bytes(digest, "big"))
-    position = rng.random()
-    cumulative = 0.0
-    for index, weight in enumerate(weights):
-        cumulative += weight
-        if position < cumulative:
-            return index
-    return len(weights) - 1
+    return logging_contract.sample(weights, seed=seed)
 
 
 def seed_for(
-    *, customer_id: str, trigger_kind: str, trigger_ref: str | None, actions: Sequence[str]
+    *,
+    customer_id: str,
+    trigger_kind: str,
+    trigger_ref: str | None,
+    actions: Sequence[str],
+    nonce: str = "",
 ) -> str:
     """A stable seed for one decision.
 
     Includes the candidate set, so two decisions that faced genuinely different
-    options draw independently. Excludes the clock, so the same decision replays
-    to the same answer.
+    options draw independently. Includes the per-decision nonce so two
+    otherwise identical calls do not collide. Excludes the clock, so the same
+    decision replays to the same answer.
     """
-    return "|".join(
-        [customer_id, trigger_kind, trigger_ref or "", ",".join(actions)]
+    return logging_contract.seed_for(
+        subject_id=customer_id,
+        trigger_kind=trigger_kind,
+        trigger_ref=trigger_ref,
+        items=actions,
+        nonce=nonce,
     )
 
 

@@ -96,9 +96,9 @@ NONPAYMENT_REASONS: frozenset[str] = frozenset(
     }
 )
 
-#: What closes each mission. Until the Outbound tab lands these are the
-#: defaults; ``CardObjective.success`` overrides them per published card, which
-#: is the point of authoring missions rather than hardcoding them.
+#: What closes each mission when the published card does not say. The card is
+#: asked first — see :func:`_outcome_sets` — so these are the fallback for a
+#: mission no card claims, not the answer.
 SUCCESS_BY_OBJECTIVE: dict[str, frozenset[str]] = {
     "pre_due_reminder": frozenset({"ptp_captured", "paid_in_call"}),
     "bounce_cure": frozenset({"ptp_captured", "paid_in_call", "part_payment_agreed"}),
@@ -764,6 +764,7 @@ def _advance_cadence(
             max_attempts=getattr(spec, "max_attempts", 3),
             campaign_run_id=attempt.get("campaign_run_id"),
             attempts=int(attempt.get("attempt_no") or 1),
+            bot_id=attempt.get("bot_id"),
         )
         state = cadence.on_outcome(
             conn,
@@ -883,6 +884,34 @@ def enrich_for(attempt: dict[str, Any], evidence: dict[str, Any]) -> dict[str, A
 _UNSET = object()
 
 
+def _outcome_sets(
+    attempt: dict[str, Any], objective: str
+) -> tuple[frozenset[str], frozenset[str]]:
+    """What closes this mission, and what merely moves it, per the card.
+
+    ``CardObjective.success`` and ``.partial`` were authored, gated by G-OB6
+    and published, and this function is their first reader — the Closer scored
+    every mission off the module-level table regardless of what the operator
+    wrote. An unreadable card or an unclaimed mission falls back to the table,
+    which is the behaviour that existed before.
+    """
+    default = SUCCESS_BY_OBJECTIVE.get(objective, frozenset({"ptp_captured", "paid_in_call"}))
+    try:
+        import mission as mission_mod
+
+        card = mission_mod.card_for_bot(attempt.get("bot_id"))
+        declared = card.outbound.objective(objective) if card is not None else None
+    except Exception:
+        logger.debug("closer: card lookup for outcome sets failed", exc_info=True)
+        declared = None
+    if declared is None:
+        return default, frozenset()
+    return (
+        frozenset(declared.success) if declared.success else default,
+        frozenset(declared.partial),
+    )
+
+
 def close_one(
     conn: Any,
     attempt: dict[str, Any],
@@ -946,8 +975,11 @@ def close_one(
     if business is None and connection == "connected":
         business = "no_resolution"
 
-    success = SUCCESS_BY_OBJECTIVE.get(objective, frozenset({"ptp_captured", "paid_in_call"}))
-    objective_met = bool(business and business in success)
+    success, partial = _outcome_sets(attempt, objective)
+    # A partial is authored precisely so it is not scored as a win. Checked
+    # first, so a card that lists an outcome under both does not quietly
+    # promote it.
+    objective_met = bool(business and business not in partial and business in success)
 
     escalation = "none"
     if handoff:

@@ -416,7 +416,7 @@ def test_the_insights_endpoint_reports_the_suppression_breakdown(client) -> None
 def test_the_hold_endpoints_round_trip(client, customer) -> None:
     created = client.post(
         "/treatment/holds",
-        json={"customerId": customer["customer_id"], "kind": "bereavement", "reason": "probe"},
+        json={"customerId": customer["customer_id"], "kind": "hardship", "reason": "probe"},
         headers=HEADERS,
     )
     assert created.status_code == 200, created.text

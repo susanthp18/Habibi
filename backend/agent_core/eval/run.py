@@ -83,6 +83,7 @@ def run_named_suite(
     *,
     origin: str = "manual",
     bot_id: str | None = None,
+    prompt_version_id: str | None = None,
 ) -> dict[str, Any]:
     import db
 
@@ -96,6 +97,7 @@ def run_named_suite(
         summary={"failed": result["failed"], "total": result["total"], "origin": origin},
         trials=result["trials"],
         origin=origin,
+        prompt_version_id=prompt_version_id,
     )
     return {
         "suiteId": suite_id,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, UrlConstraints, model_validator
@@ -8,11 +9,17 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, UrlConstraints, m
 # shared verbatim by the API, the validator and the voice runtime, so it is
 # defined once in flow_graph and reused here rather than restated.
 import contact_window
+from agent_core.fleet.schema import CompiledBundle
 from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 
 
 class FlowToolResponse(BaseModel):
-    """One entry in the tool palette the flow editor offers."""
+    """One entry in the tool palette the Studio offers.
+
+    Serves three pickers — flow node tools, the card's Tool Grant, and a skill
+    pack's ``allowed-tools`` — so it carries every channel and each consumer
+    filters. See ``flow_graph.tool_catalog``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -23,6 +30,17 @@ class FlowToolResponse(BaseModel):
     transitions: bool
     #: True when the tool is a locked policy engine the author cannot unbind.
     locked: bool = False
+    #: True when the runtime keeps this tool regardless of what the card
+    #: granted. Adding one to ``tools.include`` changes nothing at best, and for
+    #: the flow-control verbs — which are not catalog specs — fails G4 at
+    #: Publish after the tab showed no error.
+    alwaysOn: bool = False
+    #: Channels this tool renders on, from its ``ToolSpec``. Flow-control verbs
+    #: exist only inside ``voice.tools`` and report ``["voice"]``.
+    channels: list[str] = Field(default_factory=lambda: ["voice"])
+    #: ``catalog`` is grantable from the Tools tab. ``flow_control`` is a
+    #: zero-argument voice transition and must not be added as a catalog grant.
+    kind: Literal["catalog", "flow_control"] = "catalog"
 
 
 RiskLevel = Literal["critical", "high", "medium", "low"]
@@ -2235,6 +2253,17 @@ class PromptVersionResponse(BaseModel):
     flowUnreadable: bool = False
     botId: str = "kaia-v2-4"
     agentCard: dict[str, Any] = Field(default_factory=dict)
+    compiled: CompiledBundle | None = None
+
+
+class EffectiveContractResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["published", "preview"]
+    botId: str
+    promptVersionId: str | None = None
+    compiled: CompiledBundle
+    gates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PersonaPresetResponse(BaseModel):
@@ -2386,6 +2415,15 @@ class PromptVersionPatchRequest(BaseModel):
     guardrails: Guardrails | None = None
     summary: str | None = None
     flow: FlowGraph | None = None
+    #: Deliberately replace a stored graph that does not parse.
+    #:
+    #: An unreadable row is served as the empty sentinel plus ``flowUnreadable``
+    #: so the rest of the bot stays reachable. Without this flag the first
+    #: autosave triggered by any edit — a keystroke in the prompt — wrote that
+    #: sentinel back over the column, and the red panel telling the operator
+    #: their graph is corrupt was replaced by "No authored flow" before they
+    #: could act. Replacing it is a decision; "I typed in another tab" is not.
+    replaceUnreadable: bool = False
     agentCard: dict[str, Any] | None = None
 
 
@@ -2405,7 +2443,6 @@ class PromptVersionPublishRequest(BaseModel):
     versionId: str | None = None
     summary: str = ""
     kbSnapshotId: str | None = None
-    tuning: dict[str, Any] | None = None
     trafficPct: int | None = None
     shadow: bool = False
     autoRollback: list[str] | None = None
@@ -2639,6 +2676,10 @@ class SandboxTurnResponse(BaseModel):
 
     runId: str
     promptVersionId: str
+    compiledBundleHash: str | None = None
+    flowStatus: Literal[
+        "validated_not_executed_in_text_rehearsal", "not_authored"
+    ] | None = None
     customerTurn: SandboxCustomerTurn
     botTurn: SandboxBotTurn
 
@@ -3327,7 +3368,10 @@ class TreatmentHoldCreateRequest(BaseModel):
 
     customerId: str
     accountId: str | None = None
-    kind: Literal["hardship", "dispute", "complaint", "bereavement", "legal"]
+    kind: Literal[
+        "hardship", "dispute", "complaint", "bereavement", "legal",
+        "cease_and_desist", "deceased",
+    ]
     reason: str | None = None
     source: Literal["manual", "bot", "system", "regulator"] = "manual"
     interactionId: str | None = None
@@ -3689,3 +3733,74 @@ class AgentStudioScriptRunResponse(BaseModel):
     outside: bool | None = None
     promise_date: str | None = None
     preferred_window: Any | None = None
+
+
+class PolicyRuleDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["statutory", "client", "product"]
+    version: int
+    label: str
+    effectiveFrom: datetime
+    effectiveTo: datetime | None = None
+    notes: str | None = None
+    tenantId: str | None = None
+    productId: str | None = None
+    rules: list[dict[str, Any]]
+
+
+class SubjectRequestCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str
+    kind: Literal["access", "correction", "erasure", "grievance"]
+    note: str | None = None
+
+
+class SubjectRequestTransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["received", "verified", "in_progress", "fulfilled", "refused", "escalated"]
+    note: str | None = None
+    evidenceRef: str | None = None
+
+
+class DecisionFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Literal["wrong_number", "stop_contact", "deceased", "other"]
+    reasonCode: str | None = None
+    noteRedacted: str | None = None
+    endpoint: str | None = None
+    channel: str | None = None
+
+
+class BankManifestIngestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contractCode: str
+    schemaVersion: str = "bank-boundary.v1"
+    source: str
+    businessDate: str
+    sourceRef: str
+    controlCount: int
+    controlSumPaise: int
+    eventTime: str
+    portfolioId: str = ""
+    rows: list[dict] = []
+
+
+class BankComplaintFileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str
+    kind: str = "grievance"
+    note: str | None = None
+
+
+class SecurityIncidentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    severity: Literal["low", "medium", "high", "critical"]
+    summary: str
+    evidenceRef: str | None = None

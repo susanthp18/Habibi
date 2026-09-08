@@ -197,6 +197,7 @@ def test_canary_hash_split_and_rollback(db_tx) -> None:
         assert picked == canary_id
     else:
         assert picked == baseline_id
+    assert pick_deployment_id(bot_id, customer_id=None) == baseline_id
 
     suite = db_tx.execute(text("SELECT id FROM eval_suites WHERE kind = 'redteam' LIMIT 1")).mappings().first()
     if suite:
@@ -239,25 +240,50 @@ def test_canary_hash_split_and_rollback(db_tx) -> None:
 
 def test_a2a_task_input_required_with_cert(db_tx, monkeypatch) -> None:
     _require_table(db_tx, "a2a_partners")
+    if not db_tx.execute(
+        text(
+            """
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'a2a_partners'
+               AND column_name = 'bot_id'
+            """
+        )
+    ).first():
+        pytest.skip("executable-contract migration not applied")
     monkeypatch.setenv("A2A_ENABLED", "true")
-    from agent_core.a2a import create_task, fingerprint_dn, require_partner
+    from agent_core.a2a import create_task, require_partner
 
     dn = "CN=bank-fraud.example"
-    fp = fingerprint_dn(dn)
+    fp = "ab" * 32
     db_tx.execute(
         text(
             """
             INSERT INTO a2a_partners (
-              id, tenant_id, name, card_url, cert_fingerprint, cert_dn, allowed_skills, status
+              id, tenant_id, bot_id, name, card_url, cert_fingerprint, cert_dn,
+              allowed_skills, status
             ) VALUES (
-              :id, :t, 'Fraud desk', 'https://partner.example/card.json', :fp, :dn, '{}', 'active'
+              :id, :t, :bot, 'Fraud desk', 'https://partner.example/card.json',
+              :fp, :dn, '{}', 'active'
             )
             ON CONFLICT (id) DO UPDATE SET cert_fingerprint = EXCLUDED.cert_fingerprint
             """
         ),
-        {"id": f"a2a-p-{uuid.uuid4().hex[:6]}", "t": "hdfc.retail", "fp": fp, "dn": dn},
+        {
+            "id": f"a2a-p-{uuid.uuid4().hex[:6]}",
+            "t": "hdfc.retail",
+            "bot": COLLECTIONS_BOT_ID,
+            "fp": fp,
+            "dn": dn,
+        },
     )
-    partner = require_partner({"x-ssl-client-verify": "SUCCESS", "x-ssl-client-dn": dn})
+    partner = require_partner(
+        {
+            "x-ssl-client-verify": "SUCCESS",
+            "x-ssl-client-dn": dn,
+            "x-ssl-client-fingerprint": fp,
+        },
+        bot_id=COLLECTIONS_BOT_ID,
+    )
     task = create_task(
         partner=partner,
         skill_id="premium-lapse-chase",

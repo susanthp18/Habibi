@@ -23,7 +23,11 @@ from functools import partial, wraps
 from collections.abc import Set as AbstractSet
 from typing import Any, Awaitable, Callable
 
-from pipecat.flows import NO_RESPONSE, flows_tool_options
+# Not `from pipecat.flows import ...` directly: this module is the trunk the
+# built-in flow export hangs off, and the API image has no pipecat. See
+# agent_core/tools/pipecat_compat.py — under pipecat these are pipecat's own
+# objects and nothing about a call changes.
+from agent_core.tools.pipecat_compat import NO_RESPONSE, flows_tool_options
 
 from agent_core.context import CallContext, account_tail, product_keys_for_node
 from agent_core.intent import NON_GOAL_INTENTS
@@ -302,6 +306,7 @@ def build_tools(
     sink: Any | None = None,
     allowed_tool_names: set[str] | None = None,
     attached_skills: list[Any] | None = None,
+    agent_card: dict[str, Any] | None = None,
 ) -> tuple[ToolState, dict[str, Any]]:
     """Return (state, name→direct_function | FlowsFunctionSchema) bound to this session."""
 
@@ -356,7 +361,23 @@ def build_tools(
                 )
             except Exception:
                 logger.debug("tool.called trace failed", exc_info=True)
+            from agent_core.tools.gates import enforce_human_gate, floor_approved
+
+            identity_ok = bool(session.identity_verified) and bool(session.customer_id) and (
+                session.customer_id != persist.UNKNOWN_CALLER_ID
+            )
+            blocked = enforce_human_gate(
+                name,
+                card=agent_card,
+                identity_verified=identity_ok,
+                floor_ok=floor_approved(
+                    interaction_id=session.interaction_id, tool_name=name
+                ),
+            )
             try:
+                if blocked:
+                    result = ({"ok": False, "error": blocked}, None)
+                    return result
                 result = await handler(*args, **kwargs)
                 return result
             except Exception as exc:
@@ -416,7 +437,17 @@ def build_tools(
 
     def _spec(name: str, handler: Callable[..., Any]) -> Any:
         """Flows schema for a catalog tool, with audit tracing attached."""
-        return CATALOG.get(name).to_flows_schema(_traced(name, handler))
+        spec = CATALOG.get(name)
+        if name == "handoff_to_agent":
+            # The card's own handoffs, in the tool the model is offered. Without
+            # this the description named two example bot ids and the `when`
+            # conditions the Agent graph tab calls "guidance for the model"
+            # reached no model at all. Same card, same targets, as the allowlist
+            # that then enforces the call.
+            from agent_core.tools.handoff_allowlist import handoff_tool_spec
+
+            spec = handoff_tool_spec(spec, agent_card=agent_card, bot_id=bot_id)
+        return spec.to_flows_schema(_traced(name, handler))
 
 
     def _node(name: str) -> dict[str, Any] | None:
@@ -2778,14 +2809,13 @@ def build_tools(
         target = str(args.get("target_bot_id") or "").strip()
         reason = str(args.get("reason") or "").strip()
         payload = args.get("payload")
-        from agent_core.cards.defaults import BOT_TO_MESH_ROLE, card_for
+        from agent_core.cards.defaults import BOT_TO_MESH_ROLE
+        from agent_core.tools.handoff_allowlist import handoff_allowlist
 
-        allowlist: set[str] | None = None
-        if bot_id:
-            try:
-                allowlist = set(card_for(bot_id).handoff_targets())
-            except KeyError:
-                allowlist = None
+        allowlist = handoff_allowlist(
+            agent_card=agent_card,
+            bot_id=bot_id,
+        )
         result = await asyncio.to_thread(
             domain.handoff_to_agent,
             interaction_id=session.interaction_id,

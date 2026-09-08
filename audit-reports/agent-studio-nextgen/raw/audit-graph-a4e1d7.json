@@ -1,0 +1,247 @@
+{
+ "slice": "graph",
+ "summary": "The Agent graph tab (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:576-741) reads GET /agent-studio/cards/{id}/graph (backend/main.py:2272-2298), whose nodes are every non-archived card with the reachability computed by db.list_agent_studio_cards (backend/db_prompt_studio.py:306-365 via agent_core/cards/routing.py:84-125) and whose edges are the draft card's handoffs[].to_bot_id. Locally, the edge set is recomputed from the unsaved card (AgentCardPanels.tsx:596-615); the only author-editable fields are the allowlist membership (Allow/Remove buttons) and the free-text `when` (input, committed on blur) — `payload_schema` has no editor, is only spread through (:609), and is never read anywhere in the backend. Edits flow through setCard → debounced autosave → ensureDraft PATCH /prompt-versions (prompt-studio.lazy.tsx:616-671; db_prompt_studio.py:1774-1779 writes agent_card jsonb unvalidated) and are checked at publish only by G5 (compile.py:661-678: target in `SELECT id FROM bots` and not self). At runtime the allowlist is enforced by domain.handoff_to_agent (agent_core/tools/domain.py:1009-1080), whose only side effect is db_inbox.handoff_to_agent (backend/db_inbox.py:1441-1509) UPDATEing interactions.handler_bot_id/transferred_from_bot_id plus an activity row; `payload` is returned but not persisted. Neither channel then loads the target card: voice returns (result, None) and only flips an unread mesh role (voice/tools.py:2798-2808), WhatsApp sets ctx.bot_id for the rest of one turn (bot_tools.py:448) and the next turn rebuilds the bundle and ToolContext from env BOT_ID (bot_runtime.py:712-714, 933). The `when` text never reaches the model — handoff_to_agent's description and arg descriptions are static (agent_core/tools/catalog.py:567-596) and no prompt builder reads card.handoffs. So CONTEXT.md:47-48 (\"the receiving agent brings its own card, and therefore its own grant\") does not hold in code; reachability \"handoff\" describes a bookkeeping write, not a behavioural transfer.",
+ "endpoints": [
+  "GET /agent-studio/cards/{bot_id}/graph → backend/main.py:2272 get_agent_studio_graph → backend/db_prompt_studio.py:569 get_agent_studio_card (edges from draft card) + backend/db_prompt_studio.py:306 list_agent_studio_cards (nodes + reachability via agent_core/cards/routing.py:84)",
+  "GET /agent-studio/cards/{bot_id} → backend/main.py (useAgentStudioCard, Habibi/src/api/agent-studio.ts:292) → backend/db_prompt_studio.py:569 get_agent_studio_card (reachability via _handoff_edges :507 + _live_deployment_bot_ids :538)",
+  "PATCH /prompt-versions/{id} (autosave of handoffs edits via ensureDraft, Habibi/src/routes/prompt-studio.lazy.tsx:646) → backend/main.py:3233+ → backend/db_prompt_studio.py:1703 patch_prompt_version (agent_card written at :1774-1779, no schema validation)",
+  "PATCH /agent-studio/cards/{bot_id} (usePatchAgentCard, Habibi/src/api/agent-studio.ts:283; not used by the graph tab itself) → backend/main.py:2138 patch_agent_studio_card → backend/db_prompt_studio.py:1703 patch_prompt_version",
+  "POST /agent-studio/cards/{bot_id}/compile (G5 on handoffs) → backend/main.py (useCompilePreview, Habibi/src/api/agent-studio.ts:248) → backend/db_prompt_studio.py:783 compile_agent_studio_card → backend/agent_core/cards/compile.py:661 (known_bot_ids = backend/db_inbox.py:1512 list_bot_ids)",
+  "Handoff runtime (no HTTP): voice tool handoff_to_agent → backend/voice/tools.py:2773 → backend/agent_core/tools/domain.py:1009 → backend/db_inbox.py:1441; text tool → backend/bot_tools.py:432 → same domain/db path",
+  "Mesh status (no endpoint): backend/voice/mesh.py:143 status() is called only by tests (backend/tests/test_twilio_voice.py:145); main.py has no mesh route"
+ ],
+ "runtime_consumers": [
+  "card.handoffs[].to_bot_id → allowlist for text channel: backend/bot_tools.py:416-418 (live card) / :424 (built-in); voice channel: backend/voice/tools.py:2786 (built-in constants only, NOT the published card); mesh hop gate: backend/agent_core/cards/handoff_policy.py:29 → backend/voice/bot.py:1524; G-OB7 escalate_to check: backend/agent_core/cards/compile.py:412-427; cadence escalate_to is read at backend/cadence.py:604 but nothing hands off to the named bot",
+  "card.handoffs[].when → NONE (dead config). Not in the tool description (backend/agent_core/tools/catalog.py:570-593), not in any prompt builder; the only `.when` reader in compile.py:394 is PostCallRule.when",
+  "card.handoffs[].payload_schema → NONE (dead config). Only default_factory in backend/agent_core/cards/schema.py:122 and template stamping in backend/agent_core/cards/templates.py:139; no reader",
+  "handoff_to_agent `payload` arg → returned in the tool result dict (backend/db_inbox.py:1507) but never persisted (UPDATE at :1479-1492 and _activity at :1493-1501 omit it); receiving agent never sees it",
+  "interactions.handler_bot_id (written by handoff) → analytics/QA/canary/compliance only: backend/agent_core/canary.py:206,261,298; backend/agent_core/copilot.py:273-277; backend/agent_core/compliance/context.py:110,166; backend/db_bot_analytics.py:332; backend/qa_autoscore.py:161; backend/ops_screens.py:28,409-433. Never used to load a bundle (backend/bot_runtime.py:712-714 loads by env BOT_ID; backend/voice/bot.py:444-448 by bundle botId)",
+  "voice/mesh.py active_role (written by voice handoff at backend/voice/tools.py:2805 and by flow pre_action via mesh_bus at backend/voice/bot.py:1528, :1115) → NONE for behaviour: read only by mesh.status() (backend/voice/mesh.py:143-152) and published on the bus (backend/voice/mesh_bus.py:84-111); no tool/prompt selection reads it",
+  "BOT_TO_MESH_ROLE (backend/agent_core/cards/defaults.py:46-51) → backend/voice/tools.py:2800 only; roles' tool lists in backend/voice/mesh_roles.json are loaded (backend/voice/mesh.py:41-80) but MeshRole.tools is never consulted by any runtime",
+  "reachability (server-derived, not written) → UI only: Habibi/src/routes/agent-studio.index.tsx:55-91, Habibi/src/components/prompt-studio/AgentCardPanels.tsx:674-701, 744-758; backend/db_prompt_studio.py (roster) — no runtime consumer"
+ ],
+ "findings": [
+  {
+   "id": "GRAPH-1",
+   "title": "Doc vs code: a handoff never loads the receiving card's prompt, tools or flow on either channel",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "CONTEXT.md:47-48",
+    "backend/agent_core/tools/grant.py:13-18",
+    "backend/agent_core/tools/grant.py:168-175",
+    "backend/agent_core/cards/routing.py:12-16",
+    "backend/voice/tools.py:2798-2808",
+    "backend/bot_tools.py:448",
+    "backend/bot_runtime.py:712-714",
+    "backend/bot_runtime.py:933",
+    "backend/bot_runtime.py:948",
+    "backend/db_inbox.py:1479-1492",
+    "backend/voice/mesh.py:126-134",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:754",
+    "Habibi/src/routes/agent-studio.index.tsx:64-68"
+   ],
+   "mechanism": "CONTEXT.md:47-48 defines Handoff as a transfer where 'the receiving agent brings its own card, and therefore its own grant', and grant.py:168-175 says the receiving bundle 'is resolved by bot id and handed straight here'. No caller does this. Voice: the handler returns (result.to_llm(), None) so no node change, the same FlowManager/tools/prompt continue, and BOT_TO_MESH_ROLE only mutates voice/mesh active_role, which nothing reads to change tools or prompt (mesh.py:126-152; only status() and mesh_bus publish it). WhatsApp: bot_tools.py:448 sets ctx.bot_id = target for the remainder of one turn, but the next turn's bundle is load_active_bundle(bot_id=_bot_id()) (bot_runtime.py:712-714) and ToolContext.bot_id/agent_card are rebuilt from env BOT_ID and that bundle (:933, :948); interactions.handler_bot_id (the only durable write, db_inbox.py:1484) is read by analytics/QA/canary/compliance only. The graph tab's 'handoff' reachability lozenge ('Reached mid-conversation from a live card's allowlist', AgentCardPanels.tsx:754; index.tsx:64-68) therefore describes a bookkeeping write, not a change of agent.",
+   "trigger": "Operator allows Insurance on the Collections card, publishes, and a caller asks for insurance; the model calls handoff_to_agent, the interaction is re-attributed to insurance-v1, but the caller keeps talking to the Collections prompt with the Collections tool set (voice) or the BOT_ID card (WhatsApp).",
+   "fix": "Either implement the transfer (voice: on ok result return the target card's entry node built from load_active_bundle(bot_id=target) with ToolGrant.for_bundle; text: resolve the bundle by interactions.handler_bot_id instead of env BOT_ID at bot_runtime.py:712-714) or rewrite CONTEXT.md:47-48, grant.py:13-18/172-175, routing.py:12-16 and the two UI help strings to say a handoff re-attributes the interaction and does not change the running agent.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-2",
+   "title": "Voice handoff allowlist reads the built-in card constants, not the published card, and disables itself on clone-card deployments",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "security",
+   "files": [
+    "backend/voice/tools.py:2781-2788",
+    "backend/voice/tools.py:278-305",
+    "backend/agent_core/tools/domain.py:1027",
+    "backend/agent_core/cards/defaults.py:342-346",
+    "backend/bot_tools.py:400-429",
+    "backend/voice/bot.py:444-448",
+    "backend/voice/bot.py:1524"
+   ],
+   "mechanism": "voice/tools.py:2786 builds the allowlist from card_for(bot_id).handoff_targets() — the Python constants in defaults.py — and on KeyError (any non-first-party bot_id, i.e. every cloned card, since bot_id comes from the bundle at bot.py:444-448) sets allowlist=None, which domain.handoff_to_agent:1027 treats as unrestricted. build_tools (:278-305) is never given the bundle's agentCard, so an operator removing Insurance from kaia's card in the Agent graph tab and publishing has no effect on voice (card_for still lists it), while the mesh pre_action right next to it does consult bundle['agentCard'] (bot.py:1524). The text channel fixed exactly this bug in bot_tools.py:400-429 ('resolution order is live card → built-in card → deny'); voice still has the pre-fix behaviour.",
+   "trigger": "Publish a cloned card (e.g. Lapse Specialist) with handoffs=[kaia-v2-4] to a voice deployment; the model can hand off to any bot id, including supervisor-brief or another tenant's bot. Or: remove Insurance from the Collections allowlist in the graph tab, publish, and voice still allows the hop.",
+   "fix": "Pass bundle.get('agentCard') into build_tools (or onto ToolState) and mirror bot_tools._handoff_allowlist: parse the live card first, fall back to card_for, and return set() (deny) rather than None when neither resolves.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-3",
+   "title": "The `when` condition is stored but never reaches the model; the tab tells the author it is 'guidance for the model'",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:670-672",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:705-712",
+    "backend/agent_core/tools/catalog.py:567-596",
+    "backend/agent_core/cards/schema.py:123",
+    "backend/agent_core/cards/defaults.py:167-168",
+    "backend/agent_core/cards/defaults.py:288-289"
+   ],
+   "mechanism": "The only editor for handoffs writes `when` (AgentCardPanels.tsx:705-712) and the help text says 'The condition is guidance for the model, not a rule the runtime enforces'. But handoff_to_agent's description and target_bot_id/reason/payload descriptions are static strings (catalog.py:570-593); CATALOG.get(name).to_flows_schema (voice/tools.py:419) and CATALOG.openai_tools (bot_runtime.py:949) render those, and a repo-wide search finds no reader of card.handoffs[].when — compile.py:394's `.when` is PostCallRule. The model is never told which specialist exists or when to hand off; the default cards' when texts ('in-policy upsell after PTP', 'collections intent') are decorative.",
+   "trigger": "Author types a when condition, saves and publishes; behaviour is identical with the field empty. The operator reasonably believes they have steered routing.",
+   "fix": "Either inject the card's handoffs into the offered tool (e.g. build target_bot_id's ArgSpec enum/description from card.handoffs at offer time, or append a 'Handoffs: <to_bot_id> — <when>' block to the system prompt), or change the UI copy to say the condition is documentation only and is not shown to the model.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-4",
+   "title": "payload_schema has no editor and no reader; the handoff `payload` argument is dropped on the floor",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/schema.py:122",
+    "Habibi/src/api/agent-card.ts:156-160",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:607-609",
+    "backend/agent_core/tools/catalog.py:588-592",
+    "backend/db_inbox.py:1479-1508",
+    "backend/agent_core/tools/domain.py:1071-1080"
+   ],
+   "mechanism": "CardHandoff.payload_schema exists in the schema and TS type, the graph editor only spreads it through (:607-609) and nothing in the backend validates the tool's `payload` against it or reads it at all. The `payload` arg ('Compact JSON context for the receiving card', catalog.py:591) is stringified, passed to db_inbox.handoff_to_agent, echoed in the return dict (:1507) and then discarded: the UPDATE (:1479-1492) and _activity row (:1493-1501) do not store it, and domain.py:1071-1080 does not surface it either. No receiving card exists to consume it (GRAPH-1).",
+   "trigger": "Any handoff call with payload; nothing downstream can recover it. Any payload_schema on a card is inert.",
+   "fix": "Drop payload_schema from the schema/TS type (bump schema_version) or persist `payload` into the activity row / a handoff_payloads column and validate it against payload_schema in domain.handoff_to_agent.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-5",
+   "title": "A handoff to an archived (or other-tenant) bot passes G5 and is invisible and unremovable in the editable allowlist",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/db_inbox.py:1512-1514",
+    "backend/db_prompt_studio.py:842",
+    "backend/agent_core/cards/compile.py:665",
+    "backend/main.py:2284-2291",
+    "backend/db_prompt_studio.py:326",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:685-687",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:612-615",
+    "backend/db_inbox.py:1459"
+   ],
+   "mechanism": "G5's known_bot_ids is list_bot_ids() = `SELECT id FROM bots` with no archived_at and no tenant predicate, so a handoff to a retired card (or another tenant's bot id) passes the gate. The graph endpoint's nodes come from list_agent_studio_cards() with include_archived=False (:2291, :326), so the archived target has no node; the editable UI renders rows only for nodes (:685-687), so the stale edge is not listed and has no Remove button, while legalTargets (:615) still treats it as a legal walk. At runtime db_inbox.handoff_to_agent:1459 also accepts the archived bot, so the hop is a no-op re-attribution to a card that takes no traffic. Reachability correctly excludes archived cards' edges, so the two vocabularies disagree about the same edge.",
+   "trigger": "Allow a cloned card as a target, archive that clone on the fleet index, return to the source card's graph tab: the edge vanishes from the editor, compile stays green, and the published card keeps a dead handoff.",
+   "fix": "In compile_agent_studio_card pass known_bot_ids filtered to non-archived bots of the current tenant (or add an archived_at IS NULL / tenant predicate to list_bot_ids), and have the graph tab render card handoffs whose target is not a node as a removable 'unknown/retired target' row.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-6",
+   "title": "Graph tab renders a failed or pending /graph fetch as an empty allowlist",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:585-589",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:626-631",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:684-725",
+    "Habibi/src/api/agent-studio.ts:322-340"
+   ],
+   "mechanism": "useAgentGraph's isPending/isError are never read (the component only destructures data at :588). On error or while loading, nodes=[] so the chip row and the 'Handoff allowlist' list render empty, the hint reads 'Select a card above…', and if the card has no handoffs the dashed box asserts 'No handoffs on this card. Every conversation stays on <bot>' — a statement of fact made without data. A card with handoffs shows chips-less edges and no target rows, so Remove is unavailable with no explanation.",
+   "trigger": "API down, 404 for the bot, or the first render before the query resolves.",
+   "fix": "Branch on graphQuery.isPending (skeleton) and graphQuery.isError (inline error with retry) before rendering the node list, as commit 01d1fec did for list reads elsewhere.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-7",
+   "title": "handoff_to_agent is granted to the Collections card but never offered on any node of the built-in voice flow",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/agent_core/cards/defaults.py:67",
+    "backend/agent_core/cards/defaults.py:91",
+    "backend/agent_core/cards/defaults.py:113",
+    "backend/voice/tools.py:2911",
+    "backend/voice/flows.py:45-57",
+    "backend/voice/flows.py:922-932",
+    "backend/flow_graph.py:817-821"
+   ],
+   "mechanism": "The three customer-facing default cards include handoff_to_agent and voice/tools.py registers it (:2911), but voice/flows.py builds every node's functions by explicit name through _fns(tools, ...) and the global_functions list (:922-932) names five tools; the string handoff_to_agent does not appear anywhere in flows.py. Only an authored graph can offer it (flow_graph.tool_catalog includes voice-channel catalog tools, :817-821). On the shipped script the graph tab's 'Legal walk' can never be exercised by voice, and the mesh hop (bot.py:1519-1544) is the only in-call specialist path — a hardcoded flow action, not a card-driven handoff.",
+   "trigger": "Publish kaia with the built-in flow (flow={}); on a live call the model has no handoff tool despite the Tools tab and graph tab showing it.",
+   "fix": "Offer handoff_to_agent on the hub/position nodes (or globally) when the card lists at least one handoff, or make the graph tab state that handoffs are only offerable from an authored flow node.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-8",
+   "title": "Text sandbox evaluates the handoff allowlist against kaia's card, not the card under test",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/sandbox_runtime.py:206",
+    "backend/sandbox_runtime.py:219-230",
+    "backend/bot_tools.py:416-424",
+    "backend/agent_core/tools/domain.py:1027-1039"
+   ],
+   "mechanism": "run_tools receives agent_card (:206) but the ToolContext is built with bot_id=db.DEFAULT_BOT_ID and never sets ctx.agent_card (:219-230). _handoff_allowlist therefore falls to card_for(DEFAULT_BOT_ID) — the Collections constants — regardless of which card the sandbox is running. A Lapse clone whose only handoff is kaia-v2-4 gets handoff_not_allowlisted (allowlist check precedes the no_interaction check at domain.py:1027 vs :1034), while a card that removed Insurance still sees the hop allowed.",
+   "trigger": "Open the sandbox for a cloned card and ask to be transferred to Collections.",
+   "fix": "Set ctx.agent_card = agent_card and ctx.bot_id = the card's identity.bot_id in sandbox_runtime.run_tools, the same way bot_runtime.py:948 does.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-9",
+   "title": "Tool-driven voice handoff flips the mesh role without publishing it; the flow pre_action does both",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/voice/tools.py:2800-2807",
+    "backend/voice/bot.py:1528-1534",
+    "backend/voice/bot.py:1115-1121",
+    "backend/voice/mesh_bus.py:114-158"
+   ],
+   "mechanism": "voice/tools.py:2805 calls voice_mesh.activate_role directly, so no mesh.role event is published and no BusActivateWorkerMessage reaches the insurance LLMWorker sidecar, whereas the two flow-driven paths (bot.py:1115, :1528) go through mesh_bus.activate_and_publish with customer/interaction/bot ids. Under Redis the sidecar and Floor observers therefore see handoffs made by the flow but not those made by the model calling handoff_to_agent; under local bus neither path changes behaviour (GRAPH-1).",
+   "trigger": "VOICE_MULTI_AGENT_ENABLED=true with REDIS_URL; the model calls handoff_to_agent(insurance-v1) — mesh.status() shows insurance but the sidecar never activates.",
+   "fix": "Use mesh_bus.activate_and_publish(role, session_id=..., customer_id=session.customer_id, interaction_id=session.interaction_id, bot_id=bot_id) in _handoff_to_agent_handler, or delete the mesh flip there since it has no consumer.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-10",
+   "title": "Intake's HumanGate on handoff_to_agent (require identity) has no enforcer",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/defaults.py:171",
+    "backend/agent_core/cards/schema.py:389",
+    "backend/voice/tools.py:2773-2808",
+    "backend/bot_tools.py:432-449"
+   ],
+   "mechanism": "The Intake card declares HumanGate(tool_name='handoff_to_agent', require='identity'), but a repo-wide search for human_gates finds only schema.py:389 and defaults.py; neither handoff handler checks verification state before transferring. An unverified caller can be re-attributed to another card.",
+   "trigger": "Run intake-v1 and call handoff_to_agent before verify_identity.",
+   "fix": "Enforce card.human_gates in bot_tools.execute_tool / voice _traced (deny with a spoken_summary when require='identity' and session is unverified), or remove the field until a consumer exists.",
+   "prior_ref": ""
+  },
+  {
+   "id": "GRAPH-11",
+   "title": "whenDraft shadows the saved `when` after Remove/Allow or an external draft change",
+   "severity": "TRIVIAL",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:587",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:709-711",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:718"
+   ],
+   "mechanism": "whenDraft is per-target local state that is never cleared; the input value is `whenDraft[n.id] ?? on.when`, so after Remove then Allow the old text reappears (and Allow at :718 writes it back), and if the draft is discarded/restored while the graph tab stays mounted the input keeps showing text the card no longer holds until the next blur rewrites it.",
+   "trigger": "Type a when, Remove, Allow again; or Discard draft with the graph tab open.",
+   "fix": "Delete whenDraft[n.id] in setHandoff (on remove and on blur commit) and key the input on the card's when.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Prior 2c claims still hold: server edges equal card.handoffs[].to_bot_id (backend/main.py:2293-2297) and the editor spreads the existing row so payload_schema survives a when edit (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:607-609); ROUTE_TONE/ROUTE_HELP vocabulary (AgentCardPanels.tsx:744-758) matches schemas.AgentStudioReachability (backend/schemas.py:3466) and the fleet index ROUTING map (Habibi/src/routes/agent-studio.index.tsx:55-91).",
+  "Graph tab edge set and routing.reachability read the same field: both derive from handoffs[].to_bot_id (main.py:2294; routing.py:47-58 also tolerates legacy toBotId). The editor additionally reflects unsaved edits (AgentCardPanels.tsx:596-614), which is the documented intent.",
+  "Fleet and single-card reachability agree by construction and by test: list_agent_studio_cards (db_prompt_studio.py:353-364) and get_agent_studio_card (:609-619) both seed with entry + live deployments and exclude archived cards; tests/test_agent_card_routing.py:201-210 and tests/test_agent_studio_edge_cases.py:27-40 cover it.",
+  "G5 correctly rejects self-handoff and unknown ids (compile.py:665-678) and the editor cannot produce either (rows exclude botId at AgentCardPanels.tsx:686; targets are server nodes); covered by tests/test_agent_studio_tab_round_trip.py:137-148.",
+  "G-OB7 cross-checks cadence.escalate_to against the card's own handoff allowlist (compile.py:409-427) and OutboundTab reads the same list (Habibi/src/components/prompt-studio/OutboundTab.tsx:407-409).",
+  "Text-channel allowlist resolution is live card → built-in → deny (bot_tools.py:400-429), and ToolContext.agent_card is populated from the deployed bundle (bot_runtime.py:946-948); domain.handoff_to_agent rejects a non-allowlisted target before any DB write (domain.py:1027-1033), tested at tests/test_handoff_to_agent.py:76-85.",
+  "db_inbox.handoff_to_agent only re-attributes bot-handled interactions, refuses same-bot and human-handled rows, and records an activity row (db_inbox.py:1474-1501); tests/test_handoff_to_agent.py:32-73 verify the write and that prose does not move handler_bot_id.",
+  "Mesh state is per-session (voice/mesh.py:98-119) and the insurance pre_action is gated on the published card via insurance_handoff_allowed (voice/bot.py:1524; handoff_policy.py:11-29; tests/test_insurance_handoff_policy.py).",
+  "mesh_roles.json loads strictly (duplicate/empty/invalid tools raise, voice/mesh.py:41-68) and the shipped role set is asserted (tests/test_mesh_roles_json.py:13-20).",
+  "Autosave of graph-tab edits invalidates the agent-studio prefix, so the graph and card queries refetch after a save (Habibi/src/api/prompt-studio.ts:125-135; invalidateAgentStudio at Habibi/src/api/agent-studio.ts:202-205).",
+  "Allow/Remove and the when input are disabled for unauthored cards (editable requires isAuthoredCard, AgentCardPanels.tsx:591) and the read-only branch lists edges with their when text (:727-738)."
+ ]
+}

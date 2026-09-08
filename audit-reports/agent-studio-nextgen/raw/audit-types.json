@@ -1,0 +1,303 @@
+{
+ "slice": "types",
+ "summary": "I compared every TypeScript wire type in the studio against its Pydantic counterpart, field by field.\n\nThe headline is good news and bad news. **`Habibi/src/api/agent-card.ts` is currently a faithful mirror of `agent_core/cards/schema.py`** — all 14 top-level members, all 19 nested models, all ~95 fields, all 9 closed vocabularies agree. I found no TS-only card field, so no card is unpublishable today for this reason. But the guard that is supposed to keep it that way (`test_agent_card_schema_drift.py`) checks only the 14 **top-level names** and `ROLLBACK_TRIGGERS`. The other ~80 nested fields — including all 10 of `CardOutbound`, the newest and least-exercised block — are mirrored by hand and asserted by nothing.\n\nEverything *outside* the card is worse. `agent-studio.ts`, `prompt-studio.ts`, `sandbox.ts`, `flow.ts`, `outbound.ts` and `providers.ts` mirror ~30 Pydantic response models with **zero drift tests of any kind**. `test_agent_studio_response_models.py` compares the HTTP body to the *mapper*, never to TypeScript; `nullability.test.ts` covers `customer360.ts`, `audit.ts` and `customers.ts` and touches nothing in the studio.\n\nThe concrete drift I found is all in the read direction (backend serves a field, TS does not name it), so nothing 422s — but eight fields the backend computes and puts on the wire have no TypeScript slot and no consumer. The one that costs something real: **`lintWarnings`**. `agent_core/skills/lint` was wired up specifically so an author writing an over-cap skill description hears about it at save rather than at compile; `persist.upsert_skill_from_pack` attaches the warnings, `AgentStudioSkillResponse` declares them, the route serves them — and `SkillSummary` in `agent-studio.ts` has no such field and no component reads one. The author is still told nothing.\n\nWrite paths are clean. Every body the studio POSTs to an `extra=\"forbid\"` model (`PromptVersionCreateRequest`, `PromptVersionPatchRequest`, `PromptVersionPublishRequest`, `SandboxTurnCreateRequest`, `ProviderBindingInput`) sends exactly the declared keys, and `PromptVersionPatchInput.botId?: never` (prompt-studio.ts:83) is a genuinely good compile-time barrier against the known 422.",
+ "endpoints": [
+  "GET /agent-studio/cards → main.py:2094 list_agent_studio_cards → db_prompt_studio.py:306 (response_model=AgentStudioCardResponse, schemas.py:3470)",
+  "GET /agent-studio/cards/{bot_id} → main.py:2122 get_agent_studio_card → db_prompt_studio.py:569",
+  "PATCH /agent-studio/cards/{bot_id} → main.py:2126 patch_agent_studio_card → db_prompt_studio.py:1703 patch_prompt_version (payload is dict[str,Any]; agentCard stored unvalidated at db_prompt_studio.py:1775-1779)",
+  "GET /agent-studio/cards/{bot_id}/graph → main.py:2260 get_agent_studio_graph (inline; edges built at main.py:2282-2286) → response_model AgentStudioGraphResponse schemas.py:3586",
+  "POST /agent-studio/cards/{bot_id}/compile → main.py:2181 → db_prompt_studio.py:782 compile_agent_studio_card → compile.py:520 compile_card (response_model CompileReport compile.py:65)",
+  "GET /agent-studio/change-log → main.py:2170 → db_prompt_studio.py:761 agent_change_log → change_log.py:307 read_entries (response_model AgentStudioChangeLogResponse schemas.py:3572)",
+  "GET /agent-studio/templates → main.py:2099 → agent_core/cards/templates.py templates() (response_model AgentStudioTemplateResponse schemas.py:3497)",
+  "GET /agent-studio/skills → main.py:2289 → agent_core/skills/persist.py:103 list_skills (response_model AgentStudioSkillSummaryResponse schemas.py:3616)",
+  "GET /agent-studio/skills/{skill_id} → main.py:2310 → persist.get_skill (response_model AgentStudioSkillResponse schemas.py:3645)",
+  "POST /agent-studio/skills → main.py:2322 → persist.create_draft_skill → persist.py:314-318 attaches lintWarnings",
+  "GET /agent-studio/skills/scripts → main.py:2296 (response_model AgentStudioScriptNameResponse schemas.py:3665)",
+  "POST /agent-studio/skills/run-script → main.py (run_script) (response_model AgentStudioScriptRunResponse schemas.py:3672)",
+  "POST /prompt-versions → main.py:3221 (PromptVersionCreateRequest schemas.py:2345 → PromptVersionResponse schemas.py:2206)",
+  "PATCH /prompt-versions/{version_id} → main.py:3227 → db_prompt_studio.py:1703 (PromptVersionPatchRequest schemas.py:2360)",
+  "POST /prompt-versions/{id}/publish → main.py (PromptVersionPublishRequest schemas.py:2375)",
+  "POST /flow/validate → main.py:2991 → flow_graph.py:validate_graph (response_model FlowValidation flow_graph.py:291)",
+  "GET /flow/tools → main.py:2053 → flow_graph.tool_catalog()",
+  "POST /sandbox/runs → main.py:3376 (SandboxRunCreateRequest schemas.py:2547 → SandboxRunResponse schemas.py:2563)",
+  "POST /sandbox/runs/{id}/turns → SandboxTurnCreateRequest schemas.py:2577 → SandboxTurnResponse schemas.py:2626",
+  "GET /sandbox/runs/{id} → SandboxRunDetailResponse schemas.py:2511",
+  "GET /outbound/card-vocabulary → main.py:5234 outbound_card_vocabulary (no response_model; derived from fg.OBJECTIVES, card_schema Literals, compile.OUTCOME_CODES, outbound.RETRYABLE, contact_policy.daily_cap)",
+  "GET /outbound/missions → main.py:5304 list_missions (no response_model)",
+  "GET /providers/models → main.py:5407 → agent_core/providers/persist.py:95 list_models (response_model ProviderModelItem schemas.py:3360)",
+  "GET /providers/bindings → main.py:5464 → persist.py:121 list_bindings (response_model ProviderBindingItem schemas.py:3408)",
+  "POST /providers/bindings → main.py:5489 → persist.py:147 upsert_binding (ProviderBindingInput schemas.py:3426)",
+  "GET /providers/pools → main.py:5535 (response_model ProviderPoolStatus schemas.py:3448)",
+  "GET /eval/suites → main.py:2796 → db_inbox.py:1718 list_eval_suites (NO response_model)",
+  "GET /eval/reports → main.py:2801 → db_inbox.py:1671 list_eval_reports (NO response_model)",
+  "GET /eval/critiques → main.py:2847 (NO response_model)",
+  "GET /eval/disagreements → main.py:2864 (NO response_model)"
+ ],
+ "runtime_consumers": [
+  "CompileReport.mission_entries (compile.py:81, set at compile.py:952) → NONE. No frontend match for `mission_entries` anywhere in Habibi/src; the TS CompileReport (agent-studio.ts:60-71) does not declare it. Its own docstring (compile.py:78-80) names the Outbound tab as consumer; that tab reads `graphEntries` from GET /outbound/missions (main.py:5361) instead.",
+  "AgentStudioSkillResponse.lintWarnings (schemas.py:3655, written persist.py:317) → NONE. Not in SkillSummary (agent-studio.ts:463-483); no `lint` reference in any Habibi/src/routes/agent-studio.* file.",
+  "AgentStudioSkillSummaryResponse.contentHash (schemas.py:3634) → NONE in the frontend.",
+  "AgentStudioSkillSummaryResponse.evalSuite (schemas.py:3633) → NONE in the frontend.",
+  "AgentStudioChangeLogEntryResponse.hashes (schemas.py:3549, written change_log.py:212) → NONE. Not in ChangeLogEntry (agent-studio.ts:892-916); ChangeLogTab.tsx renders entryHash only (ChangeLogTab.tsx:166-168).",
+  "AgentStudioChangeLogEntryResponse.previousVersionId (schemas.py:3542, written change_log.py:202) → NONE. Not in ChangeLogEntry.",
+  "SandboxBotTurn.toolCalls (schemas.py:2624) → NONE. Absent from SandboxTurnResult.botTurn (sandbox.ts:67-82); the only `toolCalls` consumers are trace.ts:60 and the live-voice event stream (liveEvents.ts:174), which are different payloads.",
+  "BotDeploymentResponse.trafficPct / shadow / evalReportId (schemas.py:2338-2340) → NONE via BotDeployment (prompt-studio.ts:33-46); the Ship tab reads traffic from DeploymentExperiment (agent-studio.ts:449-459 / prompt-studio.lazy.tsx:460-466) instead.",
+  "PromptVersionResponse.tuning (schemas.py:2224) → NONE in TS PromptVersion (api/types/prompt-studio.ts:59-82); read only server-side by db_prompt_studio.py:1735-1745.",
+  "SandboxRunTurnResponse.sentimentLabel / retrievedChunkIds / tokenCount / createdAt (schemas.py:2487-2494) → NONE; SandboxRunDetail.turns (sandbox.ts:98-115) names none of the four.",
+  "list_eval_suites created_at (db_inbox.py:1734, returned via `dict(r)` with no response_model) → NONE; TS EvalSuite (agent-studio.ts:353) declares only id/kind/name/description.",
+  "AgentStudioGraphEdgeResponse.to (schemas.py:3583, `str | None`) → AgentGraphTab guards it at AgentCardPanels.tsx:610 (`.filter((e) => e.to)`) despite the TS type promising non-null.",
+  "card.human_gates → NONE (confirming the established fact: schema.py:389 only; ToolGrant.may_execute grant.py:121-123 ignores it). agent-card.ts:169-172 mirrors the field faithfully, so the TS side is not the reason it is dead."
+ ],
+ "findings": [
+  {
+   "id": "TYPES-01",
+   "title": "Skill lint warnings reach the wire and die at the TypeScript boundary — the author is still told nothing",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/agent_core/skills/persist.py:314-318",
+    "backend/schemas.py:3655",
+    "backend/main.py:2322-2331",
+    "Habibi/src/api/agent-studio.ts:463-483",
+    "Habibi/src/api/agent-studio.ts:685-694",
+    "backend/tests/test_skill_lint_wiring.py:84-98"
+   ],
+   "mechanism": "`upsert_skill_from_pack` attaches non-blocking lint findings to the saved row (`saved[\"lintWarnings\"] = warnings`, persist.py:317). `AgentStudioSkillResponse` declares `lintWarnings: list[dict[str, Any]] | None` (schemas.py:3655) and POST/PATCH/import /agent-studio/skills all serve that model with `response_model_exclude_unset=True`, so the warnings genuinely go out on the wire. The TypeScript `SkillSummary` (agent-studio.ts:463-483) — the return type of `useCreateSkill` (agent-studio.ts:690), `usePatchSkill`, `importSkillZip` and `useAgentStudioSkill` — declares no `lintWarnings` member, and grepping Habibi/src for `lintWarnings` returns nothing. So the field is dropped at the type boundary and no component renders it. The lint module's own test file opens with \"The skill linter was dead code\" and asserts `description_too_long` is reported \"or the author was told nothing\" (test_skill_lint_wiring.py:96) — that assertion passes at the Python API and is false at the screen.",
+   "trigger": "Create or edit a skill whose description exceeds CATALOG_PREFIX_TOKEN_CAP (e.g. via the Skills tab or a .md import). The save succeeds, the server logs a warning (persist.py:316), the response carries `lintWarnings: [{code: \"description_too_long\", ...}]`, and the studio shows a plain success. The author discovers it later as a G6 / skill_description_tokens failure on the card that attaches the skill — the exact late rejection the linter was wired up to prevent.",
+   "fix": "Add `lintWarnings?: Array<{ code: string; message?: string; [k: string]: unknown }>` to `SkillSummary` in Habibi/src/api/agent-studio.ts, and surface it after a save in the skill editor (agent-studio.skills.$skillId.tsx) as a non-blocking warning banner. Give `usePatchSkill` / `useSignSkill` / `useRevertSkill` a real return type instead of the untyped `apiPatch`/`apiPost` they use today, so the field is reachable from every write.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-02",
+   "title": "The Agent Card drift test guards 14 top-level names and leaves ~80 nested fields — including all of CardOutbound — unasserted",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "backend/tests/test_agent_card_schema_drift.py:56-101",
+    "backend/agent_core/cards/schema.py:77-419",
+    "Habibi/src/api/agent-card.ts:120-320"
+   ],
+   "mechanism": "`test_top_level_members_match` compares `set(AgentCard.model_fields)` against the `AGENT_CARD_MEMBERS` literal, and `test_the_declared_type_covers_every_member` compares that literal against the `type AgentCard` block. Both operate only on the 14 top-level names. Nothing walks into `CardIdentity`, `CardTools`, `CardHandoff`, `CardConnector`, `CardSkillRef`, `CardMemory`, `Compaction`, `HumanGate`, `CardEval`, `CardExperiment`, `CardA2A`, `CardOutbound`, `CardObjective`, `CardCadence`, `VoicemailPolicy`, `CardPostCall` or `PostCallRule` — ~80 fields across 17 models, every one of them under `extra=\"forbid\"`. The file's own docstring claims the broader guarantee (\"The TypeScript Agent Card and the Pydantic one must describe the same card\") and the type's docstring says \"`test_agent_card_schema_drift.py` fails if the two lists of top-level members stop matching\" — which is the honest reading, but the file heading is not. I verified by hand that the nested mirror is correct *today*; the exposure is that it is correct by luck rather than by check, and CardOutbound's 10 fields plus CardObjective's 9 and CardCadence's 8 are the newest and least-walked.",
+   "trigger": "Add a field to any nested card model (or rename one) and both tests still pass. The corresponding editor panel silently cannot write it — or, in the invented-field direction, writes a key that `parse_card` rejects at G0 with a message naming a field the author picked from a control the app drew.",
+   "fix": "Extend test_agent_card_schema_drift.py with a recursive comparison: walk `AgentCard.model_fields` into every nested BaseModel and compare each model's field set against the members declared in the corresponding `export type X = {…}` block in agent-card.ts (the file already names each type identically to its Pydantic class, so the mapping is mechanical). Assert both directions, with the same two error messages the top-level test already writes.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-03",
+   "title": "agent-studio.ts mirrors 14 Pydantic response models with no drift guard of any kind",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "Habibi/src/api/agent-studio.ts:16-71",
+    "Habibi/src/api/agent-studio.ts:325-343",
+    "Habibi/src/api/agent-studio.ts:463-483",
+    "Habibi/src/api/agent-studio.ts:892-925",
+    "backend/schemas.py:3470-3690",
+    "backend/tests/test_agent_studio_response_models.py:1-6",
+    "Habibi/src/api/types/nullability.test.ts:20-63"
+   ],
+   "mechanism": "`test_agent_studio_response_models.py` proves the HTTP body equals the *mapper* output key-for-key (`_assert_same_shape`, lines 28-46) — a backend-to-backend check. Nothing compares either side to `agent-studio.ts`. `nullability.test.ts` reads three files (`api/types/customer360.ts`, `api/types/audit.ts`, `api/customers.ts`) and asserts string literals in them; it names nothing in the studio. So `AgentCardSummary`, `CompileReport`, `CompileGate`, `AgentGraph`, `ChangeLogEntry`, `ChainVerdict`, `SkillSummary`, `CloneTemplate`, `EvalSuite`, `EvalReport`, `DeploymentExperiment`, `SkillCritique`, `QaDisagreement` and `RolesCatalog` are hand mirrors with a zero-test blast radius. The four concrete drifts I found (TYPES-04, -05, -06, -07) are all in this file, which is what an unguarded surface looks like after a few months.",
+   "trigger": "Any change to a model in schemas.py:3470-3690 or to CompileReport in compile.py. Backend tests stay green; the studio silently stops reading the new field, or keeps reading a removed one as `undefined`.",
+   "fix": "Add a source-reading drift test alongside test_agent_card_schema_drift.py, keyed on the docstring each Pydantic model already carries (\"Mirrors Habibi AgentCardSummary\", schemas.py:3477; \"Mirrors Habibi PromptVersion\", schemas.py:2206; \"Mirrors Habibi TtsVoice\", schemas.py:2253): parse the named `export type X = {…}` block out of the TS file and compare member sets against `model_fields`. The docstrings already declare the pairing — nothing reads them.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-04",
+   "title": "ChangeLogEntry omits `hashes` and `previousVersionId` — the per-component hashes that make the audit entry checkable never reach the screen",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/agent_core/change_log.py:202",
+    "backend/agent_core/change_log.py:212",
+    "backend/schemas.py:3542",
+    "backend/schemas.py:3549",
+    "Habibi/src/api/agent-studio.ts:892-916",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:166-168"
+   ],
+   "mechanism": "`record_publish` writes `previousVersionId` and `hashes` (the per-component SHA of prompt/persona/voice/guardrails/flow/agent_card, from `component_hashes(version)`) into the audit payload; `read_entries` spreads the whole payload onto the entry (change_log.py:343); `AgentStudioChangeLogEntryResponse` declares both (schemas.py:3542, 3549). The TypeScript `ChangeLogEntry` declares neither. `ChangeLogTab` renders `entry.entryHash` — the chain link — and has no access to the component hashes, which are the half that lets a reader tie an entry to a specific version's contents rather than only to its neighbours in the chain.",
+   "trigger": "Publish any version, then open the Change log tab. `changed` shows which components moved; the hashes that would let an auditor verify *what* they moved to are on the wire and unreachable from the type. Same for `previousVersionId`: the tab shows `previousVersionLabel` (a human label, not stable) with no id to link to.",
+   "fix": "Add `previousVersionId?: string | null` and `hashes?: Record<string, string>` to ChangeLogEntry (agent-studio.ts:892-916). Render the component hashes in the expanded entry beside `changed`, and use `previousVersionId` to make the \"previous version\" label a link.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-05",
+   "title": "CompileReport.mission_entries is computed, serialised and never consumed; its docstring names a consumer that reads a different endpoint",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "backend/agent_core/cards/compile.py:78-81",
+    "backend/agent_core/cards/compile.py:952",
+    "Habibi/src/api/agent-studio.ts:60-71",
+    "backend/main.py:5361"
+   ],
+   "mechanism": "`CompileReport.mission_entries: dict[str, str]` is populated on every compile (`mission_entries=_mission_entries(flow)`, compile.py:952) and shipped as part of the `response_model=CompileReport` body of POST /agent-studio/cards/{bot_id}/compile. Its docstring says \"The Outbound tab renders this beside what the card claims, because the two disagreeing is the failure G-OB2 exists to catch\". The TypeScript `CompileReport` (agent-studio.ts:60-71) declares seven members and not this one; grepping Habibi/src for `mission_entries` or `missionEntries` returns nothing. The Outbound tab does render both halves — from `graphEntries` and `graphEntryNode`/`agrees` on GET /outbound/missions (main.py:5344-5361), a second, independently computed copy of the same fact.",
+   "trigger": "Open the compile preview on any card. `mission_entries` is computed and sent on every keystroke-debounced compile (useCompilePreview, agent-studio.ts:230-260) and discarded. The cost is a stale docstring pointing a future reader at the wrong producer for a G-OB2 disagreement.",
+   "fix": "Either declare `mission_entries: Record<string, string>` on the TS CompileReport and let the Outbound tab read the compile report it already holds (dropping the second source), or delete the field from CompileReport and correct the docstring to name /outbound/missions. Two independently derived copies of \"where does this mission start\" is exactly the shape G-OB2 exists to police.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-06",
+   "title": "AgentGraph.edges[].to is typed non-nullable while the endpoint emits `h.get(\"to_bot_id\")` and the response model allows null",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/main.py:2282-2286",
+    "backend/schemas.py:3581-3584",
+    "Habibi/src/api/agent-studio.ts:317",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:610",
+    "backend/db_prompt_studio.py:1775-1779"
+   ],
+   "mechanism": "The graph endpoint reads handoffs straight off the stored draft JSON without parsing the card (`raw.get(\"handoffs\")`, main.py:2266) and builds `{\"from\": bot_id, \"to\": h.get(\"to_bot_id\")}` — `None` for any handoff row missing the key. `AgentStudioGraphEdgeResponse.to` is correspondingly `str | None = None` (schemas.py:3584). The TypeScript `AgentGraph` declares `edges: { from: string; to: string }[]` (agent-studio.ts:317). The null is reachable because drafts are persisted unvalidated — `patch_prompt_version` casts `agentCard` to jsonb with no `parse_card` (db_prompt_studio.py:1775-1779) — and `CardHandoff.to_bot_id` is optional on the TS side too (agent-card.ts:148). AgentGraphTab already defends against the value its own type says cannot exist (`.filter((e) => e.to)`, AgentCardPanels.tsx:610), which is the tell.",
+   "trigger": "A draft whose `handoffs` array contains a row without `to_bot_id` (hand-edited JSON, a partially-applied migration, or any future editor that stages an empty row). Today's only consumer filters it out; a new consumer trusting `to: string` gets `null` where the type promised a bot id.",
+   "fix": "Type it as the server declares it: `edges: { from: string; to: string | null }[]` in agent-studio.ts:317. Optionally tighten the backend instead by dropping edges with a falsy target at main.py:2282 and making `to: str` required — but pick one, do not leave the two disagreeing.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-07",
+   "title": "SkillSummary collapses the backend's summary/detail split and drops three declared fields",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "Habibi/src/api/agent-studio.ts:463-483",
+    "backend/schemas.py:3616-3643",
+    "backend/schemas.py:3645-3656",
+    "Habibi/src/routes/agent-studio.skills.$skillId.tsx:322-356"
+   ],
+   "mechanism": "The backend has two models: `AgentStudioSkillSummaryResponse` (16 required fields, served by GET /agent-studio/skills) and `AgentStudioSkillResponse` which subclasses it and adds six optional detail fields. TypeScript has one `SkillSummary` typed for both endpoints, which (a) loses the distinction — a list row is typed as if it might carry `body`, `markdown`, `frontmatter`, `versions`; (b) omits `contentHash` (schemas.py:3634, required), `evalSuite` (schemas.py:3633, required) and `lintWarnings` (see TYPES-01); (c) declares `latestVersionId?: string` where the wire is `str | None`, so `null` is assignable to nothing and a strict `!`-assertion would lie; (d) types `versions?: Array<{ id; version; status }>` — three of the fourteen fields on `AgentStudioSkillVersionResponse` (schemas.py:3596-3614), so `signedBy`, `signature`, `contentHash` and `allowedTools` per version are unreachable even though the detail route serves them and the version list at agent-studio.skills.$skillId.tsx:344-360 is exactly where they would be shown.",
+   "trigger": "Read-only: the studio simply cannot display a skill's content hash, its bound eval suite, or per-version signature provenance. `latestVersionId` null-vs-undefined bites only if someone writes a non-null assertion.",
+   "fix": "Split into `SkillSummary` and `SkillDetail extends SkillSummary` mirroring the two Pydantic models; add `contentHash: string`, `evalSuite: unknown | null`, `lintWarnings?`, widen `latestVersionId` to `string | null`, and type `versions` against the full `AgentStudioSkillVersionResponse`.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-08",
+   "title": "BotDeployment omits trafficPct, shadow and evalReportId — the three fields that say what a deployment is actually taking",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/schemas.py:2320-2341",
+    "Habibi/src/api/prompt-studio.ts:33-46",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:458-466"
+   ],
+   "mechanism": "`BotDeploymentResponse` carries `trafficPct: int = 100`, `shadow: bool = False` and `evalReportId: str | None` (schemas.py:2338-2340) — the record of what split and what eval evidence a deployment shipped under. The TypeScript `BotDeployment` (prompt-studio.ts:33-46) declares 12 of the 15 fields and none of those three. The Ship tab gets its split from a different source, `DeploymentExperiment` on GET /bot-deployments/experiments (agent-studio.ts:449-459, consumed at prompt-studio.lazy.tsx:458-466), so a deployment row rendered from `useBotDeployments` can never say what traffic it holds.",
+   "trigger": "Any deployments list rendered from the `BotDeployment` type shows the deployment without its split; a canary at 40% is indistinguishable from a full ship, and `evalReportId` — the link from a live deployment to the eval that let it through G7/G8 — is unreachable.",
+   "fix": "Add `trafficPct: number; shadow: boolean; evalReportId: string | null;` to `BotDeployment` in prompt-studio.ts:33-46, and render the split on the deployment row so the experiment query stops being the only place it exists.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-09",
+   "title": "PromptVersion omits `tuning`, the column publish reads and VoicePanel writes through",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/schemas.py:2224",
+    "backend/db_prompt_studio.py:1733-1749",
+    "Habibi/src/api/types/prompt-studio.ts:59-82"
+   ],
+   "mechanism": "`PromptVersionResponse.tuning: dict[str, Any]` (schemas.py:2224) is served on every version read. The TypeScript `PromptVersion` (api/types/prompt-studio.ts:59-82) declares id, label, author, status, createdAt, summary, prompt, persona, voice, guardrails, flow, flowUnreadable, botId, agentCard — no `tuning`. The field is not decorative: `patch_prompt_version` folds the VoicePanel's voice config into it on every autosave (`apply_voice_config_overlay`, db_prompt_studio.py:1735-1745) with the comment \"publish reads this\", and an explicit Tuning Studio write overrides it (db_prompt_studio.py:1755-1761). So the studio edits `tuning` indirectly and can never read back what it produced.",
+   "trigger": "Adjust a voice slider, autosave, then look at the version: the derived tuning that will ship is on the wire and invisible to the editor, to the diff and to the version-history comparison.",
+   "fix": "Add `tuning?: Record<string, unknown>` to `PromptVersion` (api/types/prompt-studio.ts) and include it in the version diff, so a publish cannot change the runtime tuning without the diff saying so.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-10",
+   "title": "Sandbox read types drop five served fields, including the tool-loop trace",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/schemas.py:2624",
+    "backend/schemas.py:2487-2494",
+    "Habibi/src/api/sandbox.ts:67-82",
+    "Habibi/src/api/sandbox.ts:98-115"
+   ],
+   "mechanism": "`SandboxBotTurn.toolCalls: list[dict[str, Any]]` (schemas.py:2624, commented \"Tool-loop trace from sandbox_runtime\") is on the POST /sandbox/runs/{id}/turns response and absent from the TypeScript `SandboxTurnResult.botTurn` (sandbox.ts:67-82); no frontend consumer exists (the `toolCalls` matches in Habibi/src are trace.ts:60 and the live-voice event stream, which are different payloads). Separately, `SandboxRunTurnResponse` declares `sentimentLabel`, `retrievedChunkIds`, `tokenCount` and `createdAt` (schemas.py:2487-2494) that `SandboxRunDetail.turns` (sandbox.ts:98-115) does not name — so a replayed run shows a raw sentiment float with no label while a live turn shows the label from `customerTurn.sentimentLabel`.",
+   "trigger": "Run a text-sandbox turn that calls a tool: the trace is computed, serialised and dropped. Reload a completed run: the per-turn sentiment label and the retrieved-vs-cited chunk id distinction are on the wire and unreadable.",
+   "fix": "Add `toolCalls?: Array<Record<string, unknown>>` to `SandboxTurnResult.botTurn` and render it in the sandbox inspector's Tools tab (which already renders the same shape from trace.ts). Add `sentimentLabel`, `retrievedChunkIds`, `tokenCount`, `createdAt` to `SandboxRunDetail.turns`.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-11",
+   "title": "Every /eval/* route serves an untyped dict, so the Evals tab's TypeScript types mirror nothing and the response-shape test cannot see them",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "tool-definition",
+   "files": [
+    "backend/main.py:2796-2800",
+    "backend/main.py:2801-2810",
+    "backend/main.py:2847-2852",
+    "backend/main.py:2864-2870",
+    "backend/db_inbox.py:1718-1737",
+    "Habibi/src/api/agent-studio.ts:353",
+    "Habibi/src/api/agent-studio.ts:387-397",
+    "backend/tests/test_agent_studio_response_models.py:47-64"
+   ],
+   "mechanism": "GET /eval/suites, /eval/reports, /eval/reports/{id}, /eval/critiques, /eval/disagreements and /eval/twin-corpus declare no `response_model`. `list_eval_suites` returns `[dict(r) for r in rows]` over `SELECT id, kind, name, description, created_at` (db_inbox.py:1728-1737) — raw snake_case `created_at` reaches the wire, and TS `EvalSuite` (agent-studio.ts:353) names four of the five. `test_every_agent_studio_route_declares_a_response_shape` filters on `route.path.startswith(\"/agent-studio\")` (test_agent_studio_response_models.py:53), so it asserts nothing about /eval/*, and by the same filter nothing about /flow/*, /sandbox/*, /prompt-versions, /connectors*, /mcp/*, /a2a*, /bot-deployments* or /outbound/*. That is most of the Studio's wire.",
+   "trigger": "Any change to the eval_suites or eval_reports SELECT list silently changes the wire. There is no model to fail, no mapper comparison to fail, and no TS drift test — three layers of guard that all stop at the /agent-studio prefix.",
+   "fix": "Declare response models for the /eval/* routes the studio reads (suites, reports, critiques, disagreements) mirroring the existing AgentStudio* naming, and widen the route filter in test_agent_studio_response_models.py:47-64 from `/agent-studio` to the set of studio prefixes the audit enumerates.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-12",
+   "title": "agent-card.ts restates six closed vocabularies that the backend guards against each other, and a cast in the editor makes the TypeScript half unenforceable",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "Habibi/src/api/agent-card.ts:76-101",
+    "backend/tests/test_outbound_card_vocabulary.py:36-110",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:653",
+    "Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:659",
+    "backend/tests/test_agent_card_schema_drift.py:86-101"
+   ],
+   "mechanism": "agent-card.ts restates `Objective` (13 members), `Direction`, `VoicemailMode`, `TimeOfDay`, `PoolKind` and `PostCallQa`. Backend-side these are well policed: test_outbound_card_vocabulary.py asserts the /outbound/card-vocabulary lists equal `fg.OBJECTIVES` and each `get_args(schema.<Literal>)`, and its docstring says the whole defence is that \"the frontend restates nothing\". The frontend does restate them. Only `ROLLBACK_TRIGGERS` has a matching TS assertion (test_agent_card_schema_drift.py:86-101) — added, per its own docstring, after exactly this class of bug. Worse, the restatement cannot even fail loudly: OutboundCardEditor casts the server-supplied option with `key as Objective` (line 659) and `o as Objective` (line 653), so a vocabulary the backend widened flows through the TypeScript union untouched.",
+   "trigger": "Add a member to `flow_graph.OBJECTIVES` and `schema.Objective`. Every backend test passes, /outbound/card-vocabulary offers it, the `as Objective` cast accepts it — and the stale TS `Objective` union is now a comment claiming to be a type. In the opposite direction (a member removed from the Literal but left in the TS union) the editor's own type would still bless a value the card rejects at parse.",
+   "fix": "Extend test_agent_card_schema_drift.py with the same regex-and-compare treatment ROLLBACK_TRIGGERS already gets, for `Objective`, `Direction`, `VoicemailMode`, `TimeOfDay`, `PoolKind`, `Channel`, `DataClass`, `MemoryScope`, `EvalRequire` and `HumanGateRequire` against `get_args()` of each Literal. Then drop the `as Objective` casts in OutboundCardEditor.tsx:653,659 in favour of a narrowing predicate, so the union actually gates.",
+   "prior_ref": ""
+  },
+  {
+   "id": "TYPES-13",
+   "title": "nullability.test.ts covers three non-studio files while ~40 nullable studio wire fields go unpinned",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "Habibi/src/api/types/nullability.test.ts:20-63",
+    "backend/schemas.py:3487-3494",
+    "backend/schemas.py:3583",
+    "backend/schemas.py:3625"
+   ],
+   "mechanism": "The nullability suite reads `api/types/customer360.ts`, `api/types/audit.ts` and `api/customers.ts` and asserts string literals in them (`summary: string | null;` etc.). It names no studio file. Meanwhile the studio wire is full of `X | None`: AgentStudioCardResponse has six (`trafficPct`, `lastPublish`, `promptVersionId`, `draftVersionId`, `archivedAt`, plus AgentStudioChangeLogEntryResponse's fifteen), AgentStudioGraphEdgeResponse.to, AgentStudioSkillSummaryResponse.latestVersionId, BotDeploymentResponse's five, PromptTokenEstimateResponse's two. TYPES-06 (`to: string` vs `str | None`) and TYPES-07 (`latestVersionId?: string` vs `str | None`) are both instances the existing suite is shaped to catch and does not, because it was written for one work-package's files and never widened.",
+   "trigger": "A nullable studio field is typed non-nullable; `strict` TypeScript compiles clean because the assertion lives in a test that reads different files.",
+   "fix": "Add a studio block to nullability.test.ts covering api/agent-studio.ts, api/prompt-studio.ts, api/types/prompt-studio.ts and api/sandbox.ts — or, better, generate the assertions from the Pydantic models in the drift test proposed in TYPES-03, where `field.annotation` already knows whether None is allowed.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Habibi/src/api/agent-card.ts vs backend/agent_core/cards/schema.py — top level: all 14 members present in both, in the type block and in AGENT_CARD_MEMBERS (agent-card.ts:288-320, schema.py:355-370).",
+  "Nested card models, field-for-field, all correct: CardIdentity 8/8 (agent-card.ts:120-129 vs schema.py:77-88), CardMouthRef 2/2 (:131-135 vs :90-97), CardSkillRef 3/3 (:137-141 vs :99-105), CardTools 3/3 (:143-147 vs :107-113), CardHandoff 3/3 (:149-153 vs :115-121), CardConnector 2/2 (:155-158 vs :123-128), PolicyBindings 6/6 via REQUIRED_POLICY_KEYS (:110-119, :160 vs :130-139, :68-76), Compaction 2/2, CardMemory 2/2 (:162-172 vs :141-152), HumanGate 2/2, CardEval 2/2 (:174-181 vs :154-166), VoicemailPolicy 3/3 (:183-194 vs :197-209), CardObjective 9/9 (:196-215 vs :211-236), CardCadence 8/8 (:217-236 vs :238-283), PostCallRule 2/2 and CardPostCall 4/4 (:238-250 vs :285-301), CardOutbound 10/10 (:252-278 vs :303-330), CardExperiment 3/3 (:280-285 vs :344-350), CardA2A 2/2 (:287-290 vs :352-357).",
+  "Card vocabularies agree by value: Channel, DataClass, MemoryScope, PinMode, PolicyBinding, EvalRequire, HumanGateRequire, Direction, VoicemailMode, TimeOfDay, PoolKind, PostCallQa, and the 13-member Objective list (agent-card.ts:37-101 vs schema.py:16-53, 172-200, 249 and flow_graph.py:76-90). ROLLBACK_TRIGGERS is additionally pinned by test_agent_card_schema_drift.py:86-101.",
+  "Every write body the studio posts to an extra=\"forbid\" model is exactly the declared field set: PromptVersionDraftInput (prompt-studio.ts:48-59) vs PromptVersionCreateRequest (schemas.py:2345-2357); PromptVersionPatchInput (:61-84) vs PromptVersionPatchRequest (schemas.py:2360-2372); the publish POST literal (:679-686) vs PromptVersionPublishRequest (schemas.py:2375-2394); ProviderBindingInput (providers.ts:78-87) vs schemas.py:3426-3436.",
+  "`PromptVersionPatchInput.botId?: never` (prompt-studio.ts:83, with the Expect<> guard at :88-117) converts the known autosave 422 into a compile error — the mechanism is sound and test_agent_studio_tab_round_trip.py:226-249 pins the server half.",
+  "PersonaState / PersonaTraits / Guardrails / VoiceConfig round-trip exactly (api/types/prompt-studio.ts:11-58 vs schemas.py:2147-2189), including `VoiceConfig.params` and `style`.",
+  "Habibi/src/api/flow.ts vs backend/flow_graph.py: FlowNode 5/5, FlowNodeData 11/11 including `entryFor` (flow.ts:50-84 vs flow_graph.py:148-181), FlowExpressionClause 3/3, FlowCondition 4/4, FlowEdge 4/4, FlowGraph 4/4, FlowIssue 5/5, FlowValidation 2/2, FlowPosition 2/2, and all six vocabularies (FlowInstructionType, FlowVariableType, FlowConditionType, FlowMatch, the 10 FlowOperators, UNARY_OPERATORS) match flow_graph.py:111-129.",
+  "Habibi/src/api/outbound.ts OutboundVocabulary (:242-262) matches the /outbound/card-vocabulary body key-for-key (main.py:5279-5301), and MissionSummary/MissionConfig (:92-113) match main.py:5341-5365. The backend guards every one of those vocabularies against its own definition in test_outbound_card_vocabulary.py:36-110.",
+  "Habibi/src/api/providers.ts is a clean mirror: ProviderModel 24/24 vs ProviderModelItem (schemas.py:3360-3406), ProviderBinding 13/13 vs ProviderBindingItem (schemas.py:3408-3423), ProviderPool 6/6 and ProviderPoolKey 4/4 vs schemas.py:3439-3458. The camelCase is produced explicitly by the mappers at main.py:5433-5459 and 5465-5484, not by an aliasing convention that could drift.",
+  "Sandbox scenario shape: the TS `Scenario` carries `botTemplate`/`chunkIds` that `SandboxScenarioTurnResponse` (schemas.py:2434-2439) does not, and the client adapts explicitly rather than casting — `fetchSandboxScenarios` fills `botTemplate: \"\"` and coalesces the nullable `expectedIntent`/`expectedSentiment` (sandbox.ts:148-161). Correct handling of a deliberate mock-vs-wire difference.",
+  "SandboxContext (sandbox.ts:20-30) matches schemas.py:2529-2540 field-for-field, and the turns POST body is pinned against SandboxTurnCreateRequest by test_sandbox_turn_schema.py:198-222 — the one place a TS→Pydantic write contract is actually tested.",
+  "AgentCardSummary (agent-studio.ts:16-51) matches AgentStudioCardResponse 22/22 (schemas.py:3470-3493), including the nullability of trafficPct/lastPublish/promptVersionId/draftVersionId/archivedAt.",
+  "CompileGate (agent-studio.ts:53-59) matches GateResult 5/5 and the GateStatus union exactly (compile.py:45, 55-62); ChainVerdict (agent-studio.ts:918-925) matches AgentStudioChainVerdictResponse 4/4 (schemas.py:3557-3564); CloneTemplate matches AgentStudioTemplateResponse 4/4.",
+  "PromptLintFinding (prompt-studio.ts:749-754) vs schemas.py:2670-2676 and PromptTokenEstimate (prompt-studio.ts:512-531) vs PromptTokenEstimateResponse (schemas.py:2696-2715) both match, including the two nullable assembled-* fields.",
+  "TtsCatalogVoice / TtsCatalogList / TtsPriceTier / TtsSyncRun / TtsVoiceWarning (prompt-studio.ts:212-289) match TtsCatalogVoiceItem / TtsCatalogListResponse / TtsPriceTierResponse / TtsSyncRunResponse / TtsVoiceWarning (schemas.py:2265-2338), and TtsPreviewInput (:1055-1069) matches TtsPreviewRequest (schemas.py:2645-2670) including `params` and `fresh`.",
+  "The studio panels write card sub-objects by their correct snake_case keys throughout — ToolsTab (AgentCardPanels.tsx:105-110), EvalsTab (:335-368), HandoffsTab (:603-609), SkillsTab (:791-807), ConnectorsTab (:936-938), ShipTab via setShip (prompt-studio.lazy.tsx:478-490), and the whole Outbound editor (OutboundCardEditor.tsx:94-107, 657-671, 920-938). No `as never` casts survive.",
+  "EMPTY_VOCABULARY (outbound.ts:264-277) restates closed lists but is unreachable outside USE_MOCK: fetchOutboundVocabulary gates it on USE_MOCK (:280) and OutboundTab renders a loading/empty state rather than a fallback when the query has no data (OutboundTab.tsx:470-473)."
+ ]
+}

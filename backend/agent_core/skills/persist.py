@@ -57,7 +57,11 @@ def _map_skill(row: dict[str, Any], *, versions: list[dict[str, Any]] | None = N
         "attachedCards": row.get("attached_cards") or [],
         "evalSuite": (latest or {}).get("evalSuite"),
         "contentHash": (latest or {}).get("contentHash") or "",
-        "signed": row["signature_status"] == "signed",
+        "signed": bool(
+            latest
+            and latest.get("signature")
+            and verify_signature(latest.get("contentHash") or "", latest.get("signature"))
+        ),
         "hasSignedVersion": bool(row.get("has_signed") or row["signature_status"] == "signed"),
         "bodyTokens": approx_tokens((latest or {}).get("body") or ""),
         "referenceFiles": list(((latest or {}).get("pack") or {}).get("references") or {}),
@@ -240,7 +244,20 @@ def upsert_skill_from_pack(
         "references": pack.references,
         "examples": pack.examples,
     }
+    from agent_core.skills.defaults import FIRST_PARTY_SKILL_SLUGS
+
     with db.engine.begin() as conn:
+        existing = db._one(
+            conn.execute(
+                text("SELECT id, latest_version_id, origin FROM skills WHERE tenant_id = :t AND slug = :s"),
+                {"t": db._tenant(), "s": pack.slug},
+            )
+        )
+        if origin != "first_party":
+            if pack.slug in FIRST_PARTY_SKILL_SLUGS:
+                raise ValueError("skill_first_party")
+            if existing and existing.get("origin") == "first_party":
+                raise ValueError("skill_first_party")
         conn.execute(
             text(
                 """
@@ -563,41 +580,55 @@ def delete_skill(skill_id: str) -> dict[str, Any]:
     return {"ok": True, "id": sid, "slug": current["slug"]}
 
 
-def _latest_signed_version(conn: Any, skill_id: str | None = None, slug: str | None = None) -> dict[str, Any] | None:
+def _latest_signed_version(
+    conn: Any,
+    skill_id: str | None = None,
+    slug: str | None = None,
+    version: str | None = None,
+) -> dict[str, Any] | None:
+    version_clause = ""
+    params: dict[str, Any] = {"tenant": db._tenant()}
+    if version:
+        version_clause = " AND sv.version = :ver"
+        params["ver"] = version
     if skill_id:
+        params["id"] = skill_id
         return db._one(
             conn.execute(
                 text(
-                    """
+                    f"""
                     SELECT sv.*, s.origin, s.signature_status, s.slug, s.id AS skill_pk
                       FROM skills s
                       JOIN skill_versions sv ON sv.skill_id = s.id
                      WHERE s.tenant_id = :tenant
                        AND s.id = :id
                        AND sv.status = 'signed'
+                       {version_clause}
                      ORDER BY sv.created_at DESC
                      LIMIT 1
                     """
                 ),
-                {"tenant": db._tenant(), "id": skill_id},
+                params,
             )
         )
     if slug:
+        params["slug"] = slug
         return db._one(
             conn.execute(
                 text(
-                    """
+                    f"""
                     SELECT sv.*, s.origin, s.signature_status, s.slug, s.id AS skill_pk
                       FROM skills s
                       JOIN skill_versions sv ON sv.skill_id = s.id
                      WHERE s.tenant_id = :tenant
                        AND s.slug = :slug
                        AND sv.status = 'signed'
+                       {version_clause}
                      ORDER BY sv.created_at DESC
                      LIMIT 1
                     """
                 ),
-                {"tenant": db._tenant(), "slug": slug},
+                params,
             )
         )
     return None
@@ -660,13 +691,18 @@ def packs_for_slugs(slugs: list[str]) -> list[SkillPack]:
             row = _latest_signed_version(conn, slug=slug)
             if row:
                 try:
-                    packs.append(
-                        pack_from_version_row(
-                            row,
-                            origin=str(row.get("origin") or "first_party"),
-                            signed=True,
-                        )
+                    pack = pack_from_version_row(
+                        row,
+                        origin=str(row.get("origin") or "first_party"),
+                        signed=True,
                     )
+                    if not pack.signed:
+                        logger.error(
+                            "signed skill pack %s failed HMAC — dropping before the turn",
+                            slug,
+                        )
+                        continue
+                    packs.append(pack)
                 except Exception:
                     logger.exception("signed skill pack %s failed to parse", slug)
                 continue
@@ -675,6 +711,46 @@ def packs_for_slugs(slugs: list[str]) -> list[SkillPack]:
             except KeyError:
                 continue
     return packs
+
+
+def packs_for_skill_refs(refs: list[Any]) -> list[SkillPack]:
+    """Resolve attached packs honouring ``pin=exact`` when the card names a version.
+
+    Schema default ``version="1"`` is the first-party seed, not pack semver
+    ``1.5.0``. Those refs keep resolving to the latest signed row — today's
+    behaviour. An authored non-default version is looked up exactly and omitted
+    (fail closed) when that signed row is missing.
+    """
+    if not refs:
+        return []
+    pinned: list[SkillPack] = []
+    fallback_slugs: list[str] = []
+    with db.engine.connect() as conn:
+        for ref in refs:
+            slug = str(getattr(ref, "skill_id", None) or "")
+            if not slug:
+                continue
+            version = str(getattr(ref, "version", None) or "1").strip() or "1"
+            pin = str(getattr(ref, "pin", None) or "exact")
+            if pin == "exact" and version not in {"1", "1.0.0"}:
+                row = _latest_signed_version(conn, slug=slug, version=version)
+                if not row:
+                    continue
+                try:
+                    pack = pack_from_version_row(
+                        row,
+                        origin=str(row.get("origin") or "first_party"),
+                        signed=True,
+                    )
+                except Exception:
+                    logger.exception("pinned skill pack %s@%s failed to parse", slug, version)
+                    continue
+                if not pack.signed:
+                    continue
+                pinned.append(pack)
+            else:
+                fallback_slugs.append(slug)
+    return [*pinned, *packs_for_slugs(fallback_slugs)]
 
 
 def sync_attachments_from_card(prompt_version_id: str, card_raw: dict[str, Any] | None) -> None:
@@ -686,16 +762,25 @@ def sync_attachments_from_card(prompt_version_id: str, card_raw: dict[str, Any] 
         card = parse_card(card_raw)
     except Exception:
         return
-    slugs = [ref.skill_id for ref in card.skills]
+    refs = list(card.skills)
     with db.engine.begin() as conn:
         conn.execute(
             text("DELETE FROM skill_attachments WHERE prompt_version_id = :pv"),
             {"pv": prompt_version_id},
         )
-        if not slugs:
+        if not refs:
             return
-        for slug in slugs:
-            signed = _latest_signed_version(conn, slug=slug)
+        for ref in refs:
+            exact = (
+                ref.version
+                if ref.pin == "exact" and ref.version not in {"1", "1.0.0"}
+                else None
+            )
+            signed = _latest_signed_version(
+                conn,
+                slug=ref.skill_id,
+                version=exact,
+            )
             if signed is None:
                 continue
             conn.execute(

@@ -235,8 +235,9 @@ export function SandboxHeader(p: Props) {
         and knowledge base over text, one turn at a time — it does not run the call flow, voice
         pipeline, or identity verification, so greeting and turn-taking behaviour cannot be tested
         here. <span className="font-medium text-text-subtle">Live CRM call</span> is a real duplex
-        session via Pipecat that exercises the full flow graph. Both write real CRM rows
-        (interactions, promises, leads) when a customer is pinned.
+        session via Pipecat that exercises the full flow graph. Prompt rehearsal simulates tools
+        with no production side effects. Live CRM call writes real CRM rows when a customer is
+        pinned.
       </p>
     </header>
   );

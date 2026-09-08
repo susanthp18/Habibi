@@ -97,6 +97,24 @@ def test_eval_gate_fails_closed_when_flag_on_and_no_report(monkeypatch) -> None:
     assert not report.ok
 
 
+def test_g12_fails_closed_on_shadow() -> None:
+    report = _compile(COLLECTIONS_BOT_ID, shadow=True, traffic_pct=100)
+    g12 = next(g for g in report.gates if g.gate == "G12")
+    assert g12.status == "fail"
+    assert not report.ok
+
+
+def test_g_lint_fails_on_prohibited_words() -> None:
+    report = _compile(
+        COLLECTIONS_BOT_ID,
+        prompt="We will threaten the borrower.",
+        prompt_guardrails={"prohibited": ["threaten"]},
+    )
+    glint = next(g for g in report.gates if g.gate == "G-LINT")
+    assert glint.status == "fail"
+    assert not report.ok
+
+
 def test_g12_and_g14_are_honest_on_first_party_cards() -> None:
     report = _compile(COLLECTIONS_BOT_ID)
     g12 = next(g for g in report.gates if g.gate == "G12")

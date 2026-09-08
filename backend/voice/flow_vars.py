@@ -28,6 +28,27 @@ _NUMERIC_OPERATORS = frozenset(
 )
 
 
+def _as_text(value: Any) -> str:
+    """One spelling of a boolean, for a bag whose comparisons are string
+    comparisons.
+
+    ``bool`` before ``str``, because ``str(True)`` is ``"True"`` and every
+    clause in ``evaluate_clause`` compares text exactly. An extract tool
+    declares ``type: boolean`` for a yes/no variable, so the model returns JSON
+    ``true`` — which arrived here and was stored ``"True"``. Meanwhile
+    ``identity_verified`` is deliberately lower-cased where it is set, with the
+    comment "so an authored ``equals true`` clause matches", and the condition
+    editor is free text. So the editor taught authors to write ``true`` and an
+    ``equals true`` edge on anything the flow itself captured could never fire.
+
+    One spelling, set where the value enters the bag, so no future writer has to
+    remember which door it came through.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 class FlowVariables:
     """The variable bag for one call.
 
@@ -60,7 +81,7 @@ class FlowVariables:
     def set(self, key: str, value: Any) -> None:
         if not key:
             return
-        self._values[str(key)] = "" if value is None else str(value)
+        self._values[str(key)] = "" if value is None else _as_text(value)
 
     def get(self, key: str) -> str | None:
         # Resolved, not raw: an edge condition must be able to test the same

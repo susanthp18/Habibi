@@ -99,7 +99,10 @@ def _system_instruction_from_bundle(bundle: dict, context: dict | None = None) -
     )
     from agent_core.skills.runtime import resolve_mouth
 
-    prefix = resolve_mouth(bundle.get("agentCard") or {}).prompt().prefix
+    prefix = resolve_mouth(
+        bundle.get("agentCard") or {},
+        frozen_connector_tools=bundle.get("frozenTools"),
+    ).prompt().prefix
     if prefix:
         prompt = prompt.rstrip() + "\n\n" + prefix
     return prompt
@@ -399,6 +402,60 @@ async def run_bot(transport, runner_args) -> None:
                 "production bundle; persona / KB snapshot / tuning will not apply."
             )
 
+    # Resolve caller identity BEFORE canary selection. Loading the bundle first
+    # with no customer_id used to send every unmatched inbound call to the
+    # canary. Outbound attempts already know the customer and the mouth.
+    cohort_customer_id: str | None = None
+    cohort_bot_id: str | None = None
+    pre_from_number: str | None = None
+    pre_attempt_id: str | None = None
+    if call_data is not None:
+        pre_from_number = getattr(call_data, "from_number", None) or (
+            call_data.get("from") if isinstance(call_data, dict) else None
+        )
+        body_params = getattr(call_data, "body", None) or {}
+        if isinstance(body_params, dict):
+            pre_from_number = pre_from_number or body_params.get("from")
+            if str(body_params.get("call_type") or "").strip().lower() == "outbound":
+                pre_attempt_id = str(body_params.get("attempt_id") or "").strip() or None
+    if pre_attempt_id:
+        try:
+            from sqlalchemy import text as _sql_text
+
+            with _db.engine.connect() as _conn:
+                attempt_row = _db._one(
+                    _conn.execute(
+                        _sql_text(
+                            "SELECT customer_id, bot_id FROM call_attempts WHERE id = :id"
+                        ),
+                        {"id": pre_attempt_id},
+                    )
+                )
+            if attempt_row:
+                cohort_customer_id = attempt_row.get("customer_id")
+                cohort_bot_id = attempt_row.get("bot_id")
+        except Exception:
+            logger.exception("outbound attempt lookup failed for canary cohort")
+    if cohort_customer_id is None and is_twilio and pre_from_number:
+        try:
+            from voice import twilio_ops
+
+            matched = twilio_ops.lookup_customer_for_caller(pre_from_number)
+            if matched:
+                cohort_customer_id = matched.get("customerId")
+        except Exception:
+            logger.exception("Twilio caller lookup failed before bundle load")
+    if cohort_bot_id is None:
+        try:
+            from agent_core.cards.routing import runtime_entry_bot_id
+
+            cohort_bot_id = runtime_entry_bot_id()
+        except Exception:
+            cohort_bot_id = None
+    # Hash on ANI when the caller is unmatched so the split stays deterministic
+    # without sending every unknown number to the canary.
+    cohort_key = cohort_customer_id or pre_from_number
+
     try:
         if sandbox_session and sandbox_session.get("promptVersionId"):
             from agent_core.deployment import resolve_prompt_bundle
@@ -424,7 +481,12 @@ async def run_bot(transport, runner_args) -> None:
             if sandbox_session.get("kbSnapshotId"):
                 bundle["kbSnapshotId"] = sandbox_session["kbSnapshotId"]
         else:
-            bundle = load_active_bundle("production", fallback_environments=("sandbox",))
+            bundle = load_active_bundle(
+                "production",
+                fallback_environments=("sandbox",),
+                bot_id=cohort_bot_id,
+                customer_id=cohort_key,
+            )
     except KeyError:
         logger.warning("No active deployment — using minimal fallback instruction")
         bundle = {
@@ -522,6 +584,18 @@ async def run_bot(transport, runner_args) -> None:
         direction=str(bundle.get("callDirection") or "inbound"),
         simulated=is_simulated,
     )
+    # "Max call duration" from the Guardrails tab. It was authored, published
+    # and read by nobody: every call ran to the fixed platform cap regardless
+    # of the slider. It can only ever shorten a call — `_max_duration_watchdog`
+    # takes the smaller of the two — so an authored value cannot buy a longer
+    # call than the platform allows.
+    try:
+        _guardrail_secs = int((bundle.get("guardrails") or {}).get("maxSeconds") or 0)
+    except (TypeError, ValueError):
+        _guardrail_secs = 0
+    if _guardrail_secs > 0:
+        session.extra["guardrail_max_seconds"] = _guardrail_secs
+
     system_instruction = _system_instruction_from_bundle(bundle)
 
     # The mission briefing. Appended to the persona rather than replacing it:
@@ -531,8 +605,9 @@ async def run_bot(transport, runner_args) -> None:
     #
     # Loaded here because the flow graph is compiled a few lines below and the
     # briefing has to be in the system prompt before the first turn is built. A
-    # missing or unreadable mission degrades to the ordinary script, which is
-    # what an outbound call did until now anyway.
+    # A non-treatment mission may still degrade to the ordinary script.
+    # A treatment mission carries a signed Action Contract and fails before
+    # speech if that contract is missing, stale, or tampered.
     _mission: dict[str, Any] | None = None
     if session.extra.get("attempt_id"):
         try:
@@ -546,8 +621,29 @@ async def run_bot(transport, runner_args) -> None:
 
             _mission = await asyncio.to_thread(_load_mission)
         except Exception:
-            logger.exception("mission load failed — continuing without a briefing")
+            logger.exception("mission load failed")
+        if session.extra.get("treatment_decision_id") and not _mission:
+            raise RuntimeError("outbound treatment mission is unavailable")
         if _mission:
+            action_contract = _mission.get("actionContract")
+            if _mission.get("decisionId"):
+                from bank_boundary import snapshots
+                from bank_boundary.snapshots import ContractError
+
+                try:
+                    if not isinstance(action_contract, dict):
+                        raise ContractError("missing")
+                    snapshots.validate(action_contract)
+                    if action_contract.get("decision_id") != _mission.get("decisionId"):
+                        raise ContractError("stale")
+                except ContractError as exc:
+                    raise RuntimeError(
+                        f"outbound action contract refused: {exc}"
+                    ) from exc
+                session.extra["required_assertions"] = list(
+                    action_contract["required_assertions"]
+                )
+                session.extra["action_contract_validated"] = True
             session.extra["mission"] = _mission
             # The card's entry node wins over the objective lookup when both
             # exist; they agree unless someone edited one of them, and G-OB2
@@ -1135,7 +1231,10 @@ async def run_bot(transport, runner_args) -> None:
     from agent_core.tools.catalog import CATALOG
     from agent_core.tools.schema import CHANNEL_VOICE
 
-    _mouth = _resolve_mouth(bundle.get("agentCard") or {})
+    _mouth = _resolve_mouth(
+        bundle.get("agentCard") or {},
+        frozen_connector_tools=bundle.get("frozenTools"),
+    )
     # Not `_tool_state`: build_collections_flow returns its own turn state under
     # that name a few lines below, and they are unrelated types.
     _grant = _mouth.tools(
@@ -1161,6 +1260,7 @@ async def run_bot(transport, runner_args) -> None:
         sink=sink,
         allowed_tool_names=_allowed_tools,
         attached_skills=_attached_skills,
+        agent_card=bundle.get("agentCard") if isinstance(bundle.get("agentCard"), dict) else None,
     )
 
     # Authored Prompt Studio graph when the published version has nodes, unless
@@ -1191,6 +1291,7 @@ async def run_bot(transport, runner_args) -> None:
                 sink=sink,
                 allowed_tool_names=_allowed_tools,
                 attached_skills=_attached_skills,
+                agent_card=bundle.get("agentCard") if isinstance(bundle.get("agentCard"), dict) else None,
                 objective=session.extra.get("objective") or None,
                 entry_node=session.extra.get("entry_node") or None,
             )
@@ -1741,15 +1842,25 @@ async def run_bot(transport, runner_args) -> None:
         await _handle_tune_message(message)
 
     async def _max_duration_watchdog() -> None:
-        """Hard cap on call length with spoken sign-off (docs: Maximum Call Duration)."""
+        """Hard cap on call length with spoken sign-off (docs: Maximum Call Duration).
+
+        The card's ``guardrails.maxSeconds`` narrows the platform cap and can
+        never widen it, so a slider left at its maximum changes nothing and a
+        slider pulled down is honoured.
+        """
+        cap = _MAX_CALL_DURATION_SECS
+        authored = int(session.extra.get("guardrail_max_seconds") or 0)
+        if authored > 0:
+            cap = min(cap, authored)
         try:
-            await asyncio.sleep(_MAX_CALL_DURATION_SECS)
+            await asyncio.sleep(cap)
             if not _claim_end("max_duration"):
                 return
             logger.info(
-                "Max call duration reached · session={} · secs={}",
+                "Max call duration reached · session={} · secs={} · authored={}",
                 session.session_id,
-                _MAX_CALL_DURATION_SECS,
+                cap,
+                authored or "none",
             )
             try:
                 await worker.queue_frame(
@@ -2535,6 +2646,7 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "pipecat.utils.context.llm_context_summarization",
     "pipecat.workers.runner",
     "agent_core.cards.handoff_policy",
+    "agent_core.cards.routing",
     "agent_core.context",
     "agent_core.deployment",
     "agent_core.providers",
@@ -2545,9 +2657,12 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "agent_core.tools.catalog",
     "agent_core.tools.schema",
     "agent_core.tuning",
+    "bank_boundary",
+    "bank_boundary.snapshots",
     "db",
     "mission",
     "outbound",
+    "sqlalchemy",
     "voice",
     "voice.amd",
     "voice.bot_turn_state",

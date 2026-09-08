@@ -1,0 +1,258 @@
+{
+ "slice": "fleet",
+ "summary": "The fleet index (Habibi/src/routes/agent-studio.index.tsx) renders GET /agent-studio/cards (main.py:2106 → db_prompt_studio.list_agent_studio_cards:306), which appends the four Python-constant first-party cards (defaults.py:36-41) to the tenant's bots rows, builds one summary per card from (newest draft ?? published ?? card_dump/scaffold) via _agent_studio_card_summary:404, and stamps entryBotId/reachability by walking handoff edges from those in-memory cards seeded with runtime_entry_bot_id() (routing.py:34-44, BOT_ID env) plus every card whose production deployment is active (:350-364). The Clone panel lists GET /agent-studio/templates and POSTs /agent-studio/cards/clone, which inserts a bots row and one draft prompt_version whose agent_card is a code-default template (templates.py:124-171) while prompt/persona/voice/guardrails/flow come from the source bot's published version (clone.py:41-87); nothing is deployed until the editor publishes. Archive/Restore flip bots.archived_at, retire the active production deployment and append a hash-chained audit_log entry (db_prompt_studio.py:623-758 → change_log.py:254-304); Recent changes reads GET /agent-studio/change-log with the tenant-wide chain verdict. Every mutation invalidates [\"agent-studio\"] and [\"agent-change-log\"] through invalidateAgentStudio (agent-studio.ts:202-205), so prior findings 1.1 and 1.2 are fixed. The only runtime consumer of anything this screen writes is load_active_bundle/get_active_deployment reading bot_deployments.status='active' after a publish (deployment.py:33-52, db_prompt_studio.py:1443-1457); bots.archived_at is read by no runtime path at all (voice/, bot_runtime.py, outbound, agent_core/deployment.py never reference it), and the reachability chip is derived from draft card JSON that neither runtime allowlist reads (bot_tools.py:400-418 reads the deployed bundle's card; voice/tools.py:2783-2788 reads the Python default and is unrestricted for clones).",
+ "endpoints": [
+  "GET /agent-studio/cards?includeArchived=true|false → backend/main.py:2106-2108 list_agent_studio_cards → backend/db_prompt_studio.py:306 list_agent_studio_cards (per card: _studio_card_versions:366, _agent_studio_card_summary:404, get_active_deployment:1477, db_inbox.get_latest_eval_report:1582 x2; routing.reachability agent_core/cards/routing.py:84)",
+  "GET /agent-studio/templates → backend/main.py:2111-2115 → backend/agent_core/cards/templates.py:33 templates()",
+  "POST /agent-studio/cards/clone {templateId,name} → backend/main.py:2118-2127 via _handle_write:818 → backend/agent_core/cards/clone.py:25 clone_card → db_prompt_studio.get_published_prompt_version:253, create_prompt_version:1605, get_agent_studio_card:569",
+  "POST /agent-studio/cards/{bot_id}/archive → backend/main.py:2159-2168 → backend/db_prompt_studio.py:623 archive_agent_studio_card → agent_core/change_log.py:254 record_archive",
+  "POST /agent-studio/cards/{bot_id}/restore → backend/main.py:2171-2174 → backend/db_prompt_studio.py:706 restore_agent_studio_card → agent_core/change_log.py:275 record_restore",
+  "GET /agent-studio/change-log?limit=10 → backend/main.py:2177-2191 get_agent_change_log → backend/db_prompt_studio.py:761 agent_change_log → agent_core/change_log.py:307 read_entries + verify_chain",
+  "GET /eval/reports (no params; server default limit=50) → backend/main.py:2813-2821 list_eval_reports → backend/db_inbox.py:1671 list_eval_reports",
+  "Edit / card name / 'unpublished draft →' → navigate /agent-studio/$botId (no backend from this screen)",
+  "Sandbox → navigate /sandbox?botId= (Habibi/src/routes/sandbox.tsx:4-10 validateSearch; sandbox.lazy.tsx:50-58 seeds botId) — no backend from this screen",
+  "Skills library → navigate /agent-studio/skills — no backend"
+ ],
+ "runtime_consumers": [
+  "bots row (clone INSERT, clone.py:61-69) → db_prompt_studio.create_prompt_version:1633 bot-exists check; db_inbox.handoff_to_agent:1459 bot-exists check; compile G5 known_bots via db_prompt_studio.py:1877 'SELECT id FROM bots' (archived not filtered)",
+  "prompt_versions draft (clone, clone.py:75-87) → NONE at runtime until published; load_active_bundle only follows bot_deployments.prompt_version_id (agent_core/deployment.py:33-60)",
+  "prompt_versions.agent_card of the clone (template_card) → compile gates at publish (db_prompt_studio.py:1878-1930) → after publish bot_tools._handoff_allowlist reads bundle card (bot_tools.py:400-418); voice/tools.py:2783-2788 ignores it (card_for(bot_id) → KeyError → allowlist None = unrestricted, agent_core/tools/domain.py:1024)",
+  "prompt_versions.flow / prompt / persona / voice / guardrails copied from source's published version (clone.py:70-74) → runtime via the bundle only after publish (deployment.py:60-80)",
+  "bots.archived_at (archive :655-665 / restore :735-742) → db_prompt_studio.list_agent_studio_cards:326,346 and get_agent_studio_card:603-616 (roster/chip); _handoff_edges:527 and _live_deployment_bot_ids:559 (studio only); agent_core/skills/persist.py:134 attached_cards; db.py:1489-1513 participant roster status — NONE in backend/voice/**, bot_runtime.py, outbound.py, mission.py, cadence.py, agent_core/deployment.py, agent_core/tools/**, agent_core/cards/compile.py (dead config for every runtime path)",
+  "bot_deployments.status='retired' (archive, db_prompt_studio.py:670-680) → get_active_deployment / _ACTIVE_DEPLOYMENT_SELECT status='active' (db_prompt_studio.py:1443-1457) → load_active_bundle (deployment.py:52) → voice/bot.py:427, bot_runtime.py:712, sandbox_runtime.py:512, copilot.py:285; canary.pick_deployment_id (deployment.py:41)",
+  "audit_log agent.archive / agent.restore entry (change_log.py:254-304) → GET /agent-studio/change-log only (read_entries:307, verify_chain:353); NONE at runtime",
+  "entryBotId / reachability (computed, not stored) → consumers: this screen's chips (index.tsx:55-91,597,619) and archiveAvailability (agent-roster.ts:63); AgentGraphTab ROUTE_TONE (AgentCardPanels.tsx:745-757); server-side archive guard runtime_entry_bot_id (db_prompt_studio.py:650)"
+ ],
+ "findings": [
+  {
+   "id": "FLEET-1",
+   "title": "Reachability chip is computed from the DRAFT card's handoffs, not the published one the runtime enforces",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/db_prompt_studio.py:433-434",
+    "backend/db_prompt_studio.py:350-364",
+    "backend/db_prompt_studio.py:523-531",
+    "backend/agent_core/cards/routing.py:92-94",
+    "backend/bot_tools.py:400-418",
+    "Habibi/src/routes/agent-studio.index.tsx:64-68"
+   ],
+   "mechanism": "list_agent_studio_cards feeds reachability() with c['agentCard'], which _agent_studio_card_summary sets to `_card_of(draft) or published_card` (db_prompt_studio.py:433-434) — the editor's unsaved-to-production draft wins. get_agent_studio_card does the same through _handoff_edges' `ORDER BY (p.status = 'draft') DESC` (:530). routing.py's own docstring promises edges 'show up as soon as it is published' (:92-94), and the text runtime's allowlist is parsed from the deployed bundle's card (bot_tools.py:409-418), i.e. the published row. So a handoff added or removed in a draft flips a target between 'via handoff' and 'unreachable' on the fleet while production routing is unchanged; the help text 'Reached mid-conversation from X's handoff allowlist' (index.tsx:67) then describes an allowlist nobody is running.",
+   "trigger": "On a card with a live deployment, add a handoff to some clone in the editor (autosaves to the draft) and do not publish. Return to /agent-studio: the clone reads 'via handoff'. Delete a handoff in a draft: the still-routed target reads 'unreachable'.",
+   "fix": "Build the walk from publishedCard (fall back to card_dump defaults only for a first-party bot with no published row) in both list_agent_studio_cards and _handoff_edges, or compute both and render a distinct 'via handoff (draft only)' state.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-2",
+   "title": "'via handoff' on the voice channel is not backed by the card at all: voice allowlist is the Python default, and unrestricted for clones",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/voice/tools.py:2783-2788",
+    "backend/agent_core/tools/domain.py:1024-1030",
+    "backend/agent_core/cards/defaults.py:342-346",
+    "backend/bot_tools.py:400-427",
+    "Habibi/src/routes/agent-studio.index.tsx:64-68"
+   ],
+   "mechanism": "The voice handoff handler sets `allowlist = set(card_for(bot_id).handoff_targets())` (voice/tools.py:2786): card_for only knows the four first-party constants (defaults.py:342-346), so a tenant's edited handoffs on a published first-party card are ignored, and for any clone it raises KeyError → `allowlist = None` (:2788), which domain.handoff_to_agent treats as no restriction (`if allowlist is not None and target not in allowlist`, domain.py:1024). The text channel was fixed to read the live card and deny on miss (bot_tools.py:400-427) but voice was not. The fleet's 'via handoff' chip therefore describes neither channel's enforcement for voice: the chip is derived from card JSON edges, voice enforces the code constant (first-party) or nothing (clones).",
+   "trigger": "Publish a clone with an empty handoffs array, deploy it, and have the voice model call handoff_to_agent with any bot id: it succeeds, while the fleet shows the target 'unreachable'. Conversely, remove Insurance from Collections' handoffs and publish: the fleet says Insurance is unreachable; voice still hands off to it.",
+   "fix": "In voice/tools.py resolve the allowlist from the session's deployed bundle card (same order as bot_tools._handoff_allowlist: live card → built-in → deny with an empty set, never None).",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-3",
+   "title": "An archived card can be edited and published back into production; the fleet then shows 'archived · takes no traffic' beside 'deployed · 100%'",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:675-686",
+    "Habibi/src/routes/agent-studio.index.tsx:81-85",
+    "Habibi/src/routes/agent-studio.index.tsx:597-614",
+    "backend/db_prompt_studio.py:1860-1975",
+    "backend/main.py:3247-3275",
+    "backend/db_prompt_studio.py:355-364"
+   ],
+   "mechanism": "The Edit button is rendered for archived cards (index.tsx:675-686) and neither the editor shell nor StudioHeader/PublishDialog/ShipTab reads archivedAt or reachability (grep of prompt-studio.lazy.tsx and those components: zero matches). publish_prompt_version (db_prompt_studio.py:1860-1975) and the /prompt-versions/{id}/publish route (main.py:3247-3275) never consult bots.archived_at — the only references to that column in the backend are the roster functions at db_prompt_studio.py:326-754. A publish on an archived bot therefore inserts an active production deployment. The fleet then renders reachability 'archived' with help 'Retired. Kept for audit; takes no traffic' (index.tsx:81-85) and, two lines below, 'deployed · 100%' (index.tsx:600-608); list_agent_studio_cards even seeds the reachability walk with that archived bot (`deployed=[... deploymentStatus == 'live']`, :355-359) while get_agent_studio_card's _live_deployment_bot_ids excludes archived bots (:559), so the fleet and the editor disagree on neighbours' reachability too.",
+   "trigger": "Archive a clone, tick 'Show archived', click Edit, click Publish in the editor (compile passes — no gate reads archived_at). Reload the fleet.",
+   "fix": "Refuse publish (409 card_archived) in db_prompt_studio.publish_prompt_version and restore_prompt_version_as_draft when bots.archived_at IS NOT NULL; in the UI, disable Edit→Publish for archived cards (render a Restore-first banner) and hide the Edit button or make it read-only on archived rows.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-4",
+   "title": "evalStatus lozenge reports 'pass' when the latest redteam passed even if the latest regression suite failed",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "backend/db_prompt_studio.py:474-478",
+    "backend/db_inbox.py:1582-1600",
+    "Habibi/src/routes/agent-studio.index.tsx:638-644"
+   ],
+   "mechanism": "`evalStatus = redteam.status or regression.status or 'skipped'` (db_prompt_studio.py:474-478) is a first-non-empty chain, not a worst-of: the regression result is consulted only when there is no redteam report at all. get_latest_eval_report is per kind (db_inbox.py:1590-1594), so a card whose newest redteam run is 'pass' and whose newest regression run is 'fail' is rendered `evals: pass` in success tone with the title 'Eval suite result' (index.tsx:638-644). The publish gates read both kinds separately (db_prompt_studio.py:1907-1908), so the fleet's one-word verdict contradicts what the compiler will say.",
+   "trigger": "Run the redteam suite (pass) then run the regression suite for the same card and let it fail; open /agent-studio — the card is green.",
+   "fix": "Compute evalStatus as fail if either latest report is fail, else pass only if both required kinds pass, else skipped; or emit both statuses and render two lozenges.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-5",
+   "title": "Archive does not stop handoffs to the retired card: G5 and db.handoff_to_agent accept archived targets, so 'stops taking traffic immediately' is enforced nowhere",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:727-729",
+    "backend/db_prompt_studio.py:1877",
+    "backend/agent_core/cards/compile.py:665-678",
+    "backend/db_inbox.py:1459",
+    "backend/db_prompt_studio.py:670-680"
+   ],
+   "mechanism": "Archive only retires bot_deployments rows (db_prompt_studio.py:670-680). The publish compiler's G5 builds known_bots from `SELECT id FROM bots` with no archived filter (:1877) so a caller card keeps or newly gains a handoff to an archived bot with a green gate (compile.py:665-678); db.handoff_to_agent only checks `SELECT 1 FROM bots WHERE id=:id` (db_inbox.py:1459) and then sets interactions.handler_bot_id to the archived bot. Nothing in voice/, bot_runtime.py or agent_core/tools reads archived_at. The AlertDialog copy 'the card stops taking traffic immediately' (index.tsx:728) describes only the deployment row; the conversation graph still routes to it and analytics/QA/compliance attribute those interactions to a retired bot (canary.py:206, live_qa/scorecard.py:265, compliance/context.py:166).",
+   "trigger": "Archive a clone that appears in Collections' handoffs; publish Collections (G5 passes); on a live call have the model call handoff_to_agent(target=<archived clone>) — it succeeds and handler_bot_id becomes the archived id.",
+   "fix": "Filter known_bots to `archived_at IS NULL` in publish (and in compile preview), and have db.handoff_to_agent raise ValueError('target_bot_archived'); soften the dialog copy until then.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-6",
+   "title": "Template catalog failure renders as an empty dropdown with a disabled Create button — error as absence",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:389",
+    "Habibi/src/routes/agent-studio.index.tsx:433-439",
+    "Habibi/src/routes/agent-studio.index.tsx:482-503",
+    "Habibi/src/api/agent-studio.ts:787-820"
+   ],
+   "mechanism": "useAgentStudioTemplates() (index.tsx:389) exposes isError/isLoading, but the Clone panel reads only templates.data: the <select> maps `(templates.data ?? [])` (:491), templateId stays '' (:430-439), and Create is disabled by `!templateId` (:503) with no reason. A 5xx or network failure on GET /agent-studio/templates therefore looks identical to a tenant with no templates: a blank select and a dead button, no message, no Retry — the same pattern the fleet grid itself handles correctly at :527-542.",
+   "trigger": "Make GET /agent-studio/templates fail (API down mid-session, 500), click 'Clone card'.",
+   "fix": "Branch on templates.isLoading / templates.isError inside the panel (spinner, then an error line with a Retry that calls templates.refetch), and give the disabled Create a reason via ReasonedAction.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-7",
+   "title": "Eval trend dots come from the tenant's newest 50 reports and vanish silently on error, so 'no dots' means nothing",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:392-399",
+    "Habibi/src/routes/agent-studio.index.tsx:101-104",
+    "Habibi/src/routes/agent-studio.index.tsx:629",
+    "Habibi/src/api/agent-studio.ts:397-419",
+    "backend/main.py:2813-2821"
+   ],
+   "mechanism": "useEvalReports() is called with no kind/botId/limit (index.tsx:392; agent-studio.ts:415-419 builds an empty query string), so the server applies `limit: int = Query(default=50)` (main.py:2817) over the whole tenant newest-first. A card whose last runs are older than the 50 most recent tenant-wide reports gets zero dots even though its evalStatus lozenge (server-side, per bot) says pass — two adjacent verdicts about the same history disagree. evalReports.isError is never read (index.tsx:392-399), so a failed request also renders as 'no recent runs' (EvalTrend returns null at :102).",
+   "trigger": "Run the eval schedule a few times on a busy tenant (or run one suite 50+ times on kaia-v2-4), then look at any other card's row.",
+   "fix": "Either fetch per-bot with a small limit (useEvalReports(undefined, botId) inside the card, or a server aggregate 'last 3 per bot'), and render an explicit error/empty state instead of null when evalReports.isError.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-8",
+   "title": "'Clone card' clones a code template, not the card: tenant edits to the source's published card are dropped while its prompt/flow are copied",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "backend/agent_core/cards/clone.py:41-49",
+    "backend/agent_core/cards/clone.py:70-87",
+    "backend/agent_core/cards/templates.py:124-171",
+    "Habibi/src/routes/agent-studio.index.tsx:448-449",
+    "Habibi/src/routes/agent-studio.index.tsx:467-477"
+   ],
+   "mechanism": "The UI always sends templateId (index.tsx:505-506), so clone_card takes `card = template_card(template)` (clone.py:42-43), which starts from card_dump(<first-party constant>) (templates.py:128,150,158,166) — the published card's `agentCard` is used only on the sourceBotId path the UI never exercises (:44-45). Meanwhile prompt, persona, voice, guardrails and flow ARE taken from the source's published version (:70-74). A tenant who removed tools, added a connector, changed handoffs or configured outbound on Collections and then clicks 'Clone card' → 'Collections' gets the shipped default card with their edited mouth: mixed provenance the header copy ('clone a card, attach connectors, canary, then ship', :448-449) does not disclose, and the button is labelled 'Clone card' while the panel says 'Clone a template'.",
+   "trigger": "Edit kaia-v2-4's Tools tab to drop three tools and publish; Clone card → Collections; open the clone's Tools tab: all 23 default tools are back, but the flow/prompt are the tenant's.",
+   "fix": "Either derive the template from the source's published card when one exists (apply template deltas on top of it) or rename the control 'New agent from template' and state in the panel that the card comes from the template while the mouth comes from the source's published version.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-9",
+   "title": "'direct only' claims the card is addressable by bot id, but no production entry point ever passes a bot id other than BOT_ID",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:69-74",
+    "backend/agent_core/cards/routing.py:17-21",
+    "backend/voice/bot.py:427",
+    "backend/bot_runtime.py:712",
+    "backend/agent_core/copilot.py:285",
+    "backend/sandbox_runtime.py:512"
+   ],
+   "mechanism": "The `direct` state exists so Intake (live deployment, no inbound edge) is not called unreachable, and its help says 'Addressed directly by bot id — it has its own live deployment' (index.tsx:72-73; routing.py:17-21). The full caller list of load_active_bundle is voice/bot.py:427 (no bot_id → DEFAULT_BOT_ID), bot_runtime.py:712 (env BOT_ID), copilot.py:285 (handler_bot_id, display chip only), sandbox_runtime.py:512 (no bot_id; explicit promptVersionId otherwise). No inbound channel, dialler or router resolves a card by bot id, so for inbound traffic 'direct only' is operationally the same as 'unreachable' rendered in a calmer information tone. It also blocks nothing: the chip is purely descriptive.",
+   "trigger": "Look at Intake on the fleet: 'direct only' in information tone, while established runtime facts say every inbound call resolves BOT_ID and handoff_to_agent never loads Intake's bundle.",
+   "fix": "Reword the help to 'Has a live deployment but no inbound route today — only the sandbox and copilot can load it' and use warning tone, or drop `direct` until a router that dispatches by bot id exists.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-10",
+   "title": "Fleet and editor can disagree on reachability for targets of a first-party card that has no prompt version yet",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "shape-mismatch",
+   "files": [
+    "backend/db_prompt_studio.py:350-352",
+    "backend/db_prompt_studio.py:438-440",
+    "backend/db_prompt_studio.py:507-535",
+    "backend/db_prompt_studio.py:609-617"
+   ],
+   "mechanism": "list_agent_studio_cards walks edges from every summary's agentCard, which for a first-party bot with no draft/published row is card_dump(bot_id) (db_prompt_studio.py:438-440) — Intake's default handoffs to Collections and Insurance count. get_agent_studio_card instead walks _handoff_edges(), a query over prompt_versions joined to bots (:523-531) that yields nothing for a bot without a version row, plus the requested card itself (:610). On a fresh install where intake-v1 has never been given a version, the fleet shows Insurance 'via handoff' while GET /agent-studio/cards/insurance-v1 (editor header, graph tab nodes at main.py:2277-2287 use the list, but the card's own row uses get) reports 'direct'.",
+   "trigger": "Fresh database after migrations (bots seeded by alembic 0073, no prompt_versions for intake-v1); compare the fleet chip on insurance-v1 with the single-card GET.",
+   "fix": "Have _handoff_edges union in card_dump defaults for FIRST_PARTY_BOTS that have no version row, or have get_agent_studio_card reuse list_agent_studio_cards' edge list.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-11",
+   "title": "Toggling 'Show archived' replaces the whole roster with the loading spinner",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "a11y",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:387-388",
+    "Habibi/src/routes/agent-studio.index.tsx:523-526",
+    "Habibi/src/api/agent-studio.ts:207-217"
+   ],
+   "mechanism": "includeArchived is part of the query key (agent-studio.ts:209) and the query sets no placeholderData, so the first render after the checkbox flips has data undefined and isLoading true → the `isLoading && !data` branch (index.tsx:523) unmounts every card and shows 'Loading fleet'; focus on the checkbox survives but the grid the user was reading jumps to a spinner and back.",
+   "trigger": "Tick or untick 'Show archived' on a warm page.",
+   "fix": "Pass `placeholderData: keepPreviousData` to useAgentStudioCards (or render isFetching as a subtle bar) so the roster stays mounted while the wider list loads.",
+   "prior_ref": ""
+  },
+  {
+   "id": "FLEET-12",
+   "title": "Create draft has no in-flight indicator, unlike every sibling control on the screen",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "a11y",
+   "files": [
+    "Habibi/src/routes/agent-studio.index.tsx:502-516",
+    "Habibi/src/routes/agent-studio.index.tsx:533-541",
+    "Habibi/src/routes/agent-studio.index.tsx:312-321"
+   ],
+   "mechanism": "The Retry buttons (index.tsx:316-317, 536-537) and ReasonedAction (:165-166) pass `loading` alongside `disabled`; the Create draft button only sets `disabled={clone.isPending || !templateId}` (:503), so a slow clone (bots INSERT + prompt_versions INSERT + full card summary) reads as an inexplicably greyed button rather than a pending action.",
+   "trigger": "Click Create draft on a slow API.",
+   "fix": "Add `loading={clone.isPending}` to the Create draft Button.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Prior 1.1 fixed: archive/restore/clone invalidate both ['agent-studio'] and ['agent-change-log'] via invalidateAgentStudio (Habibi/src/api/agent-studio.ts:202-205, 227, 827); RecentChanges key ['agent-change-log','tenant',10] (agent-studio.ts:979) prefix-matches.",
+  "Prior 1.2 fixed: archive confirmation is the themed AlertDialog (Habibi/src/routes/agent-studio.index.tsx:717-745); restore needs no confirmation and the server never refuses it (agent-roster.ts:57-59; db_prompt_studio.py:706-758).",
+  "Prior 1.3 (junk cards): seed now ships collectionsbot-v2-4 and webchatbot archived (backend/seed_postgres.py:637-649) and scripts/prune_probe_cards.py exists; data hygiene, not code.",
+  "'takes inbound' agrees with the runtime: entryBotId comes from routing.runtime_entry_bot_id (backend/agent_core/cards/routing.py:34-44) which is the same `os.getenv('BOT_ID') or db.DEFAULT_BOT_ID` bot_runtime.py:712 and deployment.py:33 resolve; archive_agent_studio_card refuses the same id server-side (db_prompt_studio.py:650) and archiveAvailability mirrors it (agent-roster.ts:63-65).",
+  "archiveAvailability branch order matches the server guards (first-party then entry; live deployment is a consequence, not a refusal) — agent-roster.ts:56-73 vs db_prompt_studio.py:645-651; covered by agent-roster.test.ts:25-89.",
+  "Archive is atomic and audited: bots.archived_at, deployment retirement and change_log.record_archive run in one engine.begin() (db_prompt_studio.py:654-700); a lost race raises KeyError → _handle_write 404 with a clean detail (main.py:818-826); the toast shows it (index.tsx:414-416).",
+  "Restore reads archived_at before nulling it and records it (db_prompt_studio.py:722-756; change_log.py:275-304); it does not redeploy, and both the dialog copy (index.tsx:728) and the endpoint docstring (main.py:2173) say so.",
+  "Change-log response shape: every payload key written by _write/record_publish/record_rollback/record_archive/record_restore (change_log.py:139-304) is declared on AgentStudioChangeLogEntryResponse with extra='forbid' (schemas.py:3520-3562), so the GET cannot 500 after an archive/restore; TS ChangeLogEntry (agent-studio.ts:900-923) is a superset-tolerant match.",
+  "AgentStudioCardResponse (schemas.py:3480-3505, extra='forbid') declares exactly the 22 keys _agent_studio_card_summary + list_agent_studio_cards emit (db_prompt_studio.py:355-364, 480-506); TS AgentCardSummary matches field-for-field (agent-studio.ts:16-52).",
+  "Archived filtering is server-side (`AND archived_at IS NULL`, db_prompt_studio.py:326) and archived cards' handoff edges are excluded from the walk (:352); the 'archived' reachability overrides everything (:362-364).",
+  "Sandbox button: sandboxAvailability blocks only deploymentStatus 'empty' (agent-roster.ts:80-87); for a draft-only card the sandbox picks versions[0] (sandbox.lazy.tsx:78, 117-119) and create_sandbox_run honours an explicit promptVersionId (sandbox_runtime.py:504-527), so it rehearses that card, not the default bot; the botId search param is validated (sandbox.tsx:4-10) and re-seeded on navigation (sandbox.lazy.tsx:55-58).",
+  "EvalTrend ordering: list_eval_reports is `ORDER BY r.created_at DESC` (db_inbox.py:1695) so `slice(0,3).reverse()` (index.tsx:104) reads oldest→newest; null-botId reports are skipped (index.tsx:395).",
+  "Template picker seeding waits for the catalog (index.tsx:427-439) so Create cannot clone an id the user never picked; clone_card validates templateId against templates() and 409s unknown ids (clone.py:33-35, main.py:830-834).",
+  "Clone creates the bots row before the version so create_prompt_version's bot-exists check passes (clone.py:60-69, db_prompt_studio.py:1633-1634); skill attachments are synced at publish (db_prompt_studio.py:1960-1962) and the skills library counts only published, non-archived cards (agent_core/skills/persist.py:127-134), so no attachment rows at clone time is consistent.",
+  "ReasonedAction keeps blocked buttons hoverable/focusable with aria-disabled + sr-only reason (index.tsx:147-188); per-card busy state uses archive.variables?.botId (index.tsx:702).",
+  "Fleet load error is rendered honestly with message + Retry (index.tsx:527-542); Recent changes renders isError as a danger lozenge and explanatory copy even when collapsed (index.tsx:261-262, 330-337).",
+  "get_agent_studio_card returns 404 agent_card_not_found for unknown ids (main.py:2130-2135) and the client does not retry 4xx (agent-studio.ts:304, config.ts:161-169)."
+ ]
+}

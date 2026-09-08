@@ -33,12 +33,16 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from agent_core.treatment import actions as A, config, decisions
+from agent_core.treatment import actions as A, attempts, cancel, config, decisions, reservations
 
 logger = logging.getLogger(__name__)
 
 #: Actions whose executor is a later roadmap item.
 DEFERRED: frozenset[str] = frozenset({A.FIELD_VISIT, A.LEGAL_NOTICE})
+
+#: Enqueued rather than sent inside the claim transaction. Queuing is not
+#: enactment: ``enacted`` stays false until a provider reference exists.
+QUEUED_ACTIONS: frozenset[str] = frozenset({A.WHATSAPP})
 
 #: A plan this stale is about a situation that has moved on. Re-deciding is
 #: cheaper and safer than dialling on yesterday's reasoning.
@@ -86,11 +90,15 @@ def enact_one(
     if isinstance(scheduled, datetime):
         at = scheduled if scheduled.tzinfo else scheduled.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - at > MAX_PLAN_AGE:
-            decisions.record_outcome(decision_id, "cancelled", conn=conn)
+            decisions.record_outcome(
+                decision_id, "cancelled", conn=conn, cancel_reason=cancel.PLAN_EXPIRED
+            )
             return False, "plan_expired"
 
     if action in DEFERRED:
-        decisions.record_outcome(decision_id, "cancelled", conn=conn)
+        decisions.record_outcome(
+            decision_id, "cancelled", conn=conn, cancel_reason=cancel.NO_EXECUTOR
+        )
         logger.info(
             "treatment %s recommended %s — no executor yet (roadmap P8/P9)",
             decision_id,
@@ -100,16 +108,25 @@ def enact_one(
 
     handler = _HANDLERS.get(action)
     if handler is None:
-        decisions.record_outcome(decision_id, "cancelled", conn=conn)
+        decisions.record_outcome(
+            decision_id, "cancelled", conn=conn, cancel_reason=cancel.UNKNOWN_ACTION
+        )
         return False, f"unknown_action:{action}"
 
     customer = _customer(conn, decision["customer_id"])
     if customer is None:
-        decisions.record_outcome(decision_id, "cancelled", conn=conn)
+        decisions.record_outcome(
+            decision_id, "cancelled", conn=conn, cancel_reason=cancel.CUSTOMER_ROW_MISSING
+        )
         return False, "customer_gone"
 
     # Still worth doing? A borrower who paid between planning and sending must
     # not be dunned for it.
+    if _paid_since_decision(conn, decision):
+        decisions.record_outcome(
+            decision_id, "cancelled", conn=conn, cancel_reason=cancel.PAID_SINCE_DECISION
+        )
+        return False, "paid_since_decision"
     if _resolved_since(conn, decision):
         decisions.record_outcome(decision_id, "superseded", conn=conn)
         return False, "already_resolved"
@@ -129,6 +146,8 @@ def enact_one(
             related_id=decision_id,
             actor_kind=spec.actor_kind if spec.actor_kind in {"bot", "human", "system", "agency"} else "system",
             account_id=decision.get("account_id"),
+            endpoint=contact_policy.chosen_phone(customer),
+            product_id=decision.get("product_id"),
         )
         if not admitted.allowed:
             # A voice plan the gate refused is still evidence. Recording it as a
@@ -138,19 +157,41 @@ def enact_one(
             # on Tuesday" with a reason instead of a shrug.
             if action == A.VOICE_BOT:
                 _record_suppressed_dial(decision, customer, admitted.reason)
-            decisions.record_outcome(decision_id, "cancelled", conn=conn)
+            decisions.record_outcome(
+                decision_id, "cancelled", conn=conn, cancel_reason=cancel.CONTACT_GATE_REFUSED
+            )
             return False, f"contact:{admitted.reason}"
 
     try:
-        ref = handler(conn, decision=decision, customer=customer)
+        from agent_core.treatment import contract as action_contract
+        from bank_boundary.snapshots import ContractError
+
+        envelope = action_contract.require_for_enactment(conn, decision, customer)
+        decision["_action_contract"] = envelope
+        _consume_contract(envelope, decision)
+        ref = handler(conn, decision=decision, customer=customer, contract=envelope)
+    except ContractError as exc:
+        decisions.record_outcome(
+            decision_id, "cancelled", conn=conn, cancel_reason=cancel.CONTACT_GATE_REFUSED
+        )
+        return False, f"contract:{exc}"
     except NoExecutor as exc:
-        decisions.record_outcome(decision_id, "cancelled", conn=conn)
+        reason = cancel.from_note(str(exc))
+        decisions.record_outcome(
+            decision_id, "cancelled", conn=conn, cancel_reason=reason
+        )
         return False, str(exc)
     except Exception:
         logger.exception("treatment enactment failed for %s", decision_id)
-        # Left un-enacted with an outcome so the executor does not spin on it.
-        decisions.record_outcome(decision_id, "cancelled", conn=conn)
+        decisions.record_outcome(
+            decision_id, "cancelled", conn=conn, cancel_reason=cancel.HANDLER_EXCEPTION
+        )
         return False, "enactment_failed"
+
+    if str(ref or "").startswith("queued:"):
+        # Queued is not sent. The drain marks enacted once a provider reference
+        # exists. A stubbed handler that returns a send-shaped ref still marks.
+        return True, ref
 
     decisions.mark_enacted(decision_id, ref=ref, conn=conn, enacted_by=enacted_by)
     return True, ref or action
@@ -159,6 +200,37 @@ def enact_one(
 # ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
+
+
+def _consume_contract(contract: dict[str, Any] | None, decision: dict[str, Any]) -> None:
+    """Handlers refuse missing, stale, tampered, or unsupported snapshots."""
+    from bank_boundary import ACTION_CONTRACT_VERSION
+    from bank_boundary import snapshots
+    from bank_boundary.snapshots import ContractError
+
+    if not contract:
+        raise NoExecutor("missing_action_contract")
+    decision_id = str(decision.get("id") or "")
+    got = str(contract.get("decision_id") or contract.get("decisionId") or "")
+    if got != decision_id:
+        raise NoExecutor("stale_action_contract")
+    if contract.get("version") != ACTION_CONTRACT_VERSION:
+        raise NoExecutor("unsupported_contract_version")
+    try:
+        snapshots.validate(contract)
+    except ContractError as exc:
+        raise NoExecutor(f"invalid_action_contract:{exc}") from exc
+    expected = {
+        "action": decision.get("chosen_action"),
+        "channel": decision.get("chosen_channel"),
+        "tenant_id": decision.get("tenant_id"),
+        "policy_binding_hash": decision.get("policy_binding_hash"),
+    }
+    if any(
+        value is not None and contract.get(key) != value
+        for key, value in expected.items()
+    ):
+        raise NoExecutor("stale_action_contract")
 
 
 def _customer(conn: Any, customer_id: str) -> dict[str, Any] | None:
@@ -189,7 +261,34 @@ def _resolved_since(conn: Any, decision: dict[str, Any]) -> bool:
             text("SELECT status FROM promises WHERE id = :id"), {"id": ref}
         ).scalar()
         return status in {"kept", "partial"} or status is None
+    if kind == "dpd_tick":
+        dpd = conn.execute(
+            text("SELECT dpd FROM accounts WHERE id = :id"),
+            {"id": decision.get("account_id")},
+        ).scalar()
+        return dpd is None or int(dpd) <= 0
     return False
+
+
+def _paid_since_decision(conn: Any, decision: dict[str, Any]) -> bool:
+    """A payment posted after this plan was written. Distinct from trigger cure."""
+    account_id = decision.get("account_id")
+    created = decision.get("created_at")
+    if not account_id or created is None:
+        return False
+    found = conn.execute(
+        text(
+            """
+            SELECT 1 FROM ledger_entries
+            WHERE account_id = :aid
+              AND type = 'payment'
+              AND posted_at > :since
+            LIMIT 1
+            """
+        ),
+        {"aid": account_id, "since": created},
+    ).fetchone()
+    return found is not None
 
 
 def _open_pay_url(conn: Any, decision: dict[str, Any]) -> tuple[str | None, Any]:
@@ -272,10 +371,16 @@ def _copy(conn: Any, decision: dict[str, Any], *, tenant_id: str | None = None) 
     )
 
 
-def _send_whatsapp(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) -> str:
+def _send_whatsapp(
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
+) -> str:
     import promise_fulfillment as pf
 
-    phone = customer.get("phone_primary") or customer.get("phone_alt")
+    phone = customer.get("phone_primary")
     if not phone:
         raise NoExecutor("no_phone_on_file")
     pay_url, amount = _open_pay_url(conn, decision)
@@ -290,6 +395,9 @@ def _send_whatsapp(conn: Any, *, decision: dict[str, Any], customer: dict[str, A
         # Outside Meta's 24-hour service window a freeform message is not
         # deliverable, and pretending otherwise burns the plan for nothing.
         raise NoExecutor("outside_service_window_no_template")
+    outbound = _outbox_send(conn, customer, decision, contract, "O1")
+    if not outbound.get("submitted"):
+        return f"queued:reference:{outbound['id']}"
     pf.enqueue_whatsapp_paylink(
         conn,
         customer_id=customer["id"],
@@ -302,8 +410,9 @@ def _send_whatsapp(conn: Any, *, decision: dict[str, Any], customer: dict[str, A
         template_env_name="WHATSAPP_TREATMENT_TEMPLATE_NAME",
         template_env_lang="WHATSAPP_TREATMENT_TEMPLATE_LANG",
         template_params=[str(customer.get("name") or ""), pay_url or ""] if not inside else None,
+        decision_id=decision["id"],
     )
-    return f"whatsapp:{conversation_id}"
+    return f"queued:whatsapp:{conversation_id}"
 
 
 def _conversation(conn: Any, customer_id: str) -> str:
@@ -312,13 +421,22 @@ def _conversation(conn: Any, customer_id: str) -> str:
     return dbmod._open_whatsapp_conversation(conn, customer_id)
 
 
-def _send_sms(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) -> str:
+def _send_sms(
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
+) -> str:
     import twilio_sms
 
-    phone = customer.get("phone_primary") or customer.get("phone_alt")
+    phone = customer.get("phone_primary")
     if not phone:
         raise NoExecutor("no_phone_on_file")
     body = _copy(conn, decision, tenant_id=customer.get("tenant_id"))
+    outbound = _outbox_send(conn, customer, decision, contract, "O1")
+    if not outbound.get("submitted"):
+        return f"queued:reference:{outbound['id']}"
     if not twilio_sms.configured():
         raise NoExecutor("sms_not_configured")
     # The decision id is the ``related_id`` on the contact event too, so the
@@ -334,7 +452,13 @@ def _send_sms(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) 
     return f"sms:{result.get('sid') or 'sent'}"
 
 
-def _dial_bot(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) -> str:
+def _dial_bot(
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
+) -> str:
     """Place the engine's call, through the attempt ledger.
 
     The attempt is reserved on its **own** short transaction rather than on
@@ -349,7 +473,7 @@ def _dial_bot(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) 
     import mission as mission_mod
     import outbound
 
-    phone = customer.get("phone_primary") or customer.get("phone_alt")
+    phone = customer.get("phone_primary")
     if not phone:
         raise NoExecutor("no_phone_on_file")
     slot = "primary" if customer.get("phone_primary") else "alt"
@@ -365,7 +489,13 @@ def _dial_bot(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) 
             decision=decision, objective=objective
         )
         card = mission_mod.card_for_bot(bot_id)
-        if card is not None and card.outbound.dials and card.outbound.objectives:
+        # Two refusals, widest first. The old order asked "does this card claim
+        # this mission" only when `dials` was already true, so the one setting
+        # that says *never call anybody* was the one setting that skipped the
+        # check — an inbound-only card dialled out, and did it unguarded.
+        if card is not None and not card.outbound.dials:
+            raise NoExecutor("card_forbids_outbound")
+        if card is not None and card.outbound.objectives:
             if card.outbound.objective(objective) is None:
                 raise NoExecutor(f"card_forbids_mission:{objective}")
         built = mission_mod.build(
@@ -377,6 +507,7 @@ def _dial_bot(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) 
             bot_id=bot_id,
             decision=decision,
         )
+        built["actionContract"] = contract
         attempt = outbound.reserve(
             own,
             customer_id=customer["id"],
@@ -434,7 +565,7 @@ def _record_suppressed_dial(
     import db as dbmod
     import outbound
 
-    phone = customer.get("phone_primary") or customer.get("phone_alt")
+    phone = customer.get("phone_primary")
     if not phone:
         return
     try:
@@ -456,7 +587,13 @@ def _record_suppressed_dial(
         logger.exception("could not log suppressed dial for %s", decision.get("id"))
 
 
-def _queue_human(conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]) -> str:
+def _queue_human(
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
+) -> str:
     """Put it in front of a person, with the reasoning attached.
 
     A follow-up rather than a callback: a callback is something the borrower
@@ -521,7 +658,11 @@ def _promise_ref(conn: Any, decision: dict[str, Any]) -> str:
 
 
 def _represent_mandate(
-    conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
 ) -> str:
     """Submit the standing instruction again for the unpaid cycle.
 
@@ -614,7 +755,7 @@ def _represent_mandate(
             amount=amount,
             cycle=state["cycle"],
         )
-        status, presented_at = "submitted", datetime.now(timezone.utc)
+        status, presented_at = "awaiting_settlement", datetime.now(timezone.utc)
     else:
         ref = _hand_to_lms(
             conn,
@@ -623,8 +764,9 @@ def _represent_mandate(
             presentation_id=presentation_id,
             amount=amount,
             cycle=state["cycle"],
+            contract=contract,
         )
-        status, presented_at = "scheduled", None
+        status, presented_at = "awaiting_settlement", None
 
     conn.execute(
         text(
@@ -705,6 +847,7 @@ def _hand_to_lms(
     presentation_id: str,
     amount: float,
     cycle: Any,
+    contract: dict[str, Any] | None = None,
 ) -> str:
     """Ask the lender's own system to present, and record that we asked.
 
@@ -717,9 +860,12 @@ def _hand_to_lms(
     once. The outcome comes back through the ordinary ``payment_events``
     webhook, which is why the presentation row carries ``payment_event_id``.
     """
+    outbound = _outbox_send(conn, customer, decision, contract, "O6")
+    if not outbound.get("submitted"):
+        return f"queued:reference:{outbound['id']}"
     return _enqueue_work(
         conn,
-        workflow_type="mandate_representment",
+        workflow_type="o6_lms_workitem",
         customer_id=customer["id"],
         payload={
             "presentationId": presentation_id,
@@ -728,13 +874,20 @@ def _hand_to_lms(
             "amount": round(amount, 2),
             "presentedFor": str(cycle),
             "rationale": (decision.get("rationale") or "")[:500],
+            "contractVersion": contract.get("version") if contract else None,
+            "actionContractId": contract.get("contract_id") if contract else None,
+            "actionContractDigest": contract.get("digest") if contract else None,
         },
         idempotency_key=f"mandate-representment:{presentation_id}",
     )
 
 
 def _change_emi_date(
-    conn: Any, *, decision: dict[str, Any], customer: dict[str, Any]
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
 ) -> str:
     """Ask for the instalment date to be moved behind the salary credit.
 
@@ -767,6 +920,9 @@ def _change_emi_date(
     credit_day = _aware(row["next_credit_at"]).day
     proposed = min(28, credit_day + EMI_DATE_BUFFER_DAYS)
 
+    outbound = _outbox_send(conn, customer, decision, contract, "O6")
+    if not outbound.get("submitted"):
+        return f"queued:reference:{outbound['id']}"
     return _enqueue_work(
         conn,
         workflow_type="emi_date_change",
@@ -777,13 +933,20 @@ def _change_emi_date(
             "proposedDueDay": proposed,
             "salaryCreditDay": credit_day,
             "rationale": (decision.get("rationale") or "")[:500],
+            "contractVersion": contract.get("version") if contract else None,
+            "actionContractId": contract.get("contract_id") if contract else None,
+            "actionContractDigest": contract.get("digest") if contract else None,
         },
         idempotency_key=f"emi-date-change:{decision['id']}",
     )
 
 
 def _open_self_service_plan(
-    conn: Any, *, decision: Any, customer: Any, **_: Any
+    conn: Any,
+    *,
+    decision: Any,
+    customer: Any,
+    contract: dict[str, Any] | None = None,
 ) -> str:
     """Enable a borrower-initiated repayment path. Nothing is sent.
 
@@ -822,6 +985,9 @@ def _open_self_service_plan(
     # the authority matrix rather than a self-service toggle.
     tenor = min(6, max(2, int(-(-outstanding // instalment))))
 
+    outbound = _outbox_send(conn, customer, decision, contract, "O6")
+    if not outbound.get("submitted"):
+        return f"queued:reference:{outbound['id']}"
     return _enqueue_work(
         conn,
         workflow_type="self_service_plan",
@@ -833,6 +999,9 @@ def _open_self_service_plan(
             "instalmentInr": round(instalment, 2),
             "proposedTenor": tenor,
             "rationale": (decision.get("rationale") or "")[:500],
+            "contractVersion": contract.get("version") if contract else None,
+            "actionContractId": contract.get("contract_id") if contract else None,
+            "actionContractDigest": contract.get("digest") if contract else None,
         },
         idempotency_key=f"self-service-plan:{decision['id']}",
     )
@@ -850,6 +1019,29 @@ def _aware(value: Any) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def _outbox_send(
+    conn: Any,
+    customer: dict[str, Any],
+    decision: dict[str, Any],
+    contract: dict[str, Any] | None,
+    code: str,
+) -> dict[str, Any]:
+    from bank_boundary import adapters
+
+    envelope = contract or decision.get("_action_contract") or {}
+    try:
+        return adapters.send_with_outbox(
+            conn,
+            tenant_id=str(customer.get("tenant_id") or ""),
+            contract_code=code,
+            action_contract=envelope,
+            idempotency_key=f"{code}:{decision['id']}",
+        )
+    except Exception as exc:
+        logger.exception("outbox %s failed for %s", code, decision.get("id"))
+        raise NoExecutor(f"outbox_failed:{code}") from exc
+
+
 _HANDLERS = {
     A.WHATSAPP: _send_whatsapp,
     A.SMS: _send_sms,
@@ -862,18 +1054,88 @@ _HANDLERS = {
 
 
 def process_one(engine: Engine) -> bool:
-    """Drain one due plan. Returns True if a row was claimed at all."""
+    """Claim, commit intent, perform provider I/O outside the claim transaction."""
     if config.mode() != config.MODE_LIVE:
         return False
+    from agent_core.treatment import kill_switch
+
+    if not kill_switch.enact_allowed():
+        return False
+
     with engine.begin() as conn:
         claimed = decisions.claim_due(conn, limit=1)
         if not claimed:
+            reservations.reap_abandoned(conn)
             return False
-        acted, note = enact_one(conn, claimed[0])
+        decision = claimed[0]
+        spec = A.spec(str(decision.get("chosen_action") or A.WAIT))
+        channel = spec.channel or "system"
+        attempt_id = attempts.write_intent(
+            conn,
+            tenant_id=str(decision.get("tenant_id") or ""),
+            decision_id=decision["id"],
+            channel=channel,
+            action=str(decision.get("chosen_action") or A.WAIT),
+        )
+        reservation_id = None
+        if spec.channel:
+            reservation_id = reservations.reserve(
+                conn,
+                tenant_id=str(decision.get("tenant_id") or ""),
+                customer_id=decision["customer_id"],
+                decision_id=decision["id"],
+                channel=spec.channel,
+            )
+        attempts.set_state(conn, attempt_id, attempts.STATE_COMMITTED)
+        decision["_attempt_id"] = attempt_id
+        decision["_reservation_id"] = reservation_id
+
+    # Provider I/O on a fresh connection so a voice FK insert cannot wait
+    # on the claim lock, and an ambiguous result can park rather than retry.
+    with engine.begin() as conn:
+        acted, note = enact_one(conn, decision)
+        attempt_id = decision.get("_attempt_id")
+        reservation_id = decision.get("_reservation_id")
+        envelope = decision.get("_action_contract") or {}
+        if attempt_id and envelope.get("contract_id"):
+            from agent_core.treatment import schema_ready as _sr
+
+            if _sr.has_column(conn, "enactment_attempts", "action_contract_id"):
+                conn.execute(
+                    text(
+                        """
+                        UPDATE enactment_attempts
+                           SET action_contract_id = :cid,
+                               action_contract_digest = :dig,
+                               updated_at = now()
+                         WHERE id = :id
+                        """
+                    ),
+                    {
+                        "cid": envelope.get("contract_id"),
+                        "dig": envelope.get("digest"),
+                        "id": attempt_id,
+                    },
+                )
+        queued = str(note or "").startswith("queued:")
+        if acted and queued:
+            attempts.set_state(conn, attempt_id, attempts.STATE_QUEUED, provider_ref=note)
+        elif acted:
+            attempts.set_state(conn, attempt_id, attempts.STATE_SENT, provider_ref=note)
+            reservations.commit(conn, reservation_id, provider_ref=note)
+        elif note in {"not_live"}:
+            reservations.release(conn, reservation_id)
+        else:
+            ambiguous = note in {"dial_failed", "timeout", "unknown"} or "ambiguous" in note
+            if ambiguous:
+                attempts.set_state(conn, attempt_id, attempts.STATE_PARKED, error=note)
+            else:
+                attempts.set_state(conn, attempt_id, attempts.STATE_FAILED, error=note)
+                reservations.release(conn, reservation_id)
         logger.info(
             "treatment plan %s action=%s acted=%s note=%s",
-            claimed[0]["id"],
-            claimed[0].get("chosen_action"),
+            decision["id"],
+            decision.get("chosen_action"),
             acted,
             note,
         )

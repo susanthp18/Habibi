@@ -147,6 +147,7 @@ def evaluate_guardrails(
     hard_max_turns: int | None = None,
     max_waiver_inr: float | None = None,
     recording_disclosed: bool = False,
+    channel: str = "voice",
 ) -> list[str]:
     flags: list[str] = []
     prohibited = [str(p).lower() for p in (guardrails.get("prohibited") or []) if str(p).strip()]
@@ -237,7 +238,12 @@ def evaluate_guardrails(
     # injected "you have not yet satisfied a required disclosure — say it once,
     # early in your next reply", and the caller then heard the disclosure twice
     # more. Read the history instead: satisfied once is satisfied for the call.
-    if guardrails.get("alwaysDiscloseRecording"):
+    if guardrails.get("alwaysDiscloseRecording") and channel not in {
+        "whatsapp",
+        "sms",
+        "rcs",
+        "email",
+    }:
         disclosed = bool(recording_disclosed) or mentions_recording_disclosure(bot_text)
         if not disclosed and turn_index >= _DISCLOSURE_DEADLINE_TURN:
             flags.append("missing-recording-disclosure")

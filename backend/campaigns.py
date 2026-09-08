@@ -518,7 +518,7 @@ def process_one(engine: Engine) -> bool:
             )
             return True
 
-        phone = target.get("phone_primary") or target.get("phone_alt")
+        phone = contact_policy.chosen_phone(target)
         if not phone:
             _mark(conn, target["id"], "skipped", note="no_phone_on_file")
             return True
@@ -526,6 +526,19 @@ def process_one(engine: Engine) -> bool:
         bot_id = run.get("bot_id") or dbmod.DEFAULT_BOT_ID
         card = mission_mod.card_for_bot(bot_id)
         objective = str(run["objective"])
+        # The card can be switched to inbound-only while a run is in flight.
+        # The target is marked rather than dialled, so the operator sees which
+        # borrowers the switch stopped instead of a run that quietly drains.
+        if card is not None and not card.outbound.dials:
+            _mark(conn, target["id"], "skipped", note="card_forbids_outbound")
+            return True
+        if (
+            card is not None
+            and card.outbound.objectives
+            and card.outbound.objective(objective) is None
+        ):
+            _mark(conn, target["id"], "skipped", note=f"card_forbids_mission:{objective}")
+            return True
         built = mission_mod.build(
             conn,
             customer_id=target["customer_id"],
@@ -536,7 +549,6 @@ def process_one(engine: Engine) -> bool:
             campaign_run_id=run_id,
             attempt_no=int(target.get("attempts") or 0) + 1,
         )
-        pool = getattr(getattr(card, "outbound", None), "number_pool", None)
         attempt = outbound.reserve(
             conn,
             customer_id=target["customer_id"],
@@ -546,8 +558,7 @@ def process_one(engine: Engine) -> bool:
             campaign_run_id=run_id,
             bot_id=bot_id,
             tenant_id=target.get("tenant_id"),
-            number_pool=pool,
-            phone_slot="primary" if target.get("phone_primary") else "alt",
+            phone_slot="primary",
             context={"source": "campaign", "runId": run_id, "mission": built},
         )
         if attempt is None:
@@ -568,6 +579,7 @@ def process_one(engine: Engine) -> bool:
             related_id=attempt["id"],
             actor_kind="bot",
             account_id=target.get("account_id"),
+            endpoint=phone,
         )
         if not decision.allowed:
             outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")
@@ -610,19 +622,35 @@ def process_one(engine: Engine) -> bool:
     result = outbound.place(engine, attempt, to_phone=phone)
     with engine.begin() as conn:
         if not result.get("placed"):
-            # Back to pending: `fleet_busy` is a fact about us, not about them.
-            conn.execute(
-                text(
-                    """
-                    UPDATE campaign_targets
-                    SET state = 'pending',
-                        next_attempt_at = now() + interval '5 minutes',
-                        updated_at = now()
-                    WHERE id = :id
-                    """
-                ),
-                {"id": target_id},
-            )
+            reason = str(result.get("reason") or "")
+            ambiguous = reason in {"dial_failed", "timeout"} or "timeout" in reason
+            if ambiguous:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE campaign_targets
+                        SET state = 'parked',
+                            next_attempt_at = NULL,
+                            updated_at = now()
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": target_id},
+                )
+            else:
+                # Back to pending: `fleet_busy` is a fact about us, not about them.
+                conn.execute(
+                    text(
+                        """
+                        UPDATE campaign_targets
+                        SET state = 'pending',
+                            next_attempt_at = now() + interval '5 minutes',
+                            updated_at = now()
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": target_id},
+                )
         else:
             conn.execute(
                 text(

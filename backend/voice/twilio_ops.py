@@ -304,11 +304,6 @@ def start_outbound_call(
     already have. Running both and logging disagreement is the cheap way to
     decide, which is why this is a parameter rather than a deletion.
     """
-    # The master outbound switch, checked here and not at any of the three call
-    # sites. This is the only function in the product that reaches the carrier,
-    # so a gate here is the one an operator can actually rely on: a future
-    # caller cannot forget to ask, and a bypass would have to be written into
-    # this file. Off by default in every deployment — see `platform_switches`.
     import platform_switches
 
     if not platform_switches.outbound_enabled():
@@ -368,6 +363,9 @@ def start_outbound_call(
         custom=",".join(sorted(custom_ids.keys())) or "-",
     )
     try:
+        from agent_core.carrier_guard import refuse_real_carrier
+
+        refuse_real_carrier("twilio.voice")
         call = _client().calls.create(**kwargs)
     except Exception as exc:
         event(

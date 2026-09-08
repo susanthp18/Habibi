@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Fit the propensity artifact from the offer decision log.
 
-    python scripts/train_propensity.py --out models/propensity.json
+    python scripts/train_propensity.py --out models/challengers/propensity.json
 
 Reads `offer_decisions` joined to `leads` outcomes, fits a regularised logistic
 regression on the feature vectors logged at decision time, calibrates it, and
@@ -37,7 +37,6 @@ import argparse
 import json
 import logging
 import math
-import os
 import random
 import sys
 from datetime import datetime, timezone
@@ -276,7 +275,7 @@ def auc(probabilities: list[float], y: list[int]) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", default=os.getenv("RECO_MODEL_PATH", "models/propensity.json"))
+    ap.add_argument("--out", default="models/challengers/propensity.json")
     ap.add_argument("--limit", type=int, default=50_000)
     ap.add_argument("--holdout", type=float, default=0.2, help="fraction held out for metrics")
     ap.add_argument("--min-samples", type=int, default=MIN_SAMPLES)
@@ -384,6 +383,13 @@ def main() -> int:
     }
 
     out = Path(args.out)
+    serving = (Path("models") / "propensity.json").resolve()
+    if out.resolve() == serving:
+        logger.error(
+            "refusing to write into the serving path %s — use models/challengers",
+            serving,
+        )
+        return 2
     out.parent.mkdir(parents=True, exist_ok=True)
     # Atomic: a half-written artifact is one a running service may load.
     tmp = out.with_suffix(out.suffix + ".tmp")

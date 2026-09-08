@@ -272,13 +272,23 @@ CREATE INDEX IF NOT EXISTS idx_followups_promise_id ON followups(promise_id);
 CREATE TABLE IF NOT EXISTS treatment_holds (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
   -- NULL means the whole customer. Hardship is a person; a dispute is usually
   -- one account.
   account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('hardship','dispute','complaint','bereavement','legal')),
+  kind TEXT NOT NULL CHECK (kind IN (
+    'hardship','dispute','complaint','bereavement','legal',
+    'cease_and_desist','deceased'
+  )),
   reason TEXT,
-  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','bot','system','regulator')),
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN (
+    'manual','bot','system','regulator','feedback','consent_event'
+  )),
+  confirmation_state TEXT NOT NULL DEFAULT 'confirmed' CHECK (
+    confirmation_state IN ('pending','confirmed')
+  ),
+  writer TEXT NOT NULL DEFAULT 'manual',
+  release_approver_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   placed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   specialist_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -310,7 +320,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_treatment_holds_active
 CREATE TABLE IF NOT EXISTS treatment_decisions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   trigger_kind TEXT NOT NULL CHECK (trigger_kind IN (
@@ -380,6 +390,37 @@ CREATE TABLE IF NOT EXISTS treatment_decisions (
   -- the loop stops labelling anything at all, silently, during exactly the
   -- shadow fortnight the rollout prescribes.
   outcome_checked_at timestamptz,
+  -- W1: why a cancelled row was cancelled. All eleven values are censoring.
+  cancel_reason TEXT CONSTRAINT ck_treatment_decisions_cancel_reason CHECK (
+    cancel_reason IS NULL OR cancel_reason IN (
+      'plan_expired','no_executor','unknown_action','customer_row_missing',
+      'contact_gate_refused','handler_exception','paid_since_decision',
+      'policy_effective_change','window_edge_capacity',
+      'prerequisite_not_delivered','endpoint_unverified'
+    )
+  ),
+  claimed_at timestamptz,
+  lease_until timestamptz,
+  lease_owner TEXT,
+  -- W2: arm and within-arm probabilities stored separately. Pre-cutover rows
+  -- keep logging_contract_version = 1 and are excluded from OPE.
+  arm_propensity double precision,
+  action_propensity double precision,
+  replay_nonce TEXT,
+  veto_stack_version TEXT,
+  engine_image_digest TEXT,
+  config_version TEXT,
+  lambda_bucket TEXT DEFAULT 'none',
+  logging_contract_version INTEGER DEFAULT 2,
+  -- W3: reach closes at one evaluation instant; cure stays open per horizon.
+  reach_outcome TEXT,
+  cure_outcome TEXT,
+  observed_days INTEGER,
+  event_at timestamptz,
+  label_mature_at timestamptz,
+  label_definition_version TEXT,
+  policy_binding jsonb,
+  policy_binding_hash TEXT,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_treatment_decisions_tenant_id ON treatment_decisions(tenant_id);
@@ -415,6 +456,55 @@ CREATE INDEX IF NOT EXISTS idx_treatment_decisions_sweep
 CREATE INDEX IF NOT EXISTS idx_treatment_decisions_ope
   ON treatment_decisions (mode, variant, created_at)
   WHERE propensity IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS enactment_attempts (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  decision_id TEXT NOT NULL REFERENCES treatment_decisions(id) ON DELETE CASCADE,
+  channel TEXT NOT NULL,
+  action TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  state TEXT NOT NULL,
+  provider_ref TEXT,
+  error TEXT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  action_contract_id TEXT,
+  action_contract_digest TEXT,
+  CONSTRAINT ck_enactment_attempts_state CHECK (
+    state IN ('claimed','committed','queued','sent','failed','parked','reconciled')
+  ),
+  CONSTRAINT uq_enactment_attempts_key UNIQUE (idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_enactment_attempts_decision
+  ON enactment_attempts (decision_id);
+
+CREATE TABLE IF NOT EXISTS contact_reservations (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  decision_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  state TEXT NOT NULL,
+  provider_ref TEXT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_contact_reservations_state CHECK (
+    state IN ('held','committed','released')
+  ),
+  CONSTRAINT uq_contact_reservations_decision_channel UNIQUE (decision_id, channel)
+);
+CREATE INDEX IF NOT EXISTS idx_contact_reservations_customer
+  ON contact_reservations (customer_id, state);
+
+CREATE TABLE IF NOT EXISTS treatment_decision_payloads (
+  decision_id TEXT PRIMARY KEY
+    REFERENCES treatment_decisions(id) ON DELETE CASCADE,
+  features jsonb NOT NULL DEFAULT '{}'::jsonb,
+  candidates jsonb NOT NULL DEFAULT '[]'::jsonb,
+  excluded jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 
 
 -- Mandates -------------------------------------------------------------------
@@ -478,7 +568,10 @@ CREATE TABLE IF NOT EXISTS mandate_presentations (
   presented_at timestamptz,
   settled_at timestamptz,
   status TEXT NOT NULL DEFAULT 'scheduled' CHECK (
-    status IN ('scheduled','submitted','success','returned','cancelled')
+    status IN ('scheduled','submitted','awaiting_settlement','success','returned','cancelled')
+  ),
+  CONSTRAINT ck_mandate_presentations_no_abandon CHECK (
+    status <> 'abandoned'
   ),
   -- Kept verbatim. The normalised reason below is a lossy projection, and a
   -- chargeback is argued from the original code.
@@ -519,7 +612,7 @@ CREATE INDEX IF NOT EXISTS idx_mandate_presentations_decision
 CREATE TABLE IF NOT EXISTS authority_decisions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   dispute_id TEXT REFERENCES disputes(id) ON DELETE SET NULL,

@@ -91,6 +91,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: api
+      HABIBI_DEPLOYED: "1"
       DB_POOL_SIZE: ${API_DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-5}
       VOICE_RUNNER_URL: http://voice:7860
@@ -153,6 +154,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: worker
+      HABIBI_DEPLOYED: "1"
       DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${WORKER_DB_MAX_OVERFLOW:-2}
       SOURCE_DB_ROOT: /source_db
@@ -191,6 +193,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: bot_worker
+      HABIBI_DEPLOYED: "1"
       DB_POOL_SIZE: ${BOT_WORKER_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${BOT_WORKER_DB_MAX_OVERFLOW:-2}
       APP_RELEASE: ${IMAGE_TAG:-local}
@@ -222,6 +225,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: voice
+      HABIBI_DEPLOYED: "1"
       DB_POOL_SIZE: ${VOICE_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${VOICE_DB_MAX_OVERFLOW:-2}
       REDIS_URL: redis://redis:6379/0

@@ -36,8 +36,17 @@ def _db():
 # bot at 02:00 exactly as they bind a supervisor.
 # ---------------------------------------------------------------------------
 
-HOLD_KINDS = ("hardship", "dispute", "complaint", "bereavement", "legal")
-HOLD_SOURCES = ("manual", "bot", "system", "regulator")
+HOLD_KINDS = (
+    "hardship",
+    "dispute",
+    "complaint",
+    "bereavement",
+    "legal",
+    "cease_and_desist",
+    "deceased",
+)
+HOLD_SOURCES = ("manual", "bot", "system", "regulator", "feedback", "consent_event")
+TWO_PERSON_RELEASE = frozenset({"legal", "cease_and_desist", "deceased", "bereavement"})
 
 
 def list_treatment_holds(
@@ -211,7 +220,7 @@ def create_treatment_hold(payload: dict[str, Any]) -> dict[str, Any]:
 def release_treatment_hold(
     hold_id: str, payload: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Lift a hold. Releasing an already-released one is idempotent."""
+    """Lift a hold. Two-person release for the acts §13.4 requires."""
     _mod = _db()
     engine = _mod.engine
     _actor_user_id = _mod._actor_user_id
@@ -220,18 +229,47 @@ def release_treatment_hold(
     body = payload or {}
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "treatment_holds", hold_id)
-        conn.execute(
-            text(
-                """
-                UPDATE treatment_holds
-                SET released_at = now(),
-                    released_by_user_id = :actor,
-                    released_reason = :reason
-                WHERE id = :id AND released_at IS NULL
-                """
-            ),
-            {"id": hold_id, "actor": _actor_user_id(), "reason": body.get("reason")},
-        )
+        row = _treatment_hold(conn, hold_id)
+        actor = _actor_user_id()
+        kind = str(row.get("kind") or "")
+        if kind in TWO_PERSON_RELEASE:
+            placed = conn.execute(
+                text("SELECT placed_by_user_id FROM treatment_holds WHERE id = :id"),
+                {"id": hold_id},
+            ).scalar()
+            if not actor or (placed and actor == placed):
+                raise ValueError("two_person_release_required")
+            extra = ""
+            from agent_core.treatment import schema_ready
+
+            if schema_ready.has_column(conn, "treatment_holds", "release_approver_user_id"):
+                extra = ", release_approver_user_id = :actor"
+            conn.execute(
+                text(
+                    f"""
+                    UPDATE treatment_holds
+                    SET released_at = now(),
+                        released_by_user_id = :actor,
+                        released_reason = :reason
+                        {extra}
+                    WHERE id = :id AND released_at IS NULL
+                    """
+                ),
+                {"id": hold_id, "actor": actor, "reason": body.get("reason")},
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    UPDATE treatment_holds
+                    SET released_at = now(),
+                        released_by_user_id = :actor,
+                        released_reason = :reason
+                    WHERE id = :id AND released_at IS NULL
+                    """
+                ),
+                {"id": hold_id, "actor": actor, "reason": body.get("reason")},
+            )
         row = _treatment_hold(conn, hold_id)
         record_activity(
             conn,
@@ -289,9 +327,8 @@ def next_treatment(
 ) -> dict[str, Any]:
     """What the treatment engine would do for this borrower, right now.
 
-    Read-only from the caller's point of view. The engine does write a decision
-    row — that is deliberate, since the shadow corpus should be built from the
-    questions people actually ask — but it enacts nothing outside live mode.
+    Read-only. Preview persistence writes zero decision rows; event and sweep
+    callers remain the only producers of enactable plans.
     """
     _mod = _db()
     engine = _mod.engine
@@ -308,6 +345,7 @@ def next_treatment(
             account_id=account_id,
             trigger=Trigger(kind=trigger),
             conn=conn,
+            persist="preview",
         )
     payload = result.to_payload()
 

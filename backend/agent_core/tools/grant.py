@@ -79,13 +79,32 @@ VOICE_FLOW_TOOLS: frozenset[str] = frozenset(
 #: produced a call that verified nobody on the regulated channel.
 #:
 #: ``voice.tools.ALWAYS_ON`` is this object — imported, not restated. The alias
-#: cannot run the other way: ``voice.tools`` imports pipecat, and the API
-#: process that runs the publish compiler (and therefore :meth:`static_grant`)
-#: does not have it. ``flow_graph._FLOW_CONTROL_TOOLS`` remains a third
-#: statement, of editor descriptions rather than the runtime floor. The pin in
-#: ``tests/test_tool_grant.py`` reads ``voice/tools.py`` as text so it holds in
-#: the API image and CI, where importing ``voice.tools`` would skip.
+#: cannot run the other way: this module is what the publish compiler (and
+#: therefore :meth:`static_grant`) reads, and ``voice.tools`` is a runtime
+#: module full of session-bound closures. ``flow_graph._FLOW_CONTROL_TOOLS``
+#: remains a third statement, of editor descriptions rather than the runtime
+#: floor. The pin in ``tests/test_tool_grant.py`` reads ``voice/tools.py`` as
+#: text rather than importing it, which keeps it cheap in every image.
 VOICE_ALWAYS: frozenset[str] = VOICE_FLOW_TOOLS | {"capture_call_goal", "verify_identity"}
+
+#: The text channel's floor. One name, for the same reason ``verify_identity``
+#: is in the voice floor: a conversation that cannot work out who it is talking
+#: to is not a narrower conversation, it is one where every write is refused.
+#:
+#: ``bot_runtime`` has told the model on *every* WhatsApp turn to "call
+#: identify_customer with phone digits or account last-4 before money or lead
+#: tools" since the text path was written. ``identify_customer`` is one of the
+#: catalog's two TEXT_ONLY specs, it is on no first-party card's include list
+#: and in no skill pack's ``allowed-tools``, and there was no text analogue of
+#: this floor — so the name was never in ``tool_state.allowed``, never rendered
+#: into the tool list, and ``execute_tool`` refused it as
+#: ``tool_not_on_card_or_skill``. The prompt has been assuming this floor
+#: exists. Now it does.
+#:
+#: The catalog's other TEXT_ONLY spec, ``ingest_customer_document``, stays a
+#: card grant rather than a floor: uploading a borrower's document is a
+#: deliberate capability, not the price of holding a conversation.
+TEXT_ALWAYS: frozenset[str] = frozenset({"identify_customer"})
 
 
 def _channel_tools(channel: str) -> set[str]:
@@ -115,6 +134,7 @@ class ToolGrant:
     card: "AgentCard | None"
     packs: tuple["SkillPack", ...]
     catalog: frozenset[str]
+    frozen_connector_tools: tuple[str, ...] | None = None
 
     # -- the interface ------------------------------------------------------
 
@@ -136,11 +156,11 @@ class ToolGrant:
 
         names = offered_tools(self.card, active_slug=active_skill, **self._inputs())
         ordered = [n for n in names if n in self.allowed]
-        if self.channel == VOICE:
-            # Order is part of what the model sees; the flow tools go last so an
-            # authored card's own tools keep the positions they had. They are in
-            # `allowed` by construction, so this only ever appends.
-            ordered += sorted(VOICE_ALWAYS - set(ordered))
+        # Order is part of what the model sees; the floor goes last so an
+        # authored card's own tools keep the positions they had. The floor is in
+        # `allowed` by construction, so this only ever appends.
+        floor = VOICE_ALWAYS if self.channel == VOICE else TEXT_ALWAYS
+        ordered += sorted(floor - set(ordered))
         return tuple(ordered)
 
     @property
@@ -160,6 +180,12 @@ class ToolGrant:
             "catalog_names": set(self.catalog),
             "attached_skills": list(self.packs) or None,
             "channel_tools": _channel_tools(self.channel),
+            # Connectors have a text renderer only. An explicit empty tuple on
+            # voice prevents effective_tools from consulting the live registry
+            # and silently granting an ext.* name no voice handler can run.
+            "frozen_connector_tools": (
+                self.frozen_connector_tools if self.channel == TEXT else ()
+            ),
         }
 
     # -- constructors -------------------------------------------------------
@@ -177,7 +203,23 @@ class ToolGrant:
 
         raw = bundle.get("agentCard") if isinstance(bundle, dict) else None
         mouth = resolve_mouth(raw or {})
-        return cls.for_card(mouth.card, mouth.packs, channel=channel)
+        frozen: list[str] | None = None
+        compiled = bundle.get("compiled") if isinstance(bundle, dict) else None
+        if isinstance(compiled, dict):
+            frozen = [
+                str(name)
+                for connector in compiled.get("connectors") or []
+                if isinstance(connector, dict)
+                for name in connector.get("tool_names") or []
+            ]
+        elif isinstance(bundle, dict) and isinstance(bundle.get("frozenTools"), list):
+            frozen = [str(name) for name in bundle["frozenTools"]]
+        return cls.for_card(
+            mouth.card,
+            mouth.packs,
+            channel=channel,
+            frozen_connector_tools=frozen,
+        )
 
     @classmethod
     def for_card(
@@ -187,6 +229,7 @@ class ToolGrant:
         *,
         channel: Channel,
         catalog: set[str] | None = None,
+        frozen_connector_tools: list[str] | tuple[str, ...] | None = None,
     ) -> "ToolGrant":
         """The grant for an already-resolved card and its packs.
 
@@ -200,23 +243,41 @@ class ToolGrant:
         packs = tuple(packs)
         if card is None:
             return cls(
-                channel=channel, allowed=frozenset(), card=None, packs=(), catalog=names
+                channel=channel,
+                allowed=frozenset(),
+                card=None,
+                packs=(),
+                catalog=names,
+                frozen_connector_tools=(
+                    tuple(frozen_connector_tools)
+                    if frozen_connector_tools is not None
+                    else None
+                ),
             )
 
         from agent_core.skills.intersect import effective_tools
 
         grant = cls(
-            channel=channel, allowed=frozenset(), card=card, packs=packs, catalog=names
+            channel=channel,
+            allowed=frozenset(),
+            card=card,
+            packs=packs,
+            catalog=names,
+            frozen_connector_tools=(
+                tuple(frozen_connector_tools)
+                if frozen_connector_tools is not None
+                else None
+            ),
         )
         allowed = set(effective_tools(card, **grant._inputs()))
-        if channel == VOICE:
-            allowed |= VOICE_ALWAYS
+        allowed |= VOICE_ALWAYS if channel == VOICE else TEXT_ALWAYS
         return cls(
             channel=channel,
             allowed=frozenset(allowed),
             card=card,
             packs=packs,
             catalog=names,
+            frozen_connector_tools=grant.frozen_connector_tools,
         )
 
     @classmethod

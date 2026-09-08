@@ -1,0 +1,372 @@
+{
+ "slice": "shell",
+ "summary": "The card editor shell (Habibi/src/routes/prompt-studio.lazy.tsx, mounted per botId by agent-studio.$botId.lazy.tsx:18 with key={botId}) hydrates from GET /prompt-versions?botId plus GET /agent-studio/cards/{bot_id}, preferring the newest draft over the published row (lazy.tsx:383-401), and keeps prompt/persona/voice/guardrails/flow/agentCard as local state fingerprinted with stableStringify (lazy.tsx:162-171). A 1200 ms debounced autosave (lazy.tsx:615-700) calls ensureStudioDraft (api/prompt-studio.ts:992-1027), which PATCHes /prompt-versions/{draftId} through the allowlist toPatchInput (:105-117) and falls back to POST /prompt-versions on 404/409; flow and agentCard are omitted when absent so the backend's key-present semantics (db_prompt_studio.py:1760-1775) cannot wipe them. Publish opens PublishDialog (compile preview via POST /agent-studio/cards/{id}/compile), then publishStudioDraft PATCHes the draft and POSTs /prompt-versions/{id}/publish, where db_prompt_studio.publish_prompt_version:1820 re-runs compile_card + assert_publishable, folds the shipped experiment into agent_card, folds voice sliders into tuning, archives the old published row, inserts an active bot_deployments row, records a canary experiment and a hash-chained change-log entry, all under a per-bot advisory lock. History drawer offers Load/Discard/Restore-as-draft/Compare and a one-click Rollback to the prior production deployment (db rollback_bot_deployment:2292), which re-publishes the prior version without compile gates. Runtime consumption of the published row happens through the active deployment loaded by env BOT_ID (bot_runtime.py:712, per established facts), not through anything this slice reads back. Most 2026-08-25 shell findings (2.1 key-order half, 2.2, 2.3, 2.4, 2.6, 2a.1, 2a.3-2a.6, 2b.5, 2m.3) are fixed at the cited lines; the residuals are shape-normalization fingerprint drift, a restore→label→id leak that resets version numbering, an authz table where rollback (a re-publish) needs less permission than publish, and a rollback that leaves canary experiments running.",
+ "endpoints": [
+  "GET /prompt-versions?botId= → backend/main.py:2032-2040 list_prompt_versions → backend/db_prompt_studio.py:213 list_prompt_versions (default page 200 via db_core.py:211,215)",
+  "GET /agent-studio/cards/{bot_id} → backend/main.py:2131-2136 → backend/db_prompt_studio.py:569 get_agent_studio_card (→ _agent_studio_card_summary:404, _studio_card_versions:368)",
+  "GET /bot-deployments/active?environment=production&botId= → backend/main.py:3203 → backend/db_prompt_studio.py:1477 get_active_deployment",
+  "GET /bot-deployments?environment=production&botId= → backend/main.py:3189 → backend/db_prompt_studio.py:1357 list_bot_deployments",
+  "GET /bot-deployments/experiments?botId= → backend/main.py:3215 (Ship-tab baseline for card-less bots; used by legacyShipBaseline lazy.tsx:452-461)",
+  "GET /persona-presets → backend/main.py:3015",
+  "GET /flow/built-in → backend/main.py:2069 (fetchBuiltInFlow, 'Load the built-in script' button lazy.tsx:1498-1520)",
+  "POST /flow/validate → backend/main.py:3003 (validateFlow, lazy.tsx:706-730 off-tab validator)",
+  "POST /agent-studio/cards/{bot_id}/compile → backend/main.py:2194-2211 → db.compile_agent_studio_card (runCompile lazy.tsx:795-826, fired by Publish button)",
+  "POST /prompt-versions → backend/main.py:3232-3235 → backend/db_prompt_studio.py:1605 create_prompt_version (autosave/publish/sandbox fallback create)",
+  "PATCH /prompt-versions/{version_id} → backend/main.py:3238-3242 (PromptVersionPatchRequest schemas.py:2377-2389, exclude_unset) → backend/db_prompt_studio.py:1703 patch_prompt_version",
+  "POST /prompt-versions/{version_id}/publish → backend/main.py:3245-3275 → backend/db_prompt_studio.py:1820 publish_prompt_version",
+  "POST /prompt-versions/lint (includeLlm=true from 'Critique wording'; includeLlm=false from useAutoLint) → backend/main.py:3278 → prompt_lint.lint_prompt",
+  "POST /prompt-versions/{version_id}/restore-as-draft → backend/main.py:3370 → backend/db_prompt_studio.py:2194 restore_prompt_version_as_draft",
+  "POST /prompt-versions/{version_id}/discard → backend/main.py:3376 → backend/db_prompt_studio.py:2261 discard_prompt_version",
+  "POST /bot-deployments/{deployment_id}/rollback → backend/main.py:3382 → backend/db_prompt_studio.py:2292 rollback_bot_deployment",
+  "Test in Sandbox → no backend from the shell beyond ensureStudioDraft; navigates to /sandbox?promptVersionId&botId (lazy.tsx:1063-1105; Habibi/src/routes/sandbox.tsx:6-10 validates both)",
+  "NOT called by the shell: PATCH /agent-studio/cards/{bot_id} → backend/main.py:2138-2156 (usePatchAgentCard agent-studio.ts:283-290 is unused by the editor; card edits travel inside PATCH /prompt-versions); GET /prompt-versions/published (fetchPublishedPromptVersion prompt-studio.ts:171-190 exists but the header derives the live row from history, lazy.tsx:413-425)"
+ ],
+ "runtime_consumers": [
+  "prompt_versions.prompt/persona/guardrails → compile gates read persona for G15 (db_prompt_studio.py:1896-1899 voice_locale_facts; compile_card:1900-1926); change-log digest (db_prompt_studio.py:1789-1808 _change_log_components, 2140-2160 record_publish); runtime load is via the active deployment's prompt_version_id loaded by env BOT_ID (bot_runtime.py:712 per established facts) — not traced further in this slice",
+  "prompt_versions.voice → folded into prompt_versions.tuning on every PATCH (db_prompt_studio.py:1732-1750 apply_voice_config_overlay) and at publish into bot_deployments.tuning + voice_config (db_prompt_studio.py:1966-2036); tts_voice_id column on bot_deployments (:1973-1977)",
+  "prompt_versions.flow → flow_graph.parse_graph at read (db_prompt_studio.py:150-170 _prompt_flow) and compile_card(flow=…) at publish (:1900-1903); '{}' means 'use built-in script' (:1685-1688)",
+  "prompt_versions.agent_card → compile_card(card_raw) + assert_publishable (db_prompt_studio.py:1874-1927); experiment folded back into the card (:1934-1958); sync_attachments_from_card (:1960-1964); resolved for the Studio by get_agent_studio_card (:429-441)",
+  "agent_card.experiment / publish trafficPct+shadow+autoRollback → bot_deployments.traffic_pct/shadow (db_prompt_studio.py:2096-2124) → canary.record_experiment (:2126-2136 → agent_core/canary.py:80-133) → sweep_rollbacks (agent_core/canary.py:351-420)",
+  "prompt_versions.label → NONE at runtime; Studio display only (_map_prompt_version db_prompt_studio.py:180, nextVersionLabel lazy.tsx:541) and change-log components (:1806)",
+  "prompt_versions.summary (autosave 'draft autosave' / 'sandbox try' / 'restored from vX' / publish note) → NONE at runtime; History drawer text (VersionHistory.tsx:270) and change log (db_prompt_studio.py:2146)",
+  "bot_deployments row from rollback → same active-deployment loader (db_prompt_studio.py:1443-1456 _ACTIVE_DEPLOYMENT_SELECT, LIMIT 1 newest); change_log.record_rollback (:2415-2424); deployment_experiments NOT touched (see SHELL-7)"
+ ],
+ "findings": [
+  {
+   "id": "SHELL-1",
+   "title": "Fingerprint drift from server-normalised fields: permanent 'unsaved' chip after 'Start from blank', adding a flow node, or authoring a zero-version bot",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:162-171",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:528-537",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:373",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1528",
+    "Habibi/src/api/flow.ts:172-212",
+    "Habibi/src/api/flow.ts:231-243",
+    "backend/flow_graph.py:167",
+    "backend/db_prompt_studio.py:116",
+    "backend/db_prompt_studio.py:122",
+    "Habibi/src/lib/stable-stringify.ts:22-26",
+    "Habibi/src/data/prompt-studio-seed.ts:198-207",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:104"
+   ],
+   "mechanism": "stableStringify fixes key order but keeps `null` and `[]` distinct from an absent key (stable-stringify.ts:22-26 drops only undefined). Local shapes lack fields the server always echoes: emptyGraph() and newNodeData() emit nodes without `entryFor` while FlowNodeData.entryFor defaults to [] (flow_graph.py:167) and PromptVersionResponse serialises it; DEFAULT_VOICE has no `style`/`params` while _prompt_voice always emits `style: None` and `params: {}` (db_prompt_studio.py:116,122; tuning.py:241-242). After a save, markSaved stores the server-shaped fingerprint (lazy.tsx:656-665) while local state keeps the seed shape, so `unsaved` (lazy.tsx:528-537) is true for the rest of the session, 'Draft saved' can never render (StudioHeader.tsx:104), and when draftId flips null→id the effect re-runs and issues one redundant PATCH (deps lazy.tsx:684-699). The 2026-08-25 fix comment (lazy.tsx:148-160) describes exactly this omitted-fields case as solved; only the key-order half is.",
+   "trigger": "Flow tab → 'Start from blank' (or add a node on the canvas), wait 1.2 s: header reads 'unsaved · draft vX' forever although the PATCH succeeded. Or open a bot with zero prompt versions and type a prompt.",
+   "fix": "After a successful save adopt the echoed row into local state for the structured fields (setFlow(draft.flow), setVoice(draft.voice)) when the operator has not edited since the request started, or normalise locally before fingerprinting (entryFor: [], style: null, params: {}) — and make emptyGraph()/newNodeData() emit entryFor: [].",
+   "prior_ref": "2.1 — key-order half fixed at lazy.tsx:162-171; the omitted-fields half the same comment describes is still present"
+  },
+  {
+   "id": "SHELL-2",
+   "title": "Rollback (a production re-publish) is gated by BOT_WRITE while publish needs AGENT_PUBLISH; card edits via the editor need only BOT_WRITE although the card route demands AGENT_EDIT",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "security",
+   "files": [
+    "backend/authz.py:280",
+    "backend/authz.py:288-292",
+    "backend/authz.py:302",
+    "backend/authz.py:130-132",
+    "backend/authz.py:151-203",
+    "backend/db_prompt_studio.py:2292-2300",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:654",
+    "Habibi/src/api/prompt-studio.ts:115"
+   ],
+   "mechanism": "ROUTE_PERMISSIONS maps POST /bot-deployments/{id}/rollback to BOT_WRITE (authz.py:280) but POST /prompt-versions/{id}/publish to AGENT_PUBLISH (:291). rollback_bot_deployment archives the live row, sets another version 'published' and inserts an active production deployment (db_prompt_studio.py:2340-2410) — the same effect as publish, minus compile gates — so an actor allowed to author but not to publish can still swap what live callers hear. Separately, the editor never calls PATCH /agent-studio/cards (AGENT_EDIT, authz.py:302); its autosave carries agentCard inside PATCH /prompt-versions (BOT_WRITE, authz.py:289; lazy.tsx:654; toPatchInput prompt-studio.ts:115), so tools, handoffs, connectors and policy bindings are editable with BOT_WRITE alone. ROLE_DEFAULTS (authz.py:151-203) grant BOT_WRITE only to admin today, so the split is latent until an operator configures a custom role; the catalogue text for BOT_WRITE ('Author and publish prompts…', :130) already contradicts the table.",
+   "trigger": "Grant a role BOT_WRITE without AGENT_PUBLISH/AGENT_EDIT; that user opens History → 'Rollback to …' and production swaps; they also toggle tools on the Tools tab and the card autosaves.",
+   "fix": "Map POST /bot-deployments/{id}/rollback to AGENT_PUBLISH, and either require AGENT_EDIT for PATCH /prompt-versions bodies that carry agentCard (check in the handler) or route card edits through the AGENT_EDIT endpoint.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-3",
+   "title": "Restore-as-draft stores label NULL, the API serves the id as the label, autosave/publish write that id back as the label, and the version counter resets to v1.0",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "backend/db_prompt_studio.py:2252",
+    "backend/db_prompt_studio.py:180",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:546-549",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:541",
+    "Habibi/src/api/prompt-studio.ts:107",
+    "backend/db_prompt_studio.py:1724-1726",
+    "Habibi/src/data/prompt-studio-seed.ts:360-365",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:169-173"
+   ],
+   "mechanism": "restore_prompt_version_as_draft inserts label=None (db:2252); _map_prompt_version substitutes the id ('v1_4-r-ab12cd', db:180). draftLabel takes the draft's own label when it exists (lazy.tsx:546-549), so the header reads 'Publish v1_4-r-ab12cd', every autosave PATCH sends label=that id (toPatchInput prompt-studio.ts:107; patch writes it, db:1724-1726) making the placeholder permanent, and publishing yields a live row labelled with the id. nextVersionLabel then fails its /^v\\d+\\.\\d+$/ match and returns 'v1.0' (seed.ts:360-365; lazy.tsx:541), so the next draft is 'v1.0' — a label that typically already exists in the archive.",
+   "trigger": "History → Restore on any archived/published row → publish it. Header afterwards: '<id> published' and 'Publish v1.0'.",
+   "fix": "Have restore carry the source label (the drawer already disambiguates duplicates with 'attempt N'), or treat label === id as unlabeled in draftLabel and use nextLabel.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-4",
+   "title": "Discarding the only draft leaves draftId pointing at the archived row; Publish stays enabled and the next autosave resurrects the discarded text",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:885-923",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:898",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1252",
+    "Habibi/src/api/prompt-studio.ts:1018-1026",
+    "Habibi/src/api/prompt-studio.ts:922-940"
+   ],
+   "mechanism": "discardDraft resets draftId/state only inside `if (live)` (lazy.tsx:898); when the discarded draft was the bot's only version there is no alternative, so draftId keeps the archived id, draftSummary keeps its note and canPublish = Boolean(draftId) remains true (lazy.tsx:1252). The next keystroke PATCHes the archived row → 409 prompt_version_not_draft → isDraftPatchFallbackError → createPromptVersion with the discarded content (prompt-studio.ts:1018-1026), silently undoing the discard; History shows 'Discarded draft …' toast followed by a new identical draft.",
+   "trigger": "Clone a card (draft only), History → Discard on that draft, then type one character.",
+   "fix": "When draftId === v.id, always setDraftId(null) and reset draftSummary; if there is no `live` row, keep the text but treat the editor as an unsaved new version (markSaved('')).",
+   "prior_ref": "2a.4 — the `live` fallback is fixed; this is the remaining branch"
+  },
+  {
+   "id": "SHELL-5",
+   "title": "'Test in Sandbox' overwrites the draft summary with 'sandbox try' and does not update the summary ref, so the note oscillates on the next autosave",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1063-1080",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1076",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1066",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:320",
+    "backend/db_prompt_studio.py:2253",
+    "backend/db_prompt_studio.py:1751-1753"
+   ],
+   "mechanism": "onTestSandbox PATCHes with a literal summary 'sandbox try' (lazy.tsx:1076) — the pattern draftSummary (lazy.tsx:320) was introduced to remove — and never assigns draftSummary.current. A restored draft's 'restored from v1.2' (db:2253) becomes 'sandbox try' on the server, then the next autosave sends the stale ref value and flips it back; the History drawer alternates between the two. It also keys on `dirty` (differs from live, :1066) rather than `unsaved`, so a fully saved draft is PATCHed anyway purely to change its summary.",
+   "trigger": "Restore a version, click Test in Sandbox, return and type: the draft's summary reads 'sandbox try', then 'restored from …' again.",
+   "fix": "Send draftSummary.current (or leave summary undefined so PATCH preserves it) and gate the write on `unsaved || !draftId`.",
+   "prior_ref": "2.4 — fixed for autosave, still present on this button"
+  },
+  {
+   "id": "SHELL-6",
+   "title": "Rollback to production is a single unconfirmed click while every sibling destructive control confirms",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "a11y",
+   "files": [
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:180-188",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:228",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:300-333",
+    "Habibi/src/components/prompt-studio/PublishDialog.tsx:301",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:992-1024"
+   ],
+   "mechanism": "The 'Rollback to <version>' button calls onRollback directly (VersionHistory.tsx:183); Discard opens an AlertDialog (:228 → :300-333), preset replacement asks in-app (lazy.tsx:1590-1640), and Publish requires typing PUBLISH (PublishDialog.tsx:301). Rollback changes what live callers hear immediately, skips compile gates (see SHELL-7) and records no note, yet is the only production-changing control with no confirmation; unsaved local edits are also replaced without warning (lazy.tsx:1001-1020).",
+   "trigger": "Open History on a bot with a prior deployment and click once on the warning-toned button under 'Active production'.",
+   "fix": "Wrap in the existing AlertDialog naming source and target versions (or a typed confirm like publish) and warn when `unsaved` is true.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-7",
+   "title": "Manual rollback leaves the canary experiment 'running' and skips compile gates; a later sweep can reactivate the old baseline beside the new active row",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "backend/db_prompt_studio.py:2292-2430",
+    "backend/db_prompt_studio.py:1874-1927",
+    "backend/db_prompt_studio.py:1960-1964",
+    "backend/agent_core/canary.py:96-106",
+    "backend/agent_core/canary.py:136-191",
+    "backend/agent_core/canary.py:351-420",
+    "backend/db_prompt_studio.py:1443-1456"
+   ],
+   "mechanism": "publish_prompt_version promotes any running experiment before recording a new one (canary.py:96-106 via db:2126-2136); rollback_bot_deployment never touches deployment_experiments and never calls compile_card/assert_publishable or sync_attachments_from_card (contrast db:1874-1927, 1960-1964). After a manual rollback of a canary, the experiment row stays 'running' with canary_deployment_id = the now rolled_back row; sweep_rollbacks (canary.py:351-420) can later trigger rollback_experiment, which UPDATEs the baseline deployment back to 'active' (canary.py:171-174) while the rollback's freshly inserted row is also active — two active production rows, hidden by the LIMIT 1 in _ACTIVE_DEPLOYMENT_SELECT (db:1443-1456). No unique active index was found in db.py/db_core.py. Gate-skipping means a version whose skills were since unsigned or connectors revoked goes live untested.",
+   "trigger": "Publish at 40% with auto_rollback eval_fail, click Rollback in History, then let a red-team report fail: the sweep reactivates the retired baseline.",
+   "fix": "In rollback_bot_deployment mark the bot's running experiments 'rolled_back' (or promoted) in the same transaction, run compile_card on the target version (or write 'gates skipped' into the change-log entry), and add a partial unique index on bot_deployments(bot_id, environment) WHERE status='active'.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-8",
+   "title": "Every autosave invalidates the whole ['agent-studio'] key, refetching the fleet, the card and any mounted compile preview (a 16-gate POST per save)",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/api/prompt-studio.ts:125-136",
+    "Habibi/src/api/prompt-studio.ts:1045-1051",
+    "Habibi/src/api/agent-studio.ts:247-282",
+    "Habibi/src/api/agent-studio.ts:292-305"
+   ],
+   "mechanism": "invalidatePromptStudio (prompt-studio.ts:125-136) invalidates ['agent-studio'] and ['agent-change-log'] and is wired to useEnsureStudioDraft (:1045-1051), i.e. to each 1200 ms autosave. useCompilePreview keys on ['agent-studio','compile-preview',…] (agent-studio.ts:247-282) so while Tools/Outbound is open every autosave re-POSTs the compiler; useAgentStudioCard (:292-305) refetches too, and a failed refetch feeds SHELL-12.",
+   "trigger": "Open the Tools tab and type in the purpose field: one compile POST per debounce window in addition to the preview's own.",
+   "fix": "Split invalidation: autosave invalidates only VERSIONS_KEY (+ the card query for this botId); keep the broad set for publish/discard/restore/rollback.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-9",
+   "title": "No unsaved-changes guard and no retry after 'Autosave failed': edits inside the debounce window or after one failed PATCH are lost on navigation",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:615-700",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:671",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1240-1270",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:105"
+   ],
+   "mechanism": "The shell has no beforeunload/useBlocker (none in prompt-studio.lazy.tsx). After a failed save setSaveStatus('error') (lazy.tsx:671) and the effect will not re-run until a dependency changes, so the edit sits unsaved behind an 'Autosave failed' lozenge (StudioHeader.tsx:105) with no retry; a sidebar link or the blocked panel's 'Back to the fleet' discards it silently. Edits made within 1200 ms of navigating away are never sent.",
+   "trigger": "Type, then click a sidebar link within a second; or stop the API, type, see 'Autosave failed', restart the API and navigate away.",
+   "fix": "Flush pending edits on unmount/pagehide (fire the save immediately), retry failed autosaves with backoff, and block route navigation while `unsaved` is true.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-10",
+   "title": "publish() ignores an in-flight autosave; the race creates an orphan or post-publish duplicate draft",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:940-990",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:643",
+    "Habibi/src/api/prompt-studio.ts:942-989",
+    "Habibi/src/api/prompt-studio.ts:1018-1026",
+    "Habibi/src/api/prompt-studio.ts:922-940"
+   ],
+   "mechanism": "publish() reads draftId synchronously (lazy.tsx:947) and does not await savingRef (:643). If the first autosave is still creating the draft (draftId null), publishStudioDraft creates and publishes a second version (prompt-studio.ts:979-987) and the autosave's row lands as an identical orphan draft that hydration will resume on reload (lazy.tsx:386-388). If an autosave PATCH lands after promotion it gets 409 prompt_version_not_draft, which isDraftPatchFallbackError (:922-940) treats as 'draft gone' → createPromptVersion → a fresh draft identical to the version just published appears seconds after 'Published vX'. The effect cleanup clears the debounce timer on publish, so only in-flight requests race.",
+   "trigger": "Type, immediately open Publish and confirm within ~1.5 s on a slow API.",
+   "fix": "Have publish await any in-flight ensureDraft (or the mutation's isPending) and cancel the timer explicitly; do not fall back to create when the 409 detail is prompt_version_not_draft and the version is now published.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-11",
+   "title": "Opening a bot whose versions store an empty card writes the server's default/scaffold card into the draft with zero operator action",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:399",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:438-441",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:493-505",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:654",
+    "backend/db_prompt_studio.py:429-441"
+   ],
+   "mechanism": "Hydration sets local card from the version row (asCard({}) → null, lazy.tsx:399) and markSaved with card=null; effectiveCard then falls to cardQuery.data.agentCard (:438-441), which get_agent_studio_card fills from card_dump or scaffold_card when no version carries a card (db:429-441). `dirty` compares that resolved card against publishedCard/published.agentCard (null) (:493-505) → true on load; `unsaved` is true too; after 1200 ms autosave PATCHes agentCard = scaffold (:654) or creates a draft. The card the bot 'has' changes because someone looked at it.",
+   "trigger": "A tenant bot whose draft/published rows have agent_card = '{}' (create_prompt_version falls back to {} when inheritance and card_dump both miss, db:1633-1660) — open its editor and wait.",
+   "fix": "Hydrate `card` from the same resolved source the server used, or exclude a server-supplied default from `dirty`/autosave until a card tab is touched.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-12",
+   "title": "A transient card-GET refetch failure after hydration replaces the whole editor with the 'Could not load' panel and disables autosave",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1193-1215",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:621",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1360-1375",
+    "Habibi/src/api/agent-studio.ts:292-305",
+    "Habibi/src/api/prompt-studio.ts:134"
+   ],
+   "mechanism": "`blocked` checks cardQuery.isError regardless of whether data is already present (lazy.tsx:1193-1215). The card query refetches on window focus and on every autosave invalidation (prompt-studio.ts:134); after retryUnlessClientError exhausts (agent-studio.ts:292-305) a 5xx sets isError with stale data retained, the editor subtree unmounts (:1360-1375) and autosave returns early (:621) while the operator's unsaved text is still in state with only 'Back to the fleet' offered.",
+   "trigger": "Edit, then let the API return 500 for /agent-studio/cards/{id} on a focus refetch.",
+   "fix": "Block only when cardQuery.isError && !cardQuery.data; otherwise show an inline banner and keep autosaving against the known-good botId.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-13",
+   "title": "Version list is a silent 200-row page: an old published row can drop out, flipping the header to 'never published' and resetting labels",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "backend/db_core.py:211",
+    "backend/db_core.py:215",
+    "backend/db_prompt_studio.py:225",
+    "Habibi/src/api/prompt-studio.ts:165-169",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:413-425",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:541",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:80-84"
+   ],
+   "mechanism": "fetchPromptVersions passes no limit (prompt-studio.ts:165-169) so list_prompt_versions clamps to DEFAULT_LIST_LIMIT=200 newest-first (db_core.py:211,215; db:225). publishedRow/published are derived from that page (lazy.tsx:413-425); once a bot accumulates >200 newer drafts/archives/restores, the live row vanishes from the list, the header says 'never published' (StudioHeader.tsx:80-84), nextLabel restarts at v1.1 (:541), `dirty` diffs against history[0], and versionCount understates.",
+   "trigger": "Long-lived bot with many autosave-created drafts and restores (each restore, sandbox try on a discarded draft, and publish adds a row).",
+   "fix": "Read the live row from GET /prompt-versions/published?botId (main.py:2043, fetcher already exists) instead of scanning the page, and paginate the drawer.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-14",
+   "title": "prompt-studio.lazy.tsx route component is unreachable dead code with a second hardcoded kaia-v2-4",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "dead-config",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:102-107",
+    "Habibi/src/routes/prompt-studio.tsx:13-21"
+   ],
+   "mechanism": "prompt-studio.tsx beforeLoad always throws a redirect (:13-21), so the lazy Route's component rendering PromptStudioPage botId=\"kaia-v2-4\" (:102-107) never mounts; its head() meta is likewise never used.",
+   "trigger": "Visit /prompt-studio — you are redirected before the component loads.",
+   "fix": "Delete the lazy Route component (keep the redirect file) so the botId hardcode does not survive into a future edit.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-15",
+   "title": "The first version of a never-published bot is labelled v1.1",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:541",
+    "Habibi/src/data/prompt-studio-seed.ts:360-365"
+   ],
+   "mechanism": "nextLabel = nextVersionLabel(publishedRow?.label ?? \"v1.0\") increments the fallback, so with nothing live the first draft/publish is 'v1.1'.",
+   "trigger": "Open a bot with no published row; header reads 'Publish v1.1'.",
+   "fix": "Return 'v1.0' when there is no published row instead of incrementing the placeholder.",
+   "prior_ref": ""
+  },
+  {
+   "id": "SHELL-16",
+   "title": "Draft-count dot on the History button is a role-less span with aria-label",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "a11y",
+   "files": [
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:119-124"
+   ],
+   "mechanism": "aria-label on a <span> without role is not reliably announced; the count is conveyed by colour only.",
+   "trigger": "Screen reader on the History button with an open draft.",
+   "fix": "Render visually hidden text ('1 draft') or give the span role=\"img\".",
+   "prior_ref": "2a.7 — still present at StudioHeader.tsx:119-124"
+  },
+  {
+   "id": "SHELL-17",
+   "title": "publish() and onRollback still assign persona/voice/guardrails without DEFAULT_* fallbacks",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:966-968",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1005-1007",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:847-870",
+    "backend/schemas.py:2208-2222"
+   ],
+   "mechanism": "loadDraft gained the `?? DEFAULT_*` guards (lazy.tsx:847-870) but publish (:966-968) and rollback (:1005-1007) did not. Harmless while PromptVersionResponse requires the three objects (schemas.py:2208-2222) and _prompt_persona/_prompt_voice/_prompt_guardrails always emit them.",
+   "trigger": "Only a schema change that makes these nullable.",
+   "fix": "Reuse one `adoptVersion(v)` helper for hydration, loadDraft, publish, rollback and discard so the fallbacks cannot diverge.",
+   "prior_ref": "2.5 — fixed in loadDraft, still latent in publish/rollback"
+  }
+ ],
+ "checked_fine": [
+  "Editor fingerprint uses stableStringify (Habibi/src/routes/prompt-studio.lazy.tsx:162-171) — the key-order half of prior 2.1 is fixed",
+  "fetchPublishedPromptVersion / fetchActiveBotDeployment rethrow anything but a real 404 (Habibi/src/api/prompt-studio.ts:171-190, 884-903) and the header renders 'deployment state unknown' on failure (StudioHeader.tsx:84-91, lazy.tsx:1229) — prior 2.2 fixed",
+  "Dead URL blocks the editor: hydration waits on cardQuery.isPending (lazy.tsx:362), `blocked` distinguishes 404 from other failures (lazy.tsx:1193-1207), autosave refuses while cardQuery.isError (lazy.tsx:621) — prior 2.3 fixed",
+  "Autosave preserves a restored draft's summary through the draftSummary ref (lazy.tsx:320, 401, 655) — prior 2.4 fixed for autosave",
+  "POST /agent-studio/cards/{bot_id}/publish honours versionId and refuses ambiguous multi-draft publishes (backend/main.py:2214-2256) — prior 2.6 fixed",
+  "PublishDialog resets confirm/locale/note on every open (PublishDialog.tsx:141-147), both typed gates normalise identically (:118-120), Confirm is blocked while the compiler runs (:104), rollout for card-less bots is in the diff (:91-93) — prior 2a.1/2a.3/2a.6 fixed",
+  "Compile failure is surfaced as compileError with an explicit 'confirming without seeing gates' banner (lazy.tsx:816-826; PublishDialog.tsx:158-168) — prior 2a.5 fixed",
+  "discardDraft excludes the discarded row when picking the fallback (lazy.tsx:893-897) — prior 2a.4 fixed for the multi-version case",
+  "DiffModal reports flow and agent-card changed/unchanged (DiffModal.tsx:46-48) — prior 2b.5 fixed",
+  "priorDeployment is sorted newest-first by publishedAt (lazy.tsx:337-352) — prior 2m.3 fixed",
+  "Autosave and publish omit flow/agentCard when absent (prompt-studio.ts:114-115, 1016-1018, 966-971) and the backend only writes those columns when the key is present (db_prompt_studio.py:1760-1775); a create without a card inherits the bot's current card before falling back (db:1633-1660) — no wipe path found",
+  "toPatchInput is an explicit allowlist matching PromptVersionPatchRequest extra=forbid (prompt-studio.ts:105-117; backend/schemas.py:2377-2389), and botId is made unassignable at the type level (prompt-studio.ts:80-100)",
+  "Concurrent autosaves are serialised by savingRef/resaveRef so a single edit cannot create two drafts (lazy.tsx:637-680)",
+  "Publish re-runs compile_card + assert_publishable server-side regardless of the client preview (db_prompt_studio.py:1874-1927), takes a per-bot advisory lock (db:1862-1866), and writes the change-log entry inside the transaction (db:2140-2160); rollback locks the same key and records record_rollback (db:2330-2333, 2415-2424)",
+  "The shipped experiment is folded back into agent_card at publish and the editor re-adopts the returned card (db:1934-1958; lazy.tsx:970-980), so Ship tab and fingerprint agree after publish",
+  "Test in Sandbox passes both promptVersionId and botId and the sandbox route validates both (lazy.tsx:1094-1101; Habibi/src/routes/sandbox.tsx:6-10)",
+  "Publish route requires AGENT_PUBLISH and a 403 surfaces as a toast via ApiError (backend/authz.py:291; lazy.tsx:987-989; Habibi/src/api/config.ts:134-147)",
+  "Card query does not retry deterministic 4xx (agent-studio.ts:292-305; config.ts:161-172)",
+  "Editor remounts per botId via key (Habibi/src/routes/agent-studio.$botId.lazy.tsx:18), so cross-card state leakage cannot occur",
+  "Publish label collision is handled: _prompt_id_from_label slug plus uuid suffix on id collision (db_prompt_studio.py:1530-1537, 1631-1632)",
+  "History drawer disambiguates same-label rows with stable oldest-first attempt suffixes and groups Live/Active draft/Archived (VersionHistory.tsx:78-101, 128-137); Discard is confirmed in-app and its busy state waits on the promise (:228, :300-333)",
+  "Rollback backend refuses non-production and already-active targets (db_prompt_studio.py:2325-2335) and keeps the single-published-row invariant by archiving then publishing in one transaction (:2340-2355)",
+  "Publish summary is persisted only when non-empty and the dialog never sends an empty note (db:2064-2072; PublishDialog.tsx:302)"
+ ]
+}

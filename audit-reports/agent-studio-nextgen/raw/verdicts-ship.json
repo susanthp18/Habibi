@@ -1,0 +1,135 @@
+{
+ "verdicts": [
+  {
+   "id": "SHIP-01",
+   "verdict": "CONFIRMED",
+   "reason": "Verified at the cited lines. The checkbox label \"Shadow (log split, do not change customer treatment)\" is ShipTab.tsx:175 (input at 169-174); the flag flows to record_experiment's INSERT column list at canary.py:114 with the bound value at canary.py:129, to bot_deployments at db_prompt_studio.py:2102/2107 (bound value 2122), and to change_log.record_publish (db_prompt_studio.py:2156). I read pick_deployment_id in full (canary.py:57-77): it reads canary_deployment_id, baseline_deployment_id and traffic_pct and never touches exp['shadow']; load_active_bundle (deployment.py:15-93) likewise never reads it. A case-insensitive grep of every 'shadow' occurrence under backend/ (320 hits, 101 files) returns only canary.py write sites, db_prompt_studio.py write/read-back sites (1448/1576/1592/1827/1942/2122/2134/2157), change_log.py:192/208, schemas.py, cards/schema.py:365, the SQL DDL, and the unrelated RECO_MODE/TREATMENT_MODE/AUTHORITY_MODE/LIVE_QA_BARGE_MODE shadow engines — no runtime reader, and no second non-speaking pipeline in voice/**, bot_runtime.py, outbound.py or mission.py. Operator action that reaches it: tick Shadow, set the slider below 100 (ShipTab.tsx:158-176), tick a trigger to clear G12, Publish — canary.py:75-76 then routes the hashed cohort to the candidate mouth for real while the control says treatment is unchanged. Not a duplicate of prior 2m.2, which only covered shadow+100%.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-02",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. canary.py:71-72 is literally `if pct >= 100 or not customer_id: return canary_id or (active or {}).get(\"id\")` — with no customer id the CANDIDATE wins, not the baseline. voice/bot.py:427 is `bundle = load_active_bundle(\"production\", fallback_environments=(\"sandbox\",))` with neither bot_id nor customer_id, and deployment.py:38-47 always goes through pick_deployment_id, so every live voice call resolves to the canary deployment at any traffic_pct. mission.py:516 resolves the outbound envelope card via `dbmod.get_active_deployment(bot_id=bot, environment=environment)`, and publish retires the prior row (db_prompt_studio.py:2081-2090) and inserts the canary as 'active' (2093-2122), so the mission card is the candidate too. I checked every load_active_bundle/pick_deployment_id call site: only bot_runtime.py:712-716 passes customer_id (sandbox_runtime.py:512 and copilot.py:285 do not), so the WhatsApp turn loop is the only splitter. Operator action: publish at 25% with a trigger, then place or receive a voice call — the candidate answers 100% of the time while ShipTab.tsx:96-98 says \"Canary is a real traffic split\".",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-03",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. canary.py:292-307 is `percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_sec * 1000.0)` over interactions WHERE handler_bot_id=:b AND channel='voice' AND started_at > now()-15min, compared to VOICE_SLO_MS=800 (canary.py:27). I traced the column: interactions.duration_sec is declared at sql/04_interactions.sql:28 and written by voice/persist.py:700-704 as `max(0, int((ended - started).total_seconds()))` — whole-call handle time — and read as AHT at db_dashboard.py:360/419. So seconds*1000 is the call length in ms and any voice call over 0.8s pushes p95 past 800. The unused per-turn columns exist as claimed: interactions.latency_ms (04_interactions.sql:22) and interaction_transcript.ttfb_ms/stt/llm/tts_ttfb_ms (04_interactions.sql:90-97). Reachable: ShipTab.tsx:15 offers \"Voice SLO miss (p95 > 800ms)\" as the first checkbox, and G12 (compile.py:878-888) requires at least one trigger for any split, so it is the natural pick; the next sweep (bot_worker.py:152-153 → canary.py:385-390) then rolls the canary back and writes rollback_reason='slo_miss' (canary.py:179-184) for a latency regression that was never measured.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-04",
+   "verdict": "DOWNGRADED",
+   "reason": "The mechanism is real and the trigger is 100% reachable — but MAJOR is inflated. Verified: lazy.tsx:1419 passes `activeDeploymentId={activeDeployment?.id}` (activeDeployment = activeDepQuery.data, lazy.tsx:336, i.e. GET /bot-deployments/active, main.py:3191-3200 → the row whose status IS 'active'); ShipTab.tsx:266 calls `rollbackDep.mutateAsync(activeDeploymentId)`; POST /bot-deployments/{id}/rollback is main.py:3370-3372 → db.rollback_bot_deployment, which raises ValueError('deployment_already_active') at db_prompt_studio.py:2330-2331 when the target is the active row; _handle_write maps it to 409 (main.py:828-833) and the mapping is asserted at tests/test_agent_studio_edge_cases.py:318. So the button always ends in toast.error('deployment_already_active') (ShipTab.tsx:268). Downgraded because it fails loudly and idempotently — no wrong runtime action, no lie, no data loss — and a working rollback exists on the same screen via the Version History drawer (lazy.tsx:1570 → onRollback at 992-999, which passes `activeDeployment?.rollbackDeploymentId ?? priorDeployment?.id`). It is a dead control (worth fixing: pass the prior deployment id), not a regulated-path defect. Note it is also the discoverability problem that the only working path is behind a Sheet.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1419",
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:259",
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:266",
+    "backend/db_prompt_studio.py:2330",
+    "backend/main.py:3370",
+    "backend/main.py:828",
+    "backend/tests/test_agent_studio_edge_cases.py:318"
+   ]
+  },
+  {
+   "id": "SHIP-05",
+   "verdict": "CONFIRMED",
+   "reason": "Verified by reading rollback_bot_deployment end to end (db_prompt_studio.py:2292-2427): it archives/re-publishes prompt versions, marks the current active row 'rolled_back' (2364-2373), inserts a fresh 'active' row (2378-2405) and writes the change log — and contains no reference to deployment_experiments and no compile_card/assert_publishable call (contrast publish_prompt_version, which calls both at db_prompt_studio.py:1908-1927). Meanwhile pick_deployment_id consults the running experiment BEFORE the active row (canary.py:64-77) and resolves the id via db.get_deployment, which is `WHERE d.id = :id` with no status filter (db_prompt_studio.py:1494-1499 → _fetch_bot_deployment 1581-1602, docstring even says \"including retired baselines\"). So after a manual rollback the still-'running' experiment keeps naming the rolled-back deployment, and — per SHIP-02 — every voice call takes it, while GET /bot-deployments/active (main.py:3191-3200) reports the restored row. Front-end half also verified: useRollbackBotDeployment → invalidatePromptStudio (prompt-studio.ts:824-830, 125-137) invalidates ['prompt-versions'], ['bot-deployments'], ['agent-studio'], ['agent-change-log'] — never ['deployments'], the experiments key (agent-studio.ts:851). Operator action: publish a 40% canary, then roll back from the Version History drawer.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-06",
+   "verdict": "CONFIRMED",
+   "reason": "Verified; only the line anchors drift by 1-2. All five evaluators filter on bot alone: _live_qa_burn `WHERE i.handler_bot_id = :b` (canary.py:206), _abandoned `WHERE bot_id = :b` (canary.py:236, not 237), _third_party_leaks `WHERE i.handler_bot_id = :b` (canary.py:263, not 264), _optouts `WHERE a.bot_id = :b` (canary.py:281, not 283), _slo_miss `WHERE handler_bot_id = :b` (canary.py:298, not 299). None takes an experiment or deployment id — sweep_rollbacks passes only exp['bot_id'] (canary.py:387/393/403/409/415) — and the eval_fail branch reads the bot's latest red-team report (canary.py:381-384), which is not a canary measurement at all. The attribution columns exist and are populated: interactions.deployment_id (sql/04_interactions.sql:26, written by voice/persist.py:143-155) and call_attempts.deployment_id (sql insert at outbound.py:373-395). Consequence is two-sided and real: at 25% the baseline supplies ~75% of the sample, so one baseline-produced abandoned call or third-party leak pulls the candidate with a false rollback_reason, and the ratio trigger (_live_qa_burn > 1.5, canary.py:393) dilutes a genuinely bad canary against baseline volume — a missed rollback on a regulated path. MAJOR stands.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/agent_core/canary.py:206",
+    "backend/agent_core/canary.py:236",
+    "backend/agent_core/canary.py:263",
+    "backend/agent_core/canary.py:281",
+    "backend/agent_core/canary.py:298",
+    "backend/agent_core/canary.py:381",
+    "backend/sql/04_interactions.sql:26",
+    "backend/voice/persist.py:143",
+    "backend/outbound.py:373"
+   ]
+  },
+  {
+   "id": "SHIP-07",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. lazy.tsx:460 is `const live = (experimentsQuery.data ?? []).find((e) => e.status === \"active\");` with the hardcoded fallback on 461 `{ trafficPct: 100, shadow: false, autoRollback: [] }`, consumed by `ship` at lazy.tsx:468-469 for a card-less bot. deployment_experiments.status is CHECK-constrained to ('running','rolled_back','promoted') (sql/18_phase5.sql:13) and canary.py only ever writes 'promoted' (100), 'running' (117) and 'rolled_back' (179); list_experiments passes the column straight through (canary.py:344). I checked the obvious refutation — that TypeScript would reject the comparison — and it does not: DeploymentExperiment.status is typed `string` (agent-studio.ts:457), so `=== \"active\"` compiles and silently never matches. ShipTab's own predicate is correct (`status === \"running\"`, ShipTab.tsx:79), which is the tell. Knock-on confirmed: publishBaseline.rollout = legacyShipBaseline for card-less bots (lazy.tsx:1155), so PublishDialog diffs against the fiction. MINOR is right — it needs a bot with no authored card, and the four first-party cards are authored.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-08",
+   "verdict": "CONFIRMED",
+   "reason": "Verified arithmetic at canary.py:73-75: `digest = sha256(...).digest(); bucket = digest[0] % 100; if bucket < pct`. digest[0] is one byte, 0-255; buckets 0-55 have three preimages (x, x+100, x+200 with x+200 <= 255 iff x <= 55) and 56-99 have two — 56*3 + 44*2 = 256, so the mapping is exactly as described. pct=50 exposes 150/256 = 58.6%, pct=25 → 75/256 = 29.3%, pct=10 → 30/256 = 11.7%. Reachable on the only path that actually splits (bot_runtime.py:712-716, the WhatsApp turn loop). MINOR is right: the split is still deterministic and monotone in pct; what is wrong is that the number in the console, the card and the change log overstates coverage by up to ~17% relative.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-09",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. ShipTab.tsx:76 takes `const experiments = useDeploymentExperiments(botId)` and line 79 collapses every non-success state into one value: `(experiments.data ?? []).find((e) => e.status === \"running\")`. The component never references experiments.isError or isLoading anywhere in the file (I read all 277 lines), and the entire running-experiment block — the status lozenge and the only working \"Roll back canary\" button — is gated on `{running ? ... : null}` (216-258). The query itself surfaces the error state normally (agent-studio.ts:849-859, no error swallowing in the queryFn), so the information is available and thrown away at the component. Trigger: a 5xx or network failure on GET /bot-deployments/experiments (main.py:3203-3207) while a canary is live renders \"no canary running\" and hides the stop control. Not a duplicate of prior 2.2, which was about fetchPublishedPromptVersion/fetchActiveBotDeployment catching to null — different query, different file, and this one is the incident-response surface.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-10",
+   "verdict": "CONFIRMED",
+   "reason": "Verified with one overstatement noted. The slider (ShipTab.tsx:158-168) calls onChange → setShip (lazy.tsx:475-490), which writes card.experiment for an authored card or setLegacyShipEdit otherwise; nothing hits the network until publish. I enumerated the deployment_experiments endpoints: only GET /bot-deployments/experiments (main.py:3203) and POST /bot-deployments/experiments/{id}/rollback (main.py:3210) exist — there is no PATCH — and the only DB writers are record_experiment (canary.py:80-133) and rollback_experiment (canary.py:136-191). The copy problem is real: ShipTab.tsx:96-98 asserts \"Canary is a real traffic split\" and the live percentage sits ten lines below at 222 with no label separating authored-from-live. Overstatement to note: a running experiment's split CAN be changed — by publishing again, which promotes the old row and inserts a new one at the new pct (canary.py:96-133); what cannot happen is changing it without a publish. MINOR stands.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:158",
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:96",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:475",
+    "backend/main.py:3203",
+    "backend/main.py:3210",
+    "backend/agent_core/canary.py:96"
+   ]
+  },
+  {
+   "id": "SHIP-11",
+   "verdict": "CONFIRMED",
+   "reason": "Verified both directions. useRollbackExperiment invalidates ['deployments'] plus invalidateAgentStudio (agent-studio.ts:869-881), and invalidateAgentStudio only touches ['agent-studio'] and ['agent-change-log'] (agent-studio.ts:202-205) — none of which is a prefix of DEPLOYMENTS_KEY = ['bot-deployments'] (prompt-studio.ts:122), the root of useActiveProdDeployment ['bot-deployments','active','production',botId] (905-913) and useProdDeployments (914-921), both with staleTime 15_000. So after rollback_experiment has flipped the active row back to the baseline (canary.py:166-174) the header chip, priorDeployment (lazy.tsx:336-352) and ShipTab's activeDeploymentId all keep pre-rollback values for up to 15s / until a refetch. Mirror image confirmed: useRollbackBotDeployment → invalidatePromptStudio (prompt-studio.ts:824-830 → 125-137) never invalidates ['deployments'], so the running-experiment panel survives a deployment rollback unchanged. MINOR is right — it self-heals on refetch.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-12",
+   "verdict": "CONFIRMED",
+   "reason": "Verified. PublishDialog computes `rolloutChanged = stableStringify(from.rollout ?? null) !== stableStringify(to.rollout ?? null)` (PublishDialog.tsx:91-92) and renders the labelled row \"Rollout: {rolloutChanged ? 'changed' : 'unchanged'}\" at 226-236 (block starting 217). Both call sites pass `rollout: cardIsAuthored ? null : ...` — publishBaseline at lazy.tsx:1155 and the `to` object at lazy.tsx:1598 — so for any authored card both sides are null, rolloutChanged is false, and the dialog prints \"Rollout: unchanged\" on the very publish that moves traffic from 100% to 40%. The change is not lost (it is inside agentCard.experiment, so \"Agent card: changed\" lights up at 236), which is why this is MINOR and not a MAJOR lie — but the one line explicitly labelled Rollout states the opposite of what is about to ship.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-13",
+   "verdict": "CONFIRMED",
+   "reason": "Verified as stated, and correctly filed SUSPECTED. sweep_rollbacks selects `WHERE status = 'running' AND tenant_id = :t` with `{\"t\": db.current_tenant()}` (canary.py:357-367); current_tenant returns `_tenant_var.get() or default_tenant()` and default_tenant returns db.TENANT_ID (tenant_context.py:65-77), so a worker process outside any request context only ever evaluates the process-default tenant's canaries — another tenant's running experiment has no watchdog at all. Call site confirmed: the canary stage sits inside the clerk try-block at bot_worker.py:144-160 (`try: from agent_core.clerk import process_one as clerk_one, sweep_overdue` … nested canary import/stage … `except Exception: logger.exception(\"queue=%s failed\", \"clerk\")`), so an unrelated clerk import failure silently skips the sweep and mislabels it. The inner try/except does protect against a canary import failure specifically. SUSPECTED because a second live tenant is not demonstrated here; MINOR is the right level.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-14",
+   "verdict": "CONFIRMED",
+   "reason": "Verified end to end. PromptVersionPublishRequest.trafficPct is `int | None = None` with no Field bounds (schemas.py:2409) while CardExperiment.traffic_pct is `Field(default=100, ge=0, le=100)` (cards/schema.py:364). main.py:3250 forwards payload.trafficPct into db.publish_prompt_version, which sets `pct = traffic_pct if traffic_pct is not None else ...` with no clamp (db_prompt_studio.py:1890) and passes it to compile_card (1919), where G12 clamps with `pct = max(0, min(100, int(pct)))` (compile.py:878) and therefore reports \"G12 canary pass — full ship\" (881). The same unclamped pct is then bound into the bot_deployments INSERT (db_prompt_studio.py:2121) against `traffic_pct INTEGER NOT NULL DEFAULT 100 CHECK (traffic_pct BETWEEN 0 AND 100)` (sql/09_bot_config.sql:256) → IntegrityError → 409 constraint_violation (main.py:834-838). Transaction rolls back, so nothing ships. TRIVIAL is correct: API-only (the slider is min=0/max=100, ShipTab.tsx:161-162), fails loudly, no state change.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHIP-15",
+   "verdict": "CONFIRMED",
+   "reason": "Verified as an accurate observation at TRIVIAL. llm_gateway.canary.model_for (canary.py:73-89) returns the candidate model for whichever profiles the current tenant-wide gateway canary's stage allows, driven from the Integrations screen (integrations.ts:446-478 → POST /gateway/canary main.py:2895 and /gateway/canary/{id}/promote main.py:2910). agent_core.canary.sweep_rollbacks (canary.py:351-425) has no branch that reads or pulls a gateway canary, and ShipTab.tsx never imports anything from api/integrations. So the two rollout axes genuinely cannot see each other and a bad turn during a mouth canary may be the model's. Keeping TRIVIAL: this is a cross-subsystem design gap with no incorrect line of code — nothing here computes a wrong value or takes a wrong action.",
+   "corrected_severity": "",
+   "corrected_files": []
+  }
+ ],
+ "slice": "ship"
+}

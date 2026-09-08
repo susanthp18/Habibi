@@ -80,6 +80,9 @@ class CompileReport(BaseModel):
     #: the failure G-OB2 exists to catch and an author needs to see both halves.
     mission_entries: dict[str, str] = {}
     card: dict[str, Any] = {}
+    #: Phase-1 compiled artefact. Empty on a dry compile that did not wrap
+    #: through ``fleet.compile_bundle``; persistable JSON when it did.
+    bundle: dict[str, Any] = {}
 
     @property
     def blocking(self) -> list[GateResult]:
@@ -225,6 +228,89 @@ def _voice_locale_gate(
     )
 
 
+def node_offers(flow: Any, grant: set[str] | frozenset[str]) -> list[dict[str, Any]]:
+    """Per node: the tools it names, split into what the runtime will offer and
+    what it will silently drop.
+
+    The flow tool picker, ``/flow/validate`` and G1 all check a node's tools
+    against the *whole* voice catalog. Nothing checked them against the card's
+    Tool Grant — so a node could name a tool the card cannot grant, compile
+    green through every gate, and lose it at ``flows_dynamic``'s
+    ``logger.warning``. The canvas still drew the tool's hop as an exit, so a
+    step whose only way out the runtime would drop looked like a step with a
+    way out.
+
+    ``VOICE_ALWAYS`` is not a drop: the nine flow-control verbs are not catalog
+    specs at all, and ``capture_call_goal``/``verify_identity`` are on the floor
+    the FlowManager keeps regardless of the grant.
+
+    Shared by the G16 gate and the compiled bundle, so the certificate and the
+    artefact cannot disagree about what a step can call.
+    """
+    import flow_graph as fg
+    from agent_core.tools.grant import VOICE_ALWAYS
+
+    try:
+        graph = fg.parse_graph(flow)
+    except Exception:
+        return []
+    if graph is None:
+        return []
+
+    reachable = set(grant) | VOICE_ALWAYS
+    out: list[dict[str, Any]] = []
+
+    def _row(key: str, names: list[str]) -> dict[str, Any]:
+        used = [n for n in dict.fromkeys(names) if n]
+        return {
+            "key": key,
+            "offered": [n for n in used if n in reachable],
+            "dropped": [n for n in used if n not in reachable],
+        }
+
+    global_tools = list(getattr(graph, "globalTools", None) or [])
+    if global_tools:
+        # Named for the field an author edits, not for a node, because that is
+        # what they would go and change.
+        out.append(_row("globalTools", global_tools))
+    for node in graph.nodes:
+        data = getattr(node, "data", None)
+        out.append(_row(node.key, list(getattr(data, "tools", None) or [])))
+    return out
+
+
+def _flow_grant_gate(flow: Any, grant: set[str] | frozenset[str]) -> GateResult:
+    """G16 — every tool the graph calls is one the card can grant.
+
+    A warning, not a block, for now. The gate found a real defect on the live
+    built-in script the day it was written (``handle_dispute`` offers
+    ``apply_goodwill``, which no attached pack granted), and a blocking gate
+    that fires on the shipping card is a gate nobody can adopt. It is promoted
+    once the fleet compiles clean.
+    """
+    import flow_graph as fg
+
+    if not fg.is_authored(flow):
+        return _gate("G16", "flow_grant", "skipped", "empty flow — built-in script")
+    rows = node_offers(flow, grant)
+    if not rows:
+        return _gate("G16", "flow_grant", "skipped", "flow could not be parsed")
+    issues = [
+        {"node": r["key"], "dropped": r["dropped"]} for r in rows if r["dropped"]
+    ]
+    if not issues:
+        return _gate("G16", "flow_grant", "pass", f"{len(rows)} steps within the grant")
+    names = sorted({n for i in issues for n in i["dropped"]})
+    return _gate(
+        "G16",
+        "flow_grant",
+        "warn",
+        f"{len(issues)} step(s) call {len(names)} tool(s) this card cannot grant: "
+        + ", ".join(names),
+        issues,
+    )
+
+
 def _mission_entries(flow: Any) -> dict[str, str]:
     """objective -> node key from the graph. Empty on an unauthored flow."""
     import flow_graph as fg
@@ -245,6 +331,7 @@ def _outbound_gates(
     effective: list[str],
     known_bot_ids: set[str],
     eval_report: dict[str, Any] | None,
+    skip_eval: bool = False,
 ) -> list[GateResult]:
     # `eval_report` here is the *outbound* suite's latest report, not the
     # regression one — the caller resolves it by kind.
@@ -461,7 +548,14 @@ def _outbound_gates(
     from agent_core.platform_flags import outbound_eval_gate_enabled
 
     out.append(
-        _eval_gate("G-OB9", "outbound", outbound_eval_gate_enabled(), eval_report, card)
+        _eval_gate(
+            "G-OB9",
+            "outbound",
+            outbound_eval_gate_enabled(),
+            eval_report,
+            card,
+            skip=skip_eval,
+        )
     )
     return out
 
@@ -536,6 +630,10 @@ def compile_card(
     voice_short_name: str | None = None,
     voice_locale: str | None = None,
     card_locales: list[str] | None = None,
+    shadow: bool | None = None,
+    prompt: str | None = None,
+    prompt_guardrails: dict[str, Any] | None = None,
+    skip_eval_gates: bool = False,
 ) -> CompileReport:
     """Static gates always run. Eval gates honour their flags."""
     gates: list[GateResult] = []
@@ -684,7 +782,29 @@ def compile_card(
     else:
         voice = "voice" in card.identity.channels
         skill_tokens = description_prefix_tokens(packs)
-        idle_count = len([n for n in idle if n not in PLATFORM_SKILL_TOOLS])
+        # `max_voice_tools` caps what a *call* carries, so the count is of what
+        # a call renders. No caller passes `channel_tools`, deliberately — a
+        # publish gate reasons about every channel at once — so the text-only
+        # specs are in `idle` and were being charged against a voice latency
+        # budget they never spend. A catalog name the catalog says does not
+        # render on voice is not idle voice weight.
+        #
+        # Only catalog names are filtered: an ext.* connector tool is not a
+        # spec, and whether those belong in this count is a separate question
+        # this line does not answer either way.
+        from agent_core.tools.catalog import CATALOG
+        from agent_core.tools.schema import CHANNEL_VOICE
+
+        voice_renderable = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
+        catalog_specs = set(CATALOG.specs)
+        idle_count = len(
+            [
+                n
+                for n in idle
+                if n not in PLATFORM_SKILL_TOOLS
+                and not (n in catalog_specs and n not in voice_renderable)
+            ]
+        )
         cap = card.tools.max_voice_tools
         tool_cap = cap
         issues: list[dict[str, Any]] = []
@@ -713,13 +833,33 @@ def compile_card(
             )
 
     # G7 regression
-    gates.append(_eval_gate("G7", "regression", eval_gate_enabled(), eval_report, card))
+    gates.append(
+        _eval_gate(
+            "G7",
+            "regression",
+            eval_gate_enabled(),
+            eval_report,
+            card,
+            skip=skip_eval_gates,
+        )
+    )
     # G8 red-team
-    gates.append(_eval_gate("G8", "redteam", redteam_gate_enabled(), redteam_report, card))
+    gates.append(
+        _eval_gate(
+            "G8",
+            "redteam",
+            redteam_gate_enabled(),
+            redteam_report,
+            card,
+            skip=skip_eval_gates,
+        )
+    )
     # G11 twin — blocking in Phase 4 when twin is in card.eval.require.
     # Default cards require regression+redteam only; skip honestly, never fake-green.
     twin_required = bool(card and "twin" in (card.eval.require or []))
-    gates.append(_eval_gate("G11", "twin", twin_required, twin_report, card))
+    gates.append(
+        _eval_gate("G11", "twin", twin_required, twin_report, card, skip=skip_eval_gates)
+    )
 
     # G9 signed skills + allowed-tools ⊆ catalog ∩ (include ∪ locked)
     if card is None or not card.skills:
@@ -877,7 +1017,22 @@ def compile_card(
         triggers = []
     pct = max(0, min(100, int(pct)))
     valid_triggers = [t for t in triggers if t in _ROLLBACK_TRIGGERS]
-    if pct == 100:
+    shadow_flag = bool(shadow) if shadow is not None else bool(card and card.experiment.shadow)
+    if skip_eval_gates:
+        gates.append(
+            _gate("G12", "canary", "skipped", "rollback of a previously published version")
+        )
+    elif shadow_flag:
+        gates.append(
+            _gate(
+                "G12",
+                "canary",
+                "fail",
+                "shadow is not a customer-facing execution path",
+                [{"shadow": True, "traffic_pct": pct}],
+            )
+        )
+    elif pct == 100:
         gates.append(_gate("G12", "canary", "pass", "full ship"))
     elif 0 < pct < 100 and valid_triggers:
         gates.append(_gate("G12", "canary", "pass", f"{pct}% with {','.join(valid_triggers)}"))
@@ -926,8 +1081,35 @@ def compile_card(
             effective=tools,
             known_bot_ids=known_bot_ids,
             eval_report=outbound_report,
+            skip_eval=skip_eval_gates,
         )
     )
+
+    # G-LINT — deterministic prompt lint errors block publish. Warns stay
+    # visible in the editor; they do not fail this gate.
+    if skip_eval_gates:
+        gates.append(
+            _gate("G-LINT", "prompt_lint", "skipped", "rollback of a previously published version")
+        )
+    elif prompt is None:
+        gates.append(_gate("G-LINT", "prompt_lint", "skipped", "no prompt supplied"))
+    else:
+        from prompt_lint import lint_prompt
+
+        findings = lint_prompt(prompt, prompt_guardrails or {}, include_llm=False)
+        errors = [f for f in findings if f.get("severity") == "error"]
+        if errors:
+            gates.append(
+                _gate(
+                    "G-LINT",
+                    "prompt_lint",
+                    "fail",
+                    f"{len(errors)} lint error(s)",
+                    errors,
+                )
+            )
+        else:
+            gates.append(_gate("G-LINT", "prompt_lint", "pass"))
 
     # G14 agent.publish — dry-run with no actor skips so four-card unit compile stays green.
     if has_publish is None:
@@ -937,9 +1119,15 @@ def compile_card(
     else:
         gates.append(_gate("G14", "agent_publish", "fail", "actor lacks agent.publish"))
 
-    # G15 voice locale. Last because it is the only gate that reads the mouth
-    # columns rather than the card, and the only one that can warn.
+    # G15 voice locale. Reads the mouth columns rather than the card.
     gates.append(_voice_locale_gate(voice_short_name, voice_locale, card_locales))
+
+    # G16 the graph and the grant. Last because it is the only gate that reads
+    # both, and the second that can warn.
+    if card is None:
+        gates.append(_gate("G16", "flow_grant", "skipped", "no card"))
+    else:
+        gates.append(_flow_grant_gate(flow, tools))
 
     return CompileReport(
         bot_id=bot_id,
@@ -960,7 +1148,11 @@ def _eval_gate(
     flag_on: bool,
     report: dict[str, Any] | None,
     card: AgentCard | None,
+    *,
+    skip: bool = False,
 ) -> GateResult:
+    if skip:
+        return _gate(gate, name, "skipped", "rollback of a previously published version")
     if not flag_on:
         return _gate(gate, name, "skipped", f"{name} gate flag is off")
     required = (card.eval.require if card else []) or []

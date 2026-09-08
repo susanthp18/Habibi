@@ -1,0 +1,189 @@
+{
+ "items": [
+  {
+   "id": "1.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/api/agent-studio.ts:201-204 introduces invalidateAgentStudio() which invalidates both [\"agent-studio\"] and [\"agent-change-log\"]; useArchiveAgentCard onSuccess calls it (agent-studio.ts:224). Change-log query key still [\"agent-change-log\", botId ?? \"tenant\", limit] (agent-studio.ts:979), now prefix-matched. Commit: git log on the file shows only 50ede50/bcbc7aa/e6da33b since 2026-08-25 (history squashed into 'e6da33b baseline'); not individually attributable."
+  },
+  {
+   "id": "1.2",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/agent-studio.index.tsx:404-408 replaces window.confirm with archivePending state; AlertDialog rendered at agent-studio.index.tsx:717-745 ('Archive {name}?', 'Keep it live' cancel, AlertDialogAction runs the mutation at :734-742). Commit: ec1d163 'Agent Studio fleet index: roster grouping and reasoned actions' appears in the file log."
+  },
+  {
+   "id": "1.3",
+   "status": "DATA_ONLY",
+   "evidence": "Archived test leftovers (e2e-audit-card-8216c4, qa-probe-clone-fd7ebd, sweep-probe-001-f562be, webchatbot, collectionsbot-v2-4) are DB rows; no code path involved. Cannot be re-verified read-only without a live DB query; 'Show archived' toggle still exists at agent-studio.index.tsx:458."
+  },
+  {
+   "id": "2.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/prompt-studio.lazy.tsx:87 imports stableStringify from @/lib/stable-stringify; fingerprint() at lazy.tsx:162-171 returns stableStringify({p, persona, voice, g, flow, card}); docblock at :150-160 describes exactly this bug. Every dirty/markSaved comparison (lazy.tsx:403, 498-499, 531, 632, 660, 868, 909, 972, 1011, 1081) goes through fingerprint(). PublishDialog also uses stableStringify (PublishDialog.tsx:88-92)."
+  },
+  {
+   "id": "2.2",
+   "status": "FIXED",
+   "evidence": "Habibi/src/api/prompt-studio.ts:182-192 fetchPublishedPromptVersion: catch → `if (isNotFound(err)) return null; throw err;`. fetchActiveBotDeployment same pattern at prompt-studio.ts:894-902. Editor shell surfaces the failure: lazy.tsx:1218-1220 comment + `livenessUnknown = activeDepQuery.isError` at lazy.tsx:1233 (header lozenge rendered as unknown rather than 'never published'). Backend still distinguishes 404 published_prompt_not_found (backend/main.py:2046-2047)."
+  },
+  {
+   "id": "2.3",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/prompt-studio.lazy.tsx:1193-1222 `blocked` computes from cardQuery.isError: isNotFound → 'No agent card with this id' (:1196-1200), other errors → 'Could not load this agent card' (:1201-1207); versionsQuery.isError also blocks (:1209-1216). Autosave effect bails when cardQuery.isError (lazy.tsx:621, dep :706)."
+  },
+  {
+   "id": "2.4",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/prompt-studio.lazy.tsx:313-320 introduces `draftSummary = useRef(\"draft autosave\")`; hydration sets it from the newest draft's summary (:401), loadDraft sets it from v.summary (:862-866), autosave sends `summary: draftSummary.current` (:655). The restore note therefore survives subsequent autosaves. ensureStudioDraft still defaults `opts.summary ?? \"draft autosave\"` (api/prompt-studio.ts:1010) but the caller now passes the preserved value."
+  },
+  {
+   "id": "2.5",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/prompt-studio.lazy.tsx: loadDraft :856-858 and :870-872, discardDraft :902-904 and :911-913, rollback (live) :902-913, publishBaseline :1148-1150, hydration :395-397/:405-407 all use `?? DEFAULT_PERSONA / DEFAULT_VOICE / DEFAULT_GUARDRAILS`. Residual: the post-publish path at lazy.tsx:965-968 assigns publishedRow.persona/voice/guardrails without fallbacks, but publishedRow comes straight from the publish POST whose response model (_map_prompt_version, backend/db_prompt_studio.py:192-194) always fills those via _prompt_persona/_prompt_voice/_prompt_guardrails, so a null cannot reach it."
+  },
+  {
+   "id": "2.6",
+   "status": "FIXED",
+   "evidence": "backend/main.py:2214-2253 publish_agent_studio_card now takes PromptVersionPublishRequest; if payload.versionId is given it publishes exactly that draft (404 prompt_version_not_found / 409 prompt_version_not_draft, :2231-2241); with no versionId it publishes the single draft or raises 409 ambiguous_draft_to_publish when >1 drafts exist (:2242-2252). No longer 'first draft among newest 20'."
+  },
+  {
+   "id": "2a.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/PublishDialog.tsx:144-149 `useEffect(() => { if (!open) return; setConfirmText(\"\"); setLocaleConfirm(\"\"); setNote(\"\"); }, [open])` — reset runs on every open regardless of how the previous close happened; docblock :128-143 describes the programmatic-close bug. Confirm button still gated `disabled={blocked || !publishConfirmed || !localeConfirmed}` (:301). Programmatic close still at lazy.tsx:964 but is now harmless."
+  },
+  {
+   "id": "2a.2",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/PromptEditor.tsx:84-92 dedupes ALL findings with a `seen` Map keyed so that unknown_variable collapses per variable name with a count (comment :77-83). Backend still emits per hit (backend/prompt_lint.py:109-116), which the client now absorbs."
+  },
+  {
+   "id": "2a.3",
+   "status": "FIXED",
+   "evidence": "PublishDialog DiffSide gained `rollout?: {trafficPct, shadow, autoRollback} | null` (PublishDialog.tsx:28-38); rolloutChanged computed at :91-92 and folded into nothingChanges (:93-94). Caller passes `rollout: cardIsAuthored ? null : ship` on the `to` side (lazy.tsx:1599) and `rollout: cardIsAuthored ? null : legacyShipBaseline` on the baseline (lazy.tsx:1155), where legacyShipBaseline is derived from the live experiment (lazy.tsx:459-467)."
+  },
+  {
+   "id": "2a.4",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/prompt-studio.lazy.tsx:885-928 discardDraft picks `live = history.find(published && id !== v.id) ?? history.find(id !== v.id) ?? null` (:894-897) and only reloads when non-null (:898); comment :889-893 names the exact bug. Also sets skipAutosave (:899) so the discarded text cannot be re-autosaved."
+  },
+  {
+   "id": "2a.5",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/prompt-studio.lazy.tsx:797-827 runCompile: .catch sets compileReport null AND `setCompileError(err.message || 'The compiler did not answer.')` (:824-825); compileError state declared :244 and passed to PublishDialog (lazy.tsx:1603); PublishDialog accepts `compileError` prop (PublishDialog.tsx:51-52, 66). Dialog also disables Confirm while `compileBusy` (PublishDialog.tsx:104)."
+  },
+  {
+   "id": "2a.6",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/PublishDialog.tsx:124-126: `const typed = (v) => v.trim().toUpperCase(); localeConfirmed = ... typed(localeConfirm) === \"LANGUAGE\"; publishConfirmed = typed(confirmText) === \"PUBLISH\"` — both gates normalise identically."
+  },
+  {
+   "id": "2a.7",
+   "status": "OPEN",
+   "evidence": "Habibi/src/components/prompt-studio/StudioHeader.tsx:119-124 still renders `<span aria-label={`${draftCount} draft…`} className=\"h-1.5 w-1.5 rounded-full bg-background-warning-bold\" />` with no role/aria-live and no visible text — a colour-only dot inside a button whose accessible name is 'History N'. Unchanged from the prior audit (was :101-106)."
+  },
+  {
+   "id": "2a.8",
+   "status": "FIXED",
+   "evidence": "Token estimate: Habibi/src/api/prompt-studio.ts:586-598 has `enabled: debounced.prompt.trim().length > 0` (:593) and `retry: retryUnlessClientError` (:596). Auto-lint (now a query, useAutoLint) prompt-studio.ts:870-882 has the same guards (:875-876). The manual lint is a mutation (useLintPrompt :832-836) which react-query does not retry by default. Editor wires useAutoLint at lazy.tsx:560."
+  },
+  {
+   "id": "2a.9",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/PersonaSliders.tsx:133 `audio.onended = () => stopPlayback();` and stopPlayback revokes urlRef (PersonaSliders.tsx:79-82); onerror also stops/revokes (:137-140). Comment :126-132 documents the leak."
+  },
+  {
+   "id": "2b.1",
+   "status": "FIXED",
+   "evidence": "Client: Habibi/src/api/flow.ts:166-169 isEmptyGraph returns true only when nodes.length===0 AND edges.length===0. Backend: backend/flow_graph.py:370-393 is_unauthored requires `not graph.nodes and not graph.edges`; assert_publishable short-circuits only on the same true sentinel (flow_graph.py:423-427) so an edge-only row reaches the dangling-edge rules (:575-582). Canvas and shell both use isEmptyGraph (FlowCanvas.tsx:482, lazy.tsx:713)."
+  },
+  {
+   "id": "2b.2",
+   "status": "FIXED",
+   "evidence": "backend/db_prompt_studio.py:155-174 _prompt_flow parses the stored graph per row and degrades an unreadable one to `{\"flow\": {}, \"flowUnreadable\": True}` with a logged warning instead of letting the extra=\"forbid\" FlowGraph response model (flow_graph.py:236) raise ResponseValidationError; wired into _map_prompt_version at db_prompt_studio.py:207 with comment :199-206. One bad row no longer 500s GET /prompt-versions (main.py:2032-2039) for the whole bot."
+  },
+  {
+   "id": "2b.3",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/flow/FlowCanvas.tsx:554-564 counts node keys and builds `byKey` only from keys that occur exactly once (`keyCounts.get(n.key) === 1`), so ambiguous keys resolve to no ghost edge instead of last-wins (comment :554-559). Lookup at :571-572 skips when target is undefined."
+  },
+  {
+   "id": "2b.4",
+   "status": "PARTIALLY_FIXED",
+   "evidence": "Canvas path fixed: FlowCanvas.tsx:496-518 on validator failure reports `{ok:false, issues:[validator_unreachable warning]}` to the parent so flowValid flips false and the publish dialog shows why. Still open: the off-tab background validator in lazy.tsx:723-731 ends `.catch(() => { /* transient: keep the last known result */ })`, and flowValid still initialises `useState(true)` (lazy.tsx:227) — so with the Flow tab closed a dead /flow/validate leaves the gate asserting the last verdict (or open) for a graph it never checked. Server re-validates on publish, so worst case remains a late 422."
+  },
+  {
+   "id": "2b.5",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/DiffModal.tsx:32-33 Snapshot carries flow/agentCard; :46-48 computes flowChanged/cardChanged via stableStringify and :58-69 renders 'The conversation graph is changed/unchanged and the agent card is changed/unchanged' beside the text diff. By design this is a changed/unchanged flag, not a structural diff (rationale :27-30); graph regressions are no longer invisible."
+  },
+  {
+   "id": "2b.6",
+   "status": "DATA_ONLY",
+   "evidence": "Live-state item about kaia draft v1_5-aace95 (12 nodes, entryFor=[] everywhere) — a DB row, not code. Cannot be re-verified read-only; would need `SELECT flow FROM prompt_versions WHERE id='v1_5-aace95'`. Mitigation still present: 'Reload built-in script…' button at Habibi/src/components/flow/FlowCanvas.tsx:1118; entryFor editor in FlowInspector.tsx:578-580."
+  },
+  {
+   "id": "2c",
+   "status": "FIXED",
+   "evidence": "Prior audit recorded the Agent graph tab as clean (no numbered findings); nothing to determine. Graph endpoint still at backend/main.py ~2272 per the established facts; not re-audited here."
+  },
+  {
+   "id": "2d",
+   "status": "FIXED",
+   "evidence": "Persona tab's only carried item was 2a.9 (blob URL), now fixed at Habibi/src/components/prompt-studio/PersonaSliders.tsx:133 (onended → stopPlayback → URL.revokeObjectURL at :79-82). Preset confirmation is an in-app AlertDialog at lazy.tsx:1611-1624."
+  },
+  {
+   "id": "2e.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:323-336 otherLocales now excludes prefix presets via `p.endsWith(\"-\") ? locale.startsWith(p) : locale === p` (:328-329) and dedupes with a Map; :368-384 merges counts-derived options and otherLocales into one `localeChoices` list deduped by value (comment :352-367). Single list → no duplicate keys."
+  },
+  {
+   "id": "2e.2",
+   "status": "OPEN",
+   "evidence": "Still dormant but present: status defaults to \"GA\" (VoiceCatalogBrowser.tsx:174) and is always sent (`status: status || \"GA\"`, :215) with premium hidden by default (:173, :217); the Status <Select> is rendered only `{!compact ? (...) : null}` (:513-523) so compact mode still forces GA with no control; the empty state is the bare 'No voices match these filters.' (:719-722) with no attribution of which default filter emptied it. Only the count line hints '· premium hidden' (:572). Whether any locale actually zeroes remains a live-catalog fact (CANNOT re-probe read-only)."
+  },
+  {
+   "id": "2e.3",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/VoicePanel.tsx:535-546 replaces the normalising `update({style: styles[0]})` effect with a derived `styleUnavailable` flag and a warning banner at :555-562 ('Pick one below — nothing is changed until you do'). The Select still displays `value.style || styles[0]` (:689) but only writes on operator onValueChange (:690). selectVoice writing `style: voice.styles[0]` (:388) is an explicit operator action."
+  },
+  {
+   "id": "2e.4",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:221-250: for enum params, `orphaned = stored !== \"\" && !options.includes(stored)` (:232); the control shows the stored value (:243) and appends it to the options labelled '(not offered)' (:245-248), so UI and wire (effectiveParams, VoicePanel.tsx:282-291, which still sends the stored value) agree."
+  },
+  {
+   "id": "2e.5",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/VoicePanel.tsx:770-794: Preview button `disabled={!value.sampleText.trim()}` only (:778), onClick treats a click during `playing || loading` as stopAll() (:780-783); label reads 'Synthesizing…' with a Stop icon while in flight (:788-793). Comment :772-777 names the 60s-timeout bug. Only the secondary 'New take' button stays disabled while loading (:803), which is correct."
+  },
+  {
+   "id": "2e.6",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/VoicePanel.tsx:164-169 looksLikeShortName now returns true for `/^[a-z0-9_]+:.+/` ({provider}:{ref}) before the Azure patterns; comment :150-163 describes the AartiNeural fallback bug. selectedShortName still falls back to DEFAULT_VOICE.azureVoiceName || \"en-IN-AartiNeural\" (:111-118) only when neither field is usable."
+  },
+  {
+   "id": "2e.7",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:257-273 syncMutation onSuccess invalidates tts-voice-catalog-infinite, tts-voice-catalog, tts-voice-sync-runs, tts-voice-provider-counts, tts-voice-locale-counts and tts-voices (:266-271); the count keys match api/providers.ts:113 and :125. tts-voice-pricing (api/prompt-studio.ts:442) is not invalidated, but pricing is not moved by a catalog sync."
+  },
+  {
+   "id": "2e.8",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:205-206 `min={spec.min ?? Number.NEGATIVE_INFINITY}` / `max={spec.max ?? Number.POSITIVE_INFINITY}` with comment :200-204; the silent zero floor is gone."
+  },
+  {
+   "id": "2f",
+   "status": "OPEN",
+   "evidence": "Guardrails tab was recorded clean; only trivia carried: the prohibited-word <input> at Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:99-105 still has a placeholder but no aria-label/label (remove chips do have aria-label at :85; toggles at :130). addWord still lowercases and dedupes (:54-55). TRIVIAL."
+  },
+  {
+   "id": "2g.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:101 `const cap = preview.data?.voice_tool_cap ?? card.tools?.max_voice_tools ?? 12;` — `??` not `||`, so a server-reported cap of 0 is honoured (comment :97-100). Idle count now comes from the compiler (`preview.data?.idle_voice_tools`, :96) rather than a local union."
+  },
+  {
+   "id": "2g.2",
+   "status": "OPEN",
+   "evidence": "Still two definitions of 'locked': the 'on the card' counter uses `new Set([...include, ...locked]).size` where `locked` is card.tools.locked only (AgentCardPanels.tsx:85, :126), while each row computes `isLocked = Boolean(t.locked) || locked.has(t.key)` and `on = includeSet.has(t.key) || isLocked` (:154-155), i.e. catalog-level locks count as on. The counter and the row states diverge as soon as a catalog tool is locked (t.locked) but not listed in card.tools.locked. Consistent today only by data coincidence; MINOR."
+  }
+ ]
+}

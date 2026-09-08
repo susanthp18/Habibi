@@ -159,9 +159,13 @@ class ToolSpec:
         """Pipecat ``FlowsFunctionSchema`` for the voice FlowManager.
 
         Imported lazily so text-only processes (bot_worker, API) never pay the
-        pipecat import cost just to build OpenAI tool dicts.
+        pipecat import cost just to build OpenAI tool dicts. Lazily was not far
+        enough: deriving the built-in flow graph calls every node factory, and a
+        node factory renders its tools — so the API image reached this line and
+        got a 500 on ``GET /flow/built-in``. Without pipecat it now returns a
+        stub carrying the same fields, which is all the export reads.
         """
-        from pipecat.flows import FlowsFunctionSchema
+        from agent_core.tools.pipecat_compat import flows_function_schema
 
         kwargs: dict[str, Any] = {
             "name": self.name,
@@ -173,7 +177,7 @@ class ToolSpec:
         }
         if self.timeout_secs is not None:
             kwargs["timeout_secs"] = self.timeout_secs
-        return FlowsFunctionSchema(**kwargs)
+        return flows_function_schema(**kwargs)
 
     def normalize_args(self, raw: Mapping[str, Any] | None) -> dict[str, Any]:
         """Map any accepted wire name onto the canonical snake_case name.

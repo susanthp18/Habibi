@@ -36,6 +36,7 @@ import cadence
 import call_closer
 import campaigns
 import db
+import observability
 import outbound
 import payment_events
 from agent_core.treatment import enact as treatment_enact
@@ -45,11 +46,12 @@ import promise_fulfillment
 import webhooks_dispatch
 import whatsapp_outbound
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
+from agent_core.worker_roles import ROLES
+
+observability.setup_logging()
 logger = logging.getLogger("bot_worker")
+
+_ROLE = "all"
 
 
 # Outbound is latency-sensitive so it wins most iterations, but every Nth
@@ -62,15 +64,9 @@ _iteration = 0
 
 
 def _run_stage(queue: str, drain):
-    """Run one drain. A poison row must not abort the rest of the tick.
-
-    Four of twelve stages used to be individually guarded, and five unguarded
-    ones ran *above* them. A persistently-raising ``whatsapp_outbound`` aborted
-    the tick before the closer, cadence, campaigns, treatment and webhooks were
-    reached; the loop logged ``process_one crashed — backing off`` with no
-    queue name and no row id, slept 1.5s, and repeated forever. Every stage
-    now catches, names the queue, and lets the ones below it still run.
-    """
+    """Run one drain. A poison row must not abort the rest of the tick."""
+    if _ROLE != "all" and queue not in ROLES.get(_ROLE, frozenset()):
+        return False
     try:
         return bool(drain())
     except Exception:
@@ -169,12 +165,20 @@ def main() -> None:
     parser.add_argument("--drain", action="store_true", help="Drain queues then exit")
     parser.add_argument("--poll", type=float, default=1.5, help="Idle poll seconds")
     parser.add_argument(
+        "--role",
+        choices=("all", "messaging", "dialer", "treatment", "integration"),
+        default=os.getenv("BOT_WORKER_ROLE") or "all",
+        help="Role-scoped drain. all is the historical combined worker.",
+    )
+    parser.add_argument(
         "--drain-limit",
         type=int,
         default=100,
         help="Max jobs to process in --drain mode",
     )
     args = parser.parse_args()
+    global _ROLE
+    _ROLE = args.role
 
     if not bot_jobs.bot_runtime_enabled():
         logger.warning(

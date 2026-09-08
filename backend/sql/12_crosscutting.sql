@@ -29,6 +29,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_id ON audit_log(tenant_id);
 
+-- Separately persisted chain head. Deleting the newest audit_log row used to
+-- leave a still-valid prefix, so tail truncation was invisible. verify_chain
+-- compares this head to the newest remaining entry.
+CREATE TABLE IF NOT EXISTS audit_chain_heads (
+  tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  entry_hash TEXT NOT NULL,
+  seq BIGINT NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Replay guard for mutating endpoints and bot tool writes (migration
 -- 20260721_0002). Without this table every idempotent write silently degrades
 -- to a duplicate insert, so it must exist in the base schema too.
@@ -174,6 +184,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_outbound_jobs (
   template_params jsonb,
   purpose TEXT,
   source TEXT,
+  decision_id TEXT,
   attempt INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'queued',
   error TEXT,
@@ -195,6 +206,8 @@ CREATE INDEX IF NOT EXISTS ix_whatsapp_outbound_jobs_conversation_status
 -- One outbound send per message row — replays must not double-send.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_outbound_jobs_message_id
   ON whatsapp_outbound_jobs (message_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_outbound_jobs_decision
+  ON whatsapp_outbound_jobs (decision_id) WHERE decision_id IS NOT NULL;
 
 
 -- ---------------------------------------------------------------------------
@@ -230,3 +243,88 @@ CREATE INDEX IF NOT EXISTS idx_voice_sessions_interaction_id
   ON voice_sessions (interaction_id);
 CREATE INDEX IF NOT EXISTS idx_voice_sessions_status
   ON voice_sessions (status);
+
+-- W4: policy replay, jobs, incidents, decision feedback
+CREATE TABLE IF NOT EXISTS policy_replay_results (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT,
+  window_start timestamptz NOT NULL,
+  window_end timestamptz NOT NULL,
+  requested_digest TEXT NOT NULL,
+  evaluator_digest TEXT NOT NULL,
+  veto_stack_version TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('completed','refused','partial')),
+  refusal_reason TEXT,
+  compared INTEGER NOT NULL DEFAULT 0,
+  mismatched INTEGER NOT NULL DEFAULT 0,
+  result jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS policy_job_runs (
+  id TEXT PRIMARY KEY,
+  job_name TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('started','completed','failed','skipped')),
+  result jsonb NOT NULL DEFAULT '{}'::jsonb,
+  started_at timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_policy_job_runs_key UNIQUE (idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS policy_horizon_findings (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_id TEXT,
+  decision_id TEXT,
+  rule_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('cancel','reschedule','prerequisite_gap')),
+  owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+  state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','done','dismissed')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_policy_horizon_findings_open
+  ON policy_horizon_findings (tenant_id, state, created_at);
+
+CREATE TABLE IF NOT EXISTS security_incidents (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  severity TEXT NOT NULL CHECK (severity IN ('low','medium','high','critical')),
+  state TEXT NOT NULL CHECK (state IN ('open','contained','notified','closed')),
+  summary TEXT NOT NULL,
+  evidence_ref TEXT,
+  detected_at timestamptz NOT NULL DEFAULT now(),
+  notified_at timestamptz,
+  closed_at timestamptz,
+  actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS security_incident_events (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL REFERENCES security_incidents(id) ON DELETE CASCADE,
+  state TEXT NOT NULL,
+  actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS decision_feedback (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  decision_id TEXT NOT NULL,
+  actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  actor_role TEXT,
+  verdict TEXT NOT NULL CHECK (verdict IN (
+    'wrong_number','stop_contact','deceased','other'
+  )),
+  reason_code TEXT,
+  corrected_outcome TEXT,
+  note_redacted TEXT,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_decision_feedback_decision
+  ON decision_feedback (decision_id, created_at);

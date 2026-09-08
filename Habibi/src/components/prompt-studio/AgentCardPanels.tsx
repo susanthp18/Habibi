@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
 import { useFlowTools } from "@/api/flow";
+import { catalogToolsForCard, controlKindLabel } from "@/lib/studio-contract";
 import {
   useAgentGraph,
   useAgentStudioSkills,
@@ -83,7 +84,10 @@ export function ToolsTab({
   const include = card.tools?.include ?? [];
   const includeSet = new Set(include);
   const locked = new Set(card.tools?.locked ?? []);
-  const rows = toolsQuery.data ?? [];
+  // The catalog now serves every channel, so the tab shows what this card's own
+  // channels can render. A voice+whatsapp card sees `identify_customer`; a
+  // voice-only card never did and still does not.
+  const rows = catalogToolsForCard(toolsQuery.data ?? [], card.identity?.channels);
   const editable = Boolean(onChange) && isAuthoredCard(card);
 
   // Ask the compiler rather than guessing. This used to count
@@ -93,6 +97,10 @@ export function ToolsTab({
   // blocks publish" in red while compiling green at "idle 12 tools (cap 12)".
   const preview = useCompilePreview(botId, { agentCard: card }, isAuthoredCard(card));
   const g6 = preview.data?.gates.find((g) => g.gate === "G6");
+  // G4 as well as G6. The tab read one gate out of a report that carries
+  // sixteen, so a card whose include list names something the catalog does not
+  // have showed nothing but a green G6 until Publish refused it.
+  const g4 = preview.data?.gates.find((g) => g.gate === "G4");
   const idle = preview.data?.idle_voice_tools;
   // `??`, not `||`. A compiler that reports a voice-tool cap of 0 — a card
   // configured to offer no idle tools at all — is making a statement, and `||`
@@ -128,13 +136,22 @@ export function ToolsTab({
         </div>
         {!isAuthoredCard(card) ? null : preview.isError ? (
           <Lozenge tone="neutral">compiler unreachable</Lozenge>
-        ) : g6 ? (
-          <Lozenge
-            tone={g6.status === "fail" ? "danger" : g6.status === "warn" ? "warning" : "success"}
-          >
-            G6 {g6.status}
-            {g6.detail ? ` — ${g6.detail}` : ""}
-          </Lozenge>
+        ) : g6 || g4 ? (
+          <>
+            {[g4, g6].map((g) =>
+              g ? (
+                <Lozenge
+                  key={g.gate}
+                  tone={
+                    g.status === "fail" ? "danger" : g.status === "warn" ? "warning" : "success"
+                  }
+                >
+                  {g.gate} {g.status}
+                  {g.detail ? ` — ${g.detail}` : ""}
+                </Lozenge>
+              ) : null,
+            )}
+          </>
         ) : (
           <Lozenge tone="neutral">checking…</Lozenge>
         )}
@@ -146,13 +163,19 @@ export function ToolsTab({
             <tr>
               <th className="px-150 py-100 text-left font-medium">Tool</th>
               <th className="px-150 py-100 text-left font-medium">On this card</th>
+              <th className="px-150 py-100 text-left font-medium">Effective</th>
               <th className="px-150 py-100 text-left font-medium">Policy</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((t) => {
               const isLocked = Boolean(t.locked) || locked.has(t.key);
-              const on = includeSet.has(t.key) || isLocked;
+              // On whatever the card granted. Toggling it writes a line into
+              // `tools.include` that changes nothing, and the row used to read
+              // "unsupported" for a tool the runtime keeps on every call.
+              const isFloor = Boolean(t.alwaysOn);
+              const on = includeSet.has(t.key) || isLocked || isFloor;
+              const frozen = isLocked || isFloor;
               return (
                 <tr key={t.key} className="border-t border-border">
                   <td className="px-150 py-100">
@@ -164,9 +187,13 @@ export function ToolsTab({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={!editable || isLocked}
+                      disabled={!editable || frozen}
                       title={
-                        isLocked ? "Locked by policy — the author cannot unbind it" : undefined
+                        isLocked
+                          ? "Locked by policy — the author cannot unbind it"
+                          : isFloor
+                            ? "On the runtime floor — granted on every call whatever the card says"
+                            : undefined
                       }
                       onClick={() => toggle(t.key)}
                     >
@@ -174,8 +201,19 @@ export function ToolsTab({
                     </Button>
                   </td>
                   <td className="px-150 py-100">
+                    <Lozenge tone="neutral">
+                      {controlKindLabel(
+                        isFloor || preview.data?.effective_tools.includes(t.key)
+                          ? "runtime"
+                          : "unsupported",
+                      )}
+                    </Lozenge>
+                  </td>
+                  <td className="px-150 py-100">
                     {isLocked ? (
                       <Lozenge tone="warning">required by policy</Lozenge>
+                    ) : isFloor ? (
+                      <Lozenge tone="neutral">always on (runtime floor)</Lozenge>
                     ) : (
                       <span className="text-text-subtle">optional</span>
                     )}
@@ -261,10 +299,12 @@ export function EvalsTab({
   botId,
   card,
   onChange,
+  promptVersionId,
 }: {
   botId: string;
   card: AgentCard;
   onChange?: (next: AgentCard) => void;
+  promptVersionId?: string;
 }) {
   const suitesQuery = useEvalSuites();
   // Scoped to this card. The tab used to accept botId and drop it, so a card
@@ -272,7 +312,7 @@ export function EvalsTab({
   const reportsQuery = useEvalReports(undefined, botId);
   // Same botId the reports are filtered by, or the run vanishes from the tab
   // that started it.
-  const run = useRunEvalSuite(botId);
+  const run = useRunEvalSuite(botId, promptVersionId);
   const editable = Boolean(onChange) && isAuthoredCard(card);
   // What the card actually requires, and nothing else.
   //
@@ -878,6 +918,11 @@ export function SkillsTab({
                     <Lozenge tone={skill.signed ? "success" : "warning"}>
                       {skill.signatureStatus}
                     </Lozenge>
+                    <Lozenge tone="neutral">
+                      {controlKindLabel(
+                        on && (skill.signed || skill.hasSignedVersion) ? "runtime" : "compile-only",
+                      )}
+                    </Lozenge>
                   </div>
                   <div className="mt-050 text-body-small text-text-subtle">{skill.description}</div>
                   <div className="mt-050 flex flex-wrap gap-050">
@@ -943,13 +988,15 @@ export function ConnectorsTab({
       <p className="text-body-small text-text-subtle">
         Bind <span className="font-semibold">approved</span> connectors only. Compiler G10 checks
         HTTPS, data-class, and health. <span className="font-mono">ext.*</span> tools stay off the
-        idle mouth so G6 does not count them against the 12-tool SLO.
+        idle mouth so G6 does not count them against the 12-tool SLO. Voice has no MCP renderer —
+        bound connectors are <span className="font-semibold">unsupported</span> on a call, not
+        silently uncallable.
       </p>
       {!editable && onChange ? <NotAuthoredNotice what="connector bindings" /> : null}
       {prefixes.length > 0 ? (
         <div className="rounded-medium border border-border-warning bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
-          Bound prefixes: {prefixes.join(", ")}. Activated connector tools still count toward the
-          voice cap.
+          Bound prefixes: {prefixes.join(", ")}. These tools can enter the compiled text grant; the
+          voice grant excludes them because no voice connector renderer exists.
         </div>
       ) : null}
       <QueryState

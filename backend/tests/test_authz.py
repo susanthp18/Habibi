@@ -589,6 +589,14 @@ def test_no_read_route_requires_a_write_permission() -> None:
     )
 
 
+def test_deployment_rollback_requires_agent_publish() -> None:
+    assert authz.ROUTE_PERMISSIONS[("POST", "/bot-deployments/{deployment_id}/rollback")] == authz.AGENT_PUBLISH
+    assert (
+        authz.ROUTE_PERMISSIONS[("POST", "/bot-deployments/experiments/{experiment_id}/rollback")]
+        == authz.AGENT_PUBLISH
+    )
+
+
 def test_agent_cannot_publish_an_agent_card(gated_client: TestClient) -> None:
     """agent.publish is not on the floor-agent role — 403, not a silent publish."""
     res = gated_client.post(

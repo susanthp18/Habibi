@@ -294,6 +294,32 @@ def _close_treatment_cases(
                 trigger_ref=str(row.get("promiseId") or row.get("id") or ""),
                 outcome="paid",
             )
+        account_id = None
+        if bounce_ids:
+            account_id = conn.execute(
+                text("SELECT account_id FROM payment_events WHERE id = :id"),
+                {"id": bounce_ids[0]},
+            ).scalar()
+        if not account_id and promises:
+            account_id = promises[0].get("accountId") or promises[0].get("account_id")
+        if account_id:
+            dpd = conn.execute(
+                text("SELECT dpd FROM accounts WHERE id = :id"), {"id": account_id}
+            ).scalar()
+            if dpd is not None and int(dpd) <= 0:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE treatment_decisions
+                        SET outcome = 'paid', outcome_at = now()
+                        WHERE account_id = :aid
+                          AND trigger_kind = 'dpd_tick'
+                          AND outcome IS NULL
+                          AND enacted IS FALSE
+                        """
+                    ),
+                    {"aid": account_id},
+                )
     except Exception:
         logger.exception("closing treatment cases after payment failed")
 
@@ -479,3 +505,118 @@ def render_pay_page(intent: dict[str, Any]) -> str:
 </body>
 </html>
 """
+
+
+def reverse_allocation(
+    conn: Any,
+    *,
+    payment_ledger_id: str,
+    account_id: str,
+) -> dict[str, Any]:
+    """Undo a payment's promise allocations and restore open state.
+
+    A ₹1 payment against a ₹50,000 promise is ``partial``; reversing it must
+    return the promise to upcoming/due_today, never leave it ``kept``.
+    """
+    import db as dbmod
+
+    payment = conn.execute(
+        text(
+            "SELECT id, amount FROM ledger_entries WHERE id = :id AND type = 'payment'"
+        ),
+        {"id": payment_ledger_id},
+    ).mappings().first()
+    if payment is None:
+        return {"ok": False, "reason": "payment_not_found"}
+    rid = dbmod._id("LE")
+    try:
+        conn.execute(
+            text(
+                """
+                INSERT INTO ledger_entries (
+                  id, account_id, type, description, amount, posted_at, reverses_id
+                ) VALUES (
+                  :id, :aid, 'reversal', :desc, :amount, now(), :rev
+                )
+                """
+            ),
+            {
+                "id": rid,
+                "aid": account_id,
+                "desc": f"Reversal of {payment_ledger_id}",
+                "amount": -abs(float(payment["amount"])),
+                "rev": payment_ledger_id,
+            },
+        )
+    except Exception:
+        conn.execute(
+            text(
+                """
+                INSERT INTO ledger_entries (
+                  id, account_id, type, description, amount, posted_at
+                ) VALUES (
+                  :id, :aid, 'adjustment', :desc, :amount, now()
+                )
+                """
+            ),
+            {
+                "id": rid,
+                "aid": account_id,
+                "desc": f"Reversal of {payment_ledger_id}",
+                "amount": -abs(float(payment["amount"])),
+            },
+        )
+    remaining = _money(payment["amount"])
+    rows = conn.execute(
+        text(
+            """
+            SELECT id, amount, paid_amount, status, promised_at
+            FROM promises
+            WHERE account_id = :aid
+              AND paid_amount > 0
+              AND status IN ('kept','partial','upcoming','due_today')
+            ORDER BY promised_at DESC, created_at DESC
+            FOR UPDATE
+            """
+        ),
+        {"aid": account_id},
+    ).mappings().all()
+    restored = []
+    for row in rows:
+        if remaining <= 0:
+            break
+        paid = _money(row["paid_amount"])
+        take = min(paid, remaining)
+        new_paid = paid - take
+        promised = _money(row["amount"])
+        promised_day = row["promised_at"]
+        today = datetime.now(timezone.utc).date()
+        if hasattr(promised_day, "date"):
+            promised_day = promised_day.date()
+        if new_paid <= 0:
+            if promised_day and promised_day < today:
+                next_status = "broken"
+            elif promised_day == today:
+                next_status = "due_today"
+            else:
+                next_status = "upcoming"
+            new_paid = Decimal("0")
+        elif new_paid < promised:
+            next_status = "partial"
+        else:
+            next_status = row["status"]
+        conn.execute(
+            text(
+                """
+                UPDATE promises
+                SET paid_amount = :paid, status = :status
+                WHERE id = :id
+                """
+            ),
+            {"id": row["id"], "paid": float(new_paid), "status": next_status},
+        )
+        restored.append(
+            {"promiseId": row["id"], "status": next_status, "paidAmount": float(new_paid)}
+        )
+        remaining -= take
+    return {"ok": True, "reversalId": rid, "promises": restored}

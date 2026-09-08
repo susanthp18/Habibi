@@ -1,0 +1,205 @@
+{
+ "slice": "policy",
+ "summary": "The Policy tab is a six-row read-only list. `prompt-studio.lazy.tsx:1399` renders `<PolicyTab card={effectiveCard} />` with no `onChange`, and `AgentCardPanels.tsx:202-242` contains zero interactive elements — no button, no link, no query, no mutation, no react-query key it can invalidate. It maps a file-local constant `POLICY_ENGINES` (`AgentCardPanels.tsx:55-62`) over `card.policy_bindings` and paints a lozenge per row. The field it displays is typed `PolicyBinding = Literal[\"required\"]` (`schema.py:20`) on a model whose six fields all default to `\"required\"` (`schema.py:133-141`), so any card that survives `AgentCard.model_validate` (`compile.py:560`) has all six keys equal to `\"required\"` — the value cannot be anything else and cannot be absent. There is no UI, no endpoint and no DB write anywhere that sets a policy binding. Grepping `policy_binding` across `backend/` returns exactly three non-test sites: the model (`schema.py:386`), compile gate G3 (`compile.py:594-616`), and nothing else — **no file under `voice/**`, `bot_runtime.py`, `bot_tools.py`, `sandbox_runtime.py`, `outbound.py`, `mission.py`, `cadence.py` or `agent_core/**` reads it**. So the answer to the report's key question is yes: the Policy tab is a read-only display of six constants that can never differ, whose data no runtime consumes, in front of a gate (G3's binding half) that can never fail. What actually decides whether the four engines run is four process-wide environment variables — `RECO_MODE`, `TREATMENT_MODE`, `AUTHORITY_MODE`, `LIVE_QA_BARGE_MODE` — every one of which ships as `shadow` in `backend/.env.example:410,478,542,555`, meaning in the default deployment all four engines score, log and then decline to act, while this tab shows six green \"required\" lozenges under the sentence \"These engines decide.\" Of the six keys, exactly one thing on the card is genuinely enforced at runtime and it is not a binding: `tools.locked` reaches the mouth via `voice/bot.py:1138` → `skills/runtime.py:199` → `intersect.py:54-55`, and even that filters to the two locked names that exist in the catalog. `routing` and `dnd` have no card linkage at all — routing rules are tenant-global rows evaluated at `db_routing.py:648`, DND is customer/consent state read in `contact_policy.py:487,529`. The tab does not link to `/treatment`, `/upsell`, `/routing`, `/consent` or `/qa`, the five screens where these engines are actually configured.",
+ "endpoints": [
+  "(PolicyTab itself calls no endpoint — it renders a prop; it registers no query and invalidates no react-query key)",
+  "GET /agent-studio/cards/{botId} → backend/main.py:2130 get_agent_studio_card → backend/db_prompt_studio.py:569 get_agent_studio_card → _agent_studio_card_summary db_prompt_studio.py:404-429 (returns raw draft-then-published agent_card JSON, else agent_core/cards/defaults.py card_dump, else defaults.py:362-370 scaffold_card) — this is the query (Habibi/src/api/agent-studio.ts:292-306, key [\"agent-studio\",\"card\",botId]) that supplies `effectiveCard` at prompt-studio.lazy.tsx:438-441",
+  "GET /prompt-versions?botId=… → backend/main.py:2032 → db.list_prompt_versions — the second source of `effectiveCard` (published?.agentCard fallback, prompt-studio.lazy.tsx:439)",
+  "PATCH /prompt-versions/{id} → backend/main.py:3233+ → db.patch_prompt_version — the only write that can persist policy_bindings, and it is never issued by this tab (the shell autosaves the whole card; PolicyTab has no onChange)",
+  "POST /agent-studio/cards/{botId}/compile → backend/main.py:2194 compile_agent_studio_card → db.compile_agent_studio_card → agent_core/cards/compile.py:518 compile_card (G3 at compile.py:594-616) — the only consumer of policy_bindings anywhere; PolicyTab does not call it or read its report"
+ ],
+ "runtime_consumers": [
+  "card.policy_bindings.reco → NONE (dead config). Only reader in the tree is agent_core/cards/compile.py:601. The reco engine's on/off is agent_core/reco/config.py:53-62 mode() reading env RECO_MODE, applied at agent_core/reco/engine.py:113-118 (off → suppressed=engine_off) and 247-256 (shadow → suppressed=shadow_mode). Nothing per-bot, nothing per-card.",
+  "card.policy_bindings.treatment → NONE (dead config). Engine gate is agent_core/treatment/config.py:50-60 mode() reading env TREATMENT_MODE.",
+  "card.policy_bindings.authority → NONE (dead config). Engine gate is agent_core/authority/config.py:23-36 mode() reading env AUTHORITY_MODE, applied at agent_core/authority/engine.py:290 (`suppressed = mode != MODE_LIVE or ...`).",
+  "card.policy_bindings.live_qa → NONE (dead config). Engine gate is agent_core/live_qa/config.py:34-45 mode() reading env LIVE_QA_BARGE_MODE, applied at agent_core/live_qa/engine.py:146.",
+  "card.policy_bindings.routing → NONE (dead config). Runtime routing is tenant-global rows: voice/tools.py:2702 → db.escalate_voice_interaction (backend/db_routing.py:527) → list_routing_rules (db_routing.py:565) → _match_routing_rule (db_routing.py:382, called at 648). No card is consulted.",
+  "card.policy_bindings.dnd → NONE (dead config). DND is customer/consent state: backend/contact_policy.py:38 BLOCKING_CONSENT, :46-49 reason codes, :292-303 _load_customer (c.dnd, cr.dnd_registry), :487 _veto, :529 evaluate, :881 admit. contact_policy.py contains no reference to any agent card.",
+  "card.tools.locked (the other half G3 enforces) → agent_core/skills/intersect.py:54-55 _locked_mouth, reached at runtime by voice/bot.py:1138 _resolve_mouth(bundle['agentCard']).tools(...) → agent_core/skills/runtime.py:175-211 → intersect.effective_tools/offered_tools. Filtered to LOCKED_MOUTH_TOOLS ∩ catalog, i.e. only recommend_next_offer and evaluate_authority survive.",
+  "recommend_next_offer (locked engine 1) → voice/tools.py:1944-2060 _recommend_next_offer_handler (registered at voice/tools.py:2903); text channel bot_tools.py:452 _tool_recommend_next_offer (registered bot_tools.py:784). Catalog spec agent_core/tools/catalog.py:723.",
+  "evaluate_authority (locked engine 2) → voice/tools.py:1403-1502 _evaluate_authority_handler (registered voice/tools.py:2897); bot_tools.py:294-295 (registered bot_tools.py:776). Catalog spec agent_core/tools/catalog.py:437.",
+  "recommend_treatment (locked engine 3) → NO mouth tool anywhere. Absent from agent_core/tools/catalog.py and from LOCKED_MOUTH_TOOLS (schema.py:66-68). Every runtime caller is a batch/event path outside the call: backend/db.py:997-999, backend/db_treatment_holds.py:300-306, backend/payment_events.py:441-443, backend/promise_fulfillment.py:832-834, agent_core/treatment/followthrough.py:432-436, agent_core/treatment/sweep.py:166-177.",
+  "evaluate_live_qa (locked engine 4) → NO mouth tool. Called once per persisted turn from backend/voice/persist.py:838-862 (not from voice/bot.py, not from any tool handler). Engine at agent_core/live_qa/engine.py:64."
+ ],
+ "findings": [
+  {
+   "id": "POLICY-1",
+   "title": "card.policy_bindings has zero runtime readers — the Policy tab authors nothing and binds nothing",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "backend/agent_core/cards/schema.py:20",
+    "backend/agent_core/cards/schema.py:133-141",
+    "backend/agent_core/cards/schema.py:386",
+    "backend/agent_core/cards/compile.py:594-616",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:202-242"
+   ],
+   "mechanism": "A repo-wide grep for `policy_binding` under backend/ (excluding .venv) returns exactly four hits: schema.py:386 (the field), compile.py:596/601/609/616 (gate G3), and one test. No file under backend/voice/**, bot_runtime.py, bot_tools.py, sandbox_runtime.py, outbound.py, mission.py, cadence.py or agent_core/** (other than cards/compile.py) mentions it. backend/voice/ references the card at exactly one place — voice/tools.py:2781-2788 card_for() for the handoff allowlist — and never touches policy_bindings. Meanwhile the field it displays is `PolicyBinding = Literal[\"required\"]` (schema.py:20) on a model where all six fields default to \"required\" (schema.py:133-141) with extra=\"forbid\", so a card that passes AgentCard.model_validate (compile.py:560) necessarily has all six == \"required\". The tab has no onChange (AgentCardPanels.tsx:202, prompt-studio.lazy.tsx:1399), no button, no link and no query. It is therefore a read-only render of six values that can never differ, describing a contract nothing enforces at runtime.",
+   "trigger": "Open Prompt Studio → any bot → Policy. Six green \"required\" lozenges. Change nothing (there is nothing to change), publish, place a call: no code path anywhere consults the field.",
+   "fix": "Either give the binding teeth or stop presenting it as one. Teeth: have the runtime read it — e.g. voice/tools.py's recommend_next_offer / evaluate_authority handlers and voice/persist.py's live_qa call should refuse to run (or hard-fail the call) when the active bundle's card does not bind the engine, and contact_policy.evaluate should record the binding it enforced. Honesty: delete PolicyBindings and G3's binding half, and replace the tab with a read-only \"engine status\" panel that reports the real gates (the four *_MODE env values and the DB rules) plus links to the screens that own them.",
+   "prior_ref": ""
+  },
+  {
+   "id": "POLICY-2",
+   "title": "Policy tab claims four engines \"decide\" while all four ship in shadow mode, gated by process-wide env vars the tab cannot see",
+   "severity": "MAJOR",
+   "confidence": "VERIFIED",
+   "category": "degradation-lie",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:206-209",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:226-227",
+    "backend/.env.example:410",
+    "backend/.env.example:478",
+    "backend/.env.example:542",
+    "backend/.env.example:555",
+    "backend/agent_core/reco/engine.py:247-256",
+    "backend/agent_core/authority/engine.py:290"
+   ],
+   "mechanism": "The tab's standing copy is \"These engines decide. The mouth cannot unbind them. Reco / treatment / authority / live QA / DND stay code with a log.\" and every row renders `<Lozenge tone=\"success\">required</Lozenge>` whenever the (always-present, always-\"required\") binding is read. But whether an engine decides anything is set by four environment variables read at call time — reco/config.py:53-62 (RECO_MODE), treatment/config.py:50-60 (TREATMENT_MODE), authority/config.py:23-36 (AUTHORITY_MODE), live_qa/config.py:34-45 (LIVE_QA_BARGE_MODE) — each defaulting to shadow and shipped as `shadow` in .env.example:410,478,542,555. In shadow, reco/engine.py:247-256 returns `suppressed=True, reason=\"shadow_mode\"` with zero offers on every call, and authority/engine.py:290 sets `suppressed = mode != MODE_LIVE` so every authority verdict is advisory. These are process-wide: no per-tenant, per-bot or per-card override exists. The one screen in the studio labelled Policy therefore asserts, in the reassuring colour, that four engines are live and binding on a deployment where all four are muted, and it has no read of the mode at all.",
+   "trigger": "Deploy with the shipped backend/.env.example (all four modes = shadow). Open Prompt Studio → Policy on any agent. Six green \"required\" lozenges under \"These engines decide.\" Then place a call: recommend_next_offer returns suppressed=shadow_mode every time and no offer is ever spoken.",
+   "fix": "Surface the engine mode next to each binding. Add a small read endpoint (or extend the compile report) that returns the four resolved modes, and render `required · engine: shadow` in warning tone when a bound engine is not live — a bound engine running in shadow or off is exactly the state an operator needs to see on a screen called Policy. Fix the copy so it says what the binding actually guarantees (the tool stays on the card) rather than that the engine decides.",
+   "prior_ref": ""
+  },
+  {
+   "id": "POLICY-3",
+   "title": "Two of the four rows name a mouth tool that does not exist in any catalog or call path",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "stale",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:57-59",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:215-217",
+    "backend/agent_core/cards/schema.py:56-68",
+    "backend/agent_core/tools/catalog.py:437",
+    "backend/agent_core/tools/catalog.py:723",
+    "backend/voice/persist.py:838-862"
+   ],
+   "mechanism": "POLICY_ENGINES lists `{ key: \"treatment\", tool: \"recommend_treatment\" }` and `{ key: \"live_qa\", tool: \"evaluate_live_qa\" }`, and the row renders the string in a monospace slot identical to the two rows that *are* real tools. Neither name exists in agent_core/tools/catalog.py (which defines only evaluate_authority:437 and recommend_next_offer:723 of the four), neither is in LOCKED_MOUTH_TOOLS (schema.py:66-68), and neither has a handler in voice/tools.py or bot_tools.py. recommend_treatment is invoked only from batch/event paths outside a call (db.py:997, db_treatment_holds.py:306, payment_events.py:443, promise_fulfillment.py:834, treatment/followthrough.py:436, treatment/sweep.py:177); evaluate_live_qa is invoked once per persisted turn from voice/persist.py:842 and is not a tool at all. schema.py:56-57 states this honestly (\"two are Python engines with no mouth tool (yet)\"); the tab does not, and the Tools tab — which builds its rows from the catalog via flow_graph.py:800-829 — cannot show either name, so an author who goes looking for the tool the Policy tab named finds nothing.",
+   "trigger": "Open Policy, read \"Treatment · recommend_treatment\", switch to Tools and search for recommend_treatment. It is not in the table, because it is not a tool.",
+   "fix": "Mark the two engine-only rows distinctly — drop the monospace tool slot and label them \"Python engine — no mouth tool\" (the wording schema.py already uses), or render them in a separate group below the two catalog tools. Derive the flag from LOCKED_MOUTH_TOOLS rather than hardcoding `tool: null` per row.",
+   "prior_ref": ""
+  },
+  {
+   "id": "POLICY-4",
+   "title": "In dev mock mode the Policy tab reports six unbound engines and a blocked publish for every agent",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "bug",
+   "files": [
+    "Habibi/src/api/agent-studio.ts:97-98",
+    "Habibi/src/api/agent-studio.ts:292-306",
+    "Habibi/src/api/config.ts:15-26",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:141-144",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:438-441",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:232-236"
+   ],
+   "mechanism": "Every entry in MOCK_CARDS carries `agentCard: {}` and `publishedCard: {}` (agent-studio.ts:97-98 for intake-v1, same for the rest), and the mock prompt-version store never seeds an agentCard either. asCard (prompt-studio.lazy.tsx:141-144) returns null for a zero-key object, so effectiveCard collapses to the `?? {}` terminal at prompt-studio.lazy.tsx:439. PolicyTab then reads `bindings = card.policy_bindings ?? {}` (AgentCardPanels.tsx:203) — every key undefined — and falls into the third branch, rendering six danger lozenges reading \"not bound — G3 blocks publish\" with the tooltip \"G3 fails a card that does not bind every engine.\" That claim is false even on its own terms: PolicyBindings has default_factory values for all six (schema.py:133-141), so a card whose JSON omits policy_bindings entirely validates with all six == \"required\" and G3 passes (compile.py:600-616). Dev default is mock=true (config.ts:25), so this is the state every developer and every offline demo sees. PolicyTab has no isPending/isError/not-authored branch — the file already has NotAuthoredNotice (AgentCardPanels.tsx:64-71) and this tab is the one that never uses it.",
+   "trigger": "`npm run dev` with no VITE_USE_MOCK set → Prompt Studio → any agent → Policy. Six red \"not bound — G3 blocks publish\" rows for cards that compile clean.",
+   "fix": "Give PolicyTab the not-authored branch the other tabs have: `if (!isAuthoredCard(card)) return <NotAuthoredNotice what=\"policy bindings\" />` before the list. And correct the missing-key lozenge — an absent policy_bindings object is filled by the server-side default and does not block publish; only a present-but-wrong value does, and that value cannot survive validation either (see POLICY-5). Seeding the mock cards with a real card dump would also stop the demo lying.",
+   "prior_ref": "2j"
+  },
+  {
+   "id": "POLICY-5",
+   "title": "G3's binding half is unreachable, and the test that claims to cover it asserts a different gate",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "test-gap",
+   "files": [
+    "backend/agent_core/cards/compile.py:598-615",
+    "backend/agent_core/cards/schema.py:20",
+    "backend/agent_core/cards/schema.py:133-141",
+    "backend/tests/test_agent_card_compile.py:55-62"
+   ],
+   "mechanism": "G3 computes `missing = [key for key in REQUIRED_POLICY_KEYS if getattr(card.policy_bindings, key, None) != \"required\"]`, but `card` at that point is the product of AgentCard.model_validate (compile.py:560). PolicyBindings declares all six fields as `PolicyBinding = Literal[\"required\"]` with that literal as the default and extra=\"forbid\", so validation either fills every key with \"required\" or raises. `missing` is therefore always empty and the \"missing_bindings\" issue can never be emitted. The test named `test_unbinding_reco_fails_g3` proves the point rather than the gate: it sets `dumped[\"policy_bindings\"][\"reco\"] = \"off\"` and then asserts `g0.status == \"fail\"` — G0, not G3 — because the invalid literal aborts validation, leaves card None, and makes G3 emit \"skipped — no card\" (compile.py:596). So the gate the test is named for is never exercised and cannot be. Only G3's second half (LOCKED_POLICY_ENGINES ⊆ card.tools.locked, compile.py:604) is live.",
+   "trigger": "Read compile.py:598-615 against schema.py:133-141; run backend/tests/test_agent_card_compile.py::test_unbinding_reco_fails_g3 and observe it passes on G0.",
+   "fix": "Drop the `missing` computation and the misleading issue key, leaving G3 as the locked-tools check it actually is, and rename the test to test_unbinding_reco_fails_g0 (the behaviour is correct — a bad literal should fail schema — the name is what lies). If policy bindings are meant to become multi-valued, widen PolicyBinding to a real Literal union first; only then does G3's binding half have work to do.",
+   "prior_ref": ""
+  },
+  {
+   "id": "POLICY-6",
+   "title": "The tab restates the six-key policy vocabulary locally and imports the shared constant without using it",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "code-organization",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:26",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:29",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:55-62",
+    "Habibi/src/api/agent-card.ts:116-125",
+    "backend/agent_core/cards/schema.py:70-77"
+   ],
+   "mechanism": "`REQUIRED_POLICY_KEYS` (line 26) and `type PolicyKey` (line 29) are imported into AgentCardPanels.tsx and never referenced anywhere in the 1000+ line file — a grep for either name in that file returns only the import lines. The tab instead hardcodes its own six-entry POLICY_ENGINES array (55-62). The intent to derive from the shared list is visible in the import and was not carried out. Consequence: if backend REQUIRED_POLICY_KEYS (schema.py:70-77) gains a seventh key, G3 will start failing publishes for a binding the Policy tab does not render and gives no way to see — the same class of drift the file's own header comment (lines 22-30) says the typed card was introduced to prevent. TypeScript will not catch it, because POLICY_ENGINES keys are only used to index a Partial record.",
+   "trigger": "Add a key to backend REQUIRED_POLICY_KEYS. The frontend compiles clean, the Policy tab renders six rows, and G3 blocks publish on the seventh.",
+   "fix": "Build POLICY_ENGINES by mapping over REQUIRED_POLICY_KEYS with a `Record<PolicyKey, {label, tool}>` lookup, so the array is exhaustive by construction and a new backend key is a TypeScript error until the label is supplied. That also makes the two imports live.",
+   "prior_ref": ""
+  },
+  {
+   "id": "POLICY-7",
+   "title": "The Policy tab is a navigational dead end: it names six engines and links to none of the five screens that configure them",
+   "severity": "MINOR",
+   "confidence": "VERIFIED",
+   "category": "disconnected",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:202-242",
+    "Habibi/src/routes/treatment.tsx",
+    "Habibi/src/routes/upsell.tsx",
+    "Habibi/src/routes/routing.tsx",
+    "Habibi/src/routes/consent.tsx",
+    "Habibi/src/routes/qa.tsx"
+   ],
+   "mechanism": "PolicyTab renders no `<Link>` and no button; the `Link` and `ExternalLink` imports at AgentCardPanels.tsx:2-3 are consumed by other tabs in the file. Every one of the six rows has a real configuration surface elsewhere in the app — upsell.tsx for reco, treatment.tsx for treatment, qa.tsx for live QA, routing.tsx for routing rules (the rows db_routing.py:648 actually evaluates), consent.tsx for DND/consent (the state contact_policy.py:487,529 actually reads) — and the tab points at none of them. An operator who arrives here because something about policy is wrong has nowhere to go from the screen named Policy.",
+   "trigger": "Open Policy. Try to act on any row. There is no control and no destination.",
+   "fix": "Give each row a right-hand \"Configure →\" link to its owning route (reco → /upsell, treatment → /treatment, authority → the authority matrix screen, live_qa → /qa, routing → /routing, dnd → /consent). That turns a tautological display into the index it should be.",
+   "prior_ref": ""
+  },
+  {
+   "id": "POLICY-8",
+   "title": "A card whose tools.locked is short of the four engines is unpublishable with no UI able to repair it",
+   "severity": "MINOR",
+   "confidence": "SUSPECTED",
+   "category": "bug",
+   "files": [
+    "backend/agent_core/cards/compile.py:604-615",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:103-112",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:202-242",
+    "backend/agent_core/cards/schema.py:114"
+   ],
+   "mechanism": "G3's only live half fails publish when LOCKED_POLICY_ENGINES ⊄ card.tools.locked (compile.py:604-615, detail \"engines cannot be unbound\"). Nothing in the studio can write `tools.locked`: ToolsTab.toggle edits only `include` (AgentCardPanels.tsx:106-111) and disables the button for locked rows (line 169), and PolicyTab has no editor at all. So a card that reaches that state — via a direct PATCH /prompt-versions body, a hand-edited row, or a future template that trims the list — is permanently blocked with a compile message naming a field the UI cannot touch. All in-app creation paths currently seed the full four (schema.py:114 default, defaults.py:369 scaffold, clone.py:41-48 copies the source card), which is why this is SUSPECTED rather than demonstrated.",
+   "trigger": "PATCH a draft's agentCard with `tools.locked: []`, then compile: G3 fails and no studio control can add the names back.",
+   "fix": "Either make G3's locked half self-healing at publish (union LOCKED_POLICY_ENGINES into tools.locked before validating, since the schema calls it un-unbindable anyway), or give PolicyTab a repair action that writes the missing names into tools.locked — the natural home for the one publish-blocking condition this tab is about.",
+   "prior_ref": ""
+  },
+  {
+   "id": "POLICY-9",
+   "title": "Tab copy enumerates five engines for six rows and credits the card with a DND relationship it does not have",
+   "severity": "TRIVIAL",
+   "confidence": "VERIFIED",
+   "category": "doc-vs-code",
+   "files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:206-209",
+    "backend/contact_policy.py:487",
+    "backend/contact_policy.py:529"
+   ],
+   "mechanism": "The lead paragraph lists \"Reco / treatment / authority / live QA / DND\" — five — above a list of six rows; `routing` is silently omitted from the prose and present in the UI. The closing sentence, \"This card cannot disable DND\", implies the card stands in some relationship to DND. It does not: DND is read entirely from customer and consent rows in contact_policy.py (_veto at :487 checks `customer['dnd'] or customer['dnd_registry']`, evaluate at :529), and contact_policy.py contains no reference to an agent card of any kind. No card can disable DND for the same reason no card can enable it.",
+   "trigger": "Read the tab header against the six rows below it.",
+   "fix": "Say six things if six render, and replace \"This card cannot disable DND\" with what is true — DND and calling hours are enforced in contact_policy.py from consent state, outside the card entirely — ideally next to the link POLICY-7 asks for.",
+   "prior_ref": ""
+  }
+ ],
+ "checked_fine": [
+  "Prior finding 2j is FIXED. The hardcoded `success` tone and the `bindings[engine.key] || \"required\"` label fallback are gone; AgentCardPanels.tsx:226-236 now branches success / danger-with-value / danger-not-bound, with the reasoning recorded in the comment at 219-225. (The remaining defect is the third branch's claim, POLICY-4, not the tone logic.)",
+  "The tab's key coverage is still correct: POLICY_ENGINES (AgentCardPanels.tsx:55-62) lists exactly the six keys of backend REQUIRED_POLICY_KEYS (schema.py:70-77) in the same order, and Habibi/src/api/agent-card.ts:116-123 mirrors both.",
+  "Lozenge forwards `title`: LozengeProps extends React.HTMLAttributes<HTMLSpanElement> and the component spreads `...props` onto the span (Habibi/src/components/ui/lozenge.tsx:37-48), so the explanatory tooltips at AgentCardPanels.tsx:229,233 do reach the DOM.",
+  "PolicyTab reads the DRAFT card, not the published one, which is right for an authoring tab: effectiveCard is `card ?? cardQuery.data.agentCard ?? published.agentCard ?? {}` (prompt-studio.lazy.tsx:438-441) and db_prompt_studio.py:429 resolves draft-then-published, so what the tab shows is what the compile preview will grade.",
+  "Loading and error are handled above the tab strip, not inside PolicyTab: `loading` covers versionsQuery.isLoading || cardQuery.isPending (prompt-studio.lazy.tsx:1174) and `blocked` distinguishes 404 from other card-GET failures (1193-1222), so a failed card read renders an explicit reason rather than an empty Policy tab.",
+  "The two locked engines that ARE mouth tools reach runtime correctly on both channels: recommend_next_offer at voice/tools.py:1944-2060 registered at 2903 and bot_tools.py:452 registered at 784; evaluate_authority at voice/tools.py:1403-1502 registered at 2897 and bot_tools.py:294 registered at 776. Both catalog specs exist (catalog.py:723, :437).",
+  "card.tools.locked — the half of G3 that is enforceable — does have a live runtime consumer: voice/bot.py:1138 resolves the mouth from bundle['agentCard'] and calls .tools(), which routes to agent_core/skills/runtime.py:199-211 → intersect.py:54-55 `_locked_mouth`, correctly intersecting with LOCKED_MOUTH_TOOLS and the catalog so the two non-tool engine names are dropped rather than offered.",
+  "recommend_next_offer's hardship interlock is real code, not prompt text: voice/tools.py:1955-1969 latches `session.extra['upsell_blocked']` and returns suppressed before the engine is called, so no node or phrasing can route around it.",
+  "The reco handler cannot break the call — any engine exception returns `offers: [], suppressed: true, suppressionReason: engine_error` with a \"do not mention any product\" instruction (voice/tools.py:1988-2000), and evaluate_live_qa is wrapped so a QA failure logs and continues (voice/persist.py:866-867).",
+  "All four engines degrade to shadow rather than off on an unrecognised mode value, and say so in the log (reco/config.py:61-62, authority/config.py:30-35, live_qa/config.py:41-46, treatment/config.py:58-61) — the safe direction for a rollout, correctly implemented.",
+  "Routing rules genuinely run at call time: voice/tools.py:2702 → db_routing.py:527 escalate_voice_interaction reads the rule catalog outside the write transaction (:565) and matches it at :648, so the `routing` engine, while not card-bound, is not dead.",
+  "flow_graph.py:813-829 marks a catalog row `locked` from LOCKED_MOUTH_TOOLS rather than from LOCKED_POLICY_ENGINES, so the Tools tab does not offer to toggle two names that are not tools — the correct choice of the two constants.",
+  "Every in-app card creation path seeds policy_bindings by construction, so the field is never absent in live data: defaults.py:362-370 scaffold_card model_dumps a real AgentCard, clone.py:41-48 copies template_card / the published card / card_dump, and seed_postgres.py:1089,1115,1178 use _card_dump."
+ ]
+}

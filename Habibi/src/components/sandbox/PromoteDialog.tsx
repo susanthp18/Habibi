@@ -15,7 +15,6 @@ type Props = {
   promptLabel: string;
   kbLabel: string;
   scenarioLabel: string;
-  tuningSummary?: string;
   onConfirm: () => void;
 };
 
@@ -25,7 +24,6 @@ export function PromoteDialog({
   promptLabel,
   kbLabel,
   scenarioLabel,
-  tuningSummary,
   onConfirm,
 }: Props) {
   const [text, setText] = useState("");
@@ -47,13 +45,12 @@ export function PromoteDialog({
             <br />
             KB: <span className="font-mono">{kbLabel}</span>
             <br />
-            {tuningSummary && (
-              <>
-                Tuning: <span className="font-mono">{tuningSummary}</span>
-                <br />
-              </>
-            )}
             Last tested with: <span className="italic">{scenarioLabel}</span>
+          </div>
+          <div className="rounded-medium border border-border-warning bg-background-warning-subtler p-150 text-body-small text-text-warning-bolder">
+            Promotes the persisted prompt, Agent Card, flow, guardrails, and selected KB snapshot.
+            Rehearsal turns, simulated tool effects, scenario state, and temporary tuning controls
+            reset and are not published.
           </div>
           <div>
             <label className="text-body-small font-semibold text-text-subtlest">

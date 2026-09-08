@@ -60,7 +60,14 @@ def pick_deployment_id(
     environment: str = "production",
     customer_id: str | None = None,
 ) -> str | None:
-    """Hash-split when an experiment is running. No customer id → canary/active."""
+    """Hash-split when an experiment is running.
+
+    A missing customer id used to mean "send this call to the canary", which is
+    the opposite of a cohort: unmatched inbound, sandbox, and anything that
+    lost its ANI all landed on the unproven mouth. Missing identity now follows
+    the baseline. Shadow experiments are not a runtime path — they also follow
+    the baseline until the experiment is closed.
+    """
     active = db.get_active_deployment(bot_id=bot_id, environment=environment)
     exp = running_experiment(bot_id, environment)
     if not exp:
@@ -68,8 +75,12 @@ def pick_deployment_id(
     canary_id = exp.get("canary_deployment_id")
     baseline_id = exp.get("baseline_deployment_id")
     pct = int(exp.get("traffic_pct") or 0)
-    if pct >= 100 or not customer_id:
+    if exp.get("shadow"):
+        return baseline_id or (active or {}).get("id")
+    if pct >= 100:
         return canary_id or (active or {}).get("id")
+    if not customer_id:
+        return baseline_id or (active or {}).get("id")
     digest = hashlib.sha256(f"{bot_id}:{customer_id}".encode("utf-8")).digest()
     bucket = digest[0] % 100
     if bucket < pct:
@@ -105,6 +116,15 @@ def record_experiment(
         {"b": bot_id, "e": environment, "t": db.current_tenant()},
     )
     if pct >= 100:
+        return None
+    if shadow:
+        # Shadow is stored on the card for authors who ticked it historically,
+        # but it is not an execution path: there is no non-customer-serving
+        # mouth. Refuse to open an experiment that would pretend otherwise.
+        logger.warning(
+            "refusing shadow experiment for bot=%s — shadow is not a runtime path",
+            bot_id,
+        )
         return None
     conn.execute(
         text(
@@ -188,13 +208,35 @@ def rollback_experiment(experiment_id: str, *, reason: str) -> dict[str, Any]:
             )
             or exp
         )
+        try:
+            from agent_core import change_log
+
+            change_log.record_experiment_rollback(
+                conn,
+                tenant_id=db.current_tenant(),
+                actor_user_id=db._actor_user_id() or "system",
+                entry_id=db._id("AUD"),
+                bot_id=str(exp.get("bot_id") or ""),
+                experiment_id=experiment_id,
+                reason=reason,
+                baseline_restored=bool(baseline),
+            )
+        except Exception:
+            logger.exception("experiment rollback was not written to the change log")
         return {**dict(row), "baselineRestored": bool(baseline)}
 
 
-def _live_qa_burn(conn: Any, bot_id: str) -> float:
+def _scope(deployment_id: str | None) -> tuple[str, dict[str, Any]]:
+    if deployment_id:
+        return " AND i.deployment_id = :d", {"d": deployment_id}
+    return "", {}
+
+
+def _live_qa_burn(conn: Any, bot_id: str, *, deployment_id: str | None = None) -> float:
+    extra, params = _scope(deployment_id)
     row = conn.execute(
         text(
-            """
+            f"""
             SELECT
               count(*) FILTER (WHERE lq.created_at > now() - interval '15 minutes')::float AS recent,
               count(*) FILTER (
@@ -205,9 +247,10 @@ def _live_qa_burn(conn: Any, bot_id: str) -> float:
             JOIN interactions i ON i.id = lq.interaction_id
             WHERE i.handler_bot_id = :b
               AND lq.verdict IN ('fail_critical','fail_soft')
+              {extra}
             """
         ),
-        {"b": bot_id},
+        {"b": bot_id, **params},
     ).mappings().first()
     if not row:
         return 0.0
@@ -218,7 +261,7 @@ def _live_qa_burn(conn: Any, bot_id: str) -> float:
     return recent / prior
 
 
-def _abandoned(conn: Any, bot_id: str) -> int:
+def _abandoned(conn: Any, bot_id: str, *, deployment_id: str | None = None) -> int:
     """Calls where our side dropped after connecting. Target is zero, literally.
 
     Section 8.1 is explicit that this is not a rate to be managed down: a
@@ -228,80 +271,101 @@ def _abandoned(conn: Any, bot_id: str) -> int:
     dial, so any occurrence at all means something in that chain broke — which
     is why the threshold is one and not a percentage.
     """
+    extra = " AND deployment_id = :d" if deployment_id else ""
+    params: dict[str, Any] = {"b": bot_id}
+    if deployment_id:
+        params["d"] = deployment_id
     return int(
         conn.execute(
             text(
-                """
+                f"""
                 SELECT count(*) FROM call_attempts
                 WHERE bot_id = :b
                   AND state = 'abandoned'
                   AND updated_at > now() - interval '15 minutes'
+                  {extra}
                 """
             ),
-            {"b": bot_id},
+            params,
         ).scalar()
         or 0
     )
 
 
-def _third_party_leaks(conn: Any, bot_id: str) -> int:
+def _third_party_leaks(conn: Any, bot_id: str, *, deployment_id: str | None = None) -> int:
     """Times this bot said something about a debt to somebody who is not the borrower.
 
     ``third-party-leak`` is already in ``_LIVE_ALERT_FLAGS`` and can barge the
     call in progress, so the detection exists and works. What did not exist was
     anything that treated a canary producing them as a canary to pull.
     """
+    extra, params = _scope(deployment_id)
     return int(
         conn.execute(
             text(
-                """
+                f"""
                 SELECT count(*)
                 FROM interaction_flags f
                 JOIN interactions i ON i.id = f.interaction_id
                 WHERE i.handler_bot_id = :b
                   AND f.flag = 'third-party-leak'
                   AND f.created_at > now() - interval '15 minutes'
+                  {extra}
                 """
             ),
-            {"b": bot_id},
+            {"b": bot_id, **params},
         ).scalar()
         or 0
     )
 
 
-def _optouts(conn: Any, bot_id: str) -> int:
+def _optouts(conn: Any, bot_id: str, *, deployment_id: str | None = None) -> int:
     """Borrowers who asked to be left alone after speaking to this bot."""
+    extra = " AND a.deployment_id = :d" if deployment_id else ""
+    params: dict[str, Any] = {"b": bot_id}
+    if deployment_id:
+        params["d"] = deployment_id
     return int(
         conn.execute(
             text(
-                """
+                f"""
                 SELECT count(*)
                 FROM call_outcomes o
                 JOIN call_attempts a ON a.id = o.attempt_id
                 WHERE a.bot_id = :b
                   AND o.business = 'opt_out_requested'
                   AND o.created_at > now() - interval '15 minutes'
+                  {extra}
                 """
             ),
-            {"b": bot_id},
+            params,
         ).scalar()
         or 0
     )
 
 
-def _slo_miss(conn: Any, bot_id: str) -> bool:
+def _slo_miss(conn: Any, bot_id: str, *, deployment_id: str | None = None) -> bool:
+    """p95 LLM time-to-first-byte, not whole-call duration.
+
+    Whole-call length is almost always above VOICE_SLO_MS (800ms) — a
+    two-minute conversation is 120,000ms — so the old signal fired on every
+    answered call.
+    """
+    extra, params = _scope(deployment_id)
     row = conn.execute(
         text(
-            """
-            SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_sec * 1000.0) AS p95
-              FROM interactions
-             WHERE handler_bot_id = :b
-               AND channel = 'voice'
-               AND started_at > now() - interval '15 minutes'
-               AND duration_sec IS NOT NULL
+            f"""
+            SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY t.llm_ttfb_ms) AS p95
+              FROM interaction_transcript t
+              JOIN interactions i ON i.id = t.interaction_id
+             WHERE i.handler_bot_id = :b
+               AND i.channel = 'voice'
+               AND i.started_at > now() - interval '15 minutes'
+               AND t.llm_ttfb_ms IS NOT NULL
+               {extra}
             """
         ),
-        {"b": bot_id},
+        {"b": bot_id, **params},
     ).mappings().first()
     p95 = (row or {}).get("p95")
     return p95 is not None and float(p95) > VOICE_SLO_MS
@@ -348,6 +412,38 @@ def list_experiments(*, bot_id: str | None = None, limit: int = 50) -> list[dict
     return out
 
 
+def close_running_experiments(
+    conn: Any,
+    *,
+    bot_id: str,
+    environment: str = "production",
+    reason: str,
+) -> None:
+    """Mark every running experiment for this mouth rolled_back.
+
+    A deployment rollback that left the experiment `running` kept the canary
+    router hashing callers onto a mouth that was no longer active.
+    """
+    if not _require_table(conn):
+        return
+    conn.execute(
+        text(
+            """
+            UPDATE deployment_experiments
+               SET status = 'rolled_back', rollback_reason = :r, updated_at = now()
+             WHERE bot_id = :b AND environment = :e AND status = 'running'
+               AND tenant_id = :t
+            """
+        ),
+        {
+            "b": bot_id,
+            "e": environment,
+            "r": reason,
+            "t": db.current_tenant(),
+        },
+    )
+
+
 def sweep_rollbacks() -> bool:
     """Drain-cadence check. Returns True when an experiment rolled back."""
     try:
@@ -358,7 +454,7 @@ def sweep_rollbacks() -> bool:
                 conn.execute(
                     text(
                         """
-                        SELECT id, bot_id, auto_rollback
+                        SELECT id, bot_id, auto_rollback, canary_deployment_id, shadow
                           FROM deployment_experiments
                          WHERE status = 'running' AND tenant_id = :t
                         """
@@ -368,6 +464,10 @@ def sweep_rollbacks() -> bool:
             )
         acted = False
         for exp in rows:
+            if exp.get("shadow"):
+                rollback_experiment(exp["id"], reason="shadow_not_supported")
+                acted = True
+                continue
             triggers = exp.get("auto_rollback") or []
             if isinstance(triggers, str):
                 import json
@@ -377,6 +477,7 @@ def sweep_rollbacks() -> bool:
                 except json.JSONDecodeError:
                     triggers = []
             reason = None
+            canary = exp.get("canary_deployment_id")
             with db.engine.connect() as conn:
                 if "eval_fail" in triggers:
                     report = db.get_latest_eval_report(bot_id=exp["bot_id"], kind="redteam")
@@ -384,13 +485,13 @@ def sweep_rollbacks() -> bool:
                         reason = "eval_fail"
                 if reason is None and "slo_miss" in triggers:
                     try:
-                        if _slo_miss(conn, exp["bot_id"]):
+                        if _slo_miss(conn, exp["bot_id"], deployment_id=canary):
                             reason = "slo_miss"
                     except Exception:
                         logger.exception("canary slo sample failed")
                 if reason is None and "live_qa_burn" in triggers:
                     try:
-                        if _live_qa_burn(conn, exp["bot_id"]) > 1.5:
+                        if _live_qa_burn(conn, exp["bot_id"], deployment_id=canary) > 1.5:
                             reason = "live_qa_burn"
                     except Exception:
                         logger.exception("canary live-qa sample failed")
@@ -400,19 +501,19 @@ def sweep_rollbacks() -> bool:
                 # telling a stranger about somebody's debt.
                 if reason is None and "abandon_rate" in triggers:
                     try:
-                        if _abandoned(conn, exp["bot_id"]) > 0:
+                        if _abandoned(conn, exp["bot_id"], deployment_id=canary) > 0:
                             reason = "abandon_rate"
                     except Exception:
                         logger.exception("canary abandon sample failed")
                 if reason is None and "third_party_leak" in triggers:
                     try:
-                        if _third_party_leaks(conn, exp["bot_id"]) > 0:
+                        if _third_party_leaks(conn, exp["bot_id"], deployment_id=canary) > 0:
                             reason = "third_party_leak"
                     except Exception:
                         logger.exception("canary leak sample failed")
                 if reason is None and "optout_spike" in triggers:
                     try:
-                        if _optouts(conn, exp["bot_id"]) >= OPTOUT_SPIKE_THRESHOLD:
+                        if _optouts(conn, exp["bot_id"], deployment_id=canary) >= OPTOUT_SPIKE_THRESHOLD:
                             reason = "optout_spike"
                     except Exception:
                         logger.exception("canary opt-out sample failed")

@@ -575,7 +575,7 @@ def _first_touch(
         tz=tz,
     )
     consent = capture.latest_consent_by_channel(conn, customer_id)
-    phone = account.get("phone_primary") or account.get("phone_alt")
+    phone = account.get("phone_primary")
     sms_blocked = _channel_blocked(consent, "sms")
 
     def _admit(ch: str) -> Any:
@@ -593,6 +593,7 @@ def _first_touch(
             actor_kind="system",
             account_id=event["account_id"],
             now=now,
+            endpoint=phone,
         )
 
     channel: str | None = None
@@ -819,7 +820,7 @@ def _try_voice_now(
 ) -> bool:
     import contact_policy
 
-    phone = account.get("phone_primary") or account.get("phone_alt")
+    phone = account.get("phone_primary")
     if not phone:
         return False
     decision = contact_policy.admit(
@@ -833,6 +834,7 @@ def _try_voice_now(
         actor_kind="system",
         account_id=event["account_id"],
         now=now,
+        endpoint=phone,
     )
     if not decision.allowed:
         if decision.reason == contact_policy.REASON_HOURS:

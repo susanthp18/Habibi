@@ -319,6 +319,8 @@ def test_write_helper_maps_value_error_codes_by_table() -> None:
         ("handoff_already_claimed", 409),
         ("deployment_already_active", 409),
         ("prompt_version_not_draft", 409),
+        ("bot_archived", 409),
+        ("skill_first_party", 409),
         ("kept promise cannot move to broken/partial", 409),
         ("shadow_mode", 409),
     ]

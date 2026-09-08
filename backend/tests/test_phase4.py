@@ -49,6 +49,38 @@ def _require_column(db_tx, table: str, column: str) -> None:
         pytest.skip(f"{table}.{column} missing — apply alembic 20260815_0077")
 
 
+def _action_contract_for(decision: dict) -> dict:
+    from agent_core import logging_contract
+    from bank_boundary import ACTION_CONTRACT_VERSION, snapshots
+
+    payload = {
+        "version": ACTION_CONTRACT_VERSION,
+        "decision_id": decision["id"],
+        "tenant_id": decision.get("tenant_id") or "hdfc.retail",
+        "portfolio_id": "",
+        "policy_binding": [],
+        "policy_binding_hash": "sha256:test-policy",
+        "engine_image_digest": "sha256:test-image",
+        "config_version": "sha256:test-config",
+        "veto_stack_version": logging_contract.VETO_STACK_VERSION,
+        "arm_propensity": 1.0,
+        "action_propensity": 1.0,
+        "action": decision["chosen_action"],
+        "channel": decision["chosen_channel"],
+        "scheduled_at": decision["scheduled_at"].isoformat(),
+        "expected_value_paise": 1000,
+        "ev_lcb_paise": 1000,
+        "objective": "payment_commitment",
+        "strategy": "soft_reminder",
+        "prohibitions": ["cross_sell"],
+        "required_assertions": ["identify_lender"],
+        "retention_class": "collections_operational",
+        "allowed_offers": [],
+    }
+    payload["digest"] = snapshots.digest_of(payload)
+    return payload
+
+
 @pytest.fixture
 def account(db_tx):
     row = db_tx.execute(
@@ -166,12 +198,21 @@ def test_bounce_whatsapp_same_hour_and_no_double_send(db_tx, account, monkeypatc
 
     monkeypatch.setattr(treatment_config, "mode", lambda: treatment_config.MODE_LIVE)
     sent: list[str] = []
+    contracts: list[dict[str, object]] = []
 
-    def fake_wa(conn, *, decision, customer):
+    def fake_wa(conn, *, decision, customer, contract):
         sent.append(decision["id"])
+        contracts.append(contract)
         return "whatsapp:test"
 
     monkeypatch.setitem(enact._HANDLERS, A.WHATSAPP, fake_wa)
+    from agent_core.treatment import contract as treatment_contract
+
+    monkeypatch.setattr(
+        treatment_contract,
+        "require_for_enactment",
+        lambda conn, decision, customer: _action_contract_for(decision),
+    )
     import contact_policy
 
     monkeypatch.setattr(
@@ -262,6 +303,7 @@ def test_bounce_whatsapp_same_hour_and_no_double_send(db_tx, account, monkeypatc
     assert row["enacted"] is True
     assert row["enacted_by"] == "clerk_agent"
     assert sent == [decision_id]
+    assert [contract["decision_id"] for contract in contracts] == [decision_id]
     import db as dbmod
 
     item = next((r for r in dbmod.list_work_items(assignee="all") if r["id"] == ref), None)
@@ -278,10 +320,23 @@ def test_broken_ptp_reenters_without_opening_the_diary(db_tx, account, monkeypat
 
     monkeypatch.setattr(treatment_config, "mode", lambda: treatment_config.MODE_LIVE)
     sent: list[str] = []
+
+    def fake_wa(conn, *, decision, customer, contract):
+        assert contract["decision_id"] == decision["id"]
+        sent.append(decision["id"])
+        return "whatsapp:ptp"
+
     monkeypatch.setitem(
         enact._HANDLERS,
         A.WHATSAPP,
-        lambda conn, *, decision, customer: sent.append(decision["id"]) or "whatsapp:ptp",
+        fake_wa,
+    )
+    from agent_core.treatment import contract as treatment_contract
+
+    monkeypatch.setattr(
+        treatment_contract,
+        "require_for_enactment",
+        lambda conn, decision, customer: _action_contract_for(decision),
     )
     import contact_policy
 
@@ -544,16 +599,11 @@ def test_live_qa_does_not_pick_voice_rubric_for_sms(db_tx) -> None:
         assert "barge" not in labels
 
 
-def test_tuner_is_shadow_and_does_not_write_env(monkeypatch) -> None:
-    monkeypatch.delenv("RECO_W_FATIGUE", raising=False)
-    from agent_core.tuner import suggestions
+def test_tuner_is_gone() -> None:
+    import importlib
 
-    out = suggestions(days=14)
-    assert out["mode"] == "shadow"
-    assert out["applied"] is False
-    import os
-
-    assert os.getenv("RECO_W_FATIGUE") is None
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_core.tuner")
 
 
 def test_both_adapters_satisfy_the_work_runtime_protocol() -> None:

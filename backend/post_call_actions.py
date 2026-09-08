@@ -346,6 +346,7 @@ def _schedule_mission(ctx: dict[str, Any], arg: str | None) -> str:
             objective=objective,
             case_ref=str(ctx["attempt"].get("decision_id") or ctx["attempt"]["id"]),
             max_attempts=2,
+            bot_id=ctx["attempt"].get("bot_id"),
         )
         ctx["conn"].execute(
             text(

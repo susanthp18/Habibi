@@ -297,7 +297,7 @@ Human-readable prefixed keys (kept from the seeds, standardized): customer slug 
 
 **Scope of this build pass = data layer only.** Schema + coherent seed + read/query API. The following are deliberately deferred to a later hardening pass, but the schema is built to accept them with minimal change.
 
-> **Release gate.** Because these controls are inactive, the API refuses to start with `APP_ENV=production` (`main._assert_hardening_gate`). An operator who accepts the risk must set `ALLOW_UNHARDENED_PRODUCTION=1`, which boots but logs an error on every start. Remove the gate — not the flag — once the items below are enforced.
+> **Release gate.** Because these controls are inactive, the API refuses to start with `APP_ENV=production` (`main._assert_hardening_gate`). Deployed containers (`HABIBI_DEPLOYED=1`) are always hardened. There is no `ALLOW_UNHARDENED_PRODUCTION` hatch. Laptop `APP_ENV=dev|test|local` is allowed only when the process is not deployed.
 
 - **RLS multi-tenancy** — `tenant_id` is present on every top-level table now; Row-Level Security policies + a per-request tenant GUC get added later.
 - **AuthN/Z (OIDC/Keycloak)** — RBAC tables (`roles`/`permissions`/`user_roles`) exist now; enforcement is added later.

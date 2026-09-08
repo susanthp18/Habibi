@@ -8,7 +8,7 @@ somebody complains to the regulator.
 
 Split deliberately:
 
-* the pure layers (actions, timing, policy, scoring, arbitration, rerank) are
+* the pure layers (actions, timing, policy, scoring, arbitration) are
   tested against constructed feature vectors, so a restraint can be exercised
   without a fixture that reproduces a whole delinquent account;
 * the engine and the executor are tested against the real database, because
@@ -33,7 +33,6 @@ from agent_core.treatment import (
     enact,
     narrate,
     policy as policy_mod,
-    rerank,
     scoring,
     timing,
 )
@@ -804,82 +803,20 @@ def test_every_suppression_reason_renders_as_prose() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The bounded LLM layer
+# The bounded LLM layer is gone
 # ---------------------------------------------------------------------------
 
 
-class _FakeBase:
-    name = "fake"
-    version = "1.0.0"
+def test_llm_rerank_is_not_wired() -> None:
+    import importlib
 
-    def __init__(self, scored):
-        self._scored = scored
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agent_core.treatment.rerank")
+    import inspect
 
-    def score(self, *a, **k):
-        return list(self._scored)
-
-
-def _reranker(scored, monkeypatch, reply: str):
-    import azure_openai
-
-    monkeypatch.setattr(azure_openai, "chat_complete", lambda *a, **k: reply)
-    return rerank.LLMReranker(_FakeBase(scored))
-
-
-def _two_actions():
-    f = make_features(dpd=20)
-    scored = _score(f, A.WHATSAPP, A.SMS)
-    return f, [scored[A.WHATSAPP], scored[A.SMS]]
-
-
-def test_the_model_may_reorder_approved_actions(monkeypatch) -> None:
-    f, scored = _two_actions()
-    r = _reranker(scored, monkeypatch, '{"order": ["sms", "whatsapp"]}')
-    out = r.score(f, Trigger(kind="bounce", at=NOW), [], now=NOW, policy=config.policy(), costs=config.costs())
-    assert [s.action for s in out] == [A.SMS, A.WHATSAPP]
-
-
-def test_the_model_cannot_introduce_an_action_nobody_approved(monkeypatch) -> None:
-    """The failure that matters. Borrower speech reaches this model's context
-    through the account summary, so the guard is code, not a prompt request."""
-    f, scored = _two_actions()
-    r = _reranker(scored, monkeypatch, '{"order": ["field_visit", "sms", "whatsapp"]}')
-    out = r.score(f, Trigger(kind="bounce", at=NOW), [], now=NOW, policy=config.policy(), costs=config.costs())
-    assert A.FIELD_VISIT not in {s.action for s in out}
-    assert len(out) == 2
-
-
-def test_an_omitted_action_keeps_its_place_rather_than_vanishing(monkeypatch) -> None:
-    f, scored = _two_actions()
-    r = _reranker(scored, monkeypatch, '{"order": ["sms"]}')
-    out = r.score(f, Trigger(kind="bounce", at=NOW), [], now=NOW, policy=config.policy(), costs=config.costs())
-    assert {s.action for s in out} == {A.SMS, A.WHATSAPP}
-
-
-def test_a_rationale_that_invents_a_figure_is_dropped(monkeypatch) -> None:
-    """An agent reads "₹4,200 outstanding" as fact and repeats it to the
-    borrower."""
-    f, scored = _two_actions()
-    r = _reranker(
-        scored,
-        monkeypatch,
-        '{"order": ["sms", "whatsapp"], "why": "They owe 98765 rupees."}',
-    )
-    out = r.score(f, Trigger(kind="bounce", at=NOW), [], now=NOW, policy=config.policy(), costs=config.costs())
-    assert "98765" not in out[0].explanation
-
-
-def test_a_model_failure_keeps_the_deterministic_order(monkeypatch) -> None:
-    f, scored = _two_actions()
-    import azure_openai
-
-    def _boom(*a, **k):
-        raise TimeoutError("no answer")
-
-    monkeypatch.setattr(azure_openai, "chat_complete", _boom)
-    r = rerank.LLMReranker(_FakeBase(scored))
-    out = r.score(f, Trigger(kind="bounce", at=NOW), [], now=NOW, policy=config.policy(), costs=config.costs())
-    assert [s.action for s in out] == [s.action for s in scored]
+    src = inspect.getsource(scoring.build_scorer)
+    assert "rerank" not in src
+    assert "LLMReranker" not in src
 
 
 # ---------------------------------------------------------------------------

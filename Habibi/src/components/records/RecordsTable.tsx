@@ -146,7 +146,12 @@ export function RecordsTable<T>({
   return (
     <div
       className={cn(
-        "records-shell flex min-h-0 flex-col overflow-hidden rounded-large border border-border bg-surface",
+        // h-full is what makes the inner .records-scroll actually scroll. Without a
+        // definite height the shell sizes to its content, overflows whatever
+        // height-constrained wrapper it sits in, and gets clipped with no
+        // scrollbar. Against an auto-height parent height:100% resolves to auto,
+        // so pages that scroll as a whole are unaffected.
+        "records-shell flex h-full min-h-0 flex-col overflow-hidden rounded-large border border-border bg-surface",
         className,
       )}
     >

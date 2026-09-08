@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS campaign_targets (
   account_id      TEXT,
   decision_id     TEXT,
   state           TEXT NOT NULL DEFAULT 'pending'
-                  CHECK (state IN ('pending','dialing','done','failed','skipped')),
+                  CHECK (state IN ('pending','dialing','done','failed','skipped','parked')),
   attempts        INTEGER NOT NULL DEFAULT 0,
   last_attempt_id TEXT,
   outcome         TEXT,
@@ -102,6 +102,15 @@ CREATE TABLE IF NOT EXISTS call_cadence_state (
                   CHECK (state IN ('open','exhausted','stopped','escalated')),
   stopped_reason  TEXT,
   campaign_run_id TEXT,
+  -- The agent that opened the ladder. Without it a retry resolved the tenant
+  -- default, so attempt 1 ran the authored card and attempts 2 and 3 ran
+  -- whatever DEFAULT_BOT_ID happened to be — a different prompt, a different
+  -- grant and a different voice, to the same borrower about the same case.
+  bot_id          TEXT,
+  -- Who the card says owns this case once the ladder runs out. Recorded, not
+  -- acted on: cadence may retry an action, never change it. The decision
+  -- stays treatment/followthrough.py's.
+  escalate_to     TEXT,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ux_call_cadence_case UNIQUE (customer_id, objective, case_ref)

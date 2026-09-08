@@ -1,0 +1,221 @@
+{
+ "verdicts": [
+  {
+   "id": "ORG-01",
+   "verdict": "DOWNGRADED",
+   "reason": "Mechanism half-true, severity and one file wrong. Verified: test_agent_studio_response_models.py:53 filters `route.path.startswith(\"/agent-studio\")`, :59 asserts `len(routes) == 26`, :64 asserts response_model is not None; and main.py:2527 /connectors, :2573 /vault/refs, :2599 /mcp/keys, :2740 /a2a/partners, :2781 /eval/suites/{id}/run, :2890 /gateway/canary, :2928 /roles, :3205 /bot-deployments/experiments, :3468 /sandbox/tuning/presets, :3482 /voice/sandbox/start, :5233 /outbound/card-vocabulary all declare no response_model. But (a) /providers/bindings is NOT one of them — main.py:5463 `response_model=list[ProviderBindingItem]`, :5488 `ProviderBindingItem`, :5525, :5534, and :5407 `list[ProviderModelItem]` — so the claim that api/providers.ts:210 is 'hand-written against nothing' is false; (b) the harm named in the guard's own docstring (test_agent_studio_response_models.py:1-6, FastAPI filters undeclared fields) is caused by declaring a too-narrow model, not by declaring none: an undeclared route serializes the mapper dict verbatim, so there is no silent field drop today; (c) the '41 studio routes' count is asserted, not derived — main.py has 317 @app decorators and no enumeration is offered. This is a typing/coverage gap with no wrong runtime behaviour, no wrong publish verdict and no operator-visible lie, so MAJOR is not supportable; MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/tests/test_agent_studio_response_models.py:53",
+    "backend/tests/test_agent_studio_response_models.py:59",
+    "backend/tests/test_agent_studio_response_models.py:64",
+    "backend/main.py:2527",
+    "backend/main.py:2573",
+    "backend/main.py:2599",
+    "backend/main.py:2740",
+    "backend/main.py:2781",
+    "backend/main.py:2890",
+    "backend/main.py:2928",
+    "backend/main.py:3205",
+    "backend/main.py:3468",
+    "backend/main.py:3482",
+    "backend/main.py:5233",
+    "backend/main.py:5463 (counter-example: declares response_model)",
+    "backend/main.py:5407 (counter-example)"
+   ]
+  },
+  {
+   "id": "ORG-02",
+   "verdict": "DOWNGRADED",
+   "reason": "The duplication is real; the screen it describes cannot occur. Verified: lib/gate-status.ts:23-51 exports GATE_TONE/GATE_LABEL/gateTone/isGateFailure/isGateWarning and only partitionGates has an importer (ChangeLogTab.tsx:29 is the sole `@/lib/gate-status` import in Habibi/src); EvalCockpit.tsx:68 is verbatim `report.status === \"pass\" ? \"success\" : \"danger\"`; AgentCardPanels.tsx:47-53 is the corrected local copy; :451-453 renders EvalReportsList, CritiquesPanel and <EvalCockpit/> together. But an eval report's status is produced in exactly one place — agent_core/eval/harness.py:27 `status = \"pass\" if failed == 0 else \"fail\"`, persisted through run.py:95 — and the only other writers of eval_reports are tests (test_phase5.py:203, test_phase6.py:236/296). No code path emits `skipped`, `warn`, `error` or `partial` for a report, so the two mappings agree on every value that can reach them; the prior audit already recorded the same thing ('All 46 live reports happen to be pass', AGENT_STUDIO_BUG_HUNT.md 2k.1). The G6 sub-claim also fails: compile.py:683 emits G6 `skipped` only when `card is None`, and AgentCardPanels.tsx:132 renders that lozenge only under `isAuthoredCard(card)`, so the green-for-unknown branch at :133 is unreachable for G6. Real latent duplication (and a residue of prior 2k.1 that was fixed in one copy only), not a MAJOR: MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/lib/gate-status.ts:23-51",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:68",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:47-53",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:451-453",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:29",
+    "backend/agent_core/eval/harness.py:27",
+    "backend/agent_core/eval/run.py:92-95",
+    "backend/agent_core/cards/compile.py:683",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:132-134"
+   ]
+  },
+  {
+   "id": "ORG-03",
+   "verdict": "CONFIRMED",
+   "reason": "Dead code confirmed at the cited lines: prompt-studio.tsx:13-22 is a beforeLoad whose both branches `throw redirect` (to /agent-studio/$botId with params `{botId: \"kaia-v2-4\"}` at :16-19, else /agent-studio at :21), so createLazyFileRoute(\"/prompt-studio\") at prompt-studio.lazy.tsx:103-109 — which hardcodes `botId=\"kaia-v2-4\"` at :106 — can never mount, and head() at :23-33 never applies. The live editor is agent-studio.$botId.lazy.tsx:20, which passes the URL param. The trigger sentence is wrong, though: the KB-gap link does not pass through /prompt-studio — UnansweredTable.tsx:80-84 navigates straight to `/agent-studio/$botId` with its own hardcoded `botId: \"kaia-v2-4\"`, which is the live copy of the defect the finding attributes to prompt-studio.tsx:17. The surviving /prompt-studio redirect is reachable only from a stale bookmark or hand-typed URL. MINOR stands on the dead component plus two hardcoded ids against db_prompt_studio.py:1441 `DEFAULT_BOT_ID = os.getenv(\"BOT_ID\", \"kaia-v2-4\")`.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.tsx:13-22",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:103-109",
+    "Habibi/src/routes/agent-studio.$botId.lazy.tsx:20",
+    "Habibi/src/components/bot-analytics/UnansweredTable.tsx:80-84",
+    "backend/db_prompt_studio.py:1441"
+   ]
+  },
+  {
+   "id": "ORG-04",
+   "verdict": "CONFIRMED",
+   "reason": "Real at the cited lines and reachable from the Studio UI. bot_tools._handoff_allowlist (bot_tools.py:398-427) is live card → built-in card → `return set()` (deny), with the docstring at :399-411 recording both hardenings. voice/tools.py:2783-2788 is the un-hardened copy: `allowlist: set[str] | None = None`; `if bot_id: try: allowlist = set(card_for(bot_id).handoff_targets()) except KeyError: allowlist = None`, passed at :2796 into domain.handoff_to_agent, whose check at domain.py:1026 is `if allowlist is not None and target not in allowlist` — None is unrestricted. card_for (defaults.py:342-346) raises KeyError for anything outside the four first-party builders (defaults.py:334-339), so any clone fails open. Operator path: publish/clone a card in the Studio, hit Sandbox Live voice — POST /voice/sandbox/start (main.py:3482) carries promptVersionId (voice_sandbox.py:180,215), voice/bot.py:406-410 resolves that bundle and :444-447 takes bot_id from it, so the clone's id reaches build_tools; handoff_to_agent is not in the always-on floor (grant.py:57-88) but is on any card that clones collections/intake, so the model can call it with any target. Two corrections to the write-up: there are three copies, not two — agent_core/cards/handoff_policy.py:11-30 is a third, and it does read the live card (`insurance_handoff_allowed(bot_id, bundle.get(\"agentCard\"))`, voice/bot.py:1524), which proves the live card is already in hand at the voice runtime; and the consequence is narrower than 'transfers the live conversation' — per db_inbox.py:1441 the transfer is a handler_bot_id write plus an activity row, with voice/tools.py:2806 returning (result, None) and no flow change. Still a publish-time contract silently unenforced on the regulated voice channel: MAJOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/bot_tools.py:398-427",
+    "backend/voice/tools.py:2783-2796",
+    "backend/agent_core/tools/domain.py:1026-1031",
+    "backend/agent_core/cards/defaults.py:334-346",
+    "backend/agent_core/cards/handoff_policy.py:11-30",
+    "backend/voice/bot.py:406-410",
+    "backend/voice/bot.py:444-447",
+    "backend/voice_sandbox.py:180-215",
+    "backend/main.py:3482"
+   ]
+  },
+  {
+   "id": "ORG-05",
+   "verdict": "REFUTED",
+   "reason": "The load-bearing claim — 'nothing tests that pair' and 'the only pin is the HTTP surface but not the two Literals' — is false. backend/tests/test_outbound_card_vocabulary.py:45-53 is `test_every_objective_the_editor_offers_is_one_the_card_can_hold`, which asserts `set(vocab[\"objectives\"]) == set(get_args(Objective))` against agent_core.cards.schema.Objective, and :36-42 asserts `vocab[\"objectives\"] == list(fg.OBJECTIVES)` — together these pin flow_graph.OBJECTIVES (flow_graph.py:76-90) to schema.Objective (schema.py:190-204) transitively through the endpoint (main.py:5279). The stated trigger therefore cannot happen quietly: adding a fourteenth objective to flow_graph.OBJECTIVES fails test_outbound_card_vocabulary.py:53 before any author sees it at the publish button. What survives is the unpinned TypeScript restatement (api/agent-card.ts:88-101) and a mock list (api/outbound.ts:187-201) — and OutboundTab.tsx:152 builds its dropdown from the fetched vocabulary, not from the TS union, so the residue is a compile-time type comment, at most TRIVIAL. What would change my mind: a demonstration that some published-card path validates against the TS union.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/tests/test_outbound_card_vocabulary.py:36-42",
+    "backend/tests/test_outbound_card_vocabulary.py:45-53",
+    "backend/main.py:5279",
+    "Habibi/src/components/prompt-studio/OutboundTab.tsx:152"
+   ]
+  },
+  {
+   "id": "ORG-06",
+   "verdict": "DOWNGRADED",
+   "reason": "Facts check out, weight does not. agent-studio.index.tsx:55-85 defines ROUTING with labels ('takes inbound', 'via handoff', 'direct only', 'unreachable', 'archived') and per-state help; AgentCardPanels.tsx:743 carries the comment 'Same vocabulary the fleet index uses…', :744-751 ROUTE_TONE and :752-758 ROUTE_HELP; :694-701 renders `{n.reachability}` — the raw enum word — with `ROUTE_TONE[...] ?? \"neutral\"`, while the fleet's routing() helper (:88-90) falls back to ROUTING.unreachable. But the two TONE maps agree value-for-value on all five states (entry success, handoff information, direct information, unreachable warning, archived neutral), so no state is coloured two ways; the divergence is label text and help wording only, and the graph tab prints the enum beside the id it belongs to. That is copy inconsistency with no incorrect state shown: TRIVIAL, not MINOR. (Prior audit judged this area clean — AGENT_STUDIO_BUG_HUNT.md:100-102 — on tone, which remains true.)",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:55-90",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:694-701",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:743-758"
+   ]
+  },
+  {
+   "id": "ORG-07",
+   "verdict": "CONFIRMED",
+   "reason": "Dead config verified end to end. mesh_roles.json declares tools[] for intake (:6-13, 5 entries), collections (:17-28, 10) and insurance (:33-41, 6); mesh.py:58-62 validates them and raises mesh_role_invalid_tools, :63-67 stores them on MeshRole.tools (:33). No production reader exists: within backend/voice the only ROLES consumers are mesh.py:89 (`if role not in ROLES`), mesh.py:150 and mesh_bus.py:94 (`list(ROLES.keys())`), and mesh_bus.py:17 imports ROLES/activate_role/enabled only; `.tools` is read solely by tests/test_mesh_roles_json.py:16-18,53. The header comment mesh.py:5-7 ('the shape a future Agent Card subset uses… Adding a specialist is an edit to that file, not a code change') is what makes it read as a live grant surface, while the real enforcement point is ToolGrant.may_execute (grant.py:121-123). The trigger is a repo edit rather than an operator API action, which keeps it MINOR rather than higher, but the finding is stated at MINOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/voice/mesh_roles.json:6-13",
+    "backend/voice/mesh_roles.json:17-28",
+    "backend/voice/mesh_roles.json:33-41",
+    "backend/voice/mesh.py:5-7",
+    "backend/voice/mesh.py:29-33",
+    "backend/voice/mesh.py:56-67",
+    "backend/voice/mesh.py:89",
+    "backend/voice/mesh_bus.py:17",
+    "backend/voice/mesh_bus.py:94",
+    "backend/tests/test_mesh_roles_json.py:16-18",
+    "backend/agent_core/tools/grant.py:121-123"
+   ]
+  },
+  {
+   "id": "ORG-08",
+   "verdict": "DOWNGRADED",
+   "reason": "Structurally accurate, but nothing is incorrect. Verified: db_prompt_studio.py is 2,430 lines; the docstring at :1-13 justifies keeping reads and writes together on the strength of prompt-version edges; the TTS catalog block runs from list_persona_presets/list_tts_* through latest_tts_sync_run (:1308) and list_tts_sync_runs (:1329-1355); list_bot_deployments starts at :1357. One citation is wrong: the banner at :1435-1441 reads 'Persona & Prompt Studio — writes (PS-2)' and ends with `DEFAULT_BOT_ID = os.getenv(\"BOT_ID\", \"kaia-v2-4\")` (:1441) — it is the writes banner, not a deployment section banner, so 'the file already declares its seam' overstates what is there. No wrong behaviour, no data loss, no operator-visible effect: TRIVIAL by the stated rubric.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:1-13",
+    "backend/db_prompt_studio.py:1308-1355",
+    "backend/db_prompt_studio.py:1357",
+    "backend/db_prompt_studio.py:1435-1441"
+   ]
+  },
+  {
+   "id": "ORG-09",
+   "verdict": "DOWNGRADED",
+   "reason": "The gap is real, the severity and one count are not. Verified: `git ls-files src/**/*.test.ts*` returns 19 files; the tab strip at prompt-studio.lazy.tsx:1109-1133 lists fifteen tabs and none is rendered by any test; agent-studio.skills.index.test.ts:8-14 does readFileSync on the sibling .tsx and asserts it contains 'clonePending' and 'AlertDialog'; vitest.config.ts:20-30 documents the jsdom opt-in. But 'exactly one is in the studio slice' is wrong — src/lib/agent-roster.test.ts exercises the fleet index's own roster logic (groupRoster, archiveAvailability, changeVerb) and src/api/outbound.test.ts covers the Outbound tab's client. And a missing test is not itself wrong runtime behaviour, a wrong publish verdict or a lie to the operator; the cited hazards (fingerprint at :164-171, publishBaseline at :1145-1158, PublishDialog.tsx:84-96) are hazards, not defects demonstrated today. MINOR.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.skills.index.test.ts:8-14",
+    "Habibi/vitest.config.ts:20-30",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1109-1133",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:164-171",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1145-1158",
+    "Habibi/src/components/prompt-studio/PublishDialog.tsx:84-96",
+    "Habibi/src/lib/agent-roster.test.ts:1-11"
+   ]
+  },
+  {
+   "id": "ORG-10",
+   "verdict": "DOWNGRADED",
+   "reason": "Layout facts hold; it is explicitly not a defect, and the finding says so itself. Verified: main.py is 5,572 lines (not 5,573); the studio blocks sit at 2094-2510 and 3003-3520; /providers/bindings is at 5463/5488/5525 with /providers/pools at 5534 and /providers/models at 5407, 2,500 lines from the Integrations /providers routes at 1588-1616; /tts-voices/catalog-provider-counts at 5557 and catalog-locale-counts at 5569; and publish_agent_studio_card (:2202-2203) does call the handler publish_prompt_version (:3234-3235) as a plain function at :2229 and :2241. One correction: the Bindings tab's endpoints DO declare response models (5463 `list[ProviderBindingItem]`, 5488, 5534), which contradicts ORG-01's use of the same routes. No wrong behaviour, no reachable failure — the finding's own trigger line begins 'Not a runtime defect': TRIVIAL.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/main.py:2202-2203",
+    "backend/main.py:2229",
+    "backend/main.py:2241",
+    "backend/main.py:3234-3235",
+    "backend/main.py:5407",
+    "backend/main.py:5463",
+    "backend/main.py:5488",
+    "backend/main.py:5534",
+    "backend/main.py:5557",
+    "backend/main.py:5569",
+    "backend/main.py:1588-1616"
+   ]
+  },
+  {
+   "id": "ORG-11",
+   "verdict": "DOWNGRADED",
+   "reason": "Every line number is right and the dead export is real: AgentCardPanels.tsx is 1,047 lines with ToolsTab :73, PolicyTab :202, EvalsTab :260, AgentGraphTab :576, SkillsTab :760, ConnectorsTab :914, CompileReportList :1016 and `export function useStudioCompile(botId) { return useCompileCard(botId); }` at :1045-1047, which has zero importers anywhere in Habibi/src while the shell imports useCompileCard directly at prompt-studio.lazy.tsx:83 and the six tabs individually at :93-100. But the substance is one unused three-line passthrough plus a file-size argument with no behavioural consequence — the same class the same auditor rated TRIVIAL in ORG-14 for a dead DB function. TRIVIAL, for consistency.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:73",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:202",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:260",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:576",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:760",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:914",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1045-1047",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:83",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:93-100"
+   ]
+  },
+  {
+   "id": "ORG-12",
+   "verdict": "CONFIRMED",
+   "reason": "Both drifts verified verbatim. CONTEXT.md:38-39 defines a Gate as 'One publish-time check with three honest outcomes: pass, block, or skip', while agent_core/cards/compile.py:45 is `GateStatus = Literal[\"pass\", \"fail\", \"warn\", \"skipped\"]` — four outcomes, two spelled differently, and `warn` (non-blocking, compile.py:965-968 and the G10 registry-outage path) has no glossary entry. CONTEXT.md:56-58 lists `objective` under Mission's _Avoid_ while `Objective` is the card field literal (schema.py:190) and `objectives` is the key the vocabulary endpoint returns (main.py:5279) and the Outbound dropdown consumes (OutboundTab.tsx:152). TARGET-ARCHITECTURE.md §6.9 (:259) refuses only DB-keyed renames, so neither of these is out of scope by that rule. This is a doc that agents are instructed to follow contradicting the code it describes: MINOR is right.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "CONTEXT.md:38-39",
+    "CONTEXT.md:56-58",
+    "backend/agent_core/cards/compile.py:45",
+    "backend/agent_core/cards/compile.py:965-968",
+    "backend/agent_core/cards/schema.py:190",
+    "backend/main.py:5279",
+    "audit-reports/TARGET-ARCHITECTURE.md:259"
+   ]
+  },
+  {
+   "id": "ORG-13",
+   "verdict": "CONFIRMED",
+   "reason": "Route order verified by enumeration of every '/agent-studio' decorator in main.py: GET /agent-studio/skills/scripts at :2296 (docstring at :2299-2301 states the ordering reason), GET /agent-studio/skills/{skill_id} at :2309-2310, then POST /agent-studio/skills/import at :2439-2440 and POST /agent-studio/skills/run-script at :2472-2473 — both single-segment POSTs declared after the parameterised block. No POST /agent-studio/skills/{skill_id} exists (the {skill_id} POSTs are all three-segment: /sign :2358, /revert :2369, /clone :2381, /attach :2392, /detach :2403), so the two work only by absence, exactly as claimed. test_agent_studio_response_models.py:67-72 pins the scripts/{skill_id} pair by index and nothing else. Decorator lines are one or two off in the write-up (2296/2309/2439/2472, not 2297/2310/2440/2473). TRIVIAL is correct.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/main.py:2296-2305",
+    "backend/main.py:2309-2310",
+    "backend/main.py:2439-2440",
+    "backend/main.py:2472-2473",
+    "backend/tests/test_agent_studio_response_models.py:67-72"
+   ]
+  },
+  {
+   "id": "ORG-14",
+   "verdict": "CONFIRMED",
+   "reason": "Unreachable as claimed. `latest_tts_sync_run` is defined at db_prompt_studio.py:1308-1326 and re-exported at db.py:7402; a repo-wide Python search returns those two lines and nothing else — no caller in main.py, the voice tree or tests. The endpoint that would use it, GET /tts-voices/catalog/sync-runs (main.py:3041-3044, decorator at :3041 not :3043), calls db.list_tts_sync_runs (db_prompt_studio.py:1329) instead, and both share _tts_sync_run_row (:1283) so it keeps compiling. TRIVIAL is correct.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:1308-1326",
+    "backend/db.py:7402",
+    "backend/main.py:3041-3044",
+    "backend/db_prompt_studio.py:1329-1355"
+   ]
+  }
+ ],
+ "slice": "org"
+}

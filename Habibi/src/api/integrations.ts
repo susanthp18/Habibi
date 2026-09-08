@@ -176,6 +176,7 @@ export type McpStatus = {
 export type A2aPartner = {
   id: string;
   name: string;
+  botId: string | null;
   cardUrl: string | null;
   certFingerprint: string;
   certDn: string | null;
@@ -499,7 +500,9 @@ export function useUpsertA2aPartner() {
   return useMutation({
     mutationFn: async (body: {
       name: string;
+      botId: string;
       certDn: string;
+      certPem: string;
       cardUrl?: string;
       allowedSkills?: string[];
     }) => apiPost<A2aPartner>("/a2a/partners", body),

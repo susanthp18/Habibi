@@ -26,7 +26,9 @@ import {
 } from "@/api/integrations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Lozenge } from "@/components/ui/lozenge";
+import { connectorHealthToast } from "@/lib/studio-trust";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 
 const SCOPES = ["crm.read", "kb.search", "offers.read", "policy.read", "tasks.write"] as const;
@@ -38,6 +40,7 @@ export function ConnectorsPanel() {
   const [url, setUrl] = useState("");
   const [authRef, setAuthRef] = useState("");
   const [issuer, setIssuer] = useState("");
+  const [cimdConnectorId, setCimdConnectorId] = useState("");
   const vault = useVaultRefs();
 
   const columns: RecordsColumn<Connector>[] = [
@@ -109,7 +112,15 @@ export function ConnectorsPanel() {
             size="sm"
             variant="outline"
             onClick={() =>
-              void mut.test.mutateAsync(r.id).then(() => toast.success("Health test ran"))
+              void mut.test
+                .mutateAsync(r.id)
+                .then((result) => {
+                  const kind = connectorHealthToast(result as { ok?: boolean });
+                  if (kind === "ok") toast.success("Health test passed");
+                  else if (kind === "fail") toast.error("Health test failed");
+                  else toast.error("Health test returned no result");
+                })
+                .catch((e: Error) => toast.error(e.message || "Health test failed"))
             }
           >
             Test
@@ -186,13 +197,25 @@ export function ConnectorsPanel() {
             onChange={(e) => setIssuer(e.target.value)}
           />
         </div>
+        <select
+          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
+          value={cimdConnectorId}
+          onChange={(e) => setCimdConnectorId(e.target.value)}
+        >
+          <option value="">Select connector…</option>
+          {rows.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.displayName || r.slug}
+            </option>
+          ))}
+        </select>
         <Button
           size="sm"
           variant="outline"
-          disabled={!rows[0] || !issuer.trim()}
+          disabled={!cimdConnectorId || !issuer.trim()}
           onClick={() =>
             void mut.cimd
-              .mutateAsync({ id: rows[0].id, issuer: issuer.trim() })
+              .mutateAsync({ id: cimdConnectorId, issuer: issuer.trim() })
               .then((r: unknown) => {
                 const clientId =
                   r && typeof r === "object" && "clientId" in r
@@ -626,10 +649,17 @@ export function A2aPartnersPanel() {
   const tasks = useA2aTasks();
   const upsert = useUpsertA2aPartner();
   const [name, setName] = useState("");
+  const [botId, setBotId] = useState("");
   const [certDn, setCertDn] = useState("");
+  const [certPem, setCertPem] = useState("");
 
   const cols: RecordsColumn<A2aPartner>[] = [
     { id: "name", header: "Partner", cell: (r) => <span className="font-medium">{r.name}</span> },
+    {
+      id: "bot",
+      header: "Bot",
+      cell: (r) => <span className="font-mono text-body-tiny">{r.botId || "unscoped"}</span>,
+    },
     {
       id: "dn",
       header: "Client cert DN",
@@ -670,26 +700,35 @@ export function A2aPartnersPanel() {
   return (
     <div className="space-y-150">
       <p className="text-body-small text-text-subtle">
-        A2A partners authenticate with mTLS. A bearer token without a client certificate is
-        rejected. Never on the audio path.
+        A2A partners authenticate with a verified mTLS certificate bound to one tenant and bot. A
+        bearer token or a typed DN alone is rejected. Never on the audio path.
       </p>
       <div className="flex flex-wrap items-end gap-100">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Partner name" />
+        <Input value={botId} onChange={(e) => setBotId(e.target.value)} placeholder="Bot id" />
         <Input
           value={certDn}
           onChange={(e) => setCertDn(e.target.value)}
           placeholder="CN=partner.example"
         />
+        <Textarea
+          value={certPem}
+          onChange={(e) => setCertPem(e.target.value)}
+          placeholder="-----BEGIN CERTIFICATE-----"
+          className="min-h-24 min-w-80 font-mono text-body-tiny"
+        />
         <Button
           size="sm"
-          disabled={!name || !certDn || upsert.isPending}
+          disabled={!name || !botId || !certDn || !certPem || upsert.isPending}
           onClick={() =>
             void upsert
-              .mutateAsync({ name, certDn })
+              .mutateAsync({ name, botId, certDn, certPem })
               .then(() => {
                 toast.success("Partner registered");
                 setName("");
+                setBotId("");
                 setCertDn("");
+                setCertPem("");
               })
               .catch((err: Error) => toast.error(err.message))
           }

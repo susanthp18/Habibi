@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ PUBLISH = "agent.publish"
 ROLLBACK = "agent.rollback"
 ARCHIVE = "agent.archive"
 RESTORE = "agent.restore"
+ROLE_GRANTS = "agent.role_grants"
+EXPERIMENT_ROLLBACK = "agent.experiment_rollback"
 
 #: Components of a prompt version that are hashed and diffed independently.
 COMPONENTS: tuple[str, ...] = (
@@ -146,23 +149,37 @@ def _write(
 ) -> dict[str, Any]:
     from sqlalchemy import text as _text
 
-    prev_hash, prev_seq = _chain_head(conn, tenant_id)
+    now = datetime.now(timezone.utc)
+    at = now.isoformat()
+    try:
+        conn.execute(
+            _text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": f"audit_chain:{tenant_id}"},
+        )
+    except Exception:
+        logger.exception("audit chain advisory lock failed — continuing without it")
+
+    prev_hash, prev_seq = _persisted_head(conn, tenant_id)
+    if prev_hash is None:
+        prev_hash, prev_seq = _chain_head(conn, tenant_id)
     body = {
         **payload,
         "action": action,
         "botId": bot_id,
+        "actorUserId": actor_user_id,
+        "at": at,
         "seq": prev_seq + 1,
         "prevHash": prev_hash,
     }
-    body["entryHash"] = _digest(body)
+    body["entryHash"] = _digest({k: v for k, v in body.items() if k != "entryHash"})
 
     conn.execute(
         _text(
             """
             INSERT INTO audit_log (id, tenant_id, actor_user_id, action,
-                                   entity_type, entity_id, payload)
+                                   entity_type, entity_id, payload, created_at)
             VALUES (:id, :tenant, :actor, :action, :entity, :bot,
-                    CAST(:payload AS jsonb))
+                    CAST(:payload AS jsonb), :at)
             """
         ),
         {
@@ -173,9 +190,57 @@ def _write(
             "entity": _ENTITY_TYPE,
             "bot": bot_id,
             "payload": json.dumps(body),
+            "at": now,
         },
     )
+    _persist_head(conn, tenant_id, body["entryHash"], int(body["seq"]))
     return body
+
+
+def _chain_heads_ready(conn: Any) -> bool:
+    """``to_regclass`` returns NULL when the table is missing — it does not abort."""
+    from sqlalchemy import text as _text
+
+    return bool(conn.execute(_text("SELECT to_regclass('public.audit_chain_heads')")).scalar())
+
+
+def _persisted_head(conn: Any, tenant_id: str) -> tuple[str, int] | tuple[None, int]:
+    from sqlalchemy import text as _text
+
+    if not _chain_heads_ready(conn):
+        return None, 0
+    row = conn.execute(
+        _text(
+            """
+            SELECT entry_hash, seq FROM audit_chain_heads
+             WHERE tenant_id = :tenant
+            """
+        ),
+        {"tenant": tenant_id},
+    ).mappings().first()
+    if not row:
+        return None, 0
+    return str(row["entry_hash"] or _GENESIS), int(row["seq"] or 0)
+
+
+def _persist_head(conn: Any, tenant_id: str, entry_hash: str, seq: int) -> None:
+    from sqlalchemy import text as _text
+
+    if not _chain_heads_ready(conn):
+        return
+    conn.execute(
+        _text(
+            """
+            INSERT INTO audit_chain_heads (tenant_id, entry_hash, seq, updated_at)
+            VALUES (:t, :h, :s, now())
+            ON CONFLICT (tenant_id) DO UPDATE
+               SET entry_hash = EXCLUDED.entry_hash,
+                   seq = EXCLUDED.seq,
+                   updated_at = now()
+            """
+        ),
+        {"t": tenant_id, "h": entry_hash, "s": seq},
+    )
 
 
 def record_publish(
@@ -304,6 +369,54 @@ def record_restore(
     )
 
 
+def record_role_grants(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    entry_id: str,
+    role_id: str,
+    permission_ids: Sequence[str],
+) -> dict[str, Any]:
+    payload = {"roleId": role_id, "permissionIds": list(permission_ids)}
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=ROLE_GRANTS,
+        bot_id=role_id,
+        payload=payload,
+        entry_id=entry_id,
+    )
+
+
+def record_experiment_rollback(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    entry_id: str,
+    bot_id: str,
+    experiment_id: str,
+    reason: str,
+    baseline_restored: bool,
+) -> dict[str, Any]:
+    payload = {
+        "experimentId": experiment_id,
+        "reason": reason,
+        "baselineRestored": baseline_restored,
+    }
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=EXPERIMENT_ROLLBACK,
+        bot_id=bot_id,
+        payload=payload,
+        entry_id=entry_id,
+    )
+
+
 def read_entries(
     conn: Any, *, tenant_id: str, bot_id: str | None = None, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -373,7 +486,25 @@ def verify_chain(conn: Any, *, tenant_id: str) -> dict[str, Any]:
         body = {k: v for k, v in payload.items() if k != "entryHash"}
         if str(payload.get("prevHash") or "") != expected_prev:
             return {"ok": False, "checked": len(rows), "brokenAt": row["id"], "reason": "prev_hash_mismatch"}
+        # Entries written before actor/at were folded into the digest still
+        # have to verify — rewriting history to re-hash them would be the
+        # opposite of an append-only log.
         if _digest(body) != stored:
-            return {"ok": False, "checked": len(rows), "brokenAt": row["id"], "reason": "entry_hash_mismatch"}
+            legacy = {k: v for k, v in body.items() if k not in {"actorUserId", "at"}}
+            if _digest(legacy) != stored:
+                return {"ok": False, "checked": len(rows), "brokenAt": row["id"], "reason": "entry_hash_mismatch"}
         expected_prev = stored
+    head_hash, head_seq = _persisted_head(conn, tenant_id)
+    if head_hash is not None and rows:
+        last = rows[-1]
+        payload = last["payload"] if isinstance(last["payload"], dict) else json.loads(last["payload"])
+        if str(payload.get("entryHash") or "") != head_hash or int(payload.get("seq") or 0) != head_seq:
+            return {
+                "ok": False,
+                "checked": len(rows),
+                "brokenAt": last["id"],
+                "reason": "tail_truncated",
+            }
+    elif head_hash is not None and not rows:
+        return {"ok": False, "checked": 0, "brokenAt": None, "reason": "tail_truncated"}
     return {"ok": True, "checked": len(rows), "brokenAt": None, "reason": None}

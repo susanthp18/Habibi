@@ -59,6 +59,9 @@ _PACK_SLUGS = [
 
 _ALLOWED = [
     "add_customer_note",
+    # Granted by dispute-capture, which handle_dispute runs under. Before this
+    # the node offered a goodwill waiver it had no tool to post.
+    "apply_goodwill",
     "capture_lead",
     "capture_nonpayment_reason",
     "check_product_eligibility",
@@ -72,6 +75,9 @@ _ALLOWED = [
     "get_emi_schedule",
     "get_payment_history",
     "handoff_to_agent",
+    # TEXT_ONLY, and on the collections card's include list — the mouth is
+    # unchannelled here, so it survives; the voice grant drops it.
+    "ingest_customer_document",
     "load_skill",
     "recommend_next_offer",
     "request_callback",
@@ -97,6 +103,7 @@ _OFFERED_IDLE = [
     "escalate_to_human",
     "handoff_to_agent",
     "search_knowledge_base",
+    "ingest_customer_document",
     "add_customer_note",
 ]
 

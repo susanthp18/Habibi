@@ -1,0 +1,215 @@
+{
+ "verdicts": [
+  {
+   "id": "HEADER-1",
+   "verdict": "DOWNGRADED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:455-467",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:460",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:461",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:468-469",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:958",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1145-1158",
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:79",
+    "backend/sql/18_phase5.sql:13",
+    "backend/agent_core/canary.py:99-108",
+    "backend/agent_core/canary.py:111-133",
+    "backend/db_prompt_studio.py:1889-1890",
+    "backend/agent_core/cards/clone.py:53-57",
+    "backend/agent_core/cards/defaults.py:353-370",
+    "backend/db_prompt_studio.py:429-441",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1193-1208",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:141-144"
+   ],
+   "reason": "Mechanism is real and I reproduced it by reading: legacyShipBaseline matches e.status === \"active\" (lazy.tsx:460) against a column whose CHECK admits only running/rolled_back/promoted (sql/18_phase5.sql:13), the only writer inserts 'running' (canary.py:111-133) and list_experiments passes status through verbatim (canary.py:344), so the memo always returns the hardcoded {100,false,[]} at :461; ShipTab.tsx:79 uses the correct 'running', and publish sends ship.trafficPct (:958) which db takes over the card (db_prompt_studio.py:1890 — cited as 1888, off by two). What is inflated is the blast radius, and the trigger as written is wrong. isAuthoredCard is Boolean(card?.identity?.bot_id) and the card the Studio reads is never card-less: _agent_studio_card_summary resolves draft card -> published card -> card_dump -> scaffold_card and always returns one of them under \"agentCard\" (db_prompt_studio.py:429-441, 502), scaffold_card stamps identity.bot_id (defaults.py:367-370), and clone_card stamps identity.bot_id on every clone (clone.py:53-57) — so \"every cloned/legacy card\" is false, clones take the authored branch. asCard maps {} to null (lazy.tsx:141-144) so effectiveCard falls through to that always-authored card, and a failed card read blocks the editor entirely (lazy.tsx:1193-1208) rather than falling into the legacy branch. The legacy branch is therefore reachable only for a bot whose stored card is non-empty but carries no identity.bot_id (backend is_authored, schema.py:416-419, accepts any non-empty dict) — legacy data I cannot show exists here, and the prior audit already recorded this whole branch as dormant (\"All four seeded bots are authored\", AGENT_STUDIO_BUG_HUNT.md item 2m.4, which this finding does not cite). Real defect, worth fixing, but not \"every Studio publish silently re-ships at 100%\". What would settle MAJOR: one row of SELECT bot_id, agent_card FROM prompt_versions WHERE agent_card->'identity'->>'bot_id' IS NULL AND agent_card <> '{}' in a live tenant."
+  },
+  {
+   "id": "HEADER-2",
+   "verdict": "DOWNGRADED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:2221",
+    "backend/db_prompt_studio.py:2252",
+    "backend/db_prompt_studio.py:180",
+    "backend/db_prompt_studio.py:1724-1726",
+    "Habibi/src/api/prompt-studio.ts:105-117",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:541",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:546-549",
+    "Habibi/src/data/prompt-studio-seed.ts:360-365",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:78-82",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:74-76",
+    "backend/agent_core/change_log.py:200-212"
+   ],
+   "reason": "Every link of the chain is real at the cited lines: restore inserts new_id = f\"{source['id']}-r-{hex6}\" (2221) with \"label\": None (2252); _map_prompt_version substitutes the id (label = r.get(\"label\") or r.get(\"id\"), :180); draftLabel picks that up (lazy.tsx:546-549); toPatchInput always sends label (prompt-studio.ts:106-107) and patch_prompt_version writes it (db_prompt_studio.py:1724-1726 — cited as 1729-1731, off by five); publish PATCHes with the same label before publishing (prompt-studio.ts:970-983), so publishedRow.label becomes the id string, nextVersionLabel's regex misses and returns the literal \"v1.0\" (seed:362-364), and the header renders both (StudioHeader.tsx:81, 173). Restore is reachable on every non-draft row (VersionHistory.tsx:287-292). MAJOR is inflated: nothing about the shipped configuration is wrong — same prompt, persona, voice, guardrails, flow and card ship as before — and the regulated record is not corrupted, because change_log.record_publish stores versionId and the per-component hashes alongside versionLabel (change_log.py:200, 212), so an auditor can still identify exactly which row went live. The damage is display text: a header lozenge showing a row id, a Publish button offering v1.0 after v1.6, and duplicate labels later in the timeline (masked by attemptSuffixes, VersionHistory.tsx:82-101). Contained and cosmetic-plus, i.e. MINOR."
+  },
+  {
+   "id": "HEADER-3",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:616-617",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:636-637",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:682",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:684-686",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:847-883",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:867-876",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:899-921",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:933",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:829-845",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:280-286"
+   ],
+   "reason": "Confirmed at the lines, with two off-by-one citations: the debounce is 1200ms at :682 (cited :681) and the cleanup that clears the pending timer is :684-686 (cited :683-685). The path is exactly as described — loadDraft sets skipAutosave.current = true (:848) and replaces prompt/persona/voice/guardrails/flow/card (:849-860); the resulting state change re-runs the effect, whose cleanup clears the pending timer (:684-686) and whose body returns at :617 before scheduling another; markSaved with the loaded fingerprint (:867-876) leaves unsaved false, and skipAutosave is cleared in a setTimeout(0) that changes no dependency, so nothing re-enters the effect. Reachable from Load (VersionHistory.tsx:280-286 -> lazy.tsx:1565-1568), Restore (:933) and the discard reload branch (:899-921). Two corrections to the write-up rather than the verdict: confidence is SUSPECTED, not VERIFIED — the History sheet is modal, so the operator cannot type while it is open, and the loss window is \"open the drawer and click Load/Restore within 1200ms of the last keystroke\", which I did not demonstrate; and the in-flight-network case is not loss (savingRef/resaveRef, :639-643 and :673-678, still write those edits). MINOR stands: silent, unrecoverable loss of up to one debounce window of authored prompt text, with applyPreset (:829-845) one function away as the codebase's own opposite standard."
+  },
+  {
+   "id": "HEADER-4",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:885-928",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:894-897",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:898-922",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:924",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1252",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:67",
+    "Habibi/src/api/prompt-studio.ts:921-938",
+    "Habibi/src/api/prompt-studio.ts:970-983",
+    "backend/db_prompt_studio.py:1719-1720",
+    "backend/main.py:3227-3232",
+    "backend/main.py:824-828"
+   ],
+   "reason": "Confirmed, and every cited line is exact. On a card whose only row is the draft being discarded, both fallbacks at :895-896 exclude v.id, so live is null, the whole reset block at :898-922 is skipped, the editor keeps the discarded text and draftId still names the archived row; canPublish={Boolean(draftId) || dirty} (:1252) is true so publishDisabled is false (StudioHeader.tsx:67). I traced the republish end to end rather than trusting it: discard archives the row (db_prompt_studio.py:2262-2286), the subsequent PATCH raises ValueError(\"prompt_version_not_draft\") (db_prompt_studio.py:1719-1720), which main.py:3227-3232 routes through _handle_write, where the detail is absent from _VALUE_ERROR_STATUS and defaults to 409 (main.py:824-828); isDraftPatchFallbackError returns true on 409 (prompt-studio.ts:926-928) and publishStudioDraft falls through to createPromptVersion from the still-populated editor body (:980-983). The discarded prompt goes live after a \"Discarded draft\" toast (:924). MINOR is right — the operator still passes the confirm-text publish dialog, which shows the content — and one correction: this is the residual of prior item 2a.4 (AGENT_STUDIO_BUG_HUNT.md), whose earlier form the comment at :889-893 was written to fix; prior_ref 2a.4 should have been set. The draftId/409-fallback chain is new information, so it is not a duplicate."
+  },
+  {
+   "id": "HEADER-5",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:305-311",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:639-643",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:673-678",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:682",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1067",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:947",
+    "Habibi/src/api/prompt-studio.ts:1017-1025",
+    "Habibi/src/api/prompt-studio.ts:980-983",
+    "backend/db_prompt_studio.py:1629-1631",
+    "backend/main.py:2233-2241"
+   ],
+   "reason": "Confirmed as SUSPECTED/MINOR. The guard is real and applies only to the autosave body (savingRef/resaveRef at :639-643 and :673-678, purpose spelled out at :305-311); onTestSandbox calls ensureDraftMutation.mutateAsync directly at :1067 and publish calls publishMutation.mutateAsync at :947, and neither reads savingRef nor clears autosaveTimer, so a debounce firing at :682 while the button's create is still in flight sees draftId null and creates a second draft. I checked for a server-side dedupe and there is none: ensureStudioDraft falls through to createPromptVersion when draftId is null (prompt-studio.ts:1017-1025), and create_prompt_version resolves an id collision by appending a uuid suffix rather than reusing the row (db_prompt_studio.py:1629-1631), so two open drafts with the same label are a legitimate outcome. One correction: the ambiguous_draft_to_publish consequence is API-only — main.py:2233-2241 belongs to POST /agent-studio/cards/{bot_id}/publish, which no frontend client calls (the Studio publishes by version id, prompt-studio.ts:679), so the operator-visible damage is the phantom draft row in History, not a broken Publish button. Line correction: that raise is 2233-2241, not 2231-2239."
+  },
+  {
+   "id": "HEADER-6",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/api/prompt-studio.ts:165-169",
+    "backend/main.py:2020-2027",
+    "backend/db_core.py:211-212",
+    "backend/db_core.py:215-227",
+    "backend/db_prompt_studio.py:225",
+    "backend/db_prompt_studio.py:243-244",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:386",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1265",
+    "backend/main.py:2217",
+    "backend/main.py:2225-2228"
+   ],
+   "reason": "Confirmed as SUSPECTED/MINOR. fetchPromptVersions sends only botId and no limit (prompt-studio.ts:167-168); the route's limit defaults to None (main.py:2021-2022); clamp_list_limit(None) resolves to DEFAULT_LIST_LIMIT = 200 (db_core.py:211, 221-222) and the query is ORDER BY p.created_at DESC, p.id DESC LIMIT :limit OFFSET :offset (db_prompt_studio.py:243-244) with no caller paging. history is the raw page (setHistory(versionsQuery.data), lazy.tsx:386), so versionCount={history.length} (:1265), publishedRow (:429-431) and nextLabel (:541) all read a truncated window, and with 200 rows newer than the published one the header would say \"never published\" for a live card. The by-bot publish endpoint inherits the same window at main.py:2217 (cited as 2214-2215) and 404s at :2225-2228 (cited as 2222-2229). Not demonstrated is the accumulation itself — autosave patches an existing draft rather than creating one, so 200 rows per bot takes a long life — which is why SUSPECTED is the right confidence and MINOR the right severity."
+  },
+  {
+   "id": "HEADER-7",
+   "verdict": "DUPLICATE_OF_PRIOR",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:107-124"
+   ],
+   "reason": "This restates prior item 2a.7 (AGENT_STUDIO_BUG_HUNT.md: \"Draft-count dot is <span aria-label> with no role — not reliably announced, color-only signal (StudioHeader.tsx:101-106)\") with only the line numbers moved to 119-124; no prior_ref was set and no new information is added. The mechanism as stated is also wrong. The span is a descendant of the History <button> (:108-124), and accessible-name computation for a button is name-from-content, whose recursion applies aria-label to each descendant node — so the button's name is \"History 12 2 drafts\", not \"History 12\" as the trigger claims. And the dot is a presence/absence signal, not a colour-only one: a colour-blind operator still sees a dot appear. If the concern is that the count is not adjacent to the label it modifies, that is a wording nit, not a missing announcement. What would settle it either way is an axe/NVDA run against the rendered header, which this audit did not do."
+  },
+  {
+   "id": "HEADER-8",
+   "verdict": "DOWNGRADED",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/PublishDialog.tsx:56-74",
+    "Habibi/src/components/prompt-studio/PublishDialog.tsx:72",
+    "Habibi/src/components/prompt-studio/PublishDialog.tsx:88-92",
+    "Habibi/src/data/prompt-studio-seed.ts:325-353",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1583-1606",
+    "Habibi/src/components/prompt-studio/DiffModal.tsx:44"
+   ],
+   "reason": "The mechanism is exactly as described and the lines are exact: PublishDialog is mounted unconditionally (lazy.tsx:1583) with a `to` object rebuilt from live editor state on every render (:1589-1601), the component body has no open guard and no memo, and diffStudioVersions runs at PublishDialog.tsx:72 followed by three stableStringify pairs at :88-92 before any early return; diffPrompts allocates and fills a full (m+1)x(n+1) matrix (seed:330-335); DiffModal's `if (!base) return null` at :44 is indeed the contrasting guard. But nothing behaves incorrectly — no wrong value, no wrong verdict, no lost data — and the cost is asserted, not measured: the 500-line prompt in the write-up is a hypothetical, real cards are an order of magnitude smaller, and the same render already re-runs the dirty/unsaved fingerprints and the auto-lint. Wasted work on the authoring surface is worth fixing (wrap the body in `if (!open) return null`), but at TRIVIAL, not MINOR. A profile showing per-keystroke frame cost would move it back."
+  },
+  {
+   "id": "HEADER-9",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:71-81",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:82-101",
+    "backend/db_prompt_studio.py:2252",
+    "backend/db_prompt_studio.py:180"
+   ],
+   "reason": "Accurate at the lines. The docstring at :74-76 asserts that a draft inherits the label of the version it descends from; no write path implements that. restore-as-draft stores label None (2252) and the row surfaces with its id as the label (:180), so a restored draft lands in its own bucket in attemptSuffixes (which keys on v.label || v.id, :85) and can never carry an \"attempt N\" suffix; the studio's other create path names a draft from nextLabel (lazy.tsx:541, 546-549), which is an increment, not an inheritance; and sandbox promote publishes an existing version rather than writing a labelled row (routes/sandbox.lazy.tsx:442-446). TRIVIAL is right — it is a stale comment. Note it carries no information beyond HEADER-2's mechanism plus the comment's location, so it should be folded into that finding's fix rather than tracked separately."
+  },
+  {
+   "id": "HEADER-10",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:541",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:546-549",
+    "Habibi/src/data/prompt-studio-seed.ts:360-365",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:78-79",
+    "Habibi/src/components/prompt-studio/StudioHeader.tsx:173",
+    "backend/db_prompt_studio.py:1530-1537",
+    "backend/db_prompt_studio.py:1616-1617"
+   ],
+   "reason": "Confirmed at the lines. nextVersionLabel returns \"v1.0\" only for a non-matching input and otherwise increments (seed:362-364), so nextVersionLabel(\"v1.0\") is \"v1.1\"; with nothing published, nextLabel = nextVersionLabel(publishedRow?.label ?? \"v1.0\") = \"v1.1\" (lazy.tsx:541), the header shows the \"never published\" lozenge (StudioHeader.tsx:78-79) beside \"Publish v1.1\" (:173), and the created row's id is slugged from the label to \"v1_1\" (db_prompt_studio.py:1530-1537, 1617). One refinement to the trigger: the button text is nextVersion={draftLabel} (:1253, :546-549), so it reads \"v1.1\" only while no draft row exists — once autosave has created the draft it shows that draft's label, which for a fresh card was itself minted from nextLabel and so is also v1.1. The conclusion holds: no Studio-authored card can contain a v1.0. TRIVIAL."
+  },
+  {
+   "id": "HEADER-11",
+   "verdict": "REFUTED",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:587-594",
+    "backend/schemas.py:2147-2153",
+    "backend/schemas.py:2160",
+    "backend/schemas.py:2248",
+    "Habibi/src/data/prompt-studio-seed.ts:155-181"
+   ],
+   "reason": "The premise is wrong and there is no operator- or API-reachable trigger. The finding argues the two sides are safe only by coincidence because they are built by different dict literals (db_prompt_studio.py:76-82 vs 889-895), but neither dict reaches the browser: both responses serialise through the same Pydantic model, PersonaTraits (schemas.py:2147-2153), used by PersonaState.traits (:2160) and PersonaPresetResponse.traits (:2248), and Pydantic emits model field order — so the wire key order is identical by construction, not by luck, and a reordered dict literal in db_prompt_studio.py would change nothing. The frontend seed traits are declared in the same order (prompt-studio-seed.ts:160, 167, 174, 181) and object spread preserves insertion order, so locally-edited persona.traits keeps it too. The only trigger the finding offers is editing the source to reorder a field, which is not an action available through the UI or the API; by the rule that an undecidable or code-change-only trigger defaults to REFUTED, this is refuted. It survives as a style note (use stableStringify at lazy.tsx:591 for consistency), not a defect."
+  },
+  {
+   "id": "HEADER-12",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1559-1563",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1564",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1565-1568",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:930-938",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:287-292"
+   ],
+   "reason": "Confirmed, lines exact. onCompare closes the sheet (:1562) and onLoadDraft closes it (:1567), but onRestore={(v) => void restore(v)} at :1564 does not, and restore ends in the same loadDraft (:933) that repopulates the whole editor. The Restore button is the one rendered for every non-draft row (VersionHistory.tsx:287-292), so the operator is left on a modal sheet over an editor whose contents changed behind it. Cosmetic and self-recoverable (Esc or the overlay closes it), so TRIVIAL is right."
+  },
+  {
+   "id": "HEADER-13",
+   "verdict": "CONFIRMED",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:2290-2424",
+    "backend/db_prompt_studio.py:2364-2374",
+    "backend/db_prompt_studio.py:2376-2394",
+    "backend/agent_core/canary.py:99-108",
+    "backend/agent_core/canary.py:351-365",
+    "backend/agent_core/canary.py:136-184",
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:79",
+    "Habibi/src/components/prompt-studio/ShipTab.tsx:216-227",
+    "Habibi/src/components/prompt-studio/VersionHistory.tsx:179-189",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:992"
+   ],
+   "reason": "Confirmed by reading the whole function: rollback_bot_deployment (db_prompt_studio.py:2290-2424) archives the published version, republishes the target, marks the current deployment rolled_back (:2364-2374) and inserts a fresh active row (:2376-2394) — and touches deployment_experiments nowhere, in contrast to the publish path which promotes the running row via record_experiment (canary.py:99-102). The experiment therefore keeps status='running' with canary_deployment_id pointing at a deployment now marked rolled_back, so ShipTab keeps rendering \"Running experiment — N% canary\" from that row (ShipTab.tsx:79, 216-227) and sweep_rollbacks keeps selecting it (canary.py:351-365). Reachable through the UI on any card, authored or not: publish with the Ship slider below 100 (which is what makes record_experiment insert a row, canary.py:107-133), then use Rollback in the history drawer (VersionHistory.tsx:179-189 -> lazy.tsx:992). One thing the finding understates and I did not chase to a verdict: if the auto-rollback sweep later fires on that stale row, rollback_experiment reactivates the old baseline deployment (canary.py:160-170) while the rollback's own row is already active — a possible second active production deployment. That is a reason to fix it, not a reason to change the severity here."
+  }
+ ],
+ "slice": "header"
+}

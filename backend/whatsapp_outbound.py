@@ -46,6 +46,29 @@ def _job_id() -> str:
     return f"WAO-{uuid.uuid4().hex[:12].upper()}"
 
 
+_DECISION_COL: bool | None = None
+
+
+def _jobs_have_decision_id(conn: Connection) -> bool:
+    global _DECISION_COL
+    if _DECISION_COL is not None:
+        return _DECISION_COL
+    try:
+        found = conn.execute(
+            text(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'whatsapp_outbound_jobs'
+                  AND column_name = 'decision_id'
+                """
+            )
+        ).first()
+        _DECISION_COL = found is not None
+    except Exception:
+        _DECISION_COL = False
+    return _DECISION_COL
+
+
 def enqueue_agent_send(
     conn: Connection,
     *,
@@ -60,6 +83,7 @@ def enqueue_agent_send(
     template_params: list[str] | None = None,
     purpose: str | None = None,
     source: str | None = None,
+    decision_id: str | None = None,
 ) -> dict[str, Any]:
     """Enqueue (or return existing) outbound job for a pre-inserted 'sending' message."""
     existing = conn.execute(
@@ -77,36 +101,48 @@ def enqueue_agent_send(
 
     jid = _job_id()
     params_json = json.dumps(template_params) if template_params is not None else None
+    has_decision = _jobs_have_decision_id(conn)
+    cols = """
+                      id, message_id, conversation_id, customer_id,
+                      to_phone, body, preview_url, template_name, template_lang,
+                      template_params, purpose, source, status
+    """
+    vals = """
+                      :id, :message_id, :conversation_id, :customer_id,
+                      :to_phone, :body, :preview_url, :template_name, :template_lang,
+                      CAST(:template_params AS jsonb), :purpose, :source, 'queued'
+    """
+    payload = {
+        "id": jid,
+        "message_id": message_id,
+        "conversation_id": conversation_id,
+        "customer_id": customer_id,
+        "to_phone": to_phone,
+        "body": body,
+        "preview_url": bool(preview_url),
+        "template_name": template_name,
+        "template_lang": template_lang,
+        "template_params": params_json,
+        "purpose": purpose,
+        "source": source,
+    }
+    if has_decision:
+        cols += ", decision_id"
+        vals += ", :decision_id"
+        payload["decision_id"] = decision_id
     try:
         with conn.begin_nested():
             conn.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO whatsapp_outbound_jobs (
-                      id, message_id, conversation_id, customer_id,
-                      to_phone, body, preview_url, template_name, template_lang,
-                      template_params, purpose, source, status
+                    {cols}
                     ) VALUES (
-                      :id, :message_id, :conversation_id, :customer_id,
-                      :to_phone, :body, :preview_url, :template_name, :template_lang,
-                      CAST(:template_params AS jsonb), :purpose, :source, 'queued'
+                    {vals}
                     )
                     """
                 ),
-                {
-                    "id": jid,
-                    "message_id": message_id,
-                    "conversation_id": conversation_id,
-                    "customer_id": customer_id,
-                    "to_phone": to_phone,
-                    "body": body,
-                    "preview_url": bool(preview_url),
-                    "template_name": template_name,
-                    "template_lang": template_lang,
-                    "template_params": params_json,
-                    "purpose": purpose,
-                    "source": source,
-                },
+                payload,
             )
     except IntegrityError as exc:
         # A concurrent enqueue for the same message already won. Detect via
@@ -273,6 +309,40 @@ def mark_succeeded(conn: Connection, job_id: str, *, provider_ref: str | None) -
         ),
         {"id": job_id, "provider_ref": provider_ref},
     )
+
+
+def _finalize_treatment_send(
+    conn: Connection, job: dict[str, Any], *, provider_ref: str | None
+) -> None:
+    decision_id = (job.get("decision_id") or "").strip()
+    if not decision_id:
+        return
+    try:
+        from agent_core.treatment import attempts, decisions, reservations
+
+        decisions.mark_enacted(
+            decision_id, ref=f"whatsapp:{provider_ref or job.get('id')}", conn=conn
+        )
+        row = attempts.for_decision(conn, decision_id)
+        if row:
+            attempts.set_state(
+                conn, row["id"], attempts.STATE_SENT, provider_ref=provider_ref
+            )
+        reservations.commit(conn, None)
+        conn.execute(
+            text(
+                """
+                UPDATE contact_reservations
+                SET state = 'committed',
+                    provider_ref = COALESCE(:ref, provider_ref),
+                    updated_at = now()
+                WHERE decision_id = :id AND state = 'held'
+                """
+            ),
+            {"id": decision_id, "ref": provider_ref},
+        )
+    except Exception:
+        logger.exception("treatment finalize failed for decision=%s", decision_id)
 
 
 def _persistable_error(exc: BaseException) -> str:
@@ -456,10 +526,11 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
             customer_id=job.get("customer_id"),
             channel="whatsapp",
             purpose=purpose,
-            session_key=job.get("conversation_id"),
+            session_key=job.get("decision_id") or job.get("conversation_id"),
             source=source,
             related_id=job.get("message_id") or job.get("id"),
             actor_kind="system",
+            endpoint=to_phone,
         )
         if not decision.allowed:
             status = mark_failed_or_retry(conn, job, decision.reason or "contact_policy")
@@ -562,6 +633,7 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
             {"id": job["conversation_id"]},
         )
         mark_succeeded(conn, job["id"], provider_ref=provider_ref)
+        _finalize_treatment_send(conn, job, provider_ref=provider_ref)
     logger.info(
         "whatsapp_outbound sent job=%s message=%s provider_ref=%s",
         job["id"],

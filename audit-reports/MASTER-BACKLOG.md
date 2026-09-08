@@ -1282,6 +1282,14 @@ scenario; no unusual concurrency is required.
 | **Acceptance criteria** | A reader can tell from the repository whether fresh-release installs are blocked, and the answer is not "it depends which package manager you happen to use". |
 | **Risk** | none to production · **Rollback** `git revert` · **Atomic?** Yes |
 
+> **Re-verified 2026-09-05.** `package.json` declares `"packageManager": "npm@10.9.2"`,
+> `package-lock.json` is present, `bun.lock` is absent, and `bunfig.toml` is referenced by
+> **nothing** in CI. npm does not read `bunfig.toml`, so `minimumReleaseAge = 86400` is inert
+> while the file continues to state it as policy — including a comment instructing that a
+> reader *"confirm with the user before adding any"* bypass to a list of six
+> `@lovable.dev/*` exclusions. Anyone auditing this repository for supply-chain controls
+> would find that file and conclude the guard is running. It is not. Still open.
+>
 > `WP-056` was right to remove the bun lockfile — an unauditable second dependency tree is worse. This records the cost of that trade rather than letting it disappear, which is the same failure `WP-063` produced when a deleted config took its one real warning with it.
 
 ---

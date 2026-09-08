@@ -108,12 +108,13 @@ def test_request_callback_accepts_iso_and_clamps_window(db_tx) -> None:
 
 
 def test_whatsapp_flag_dispute_returns_allowed_no_traceback(
-    db_tx, caplog: pytest.LogCaptureFixture
+    db_tx, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """WA adapter must surface domain `allowed` list — not raise ValueError."""
     import logging
 
     import bot_tools
+    import agent_core.tools.gates as gates
     from agent_core.tools.catalog import DISPUTE_TYPES
 
     customer_id, _ = _customer(db_tx)
@@ -127,6 +128,7 @@ def test_whatsapp_flag_dispute_returns_allowed_no_traceback(
         intent="dispute",
     )
     ctx.allowed_tools = frozenset({"flag_dispute"})
+    monkeypatch.setattr(gates, "interaction_identity_verified", lambda **_kwargs: True)
     with caplog.at_level(logging.WARNING):
         ok, payload, _latency = bot_tools.execute_tool(
             ctx, "flag_dispute", '{"type":"bogus"}'

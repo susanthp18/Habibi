@@ -238,8 +238,12 @@ SCOPED_ACCESSORS = {
     # P3. A hold is a collections queue like any other and narrows the same way.
     "list_treatment_holds": {},
     # P5. The case ladder is grouped rather than row-per-record, but it is still
-    # borrower data and narrows identically.
-    "list_treatment_cases": {},
+    # borrower data and narrows identically. Read past the default page: this is
+    # the one accessor whose corpus exceeds DEFAULT_LIST_LIMIT (272 cases vs
+    # 200), and comparing two *truncated* pages proves nothing — the agent's
+    # top-200 of a narrower set reaches rows the admin's top-200 has paged off,
+    # which reads as a broken predicate when the predicate is fine.
+    "list_treatment_cases": {"limit": 1000},
     # Caught by the same coverage test when the bounce work added it. Scoped by
     # *team*, not by customer book — you claim from your team's unclaimed queue
     # — so it uses its own predicate rather than the shared marker.

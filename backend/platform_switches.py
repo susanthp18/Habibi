@@ -58,6 +58,8 @@ OUTBOUND_ENABLED = "outbound.enabled"
 #: it would orphan the row an operator has already enabled, silently making the
 #: demo *more* restrictive at the moment they least expect it.
 DEMO_IGNORES_WINDOW = "outbound.demo_ignores_window"
+TREATMENT_ENACT_ENABLED = "treatment.enact.enabled"
+RECO_ENABLED = "reco.enabled"
 
 #: Keys an operator may flip from the product. Anything else is a 404 rather
 #: than a silently-created row, so a typo in a URL cannot mint a new switch
@@ -73,6 +75,12 @@ KNOWN_KEYS: dict[str, str] = {
         "hours, preferred window, cooling-off and the daily/weekly caps. "
         "Affects the demo number only. Never overrides consent, opt-out, DND "
         "or the registry."
+    ),
+    TREATMENT_ENACT_ENABLED: (
+        "Treatment executor. Off means due plans are not sent. Absence is off."
+    ),
+    RECO_ENABLED: (
+        "In-call offer recommender. Off means the tool returns no offer."
     ),
 }
 

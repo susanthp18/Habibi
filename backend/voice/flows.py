@@ -124,6 +124,7 @@ def build_collections_flow(
     sink: Any | None = None,
     allowed_tool_names: set[str] | None = None,
     attached_skills: list[Any] | None = None,
+    agent_card: dict[str, Any] | None = None,
 ) -> tuple[ToolState, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
     """Wire tools + node factories.
 
@@ -161,6 +162,7 @@ def build_collections_flow(
         sink=sink,
         allowed_tool_names=allowed_tool_names,
         attached_skills=attached_skills,
+        agent_card=agent_card,
     )
 
     # role_message persists across nodes until re-set; re-state on RESET nodes.

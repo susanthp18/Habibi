@@ -1,0 +1,84 @@
+"""Detect whether the honest-engines schema has been applied.
+
+The migration is written in this tranche and is applied by the orchestrator.
+Callers that INSERT new columns must not fail the live database before that
+window; they fall back to the columns that already exist.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import text
+
+_CACHE: dict[str, bool] = {}
+
+
+def has_column(conn: Any, table: str, column: str) -> bool:
+    key = f"{table}.{column}"
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        found = conn.execute(
+            text(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = :t
+                  AND column_name = :c
+                """
+            ),
+            {"t": table, "c": column},
+        ).first()
+        present = found is not None
+    except Exception:
+        present = False
+    _CACHE[key] = present
+    return present
+
+
+def has_table(conn: Any, table: str) -> bool:
+    key = f"table:{table}"
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        found = conn.execute(
+            text("SELECT to_regclass(:n)"), {"n": f"public.{table}"}
+        ).scalar()
+        present = found is not None
+    except Exception:
+        present = False
+    _CACHE[key] = present
+    return present
+
+
+def reset_cache() -> None:
+    _CACHE.clear()
+
+
+def w2_ready(conn: Any) -> bool:
+    return has_column(conn, "treatment_decisions", "arm_propensity")
+
+
+def w1_ready(conn: Any) -> bool:
+    return has_table(conn, "enactment_attempts") and has_column(
+        conn, "treatment_decisions", "cancel_reason"
+    )
+
+
+def labels_ready(conn: Any) -> bool:
+    return has_column(conn, "treatment_decisions", "reach_outcome")
+
+
+def w4_ready(conn: Any) -> bool:
+    return has_column(conn, "policy_rules", "rule_id") and has_table(
+        conn, "policy_rule_kinds"
+    )
+
+
+def w5_ready(conn: Any) -> bool:
+    return has_table(conn, "bank_contracts") and has_table(
+        conn, "bank_inbound_manifests"
+    )

@@ -123,6 +123,9 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
   -- Agent Card: skills, tools, handoffs, locked policy engines. Mouth columns
   -- above stay canonical; the card references them rather than duplicating.
   agent_card jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Deterministic compiled contract (migration 20260906_0111). Empty until
+  -- the version is published through the Phase-1 compiler.
+  compiled jsonb,
   -- AgentTuning saved with the version (migration 20260723_0029). This column
   -- was added by that migration and never mirrored here, so until now a fresh
   -- sql/-built database was missing a column the Prompt Studio writes to.
@@ -256,10 +259,19 @@ CREATE TABLE IF NOT EXISTS bot_deployments (
   traffic_pct INTEGER NOT NULL DEFAULT 100 CHECK (traffic_pct BETWEEN 0 AND 100),
   shadow boolean NOT NULL DEFAULT false,
   eval_report_id TEXT,
+  -- Connector grants snapshotted at publish. NULL means "column predated
+  -- this row" only on unmigrated databases; after 20260906_0109 a NULL
+  -- snapshot is fail-closed empty until republish.
+  frozen_tools jsonb,
+  -- Hash of prompt_versions.compiled at publish. NULL until 20260906_0111.
+  bundle_hash TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_bot_deployments_bot_id ON bot_deployments(bot_id);
+ALTER TABLE bot_deployments ADD COLUMN IF NOT EXISTS frozen_tools jsonb;
+ALTER TABLE bot_deployments ADD COLUMN IF NOT EXISTS bundle_hash TEXT;
+ALTER TABLE prompt_versions ADD COLUMN IF NOT EXISTS compiled jsonb;
 -- At most one active deployment per bot+environment (enforced also by advisory lock on publish).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bot_deployments_bot_env_active
   ON bot_deployments (bot_id, environment)

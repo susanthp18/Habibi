@@ -43,7 +43,7 @@ from agent_core.skills.intersect import (
     offered_tools,
 )
 from agent_core.tools.catalog import CATALOG
-from agent_core.tools.grant import TEXT, VOICE, VOICE_ALWAYS, ToolGrant
+from agent_core.tools.grant import TEXT, TEXT_ALWAYS, VOICE, VOICE_ALWAYS, ToolGrant
 
 CATALOG_NAMES = set(CATALOG.specs)
 BOTS = sorted(FIRST_PARTY_BOT_IDS)
@@ -75,6 +75,19 @@ def _voice_only_on(card, packs) -> set[str]:
     return _today_grant(card, packs) & (voice - text)
 
 
+def _text_only_on(card, packs) -> set[str]:
+    """The mirror of :func:`_voice_only_on`, and the second intended difference.
+
+    The catalog has always had TEXT_ONLY specs; until a card included one, the
+    asymmetry could not show. ``ingest_customer_document`` is now on the
+    collections card, so the *voice* grant drops a name the unchannelled
+    formula keeps — the same filter as above, read the other way round.
+    """
+    voice = {s.name for s in CATALOG.for_channel(VOICE)}
+    text = {s.name for s in CATALOG.for_channel(TEXT)}
+    return _today_grant(card, packs) & (text - voice)
+
+
 # --- 1. the grant -----------------------------------------------------------
 
 
@@ -82,14 +95,20 @@ def _voice_only_on(card, packs) -> set[str]:
 def test_voice_grant_is_todays_answer_plus_the_always_on_floor(bot_id, card_and_packs) -> None:
     card, packs = card_and_packs(bot_id)
     grant = ToolGrant.for_card(card, packs, channel=VOICE)
-    assert grant.allowed == _today_grant(card, packs) | VOICE_ALWAYS
+    assert grant.allowed == (_today_grant(card, packs) | VOICE_ALWAYS) - _text_only_on(
+        card, packs
+    )
 
 
 @pytest.mark.parametrize("bot_id", BOTS)
-def test_text_grant_drops_exactly_the_voice_only_tools(bot_id, card_and_packs) -> None:
+def test_text_grant_drops_the_voice_only_tools_and_adds_the_text_floor(
+    bot_id, card_and_packs
+) -> None:
     card, packs = card_and_packs(bot_id)
     grant = ToolGrant.for_card(card, packs, channel=TEXT)
-    assert grant.allowed == _today_grant(card, packs) - _voice_only_on(card, packs)
+    assert grant.allowed == (
+        _today_grant(card, packs) - _voice_only_on(card, packs)
+    ) | TEXT_ALWAYS
 
 
 # --- 2 and 3. the offers ----------------------------------------------------
@@ -103,10 +122,12 @@ def test_idle_offer_matches_todays_idle_offer(bot_id, card_and_packs) -> None:
             card, catalog_names=CATALOG_NAMES, attached_skills=list(packs)
         )
     )
-    assert set(ToolGrant.for_card(card, packs, channel=TEXT).offer()) == today - _voice_only_on(
-        card, packs
-    )
-    assert set(ToolGrant.for_card(card, packs, channel=VOICE).offer()) == today | VOICE_ALWAYS
+    assert set(ToolGrant.for_card(card, packs, channel=TEXT).offer()) == (
+        today - _voice_only_on(card, packs)
+    ) | TEXT_ALWAYS
+    assert set(ToolGrant.for_card(card, packs, channel=VOICE).offer()) == (
+        today | VOICE_ALWAYS
+    ) - _text_only_on(card, packs)
 
 
 @pytest.mark.parametrize("bot_id", BOTS)
@@ -129,9 +150,9 @@ def test_active_skill_offer_matches_todays_on_both_channels(
         )
         mine = set(grant.offer(active_skill=pack.slug))
         if channel == VOICE:
-            assert mine == today | VOICE_ALWAYS
+            assert mine == (today | VOICE_ALWAYS) - _text_only_on(card, packs)
         else:
-            assert mine == today - _voice_only_on(card, packs)
+            assert mine == (today - _voice_only_on(card, packs)) | TEXT_ALWAYS
 
 
 # --- 4. the publish gate's private formula ----------------------------------
@@ -144,7 +165,8 @@ def test_static_grant_against_the_publish_gates_formula(bot_id, card_and_packs) 
 
     * G9 permits names no runtime could ever call — locked engines that have no
       mouth tool, and skill-gated tools no attached pack grants.
-    * G9 omits the always-on floor, which the runtime does grant.
+    * G9 omits the always-on floor, which the runtime does grant. ``static_grant``
+      unions both channels, so that floor is now ``VOICE_ALWAYS | TEXT_ALWAYS``.
     """
     card, packs = card_and_packs(bot_id)
     g9 = set(card.tools.include) | set(card.tools.locked) | PLATFORM_SKILL_TOOLS
@@ -153,7 +175,7 @@ def test_static_grant_against_the_publish_gates_formula(bot_id, card_and_packs) 
     # Everything the grant adds over G9 is the floor, and nothing else. Written
     # as a difference on both sides because three of the four cards already
     # include verify_identity, which is part of that floor.
-    assert static - g9 == VOICE_ALWAYS - g9
+    assert static - g9 == (VOICE_ALWAYS | TEXT_ALWAYS) - g9
 
     unreachable = g9 - static
     locked_without_a_mouth_tool = {"evaluate_live_qa", "recommend_treatment"}

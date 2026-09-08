@@ -15,6 +15,7 @@ import type { Guardrails, PersonaState, PromptVersion } from "@/api/types/prompt
 import { DEFAULT_GUARDRAILS } from "@/data/prompt-studio-seed";
 import type { BotReply, IntentKey, Persona, Scenario } from "@/api/types/sandbox";
 import { SCENARIOS, generateBotReply, INTENT_KEYS } from "@/data/sandbox-seed";
+import { sandboxTurnResultSchema } from "@/lib/studio-contract";
 import { apiGet, apiGetBlob, apiPost, mockDelay, USE_MOCK } from "./config";
 
 export type SandboxContext = {
@@ -55,6 +56,8 @@ export type SandboxRun = {
 export type SandboxTurnResult = {
   runId: string;
   promptVersionId: string;
+  compiledBundleHash?: string | null;
+  flowStatus?: "validated_not_executed_in_text_rehearsal" | "not_authored" | null;
   customerTurn: {
     id: string;
     role: "customer";
@@ -80,6 +83,12 @@ export type SandboxTurnResult = {
     retrieveLatencyMs?: number | null;
     chatLatencyMs?: number | null;
     halted?: boolean;
+    toolCalls?: Array<{
+      name: string;
+      ok: boolean;
+      simulated?: boolean;
+      result?: unknown;
+    }>;
   };
 };
 
@@ -303,13 +312,17 @@ export async function appendSandboxTurn(input: {
     };
   }
 
-  return apiPost<SandboxTurnResult>(`/sandbox/runs/${input.runId}/turns`, {
-    text: input.text,
-    history: input.history,
-    context: input.context ?? null,
-    topK: input.topK ?? 3,
-    skillSlug: input.skillSlug ?? null,
-  });
+  return apiPost<SandboxTurnResult>(
+    `/sandbox/runs/${input.runId}/turns`,
+    {
+      text: input.text,
+      history: input.history,
+      context: input.context ?? null,
+      topK: input.topK ?? 3,
+      skillSlug: input.skillSlug ?? null,
+    },
+    { schema: sandboxTurnResultSchema },
+  );
 }
 
 /**

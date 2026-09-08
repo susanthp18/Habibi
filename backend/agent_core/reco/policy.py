@@ -137,15 +137,16 @@ def _merge(
             out["productName"] = lead.get("product_name")
             amt = lead.get("offer_amount")
             out["suggestedAmount"] = float(amt) if amt is not None else None
-        out["status"] = "open_lead"
-        if not out["talkTrack"] and out["productName"]:
-            out["talkTrack"] = _talk(
-                name=out["productName"],
-                amount=out["suggestedAmount"],
-                reason_codes=tuple(out["reasonCodes"] or ()),
-                channel=out["channel"] or "voice",
-                preferred_window=out["preferredWindow"],
-            )
+        if out["status"] != "suppressed":
+            out["status"] = "open_lead"
+            if not out["talkTrack"] and out["productName"]:
+                out["talkTrack"] = _talk(
+                    name=out["productName"],
+                    amount=out["suggestedAmount"],
+                    reason_codes=tuple(out["reasonCodes"] or ()),
+                    channel=out["channel"] or "voice",
+                    preferred_window=out["preferredWindow"],
+                )
     return out
 
 

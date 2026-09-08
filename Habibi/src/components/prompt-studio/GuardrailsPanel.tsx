@@ -13,6 +13,11 @@ type Props = {
   onChange: (next: Guardrails) => void;
 };
 
+//: The platform's hard cap on a voice call (`_MAX_CALL_DURATION_SECS`,
+//: backend/voice/bot.py). The slider used to run to 15 minutes, so every value
+//: above this one asked for a call the runtime would never allow.
+const MAX_CALL_SECONDS = 600;
+
 const TOGGLES: Array<{ key: keyof Guardrails; label: string; hint: string }> = [
   {
     key: "escalateAbuse",
@@ -27,12 +32,12 @@ const TOGGLES: Array<{ key: keyof Guardrails; label: string; hint: string }> = [
   {
     key: "neverQuoteRate",
     label: "Never quote interest rate",
-    hint: "Hard-blocks APR / % rate quotes in bot replies",
+    hint: "Flags APR / % rate quotes after the bot replies — not a live hard-block",
   },
   {
     key: "neverPromiseWaiver",
     label: "Never promise fee waivers",
-    hint: "Hard-blocks waiver promises (goodwill review ok)",
+    hint: "Flags waiver promises after the bot replies — not a live hard-block",
   },
   {
     key: "alwaysDiscloseRecording",
@@ -42,7 +47,7 @@ const TOGGLES: Array<{ key: keyof Guardrails; label: string; hint: string }> = [
   {
     key: "refusePoliticsReligion",
     label: "Refuse politics / religion topics",
-    hint: "Hard-blocks political/religious digressions",
+    hint: "Flags political/religious digressions after the bot replies — not a live hard-block",
   },
 ];
 
@@ -154,6 +159,10 @@ export function GuardrailsPanel({ value, onChange }: Props) {
               step={1}
               onValueChange={([v]) => update({ maxTurns: v })}
             />
+            <p className="mt-050 text-body-small text-text-subtlest">
+              Ends the conversation on WhatsApp and in the sandbox. On voice it is recorded as a
+              QA flag and does not stop the call.
+            </p>
             <div className="mt-200 mb-050 flex items-center justify-between text-body-small">
               <span className="font-medium">Max call duration</span>
               <span className="font-mono text-body-small text-text-subtle">
@@ -163,10 +172,15 @@ export function GuardrailsPanel({ value, onChange }: Props) {
             <Slider
               value={[value.maxSeconds]}
               min={120}
-              max={900}
+              max={MAX_CALL_SECONDS}
               step={30}
               onValueChange={([v]) => update({ maxSeconds: v })}
             />
+            <p className="mt-050 text-body-small text-text-subtlest">
+              Voice only. The agent is asked to wrap up and then the call is ended with a spoken
+              sign-off. It can shorten the platform&rsquo;s {MAX_CALL_SECONDS / 60}-minute cap, never
+              extend it.
+            </p>
           </div>
         </div>
 

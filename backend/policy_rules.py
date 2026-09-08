@@ -39,12 +39,14 @@ is a default that will disagree with itself.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 
@@ -67,6 +69,111 @@ KIND_MANDATE_RETURN = "mandate_return_action"
 KIND_FIELD_PREREQS = "field_prerequisites"
 KIND_RECORDING_RETENTION = "recording_retention"
 KIND_VISIT_INTIMATION = "visit_intimation"
+KIND_SUPPRESSION_STATE = "suppression_state"
+KIND_RATIO_CEILING = "ratio_ceiling"
+KIND_ASSIGNMENT_CHECK = "assignment_check"
+KIND_CHANNEL_SCRUB = "channel_scrub"
+KIND_NOTICE = "non_discretionary_notice"
+
+KNOWN_KINDS: frozenset[str] = frozenset(
+    {
+        KIND_CALLING_WINDOW,
+        KIND_DAILY_CAP,
+        KIND_WEEKLY_CAP,
+        KIND_COOLING_OFF,
+        KIND_BUCKET_ACTIONS,
+        KIND_MANDATE_LIMIT,
+        KIND_MANDATE_RETURN,
+        KIND_FIELD_PREREQS,
+        KIND_RECORDING_RETENTION,
+        KIND_VISIT_INTIMATION,
+        KIND_SUPPRESSION_STATE,
+        KIND_RATIO_CEILING,
+        KIND_ASSIGNMENT_CHECK,
+        KIND_CHANNEL_SCRUB,
+        KIND_NOTICE,
+    }
+)
+
+#: Closed registry. A kind without a params schema, a tighten branch, a
+#: production consumer, and a fires-on-fixture test is unpublished.
+KIND_SPECS: dict[str, dict[str, Any]] = {
+    KIND_CALLING_WINDOW: {
+        "params_schema": "calling_window.v1",
+        "required": ("startHour", "endHour"),
+        "consumer": "contact_policy._veto",
+    },
+    KIND_DAILY_CAP: {
+        "params_schema": "daily_cap.v1",
+        "required": ("value",),
+        "consumer": "contact_policy.daily_cap",
+    },
+    KIND_WEEKLY_CAP: {
+        "params_schema": "weekly_cap.v1",
+        "required": ("value",),
+        "consumer": "contact_policy.weekly_cap_default",
+    },
+    KIND_COOLING_OFF: {
+        "params_schema": "cooling_off.v1",
+        "required": ("minutes",),
+        "consumer": "contact_policy.cooling_off",
+    },
+    KIND_BUCKET_ACTIONS: {
+        "params_schema": "bucket_actions.v1",
+        "required": ("byBucket",),
+        "consumer": "agent_core.treatment.policy.veto",
+    },
+    KIND_MANDATE_LIMIT: {
+        "params_schema": "mandate_presentation_limit.v1",
+        "required": ("value",),
+        "consumer": "agent_core.treatment.policy.veto",
+    },
+    KIND_MANDATE_RETURN: {
+        "params_schema": "mandate_return_action.v1",
+        "required": ("byReason",),
+        "consumer": "agent_core.treatment.policy.veto",
+    },
+    KIND_FIELD_PREREQS: {
+        "params_schema": "field_prerequisites.v1",
+        "required": ("required",),
+        "consumer": "agent_core.treatment.policy._field_veto",
+    },
+    KIND_RECORDING_RETENTION: {
+        "params_schema": "recording_retention.v1",
+        "required": ("months",),
+        "consumer": "complaint_pack.compose",
+    },
+    KIND_VISIT_INTIMATION: {
+        "params_schema": "visit_intimation.v1",
+        "required": ("hours",),
+        "consumer": "agent_core.treatment.policy._field_veto",
+    },
+    KIND_SUPPRESSION_STATE: {
+        "params_schema": "suppression_state.v1",
+        "required": ("kinds",),
+        "consumer": "contact_policy._veto",
+    },
+    KIND_RATIO_CEILING: {
+        "params_schema": "ratio_ceiling.v1",
+        "required": ("max",),
+        "consumer": "agent_core.treatment.policy.veto",
+    },
+    KIND_ASSIGNMENT_CHECK: {
+        "params_schema": "assignment_check.v1",
+        "required": ("requiredCertifications",),
+        "consumer": "contact_policy.admit",
+    },
+    KIND_CHANNEL_SCRUB: {
+        "params_schema": "channel_scrub.v1",
+        "required": ("lists",),
+        "consumer": "contact_policy._veto",
+    },
+    KIND_NOTICE: {
+        "params_schema": "non_discretionary_notice.v1",
+        "required": ("obeysWindow",),
+        "consumer": "contact_policy._veto",
+    },
+}
 
 #: How long a resolved rule set is reused within one process. This is read on
 #: every decision, and at book-sweep volumes two queries per decision is two
@@ -84,6 +191,19 @@ _CACHE_MAX = 512
 
 
 @dataclass(frozen=True)
+class ConsultedRule:
+    """One catalogue row the resolver loaded, whether or not it later fired."""
+
+    rule_id: str
+    rule_version: int
+    scope: str
+    kind: str
+    channel: str | None
+    citation: str
+    params: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
 class RuleSet:
     """The rules in force at one instant, for one tenant and product."""
 
@@ -95,6 +215,7 @@ class RuleSet:
     rules: Mapping[tuple[str, str | None], Mapping[str, Any]] = field(
         default_factory=dict
     )
+    consulted: tuple[ConsultedRule, ...] = ()
 
     @property
     def version(self) -> int | None:
@@ -172,6 +293,57 @@ class RuleSet:
     def recording_retention_months(self) -> int | None:
         return _opt_int((self._params(KIND_RECORDING_RETENTION) or {}).get("months"))
 
+    def field_prerequisites(self) -> tuple[str, ...]:
+        params = self._params(KIND_FIELD_PREREQS)
+        if not params:
+            return ()
+        required = params.get("required")
+        if not isinstance(required, (list, tuple)):
+            return ()
+        return tuple(str(item) for item in required)
+
+    def suppression_kinds(self) -> frozenset[str]:
+        params = self._params(KIND_SUPPRESSION_STATE)
+        if not params:
+            return frozenset()
+        kinds = params.get("kinds")
+        if not isinstance(kinds, (list, tuple)):
+            return frozenset()
+        return frozenset(str(k) for k in kinds)
+
+    def ratio_ceiling(self) -> float | None:
+        params = self._params(KIND_RATIO_CEILING)
+        if not params:
+            return None
+        try:
+            return float(params.get("max"))
+        except (TypeError, ValueError):
+            return None
+
+    def required_certifications(self) -> tuple[str, ...]:
+        params = self._params(KIND_ASSIGNMENT_CHECK)
+        if not params:
+            return ()
+        required = params.get("requiredCertifications")
+        if not isinstance(required, (list, tuple)):
+            return ()
+        return tuple(str(item) for item in required)
+
+    def channel_scrub_lists(self) -> tuple[str, ...]:
+        params = self._params(KIND_CHANNEL_SCRUB)
+        if not params:
+            return ()
+        lists = params.get("lists")
+        if not isinstance(lists, (list, tuple)):
+            return ()
+        return tuple(str(item) for item in lists)
+
+    def notice_obeys_window(self) -> bool:
+        params = self._params(KIND_NOTICE)
+        if not params:
+            return True
+        return bool(params.get("obeysWindow", True))
+
     def to_log(self) -> dict[str, Any]:
         """Provenance for the decision row. Small enough to store per decision."""
         return {
@@ -197,16 +369,35 @@ def _opt_int(value: Any) -> int | None:
 # ---------------------------------------------------------------------------
 
 
+def validate_kind(kind: str) -> str:
+    name = str(kind or "").strip()
+    if name not in KNOWN_KINDS:
+        raise ValueError(f"unknown_policy_kind:{name}")
+    return name
+
+
+def validate_params(kind: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Refuse publication of an unknown kind or a payload missing its schema."""
+    name = validate_kind(kind)
+    payload = dict(params or {})
+    spec = KIND_SPECS[name]
+    missing = [key for key in spec["required"] if key not in payload]
+    if missing:
+        raise ValueError(f"invalid_params:{name}:{','.join(missing)}")
+    return payload
+
+
 def _tighten(
     kind: str, current: Mapping[str, Any], incoming: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Combine two layers of the same rule so the result is never looser.
 
-    Unknown kinds fall through to "the later layer replaces the earlier one",
-    which is the only sensible default for a rule this function has not been
-    taught to compare — and it is why adding a kind means adding a branch here
-    rather than only a CHECK constraint.
+    Unknown kinds are a publication error, not a merge. A later layer that
+    could silently replace an earlier one would be a later layer that could
+    delete the regulation.
     """
+    if kind not in KNOWN_KINDS:
+        raise ValueError(f"unknown_policy_kind:{kind}")
     merged = {**current, **incoming}
 
     if kind == KIND_CALLING_WINDOW:
@@ -277,7 +468,66 @@ def _tighten(
         merged["byReason"] = by_reason
         return merged
 
-    return merged
+    if kind == KIND_FIELD_PREREQS:
+        left = current.get("required") if isinstance(current.get("required"), (list, tuple)) else ()
+        right = incoming.get("required") if isinstance(incoming.get("required"), (list, tuple)) else ()
+        seen: list[str] = []
+        for item in [*left, *right]:
+            name = str(item)
+            if name not in seen:
+                seen.append(name)
+        merged["required"] = seen
+        return merged
+
+    if kind == KIND_SUPPRESSION_STATE:
+        left = current.get("kinds") if isinstance(current.get("kinds"), (list, tuple)) else ()
+        right = incoming.get("kinds") if isinstance(incoming.get("kinds"), (list, tuple)) else ()
+        merged["kinds"] = sorted({str(x) for x in (*left, *right)})
+        return merged
+
+    if kind == KIND_RATIO_CEILING:
+        a = current.get("max")
+        b = incoming.get("max")
+        try:
+            nums = [float(x) for x in (a, b) if x is not None]
+        except (TypeError, ValueError):
+            nums = []
+        if nums:
+            merged["max"] = min(nums)
+        return merged
+
+    if kind == KIND_ASSIGNMENT_CHECK:
+        left = current.get("requiredCertifications") if isinstance(
+            current.get("requiredCertifications"), (list, tuple)
+        ) else ()
+        right = incoming.get("requiredCertifications") if isinstance(
+            incoming.get("requiredCertifications"), (list, tuple)
+        ) else ()
+        if left and right:
+            allowed = set(str(x) for x in right)
+            merged["requiredCertifications"] = [x for x in left if str(x) in allowed]
+        else:
+            merged["requiredCertifications"] = [str(x) for x in (right or left)]
+        return merged
+
+    if kind == KIND_CHANNEL_SCRUB:
+        left = current.get("lists") if isinstance(current.get("lists"), (list, tuple)) else ()
+        right = incoming.get("lists") if isinstance(incoming.get("lists"), (list, tuple)) else ()
+        seen: list[str] = []
+        for item in [*left, *right]:
+            name = str(item)
+            if name not in seen:
+                seen.append(name)
+        merged["lists"] = seen
+        return merged
+
+    if kind == KIND_NOTICE:
+        merged["obeysWindow"] = bool(current.get("obeysWindow", True)) and bool(
+            incoming.get("obeysWindow", True)
+        )
+        return merged
+
+    raise ValueError(f"unknown_policy_kind:{kind}")
 
 
 def _min_opt(a: int | None, b: int | None) -> int | None:
@@ -333,24 +583,34 @@ def resolve(
 def _resolve_uncached(
     conn: Any, *, tenant_id: str | None, at: datetime, product_id: str | None
 ) -> RuleSet:
+    from agent_core.treatment import schema_ready
+
+    w4 = schema_ready.w4_ready(conn)
+    extra = (
+        ", r.rule_id, r.rule_version, r.citation"
+        if w4
+        else ", NULL AS rule_id, NULL AS rule_version, NULL AS citation"
+    )
+    published = (
+        "AND COALESCE(s.publication_state, 'published') = 'published'" if w4 else ""
+    )
     rows = conn.execute(
         text(
-            """
+            f"""
             SELECT s.id, s.scope, s.version, s.label,
                    r.kind, r.channel, r.params
+                   {extra}
             FROM policy_rule_sets s
             LEFT JOIN policy_rules r ON r.rule_set_id = s.id
             WHERE s.effective_from <= :at
               AND (s.effective_to IS NULL OR s.effective_to > :at)
+              {published}
               AND (
                     (s.scope = 'statutory')
                  OR (s.scope = 'client'  AND s.tenant_id = :tid)
                  OR (s.scope = 'product' AND s.tenant_id = :tid
                      AND s.product_id = :pid)
               )
-            -- Latest effective_from wins within a scope. Overlapping windows
-            -- are not prevented by a constraint (that would need btree_gist),
-            -- so the tie-break is stated here and is deterministic.
             ORDER BY s.effective_from ASC, s.version ASC
             """
         ),
@@ -385,6 +645,7 @@ def _resolve_uncached(
     merged: dict[tuple[str, str | None], dict[str, Any]] = {}
     provenance: list[Mapping[str, Any]] = []
     statutory_version: int | None = None
+    consulted: list[ConsultedRule] = []
 
     for entry in ordered:
         provenance.append(
@@ -393,17 +654,33 @@ def _resolve_uncached(
         if entry["scope"] == SCOPE_STATUTORY:
             statutory_version = entry["version"]
         for row in entry["rules"]:
+            kind = str(row["kind"])
+            if kind not in KNOWN_KINDS:
+                logger.error("skipping unpublished policy kind %s", kind)
+                continue
             params = row["params"] if isinstance(row["params"], Mapping) else {}
-            slot = (str(row["kind"]), row["channel"])
+            slot = (kind, row["channel"])
             current = merged.get(slot)
             merged[slot] = (
                 dict(params) if current is None else _tighten(slot[0], current, params)
+            )
+            consulted.append(
+                ConsultedRule(
+                    rule_id=str(row["rule_id"] or f"{kind}:{row['channel'] or 'all'}"),
+                    rule_version=int(row["rule_version"] or entry["version"]),
+                    scope=str(entry["scope"]),
+                    kind=kind,
+                    channel=row["channel"],
+                    citation=str(row["citation"] or entry["label"] or ""),
+                    params=dict(params),
+                )
             )
 
     return RuleSet(
         statutory_version=statutory_version,
         provenance=tuple(provenance),
         rules=merged,
+        consulted=tuple(consulted),
     )
 
 
@@ -445,3 +722,298 @@ def reset_cache() -> None:
     """Test hook, and the thing to call after publishing a rule set."""
     with _CACHE_LOCK:
         _CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
+# Maker-checker publication
+# ---------------------------------------------------------------------------
+
+
+def production_publication_enabled() -> bool:
+    from env_utils import env_bool
+
+    return env_bool("POLICY_PRODUCTION_PUBLICATION", False)
+
+
+def _set_id() -> str:
+    return f"PRS-{uuid.uuid4().hex[:10].upper()}"
+
+
+def _rule_row_id(set_id: str, kind: str, channel: str | None) -> str:
+    return f"{set_id}-{kind}-{channel or 'all'}"
+
+
+def _scope_key(scope: str, tenant_id: str | None, product_id: str | None) -> str:
+    if scope == SCOPE_STATUTORY:
+        return "statutory"
+    if scope == SCOPE_PRODUCT:
+        return f"product:{tenant_id or ''}:{product_id or ''}"
+    return f"client:{tenant_id or ''}"
+
+
+def _diff_changed_rules(
+    conn: Any,
+    *,
+    scope: str,
+    tenant_id: str | None,
+    product_id: str | None,
+    rules: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    predecessor = conn.execute(
+        text(
+            """
+            SELECT id FROM policy_rule_sets
+            WHERE scope = :scope
+              AND COALESCE(tenant_id, '') = COALESCE(:tid, '')
+              AND COALESCE(product_id, '') = COALESCE(:pid, '')
+              AND publication_state = 'published'
+            ORDER BY version DESC
+            LIMIT 1
+            """
+        ),
+        {"scope": scope, "tid": tenant_id, "pid": product_id},
+    ).mappings().first()
+    incoming = {
+        f"{r['kind']}:{r.get('channel') or 'all'}": json.dumps(r.get("params") or {}, sort_keys=True)
+        for r in rules
+    }
+    if not predecessor:
+        return sorted({str(r["kind"]) for r in rules})
+    prior_rows = conn.execute(
+        text(
+            """
+            SELECT kind, channel, params FROM policy_rules
+            WHERE rule_set_id = :id
+            """
+        ),
+        {"id": predecessor["id"]},
+    ).mappings().all()
+    prior = {
+        f"{r['kind']}:{r['channel'] or 'all'}": json.dumps(r["params"] or {}, sort_keys=True)
+        for r in prior_rows
+    }
+    changed = [key.split(":", 1)[0] for key, payload in incoming.items() if prior.get(key) != payload]
+    changed.extend(key.split(":", 1)[0] for key in prior if key not in incoming)
+    return sorted(set(changed))
+
+
+def create_draft(
+    conn: Any,
+    *,
+    scope: str,
+    version: int,
+    label: str,
+    effective_from: datetime,
+    effective_to: datetime | None,
+    rules: Sequence[Mapping[str, Any]],
+    tenant_id: str | None = None,
+    product_id: str | None = None,
+    notes: str | None = None,
+    actor_user_id: str | None = None,
+    set_id: str | None = None,
+) -> str:
+    """Insert a draft rule set. Does not take effect."""
+    if scope not in SCOPE_ORDER:
+        raise ValueError(f"invalid_scope:{scope}")
+    if scope == SCOPE_STATUTORY and tenant_id:
+        raise ValueError("statutory_has_no_tenant")
+    if scope != SCOPE_STATUTORY and not tenant_id:
+        raise ValueError("tenant_required")
+    if scope == SCOPE_PRODUCT and not product_id:
+        raise ValueError("product_required")
+    validated: list[dict[str, Any]] = []
+    for raw in rules:
+        kind = validate_kind(str(raw.get("kind") or ""))
+        params = validate_params(kind, raw.get("params") if isinstance(raw.get("params"), Mapping) else {})
+        citation = str(raw.get("citation") or label or "").strip()
+        if not citation:
+            raise ValueError("citation_required")
+        validated.append(
+            {
+                "kind": kind,
+                "channel": raw.get("channel"),
+                "params": params,
+                "citation": citation,
+                "rule_id": str(raw.get("rule_id") or f"{kind}:{raw.get('channel') or 'all'}"),
+                "rule_version": int(raw.get("rule_version") or version),
+            }
+        )
+    new_id = set_id or _set_id()
+    conn.execute(
+        text(
+            """
+            INSERT INTO policy_rule_sets (
+              id, tenant_id, scope, product_id, version, label,
+              effective_from, effective_to, notes, publication_state,
+              published_by_user_id, changed_rules
+            ) VALUES (
+              :id, :tenant_id, :scope, :product_id, :version, :label,
+              :effective_from, :effective_to, :notes, 'draft',
+              :actor, ARRAY[]::TEXT[]
+            )
+            """
+        ),
+        {
+            "id": new_id,
+            "tenant_id": tenant_id,
+            "scope": scope,
+            "product_id": product_id,
+            "version": version,
+            "label": label,
+            "effective_from": effective_from,
+            "effective_to": effective_to,
+            "notes": notes,
+            "actor": actor_user_id,
+        },
+    )
+    scope_key = _scope_key(scope, tenant_id, product_id)
+    for item in validated:
+        conn.execute(
+            text(
+                """
+                INSERT INTO policy_rules (
+                  id, rule_set_id, kind, channel, params,
+                  rule_id, rule_version, citation, params_schema,
+                  effective, scope_key
+                ) VALUES (
+                  :id, :set_id, :kind, :channel, CAST(:params AS jsonb),
+                  :rule_id, :rule_version, :citation, :params_schema,
+                  tstzrange(:effective_from, :effective_to, '[)'),
+                  :scope_key
+                )
+                """
+            ),
+            {
+                "id": _rule_row_id(new_id, item["kind"], item["channel"]),
+                "set_id": new_id,
+                "kind": item["kind"],
+                "channel": item["channel"],
+                "params": json.dumps(item["params"]),
+                "rule_id": item["rule_id"],
+                "rule_version": item["rule_version"],
+                "citation": item["citation"],
+                "params_schema": KIND_SPECS[item["kind"]]["params_schema"],
+                "effective_from": effective_from,
+                "effective_to": effective_to,
+                "scope_key": scope_key,
+            },
+        )
+    return new_id
+
+
+def submit_for_approval(conn: Any, set_id: str, *, actor_user_id: str | None) -> None:
+    row = conn.execute(
+        text("SELECT publication_state FROM policy_rule_sets WHERE id = :id"),
+        {"id": set_id},
+    ).mappings().first()
+    if row is None:
+        raise KeyError("policy_rule_set_not_found")
+    if row["publication_state"] not in {"draft", "rejected"}:
+        raise ValueError("not_a_draft")
+    conn.execute(
+        text(
+            """
+            UPDATE policy_rule_sets
+            SET publication_state = 'pending_approval',
+                published_by_user_id = :actor,
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {"id": set_id, "actor": actor_user_id},
+    )
+
+
+def approve_publication(conn: Any, set_id: str, *, actor_user_id: str | None) -> None:
+    """Promote a pending set. Refuses production until the env flag is on."""
+    if not production_publication_enabled():
+        raise PermissionError("production_publication_disabled")
+    row = conn.execute(
+        text(
+            """
+            SELECT id, scope, tenant_id, product_id, published_by_user_id,
+                   publication_state
+            FROM policy_rule_sets WHERE id = :id
+            """
+        ),
+        {"id": set_id},
+    ).mappings().first()
+    if row is None:
+        raise KeyError("policy_rule_set_not_found")
+    if row["publication_state"] != "pending_approval":
+        raise ValueError("not_pending_approval")
+    maker = row["published_by_user_id"]
+    if not actor_user_id or not maker or actor_user_id == maker:
+        raise ValueError("maker_checker_required")
+    rules = conn.execute(
+        text("SELECT kind, channel, params FROM policy_rules WHERE rule_set_id = :id"),
+        {"id": set_id},
+    ).mappings().all()
+    changed = _diff_changed_rules(
+        conn,
+        scope=row["scope"],
+        tenant_id=row["tenant_id"],
+        product_id=row["product_id"],
+        rules=list(rules),
+    )
+    declared = conn.execute(
+        text("SELECT changed_rules FROM policy_rule_sets WHERE id = :id"),
+        {"id": set_id},
+    ).scalar()
+    declared_list = list(declared or [])
+    if declared_list and sorted(declared_list) != changed:
+        raise ValueError("changed_rules_mismatch")
+    conn.execute(
+        text(
+            """
+            UPDATE policy_rule_sets
+            SET publication_state = 'published',
+                approved_by_user_id = :actor,
+                published_at = now(),
+                changed_rules = :changed,
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {"id": set_id, "actor": actor_user_id, "changed": changed},
+    )
+    reset_cache()
+
+
+def reject_publication(conn: Any, set_id: str, *, actor_user_id: str | None) -> None:
+    conn.execute(
+        text(
+            """
+            UPDATE policy_rule_sets
+            SET publication_state = 'rejected',
+                approved_by_user_id = :actor,
+                updated_at = now()
+            WHERE id = :id AND publication_state = 'pending_approval'
+            """
+        ),
+        {"id": set_id, "actor": actor_user_id},
+    )
+
+
+def list_rule_sets(conn: Any, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
+    from agent_core.treatment import schema_ready
+
+    extra = (
+        ", publication_state, published_by_user_id, approved_by_user_id, changed_rules"
+        if schema_ready.w4_ready(conn)
+        else ""
+    )
+    rows = conn.execute(
+        text(
+            f"""
+            SELECT id, scope, tenant_id, product_id, version, label,
+                   effective_from, effective_to
+                   {extra}
+            FROM policy_rule_sets
+            WHERE tenant_id IS NULL OR tenant_id = :tid
+            ORDER BY scope, version DESC, id
+            """
+        ),
+        {"tid": tenant_id},
+    ).mappings().all()
+    return [dict(r) for r in rows]

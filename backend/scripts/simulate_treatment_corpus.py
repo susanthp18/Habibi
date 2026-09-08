@@ -3,7 +3,7 @@
 
     TREATMENT_SIMULATION_OK=1 .venv/Scripts/python scripts/simulate_treatment_corpus.py
     TREATMENT_SIMULATION_OK=1 .venv/Scripts/python scripts/simulate_treatment_corpus.py \\
-        --accounts 2000 --days 60 --greediness 0.6 --control-share 0.2
+        --accounts 2000 --days 60 --control-share 0.2
     .venv/Scripts/python scripts/simulate_treatment_corpus.py --purge
 
 **This is not production data and must never be run against a production
@@ -874,12 +874,6 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--seed", type=int, default=20260820)
     parser.add_argument(
-        "--greediness",
-        type=float,
-        default=0.6,
-        help="exploration dial for the simulated run; 1.0 is pure argmax",
-    )
-    parser.add_argument(
         "--control-share",
         type=float,
         default=0.2,
@@ -910,7 +904,7 @@ def main() -> None:
     # took a shortcut here would produce a corpus the real engine could never
     # have produced.
     control = max(0.0, min(0.9, args.control_share))
-    os.environ["TREATMENT_GREEDINESS"] = str(args.greediness)
+    os.environ["TREATMENT_GREEDINESS"] = "1.0"
     os.environ["TREATMENT_AB_SPLIT"] = (
         f"control:{round((1 - control) * 100)},null_treatment:{round(control * 100)}"
     )

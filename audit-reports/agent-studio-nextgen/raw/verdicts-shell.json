@@ -1,0 +1,145 @@
+{
+ "slice": "shell",
+ "verdicts": [
+  {
+   "id": "SHELL-1",
+   "verdict": "CONFIRMED",
+   "reason": "Mechanism real at the cited lines. stable-stringify.ts:22-26 drops only `undefined`, so an absent key and an echoed `null`/`[]` are different strings. Local shapes genuinely omit fields the server always emits: DEFAULT_VOICE (prompt-studio-seed.ts:198-207) has no `style`/`params` while _prompt_voice always emits `\"style\": None` and `\"params\": normalize_tts_params(...)` (db_prompt_studio.py:115-121); emptyGraph() (flow.ts:171-227) and newNodeData() (flow.ts:231-243) omit `entryFor`, which is `entryFor?: string[]` in the FE type (flow.ts:76) and `Field(default_factory=list)` on the backend (flow_graph.py:167) — and PromptVersionPatchRequest types `flow: FlowGraph | None` (schemas.py:2377-2389), so patch_prompt_version's `flow_val.model_dump()` (db_prompt_studio.py:1770-1772) writes entryFor:[] into every node and echoes it back. The autosave then does markSaved(fingerprint(draft.*)) on the server-shaped row (lazy.tsx:656-665) while local state keeps the seed shape, and the header's chip is fed by `dirty={unsaved}` (lazy.tsx:1253) with `unsaved` computed from lastSavedFp (lazy.tsx:528-537) — so 'unsaved · draft vX' sticks and StudioHeader.tsx:104 ('Draft saved' requires !dirty) can never render. Reachable via the Flow tab's 'Start from blank' button (lazy.tsx:1527) or by opening a bot with zero prompt versions (lazy.tsx:373 seeds DEFAULT_VOICE) and typing. The redundant PATCH is bounded: setDraftId(draft.id) re-runs the effect once, and TanStack structural sharing keeps cardQuery.data.agentCard's reference stable so this does not become a self-feeding loop.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1527",
+    "backend/db_prompt_studio.py:1770-1772",
+    "backend/schemas.py:2377-2389"
+   ]
+  },
+  {
+   "id": "SHELL-2",
+   "verdict": "CONFIRMED",
+   "reason": "MAJOR upheld — both halves are real and reachable. (a) ROUTE_PERMISSIONS maps (\"POST\", \"/bot-deployments/{deployment_id}/rollback\") to BOT_WRITE at authz.py:280 while (\"POST\", \"/prompt-versions/{version_id}/publish\") is AGENT_PUBLISH at authz.py:291; main.py:3382-3385 adds no handler-level check (`return _handle_write(db.rollback_bot_deployment, deployment_id)`). rollback_bot_deployment then does exactly what a publish does to production: archives every published row for the bot (db_prompt_studio.py:2347-2356), sets the target version 'published' (:2357-2365), marks the live deployment 'rolled_back' (:2366-2376) and INSERTs a fresh status='active' production bot_deployments row (:2377-2404) — under the same advisory lock publish takes — but with no compile_card/assert_publishable (contrast :1905-1927) and no has_publish gate (publish passes the actor's AGENT_PUBLISH into compile_card at :1903-1904, proving publish knows about the permission and rollback does not). (b) The editor never calls PATCH /agent-studio/cards (AGENT_EDIT, authz.py:302); its autosave carries the whole card inside PATCH /prompt-versions (BOT_WRITE, authz.py:289) — lazy.tsx:654 `agentCard: asCard(effectiveCard) ?? undefined` → toPatchInput prompt-studio.ts:115 → patch_prompt_version writes agent_card at db_prompt_studio.py:1774-1778 — so tools, skills, connectors and policy bindings are editable with BOT_WRITE alone. Enforcement is live in production (authz.check → ROUTE_PERMISSIONS at authz.py:849-870; enforcement_enabled() defaults on whenever API_KEY/API_KEY_MAP is set, authz.py:625-641). Reachable operator action: an admin grants a role BOT_WRITE without AGENT_PUBLISH/AGENT_EDIT through PATCH /roles/{role_id}/permissions (main.py:2995-3000 → db.replace_role_permissions); that user opens the History drawer and clicks 'Rollback to <version>' (VersionHistory.tsx:180-188 → lazy.tsx:992-1024) and production swaps, and toggles a tool on the Tools tab to have the card autosaved. ROLE_DEFAULTS (authz.py:151-203) grant BOT_WRITE only to admin, so it is latent until a role is configured — but the catalogue text at authz.py:131 ('Author and publish prompts, flows and deployments') already asserts the wrong contract.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:2347-2404",
+    "backend/main.py:3382-3385",
+    "backend/main.py:2995-3000",
+    "backend/db_prompt_studio.py:1774-1778"
+   ]
+  },
+  {
+   "id": "SHELL-3",
+   "verdict": "CONFIRMED",
+   "reason": "Every step verified. restore_prompt_version_as_draft inserts `\"label\": None` with new_id = f\"{source['id']}-r-{uuid4().hex[:6]}\" (db_prompt_studio.py:2220, 2252-2253); _map_prompt_version substitutes the id when label is falsy — `label = r.get(\"label\") or r.get(\"id\") or \"\"` (db_prompt_studio.py:180). draftLabel = history.find(v => v.id === draftId)?.label || nextLabel (lazy.tsx:546-549), and the substituted id is truthy, so the header renders 'Publish <id>'. toPatchInput always sends `label: body.label` (prompt-studio.ts:107) and patch_prompt_version persists it (`if \"label\" in payload and payload[\"label\"] is not None` → UPDATE, db_prompt_studio.py:1724-1726), so the placeholder becomes the real stored label on the first autosave and survives publish. nextLabel = nextVersionLabel(publishedRow?.label ?? \"v1.0\") (lazy.tsx:541) and nextVersionLabel returns 'v1.0' whenever /^v(\\d+)\\.(\\d+)$/ does not match (prompt-studio-seed.ts:360-365), so the following draft is named v1.0. MINOR is correct: `label` has no runtime consumer — only the header, the drawer and change-log components.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-4",
+   "verdict": "CONFIRMED",
+   "reason": "discardDraft's reset is entirely inside `if (live)` (lazy.tsx:898-919), and `live` is `history.find(published && id !== v.id) ?? history.find(id !== v.id) ?? null` (lazy.tsx:893-897) — null when the discarded draft was the bot's only version, so draftId keeps the now-archived id and draftSummary keeps its note. canPublish is `Boolean(draftId) || dirty` (lazy.tsx:1252), so Publish stays enabled. The next keystroke autosaves with that draftId; discard_prompt_version archived the row, so patch_prompt_version raises ValueError('prompt_version_not_draft') (db_prompt_studio.py:1719-1720) → main.py's _handle_write maps ValueError to 409 → isDraftPatchFallbackError returns true on status 409 (prompt-studio.ts:922-928) → createPromptVersion re-creates the discarded content (prompt-studio.ts:1018-1026). MINOR is right: contained to the draft rail, nothing published changes.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-5",
+   "verdict": "CONFIRMED",
+   "reason": "onTestSandbox (lazy.tsx:1063) gates on `if (dirty)` at :1066 — 'differs from live', not `unsaved` — so a fully-saved draft is PATCHed purely to change its note, and it sends the literal `summary: \"sandbox try\"` at :1076 without assigning draftSummary.current (the ref is only written at :401, :866, :907). Autosave sends draftSummary.current at :655, so a restored draft's server-written 'restored from <label>' (db_prompt_studio.py:2253) is overwritten by 'sandbox try' and flipped back on the next keystroke; patch_prompt_version persists summary unconditionally when present (db_prompt_studio.py:1751-1753). MINOR: summary has no runtime consumer, but it is what the History drawer and the change-log entry say a version is.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-6",
+   "verdict": "CONFIRMED",
+   "reason": "The rollback button calls onRollback directly — `onClick={onRollback}` at VersionHistory.tsx:183, inside the 'Active production' block, with no dialog. Every sibling destructive control does confirm: Discard sets discardPending (VersionHistory.tsx:228) which opens an AlertDialog (:305-333); Publish requires typing PUBLISH (PublishDialog.tsx:118-120, 301); replacing the prompt with a persona preset asks first (lazy.tsx:830-843). onRollback (lazy.tsx:992-1024) immediately calls rollbackMutation, then overwrites prompt/persona/voice/guardrails/flow/card from the restored row (:1001-1020) with no warning about unsaved local edits, and the backend records no note. MINOR is the right weight — a missing confirmation, not wrong behaviour.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-7",
+   "verdict": "DOWNGRADED",
+   "reason": "The load-bearing half of the mechanism is REFUTED by a guard the auditor explicitly said does not exist. backend/alembic/versions/20260725_0039_bot_deployments_active_unique.py creates `uq_bot_deployments_bot_env_active` — a UNIQUE INDEX ON bot_deployments (bot_id, environment) WHERE status = 'active'. So 'two active production rows, hidden by the LIMIT 1 in _ACTIVE_DEPLOYMENT_SELECT' cannot happen: rollback_experiment's `UPDATE bot_deployments SET status='active' WHERE id = :baseline` (canary.py:171-174) collides with the row rollback_bot_deployment inserted (db_prompt_studio.py:2377-2404) and raises an IntegrityError, which unwinds the whole `engine.begin()` block and is swallowed by sweep_rollbacks' outer `except Exception` (canary.py:420-422) — the sweep aborts for that pass and every later pass, since the experiment stays 'running'. The auditor's stated fix ('add a partial unique index') is already shipped. What IS real at the cited lines: rollback_bot_deployment (db_prompt_studio.py:2292-2430) never touches deployment_experiments — contrast record_experiment, which promotes running rows first (canary.py:96-106) — and never calls compile_card/assert_publishable or sync_attachments_from_card (contrast db_prompt_studio.py:1905-1927, 1960-1964). Residual real defect: an orphaned 'running' experiment whose canary deployment is already rolled_back, which poisons the auto-rollback sweep, plus a gate-free production re-publish. Severity stays MINOR but the mechanism text must be corrected before it reaches engineering.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/alembic/versions/20260725_0039_bot_deployments_active_unique.py",
+    "backend/agent_core/canary.py:165-180",
+    "backend/agent_core/canary.py:418-422"
+   ]
+  },
+  {
+   "id": "SHELL-8",
+   "verdict": "CONFIRMED",
+   "reason": "invalidatePromptStudio invalidates VERSIONS_KEY, PUBLISHED_KEY, DEPLOYMENTS_KEY plus ['agent-studio'] and ['agent-change-log'] (prompt-studio.ts:120-136) and useEnsureStudioDraft wires it to onSuccess (prompt-studio.ts:1045-1051), i.e. to every 1200 ms autosave (lazy.tsx:635-680). useCompilePreview keys on ['agent-studio','compile-preview',botId,debounced] (agent-studio.ts:267-269) — a prefix match for ['agent-studio'] — and staleTime does not exempt an explicit invalidation, so every mounted preview re-POSTs the 16-gate compiler. The preview is mounted on Tools/Skills (AgentCardPanels.tsx:94, :774) and Outbound (OutboundTab.tsx:102). useAgentStudioCard keys on ['agent-studio','card',botId] (agent-studio.ts:293) and refetches on the same invalidation, which is the input to SHELL-12. MINOR: wasted work, not wrong output.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-9",
+   "verdict": "CONFIRMED",
+   "reason": "Verified by absence: no beforeunload, pagehide, onbeforeunload or useBlocker anywhere in prompt-studio.lazy.tsx (grep over the file returns nothing). The autosave effect's cleanup clears the 1200 ms timer (lazy.tsx:681-683), so an edit made inside the debounce window is dropped on unmount. On failure the effect sets saveStatus 'error' (lazy.tsx:671) with no retry scheduled — it only re-enters when a dependency changes, so a stalled edit sits behind StudioHeader.tsx:105's 'Autosave failed' lozenge, and the blocked panel's only affordance is 'Back to the fleet' (lazy.tsx:1358-1364). Note the recovery is not as dead as stated: resuming typing changes `prompt` and re-arms the save. MINOR is right.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-10",
+   "verdict": "CONFIRMED",
+   "reason": "publish() passes `draftId` straight into publishMutation.mutateAsync (lazy.tsx:945-958) and never consults savingRef (set at lazy.tsx:641/676) or ensureDraftMutation.isPending; publishOpen is not a dependency of the autosave effect, so opening the dialog does not cancel the armed timer. Both race branches are real: with draftId still null, publishStudioDraft falls to createPromptVersion + publish (prompt-studio.ts:979-987) while the autosave's own createPromptVersion lands as an identical orphan draft that hydration will resume on the next load (lazy.tsx:386-390); and an autosave PATCH arriving after promotion gets 409 prompt_version_not_draft, which isDraftPatchFallbackError treats as 'draft gone' (prompt-studio.ts:922-928) → a fresh duplicate draft seconds after 'Published vX'. Narrow timing window, contained to draft rows — MINOR.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-11",
+   "verdict": "DOWNGRADED",
+   "reason": "The write is real; 'with zero operator action' is not. Verified: get_agent_studio_card resolves `card = _card_of(draft) or published_card` and falls back to card_dump(bot_id) or scaffold_card when both are empty, while `publishedCard` is returned as `{}` (db_prompt_studio.py:418-441, 502-503). Hydration sets local card from the version row only (asCard({}) → null, lazy.tsx:399) and markSaved with card=null; effectiveCard then resolves to the server's default/scaffold (lazy.tsx:438-441); both `dirty` (:493-505, publishedCard {} → null) and `unsaved` (:528-537) are true, and the autosave sends `agentCard: asCard(effectiveCard)` (lazy.tsx:654). But the autosave effect has an explicit dependency array (lazy.tsx:688-704) and skipAutosave.current is cleared inside a setTimeout(0) that schedules no re-render (lazy.tsx:404-406), so after hydration settles nothing re-enters the effect on its own — cardQuery.data.agentCard keeps its reference across refetches under TanStack structural sharing, so effectiveCard's identity is stable. The trigger is 'open the editor and type one character on any tab', not 'open it and wait'. Harm is also smaller than stated: publish already sends effectiveCard (lazy.tsx:952), so the scaffold would ship on publish regardless; the autosave only materialises it into the draft row early, flipping get_agent_studio_card's `source` from 'scaffold'/'default' to 'draft'. TRIVIAL.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:418-441",
+    "backend/db_prompt_studio.py:502-503",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:688-704"
+   ]
+  },
+  {
+   "id": "SHELL-12",
+   "verdict": "CONFIRMED",
+   "reason": "`blocked` returns the 'Could not load this agent card' panel on `cardQuery.isError` with no check on cardQuery.data (lazy.tsx:1193-1207), and the render swaps the entire editor subtree for that panel — `loading ? … : blocked ? <panel> : <editor>` (lazy.tsx:1350-1368) — leaving only 'Back to the fleet'. The autosave effect returns early on the same condition (lazy.tsx:621), so the operator's still-in-state text stops being saved. The query refetches on every autosave invalidation (['agent-studio'] prefix, prompt-studio.ts:134; agent-studio.ts:293) and retryUnlessClientError retries a 5xx a bounded number of times before the query enters error state while keeping its previous data (agent-studio.ts:292-305). MINOR.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:1350-1368"
+   ]
+  },
+  {
+   "id": "SHELL-13",
+   "verdict": "CONFIRMED",
+   "reason": "fetchPromptVersions sends only botId, no limit (prompt-studio.ts:165-169); main.py:2033-2040 defaults limit to None; list_prompt_versions calls clamp_list_limit(None) which returns DEFAULT_LIST_LIMIT = 200 (db_core.py:211, 215-222) and orders `p.created_at DESC, p.id DESC` (db_prompt_studio.py:243). publishedRow and published are both derived from that page (lazy.tsx:413-425), so once a bot has more than 200 newer rows the live row falls off: StudioHeader renders the 'never published' lozenge when currentVersion is '—' (StudioHeader.tsx:78-84), nextLabel restarts from the 'v1.0' placeholder (lazy.tsx:541), `dirty` diffs against history[0], and versionCount understates. Latent but real — publish adds two rows (draft promoted + the next draft), and each restore and each discard-then-type adds one. MINOR.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-14",
+   "verdict": "CONFIRMED",
+   "reason": "prompt-studio.tsx's beforeLoad throws unconditionally — a redirect to /agent-studio/$botId when search.unansweredId is set, otherwise to /agent-studio (prompt-studio.tsx:13-21) — so the lazy Route's component, which renders PromptStudioPage with botId=\"kaia-v2-4\" (prompt-studio.lazy.tsx:104-107), can never mount. Note the head() meta the auditor calls unused lives in prompt-studio.tsx:22-32, not in the lazy file (whose Route declares only `component`); it is likewise never applied because beforeLoad throws first. Second hardcoded kaia-v2-4 is real — the redirect itself carries the first (prompt-studio.tsx:16). TRIVIAL.",
+   "corrected_severity": "",
+   "corrected_files": [
+    "Habibi/src/routes/prompt-studio.tsx:22-32"
+   ]
+  },
+  {
+   "id": "SHELL-15",
+   "verdict": "CONFIRMED",
+   "reason": "lazy.tsx:541 is exactly `const nextLabel = nextVersionLabel(publishedRow?.label ?? \"v1.0\");` and nextVersionLabel increments the minor when the string matches /^v(\\d+)\\.(\\d+)$/ (prompt-studio-seed.ts:360-365), so 'v1.0' becomes 'v1.1'. With no published row, draftLabel falls through to nextLabel (lazy.tsx:546-549) and the header reads 'Publish v1.1' for a bot's very first version. TRIVIAL.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-16",
+   "verdict": "CONFIRMED",
+   "reason": "StudioHeader.tsx:119-124 renders `<span aria-label={...} className=\"h-1.5 w-1.5 rounded-full bg-background-warning-bold\" />` — no role, no text content, colour-only. An aria-label on a generic span is not reliably exposed; the draft count is conveyed by a coloured dot alone. Still present, so prior_ref 2a.7 is open. TRIVIAL.",
+   "corrected_severity": "",
+   "corrected_files": []
+  },
+  {
+   "id": "SHELL-17",
+   "verdict": "CONFIRMED",
+   "reason": "loadDraft has the guards (`v.persona ?? DEFAULT_PERSONA` etc., lazy.tsx:857-859) and so does discardDraft (:902-904), but publish assigns raw at lazy.tsx:966-968 (setPersona(publishedRow.persona) / setVoice / setGuardrails) and onRollback at :1005-1007. Latent only: PromptVersionResponse declares persona/voice/guardrails as required non-optional models (schemas.py:2208-2222) and _prompt_persona/_prompt_voice/_prompt_guardrails always emit a full dict (db_prompt_studio.py:80-140). TRIVIAL is right.",
+   "corrected_severity": "",
+   "corrected_files": []
+  }
+ ]
+}

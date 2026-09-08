@@ -1,0 +1,156 @@
+{
+ "slice": "fleet",
+ "verdicts": [
+  {
+   "id": "FLEET-1",
+   "verdict": "CONFIRMED",
+   "reason": "Read every line. db_prompt_studio.py:429 `card = _card_of(draft) or published_card` — the summary's `agentCard` is the newest DRAFT when one exists (source=\"draft\", :430). list_agent_studio_cards then feeds exactly that field into the routing walk: `reachability([(c[\"botId\"], c[\"agentCard\"]) for c in out ...])` at :353-359. So the fleet's reachability is computed from unpublished draft JSON. The single-card path repeats it: _handoff_edges (:507-536) picks `DISTINCT ON (p.bot_id) ... ORDER BY p.bot_id, (p.status = 'draft') DESC` (:529), draft first. Production enforcement is the published bundle: bot_tools._handoff_allowlist (:398-427) parses `ctx.agent_card` from the deployed bundle, i.e. the published row. routing.py:92-94 states the opposite of what the code does (\"shows up as soon as it is published\"). Operator action that reaches it: open a card in the studio, Agent graph tab, toggle a handoff target (AgentCardPanels.tsx:601-611 setHandoff → onChange → autosaved draft), do NOT publish, go back to /agent-studio — the target's chip flips between \"via handoff\" and \"unreachable\" with help text \"Reached mid-conversation from <entry>'s handoff allowlist\" (index.tsx:64-68) while production routing is unchanged. MAJOR stands: the fleet is the operator's map of what routes traffic and it reports a draft as if it were live. Partial mitigation only: an \"unpublished draft →\" lozenge renders on the same row (index.tsx:645-661), but it says nothing about the routing chip.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:429-430",
+    "backend/db_prompt_studio.py:353-359",
+    "backend/db_prompt_studio.py:507-536",
+    "backend/agent_core/cards/routing.py:92-94",
+    "backend/bot_tools.py:398-427",
+    "Habibi/src/routes/agent-studio.index.tsx:64-68"
+   ]
+  },
+  {
+   "id": "FLEET-2",
+   "verdict": "CONFIRMED",
+   "reason": "voice/tools.py:2783-2788 reads verbatim: `allowlist: set[str] | None = None` / `if bot_id: try: allowlist = set(card_for(bot_id).handoff_targets()) except KeyError: allowlist = None`. card_for (defaults.py:342-346) resolves only _BUILDERS = the four Python constants, so (a) a tenant's PUBLISHED edits to a first-party card's handoffs are ignored by voice — it enforces the shipped constant — and (b) any non-first-party bot_id raises KeyError and the allowlist becomes None, which domain.handoff_to_agent reads as unrestricted (`if allowlist is not None and target not in allowlist`, domain.py:1027 — auditor cited 1024, the check is at 1027). The text channel was hardened and denies on miss (bot_tools.py:398-427, returns set() not None). Reachable through the real UI: edit Collections' handoffs in the studio and PUBLISH — the fleet chip and the deployed card both change, voice's enforcement does not (bundle carries agentCard, voice/bot.py:1524 already uses it for the insurance gate, so the data is there and simply unused). The clone/None half is reachable via Sandbox Live voice (voice/bot.py:404-406 resolve_prompt_bundle on the sandbox promptVersionId → bot.py:443-447 bot_id = bundle botId = the clone), not via production inbound, which always resolves DEFAULT_BOT_ID. MAJOR stands on the first half alone: a regulated-path guard enforcing a code constant instead of the published card.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/voice/tools.py:2783-2788",
+    "backend/agent_core/tools/domain.py:1027-1033",
+    "backend/agent_core/cards/defaults.py:342-346",
+    "backend/bot_tools.py:398-427",
+    "Habibi/src/routes/agent-studio.index.tsx:64-68"
+   ]
+  },
+  {
+   "id": "FLEET-3",
+   "verdict": "CONFIRMED",
+   "reason": "Core mechanism verified line by line. The Edit button is rendered unconditionally for every row including archived ones (index.tsx:673-686; only Sandbox is hidden, :687). A repo-wide grep for `archived_at` in backend/*.py returns exactly: db_prompt_studio.py:326/332/346/527/559/582-616/660-661/725-754, db.py:1489-1513 (participant roster), skills/persist.py:134, change_log.py:282-295, seed/scripts/alembic/tests — publish_prompt_version (db_prompt_studio.py:1860-1975) and the /prompt-versions/{id}/publish route never read it, and no compiler gate does either. Frontend grep for `archivedAt|reachability` over Habibi/src returns no hit in prompt-studio.lazy.tsx, StudioHeader, PublishDialog or ShipTab. So: archive a clone → tick Show archived → Edit → Publish inserts a fresh active production deployment; the fleet then renders `Lozenge routing(card)` = \"archived / Retired. Kept for audit; takes no traffic\" (index.tsx:79-84, 597) directly above `deployed · {trafficPct ?? 100}%` (:598-614). MAJOR: a retired regulated agent silently returns to production traffic and the roster asserts the opposite in the same card. One sub-claim of the auditor's is WRONG and should not be carried into the report: the fleet does NOT disagree with the editor about neighbours. list_agent_studio_cards seeds `deployed` with the archived bot (:358) but excludes archived cards from `cards` (:355), so edges.get(archived) is empty and the seed contributes nothing to `inbound` (routing.py:107-112) — identical to _live_deployment_bot_ids' archived filter (:559).",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:673-686",
+    "Habibi/src/routes/agent-studio.index.tsx:79-84",
+    "Habibi/src/routes/agent-studio.index.tsx:596-614",
+    "backend/db_prompt_studio.py:1860-1975",
+    "backend/main.py:3247-3275"
+   ]
+  },
+  {
+   "id": "FLEET-4",
+   "verdict": "CONFIRMED",
+   "reason": "db_prompt_studio.py:478-481 (auditor cited 474-478; the block has moved) is literally `\"evalStatus\": ((get_latest_eval_report(bot_id=bot_id, kind=\"redteam\") or {}).get(\"status\") or (get_latest_eval_report(bot_id=bot_id, kind=\"regression\") or {}).get(\"status\") or \"skipped\")` — first non-empty, not worst-of. get_latest_eval_report is strictly per kind (`WHERE r.bot_id = :bot AND s.kind = :kind ORDER BY r.created_at DESC LIMIT 1`, db_inbox.py:1582-1600), so the regression row is consulted only when no redteam report exists at all. The fleet renders it as `<Lozenge tone={card.evalStatus === \"pass\" ? \"success\" : \"neutral\"}> evals: {card.evalStatus}` with title \"Eval suite result\" (index.tsx:636-644) — a green lozenge for a card whose newest regression run failed. The publish compiler reads the two kinds separately and independently (db_prompt_studio.py:1914-1915 → compile_card eval_report/redteam_report), so the roster's one-word verdict contradicts the gate. Operator action: run the redteam suite (pass), then the regression suite (fail) for the same bot from the Evals tab / eval schedule, reload /agent-studio. MAJOR: a false green on the pre-publish safety signal.",
+   "corrected_severity": "MAJOR",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:478-481",
+    "backend/db_inbox.py:1582-1600",
+    "Habibi/src/routes/agent-studio.index.tsx:636-644"
+   ]
+  },
+  {
+   "id": "FLEET-5",
+   "verdict": "CONFIRMED",
+   "reason": "Verified all four legs. archive_agent_studio_card sets bots.archived_at and flips only bot_deployments to 'retired' (db_prompt_studio.py:656-690); nothing else changes. publish_prompt_version builds `known_bots = {r[\"id\"] for r in _rows(conn.execute(text(\"SELECT id FROM bots\")))}` (db_prompt_studio.py:1877) with no archived filter, and G5 only tests membership in that set (compile.py:661-678), so a caller card can keep or newly add a handoff to an archived bot and pass green. db_inbox.handoff_to_agent's only target check is `SELECT 1 FROM bots WHERE id = :id` (db_inbox.py:1459) before it writes handler_bot_id. The archived_at grep across backend/*.py confirms no reference in voice/, bot_runtime.py, agent_core/tools/ or agent_core/deployment.py. The AlertDialog copy \"the card stops taking traffic immediately\" (index.tsx:726) is therefore true only of the deployment row. MINOR is right: reachable on the text channel (the caller's published card must still list the archived target, so _handoff_allowlist passes), and on voice the Python-constant allowlist would happen to block an archived clone.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:724-729",
+    "backend/db_prompt_studio.py:1877",
+    "backend/agent_core/cards/compile.py:661-678",
+    "backend/db_inbox.py:1455-1460",
+    "backend/db_prompt_studio.py:656-690"
+   ]
+  },
+  {
+   "id": "FLEET-6",
+   "verdict": "CONFIRMED",
+   "reason": "index.tsx:389 `const templates = useAgentStudioTemplates()` and the panel then reads only `templates.data`: the <select> maps `(templates.data ?? [])` (:491-495), the seeding effect returns early on an empty list (:433-439 `if (!rows.length) return;`) leaving templateId '', and Create draft is `disabled={clone.isPending || !templateId}` (:503) with no reason surfaced (it is a plain Button, not the ReasonedAction used elsewhere). useAgentStudioTemplates (agent-studio.ts:787-819) exposes isError/isLoading; neither is read. A 500 on GET /agent-studio/templates is pixel-identical to an empty catalog. MINOR stands — contained to the clone panel, and the same file handles the fleet grid's error correctly at :527-542, which is what makes it an inconsistency rather than a house style.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:389",
+    "Habibi/src/routes/agent-studio.index.tsx:433-439",
+    "Habibi/src/routes/agent-studio.index.tsx:482-516",
+    "Habibi/src/api/agent-studio.ts:787-819"
+   ]
+  },
+  {
+   "id": "FLEET-7",
+   "verdict": "CONFIRMED",
+   "reason": "index.tsx:392 calls `useEvalReports()` with no arguments; the hook builds an empty query string when kind and botId are absent (agent-studio.ts:414-419), and the server applies `limit: int = Query(default=50, ge=1, le=200)` (main.py:2818) over `WHERE r.tenant_id = :tenant ... ORDER BY r.created_at DESC LIMIT :n` (db_inbox.py:1671-1700) — tenant-wide newest 50, then grouped client-side into reportsByBot (:393-399). A card whose runs fall outside that window gets an empty bucket and EvalTrend returns null (:101-102), rendering nothing, while the server-computed per-bot evalStatus lozenge on the same row still says pass. evalReports.isError is never read anywhere in the file, so a failed request is also silence. MINOR: contained to a decorative trend indicator, but it is the second verdict about the same history and it disagrees with the first.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:392-399",
+    "Habibi/src/routes/agent-studio.index.tsx:101-102",
+    "Habibi/src/api/agent-studio.ts:397-421",
+    "backend/main.py:2817-2822",
+    "backend/db_inbox.py:1671-1700"
+   ]
+  },
+  {
+   "id": "FLEET-8",
+   "verdict": "CONFIRMED",
+   "reason": "clone_card (clone.py:41-49): `if template: card = template_card(template)` wins over the published-card branch, which is only reachable when template_id is empty. template_card (templates.py:124-171) starts every branch from card_dump(<first-party constant>) — lapse from INSURANCE_BOT_ID, hardship and the default from COLLECTIONS_BOT_ID, clerk from SUPERVISOR_BOT_ID — i.e. shipped code, never the tenant's published card. Meanwhile clone.py:70-87 takes prompt, persona, voice, guardrails and flow from `db.get_published_prompt_version(source)`. The UI has no sourceBotId path at all: useCloneAgentCard's body type is `{templateId: string; name?: string}` (agent-studio.ts:822-829) and the call site sends `{templateId, name}` (index.tsx:505-506). So a tenant who dropped tools or edited handoffs on Collections and clicks Clone card → Collections gets the shipped default card with their edited prompt/flow. Header copy is \"clone a card, attach connectors, canary, then ship\" (index.tsx:448-449) while the panel title is \"Clone a template\" (:467). MINOR is correct — surprising provenance and misleading copy, no wrong runtime behaviour (the clone is a draft and must pass the compiler before it ships).",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "backend/agent_core/cards/clone.py:41-49",
+    "backend/agent_core/cards/clone.py:70-87",
+    "backend/agent_core/cards/templates.py:124-171",
+    "Habibi/src/routes/agent-studio.index.tsx:448-449",
+    "Habibi/src/routes/agent-studio.index.tsx:467-506",
+    "Habibi/src/api/agent-studio.ts:822-829"
+   ]
+  },
+  {
+   "id": "FLEET-9",
+   "verdict": "CONFIRMED",
+   "reason": "Enumerated every load_active_bundle caller with a targeted grep over backend/*.py: bot_runtime.py:712 (bot_id=_bot_id(), env BOT_ID), voice/bot.py:427 (no bot_id → DEFAULT_BOT_ID), sandbox_runtime.py:512 (no bot_id; an explicit promptVersionId short-circuits the call entirely), agent_core/copilot.py:285 (bot_id = interactions.handler_bot_id, used only to read display_name and skills for a chip), and deployment.py:133 inside resolve_prompt_bundle, whose only non-test caller is voice/bot.py:404-406 on a sandbox session's promptVersionId. No inbound channel, dialler or router resolves a card by bot id, so the `direct` help text \"Addressed directly by bot id — it has its own live deployment\" (index.tsx:69-74) describes a dispatch path that does not exist for inbound traffic, and it is rendered in information tone, which is what separates it from `unreachable`'s warning tone. MINOR: descriptive copy only (the chip gates nothing), but it is on the exact screen whose stated job is to distinguish live routing from dead config.",
+   "corrected_severity": "MINOR",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:69-74",
+    "backend/agent_core/cards/routing.py:17-21",
+    "backend/voice/bot.py:427",
+    "backend/bot_runtime.py:712",
+    "backend/agent_core/copilot.py:283-290",
+    "backend/sandbox_runtime.py:510-524"
+   ]
+  },
+  {
+   "id": "FLEET-10",
+   "verdict": "DOWNGRADED",
+   "reason": "The divergence is real but the auditor's stated outcome is wrong and there is no operator-visible symptom, so MINOR is inflated. Real part: list_agent_studio_cards walks `c[\"agentCard\"]`, which for a first-party bot with no draft/published row falls back to card_dump(bot_id) (db_prompt_studio.py:438-442), whereas get_agent_studio_card walks _handoff_edges(), a query over prompt_versions (:507-536) that yields nothing for a bot with no version row. Wrong part: on the fresh-DB scenario the auditor describes, _handoff_edges returns nothing at all and _live_deployment_bot_ids returns nothing (:538-566), so `deployed` is empty and reachability() falls through to \"unreachable\" (routing.py:105-118), not \"direct\" — `direct` requires an active production deployment the scenario stipulates does not exist. Not-reachable part: nothing renders the single-card GET's reachability. A grep for `reachability` over Habibi/src finds it only in agent-studio.index.tsx (the fleet, which uses the LIST), AgentCardPanels.tsx:674/694 (graph nodes, which main.py:2288-2291 also builds from db.list_agent_studio_cards), and the agent-roster.ts type — the studio shell never displays it. So this is an API-only inconsistency between two internal code paths with no UI consequence: TRIVIAL. What would settle it as higher: a UI surface that renders GET /agent-studio/cards/{id}.reachability, or a fresh-install repro showing the two endpoints returning different values with a deployment present.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "backend/db_prompt_studio.py:353-359",
+    "backend/db_prompt_studio.py:436-442",
+    "backend/db_prompt_studio.py:507-536",
+    "backend/db_prompt_studio.py:605-618"
+   ]
+  },
+  {
+   "id": "FLEET-11",
+   "verdict": "CONFIRMED",
+   "reason": "useAgentStudioCards puts includeArchived in the query key — `queryKey: [\"agent-studio\", \"cards\", includeArchived]` (agent-studio.ts:207-217) — and passes no placeholderData/keepPreviousData. Toggling the checkbox (index.tsx:386, 453-458) therefore switches to a cache entry with data undefined and isLoading true, which hits the `isLoading && !data` branch at :523-526 and replaces the entire grid with <LoadingState label=\"Loading fleet\" />. TRIVIAL is right: the roster returns intact, focus stays on the checkbox, only the reading position is lost.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:385-386",
+    "Habibi/src/routes/agent-studio.index.tsx:523-526",
+    "Habibi/src/api/agent-studio.ts:207-217"
+   ]
+  },
+  {
+   "id": "FLEET-12",
+   "verdict": "CONFIRMED",
+   "reason": "The Create draft Button is `disabled={clone.isPending || !templateId}` (index.tsx:503) with no `loading` prop, while the two Retry buttons on the same screen pass `loading={isFetching} disabled={isFetching}` (index.tsx:315-318, 535-539) and ReasonedAction threads a busy prop (:702). So a slow clone (bots INSERT + prompt_versions INSERT + a full card summary rebuild via db.get_agent_studio_card, clone.py:59-88) greys the button with no spinner. TRIVIAL, and the fix is the one-line prop the auditor names.",
+   "corrected_severity": "TRIVIAL",
+   "corrected_files": [
+    "Habibi/src/routes/agent-studio.index.tsx:502-516",
+    "Habibi/src/routes/agent-studio.index.tsx:314-318",
+    "Habibi/src/routes/agent-studio.index.tsx:533-541"
+   ]
+  }
+ ]
+}

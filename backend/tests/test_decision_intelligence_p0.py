@@ -286,9 +286,9 @@ def test_the_control_arm_still_permits_a_statutory_notice() -> None:
     assert A.WAIT in CONTROL_ARM_PERMITS
     for action in (A.SMS, A.WHATSAPP, A.VOICE_BOT, A.HUMAN_CALL, A.FIELD_VISIT):
         assert action not in CONTROL_ARM_PERMITS
-    # And a mandate presentment is discretionary too: it is cheap and invisible,
-    # but it is still an intervention whose effect the arm exists to measure.
-    assert A.REPRESENT_MANDATE not in CONTROL_ARM_PERMITS
+    assert A.REPRESENT_MANDATE in CONTROL_ARM_PERMITS
+    assert A.SELF_SERVICE_PLAN in CONTROL_ARM_PERMITS
+    assert A.EMI_DATE_CHANGE in CONTROL_ARM_PERMITS
 
 
 def test_a_control_arm_decision_says_why_it_was_quiet(db_tx, monkeypatch) -> None:
@@ -580,33 +580,50 @@ def test_the_rules_in_force_depend_on_when_you_ask(db_tx) -> None:
     policy_rules.reset_cache()
     db_tx.execute(text("DELETE FROM policy_rules"))
     db_tx.execute(text("DELETE FROM policy_rule_sets"))
+    from agent_core.treatment import schema_ready
+
+    w4 = schema_ready.w4_ready(db_tx)
     for version, label, start, end in (
         (1, "old rules", datetime(2020, 1, 1, tzinfo=timezone.utc), datetime(2027, 1, 1, tzinfo=timezone.utc)),
         (2, "new rules", datetime(2027, 1, 1, tzinfo=timezone.utc), None),
     ):
+        set_sql = """
+            INSERT INTO policy_rule_sets
+              (id, tenant_id, scope, version, label, effective_from, effective_to
+        """
+        set_vals = "VALUES (:id, NULL, 'statutory', :v, :label, :start, :end"
+        if w4:
+            set_sql += ", publication_state"
+            set_vals += ", 'published'"
         db_tx.execute(
-            text(
-                """
-                INSERT INTO policy_rule_sets
-                  (id, tenant_id, scope, version, label, effective_from, effective_to)
-                VALUES (:id, NULL, 'statutory', :v, :label, :start, :end)
-                """
-            ),
+            text(set_sql + ") " + set_vals + ")"),
             {"id": f"PRS-T{version}", "v": version, "label": label, "start": start, "end": end},
         )
-        db_tx.execute(
-            text(
-                """
-                INSERT INTO policy_rules (id, rule_set_id, kind, channel, params)
-                VALUES (:id, :set_id, 'calling_window', 'voice', CAST(:p AS jsonb))
-                """
-            ),
-            {
-                "id": f"PR-T{version}",
-                "set_id": f"PRS-T{version}",
-                "p": '{"startHour": 8, "endHour": %d}' % (19 if version == 1 else 18),
-            },
-        )
+        rule_sql = """
+            INSERT INTO policy_rules (id, rule_set_id, kind, channel, params
+        """
+        rule_vals = "VALUES (:id, :set_id, 'calling_window', 'voice', CAST(:p AS jsonb)"
+        params = {
+            "id": f"PR-T{version}",
+            "set_id": f"PRS-T{version}",
+            "p": '{"startHour": 8, "endHour": %d}' % (19 if version == 1 else 18),
+        }
+        if w4:
+            rule_sql += ", rule_id, rule_version, citation, params_schema, effective, scope_key"
+            rule_vals += (
+                ", :rid, :v, :label, 'calling_window.v1', "
+                "tstzrange(:start, :end, '[)'), 'statutory'"
+            )
+            params.update(
+                {
+                    "rid": f"calling_window:voice:{version}",
+                    "v": version,
+                    "label": label,
+                    "start": start,
+                    "end": end,
+                }
+            )
+        db_tx.execute(text(rule_sql + ") " + rule_vals + ")"), params)
 
     before = policy_rules.resolve(
         db_tx, tenant_id="hdfc.retail", at=datetime(2026, 3, 1, tzinfo=timezone.utc)

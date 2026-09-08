@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stableStringify } from "@/lib/stable-stringify";
+import { compileReportSchema, effectiveContractSchema } from "@/lib/studio-contract";
 import {
   apiDelete,
   apiGet,
@@ -70,6 +71,7 @@ export type CompileReport = {
   voice_tool_cap: number;
   skill_description_tokens: number;
   card: Record<string, unknown>;
+  bundle?: Record<string, unknown>;
 };
 
 const MOCK_CARDS: AgentCardSummary[] = [
@@ -202,6 +204,15 @@ const MOCK_CARDS: AgentCardSummary[] = [
 export function invalidateAgentStudio(qc: ReturnType<typeof useQueryClient>): void {
   void qc.invalidateQueries({ queryKey: ["agent-studio"] });
   void qc.invalidateQueries({ queryKey: ["agent-change-log"] });
+  void qc.invalidateQueries({ queryKey: ["deployments"] });
+  void qc.invalidateQueries({ queryKey: ["bot-deployments"] });
+  void qc.invalidateQueries({ queryKey: ["roles"] });
+  void qc.invalidateQueries({ queryKey: ["eval-reports"] });
+  void qc.invalidateQueries({ queryKey: ["eval-suites"] });
+  void qc.invalidateQueries({ queryKey: ["connectors"] });
+  void qc.invalidateQueries({ queryKey: ["mcp-connectors"] });
+  void qc.invalidateQueries({ queryKey: ["flow-tools"] });
+  void qc.invalidateQueries({ queryKey: ["sandbox"] });
 }
 
 export function useAgentStudioCards(includeArchived = false) {
@@ -232,7 +243,9 @@ export function useCompileCard(botId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body?: Record<string, unknown>) =>
-      apiPost<CompileReport>(`/agent-studio/cards/${botId}/compile`, body ?? {}),
+      apiPost<CompileReport>(`/agent-studio/cards/${botId}/compile`, body ?? {}, {
+        schema: compileReportSchema,
+      }),
     onSuccess: () => invalidateAgentStudio(qc),
   });
 }
@@ -273,10 +286,23 @@ export function useCompilePreview(botId: string, body: Record<string, unknown>, 
       apiPost<CompileReport>(
         `/agent-studio/cards/${botId}/compile`,
         JSON.parse(debounced) as Record<string, unknown>,
+        { schema: compileReportSchema },
       ),
     enabled: enabled && Boolean(botId),
     staleTime: 30_000,
     retry: false,
+  });
+}
+
+export function useEffectiveContract(botId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["agent-studio", "effective-contract", botId],
+    queryFn: () =>
+      apiGet(`/agent-studio/cards/${botId}/effective-contract`, {
+        schema: effectiveContractSchema,
+      }),
+    enabled: enabled && Boolean(botId),
+    retry: retryUnlessClientError,
   });
 }
 
@@ -363,17 +389,22 @@ export function useEvalSuites() {
  * it the server guesses from the suite name, so a run started on a cloned card
  * landed under kaia-v2-4 and the tab that launched it still read "never run".
  */
-export function useRunEvalSuite(botId?: string) {
+export function useRunEvalSuite(botId?: string, promptVersionId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (suiteId: string) =>
-      apiPost<{
+    mutationFn: async (suiteId: string) => {
+      const q = new URLSearchParams();
+      if (botId) q.set("botId", botId);
+      if (promptVersionId) q.set("promptVersionId", promptVersionId);
+      const suffix = q.toString() ? `?${q.toString()}` : "";
+      return apiPost<{
         suiteId: string;
         status: string;
         failed: number;
         total: number;
         reportId?: string;
-      }>(`/eval/suites/${suiteId}/run${botId ? `?botId=${encodeURIComponent(botId)}` : ""}`, {}),
+      }>(`/eval/suites/${suiteId}/run${suffix}`, {});
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["eval-suites"] });
       void qc.invalidateQueries({ queryKey: ["eval-reports"] });
@@ -744,7 +775,9 @@ export async function exportSkillZip(skillId: string): Promise<void> {
   a.href = url;
   a.download = match?.[1] || `${skillId}.zip`;
   a.click();
-  URL.revokeObjectURL(url);
+  // Revoking in the same tick can abort the download in Chromium. Give the
+  // navigation a moment, then release the object URL.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export async function importSkillZip(file: File): Promise<SkillSummary> {
@@ -875,7 +908,6 @@ export function useRollbackExperiment() {
         reason: "manual",
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["deployments"] });
       invalidateAgentStudio(qc);
     },
   });

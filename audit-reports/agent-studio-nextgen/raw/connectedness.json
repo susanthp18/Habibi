@@ -1,0 +1,347 @@
+{
+ "disconnected_controls": [
+  "Ship tab, \"Shadow\" checkbox (Habibi/src/components/prompt-studio/ShipTab.tsx:169-175, labelled \"Shadow (log split, do not change customer treatment)\") — a user reasonably expects the canary to decide and log without speaking to anyone; backend/agent_core/canary.py:57-77 pick_deployment_id branches only on traffic_pct and never reads exp[\"shadow\"], so a 25% shadow canary speaks to one borrower in four.",
+  "Ship tab, traffic slider (ShipTab.tsx:160-167) — expected to be the live dial on a running canary; it only edits card.experiment in the draft (Habibi/src/routes/prompt-studio.lazy.tsx:482-489) and takes effect at the next publish, and voice/outbound then ignore the split entirely (backend/voice/bot.py:427, backend/mission.py:516, backend/bot_runtime.py:712 all resolve by env BOT_ID, never through canary.pick_deployment_id).",
+  "Ship tab, \"One-click rollback of active deployment\" (ShipTab.tsx:259-266 via prompt-studio.lazy.tsx:1419) — expected to put production back on the previous version; it posts the ACTIVE deployment's own id to a route that rejects exactly that id (backend/db_prompt_studio.py:2330, backend/main.py:3370), so the button always fails.",
+  "Connectors tab, Bind/Unbind (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1003) — expected to give or take an agent's access to a remote tool; ext.* names enter the Tool Grant (backend/agent_core/skills/intersect.py:117-123) but are excluded from every Offer (intersect.py:164, :198) and voice has no ext dispatcher at all (backend/voice/tools.py:2918-2919), so no model can ever call one.",
+  "Tools tab, Add for the nine flow-control verbs (AgentCardPanels.tsx:154-181 fed from backend/flow_graph.py:773-784) — expected to grant a tool; those names are not catalog tools, so adding one makes G4 fail at publish (backend/agent_core/cards/compile.py:643-647) while the tab's only lozenge still shows G6 green (AgentCardPanels.tsx:129-140).",
+  "Tools tab, the on/off toggle rows for verify_identity, capture_call_goal, load_skill and run_skill_script (AgentCardPanels.tsx:154-181, rows labelled \"optional\") — expected to remove the tool; backend/agent_core/tools/grant.py:88 VOICE_ALWAYS and backend/agent_core/skills/intersect.py:105-116 add all four back unconditionally.",
+  "Evals tab, \"Pinned suite\" select (AgentCardPanels.tsx:353-372) — expected to choose which suite gates this card; backend/agent_core/eval/run.py:14-34 documents at length that it will not resolve a bot from a suite id, and no gate reads card.eval.suite_id (compile.py:966-968 matches by kind).",
+  "Evals tab, the \"Capability\" publish-requirement checkbox (AgentCardPanels.tsx:255) — expected to add a gate; backend/agent_core/cards/compile.py:716-722 builds eval gates for regression, redteam, twin and outbound only, so ticking it produces no gate, not even a skipped one.",
+  "Agent graph tab, the `when` text input on each handoff row (AgentCardPanels.tsx:705-712, under copy at :669-673 calling it \"guidance for the model\") — expected to steer the model's choice of target; the string is stored on the card and never rendered into any tool description or prompt (backend/agent_core/tools/catalog.py:577-596).",
+  "Outbound tab, the mission \"Closes the case\" / \"Partly worked\" outcome pickers (Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:536-552) — expected to define success for this mission; backend/call_closer.py:949 scores against the module-level SUCCESS_BY_OBJECTIVE table (call_closer.py:102-112) and never reads the card.",
+  "Outbound tab, cadence \"time of day\" select engine/fixed/spread (OutboundCardEditor.tsx:842-858) — expected to spread or pin retry times; backend/cadence.py:241-242 always schedules now() + backoff, and no gate reads the field either.",
+  "Outbound tab, \"When the attempts run out\" escalate_to select (OutboundCardEditor.tsx:860-887) — expected to hand an exhausted ladder to a human or another bot; backend/cadence.py:600-604 escalation_target has no caller and both exhaustion paths (cadence.py:232-240, :400-410) just stop.",
+  "Outbound tab, voicemail \"Message length\" (OutboundCardEditor.tsx:617-625) — expected to bound the message; backend/voice/amd.py:294-306 composes and leaves the script without consulting max_sec.",
+  "Guardrails tab, \"Max call duration\" slider, 120-900s (Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:157-170) — expected to end a long call; nothing ends a call on it: voice uses the fixed backend/voice/bot.py:164 _MAX_CALL_DURATION_SECS = 10 * 60 watchdog (:1743-1768) and WhatsApp passes elapsed=0 (backend/bot_runtime.py:1280).",
+  "Guardrails tab, \"Max turns per call\" slider, 4-40 (GuardrailsPanel.tsx:145-156) — honest on no channel: the sandbox hard-caps at 3 (backend/sandbox_runtime.py:366, :712), WhatsApp at 12 (backend/agent_core/guardrails.py:11-15), and the live text loop computes the max-turns flag then inspects the result only for auto-escalate (backend/bot_runtime.py:816-825).",
+  "Voice tab, \"Speaking style\" selector (Habibi/src/components/prompt-studio/VoicePanel.tsx:683-703) — expected to change how the agent sounds; Preview ignores it (backend/main.py:3163-3171) and the runtime derives style from the warmth slider (backend/agent_core/tuning.py:397-409).",
+  "Bindings tab, the \"Language model\" slot (Habibi/src/components/prompt-studio/BindingsTab.tsx:40-44) — expected to choose the LLM for this card; nothing constructs an LLM from a provider binding (backend/voice/bot.py:638-683, backend/voice/llm_pool.py:42).",
+  "Bindings tab, \"Edit\" on a binding row (BindingsTab.tsx:163, :212) — expected to load that row for editing; it discards the row and opens a blank Add form.",
+  "Bindings tab, the \"Voice\" column / voice_ref (BindingsTab.tsx:192, :294) — displayed as the voice this binding will speak with; backend/agent_core/providers/factory.py:226-227 applies voice_ref only when \"voice\" is absent from settings, and backend/voice/tuning_apply.py:234-235 always supplies it.",
+  "Policy tab, the six binding rows (AgentCardPanels.tsx:202-242) — presented as bindings an author sets; PolicyBinding is Literal[\"required\"] (backend/agent_core/cards/schema.py:20) so the only legal value is the one shown, and no runtime path reads policy_bindings (the engines take their mode from env: backend/agent_core/reco/config.py:51-62, treatment/config.py:50-64, authority/config.py:23-36, live_qa/config.py:34-48).",
+  "Integrations console, \"Test\" on a connector (Habibi/src/components/integrations/McpConsole.tsx:108-113) — expected to report probe health; it toasts success for a failed or SSRF-blocked probe, and a blocked probe leaves the health column untouched (backend/agent_core/connectors/persist.py:317-323).",
+  "Integrations console, \"Connect IdP\" (McpConsole.tsx:192-195) — expected to attach an issuer to the connector it sits beside; it always writes the CIMD issuer to rows[0] (backend/agent_core/connectors/persist.py:424-444).",
+  "Roles screen, the perm-redteam-run permission (Habibi/src/routes/roles.tsx:84) — expected to control who may run a red-team suite; no route enforces it (backend/main.py:2779).",
+  "Skills detail, \"Load in sandbox\" (Habibi/src/routes/agent-studio.skills.$skillId.tsx:192-206) — expected to rehearse this pack on a card that carries it; it falls back to kaia-v2-4 for exactly the skills an operator can author, and the sandbox picker then silently no-ops a slug the card does not carry (backend/sandbox_runtime.py:829, Habibi/src/routes/sandbox.lazy.tsx:609).",
+  "Sandbox Tuning Studio, the tuning writes (Habibi/src/components/sandbox/TuningStudio.tsx:139 → POST /voice/sandbox/{id}/tune, backend/main.py:3497) — expected to persist a tuning you can promote; backend/voice_sandbox.py:238-251 keeps it in the session object and nothing reaches a deployment.",
+  "Change log tab, the evidence block (Habibi/src/components/prompt-studio/ChangeLogTab.tsx:117, :166) — the six component digests, prevHash, seq, versionId and deploymentId are fetched (backend/agent_core/change_log.py:197-213, backend/schemas.py:3559) and rendered nowhere, so the one screen an auditor reads shows a green \"Chain intact\" with none of the material that makes it checkable.",
+  "POST /agent-studio/skills/{id}/attach and /detach (backend/main.py:2404-2424) — endpoints with no caller in Habibi/src, and publish overwrites whatever they wrote (backend/db_prompt_studio.py:1959-1964)."
+ ],
+ "doc_vs_code": [
+  "CONTEXT.md:46-48 defines Handoff as \"Transfer of a live conversation from one agent to another … The receiving agent brings its own card, and therefore its own grant.\" The code transfers nothing: backend/agent_core/tools/domain.py:1009-1049 → backend/db_inbox.py:1441 writes interactions.handler_bot_id and one activity row; backend/voice/tools.py:2789-2806 returns (result, None) so the flow, prompt and tool registry are unchanged; backend/bot_runtime.py:712-714 loads the bundle by env BOT_ID on the next message. No card is loaded and no grant is rebuilt.",
+  "docs/adr/0001-one-owner-for-the-tool-grant.md, Consequences: \"a mid-call handoff changes the card and must change the grant with it\", restated at backend/agent_core/tools/grant.py:15-18. backend/voice/bot.py:1138-1144 filters the tool registry once at session start and nothing re-runs ToolGrant.for_bundle on handoff, so the handing-off agent's grant survives the transfer — the exact state the ADR says it is a prerequisite for fixing.",
+  "docs/adr/0002-cardless-agents-are-denied-every-tool.md: \"Fail-open becomes structurally unreachable rather than defended by a fix: there is no branch in which an absent card grants a tool.\" backend/voice/tools.py:2783-2788 sets allowlist = None when card_for(bot_id) raises KeyError, and backend/agent_core/tools/domain.py:1027 reads None as unrestricted (`if allowlist is not None and target not in allowlist`), so a bot with no first-party card may hand off to anything. backend/agent_core/tools/grant.py:26-28 also still documents a legacy escape hatch (\"Callers that still need the legacy ungated fallback ask is_cardless and supply it themselves\") that the ADR says was deleted.",
+  "CONTEXT.md:38-39 defines a Gate as having \"three honest outcomes: pass, block, or skip\". backend/agent_core/cards/compile.py:45 declares GateStatus = Literal[\"pass\", \"fail\", \"warn\", \"skipped\"] — four outcomes, two spelled differently, and `warn` (which does not block a publish) has no glossary entry at all. Habibi/src/lib/gate-status.ts:1-30 exists to be the one mapping and is imported for partitionGates only.",
+  "backend/agent_core/cards/schema.py:263-265 documents cadence.per_day as \"Bounded again at runtime by contact_policy's own cap, which a card can only ever lower.\" backend/contact_policy.py:90-101 daily_cap() takes only the env var and tenant rules and is never passed the card (call sites backend/cadence.py:445, backend/campaigns.py:557); backend/agent_core/cards/compile.py:343-359 only refuses a per_day that EXCEEDS the global cap.",
+  "backend/call_closer.py:99-101: \"``CardObjective.success`` overrides them per published card, which is the point of authoring missions rather than hardcoding them.\" backend/call_closer.py:949 computes success from the module dict SUCCESS_BY_OBJECTIVE (:102-112) and never reads the card it already resolved (mission_mod.card_for_bot at :669, :754).",
+  "backend/voice/mesh.py:5-8: \"Roles are data (mesh_roles.json), not Python constants … Adding a specialist is an edit to that file, not a code change.\" backend/voice/mesh.py:58-66 validates MeshRole.tools and stores it; nothing in backend/ reads MeshRole.tools — the Tool Grant is card ∪ packs ∪ connectors ∪ always-on (backend/agent_core/tools/grant.py:121-123).",
+  "backend/agent_core/cards/schema.py:93-98 describes CardMouthRef as \"Pointers, not copies\". backend/agent_core/deployment.py:87-89 resolves the flow straight off the prompt version (`\"flow\": version.get(\"flow\")`, consumed at backend/voice/bot.py:1170-1176); mouth.flow_ref has no reader and no gate resolves it.",
+  "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:669-673 tells the author \"The condition is guidance for the model, not a rule the runtime enforces\". The condition never reaches the model either: backend/agent_core/tools/catalog.py:577-596 builds the handoff_to_agent description without `when`, and card.handoffs[].when has no other consumer.",
+  "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:944-945 says \"Compiler G10 checks HTTPS, data-class, and health\", and :949-953 warns \"Activated connector tools still count toward the voice cap.\" backend/agent_core/cards/compile.py:758-759 skips G10 entirely when MCP_CLIENT_ENABLED is false (backend/.env.example:325) with no screen reporting the flag, and compile.py:687-692 excludes ext.* from the idle voice count while backend/voice/tools.py:2918-2919 has no ext handler at all.",
+  "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:28-45 labels four toggles \"Hard-blocks …\". backend/agent_core/guardrails.py:251-262 should_halt is honoured only by the sandbox (backend/sandbox_runtime.py:897-908); on voice (backend/voice/crm_sink.py:1527-1549) and WhatsApp (backend/bot_runtime.py:1273-1287) the rule is evaluated after the reply was spoken or sent. GuardrailsPanel.tsx:40's \"Flags missing disclosure on turn 1\" also understates backend/agent_core/guardrails.py:240-243, which reads the whole call history.",
+  "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:256 describes the Twin requirement as \"replays of real calls against the candidate\". backend/agent_core/eval/harness.py:10 and backend/agent_core/eval/run.py:1-34 show no eval suite of any kind executes the candidate agent; separately the Twin tab writes and the G11 gate reads different tables (backend/agent_core/cards/compile.py:721-722 vs backend/agent_core/twin.py:150-160).",
+  "Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:332-343 promises \"a published call is synthesized with what you hear here\". pause_ms never reaches a call (backend/agent_core/voice_ssml.py:61-84, backend/azure_speech.py:177-220), and speed/warmth are rendered differently at runtime (backend/agent_core/tuning.py:359-409).",
+  "Habibi/src/components/prompt-studio/BindingsTab.tsx:282 tells an operator that with no binding the call uses \"whatever the registry defaults to\". There is no such fallback: backend/agent_core/providers/factory.py:265 and backend/voice/provider_bind.py:70 fall through to the hardcoded Azure path (backend/voice/bot.py:646, :669).",
+  "Habibi/src/routes/agent-studio.index.tsx:69-74 explains \"direct only\" as \"Addressed directly by bot id — it has its own live deployment\". No production entry point ever passes a bot id other than the env one: backend/voice/bot.py:427 and backend/bot_runtime.py:712 both resolve through backend/agent_core/cards/routing.py:34-44 (`os.getenv(\"BOT_ID\") or db.DEFAULT_BOT_ID`). agent-studio.index.tsx:724-729 likewise says archiving \"stops taking traffic immediately\" while backend/agent_core/cards/compile.py:661-678 (G5) and backend/db_inbox.py:1455-1460 both accept an archived handoff target.",
+  "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:743 asserts \"Same vocabulary the fleet index uses, so one word does not mean two things\" above ROUTE_TONE/ROUTE_HELP (:744-757), which carry no labels — so :694-698 renders the raw enum word. Habibi/src/routes/agent-studio.index.tsx:55-85 shows the same card as \"direct only\" with different help text.",
+  "Habibi/src/api/outbound.ts:250-251 and backend/main.py:5287-5288 both tell the author that G-OB6 validates success/partial/stop_on. backend/agent_core/cards/compile.py:390-407 validates the post-call rule vocabulary and neither of those fields (backend/agent_core/cards/schema.py:237-238, :279-289).",
+  "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:149, :207 present the gate column as \"What the compiler said at the time\". Rollback never recompiles (backend/db_prompt_studio.py:2292-2424 calls no compile_card), so a rollback entry records no gate verdict at all — and backend/agent_core/change_log.py:42-45 records four verbs while ChangeLogTab.tsx:88 and :219 enumerate three, dropping \"restored\".",
+  "backend/voice/flows_dynamic.py:81-93 calls SESSION_VARIABLES \"the contract the Flow editor advertises\". Habibi/src/components/flow/FlowInspector.tsx:692-695, :940-946 advertise no variable names at all; and Habibi/src/routes/prompt-studio.lazy.tsx:1486-1500's Flow empty state says the version \"runs the built-in collections script\" on cards whose only channel is text, where the graph is never read (only backend/voice/bot.py:1167-1176 reads it).",
+  "CONTEXT.md:56-58 lists `objective` under Mission's _Avoid_, while `objective` is the card field name (backend/agent_core/cards/schema.py:190), the vocabulary endpoint's key (backend/main.py:5280) and the word the Outbound tab shows the operator. An agent following the glossary and renaming it breaks extra=\"forbid\" validation on every published card."
+ ],
+ "double_sources_of_truth": [
+  {
+   "already_drifted": true,
+   "copies": [
+    "backend/agent_core/cards/defaults.py:55-118 (_COLLECTIONS_TOOLS/_INTAKE_TOOLS/_INSURANCE_TOOLS/_SUPERVISOR_TOOLS) → CardTools.include at defaults.py:148",
+    "backend/voice/mesh_roles.json:7-13 (intake), :18-29 (collections), :34-41 (insurance), :46 (supervisor_brief)"
+   ],
+   "name": "Per-agent tool vocabulary: card `tools.include` vs voice/mesh_roles.json role tool lists",
+   "risk": "An operator who narrows a role's tools in mesh_roles.json believes they revoked a tool, but the Tool Grant is card ∪ packs ∪ connectors ∪ always-on (backend/agent_core/tools/grant.py:121-123) and nothing in backend/ reads MeshRole.tools (backend/voice/mesh.py:33), so the tool stays fully callable. Drifted today: intake 5 vs 8, collections 10 vs 24, insurance 6 vs 16, supervisor_brief [] vs [add_customer_note]."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/agent_core/cards/defaults.py:46-51 BOT_TO_MESH_ROLE",
+    "backend/agent_core/cards/defaults.py:161, :282, :302, :321 (identity.slug on the four first-party cards)",
+    "backend/voice/mesh_roles.json:5, :16, :32, :44 (role names)"
+   ],
+   "name": "Mesh role name vs card identity.slug (the comment at defaults.py:45 asserts they match)",
+   "risk": "The voice handoff flips the mesh role by looking the TARGET bot id up in the Python dict (backend/voice/tools.py:2800-2806), so a renamed slug, a fifth card or any clone silently gets no role flip — and backend/agent_core/cards/defaults.py:367 scaffold_card kebab-cases bot_id into slug, which can never equal a mesh role name."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/flow_graph.py:76-90 OBJECTIVES (declared owner)",
+    "backend/agent_core/cards/schema.py:190-204 Objective Literal (\"Mirrors flow_graph.OBJECTIVES\")",
+    "Habibi/src/api/agent-card.ts:86-101 type Objective",
+    "Habibi/src/api/outbound.ts:188-201 MOCK_MISSIONS.available"
+   ],
+   "name": "Mission/objective vocabulary — thirteen keys written out four times",
+   "risk": "schema.Objective is what extra=\"forbid\" validates a published card against and what G-OB2 checks (backend/agent_core/cards/compile.py:301-328), so a key added to the graph but not the Literal fails Pydantic at the publish button naming a value the Outbound dropdown just offered; the only pin is the HTTP surface (backend/tests/test_outbound_card_vocabulary.py:42), not the two Literals."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/agent_core/cards/schema.py:41-52 RollbackTrigger + derived ROLLBACK_TRIGGERS",
+    "backend/agent_core/cards/compile.py:29, :516 (_ROLLBACK_TRIGGERS alias)",
+    "backend/agent_core/canary.py:20, :94 (import)",
+    "Habibi/src/api/agent-card.ts:51-58 ROLLBACK_TRIGGERS"
+   ],
+   "name": "RollbackTrigger vocabulary (schema.py / compile.py / canary.py / TypeScript)",
+   "risk": "REFUTED as a live risk: the two Python consumers import from schema.py rather than restating it, and backend/tests/test_agent_card_schema_drift.py:89-104 parses the TS source and fails if the two lists disagree. This is the only duplicated vocabulary in the slice with a cross-language pin, and it is the one that has not drifted — the counter-example that makes every other entry here a choice rather than an accident."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "backend/agent_core/cards/compile.py:45 GateStatus = Literal[\"pass\",\"fail\",\"warn\",\"skipped\"]",
+    "CONTEXT.md:38-39 (\"three honest outcomes: pass, block, or skip\")",
+    "Habibi/src/lib/gate-status.ts:23-30 GATE_TONE/GATE_LABEL (the canonical map; only partitionGates is ever imported)",
+    "Habibi/src/api/agent-studio.ts:57 (TS union)",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1027-1036 (CompileReportList: skipped → neutral)",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:129-131 (G6 lozenge: anything not fail/warn → success)",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:47-53 reportTone",
+    "Habibi/src/components/sandbox/EvalCockpit.tsx:68 (status === \"pass\" ? success : danger)"
+   ],
+   "name": "Gate/report verdict vocabulary and its colour mapping",
+   "risk": "The same word is painted three different colours on one screen: AgentCardPanels.tsx:129-131 paints a `skipped` G6 GREEN — the one thing CONTEXT.md:39 says a gate must never do — while EvalCockpit.tsx:68 paints a `skipped` report RED three lines below a neutral one from reportTone."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "Habibi/src/data/agent-tuning.ts:107, :112-166 AGENT_TUNING_PRESETS + DEFAULT_AGENT_TUNING",
+    "backend/agent_core/tuning.py:48-115 PRESET_EMPATHETIC_COLLECTIONS / PRESET_BRISK_VERIFICATION / PRESET_FIRM_LEGAL",
+    "backend/main.py:3466 GET /sandbox/tuning/presets → backend/agent_core/tuning.py:158-163 (the endpoint that exists to prevent this; Habibi/src/api/voice-sandbox.ts:67 has no caller)"
+   ],
+   "name": "Agent tuning presets — browser copy vs server copy",
+   "risk": "The Tuning Studio (Habibi/src/components/sandbox/TuningStudio.tsx:112, :198) serves the browser copy, so \"Empathetic-collections\" runs interaction.idle_timeout_secs 6.0 — the exact value backend/agent_core/tuning.py:54-62 reverted to 12.0 after call VS-6B252E0479, where the bot talked over the caller — and Promote writes it into a production deployment. Brisk-verification idle 5 vs 10, frequency_penalty 0.3 vs 0.1; Firm-legal idle 8 vs 15, frequency_penalty 0.5 vs 0.4, tts style \"empathetic\" vs \"serious\"."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "backend/bot_tools.py:400-429 _handoff_allowlist (live card → built-in card → deny, with a docstring recording both fixes)",
+    "backend/voice/tools.py:2783-2788 (built-in card only; KeyError → allowlist = None)",
+    "backend/agent_core/tools/domain.py:1027 (the shared consumer: None means unrestricted)"
+   ],
+   "name": "Handoff allowlist — two implementations of one control",
+   "risk": "The message-channel copy was hardened and the voice twin was never located, so the identical conversation is restricted on WhatsApp and unrestricted on the phone: a clone bot id raises KeyError in card_for, allowlist becomes None, and voice handoff_to_agent transfers a live borrower to any bot in the tenant."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "Habibi/src/routes/agent-studio.index.tsx:55-85 ROUTING (labels + per-state help)",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:744-757 ROUTE_TONE + ROUTE_HELP (no labels; :694-698 renders the raw enum)",
+    "backend/agent_core/cards/routing.py:1-25 (the backend definition of the four states)"
+   ],
+   "name": "Reachability label vocabulary",
+   "risk": "One card is badged \"direct only\" on the fleet index and \"direct\" one click later in the Agent graph tab, with differently worded tooltips — under a comment at AgentCardPanels.tsx:743 asserting the two use the same vocabulary. The fleet's routing() helper also has an unknown-value fallback (:88-90) the panel's `?? \"neutral\"` does not match."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "backend/alembic/versions/20260722_0018_prompt_studio_schema_seed.py:36-57 (EMPATHETIC/FIRM/COMPLIANCE/UPSELL prompts, seeded into prompt_versions at :148-158)",
+    "backend/seed_postgres.py:918-940 (_emp_prompt et al., upserted on every run)",
+    "Habibi/src/data/prompt-studio-seed.ts:131-152 (the mock copies)",
+    "backend/sql/09_bot_config.sql:376 (persona_presets), repaired by backend/alembic/versions/20260819_0084_persona_presets_crm_free.py:83 and 20260825_0101_persona_presets_drop_redundant_disclosure.py:69"
+   ],
+   "name": "Seeded persona/prompt text — four copies, two repair migrations that reach only one of them",
+   "risk": "Migration 0018's copies still carry {customer_name}/{account_no}/{overdue_amount}/{due_date} plus \"Always disclose that the call is recorded\", while the other three are CRM-free. Both repair migrations loop over persona_presets only, so a long-lived database that replayed 0018 serves a published Collections prompt whose lines 2 and 3 backend/prompt_render.py:114 deletes before the model sees them, and whose surviving disclosure line duplicates the one backend/agent_core/prompt.py:80-86 already injects."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "backend/agent_core/cards/schema.py:365 card.experiment (traffic_pct / shadow / auto_rollback)",
+    "backend/sql/18_phase5.sql:13-18 deployment_experiments columns, written at backend/agent_core/canary.py:116-133",
+    "backend/schemas.py:2409-2410 PromptVersionPublishRequest.{traffic_pct,shadow,auto_rollback}",
+    "backend/db_prompt_studio.py:1889-1891 (card fallback for pct and triggers) and :1940-1946 (fold back onto the card)"
+   ],
+   "name": "Rollout configuration — card.experiment vs the deployment_experiments row vs the publish request",
+   "risk": "publish_prompt_version derives pct and triggers from the card when the request omits them but has no such fallback for `shadow` (backend/db_prompt_studio.py:1827 default False), then writes `\"shadow\": bool(shadow)` back onto the card at :1943 — so an authored experiment.shadow: true is silently rewritten to false on the version row and in the change-log digest by any publish that does not resend it."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "Habibi/src/routes/prompt-studio.lazy.tsx:459-467 legacyShipBaseline and :256 legacyShipEdit (card-less bots)",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:468-476 `ship` derived from effectiveCard.experiment (authored cards)",
+    "Habibi/src/routes/prompt-studio.lazy.tsx:477-490 setShip, which writes to one or the other"
+   ],
+   "name": "legacyShip vs card.experiment — two Ship states behind one tab",
+   "risk": "legacyShipBaseline selects the live experiment with `e.status === \"active\"` (:460), but backend/sql/18_phase5.sql:13 constrains status to ('running','rolled_back','promoted') — so the branch never matches and every card-less bot's Ship tab shows a fabricated 100% / no shadow / no triggers, which prompt-studio.lazy.tsx:1155 then feeds to the publish dialog as the rollout baseline."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "backend/agent_core/guardrails.py:30-56 mentions_recording_disclosure (the canonical regex)",
+    "backend/bot_runtime.py:258-266 (WhatsApp's own substring markers)",
+    "backend/prompt_lint.py:140 (the lint's server-side check)",
+    "Habibi/src/api/prompt-studio.ts:779 (the mock lint's looser 'record' substring)"
+   ],
+   "name": "\"Was the recording disclosure made\" — four detectors",
+   "risk": "The three non-canonical copies disagree with the regex in both directions: WhatsApp files an RBI recording-disclosure violation on every bot turn while its own prompt forbids the disclosure (GUARDRAILS-1), and mock mode gives a clean bill of health for the exact defects the real lint exists to catch (PROMPT-12)."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/prompt_render.py:18-39 KNOWN_VARIABLES / SYSTEM_SAFE_VARIABLES",
+    "Habibi/src/data/prompt-studio-seed.ts:21-47 SYSTEM_SAFE_VARIABLES / CRM_VARIABLES / KNOWN_VARIABLES",
+    "backend/prompt_render.py:42 TOKEN_RE vs Habibi/src/data/prompt-studio-seed.ts:65 PROMPT_TOKEN_RE",
+    "backend/prompt_lint.py:23 flow-token pattern vs Habibi/src/data/prompt-studio-seed.ts:57 FLOW_TOKEN_RE, and the masking rule at backend/prompt_lint.py:89 vs seed.ts:78-81"
+   ],
+   "name": "Prompt variable vocabulary and its token regexes",
+   "risk": "The two NAME lists are pinned across languages (backend/tests/test_agent_card_schema_drift.py:125-145) and agree. The three regex/masking copies are not pinned at all, and PROMPT-2 shows the masking rule is subtly wrong identically in both copies — so a Python-only fix would leave the browser still hiding the CRM warning."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/db_prompt_studio.py:43-67 _DEFAULT_PERSONA / _DEFAULT_VOICE / _DEFAULT_GUARDRAILS (used by _prompt_persona at :71, _prompt_voice at :94, guardrails at :132-146)",
+    "Habibi/src/data/prompt-studio-seed.ts:186-213 DEFAULT_GUARDRAILS / DEFAULT_VOICE / DEFAULT_PERSONA (traits from PRESETS[0], :160)"
+   ],
+   "name": "Mouth defaults — server normaliser vs client seed",
+   "risk": "Byte-identical today (traits 82/40/55/60/20, English + Hindi fallback, priya/en-IN-AartiNeural/1.0/0/62/320, maxTurns 20, maxSeconds 480) and guarded by no test. When they diverge, the server normalises the row on read while the client seeds the editor, so the operator sees one value and the runtime uses another — the same shape as SHELL-1's permanent \"unsaved\" chip."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/sql/14_agent_factory.sql:11 CHECK (kind IN ('regression','capability','redteam','twin','outbound'))",
+    "backend/agent_core/cards/schema.py:21 EvalRequire Literal",
+    "Habibi/src/api/agent-card.ts:44 EvalRequire",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:252-258 EVAL_REQUIRE (the checkboxes)"
+   ],
+   "name": "Eval suite kind vocabulary (SQL CHECK / Pydantic Literal / TS union / UI list)",
+   "risk": "Membership agrees, but the gate layer does not: backend/agent_core/cards/compile.py:716-722 builds gates for regression, redteam, twin and outbound only, so \"Capability\" is a fifth member the UI offers, the DB accepts and no gate can ever consult — a vocabulary that is consistent in spelling and inconsistent in meaning."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/agent_core/skills/packs/*/SKILL.md `allowed-tools` → SkillPack.allowed_tools (backend/agent_core/skills/pack.py:144-155)",
+    "backend/agent_core/cards/schema.py:114 CardTools.include (+ locked)",
+    "backend/agent_core/cards/compile.py:733-751 G9 (allowed_tools ⊆ include ∪ locked ∪ PLATFORM_SKILL_TOOLS)",
+    "backend/agent_core/skills/intersect.py:107-114 (the runtime intersection, applied in the other direction)"
+   ],
+   "name": "SkillPack allowed-tools vs the card's tool grant",
+   "risk": "The two lists are coupled only at publish. After publish, re-signing a pack with a new tool changes what the mouth may call with no publish and no change-log entry, because backend/agent_core/skills/persist.py:689 resolves packs by slug and ignores skills[].version/pin (backend/agent_core/cards/schema.py:102-107)."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/agent_core/change_log.py:42-45 PUBLISH/ROLLBACK/ARCHIVE/RESTORE",
+    "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:44-56 ACTION_LABEL + ACTION_TONE",
+    "Habibi/src/lib/agent-roster.ts:152-157 CHANGE_VERBS"
+   ],
+   "name": "Change-log verb vocabulary",
+   "risk": "All three maps carry the four verbs today, and the only guard (backend/tests/test_agent_change_log.py:138-147) asserts over a Python set and cannot see either TypeScript map. The prose has already drifted from the maps: both empty states (ChangeLogTab.tsx:88, :219) enumerate three verbs and drop \"restored\", the omission the file header says was already fixed."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/agent_core/cards/defaults.py:157-333 (the four Python card constructors) via card_for at :342",
+    "prompt_versions.agent_card, seeded from card_dump at backend/seed_postgres.py:1089, :1115 and thereafter edited through PATCH /agent-studio/cards/{bot_id} (backend/main.py:2138 → backend/db_prompt_studio.py:1774)"
+   ],
+   "name": "First-party Agent Cards: Python constants vs the published DB rows",
+   "risk": "The mouth path reads the DB card (backend/agent_core/skills/runtime.py:218 → intersect.py:85), but three live paths read the Python constant instead — the voice handoff allowlist (backend/voice/tools.py:2786), the mesh role flip (backend/voice/tools.py:2800), and mission.card_for_bot's fallback (backend/mission.py:498-530). They agree only until the first Studio edit; after that a handoff target removed in the Studio is still reachable on the phone. Not marked drifted because confirming it needs the live prompt_versions rows, which this read-only audit cannot open."
+  },
+  {
+   "already_drifted": false,
+   "copies": [
+    "backend/sandbox_runtime.py:366 _HARD_MAX_TURNS = max(1, int(os.getenv(\"SANDBOX_HARD_MAX_TURNS\", \"3\")))",
+    "Habibi/src/routes/sandbox.lazy.tsx:465-468 `const hard = 3`"
+   ],
+   "name": "Sandbox hard turn cap — env var vs a literal in the browser",
+   "risk": "They agree only at the default. Raising SANDBOX_HARD_MAX_TURNS moves the server's cap (backend/sandbox_runtime.py:712, :948 raise sandbox_max_turns) while the header counter keeps counting to 3, so the rehearsal appears to end early with no explanation."
+  },
+  {
+   "already_drifted": true,
+   "copies": [
+    "backend/agent_core/cards/schema.py:70-77 REQUIRED_POLICY_KEYS and :58-68 LOCKED_POLICY_ENGINES / LOCKED_MOUTH_TOOLS",
+    "Habibi/src/api/agent-card.ts:110-125 LOCKED_POLICY_ENGINES + REQUIRED_POLICY_KEYS",
+    "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:55-62 POLICY_ENGINES (a local restatement; the file imports REQUIRED_POLICY_KEYS at :26 without using it)"
+   ],
+   "name": "Policy engine vocabulary — six keys, three declarations",
+   "risk": "The local restatement adds a `tool` column the shared constant does not have, and two of its four named tools (recommend_treatment, evaluate_live_qa) are explicitly NOT catalog tools per backend/agent_core/cards/schema.py:65-68 LOCKED_MOUTH_TOOLS — so the Policy tab tells an operator the mouth can call two tools that exist in no catalog or call path."
+  }
+ ],
+ "readers_without_writers": [
+  "backend/agent_core/cards/routing.py:34-44 (`os.getenv(\"BOT_ID\") or db.DEFAULT_BOT_ID`, backend/.env.example:108) → which card answers every inbound call and message. An operator would expect to set this on the Fleet index, where Habibi/src/routes/agent-studio.index.tsx:59-63 badges exactly one card \"takes inbound\" — but that chip is a read-only derivation of an env var and no Studio control can move it.",
+  "backend/voice/mesh_roles.json:3-49 + backend/voice/mesh.py:39-67 → the specialist roles and their per-role tool lists. An operator would look in the Tools tab (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:154-181) or the Agent graph; the file has no Studio surface, and editing it changes nothing because MeshRole.tools has no reader.",
+  "backend/voice/bot.py:1519-1541 + backend/voice/flows.py:657-661 → the collections→insurance topic hop, hardcoded as a `mesh_activate_insurance` pre_action on one built-in node. An operator would look in the Flow tab's node inspector (pre-actions) or the Agent graph; neither can author it, and backend/voice/flow_export.py:143-159 drops non-tts pre_actions so it dies entirely under an authored graph.",
+  "backend/agent_core/skills/runtime.py:28-36 INTENT_TO_SKILL → which detected intent auto-loads which skill pack. An operator would look in the Skills tab, whose own copy at AgentCardPanels.tsx:813-815 says \"The body loads on load_skill or intent\" without ever showing or letting them edit the seven-entry map, so most packs never auto-activate.",
+  "backend/call_closer.py:102-112 SUCCESS_BY_OBJECTIVE (read at :949) → what counts as a successful mission, and therefore every reach/outcome metric and the abandon_rate rollback trigger. An operator would look at Outbound → mission → \"Closes the case\" (Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:536-552), which is authored, gated, published and ignored.",
+  "backend/voice/tools.py:516-523 _require_customer → the identity gate applied to every voice write regardless of card. An operator would look at card.human_gates (backend/agent_core/cards/schema.py:158-162), which has no editor in the Studio and no enforcer anywhere; \"floor\" and \"both\" (supervisor sign-off) are implemented nowhere at all.",
+  "backend/agent_core/prompt.py:74-96 guardrail_rules → the exact sentences of every compliance instruction the model receives, including the recording-disclosure wording and its \"never say it again\" clause. An operator would look at the Guardrails tab (Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:14-46), which only toggles booleans selecting which fixed sentence is emitted.",
+  "backend/voice/flows.py (the built-in collections script) resolved via backend/agent_core/deployment.py:87-89 → the conversation graph an unauthored version actually runs. An operator would look at the Flow tab, whose empty state (Habibi/src/routes/prompt-studio.lazy.tsx:1486-1500) names it — and GET /flow/built-in cannot even execute in the API container because its import chain requires pipecat (backend/main.py:2068-2081 → backend/voice/flow_export.py:35 → backend/voice/flows.py:28).",
+  "backend/contact_policy.py:487-525 (customer DND, the RBI 08:00-19:00 voice window, preferred hours and allowed days) and :90-101 daily_cap → when a borrower may be contacted at all. An operator would look at the Policy tab's \"DND / calling hours\" row (AgentCardPanels.tsx:60), which binds nothing, or at Outbound → \"Per borrower per day\" (OutboundCardEditor.tsx:808-820), which the runtime never receives.",
+  "backend/voice/bot.py:164 `_MAX_CALL_DURATION_SECS = 10 * 60`, enforced by the watchdog at :1743-1768 → the hard ceiling on every voice call. An operator would look at Guardrails → \"Max call duration\" (GuardrailsPanel.tsx:157-170), a 2-15 minute slider that ends no call on any channel.",
+  "backend/bot_runtime.py:49-50 `_history_limit()` = env BOT_HISTORY_LIMIT (default 16), used at :871 and :891-895 → how much conversation history reaches the model. An operator would look at card.memory.compaction.raw_last_n (backend/agent_core/cards/schema.py:144-155), which has no reader and no gate; backend/agent_core/compaction.py:35-50 likewise always summarises, so summarize_over_budget has no switch either.",
+  "backend/agent_core/reco/config.py:51-62, backend/agent_core/treatment/config.py:50-64, backend/agent_core/authority/config.py:23-36, backend/agent_core/live_qa/config.py:34-48 → whether each locked engine decides or merely shadows, taken from process-wide env vars (backend/.env.example:410, :478, :542, :555). An operator would look at the Policy tab, which asserts all four \"decide\" (AgentCardPanels.tsx:206-227) and cannot see the flag.",
+  "backend/sandbox_runtime.py:366 SANDBOX_HARD_MAX_TURNS → the rehearsal turn budget that ends every sandbox run at three customer turns. An operator would look at Guardrails → \"Max turns per call\", set it to 12, and still be unable to rehearse turn 4 onwards — where handoffs, escalations and long negotiations live.",
+  "backend/agent_core/tools/grant.py:88 VOICE_ALWAYS → roughly ten tools every voice call carries regardless of the card, including verify_identity and the flow-control verbs. An operator would look at the Tools tab counter \"N on the card\" (AgentCardPanels.tsx:126), which omits them and counts two locked engines the table cannot show.",
+  "backend/agent_core/skills/intersect.py:29-48 SKILL_GATED_TOOLS → which catalog tools require an attached pack before the runtime will grant them. No tab lists it; the Tools tab still shows such a tool as on, with a \"Remove\" button, when no pack carries it (AgentCardPanels.tsx:155).",
+  "backend/voice/flows_dynamic.py:433-462 → runtime special-casing of the node keys confirm_identity, escalate_close and pre_close. An operator would look at the Flow inspector's reserved-key list (Habibi/src/components/flow/FlowInspector.tsx:637-651), which does not include confirm_identity."
+ ],
+ "tab_dependencies": [
+  "Flow ↔ Outbound (G-OB2). Every mission's `entry_node` must be a node in the graph AND that node must claim the mission in `entryFor`: backend/agent_core/cards/compile.py:301-328. PUBLISH-ONLY, and badly reported: the Flow inspector's MissionEntries (Habibi/src/components/flow/FlowInspector.tsx:183-231) edits the graph half live, the Outbound tab edits the card half (Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:495-512), and neither renders G-OB2 — the Outbound tab shows a count (OutboundTab.tsx:105-112) that counts a skipped gate as a pass. Deleting or renaming a node in Flow silently invalidates a mission in Outbound until the publish button.",
+  "Tools ↔ Skills (G9). A pack's allowed_tools must be a subset of tools.include ∪ tools.locked ∪ PLATFORM_SKILL_TOOLS: backend/agent_core/cards/compile.py:733-751. PUBLISH-ONLY. Unticking a tool in the Tools tab makes an attached pack fail G9; the Tools tab surfaces only G6 (Habibi/src/components/prompt-studio/AgentCardPanels.tsx:129-140) and the Skills tab holds the same compile report and never warns (AgentCardPanels.tsx:774-777, :883-899).",
+  "Skills ↔ Tools grant. Detaching a pack removes its skill-gated writes from the runtime grant even though they stay on tools.include: backend/agent_core/skills/intersect.py:107-114. NEVER SURFACED — the Tools tab keeps rendering the tool as on, with a \"Remove\" button (AgentCardPanels.tsx:155), while backend/bot_tools.py:806-808 refuses to execute it.",
+  "Voice ↔ Persona (G15). The chosen voice's locale is compared against the card's locales, which are built from persona.language + persona.fallbackLanguages (backend/db_prompt_studio.py:1004-1011) and consumed at backend/agent_core/cards/compile.py:942. BOTH: a locale-mismatch lozenge appears live in the Voice tab (Habibi/src/components/prompt-studio/VoicePanel.tsx:219-224) and G15 fires again at publish. Two distortions: card.mouth.languages is never consulted (backend/agent_core/cards/schema.py:99 has no reader), and a language-agnostic voice with locale 'und' trips both as \"voice speaks und\".",
+  "Ship ↔ Evals (G7/G8/G11/G-OB9 and G12). A publish is certified by the newest eval report for the BOT (backend/agent_core/cards/compile.py:717-722, :965-968 via get_latest_eval_report), and G12 refuses any split below 100% without an auto_rollback trigger (compile.py:879-890). SPLIT: G12's requirement is warned about LIVE in the Ship tab (Habibi/src/components/prompt-studio/ShipTab.tsx:191-201), while G7/G8 are publish-only and read a report from any prompt version — prompt_version_id is written by nobody (backend/db_prompt_studio.py:1914, backend/sql/14_agent_factory.sql:46) — so clicking Run in the Evals tab changes the Ship tab's publishability with no link between the two screens and no attribution to the version under test.",
+  "Connectors ↔ Tools. Binding a connector adds ext.* names to the card's effective tool list (backend/agent_core/skills/intersect.py:117-123 → backend/agent_core/connectors/persist.py:220-234), which is what the Tools tab counts and what G6 caps. NEVER SURFACED CORRECTLY: the Connectors tab warns \"Activated connector tools still count toward the voice cap\" (AgentCardPanels.tsx:949-953) while backend/agent_core/cards/compile.py:687-692 excludes them and voice has no ext dispatcher at all; and approving a connector on the Integrations screen widens the live grant of an ALREADY-PUBLISHED card with no gate and no change-log entry (backend/agent_core/connectors/persist.py:193, backend/agent_core/change_log.py:162).",
+  "Agent graph ↔ Fleet reachability. Adding a handoff on card A changes card B's reachability chip, computed as a transitive closure from the entry card: backend/agent_core/cards/routing.py:59-94. LIVE — and wrong: backend/db_prompt_studio.py:429-430 is draft-preferred, so an UNSAVED graph edit on A already flips B's chip on the fleet index (Habibi/src/routes/agent-studio.index.tsx:64-68) while the runtime still enforces the published card; on voice the chip is not backed by the card at all (backend/voice/tools.py:2786).",
+  "Prompt ↔ Guardrails. Turning on alwaysDiscloseRecording injects a fixed disclosure rule into the system prompt (backend/agent_core/prompt.py:74-86) on top of whatever the authored prompt already says — and the seeded Collections prompt says it too (backend/alembic/versions/20260722_0018_prompt_studio_schema_seed.py:40). NEVER SURFACED: the Prompt tab shows no guardrail contribution and the Guardrails tab shows no prompt text; the only detector is the advisory lint (backend/prompt_lint.py:155-172), which nothing gates and which the publish dialog never receives (Habibi/src/routes/prompt-studio.lazy.tsx:940-945, :1583-1606).",
+  "Bindings ↔ Voice. The Voice tab picks a short name and the Bindings tab picks the TTS provider that will be handed it: backend/voice/tuning_apply.py:234-235 always puts tts.voice into the settings bag, so backend/agent_core/providers/factory.py:226-227 can never apply the binding's own voice_ref. NEVER SURFACED: no layer checks that the short name belongs to the bound provider (backend/voice/provider_bind.py:59-79), the Bindings tab still renders voice_ref in a \"Voice\" column (Habibi/src/components/prompt-studio/BindingsTab.tsx:192, :294), and switching slots keeps the previous slot's modelId with nothing checking model.kind == binding.slot (BindingsTab.tsx:49-85).",
+  "Flow ↔ Tools. A node may be given any catalog tool by the picker (Habibi/src/components/flow/FlowInspector.tsx:406-435), /flow/validate and G1 accept it (backend/flow_graph.py:429-433, backend/agent_core/cards/compile.py:569-573), and the card's Tool Grant then drops it at runtime (backend/agent_core/tools/grant.py:57-88, backend/voice/bot.py:1141-1146) while the canvas still counts its hop as an exit. NEVER SURFACED — neither tab knows about the other's list.",
+  "Persona ↔ Voice (audition). Persona's \"Hear tone\" and Voice's \"Preview\" audition different configurations: Habibi/src/components/prompt-studio/PersonaSliders.tsx:110-120 omits the model params and any language, so a Hindi persona is auditioned in English on backend defaults, while VoicePanel.tsx:438-450 sends the full set. NEVER SURFACED.",
+  "Skills ↔ Sandbox. The sandbox loads the chosen skill's body but computes its tool offer from a different active skill (backend/sandbox_runtime.py:828-833, :852-862), runs as DEFAULT_BOT_ID without setting ctx.agent_card (:219-228), and executes zero tools at all (:843-852). NEVER SURFACED: the rehearsal cannot show what attaching or detaching a pack does to the grant."
+ ],
+ "themes": [
+  "The Agent Card is published as a contract and read as a suggestion: of its 65 fields, 22 have no runtime consumer anywhere and three more are actively overridden by a hardcoded table, so an operator can author a retention policy, a supervisor-approval requirement or a mission's definition of success, watch every gate go green, and change nothing (RUNTIME-01, RUNTIME-02, RUNTIME-08).",
+  "Every duplicated vocabulary in this slice that was given a cross-language drift test has held and every one that was not has drifted, which makes the drift a decision about testing rather than an accident of duplication (RollbackTrigger's pin held while SANDBOX-06, ORG-05 and ORG-06 did not).",
+  "Handoff exists as a defined word in CONTEXT.md, as a gate in the compiler and as a chip on the fleet index, but as a mechanism in none of them: the receiving card is never loaded on either channel, and the voice allowlist enforces four Python constants that no clone can match and no published edit can reach (GRAPH-1, RUNTIME-05, ORG-04).",
+  "The publish gates are the only place two tabs ever meet, so every cross-tab consequence is invisible while it is being created and then arrives as a number at the publish button — including counts that report a skipped gate as a pass (TOOLS-2, SKILLS-07, OUTBOUND-13).",
+  "Wherever a tab and a runtime disagree about a value the runtime wins silently and the tab keeps rendering the operator's number back to them, so the studio reads as a mirror of intent rather than a view of production (SHIP-01, GUARDRAILS-3, OUTBOUND-01).",
+  "The control surface is systematically wider than the behaviour beneath it: sliders offer ranges no channel honours, selects offer modes nothing implements, and toggles offer off-switches the runtime adds straight back (GUARDRAILS-4, TOOLS-6, VOICE-3).",
+  "Everything an operator would actually need to change about routing — which card answers the phone, which specialist a hop activates, which intent loads which pack — lives in env vars, JSON files and Python dicts that no screen can author, while the screens that look like they author it are read-only derivations (FLEET-9, SKILLS-12, ORG-07).",
+  "Failure is rendered as absence across the entire studio, so an unreachable API and a correct empty state produce identical pixels and the confident wrong answer is always the reassuring one (FLOW-8, EVALS-4, OUTBOUND-06).",
+  "The audit trail is the least trustworthy screen in the studio: the chain hashes a payload while the page renders unhashed columns, rollbacks change production without writing an entry at all, and the evidence that would let a reader check any of it is fetched and dropped (CHANGELOG-1, CHANGELOG-3, AUTHZ-9)."
+ ],
+ "writes_without_readers": [
+  "Persona tab → persona.fallbackLanguages → Habibi/src/components/prompt-studio/PersonaSliders.tsx:228-246 writes the vernacular chips; they never reach AgentTuning.stt.fallback_languages (backend/agent_core/tuning.py:303-308, backend/voice/tuning_apply.py:442-450), so the recogniser cannot switch to a language the prompt promises fluency in. (Read by G15 and the text-channel persona block only.)",
+  "Persona tab → persona.language → PersonaSliders.tsx:204-216; never binds the recogniser on a real call, because every tuning reaching resolve_session_tuning is pre-normalised to stt.language='en-IN' (backend/voice/tuning_apply.py:417, :442-450; backend/agent_core/tuning.py:302).",
+  "Voice tab → voice.styleName (\"Speaking style\") → Habibi/src/components/prompt-studio/VoicePanel.tsx:683-703; preview ignores it (backend/main.py:3163-3171) and the runtime derives style from warmth (backend/agent_core/tuning.py:397-409).",
+  "Voice tab → voice.pauseMs → Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:332-343; never reaches a call (backend/agent_core/voice_ssml.py:61-84, backend/azure_speech.py:177-220).",
+  "Guardrails tab → guardrails.maxSeconds → GuardrailsPanel.tsx:157-170; no consumer ends a call — voice uses the fixed backend/voice/bot.py:164 cap and WhatsApp passes elapsed=0 (backend/bot_runtime.py:1280).",
+  "Guardrails tab → guardrails.maxTurns → GuardrailsPanel.tsx:145-156; the sandbox min()s it against a hard 3 (backend/sandbox_runtime.py:366, :712), WhatsApp against 12 (backend/agent_core/guardrails.py:11-15), and the live text loop discards the resulting flag (backend/bot_runtime.py:816-825).",
+  "Guardrails tab → escalateAbuse / escalateLegal → GuardrailsPanel.tsx:14-26; they cannot switch escalation off on voice (backend/voice/crm_sink.py:943-946) or abuse on WhatsApp — the toggles only choose a prompt line (backend/agent_core/prompt.py:88-92).",
+  "Flow tab → graph-level \"Tools available from every step\" for the four CRM reads → Habibi/src/components/flow/FlowInspector.tsx:499-521; backend/voice/flows_dynamic.py:507-518 strips them from globals.",
+  "Flow tab → non-tts pre_actions on a node → backend/voice/flow_export.py:143-159 drops them, so summarize_context and mesh_activate_insurance are dead under any authored graph (backend/voice/flows.py:657-661).",
+  "Flow tab → \"Line spoken on entry\" on a Say-verbatim node → FlowInspector.tsx:706-725; backend/voice/flows_dynamic.py:384-407 ignores it on that node type while backend/flow_graph.py:559-573 demands it for listen-first outbound entries.",
+  "Tools tab → the include toggle for verify_identity / capture_call_goal / load_skill / run_skill_script → Habibi/src/components/prompt-studio/AgentCardPanels.tsx:154-181; backend/agent_core/tools/grant.py:88 and backend/agent_core/skills/intersect.py:105-116 re-add all four.",
+  "Tools tab → tools.max_voice_tools → compile-only (backend/agent_core/cards/compile.py:688); backend/agent_core/skills/intersect.py:149 idle_offered_tools applies no cap at runtime.",
+  "Policy tab → all six policy_bindings → AgentCardPanels.tsx:202-242; zero runtime readers (backend/agent_core/cards/schema.py:133-141), and PolicyBinding is Literal[\"required\"] (schema.py:20) so G3's binding half is unfalsifiable (compile.py:598-616).",
+  "Evals tab → card.eval.suite_id (\"Pinned suite\") → AgentCardPanels.tsx:353-372; backend/agent_core/eval/run.py:14-34 refuses to resolve a bot from it and no runner or gate reads it.",
+  "Evals tab → card.eval.require entry \"capability\" → AgentCardPanels.tsx:255; backend/agent_core/cards/compile.py:716-722 emits no capability gate at all.",
+  "Agent graph tab → handoffs[].when → AgentCardPanels.tsx:705-712; never rendered into the tool description or prompt (backend/agent_core/tools/catalog.py:577-596).",
+  "Agent graph tab → handoffs[].payload_schema (no editor at all) → backend/agent_core/cards/schema.py:118-123; backend/agent_core/tools/domain.py:1043-1049 passes payload through as an opaque string and G5 does not check it (compile.py:661-678).",
+  "Agent graph / Policy → card.human_gates (no editor at all) → backend/agent_core/cards/schema.py:158-162, written on every first-party card at backend/agent_core/cards/defaults.py:150-151, :171; no reader in backend/voice/**, bot_tools.py, agent_core/tools/** or compile.py — voice writes are gated by the hardcoded backend/voice/tools.py:516-523.",
+  "Skills tab → skills[].version and skills[].pin → AgentCardPanels.tsx:797-806; backend/agent_core/skills/runtime.py:72 → persist.py:689 resolves by slug alone, so an exact pin runs whatever pack is newest.",
+  "Connectors tab → the Bind/Unbind state → AgentCardPanels.tsx:1003; ext.* reaches the Grant (backend/agent_core/skills/intersect.py:117-123) but no Offer (:164, :198) and voice has no ext handler (backend/voice/tools.py:2918-2919).",
+  "Connectors (Integrations) → allowed_env → backend/agent_core/connectors/persist.py:184, displayed and never enforced at dispatch (:238-289), so a sandbox-only connector dispatches in production.",
+  "Outbound tab → objectives[].success and objectives[].partial → OutboundCardEditor.tsx:536-552; backend/call_closer.py:949 uses SUCCESS_BY_OBJECTIVE (:102-112) and `partial` has no reader anywhere.",
+  "Outbound tab → cadences[].escalate_to → OutboundCardEditor.tsx:860-887; backend/cadence.py:600-604 escalation_target has no caller, and the 'escalated' ladder state is never written.",
+  "Outbound tab → cadences[].time_of_day → OutboundCardEditor.tsx:842-858; backend/cadence.py:241-242 always schedules now()+backoff, and no gate reads it.",
+  "Outbound tab → cadences[].per_day → OutboundCardEditor.tsx:808-820; backend/contact_policy.py:90-101 daily_cap never receives the card, so the card cannot lower the cap its own docstring says it lowers.",
+  "Outbound tab → voicemail.max_sec (\"Message length\") → OutboundCardEditor.tsx:617-625; transported through backend/mission.py:346 and never applied by backend/voice/amd.py:294-306.",
+  "Outbound (schema only, no control) → outbound.concurrency_share → backend/agent_core/cards/schema.py:332-334; the outbound fleet gate has no per-card reservation, acknowledged at backend/tests/test_outbound_card_switches.py:16-19.",
+  "Outbound tab → outbound.direction → OutboundTab.tsx:455 / OutboundCardEditor.tsx:255; backend/agent_core/treatment/enact.py:368 skips its guard exactly when dials is False, and backend/campaigns.py:526-552 never checks it — an inbound-only card is still dialled from.",
+  "Outbound tab → outbound.number_pool → OutboundCardEditor.tsx:277-303; honoured only by campaigns (backend/campaigns.py:539-549), while engine dials (backend/agent_core/treatment/enact.py:386) and cadence retries (backend/cadence.py:429) ignore it.",
+  "Ship tab → experiment.shadow → ShipTab.tsx:169-175; backend/agent_core/canary.py:57-77 pick_deployment_id never reads it, and backend/db_prompt_studio.py:1943 overwrites the card's value with the request default.",
+  "Ship tab → experiment.traffic_pct → ShipTab.tsx:160-167; voice, outbound and WhatsApp all resolve the bundle by env BOT_ID (backend/voice/bot.py:427, backend/mission.py:516, backend/bot_runtime.py:712) rather than through canary.pick_deployment_id, so 100% of calls hit the candidate.",
+  "Bindings tab → binding.voice_ref → BindingsTab.tsx:192, :294; backend/agent_core/providers/factory.py:226-227 only applies it when \"voice\" is absent, and backend/voice/tuning_apply.py:234-235 always supplies it.",
+  "Bindings tab → the \"Language model\" slot → BindingsTab.tsx:40-44; no LLM is ever constructed from a binding (backend/voice/bot.py:638-683, backend/voice/llm_pool.py:42).",
+  "Card identity (no tab edits these; they ride every publish) → identity.owner_user_id (backend/agent_core/cards/schema.py:87), identity.data_class and identity.regulator_tags (schema.py:89-90, written on all four cards at backend/agent_core/cards/defaults.py:144-145), identity.channels (schema.py:88, compile-only — both runtimes filter by catalog channel metadata at backend/bot_runtime.py:915 and backend/voice/bot.py:1142), mouth.flow_ref and mouth.languages (schema.py:93-99) — none has a runtime reader.",
+  "Card memory (no tab, no editor) → memory.scopes, memory.compaction.raw_last_n, memory.compaction.summarize_over_budget → backend/agent_core/cards/schema.py:144-155; zero readers, while backend/voice/crm_sink.py:1161-1184 writes a persistent cross-call customer_memory row gated only on an env flag.",
+  "A2A (no tab) → a2a.expose and a2a.skill_ids → backend/agent_core/cards/schema.py:369-373; the served document ignores both (backend/main.py:2711-2717, backend/agent_core/a2a.py:72-105, :116-120), so any active partner can pull any bot's card and gets every attached skill.",
+  "Change log tab → the per-component digests, prevHash, seq, versionId and deploymentId → written at backend/agent_core/change_log.py:197-213 and served (backend/schemas.py:3559), fetched by Habibi/src/components/prompt-studio/ChangeLogTab.tsx:117 and rendered nowhere.",
+  "Sandbox → the four VoiceSandboxStartRequest fields the handler never reads (backend/schemas.py, SANDBOX-15) and POST /voice/sandbox/{id}/tune (backend/main.py:3497 → backend/voice_sandbox.py:238-251), whose writes die with the session and never reach a deployment."
+ ]
+}

@@ -1,23 +1,14 @@
-"""The preferred-contact-window rule. One implementation, imported from both sides.
+"""The preferred-contact-window parser. One implementation, imported from both sides.
+
+This module is a DB-free preference parser. It has no regulatory authority:
+statutory hours live in policy_rules rows and are evaluated by contact_policy.
+The 09:00–20:00 default here is the borrower-preference fallback and must never
+be merged with the RBI 08:00–19:00 statutory bound.
 
 A leaf module on purpose, for the same reason as ``money_inr``: it imports
 nothing from this repo, so ``db.py`` and ``agent_core`` can both take it at
 module level without closing a cycle. Code-mode (``agent_core/skills/scripts``)
-must stay free of a DB import, and that constraint is what produced the bug this
-module exists to close — the rule was copied there instead of shared, and the
-copy drifted.
-
-The two copies defaulted differently when a customer had no ``preferred_window``
-on file: ``db._outside_preferred_window`` treated 09:00–20:00 IST as callable,
-the skill script treated 10:00–19:00 IST as callable. A promise at 09:30 IST was
-therefore in-window to the callback/DND path and out-of-window to the agent's
-own ``promise_date_in_window`` check — the same date, two verdicts, decided by
-which copy happened to run. ``db.py``'s bounds are the authoritative ones: they
-are what the callback DND flag and the outbound paths have always enforced.
-
-Windows in this product are written in IST. Comparing against the UTC hour of a
-timestamptz would falsely flag every morning slot as DND, so the instant is
-converted before the hour is read.
+must stay free of a DB import.
 """
 
 from __future__ import annotations

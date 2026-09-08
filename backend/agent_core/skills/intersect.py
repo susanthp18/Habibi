@@ -89,6 +89,7 @@ def effective_tools(
     channel_tools: set[str] | None = None,
     attached_skills: list[SkillPack] | None = None,
     issues: list[dict[str, Any]] | None = None,
+    frozen_connector_tools: Iterable[str] | None = None,
 ) -> list[str]:
     """Card include ∩ catalog, plus locked mouth tools.
 
@@ -114,7 +115,9 @@ def effective_tools(
         names = (names - SKILL_GATED_TOOLS) | (names & gated_ok) | locked_mouth | platform
         names &= catalog_names
     names = _apply_channel(names, channel_tools, locked_mouth | platform)
-    if card.connectors:
+    if frozen_connector_tools is not None:
+        names |= {n for n in frozen_connector_tools if n}
+    elif card.connectors:
         try:
             from agent_core.platform_flags import mcp_client_enabled
             from agent_core.connectors.persist import bound_tool_names
@@ -175,6 +178,7 @@ def offered_tools(
     attached_skills: list[SkillPack] | None = None,
     active_slug: str | None = None,
     channel_tools: set[str] | None = None,
+    frozen_connector_tools: Iterable[str] | None = None,
 ) -> list[str]:
     idle = idle_offered_tools(
         card,
@@ -193,6 +197,7 @@ def offered_tools(
             catalog_names=catalog_names,
             channel_tools=channel_tools,
             attached_skills=attached_skills,
+            frozen_connector_tools=frozen_connector_tools,
         )
     )
     extra = [n for n in active.allowed_tools if n in allowed and n not in idle]

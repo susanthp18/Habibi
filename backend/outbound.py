@@ -305,6 +305,24 @@ def _tenant_for(conn: Any, customer_id: str) -> str | None:
 # Lifecycle
 # ---------------------------------------------------------------------------
 
+def _pool_for_bot(bot_id: str) -> str | None:
+    """The caller-ID pool the bot's published card names, or None.
+
+    Never raises: a card that cannot be read falls back to the deployment's own
+    number, which is what every dial used before pools existed.
+    """
+    try:
+        import mission as mission_mod
+
+        card = mission_mod.card_for_bot(bot_id)
+    except Exception:
+        logger.debug("outbound: card lookup for number pool failed", exc_info=True)
+        return None
+    pool = getattr(getattr(card, "outbound", None), "number_pool", None)
+    return str(pool).strip() or None if pool else None
+
+
+
 
 def reserve(
     conn: Any,
@@ -337,6 +355,14 @@ def reserve(
     if not tenant:
         logger.warning("outbound.reserve: no such customer %s", customer_id)
         return None
+
+    # The caller ID the card names, resolved here rather than at each dial
+    # site. Campaigns passed it and the treatment engine and the cadence did
+    # not, so the same card rang from a TRAI 1600 service number on a campaign
+    # and from the deployment's default number on a retry. Deriving it from the
+    # bot means a new dial path cannot silently opt out of the pool.
+    if number_pool is None and bot_id:
+        number_pool = _pool_for_bot(bot_id)
 
     attempt_id = _attempt_id()
     to_hash = phone_hash(to_phone)
@@ -464,7 +490,10 @@ def _card_wants_carrier_amd(attempt: dict[str, Any]) -> bool:
     try:
         import mission as mission_mod
 
-        card = mission_mod.card_for_bot(attempt.get("botId") or attempt.get("bot_id"))
+        card = mission_mod.card_for_bot(
+            attempt.get("botId") or attempt.get("bot_id"),
+            customer_id=attempt.get("customerId") or attempt.get("customer_id"),
+        )
         return bool(getattr(getattr(card, "outbound", None), "carrier_amd", False))
     except Exception:
         logger.debug("carrier_amd lookup failed for attempt %s", attempt.get("id"), exc_info=True)

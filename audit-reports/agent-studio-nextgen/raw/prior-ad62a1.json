@@ -1,0 +1,179 @@
+{
+ "items": [
+  {
+   "id": "2h.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/AgentCardPanels.tsx:786-808 — attach now writes `version: (skillsQuery.data ?? []).find(sk => sk.slug === slug || sk.id === slug)?.version ?? \"1\"` (:802-804) with an in-code comment naming the old hardcoded \"1\" defect; toggle also detaches by every alias (:791). `pin` is still omitted, which is correct: backend/agent_core/cards/schema.py defaults pin=\"exact\". Last commit touching the file in the allowed log: e6da33b (squashed baseline) — no per-finding commit is separable."
+  },
+  {
+   "id": "2h.2",
+   "status": "FIXED",
+   "evidence": "AgentCardPanels.tsx:819-830 — SkillsTab now wraps the tiles+list in <QueryState query={skillsQuery} label=\"the skill catalog\" empty={...}>. Habibi/src/components/ui/query-state.tsx:59-73 renders LoadingState on isPending, QueryErrorBanner on isError, and renders `empty` ONLY after success (:52-56, :69-73), so the \"Skill catalog is empty…\" claim (AgentCardPanels.tsx:822-828) is unreachable on a failed query and the zero-counter tiles never render on error."
+  },
+  {
+   "id": "2h.3",
+   "status": "FIXED",
+   "evidence": "AgentCardPanels.tsx:774-780 — SkillsTab now runs useCompilePreview and prefers `preview.data.skill_description_tokens` (prefixFromCompiler at :775-777), falling back to the length/4 heuristic only when the compiler has not answered. The tile label is honest about which one is showing: \":842-845 `prefixFromCompiler ? \"Names + descriptions, as the compiler counts them\" : \"Names + descriptions (estimated)\"`\", with the old defect described in the comment at :834-839."
+  },
+  {
+   "id": "2i.1",
+   "status": "FIXED",
+   "evidence": "AgentCardPanels.tsx:955-982 — ConnectorsTab wraps the list in <QueryState query={connectorsQuery} label=\"connectors\" empty={approved.length === 0 ? …}>; query-state.tsx:66-73 returns QueryErrorBanner on isError and reaches `empty` only on success. The comment at :965-968 names the exact prior defect (\"It used to be the fallback for a failed one too\"). The business-advice block plus the /integrations Link (:969-980) now render only on a successful, genuinely empty response."
+  },
+  {
+   "id": "2i.2",
+   "status": "OPEN",
+   "evidence": "AgentCardPanels.tsx:932-939 — Bind still snapshots the catalog value into the card: `toggle([conn.slug, conn.id], conn.allowPrefixes ?? [])` (:1003) → `{ connector_id: aliases[0], allow_prefixes: prefixesFor }` (:937). The warning banner is still built from the card copy only — `const prefixes = (card.connectors ?? []).flatMap(c => c.allow_prefixes ?? [])` (:926) rendered at :949-953 — and is never compared against the live `conn.allowPrefixes` shown one row below at :992. No staleness signal anywhere in the tab (whole component read, :914-1014)."
+  },
+  {
+   "id": "2j.1",
+   "status": "FIXED",
+   "evidence": "AgentCardPanels.tsx:226-236 — the hardcoded success lozenge is gone: `bindings[engine.key] === \"required\"` → success; any other stored value → danger lozenge titled \"G3 accepts only 'required'.\"; absent key → danger \"not bound — G3 blocks publish\". The comment at :219-225 names the prior defect. Coverage still the six REQUIRED_POLICY_KEYS via POLICY_ENGINES (:55-62)."
+  },
+  {
+   "id": "2k.1",
+   "status": "FIXED",
+   "evidence": "AgentCardPanels.tsx:47-53 — new `reportTone()`: pass→success, fail/error→danger, skipped→neutral, warn/partial→warning, unknown→neutral. Used at every report render site: :403 (latest per kind), :409 (tenant-wide), :549 (reports table). The shared rationale lives in Habibi/src/lib/gate-status.ts:1-20, which names this exact finding (\"the Evals tab treated any non-'pass' report as danger, so a `skipped` suite rendered red\")."
+  },
+  {
+   "id": "2k.2",
+   "status": "FIXED",
+   "evidence": "AgentCardPanels.tsx:286-311 — the tab now also fetches the unscoped reports (`const tenantReportsQuery = useEvalReports()` :300), collects rows with `if (r.botId) continue` into tenantWideByKind (:306-311) and renders them as an explicitly tenant-wide result (:405-414) with a title explaining they were filed against no card, instead of \"never run\". The \"never run on {botId}\" lozenge (:416) is now reached only when neither a scoped nor a tenant-wide report exists. Scheduler-side `bot_id = NULL` is left as-is and documented as correct (:286-299)."
+  },
+  {
+   "id": "2k.3",
+   "status": "FIXED",
+   "evidence": "AgentCardPanels.tsx:284-285 — `const required: EvalRequire[] = card.eval?.require ?? []` and `const requirementsUnset = card.eval?.require === undefined`; the `[\"regression\",\"redteam\"]` fallback is gone (comment :277-283 names it). The checkboxes (:326-351) are ticked only from stored values, and the unset case gets its own copy at :382-388 (\"This card sets no eval requirements, so no suite result can block a publish of it\")."
+  },
+  {
+   "id": "2l.1",
+   "status": "FIXED",
+   "evidence": "The G12 pre-warning lives in Habibi/src/components/prompt-studio/ShipTab.tsx (the only G12 site in the frontend — Grep for \"G12\" across Habibi/src returns ShipTab only). ShipTab.tsx:195-198 now fires a dedicated danger line for `value.trafficPct === 0` (\"G12 will fail — a 0% canary routes no traffic anywhere\") before the `<100 && no triggers` branch at :199-202; the comment at :191-194 names the slider min=0 trap. Matches backend compile.py:894-895 `canary_zero`."
+  },
+  {
+   "id": "2l.2",
+   "status": "FIXED",
+   "evidence": "Habibi/src/api/agent-studio.ts:248-281 — useCompilePreview now debounces 400ms (`const [debounced, setDebounced] = useState(key); useEffect(… setTimeout(… , 400))` :260-265) and keys on `stableStringify(body)` (:260) rather than JSON.stringify, and compiles `JSON.parse(debounced)` so the cached result matches its key (:272-276). Comment at :249-259 names the per-keystroke POST defect."
+  },
+  {
+   "id": "2l.3",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/OutboundTab.tsx:176-179 — `num()` now returns undefined for blank, NaN AND `parsed < 0`, so negatives no longer pass through. `limit: num(limit) || 500` (:192) with the comment at :188-191 explaining that 0 must not survive. Values the parser discarded are surfaced to the operator rather than dropped: the `rejected` list at :195-202."
+  },
+  {
+   "id": "2l.4",
+   "status": "FIXED",
+   "evidence": "OutboundTab.tsx:590-592 — Start/Pause is now `disabled={setStatus.isPending || r.status === \"finished\" || r.status === \"cancelled\"}`; the comment at :584-589 states the reasoning (\"A cancelled run is as over as a finished one\")."
+  },
+  {
+   "id": "2m.1",
+   "status": "FIXED",
+   "evidence": "Both halves. Backend: backend/agent_core/canary.py:136-191 — rollback_experiment returns `baselineRestored`: False when the experiment is not running (:163), `bool(baseline)` otherwise (:191), with the docstring at :139-145 naming the toast that lied. Frontend: ShipTab.tsx:243-249 branches on `result?.baselineRestored` — success toast only when a baseline was restored, otherwise a warning toast saying the canary is still serving."
+  },
+  {
+   "id": "2m.2",
+   "status": "PARTIALLY_FIXED",
+   "evidence": "UI half fixed, compiler half unchanged. ShipTab.tsx:209-214 now renders \"Shadow at 100% is not a shadow — the router sends every call to the canary for real\" when `value.shadow && value.trafficPct >= 100`. But the gate still has no opinion: backend/agent_core/cards/compile.py:880-881 `if pct == 100: gates.append(_gate(\"G12\",\"canary\",\"pass\",\"full ship\"))` — shadow is never read in the G12 block (:866-895), so the contradictory card still compiles green for any caller that is not looking at ShipTab (PublishDialog, PATCH /agent-studio/cards, API clients)."
+  },
+  {
+   "id": "2m.3",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/prompt-studio.lazy.tsx:337-352 — `priorDeployment` prefers `activeDeployment.rollbackDeploymentId` (:339-341) and otherwise filters retired|rolled_back then `.slice().sort((a,b) => (b.publishedAt ?? \"\").localeCompare(a.publishedAt ?? \"\"))[0]` (:346-351), i.e. newest-first explicitly; the comment at :342-345 names the old unordered `rows.find(...)`. Consumed by onRollback at :993-997 and VersionHistory at :1558."
+  },
+  {
+   "id": "2m.4",
+   "status": "FIXED",
+   "evidence": "prompt-studio.lazy.tsx:245-256 — the card-less ship state is now `legacyShipEdit: ShipState | null` (null until read) rather than a hardcoded 100/false/[] seed, and :459-467 `legacyShipBaseline` derives the resting value from the live `experiments` row (trafficPct/shadow/autoRollback of the `active` experiment), falling back to 100/false/[] only when the API says there is no experiment. `ship` resolves to `legacyShipEdit ?? legacyShipBaseline` (:469) and the same baseline is the publish-dialog diff base (:1145-1157). Still not persisted client-side, but a reload now resets to what production is actually running rather than to a false assertion."
+  },
+  {
+   "id": "2m.5",
+   "status": "FIXED",
+   "evidence": "ShipTab.tsx:109-111 — `{warning.length} warning{warning.length === 1 ? \"\" : \"s\"}`; the sibling blocking-gate lozenge pluralises the same way at :105-107."
+  },
+  {
+   "id": "2n.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/components/prompt-studio/ChangeLogTab.tsx:116 uses `partitionGates(entry.gates ?? {})` from Habibi/src/lib/gate-status.ts:59-70, where failed = status===\"fail\" only (isGateFailure :44-46) and warned = status===\"warn\" (isGateWarning :49-51). Rendering now has three states (:149-165): red \"gates failed: …\", amber \"gates warned: …\", or neutral \"{n} gates recorded\". The comment at ChangeLogTab.tsx:110-115 and gate-status.ts:9-12 both name the prior wrong verdict."
+  },
+  {
+   "id": "2n.2",
+   "status": "FIXED",
+   "evidence": "ChangeLogTab.tsx:35-47 — ACTION_LABEL now maps \"agent.restore\" → \"Restored\" (:39) and ACTION_TONE maps it to \"information\" (:46); the comment at :31-34 names the missing rows and `record_restore`."
+  },
+  {
+   "id": "3.1",
+   "status": "FIXED",
+   "evidence": "The code path that made the corruption permanent is gone. backend/main.py:494-499 calls `ensure_first_party_skills()` on every API boot (not only from the empty-catalog fallback at backend/agent_core/skills/persist.py:180-186). That function re-reads each pack from disk (persist.py:725, via pack.py:164 `read_text(encoding=\"utf-8\")`) and re-upserts it for existing first-party rows (persist.py:744-765), and the version upsert is `ON CONFLICT (skill_id, version) DO UPDATE SET … body = EXCLUDED.body, content_hash = EXCLUDED.content_hash, signature = EXCLUDED.signature` (persist.py:282-291) with the signature recomputed over the fresh bytes (:236). So a mojibake body is overwritten and re-signed from disk at the next boot. Caveat, and it is a data question this read-only pass cannot settle: whether the live rows have actually been through such a boot."
+  },
+  {
+   "id": "3.2",
+   "status": "FIXED",
+   "evidence": "backend/main.py:662-669 — `_CORS_EXPOSE_HEADERS` now includes \"Content-Disposition\" (:668) and is passed to both the prod allowlist middleware (:680) and the dev localhost-regex middleware (:691), so `apiGetBlob` can read the quoted filename the export sets at main.py:2432-2436. The comment at :656-661 names the export bug specifically."
+  },
+  {
+   "id": "3.3",
+   "status": "FIXED",
+   "evidence": "backend/agent_core/skills/pack.py:200-215 — `_emit_scalar` now renders None and booleans as YAML rather than Python repr; `_parse_scalar` maps \"null\"/\"~\" back to None (pack.py:64-68). Gardener still sets `metadata.eval_suite = None` (gardener.py:29), which now round-trips through dumps_skill_md → parse_skill_md (pack.py:154 `str(metadata.get(\"eval_suite\") or \"\") or None`) as a real null instead of the four-character string \"None\"."
+  },
+  {
+   "id": "3.4",
+   "status": "FIXED",
+   "evidence": "Habibi/src/routes/agent-studio.skills.index.tsx:253-271 — the isError ternary is split: `isError && data` renders an amber \"Could not refresh the catalog … The rows below are the last successful read\" banner ABOVE the still-rendered grid (:253-263), and only `isError && !data` replaces the page (:268-271). Comment at :254-257 names the swap-away defect."
+  },
+  {
+   "id": "3.5",
+   "status": "FIXED",
+   "evidence": "backend/agent_core/skills/persist.py:113-135 — the attached_cards subquery now joins bots and filters `AND b.archived_at IS NULL` (:130-134), with the comment at :116-125 naming e2e-audit-card-8216c4 by id. Feeds `attachedCards` at persist.py:57 and the library's \"Attached:\" line. (The delete guard deliberately uses a wider query including unpublished drafts — persist.py:519-541.)"
+  },
+  {
+   "id": "4.1",
+   "status": "FIXED",
+   "evidence": "Habibi/src/api/agent-studio.ts:202-205 — new `invalidateAgentStudio(qc)` invalidates the whole `[\"agent-studio\"]` prefix plus `[\"agent-change-log\"]`; useSignSkill uses it (:702-708), as do useRevertSkill (:715), usePatchSkill (:724), useCreateSkill (:678) and useDeleteSkill (:687). The doc comment at :193-196 names the one-character prefix mismatch against the detail key `[\"agent-studio\",\"skill\",id]` (:651)."
+  },
+  {
+   "id": "4.2",
+   "status": "FIXED",
+   "evidence": "Both halves. Habibi/src/routes/agent-studio.skills.$skillId.tsx:129-160 — a real isError branch that distinguishes 404 from failure via `isNotFound(skillQuery.error)` (:133, defined Habibi/src/api/config.ts:148-151 as `error instanceof ApiError && status === 404`): \"Skill not found\" vs \"Could not load this skill … This is a failed read, not a missing skill\" (:139-147). Retry: useAgentStudioSkill passes `retry: retryUnlessClientError` (agent-studio.ts:657-660), which stops retrying 4xx except 408/429 (config.ts:161-172), so the ~7s spinner on a bad URL is gone."
+  },
+  {
+   "id": "4.3",
+   "status": "FIXED",
+   "evidence": "$skillId.tsx:399-417 — after JSON.parse the runner now rejects non-objects explicitly: `if (typeof parsed !== \"object\" || parsed === null || Array.isArray(parsed)) { toast.error(\"Payload must be a JSON object — not an array or a bare value.\"); return; }` (:409-412), so `[1,2]` no longer reaches the backend's `{}` coercion. Comment at :402-407 names the `numeric_required` false verdict."
+  },
+  {
+   "id": "4.4",
+   "status": "FIXED",
+   "evidence": "$skillId.tsx:231-242 — the Sign click chains `.catch((err: unknown) => toast.error(err instanceof Error ? err.message : \"Sign failed\"))` (:239-241), matching Revert (:259) and Run (:423-425); comment at :235-238 names the silent unhandled rejection."
+  },
+  {
+   "id": "4.5",
+   "status": "FIXED",
+   "evidence": "$skillId.tsx:62-67 — `useEffect(() => { setBody(null); setDescription(null); setSelected(null); setScriptName(null); }, [skillId])` drops the whole local edit overlay on a param change; the comment at :52-61 describes the exact Back/Forward path that opened skill B showing skill A's dirty text with Save enabled."
+  },
+  {
+   "id": "4.6",
+   "status": "FIXED",
+   "evidence": "$skillId.tsx:77-79 — `useEffect(() => { if (skill?.slug) document.title = `${skill.slug} — Skill`; }, [skill?.slug])`; the route `head` at :28-30 is now documented as the pre-resolution placeholder (:23-27)."
+  },
+  {
+   "id": "4.7",
+   "status": "PARTIALLY_FIXED",
+   "evidence": "$skillId.tsx:192-208 — \"Load in sandbox\" now navigates with `botId: skill.attachedCards?.[0] ?? \"kaia-v2-4\"` (:202). The reported half is fixed: an attached skill opens the sandbox on a card that actually carries it. Residual: the hardcoded `kaia-v2-4` fallback survives for a skill with no attached cards (a gardener draft, a fresh tenant draft, or any skill whose only cards are archived — attachedCards excludes archived cards, persist.py:130-134), and that is the same silent-fallback lie: a green sandbox run against a card that does not carry the skill. The honest options are to disable the button or say which card it is loading."
+  },
+  {
+   "id": "LS.1",
+   "status": "DATA_ONLY",
+   "evidence": "\"kaia-v2-4's open draft is unpublishable right now — G9 signed_skills\" is a property of a draft prompt_versions row, not of code, and cannot be settled read-only. The gate logic it trips is unchanged and still correct: backend/agent_core/cards/compile.py:724-751 computes `allowed_scope = set(card.tools.include) | set(card.tools.locked) | PLATFORM_SKILL_TOOLS` (:734) and fails with `tools_not_on_card` (:746-749). PLATFORM_SKILL_TOOLS is only {load_skill, run_skill_script} (backend/agent_core/skills/intersect.py:51), so it does NOT cover set_contact_preference or capture_nonpayment_reason — both are SKILL_GATED_TOOLS (intersect.py:37,41). What would settle it: a compile dry-run of kaia-v2-4's current draft card, or reading that draft's agent_card.tools.include ∪ locked out of the database."
+  },
+  {
+   "id": "LS.2",
+   "status": "FIXED",
+   "evidence": "Same evidence as 3.1: the reseed-only-when-empty guard is no longer the only repair path — main.py:494-499 boot-syncs unconditionally, persist.py:744-765 re-upserts existing first-party rows from disk, and persist.py:282-291 overwrites body/content_hash/signature, with the signature recomputed at :236 over the fresh UTF-8 bytes read at pack.py:164. Whether the live rows are currently clean remains a database observation this pass cannot make."
+  },
+  {
+   "id": "LS.3",
+   "status": "FIXED",
+   "evidence": "The display defect is fixed; the scheduler behaviour is deliberately unchanged and now documented as correct. AgentCardPanels.tsx:286-299 explains that a suite is not owned by one card so `run_named_suite` files scheduled runs with bot_id NULL, and :300-311 fetch the unscoped reports and bucket the botId-less ones into tenantWideByKind, rendered at :405-414 as an explicitly tenant-wide result with a tooltip, instead of the card's Evals tab claiming \"never run\" while the lapse suites pass nightly."
+  }
+ ]
+}
