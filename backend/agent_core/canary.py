@@ -480,7 +480,39 @@ def sweep_rollbacks() -> bool:
             canary = exp.get("canary_deployment_id")
             with db.engine.connect() as conn:
                 if "eval_fail" in triggers:
-                    report = db.get_latest_eval_report(bot_id=exp["bot_id"], kind="redteam")
+                    # Scoped to the candidate's own prompt version, like every
+                    # other trigger is scoped to the candidate's deployment.
+                    # Un-scoped, the *baseline's* red-team failure pulled a
+                    # healthy canary — and a candidate that fixed the failure
+                    # kept being rolled back by the report it was fixing.
+                    candidate_version = None
+                    if canary:
+                        row = db._one(
+                            conn.execute(
+                                text(
+                                    "SELECT prompt_version_id FROM bot_deployments WHERE id = :d"
+                                ),
+                                {"d": canary},
+                            )
+                        )
+                        candidate_version = (row or {}).get("prompt_version_id")
+                    report = None
+                    if candidate_version:
+                        report = db.get_latest_eval_report(
+                            bot_id=exp["bot_id"],
+                            kind="redteam",
+                            prompt_version_id=candidate_version,
+                        )
+                    # Falling back to the bot's newest report when the candidate
+                    # has none of its own is deliberate, and it is the safe
+                    # direction. Scoping alone would mean a report filed without
+                    # provenance — every report predating that column — could
+                    # never pull a canary, and a watchdog that goes quiet is a
+                    # worse failure than one that pulls a healthy candidate.
+                    if report is None:
+                        report = db.get_latest_eval_report(
+                            bot_id=exp["bot_id"], kind="redteam"
+                        )
                     if report and str(report.get("status") or "") == "fail":
                         reason = "eval_fail"
                 if reason is None and "slo_miss" in triggers:

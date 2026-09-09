@@ -604,7 +604,7 @@ def _latest_signed_version(
                        AND s.id = :id
                        AND sv.status = 'signed'
                        {version_clause}
-                     ORDER BY sv.created_at DESC
+                     ORDER BY (sv.id = s.latest_version_id) DESC, sv.created_at DESC
                      LIMIT 1
                     """
                 ),
@@ -624,7 +624,7 @@ def _latest_signed_version(
                        AND s.slug = :slug
                        AND sv.status = 'signed'
                        {version_clause}
-                     ORDER BY sv.created_at DESC
+                     ORDER BY (sv.id = s.latest_version_id) DESC, sv.created_at DESC
                      LIMIT 1
                     """
                 ),
@@ -732,7 +732,13 @@ def packs_for_skill_refs(refs: list[Any]) -> list[SkillPack]:
                 continue
             version = str(getattr(ref, "version", None) or "1").strip() or "1"
             pin = str(getattr(ref, "pin", None) or "exact")
-            if pin == "exact" and version not in {"1", "1.0.0"}:
+            # No exception for the default version. Every card the Studio writes
+            # carries `version: "1"`, so exempting it made `pin: "exact"` mean
+            # "latest signed" on every card that exists — a pin that pins
+            # nothing. The `1` rows are real and signed, so honouring it resolves
+            # rather than drops; a pinned version that is genuinely missing skips
+            # the pack, which is what a pin is for.
+            if pin == "exact":
                 row = _latest_signed_version(conn, slug=slug, version=version)
                 if not row:
                     continue
@@ -834,7 +840,15 @@ def ensure_first_party_skills() -> dict[str, int]:
             stored = _stored_version(pack.version)
             expected_vid = _version_row_id(existing["id"], stored)
             latest_is_this = existing.get("latest_version_id") in {None, expected_vid}
-            set_latest = latest_is_this or existing.get("signature_status") == "signed"
+            # Only when the pointer is already this disk version. The previous
+            # `or signature_status == "signed"` re-opened the very case it looks
+            # like it guards: an operator edits a first-party skill, saves, and
+            # signs it. Signing sets signature_status='signed' and moves
+            # latest_version_id to the bumped row, so latest_is_this is False and
+            # the right-hand side is True — and the next API restart pulled the
+            # pointer back to the platform version, silently discarding the edit
+            # that was just signed.
+            set_latest = latest_is_this
             if existing.get("latest_version_id"):
                 refreshed += 1
             else:

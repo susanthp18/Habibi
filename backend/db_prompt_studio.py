@@ -2705,17 +2705,43 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
             # Insert a fresh active row pointing at the rolled-back config
             # (keeps history; links rollback_deployment_id to the prior active).
             new_id = _id("DEP")
+            # The executable contract of the version being restored, carried
+            # forward. Guarded the same way publish guards it, so an unmigrated
+            # database keeps working. Omitted, `frozen_tools` came back NULL,
+            # `_map_bot_deployment` turned that into `[]`, and `effective_tools`
+            # took the frozen branch and unioned nothing — every connector tool
+            # silently disappeared from a rolled-back deployment.
+            carried: dict[str, Any] = {}
+            carry_sql = ""
+            carry_val = ""
+            for column in ("frozen_tools", "bundle_hash"):
+                if not _column_exists(conn, "bot_deployments", column):
+                    continue
+                prior_value = _one(
+                    conn.execute(
+                        text(f"SELECT {column} AS v FROM bot_deployments WHERE id = :id"),
+                        {"id": deployment_id},
+                    )
+                )
+                carry_sql += f", {column}"
+                if column == "frozen_tools":
+                    carry_val += ", CAST(:frozen AS jsonb)"
+                    carried["frozen"] = _jsonb((prior_value or {}).get("v"))
+                else:
+                    carry_val += ", :bundle_hash"
+                    carried["bundle_hash"] = (prior_value or {}).get("v")
             conn.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO bot_deployments (
                       id, bot_id, prompt_version_id, kb_snapshot_id, tts_voice_id,
                       environment, status, published_by_user_id, published_at,
-                      rollback_deployment_id, voice_config, tuning, created_at, updated_at
+                      rollback_deployment_id, voice_config, tuning{carry_sql},
+                      created_at, updated_at
                     ) VALUES (
                       :id, :bot_id, :prompt_version_id, :kb_snapshot_id, :tts_voice_id,
                       'production', 'active', :actor, now(),
-                      :rollback_id, CAST(:voice_config AS jsonb), CAST(:tuning AS jsonb),
+                      :rollback_id, CAST(:voice_config AS jsonb), CAST(:tuning AS jsonb){carry_val},
                       now(), now()
                     )
                     """
@@ -2730,6 +2756,13 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                     "rollback_id": current["id"] if current else deployment_id,
                     "voice_config": _jsonb(_as_dict(target.get("voice_config"))),
                     "tuning": _jsonb(_as_dict(target.get("tuning"))),
+                    # Carried from the deployment being restored, because they
+                    # describe *that* version. Omitted, `frozen_tools` came back
+                    # NULL, `_map_bot_deployment` turned that into `[]`, and
+                    # `effective_tools` took the frozen branch and unioned
+                    # nothing — every connector tool silently disappeared from a
+                    # rolled-back deployment.
+                    **carried,
                 },
             )
 

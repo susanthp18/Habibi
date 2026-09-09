@@ -1660,8 +1660,12 @@ def get_latest_eval_report(
     draft counts — a green suite on last week's published card must not open
     the gate for this week's unpublished one.
     """
-    clauses = ["r.bot_id = :bot", "s.kind = :kind"]
-    params: dict[str, Any] = {"bot": bot_id, "kind": kind}
+    # Tenant-scoped like its sibling `list_eval_reports`. Bot ids are unique
+    # across tenants in practice, so this is latent rather than live — but it is
+    # the read three publish gates consult, and "latent" is not a property to
+    # leave on the gate that decides whether a card may ship.
+    clauses = ["r.tenant_id = :tenant", "r.bot_id = :bot", "s.kind = :kind"]
+    params: dict[str, Any] = {"tenant": _tenant(), "bot": bot_id, "kind": kind}
     if prompt_version_id:
         clauses.append("r.prompt_version_id = :pv")
         params["pv"] = prompt_version_id

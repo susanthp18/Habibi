@@ -162,7 +162,6 @@ export type CardHandoff = {
   clauses?: { variable?: string; operator?: string; value?: string | null }[];
   carry?: HandoffCarry;
   entry_node?: string;
-  return_to?: string;
   bridge_line?: string;
   refusal_line?: string;
 };

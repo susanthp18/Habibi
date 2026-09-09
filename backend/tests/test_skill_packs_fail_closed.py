@@ -103,13 +103,18 @@ def test_disk_packs_still_serve_when_the_db_simply_has_none(
 
 
 def test_signed_db_packs_are_preferred_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The other half — the DB path is still the one that wins."""
-    import agent_core.skills.persist as skills_persist
-    from agent_core.skills.pack import pack_for_slug
+    """The other half — the DB path is still the one that wins.
 
-    only = pack_for_slug("ptp-negotiate")
-    monkeypatch.setattr(skills_persist, "packs_for_slugs", lambda _slugs: [only])
-    assert [p.slug for p in runtime.packs_from_card(_card())] == ["ptp-negotiate"]
+    It wins by a different route than it used to. Every ref on a first-party card
+    carries ``pin: "exact"``, and the pinned branch resolves each one straight
+    out of ``skill_versions``; ``packs_for_slugs`` is now only the fallback for a
+    ref that names no pin. So patching the fallback no longer proves anything
+    about the card — the disk fallback being unreachable does.
+    """
+    _never_disk(monkeypatch)
+    packs = runtime.packs_from_card(_card())
+    assert {p.slug for p in packs} >= {"ptp-negotiate", "verify-and-disclose"}
+    assert all(p.signed for p in packs), [p.slug for p in packs if not p.signed]
 
 
 # --- a signed row that will not parse ---------------------------------------

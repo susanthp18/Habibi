@@ -125,19 +125,17 @@ class CardHandoff(BaseModel):
     to_bot_id: str
     payload_schema: dict[str, Any] = Field(default_factory=dict)
     when: str = ""
-    #: No ``mode`` and no ``clauses``. A handoff is a ``go_to_*`` transition the
-    #: model may call — the only kind implemented, and the only kind that has a
-    #: node to hang an edge on. A deterministic hop is an ordinary expression
-    #: edge in the graph, authored there.
+    # No ``mode``, no ``clauses`` and no ``return_to``. A handoff is a
+    # ``go_to_*`` transition the model may call — the only kind implemented, and
+    # the only kind with a node to hang an edge on. A deterministic hop, or a
+    # specialist handing back, is an ordinary edge in the graph, authored there;
+    # the hop cap bounds the round trip either way.
     #: How much crosses. ``brief`` is the carry packet; ``full`` additionally
     #: keeps the last turns, which costs prefix tokens and is opt-in per edge.
     carry: HandoffCarry = "brief"
     #: Node in the receiving member's subgraph to enter, local name. Empty means
     #: that member's start node.
     entry_node: str = ""
-    #: Node to come back to when the specialist finishes. Empty means it closes
-    #: through its own terminal, which is the common case.
-    return_to: str = ""
     #: What to say while the swap happens. A *direction to the model*, not a
     #: script: it rides the tool result's ``say`` key, which the model reads and
     #: renders in the caller's own language — the same convention every other
