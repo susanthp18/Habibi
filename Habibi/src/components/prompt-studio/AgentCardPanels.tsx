@@ -203,7 +203,7 @@ export function ToolsTab({
                   <td className="px-150 py-100">
                     <Lozenge tone="neutral">
                       {controlKindLabel(
-                        isFloor || preview.data?.effective_tools.includes(t.key)
+                        isFloor || preview.data?.effective_tools?.includes(t.key)
                           ? "runtime"
                           : "unsupported",
                       )}

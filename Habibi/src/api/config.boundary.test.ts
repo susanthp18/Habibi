@@ -30,7 +30,12 @@ function walk(dir: string): string[] {
 }
 
 describe("USE_MOCK stays in api/", () => {
-  it("is not imported from components/ or routes/", () => {
+  // 30s, not vitest's 5s default. This reads every .ts/.tsx under components/
+  // and routes/ — several hundred files — and on a bind-mounted or Windows
+  // filesystem that alone exceeds the default, failing the test on a timeout
+  // that reads as "USE_MOCK leaked" when nothing has. It is a source scan, not
+  // a latency assertion; there is nothing here for a timeout to protect.
+  it("is not imported from components/ or routes/", { timeout: 30_000 }, () => {
     const hits: string[] = [];
     for (const dir of ["components", "routes"]) {
       for (const file of walk(join(srcRoot, dir))) {
