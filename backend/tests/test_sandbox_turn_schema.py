@@ -25,8 +25,9 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import frontend_file
+
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SANDBOX_TS = BACKEND_ROOT.parent / "Habibi" / "src" / "api" / "sandbox.ts"
 
 RUN_ID = "sbx-run-turn-schema"
 HEADERS = {"X-API-Key": "sandbox-turn-test-key", "X-Actor-User-Id": "priya-nair"}
@@ -204,7 +205,8 @@ def test_every_key_the_studio_posts_is_a_field_on_the_request_model() -> None:
     """
     import schemas
 
-    source = SANDBOX_TS.read_text(encoding="utf-8")
+    sandbox_ts = frontend_file("src", "api", "sandbox.ts")
+    source = sandbox_ts.read_text(encoding="utf-8")
     # The POST body is the second argument. A third `init` (response schema)
     # must not be read as posted keys — `.*?}\s*)` used to swallow it and then
     # keep going until `exportInteraction(interactionId, format)`.
@@ -213,7 +215,7 @@ def test_every_key_the_studio_posts_is_a_field_on_the_request_model() -> None:
         source,
         re.S,
     )
-    assert match, f"could not locate the turns POST body in {SANDBOX_TS}"
+    assert match, f"could not locate the turns POST body in {sandbox_ts}"
 
     posted = set(re.findall(r"^\s*([A-Za-z_][A-Za-z0-9_]*):", match.group("body"), re.M))
     assert "skillSlug" in posted, "the literal changed — this test is no longer guarding it"

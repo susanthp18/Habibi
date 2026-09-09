@@ -66,3 +66,30 @@ jobs:
       # keep it that way.
       - name: Build
         run: npm run build
+
+  # The card mirror is TypeScript pinned against a pydantic model, so the pin has
+  # to run on the side that can break it. backend-pytest also covers this now via
+  # its path filter, but that job needs Postgres and the full lockfile; this one
+  # needs pydantic and forty seconds, so a frontend PR gets the answer immediately.
+  #
+  # It only became possible when agent_core/__init__ stopped eagerly importing
+  # deployment -> db: before that, reading a pydantic model pulled in SQLAlchemy,
+  # psycopg and httpx.
+  #
+  # CI is set by Actions, which is what makes conftest.frontend_file fail here
+  # rather than skip.
+  contract-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # sqlalchemy only because tests/conftest imports it for the DB fixtures.
+      - run: pip install pydantic pytest sqlalchemy
+
+      - name: Agent Card drift
+        working-directory: backend
+        run: python -m pytest -q tests/test_agent_card_schema_drift.py

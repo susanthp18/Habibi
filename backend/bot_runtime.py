@@ -367,6 +367,104 @@ def _bot_state(conv: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _hop_to(
+    walker: Any,
+    tool_ctx: Any,
+    tool_call: dict[str, Any],
+    payload: Any,
+    entries: dict[str, str],
+) -> None:
+    """Move the text cursor onto the member a successful handoff named.
+
+    A handoff is not an edge in the graph — the card's allowlist is the edge —
+    so ``walker.advance`` has nothing to follow and the cursor would stay in the
+    sending member's subgraph, which is exactly the bug this closes on voice.
+
+    Best-effort by design: a hop whose target has no compiled entry is still
+    recorded and still announced, it simply does not swap the tools. Raising
+    here would turn a degraded handoff into a dead conversation.
+    """
+    target = ""
+    if isinstance(payload, dict):
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        target = str(data.get("targetBotId") or data.get("target_bot_id") or "")
+    if not target:
+        try:
+            target = str((json.loads(tool_call.get("arguments") or "{}") or {}).get("target_bot_id") or "")
+        except json.JSONDecodeError:
+            target = ""
+    if not target:
+        return
+    from agent_core.cards import routing
+
+    edge = routing.handoff_edge(getattr(tool_ctx, "agent_card", None) or {}, target)
+    entry = str(edge.get("entry_node") or "").strip() or entries.get(target, "")
+    node = walker.node(entry) if entry else None
+    if node is None:
+        logger.info("text handoff to %s: no entry node %r in the graph", target, entry)
+        return
+    walker.move_to(node)
+
+
+def _flow_walker(bundle: dict[str, Any], state: dict[str, Any]) -> Any | None:
+    """A walker over the deployment's authored graph, resumed from ``bot_state``.
+
+    Returns None when the card authors no flow, or when the flow will not parse
+    — a thread must keep answering either way. A graph the compiler passed and
+    this runtime cannot walk is logged rather than swallowed, because that gap
+    is the thing worth knowing about.
+    """
+    flow = bundle.get("flow")
+    if not isinstance(flow, dict) or not flow:
+        return None
+    try:
+        from flow_graph import parse_graph
+        from flow_vars import FlowVariables
+        from flow_walk import FlowWalker
+
+        walker = FlowWalker(parse_graph(flow), FlowVariables({}))
+        resume = str(state.get("flow_node") or "").strip()
+        if resume:
+            node = walker.node(resume)
+            if node is None:
+                logger.warning("bot_turn: unknown flow_node %r — restarting the graph", resume)
+            else:
+                walker.move_to(node)
+        return walker
+    except Exception:
+        logger.exception("bot_turn: authored flow will not parse — answering prompt-only")
+        return None
+
+
+def _is_graph_tool(name: str) -> bool:
+    import flow_walk
+
+    return name.startswith(flow_walk.TRANSITION_PREFIX) or name == flow_walk.EXTRACT_TOOL
+
+
+def _walk_graph_tool(walker: Any, name: str, arguments: Any) -> tuple[bool, dict[str, Any]]:
+    """Apply a generated tool to the walker. Never touches the tool registry."""
+    import flow_walk
+
+    if name == flow_walk.EXTRACT_TOOL:
+        try:
+            args = json.loads(arguments or "{}") if isinstance(arguments, str) else (arguments or {})
+        except json.JSONDecodeError:
+            args = {}
+        captured = walker.capture(args if isinstance(args, dict) else {})
+        # The variables an expression edge tests just changed, so this is exactly
+        # when a deterministic transition can newly become true.
+        moved = walker.advance()
+        out: dict[str, Any] = {"ok": True, "captured": captured}
+        if moved is not None:
+            out["node"] = moved.key
+        return True, out
+    target = walker.advance(name)
+    if target is None:
+        return False, {"ok": False, "error": "unknown_node"}
+    return True, {"ok": True, "node": target.key}
+
+
 def _save_bot_state(engine: Engine, conversation_id: str, state: dict[str, Any]) -> None:
     with engine.begin() as conn:
         conn.execute(
@@ -925,6 +1023,17 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         # call `identify_customer` on a turn where the name was neither offered
         # nor executable.
         tool_state = mouth.tools(channel_tools=text_channel_tools, floor=TEXT_ALWAYS)
+        # The authored graph, on the text channel. `flow` appeared zero times in
+        # this module before: WhatsApp answered from the prompt alone while the
+        # Studio gated a graph at publish and the canvas drew it. The cursor
+        # lives in `bot_state`, which already carries per-conversation state, so
+        # a multi-day thread resumes on the step it left. A card with no authored
+        # flow leaves the walker None and behaves exactly as it did.
+        flow_walker = _flow_walker(bundle, state)
+        import flow_walk as _flow_walk_mod
+
+        _specialist_grants = _flow_walk_mod.specialist_grants(bundle.get("compiled"))
+        _specialist_entries = _flow_walk_mod.specialist_entries(bundle.get("compiled"))
         messages = _build_messages(
             bundle=bundle,
             conv=conv,
@@ -965,7 +1074,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             from agent_core.tools.handoff_allowlist import handoff_tool_spec
 
             specs = [CATALOG.get(n) for n in offered]
-            return [
+            tools = [
                 (
                     handoff_tool_spec(s, agent_card=tool_ctx.agent_card, bot_id=_bot_id())
                     if s.name == "handoff_to_agent"
@@ -974,11 +1083,42 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 for s in specs
                 if s is not None
             ]
+            if flow_walker is not None:
+                import flow_walk
 
-        turn_tools = _turn_tools(list(tool_state.offered or ()))
+                tools.extend(flow_walk.openai_graph_tools(flow_walker))
+            return tools
+
+        def _offered_names() -> list[str]:
+            """The card's grant, narrowed by the step the script is on.
+
+            With a floor: a step whose offer is empty on this channel falls back
+            to the whole grant rather than handing the model no tools at all.
+            That case is real today and not hypothetical — G-F11 warns on all
+            four first-party cards, because the built-in script is a *voice*
+            script whose steps hop on voice-only tools (``greet_disclose`` exits
+            via ``disclose_recording``, and a WhatsApp thread has no recording to
+            disclose). Narrowing to nothing there would strand every live thread
+            on the first message.
+
+            So the graph tightens the offer where it has something to say and
+            stays out of the way where it does not. When the fleet compiles G-F11
+            clean this floor stops firing on its own; it does not need removing.
+            """
+            granted = flow_walker.union(tool_state.offered or (), _specialist_grants) if flow_walker else set(tool_state.offered or ())
+            if flow_walker is None:
+                return list(tool_state.offered or ())
+            # Narrowed to the speaking member first, then to the step. Same two
+            # narrowings, same order, as the audio path and the sandbox.
+            step_grant = flow_walker.narrow(granted, _specialist_grants)
+            narrowed = [n for n in flow_walker.offers(granted=step_grant) if n in step_grant]
+            return narrowed or list(tool_state.offered or ())
 
         tool_failures = 0
         for _ in range(_max_tool_iterations()):
+            # Rebuilt per iteration: a transition changes the offer, and the step
+            # after `go_to_negotiate` must not still be offering the step before.
+            turn_tools = _turn_tools(_offered_names())
             # Re-check take-over race before each Azure call.
             fresh = _load_conversation(engine, conversation_id)
             if not fresh or fresh.get("status") != "bot" or fresh.get("assigned_user_id"):
@@ -1015,12 +1155,39 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             messages.append(raw_msg)
 
             for tc in tool_calls:
+                if flow_walker is not None and _is_graph_tool(tc["name"]):
+                    # A graph move, not a catalog tool: it has no handler in the
+                    # registry and must not be routed through execute_tool, which
+                    # would refuse it as ungranted. The grant says what the agent
+                    # may do; the graph says where it may go.
+                    ok, payload = _walk_graph_tool(flow_walker, tc["name"], tc["arguments"])
+                    latency_ms = 0
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps(payload)[:1500],
+                        }
+                    )
+                    continue
                 with _span(
                     "gen_ai.execute_tool",
                     gen_ai_operation_name="execute_tool",
                     gen_ai_tool_name=tc["name"],
                 ):
                     ok, payload, latency_ms = bot_tools.execute_tool(tool_ctx, tc["name"], tc["arguments"])
+                if ok and flow_walker is not None:
+                    if tc["name"] == "handoff_to_agent":
+                        # `advance` never moves for a handoff: there is no edge
+                        # from this node to another member's subgraph, the card's
+                        # allowlist is the edge. Resolve the landing node the way
+                        # voice does and move the cursor onto it, which swaps the
+                        # namespace and therefore the grant on the next iteration.
+                        _hop_to(flow_walker, tool_ctx, tc, payload, _specialist_entries)
+                    else:
+                        # A built-in tool is also a transition — the built-in
+                        # script moves entirely this way, with no authored edges.
+                        flow_walker.advance(tc["name"])
                 preview = json.dumps(payload)[:1500]
                 try:
                     parsed_args = json.loads(tc["arguments"] or "{}")
@@ -1216,6 +1383,10 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             "last_outbound_message_id": msg_id,
         }
     )
+    if flow_walker is not None and flow_walker.current is not None:
+        # Where the script is, so the next inbound message resumes here rather
+        # than re-greeting a thread that is four turns in.
+        state["flow_node"] = flow_walker.current.key
     _save_bot_state(engine, conversation_id, state)
 
     # Phase 1 gap-fix: WhatsApp previously never wrote interaction_transcript,

@@ -589,18 +589,26 @@ PACKET_FIELDS: tuple[str, ...] = (
 HANDOFF_PACKET_PREFIX = "HANDOFF PACKET"
 
 
-def handoff_packet(source: Any) -> dict[str, Any]:
+def handoff_packet(*sources: Any) -> dict[str, Any]:
     """The fact-only packet for a hop, read off live call state.
 
-    ``source`` is duck-typed on purpose: the audio path passes a
-    ``VoiceSession``, the text mouths pass the conversation state dict. Both
-    carry the same facts under the same names, and neither is imported here —
-    ``agent_core`` must stay loadable in the API image, which has no Pipecat.
+    Sources are duck-typed on purpose and tried in order, first non-empty
+    winning: the audio path passes a ``VoiceSession``, the tool state and the
+    turn's understanding, the text mouths a ``ToolContext`` and the conversation
+    row. Nothing here is imported — ``agent_core`` must stay loadable in the API
+    image, which has no Pipecat.
+
+    Several sources rather than one because the facts are not in one place. On
+    voice, ``disclosure_done`` lives on ``ToolState`` and ``language`` and
+    ``sentiment`` on ``session.understanding``, so a single-source read carried
+    three of the eight fields and silently dropped the rest.
     """
     def _get(name: str) -> Any:
-        if isinstance(source, dict):
-            return source.get(name)
-        return getattr(source, name, None)
+        for source in sources:
+            value = source.get(name) if isinstance(source, dict) else getattr(source, name, None)
+            if value is not None and value != "" and value != []:
+                return value
+        return None
 
     packet: dict[str, Any] = {}
     for name in PACKET_FIELDS:

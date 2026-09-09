@@ -1014,11 +1014,22 @@ def handoff_to_agent(
     reason: str,
     payload: str | None = None,
     allowlist: set[str] | frozenset[str] | None = None,
+    packet: dict[str, Any] | None = None,
+    carry: str | None = None,
+    turn_index: int | None = None,
+    deployment_id: str | None = None,
+    route_reason: str = "specialist_route",
+    max_hops: int | None = None,
 ) -> ToolResult:
     """Typed agent-to-agent transfer. Prose cannot activate this.
 
     ``allowlist`` is the publishing card's handoff targets. A missing
     interaction is a soft fail — the model can still speak, but no row moves.
+
+    ``packet`` is the fact-only carry packet (``agent_core.context.PACKET_FIELDS``)
+    recorded on the hop row. It is written, never interpreted here: what the
+    receiving specialist is *told* is rendered by the mouth, from the same dict,
+    so the ledger and the context cannot disagree about what crossed.
     """
     target = (target_bot_id or "").strip()
     reason_n = (reason or "").strip() or "specialist_needed"
@@ -1046,6 +1057,12 @@ def handoff_to_agent(
             target_bot_id=target,
             reason=reason_n,
             payload=payload,
+            packet=packet,
+            carry=carry,
+            turn_index=turn_index,
+            deployment_id=deployment_id,
+            route_reason=route_reason,
+            max_hops=max_hops,
         )
     except KeyError:
         return ToolResult(

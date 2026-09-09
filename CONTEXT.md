@@ -45,7 +45,7 @@ The authored graph of conversation steps for a mouth. Steps the model chooses be
 _Avoid_: script, workflow, journey
 
 **Handoff**:
-Transfer of a live conversation from one agent to another named on the first agent's card. The receiving agent brings its own card, and therefore its own grant — the hop moves the flow cursor onto a node that agent owns, and the offer is narrowed by whoever owns the node. On voice this is live; on the text mouths the cursor does not move yet, so a hop there is still recorded and announced without swapping tools.
+Transfer of a live conversation from one agent to another named on the first agent's card. The receiving agent brings its own card, and therefore its own grant — the hop moves the flow cursor onto a node that agent owns, and the offer is narrowed by whoever owns the node. All three mouths do this: voice through the node it lands on, text and the sandbox through the walker's cursor. A hop into a member with no compiled entry is still recorded and announced; what it does not do is swap the tools.
 _Avoid_: transfer (reserved for reaching a human), routing
 
 **Reachability**:

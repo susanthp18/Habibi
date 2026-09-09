@@ -1438,6 +1438,14 @@ def return_conversation_to_bot(conversation_id: str) -> dict[str, Any]:
     return result
 
 
+#: What ``interaction_handoffs.reason`` may say for a bot-to-bot hop. The
+#: CHECK admits these three; anything else is a human-escalation reason and
+#: belongs to ``escalate_to_human``.
+_FLEET_ROUTE_REASONS: frozenset[str] = frozenset(
+    {"specialist_route", "specialist_return", "mission_entry"}
+)
+
+
 def handoff_to_agent(
     *,
     interaction_id: str,
@@ -1445,12 +1453,26 @@ def handoff_to_agent(
     target_bot_id: str,
     reason: str,
     payload: str | None = None,
+    packet: dict[str, Any] | None = None,
+    carry: str | None = None,
+    turn_index: int | None = None,
+    deployment_id: str | None = None,
+    route_reason: str = "specialist_route",
+    max_hops: int | None = None,
 ) -> dict[str, Any]:
     """Move a live bot-handled interaction to another first-party card.
 
     Writes ``transferred_from_bot_id`` / ``handler_bot_id``. Does not open a
     human handoff — that is ``escalate_to_human``. Calling this is the only
     way a transfer is recorded; transcript prose does not reach here.
+
+    It also writes the hop's own ``interaction_handoffs`` row. Before this the
+    only trace of a bot-to-bot transfer was two columns on ``interactions`` and
+    an activity line, so "which specialist said this sentence" had no answer and
+    the packet that crossed the boundary was recorded nowhere at all. The row is
+    ``to_kind='bot'``; every analytics predicate that means *escalated to a
+    human* filters on ``to_kind`` (``db_bot_analytics._ESCALATED_PRED``), so a
+    hop does not inflate the containment figures.
     """
     target = (target_bot_id or "").strip()
     if not target:
@@ -1476,6 +1498,27 @@ def handoff_to_agent(
         source = from_bot_id or ix["handler_bot_id"]
         if source == target:
             raise ValueError("handoff_same_bot")
+        # The reason is a CHECK-constrained vocabulary. A bad value must not 500
+        # a live call, so an unknown one degrades to the ordinary route rather
+        # than aborting the transaction the caller is standing in.
+        route = route_reason if route_reason in _FLEET_ROUTE_REASONS else "specialist_route"
+        # The hop cap, counted here rather than on the mouth. One place serves
+        # both channels — text had no cap at all — and a count survives a
+        # reconnect, which an in-memory counter on a voice session does not.
+        if max_hops is not None:
+            hops = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT count(*) AS n FROM interaction_handoffs
+                         WHERE interaction_id = :id AND to_kind = 'bot'
+                        """
+                    ),
+                    {"id": interaction_id},
+                )
+            )
+            if int((hops or {}).get("n") or 0) >= int(max_hops):
+                raise ValueError("hop_cap_reached")
         conn.execute(
             text(
                 """
@@ -1489,6 +1532,32 @@ def handoff_to_agent(
                 """
             ),
             {"id": interaction_id, "from_bot": source, "target": target},
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO interaction_handoffs (
+                  id, interaction_id, from_kind, from_bot_id,
+                  to_kind, to_bot_id, reason, turn_index, deployment_id,
+                  carry, packet, requested_at, created_at
+                ) VALUES (
+                  :id, :interaction_id, 'bot', :from_bot,
+                  'bot', :to_bot, :route_reason, :turn_index, :deployment_id,
+                  :carry, CAST(:packet AS jsonb), now(), now()
+                )
+                """
+            ),
+            {
+                "id": f"ho-{uuid.uuid4().hex[:12]}",
+                "interaction_id": interaction_id,
+                "from_bot": source,
+                "to_bot": target,
+                "turn_index": turn_index,
+                "deployment_id": deployment_id,
+                "route_reason": route,
+                "carry": carry,
+                "packet": json.dumps(packet) if packet else None,
+            },
         )
         _activity(
             conn,
@@ -1614,18 +1683,6 @@ def get_latest_eval_report(
             )
         )
         return dict(r) if r else None
-
-
-def worst_eval_status(*, bot_id: str) -> str:
-    """Fail beats pass beats skipped. Used by the fleet index badge."""
-    red = get_latest_eval_report(bot_id=bot_id, kind="redteam")
-    reg = get_latest_eval_report(bot_id=bot_id, kind="regression")
-    statuses = [str((red or {}).get("status") or ""), str((reg or {}).get("status") or "")]
-    if any(s in {"fail", "error"} for s in statuses):
-        return "fail"
-    if any(s == "pass" for s in statuses):
-        return "pass"
-    return next((s for s in statuses if s), "skipped")
 
 
 def save_eval_report(

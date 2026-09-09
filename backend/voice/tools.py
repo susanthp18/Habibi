@@ -249,8 +249,6 @@ class ToolState:
         #: from the same merge that wrote the namespaces, so a hop cannot aim at
         #: a name the graph spells differently.
         self.specialist_entries: dict[str, str] = {}
-        #: Hops this call has made, against ``card.memory.max_hops_per_call``.
-        self.hops_taken = 0
         # The fleet member currently speaking. `None` on a flat graph, which is
         # every graph until a fleet is authored. It decides two things and only
         # two: which namespace a local node name resolves in, and which entry of
@@ -2877,18 +2875,9 @@ def build_tools(
             bot_id=bot_id,
         )
         edge = _handoff_edge(target)
-        # The cap is checked before the write, and refused in the author's own
-        # words. Two specialists passing a borrower back and forth is something
-        # the caller experiences as being put on hold repeatedly; the ceiling
-        # turns it into a sentence they hear once.
-        if state.hops_taken >= _max_hops():
-            return {
-                "ok": False,
-                "error": "hop_cap_reached",
-                "say": edge.get("refusal_line")
-                or "stay with this caller and finish here yourself",
-            }, None
-        packet = handoff_packet(session)
+        # Three sources because the facts are in three places: disclosure_done
+        # is ToolState's, language and sentiment are the turn's understanding.
+        packet = handoff_packet(session, state, session.understanding)
         carry = str(edge.get("carry") or "brief")
         result = await asyncio.to_thread(
             domain.handoff_to_agent,
@@ -2902,10 +2891,18 @@ def build_tools(
             carry=carry,
             turn_index=getattr(session, "turn_index", None),
             deployment_id=session.deployment_id,
+            max_hops=_max_hops(),
         )
         if not result.ok:
-            return result.to_llm(), None
-        state.hops_taken += 1
+            out = result.to_llm()
+            # The author's own words for a refusal, when they wrote any. Applied
+            # here rather than before the write because the cap is now counted in
+            # the same transaction that records the hop — one place, both
+            # channels, and a count that survives a reconnect.
+            refusal = str(edge.get("refusal_line") or "").strip()
+            if refusal and isinstance(out, dict):
+                out["say"] = refusal
+            return out, None
         if replace_developer:
             message = handoff_packet_message(packet)
             if message:

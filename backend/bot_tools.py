@@ -142,6 +142,20 @@ class ToolContext:
         self.agent_card: dict[str, Any] | None = None
 
 
+def _identity_ok(ctx: "ToolContext") -> bool:
+    """Whether this conversation has a verification event.
+
+    A bound customer id is not verification — WhatsApp resolving a sender to a
+    CRM row is not a ceremony — which is why the packet cannot read
+    ``ctx.customer_id`` and call it identity.
+    """
+    from agent_core.tools.gates import interaction_identity_verified
+
+    return interaction_identity_verified(
+        interaction_id=ctx.interaction_id, customer_id=ctx.customer_id
+    )
+
+
 def _tool_get_customer_context(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     customer = db.get_customer(ctx.customer_id)
     if not customer:
@@ -425,6 +439,17 @@ def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
     reason = str(args.get("reason") or "").strip()
     payload = args.get("payload")
     allowlist = _handoff_allowlist(ctx)
+    from agent_core.context import handoff_packet
+
+    # The same fact-only packet the audio path records, off the same helper. The
+    # text mouth had no ledger row at all before this, so a WhatsApp hop left
+    # nothing behind but two columns on `interactions`.
+    #
+    # It carries less than the voice packet, and deliberately no stand-in for
+    # what it lacks: this context has no verified-identity signal (the same gap
+    # `_tool_evaluate_authority` papers over by passing True), and a field that
+    # is always False would read as "identity was checked and failed". An absent
+    # fact is left absent.
     result = domain.handoff_to_agent(
         interaction_id=ctx.interaction_id,
         from_bot_id=ctx.bot_id,
@@ -432,6 +457,8 @@ def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
         reason=reason,
         payload=str(payload) if payload is not None else None,
         allowlist=allowlist,
+        packet=handoff_packet(ctx, {"identity_verified": _identity_ok(ctx)}),
+        carry="brief",
     )
     soft = _domain_soft_fail(result)
     if soft is not None:
@@ -736,7 +763,16 @@ def _tool_load_skill(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 
     slug = str(args.get("slug") or "").strip()
     include_refs = bool(args.get("include_references"))
-    result = load_skill(slug, list(ctx.attached_skills or []), include_references=include_refs)
+    result = load_skill(
+        slug,
+        list(ctx.attached_skills or []),
+        include_references=include_refs,
+        # ``or frozenset()`` deliberately: _execute below reads a None grant as
+        # deny-all, so a turn without one must announce nothing rather than the
+        # pack's whole list. None into load_skill means "no grant supplied",
+        # which is the Studio preview, not a live turn.
+        allowed=ctx.allowed_tools or frozenset(),
+    )
     if result.get("ok"):
         ctx.active_skill = slug
     return {k: v for k, v in result.items() if k != "message"} | (

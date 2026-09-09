@@ -39,7 +39,11 @@ from agent_core import (
     sentiment_label,
     should_halt,
 )
+import flow_walk
 from env_utils import env_bool, env_float, env_int
+from flow_graph import parse_graph
+from flow_vars import FlowVariables
+from flow_walk import FlowWalker
 from prompt_render import render_prompt
 
 logger = logging.getLogger(__name__)
@@ -258,6 +262,29 @@ def _sandbox_tools_enabled(payload: dict[str, Any], context: dict[str, Any] | No
     return bool(ctx.get("customerId") or ctx.get("customer_id") or payload.get("customerId"))
 
 
+def _sandbox_hop(
+    walker: Any,
+    args: dict[str, Any],
+    agent_card: dict[str, Any] | None,
+    entries: dict[str, str] | None,
+) -> Any | None:
+    """Move the rehearsal cursor onto the member a handoff named.
+
+    Same resolution the two live mouths use, so what an operator rehearses is
+    what a call would do. Returns None when the target has no entry in the
+    compiled graph — the hop is still reported, it simply does not swap tools.
+    """
+    target = str(args.get("target_bot_id") or "").strip()
+    if not target:
+        return None
+    from agent_core.cards import routing
+
+    edge = routing.handoff_edge(agent_card or {}, target)
+    entry = str(edge.get("entry_node") or "").strip() or (entries or {}).get(target, "")
+    node = walker.node(entry) if entry else None
+    return walker.move_to(node) if node is not None else None
+
+
 def _run_sandbox_tool_loop(
     *,
     messages: list[dict[str, Any]],
@@ -265,8 +292,17 @@ def _run_sandbox_tool_loop(
     temperature: float,
     max_tokens: int,
     agent_card: dict[str, Any] | None = None,
-) -> tuple[str, int, int, list[dict[str, Any]]]:
-    """Shared catalog tools under a max-iteration budget (unification Phase D)."""
+    walker: Any | None = None,
+    specialist_grants: dict[str, set[str]] | None = None,
+    specialist_entries: dict[str, str] | None = None,
+) -> tuple[str, int, int, list[dict[str, Any]], list[str]]:
+    """Shared catalog tools under a max-iteration budget (unification Phase D).
+
+    With a ``walker``, the offer is the *current node's* — the card's grant
+    narrowed by the authored script, which is what the voice path does at every
+    step. Without one (a card with no authored flow), the offer is the whole
+    channel-filtered grant, exactly as before.
+    """
     from agent_core.skills.runtime import resolve_mouth
     from agent_core.tools.catalog import CATALOG
     from agent_core.tools.schema import CHANNEL_TEXT
@@ -275,17 +311,52 @@ def _run_sandbox_tool_loop(
     tool_state = mouth.tools(
         channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
     )
-    tools = CATALOG.openai_tools(list(tool_state.offered or ()))
+    granted = set(tool_state.offered or ())
+
+    def _offer() -> tuple[list[dict[str, Any]], list[str]]:
+        """This turn's tools, and the names for the response.
+
+        Recomputed inside the loop because a transition changes the offer: the
+        step after ``go_to_negotiate`` must not still be offering the step before
+        it. Generated tools are built here rather than taken from the catalog —
+        they are not catalog tools, they are how the graph moves.
+        """
+        if walker is None:
+            names = sorted(granted)
+            return CATALOG.openai_tools(list(tool_state.offered or ())), names
+        # Narrowed to the member the cursor stands in before the step narrows
+        # it further, so a rehearsal of a hop shows the receiving specialist's
+        # tools and not the sending one's.
+        # Widen to every member in the graph first, or the receiving
+        # specialist's own tools are refused as ungranted the moment a rehearsed
+        # hop lands — the mirror of the narrowing below.
+        step_grant = walker.narrow(walker.union(granted, specialist_grants), specialist_grants)
+        names = walker.offers(granted=step_grant)
+        catalog_names = [n for n in names if n in step_grant]
+        if not catalog_names and not walker.transitions():
+            # Same floor bot_runtime applies: a step with no exit on this channel
+            # falls back to the whole grant rather than offering nothing. The
+            # built-in script's steps hop on voice-only tools, which is what
+            # G-F11 warns about — a rehearsal that offered nothing would be
+            # measuring the gap rather than the card.
+            catalog_names = list(tool_state.offered or ())
+            names = catalog_names
+        schemas = CATALOG.openai_tools(catalog_names)
+        schemas.extend(flow_walk.openai_graph_tools(walker))
+        return schemas, names
+
     working = list(messages)
     tool_trace: list[dict[str, Any]] = []
     total_tokens = 0
     total_latency = 0
     bot_text = ""
     simulated_identity_verified = False
+    offered_names: list[str] = []
 
     tools_pending = False
     for _ in range(_SANDBOX_MAX_TOOL_ITERS):
         tools_pending = False
+        tools, offered_names = _offer()
         chat = azure_openai.chat_with_tools(
             working,
             tools=tools,
@@ -332,7 +403,27 @@ def _run_sandbox_tool_loop(
             except json.JSONDecodeError:
                 args = {}
             allowed = tool_state.allowed
-            if allowed is not None and name not in allowed:
+            if walker is not None and name.startswith(flow_walk.TRANSITION_PREFIX):
+                # A graph move, not a catalog tool. It is never gated by the
+                # grant: the grant says what the agent may *do*, the graph says
+                # where it may go, and an author who drew the edge authorised it.
+                target = walker.advance(name)
+                ok = target is not None
+                result = (
+                    {"ok": True, "node": target.key}
+                    if target is not None
+                    else {"ok": False, "error": "unknown_node"}
+                )
+            elif walker is not None and name == flow_walk.EXTRACT_TOOL:
+                captured = walker.capture(args)
+                # The variables an expression edge tests just changed, so this is
+                # exactly when a deterministic transition can newly become true.
+                moved = walker.advance()
+                ok = True
+                result = {"ok": True, "captured": captured}
+                if moved is not None:
+                    result["node"] = moved.key
+            elif allowed is not None and name not in allowed:
                 ok = False
                 result = {"ok": False, "error": "tool_not_on_card_or_skill", "tool": name, "simulated": True}
             else:
@@ -355,6 +446,21 @@ def _run_sandbox_tool_loop(
                     ok, result = simulate_sandbox_tool(name, args)
                     if ok and name == "identify_customer":
                         simulated_identity_verified = True
+                    if ok and walker is not None:
+                        if name == "handoff_to_agent":
+                            # A handoff has no edge to follow — the card's
+                            # allowlist is the edge — so the cursor is moved
+                            # onto the target's entry the way both live mouths
+                            # do it. This is where a hop first becomes
+                            # rehearsable without a phone call.
+                            moved = _sandbox_hop(walker, args, agent_card, specialist_entries)
+                        else:
+                            # A built-in tool is also a transition — the
+                            # built-in script moves entirely this way, with no
+                            # authored edges.
+                            moved = walker.advance(name)
+                        if moved is not None and isinstance(result, dict):
+                            result["node"] = moved.key
             serialized = json.dumps(result if isinstance(result, dict) else {"result": result})
             if len(serialized) > _SANDBOX_MAX_TOOL_RESULT_CHARS:
                 serialized = (
@@ -399,7 +505,7 @@ def _run_sandbox_tool_loop(
 
     if not bot_text:
         bot_text = "I understand. Let me help you with that."
-    return bot_text, total_latency, max(1, total_tokens), tool_trace
+    return bot_text, total_latency, max(1, total_tokens), tool_trace, offered_names
 
 # Absolute ceiling on customer→bot exchanges per run (cost control).
 _HARD_MAX_TURNS = max(1, int(os.getenv("SANDBOX_HARD_MAX_TURNS", "3")))
@@ -773,6 +879,32 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         else version.get("agentCard") or {}
     )
     contract_flow = compiled.get("flow") if isinstance(compiled.get("flow"), dict) else {}
+    # The authored graph, walked rather than described. Before this the sandbox
+    # read `flow` only to render a lozenge saying it had not run it, so "Test in
+    # Sandbox" exercised the grant but never the script that narrows it.
+    #
+    # A flow that will not parse leaves the walker None: the compiler passed the
+    # card, this runtime could not walk it, and the honest report of that is the
+    # older flowStatus — not a silently prompt-only run that looks identical to
+    # a card with no flow at all.
+    flow_walker = None
+    if contract_flow:
+        try:
+            flow_walker = FlowWalker(
+                parse_graph(contract_flow),
+                FlowVariables({}),
+                start=None,
+            )
+            resume = str(payload.get("nodeKey") or "").strip()
+            if resume:
+                node = flow_walker.node(resume)
+                if node is None:
+                    logger.warning("sandbox: unknown nodeKey %r — restarting the graph", resume)
+                else:
+                    flow_walker.move_to(node)
+        except Exception:
+            logger.exception("sandbox: authored flow will not parse — running prompt-only")
+            flow_walker = None
     guardrails = (
         compiled.get("guardrails")
         if isinstance(compiled.get("guardrails"), dict)
@@ -911,18 +1043,30 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     t0 = time.perf_counter()
     tool_trace: list[dict[str, Any]] = []
+    # Empty on the prompt-only path: no tool loop ran, so the graph offered
+    # nothing. Reported as absent rather than as an empty offer.
+    offered_tools: list[str] = []
     turn_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
     from agent_core.telemetry import span as _span
 
     try:
         with _span("gen_ai.invoke_agent", gen_ai_operation_name="invoke_agent", gen_ai_agent_name="sandbox"):
             if _sandbox_tools_enabled(payload, turn_context):
-                bot_text, chat_latency, tokens, tool_trace = _run_sandbox_tool_loop(
+                (
+                    bot_text,
+                    chat_latency,
+                    tokens,
+                    tool_trace,
+                    offered_tools,
+                ) = _run_sandbox_tool_loop(
                     messages=messages,
                     intent=str(intent or "general"),
                     temperature=temperature,
                     max_tokens=max_tokens,
                     agent_card=contract_card,
+                    walker=flow_walker,
+                    specialist_grants=flow_walk.specialist_grants(compiled),
+                    specialist_entries=flow_walk.specialist_entries(compiled),
                 )
             else:
                 with _span("gen_ai.chat", gen_ai_operation_name="chat"):
@@ -1141,10 +1285,18 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "promptVersionId": version["id"],
         "compiledBundleHash": compiled.get("bundle_hash"),
         "flowStatus": (
-            "validated_not_executed_in_text_rehearsal"
+            "walked"
+            if flow_walker is not None
+            else "validated_not_executed_in_text_rehearsal"
             if contract_flow
             else "not_authored"
         ),
+        "nodeKey": (
+            flow_walker.current.key
+            if flow_walker is not None and flow_walker.current is not None
+            else None
+        ),
+        "offeredTools": offered_tools or None,
         "customerTurn": {
             "id": customer_turn_id,
             "role": "customer",
