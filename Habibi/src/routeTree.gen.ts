@@ -26,6 +26,7 @@ import { Route as HandoffRouteImport } from './routes/handoff'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as KnowledgeBaseRouteImport } from './routes/knowledge-base'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as PromisesRouteImport } from './routes/promises'
 import { Route as PromptStudioRouteImport } from './routes/prompt-studio'
 import { Route as QaRouteImport } from './routes/qa'
@@ -130,6 +131,11 @@ const KnowledgeBaseRoute = KnowledgeBaseRouteImport.update({
 } as any).lazy(() =>
   import('./routes/knowledge-base.lazy').then((d) => d.Route),
 )
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PromisesRoute = PromisesRouteImport.update({
   id: '/promises',
   path: '/promises',
@@ -234,6 +240,7 @@ export interface FileRoutesByFullPath {
   '/inbox': typeof InboxRoute
   '/integrations': typeof IntegrationsRoute
   '/knowledge-base': typeof KnowledgeBaseRoute
+  '/login': typeof LoginRoute
   '/promises': typeof PromisesRoute
   '/prompt-studio': typeof PromptStudioRoute
   '/qa': typeof QaRoute
@@ -267,6 +274,7 @@ export interface FileRoutesByTo {
   '/inbox': typeof InboxRoute
   '/integrations': typeof IntegrationsRoute
   '/knowledge-base': typeof KnowledgeBaseRoute
+  '/login': typeof LoginRoute
   '/promises': typeof PromisesRoute
   '/prompt-studio': typeof PromptStudioRoute
   '/qa': typeof QaRoute
@@ -303,6 +311,7 @@ export interface FileRoutesById {
   '/inbox': typeof InboxRoute
   '/integrations': typeof IntegrationsRoute
   '/knowledge-base': typeof KnowledgeBaseRoute
+  '/login': typeof LoginRoute
   '/promises': typeof PromisesRoute
   '/prompt-studio': typeof PromptStudioRoute
   '/qa': typeof QaRoute
@@ -340,6 +349,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/integrations'
     | '/knowledge-base'
+    | '/login'
     | '/promises'
     | '/prompt-studio'
     | '/qa'
@@ -373,6 +383,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/integrations'
     | '/knowledge-base'
+    | '/login'
     | '/promises'
     | '/prompt-studio'
     | '/qa'
@@ -408,6 +419,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/integrations'
     | '/knowledge-base'
+    | '/login'
     | '/promises'
     | '/prompt-studio'
     | '/qa'
@@ -444,6 +456,7 @@ export interface RootRouteChildren {
   InboxRoute: typeof InboxRoute
   IntegrationsRoute: typeof IntegrationsRoute
   KnowledgeBaseRoute: typeof KnowledgeBaseRoute
+  LoginRoute: typeof LoginRoute
   PromisesRoute: typeof PromisesRoute
   PromptStudioRoute: typeof PromptStudioRoute
   QaRoute: typeof QaRoute
@@ -575,6 +588,13 @@ declare module '@tanstack/react-router' {
       path: '/knowledge-base'
       fullPath: '/knowledge-base'
       preLoaderRoute: typeof KnowledgeBaseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/promises': {
@@ -742,6 +762,7 @@ const rootRouteChildren: RootRouteChildren = {
   InboxRoute: InboxRoute,
   IntegrationsRoute: IntegrationsRoute,
   KnowledgeBaseRoute: KnowledgeBaseRoute,
+  LoginRoute: LoginRoute,
   PromisesRoute: PromisesRoute,
   PromptStudioRoute: PromptStudioRoute,
   QaRoute: QaRoute,
