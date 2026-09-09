@@ -81,6 +81,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   useAgentStudioCard,
   useCompileCard,
+  useCompilePreview,
   useDeploymentExperiments,
   type CompileReport,
 } from "@/api/agent-studio";
@@ -459,6 +460,14 @@ export function PromptStudioPage({
   // cheerfully reported "full ship" for a publish that then 422'd at 40%.
   // A card-less bot has nowhere to put them, so it falls back to local state.
   const cardIsAuthored = isAuthoredCard(effectiveCard);
+  // The Tools tab has always had a live grant, because it runs its own preview.
+  // The Flow tab read `compileReport`, which is null until somebody presses
+  // Publish or Compile and is reset to null on every recompile — so the canvas's
+  // "not on this card" chip, the whole point of FLOW-3, was invisible in an
+  // ordinary authoring session and stale afterwards. Two tabs of one editor
+  // disagreeing about the same card's grant is the drift this phase is removing.
+  const flowPreview = useCompilePreview(botId, { agentCard: effectiveCard }, cardIsAuthored);
+  const grantTools = compileReport?.effective_tools ?? flowPreview.data?.effective_tools;
 
   /**
    * What production is running, for a bot that has nowhere to author it.
@@ -1601,7 +1610,7 @@ export function PromptStudioPage({
                       graph={flow as FlowGraph}
                       onChange={setFlow}
                       onValidation={onFlowValidation}
-                      grantTools={compileReport?.effective_tools}
+                      grantTools={grantTools}
                     />
                   )}
                 </div>

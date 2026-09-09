@@ -37,7 +37,6 @@ import type {
   PoolKind,
   PostCallQa,
   PostCallRule,
-  TimeOfDay,
   VoicemailMode,
 } from "@/api/agent-card";
 import type { OutboundVocabulary } from "@/api/outbound";

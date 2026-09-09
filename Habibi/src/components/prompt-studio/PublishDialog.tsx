@@ -30,12 +30,15 @@ type DiffSide = {
    *
    * An authored card carries traffic/shadow/auto-rollback under
    * `agentCard.experiment`, so `cardChanged` already covers it. A card-less bot
-   * keeps the same three values in editor-local state, and publish ships them —
-   * so moving the canary to 40% and enabling shadow used to be summarised as
-   * "Nothing differs from what is live", on the one screen whose job is to say
-   * what is about to change about production.
+   * keeps the same values in editor-local state, and publish ships them — so
+   * moving the canary to 40% used to be summarised as "Nothing differs from what
+   * is live", on the one screen whose job is to say what is about to change
+   * about production.
+   *
+   * No `shadow`: the card can no longer declare one, and canary refuses to open
+   * one, so there is nothing left for this dialog to summarise.
    */
-  rollout?: { trafficPct: number; shadow: boolean; autoRollback: string[] } | null;
+  rollout?: { trafficPct: number; autoRollback: string[] } | null;
 };
 
 type Props = {
