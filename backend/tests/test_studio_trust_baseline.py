@@ -152,6 +152,40 @@ def test_whatsapp_does_not_flag_missing_recording_disclosure() -> None:
     assert "missing-recording-disclosure" not in text_ch
 
 
+def test_the_channel_actually_reaches_the_guardrail_from_the_turn_writer(db_tx) -> None:
+    """The gate above was green while the live path was broken.
+
+    `evaluate_and_flag_bot_turn` accepted `channel`, used it for `TurnFacts`,
+    and did not forward it to `evaluate_guardrails` — so every WhatsApp turn
+    defaulted to "voice" and wrote an `r-rec` RBI recording-disclosure
+    violation for a disclosure `prompt.py` forbids the bot from saying on text.
+    Testing the gate directly could never catch that; this goes through the
+    caller. The flag writes below fail on a synthetic interaction id and are
+    swallowed by the function's own handlers, which is why no fixture is needed.
+    """
+    from voice.persist import evaluate_and_flag_bot_turn
+
+    kwargs = dict(
+        interaction_id="INT-CHANNEL-WIRING-PROBE",
+        customer_text="hello",
+        bot_text="Please pay your overdue EMI.",
+        intent="payment_intent",
+        guardrails={"alwaysDiscloseRecording": True},
+        turn_index=1,
+        elapsed_seconds=2.0,
+        customer_bot_exchanges=1,
+        recording_disclosed=False,
+        simulated=True,
+    )
+
+    assert "missing-recording-disclosure" in evaluate_and_flag_bot_turn(
+        channel="voice", **kwargs
+    )
+    assert "missing-recording-disclosure" not in evaluate_and_flag_bot_turn(
+        channel="whatsapp", **kwargs
+    )
+
+
 def test_frozen_connector_tools_do_not_rebind_live(db_tx) -> None:
     card = card_for(COLLECTIONS_BOT_ID)
     frozen = effective_tools(

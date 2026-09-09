@@ -209,6 +209,30 @@ def test_the_chain_detects_an_edited_entry(cloned_bot: str) -> None:
     assert verdict["reason"] == "entry_hash_mismatch"
 
 
+def test_the_screen_renders_the_hashed_action_not_the_raw_column(cloned_bot: str) -> None:
+    """`action` and `botId` exist twice: in the digest, and in `audit_log`
+    columns that are outside it. The screen used to render the columns, so an
+    UPDATE against them changed what a compliance reviewer read while
+    `verify_chain` still reported ok — tamper-visible text sourced from the one
+    copy nothing protects.
+    """
+    version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
+    db.publish_prompt_version(version_id, "as shipped")
+    entry_id = _entries(cloned_bot)[0]["id"]
+
+    with db.engine.begin() as conn:
+        conn.execute(
+            text("UPDATE audit_log SET action = 'agent.rollback' WHERE id = :id"),
+            {"id": entry_id},
+        )
+
+    entry = _entries(cloned_bot)[0]
+    assert entry["action"] == "agent.publish"
+    # The digest never covered the column, so the chain cannot see this edit —
+    # which is exactly why the reader must not present it as the record.
+    assert db.agent_change_log(cloned_bot)["chain"]["ok"] is True
+
+
 def test_the_chain_detects_a_deleted_entry(cloned_bot: str) -> None:
     version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
     db.publish_prompt_version(version_id, "v1")

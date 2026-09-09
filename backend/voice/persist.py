@@ -827,6 +827,11 @@ def evaluate_and_flag_bot_turn(
         customer_bot_exchanges=customer_bot_exchanges,
         hard_max_turns=50,  # voice calls are longer than sandbox
         max_waiver_inr=max_waiver_inr,
+        # Text channels do not read the recording disclosure — `prompt.py`
+        # forbids it there — so without this the WhatsApp path defaulted to
+        # "voice" and wrote an `r-rec` RBI violation on every turn for a
+        # disclosure the bot is not allowed to say.
+        channel=channel,
         # Whether an EARLIER turn already disclosed. Without it the check is
         # per-turn and a compliant opening turn is followed by a false
         # "missing-recording-disclosure" on the next one.

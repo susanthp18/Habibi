@@ -777,11 +777,12 @@ def sync_attachments_from_card(prompt_version_id: str, card_raw: dict[str, Any] 
         if not refs:
             return
         for ref in refs:
-            exact = (
-                ref.version
-                if ref.pin == "exact" and ref.version not in {"1", "1.0.0"}
-                else None
-            )
+            # Same rule as `packs_for_skill_refs`, deliberately: it stopped
+            # exempting the default version, and while this still did, a card
+            # pinned to a missing `1` dropped the pack at runtime but recorded
+            # an attachment row claiming it was attached. What runs and what the
+            # audit record says have to agree.
+            exact = str(ref.version or "1") if ref.pin == "exact" else None
             signed = _latest_signed_version(
                 conn,
                 slug=ref.skill_id,

@@ -453,7 +453,14 @@ def read_entries(
                 "action": row["action"],
                 "botId": row["entity_id"],
                 "at": str(row["created_at"]) if row["created_at"] else None,
-                **{k: v for k, v in payload.items() if k not in {"action", "botId"}},
+                # The payload copies of `action` and `botId` are inside the
+                # digest; the `audit_log` columns above are not. Excluding them
+                # here meant the screen rendered the unhashed value, so editing
+                # `audit_log.action` directly showed the tampered text while
+                # `verify_chain` still reported ok. Letting the hashed copy win
+                # is monotone: rows written before it was hashed carry neither
+                # key and keep falling through to the column.
+                **payload,
             }
         )
     return out
