@@ -166,6 +166,10 @@ function SkillEditor() {
     );
   }
 
+  // Published first — rehearsing on what is live is the more faithful run — then
+  // any draft that carries it. Never a card that does not have this skill.
+  const rehearsalTarget = skill.attachedCards?.[0] ?? skill.rehearsalCards?.[0];
+
   return (
     <AppShell>
       <div className="flex h-full min-h-0 flex-col">
@@ -189,18 +193,26 @@ function SkillEditor() {
             <Button
               type="button"
               variant="outline"
+              // A card that actually carries this skill, or nothing. The
+              // fallback used to be kaia-v2-4: opening the sandbox from an
+              // insurance-only skill loaded the collections bot and rehearsed a
+              // skill that card does not carry — a green run proving nothing
+              // about the skill you were editing. Naming a published card fixed
+              // the attached case and left the authoring one, because
+              // `attachedCards` counts published versions only and a tenant
+              // skill you are still writing has none. `rehearsalCards` includes
+              // drafts, which is that case; with neither, the button refuses
+              // rather than guessing.
+              disabled={!rehearsalTarget}
+              title={
+                rehearsalTarget
+                  ? `Rehearse on ${rehearsalTarget}`
+                  : "Attach this skill to a card first — there is no card to rehearse it on."
+              }
               onClick={() =>
                 void navigate({
                   to: "/sandbox",
-                  search: {
-                    skillSlug: skill.slug,
-                    // The card this skill is actually attached to. It was
-                    // hardcoded to kaia-v2-4, so opening the sandbox from an
-                    // insurance-only skill loaded the collections bot and
-                    // sandboxed a skill that card does not carry — a green run
-                    // that proves nothing about the skill you were editing.
-                    botId: skill.attachedCards?.[0] ?? "kaia-v2-4",
-                  },
+                  search: { skillSlug: skill.slug, botId: rehearsalTarget },
                 })
               }
             >

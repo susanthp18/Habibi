@@ -2567,8 +2567,22 @@ class SandboxRunDetailResponse(BaseModel):
 
 
 class SandboxContext(BaseModel):
+    """The scenario persona, as the renderer and the tool loop see it.
+
+    Every field below was display-only until ``customer_id`` was added, which is
+    why ``_sandbox_tools_enabled``'s ``ctx.get("customerId")`` branch could never
+    be true: under ``extra="forbid"`` there was no field that could carry one, so
+    a scenario could describe a borrower the tools had no way to look up.
+
+    A real ``customers`` id makes the tools read that borrower's real rows — the
+    honest rehearsal, and the reason this is an explicit per-scenario opt-in
+    rather than a default. Leave it unset and the run is prompt-only, exactly as
+    before.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
+    customer_id: str | None = None
     customer_name: str | None = None
     account_no: str | None = None
     overdue_amount: str | None = None
@@ -2620,6 +2634,12 @@ class SandboxTurnCreateRequest(BaseModel):
     history: list[SandboxHistoryItem] = []
     context: SandboxContext | None = None
     topK: int = Field(default=4, ge=1, le=20)
+    #: Which step of the authored flow this turn continues. Absent means "start
+    #: the graph": the first turn of a run, or a card with no authored flow.
+    #: Round-tripped rather than stored because a sandbox run is a rehearsal the
+    #: operator can rewind by re-posting an earlier node — the server keeps the
+    #: transcript authoritative and lets the client own the cursor.
+    nodeKey: str | None = None
     # The studio always posts this (Habibi/src/api/sandbox.ts) and
     # sandbox_runtime pins the active skill from it. Omitted here, every
     # customer turn was rejected 422 by extra="forbid" before the handler ran.
@@ -2677,9 +2697,19 @@ class SandboxTurnResponse(BaseModel):
     runId: str
     promptVersionId: str
     compiledBundleHash: str | None = None
+    #: ``walked`` means the authored graph decided which tools this turn offered.
+    #: The older ``validated_not_executed_in_text_rehearsal`` is kept for a card
+    #: whose flow will not parse — the compiler passed it, this runtime could not
+    #: walk it, and saying so is the point of the lozenge.
     flowStatus: Literal[
-        "validated_not_executed_in_text_rehearsal", "not_authored"
+        "walked", "validated_not_executed_in_text_rehearsal", "not_authored"
     ] | None = None
+    #: The step the run is on after this turn, to post back as ``nodeKey``.
+    nodeKey: str | None = None
+    #: What the graph offered the model on this turn — the node's granted tools
+    #: plus its generated transitions. This is the thing "Test in Sandbox" could
+    #: not show before: the script's effect on the grant, step by step.
+    offeredTools: list[str] | None = None
     customerTurn: SandboxCustomerTurn
     botTurn: SandboxBotTurn
 
@@ -3680,6 +3710,11 @@ class AgentStudioSkillSummaryResponse(BaseModel):
     version: str
     status: str
     attachedCards: list[str]
+    #: Cards that can *rehearse* this skill — `attachedCards` plus draft
+    #: versions. Separate because `attachedCards` answers "who is live on this",
+    #: which an operator reads before deleting or re-signing, and drafts would
+    #: inflate that number.
+    rehearsalCards: list[str] = []
     evalSuite: Any | None
     contentHash: str
     signed: bool

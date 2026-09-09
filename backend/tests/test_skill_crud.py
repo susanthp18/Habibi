@@ -94,3 +94,52 @@ def test_clone_rejects_a_taken_slug(scratch_slug: str) -> None:
 
 def test_unique_slug_skips_taken_names(db_tx) -> None:
     assert unique_slug("verify-and-disclose") == "verify-and-disclose-2"
+
+
+def test_a_draft_attachment_is_rehearsable_but_not_counted_as_live(db_tx) -> None:
+    """Two questions, two answers, deliberately not one column.
+
+    `attachedCards` answers "who is live on this skill" — the number an operator
+    reads before deleting or re-signing one, which drafts would inflate.
+    `rehearsalCards` answers "which card can rehearse it", and a draft is the
+    common case: a tenant skill still being authored has no published version
+    anywhere, so the sandbox button fell back to `kaia-v2-4` and rehearsed a
+    card that does not carry the skill being edited.
+    """
+    from sqlalchemy import text as _text
+
+    from agent_core.skills.persist import list_skills
+
+    slug = "ptp-negotiate"
+    before = next(s for s in list_skills() if s["slug"] == slug)
+
+    draft_pv = db_tx.execute(
+        _text(
+            """
+            SELECT id, bot_id FROM prompt_versions
+             WHERE status = 'draft' AND agent_card IS NOT NULL
+             LIMIT 1
+            """
+        )
+    ).mappings().first()
+    if not draft_pv:
+        pytest.skip("no draft prompt version to attach to")
+
+    version_id = db_tx.execute(
+        _text("SELECT id FROM skill_versions WHERE skill_id = (SELECT id FROM skills WHERE slug = :s)"),
+        {"s": slug},
+    ).scalar()
+    db_tx.execute(
+        _text(
+            """
+            INSERT INTO skill_attachments (prompt_version_id, skill_version_id)
+            VALUES (:pv, :sv) ON CONFLICT DO NOTHING
+            """
+        ),
+        {"pv": draft_pv["id"], "sv": version_id},
+    )
+
+    after = next(s for s in list_skills() if s["slug"] == slug)
+    assert draft_pv["bot_id"] in after["rehearsalCards"]
+    # The live count is unchanged: a draft is not a consumer.
+    assert sorted(after["attachedCards"]) == sorted(before["attachedCards"])

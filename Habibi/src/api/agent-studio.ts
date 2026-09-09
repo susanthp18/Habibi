@@ -501,6 +501,8 @@ export type SkillSummary = {
   version: string;
   status: string;
   attachedCards: string[];
+  /** `attachedCards` plus draft versions — which card can rehearse this skill. */
+  rehearsalCards?: string[];
   signed: boolean;
   hasSignedVersion?: boolean;
   latestVersionId?: string;

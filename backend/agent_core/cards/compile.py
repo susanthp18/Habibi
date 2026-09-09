@@ -1133,7 +1133,15 @@ def compile_card(
     # Default cards require regression+redteam only; skip honestly, never fake-green.
     twin_required = bool(card and "twin" in (card.eval.require or []))
     gates.append(
-        _eval_gate("G11", "twin", twin_required, twin_report, card, skip=skip_eval_gates)
+        _eval_gate(
+            "G11",
+            "twin",
+            twin_required,
+            twin_report,
+            card,
+            skip=skip_eval_gates,
+            where=" — run it from the Sandbox inspector's Twin tab",
+        )
     )
 
     # G9 signed skills + allowed-tools ⊆ catalog ∩ (include ∪ locked)
@@ -1436,7 +1444,13 @@ def _eval_gate(
     card: AgentCard | None,
     *,
     skip: bool = False,
+    where: str = "",
 ) -> GateResult:
+    """``where`` names the screen that can satisfy this gate, when it is not the
+    Evals tab. Only the Twin needs it: the tab's suites write ``eval_reports``
+    and G11 reads ``twin_runs``, so an operator who ticks Twin and then runs
+    everything in front of them never moves this gate.
+    """
     if skip:
         return _gate(gate, name, "skipped", "rollback of a previously published version")
     if not flag_on:
@@ -1445,7 +1459,7 @@ def _eval_gate(
     if name not in required and card is not None:
         return _gate(gate, name, "skipped", f"{name} not in card.eval.require")
     if report is None:
-        return _gate(gate, name, "fail", f"{name} suite has not been run")
+        return _gate(gate, name, "fail", f"{name} suite has not been run{where}")
     status = str(report.get("status") or "")
     if status == "pass":
         return _gate(gate, name, "pass", report.get("id") or "")

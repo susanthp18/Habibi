@@ -290,8 +290,14 @@ export function PolicyTab({ card }: { card: AgentCard }) {
 const EVAL_REQUIRE: Array<{ key: EvalRequire; label: string; hint: string }> = [
   { key: "regression", label: "Regression", hint: "the behaviours that already worked" },
   { key: "redteam", label: "Red team", hint: "adversarial callers and prompt injection" },
-  { key: "capability", label: "Capability", hint: "the things this card claims it can do" },
-  { key: "twin", label: "Twin", hint: "replays of real calls against the candidate" },
+  {
+    key: "twin",
+    label: "Twin",
+    // Where to run it, because it is not here. The Twin has its own runner in
+    // the Sandbox inspector; the Evals tab's suites write `eval_reports` and
+    // G11 reads `twin_runs`, so nothing on this screen can satisfy this box.
+    hint: "replays of real calls — run it from the Sandbox inspector's Twin tab",
+  },
   { key: "outbound", label: "Outbound", hint: "gated by G-OB9, on the same terms as G7/G8" },
 ];
 

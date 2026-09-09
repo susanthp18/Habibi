@@ -18,7 +18,12 @@ Channel = Literal["voice", "whatsapp", "sms", "internal", "mcp", "a2a"]
 PinMode = Literal["exact", "caret"]
 HandoffCarry = Literal["brief", "full"]
 PolicyBinding = Literal["required"]
-EvalRequire = Literal["regression", "redteam", "capability", "twin", "outbound"]
+#: No ``capability``. It was offered as a publish requirement and read by
+#: nothing: ``_eval_gate`` matches a requirement against a *gate name*, and no
+#: gate is called ``capability`` — so ticking it changed no publish outcome. No
+#: stored card carried it (18/18 rows are ``["regression", "redteam"]``), so it
+#: needs no tolerated-drop path; an invented value must still fail loudly.
+EvalRequire = Literal["regression", "redteam", "twin", "outbound"]
 #: What may pull a canary automatically.
 #:
 #: The first three describe a canary that is *slow*; the last three describe one

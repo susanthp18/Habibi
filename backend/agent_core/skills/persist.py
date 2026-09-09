@@ -55,6 +55,7 @@ def _map_skill(row: dict[str, Any], *, versions: list[dict[str, Any]] | None = N
         "version": (latest or {}).get("version") or "1",
         "status": (latest or {}).get("status") or row["signature_status"],
         "attachedCards": row.get("attached_cards") or [],
+        "rehearsalCards": row.get("rehearsal_cards") or [],
         "evalSuite": (latest or {}).get("evalSuite"),
         "contentHash": (latest or {}).get("contentHash") or "",
         "signed": bool(
@@ -136,7 +137,31 @@ def list_skills(*, _synced: bool = False) -> list[dict[str, Any]]:
                               WHERE sv.skill_id = s.id
                                 AND pv.status = 'published'
                                 AND b.archived_at IS NULL
-                           ), '[]'::json) AS attached_cards
+                           ), '[]'::json) AS attached_cards,
+                           -- The same join, drafts included, for "open this in
+                           -- the sandbox". Deliberately NOT folded into the
+                           -- column above: that one answers "who is live on
+                           -- this skill", which an operator reads before
+                           -- deleting or re-signing, and drafts would inflate
+                           -- it — the exact bug the note above records.
+                           --
+                           -- This one answers "which card can rehearse it",
+                           -- and a draft attachment is the common case: a
+                           -- tenant skill you are still authoring has no
+                           -- published version anywhere, so the button fell
+                           -- back to kaia-v2-4 and rehearsed a card that does
+                           -- not carry the skill being edited.
+                           COALESCE((
+                             SELECT json_agg(DISTINCT pv.bot_id)
+                               FROM skill_attachments sa
+                               JOIN skill_versions sv ON sv.id = sa.skill_version_id
+                               JOIN prompt_versions pv ON pv.id = sa.prompt_version_id
+                               LEFT JOIN bots b ON b.id = pv.bot_id
+                                                AND b.tenant_id = pv.tenant_id
+                              WHERE sv.skill_id = s.id
+                                AND pv.status IN ('published', 'draft')
+                                AND b.archived_at IS NULL
+                           ), '[]'::json) AS rehearsal_cards
                       FROM skills s
                      WHERE s.tenant_id = :tenant
                      ORDER BY s.slug

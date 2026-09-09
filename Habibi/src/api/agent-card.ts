@@ -40,7 +40,7 @@ export type MemoryScope = "turn" | "call" | "case" | "customer";
 export type PinMode = "exact" | "caret";
 /** Single-valued today. A binding exists to be *checked*, not to be chosen. */
 export type PolicyBinding = "required";
-export type EvalRequire = "regression" | "redteam" | "capability" | "twin" | "outbound";
+export type EvalRequire = "regression" | "redteam" | "twin" | "outbound";
 /**
  * The three on the first line describe a canary that is *slow*. The three on the
  * second describe one that is *harmful*, and outbound needed its own: an inbound

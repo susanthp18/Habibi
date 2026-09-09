@@ -292,3 +292,35 @@ def test_g17_skips_rather_than_guessing() -> None:
         ).status
         == "skipped"
     )
+
+
+def test_capability_is_no_longer_a_publish_requirement() -> None:
+    """It was offered as one and read by nothing.
+
+    `_eval_gate` matches a requirement against a *gate name*, and no gate is
+    called `capability` — so ticking it changed no publish outcome. No stored
+    card carried it, so it is deleted outright rather than tolerated on read:
+    an invented value must still fail loudly.
+    """
+    import pydantic
+    import pytest
+
+    from agent_core.cards.schema import AgentCard
+
+    raw = card_dump(COLLECTIONS_BOT_ID)
+    raw["eval"] = {**(raw.get("eval") or {}), "require": ["capability"]}
+    with pytest.raises(pydantic.ValidationError):
+        AgentCard.model_validate(raw)
+
+
+def test_the_twin_gate_says_where_to_run_it() -> None:
+    """G11 reads `twin_runs`; the Evals tab's suites write `eval_reports`. An
+    operator who ticks Twin and runs everything in front of them never moves
+    this gate, so the failure has to name the screen that does."""
+    from agent_core.cards.compile import _eval_gate
+
+    gate = _eval_gate(
+        "G11", "twin", True, None, None, where=" — run it from the Sandbox inspector's Twin tab"
+    )
+    assert gate.status == "fail"
+    assert "Sandbox" in gate.detail and "Twin tab" in gate.detail
