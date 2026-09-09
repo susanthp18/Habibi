@@ -978,8 +978,39 @@ def compile_agent_studio_card(
         prompt_version_id=version_id,
         attached_skills=attached,
         source_ids={"bot_id": bot_id, "prompt_version_id": str(version_id or "")},
+        members=_fleet_members(card),
     )
     return report.model_copy(update={"bundle": bundle.model_dump(mode="json")}).model_dump()
+
+
+def _fleet_members(card_raw: Any) -> list[dict[str, Any]]:
+    """The published card and flow of every agent this one hands off to.
+
+    The fleet is already declared — it is the card's handoff allowlist — so an
+    author never types a namespace and there is no second place for the roster
+    to drift from. A target with no published version is skipped rather than
+    guessed at; it simply contributes no subgraph, and the hop into it stays a
+    ledger row.
+    """
+    from agent_core.cards import routing
+
+    out: list[dict[str, Any]] = []
+    for target in sorted(set(routing.handoff_targets(card_raw))):
+        try:
+            published = get_published_prompt_version(target)
+        except Exception:
+            logger.debug("fleet member lookup failed for %s", target, exc_info=True)
+            continue
+        if not published:
+            continue
+        out.append(
+            {
+                "bot_id": target,
+                "card": published.get("agentCard") or {},
+                "flow": published.get("flow") if isinstance(published.get("flow"), dict) else {},
+            }
+        )
+    return out
 
 
 def get_effective_contract(bot_id: str) -> dict[str, Any]:
@@ -2160,6 +2191,7 @@ def publish_prompt_version(
             prompt_version_id=version_id,
             attached_skills=attached,
             source_ids={"bot_id": bot_id, "prompt_version_id": version_id},
+            members=_fleet_members(shipped_card),
         )
         compiled_dump = compiled_bundle.model_dump(mode="json")
         bundle_hash = compiled_bundle.bundle_hash

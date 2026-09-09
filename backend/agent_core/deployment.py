@@ -166,7 +166,10 @@ def _dual_compute_parity(bundle: dict[str, Any]) -> None:
             bundle["prompt"] = parsed.prompt
             bundle["persona"] = parsed.persona
             bundle["guardrails"] = parsed.guardrails
-            bundle["flow"] = parsed.flow
+            # The merged graph when there is a fleet, the authored one when
+            # there is not. `fleet_flow` is empty for every card today, so this
+            # is the same line it has always been until a second member exists.
+            bundle["flow"] = parsed.fleet_flow or parsed.flow
             bundle["agentCard"] = parsed.agent_card
     except Exception:
         logger.exception("compiled-bundle parity check failed")

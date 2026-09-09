@@ -10,8 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Sequence
 from typing import Any
 
+import flow_graph as fg
 from agent_core.cards.compile import CompileReport, node_offers
 from agent_core.cards.schema import AgentCard, is_authored, parse_card
 from agent_core.fleet.schema import (
@@ -42,6 +44,84 @@ def bundle_hash_valid(bundle: CompiledBundle) -> bool:
     return bool(claimed) and claimed == digest(payload)
 
 
+def _member_grant(card_raw: Any) -> set[str]:
+    """One member's voice grant, from its own published card.
+
+    Its *own*: the whole point of the hop is that the receiving specialist
+    brings its own tools. Signed packs are deliberately not folded in yet — no
+    member attaches one, and a grant that quietly widened from a pack the fleet
+    compiler never read would be the same bug in a new place.
+    """
+    # ponytail: card ∪ locked only. Add packs when a member actually attaches one.
+    try:
+        card = parse_card(card_raw) if is_authored(card_raw) else None
+    except Exception:
+        card = None
+    if card is None:
+        return set()
+    return set(ToolGrant.for_card(card, (), channel=VOICE).allowed)
+
+
+def _merge_members(
+    *,
+    primary_bot_id: str,
+    primary_flow: dict[str, Any],
+    primary_grant: set[str],
+    members: Sequence[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, str], dict[str, list[str]]]:
+    """Fold each member's graph into one namespaced graph.
+
+    Returns ``(fleet_flow, entry_by_specialist, grant_by_specialist)``. With no
+    members the first is empty and the other two describe the primary alone, so
+    a one-member fleet compiles to today's behaviour and the runtime falls back
+    to the authored flow.
+
+    The namespace is the **bot id**, and this is the only place in the tree that
+    writes one. Everything a hop touches — ``target_bot_id``, the handoff
+    allowlist, ``CardHandoff.to_bot_id`` — is already a bot id, so a second
+    vocabulary would be a lookup that can be wrong.
+    """
+    if not members or not primary_flow.get("nodes"):
+        return {}, {}, {}
+
+    def entry_of(graph: dict[str, Any], bot_id: str) -> str:
+        nodes = graph.get("nodes") or []
+        start = next(
+            (n for n in nodes if isinstance(n, dict) and (n.get("data") or {}).get("isStart")),
+            None,
+        )
+        node = start or next((n for n in nodes if isinstance(n, dict)), None)
+        return str((node or {}).get("key") or "")
+
+    merged_nodes: list[dict[str, Any]] = []
+    merged_edges: list[dict[str, Any]] = []
+    entries: dict[str, str] = {}
+    grants: dict[str, list[str]] = {primary_bot_id: sorted(primary_grant)}
+
+    for bot_id, graph, grant, is_primary in [
+        (primary_bot_id, primary_flow, primary_grant, True),
+        *(
+            (str(m.get("bot_id") or ""), m.get("flow") or {}, _member_grant(m.get("card")), False)
+            for m in sorted(members, key=lambda m: str(m.get("bot_id") or ""))
+        ),
+    ]:
+        if not bot_id or not (graph.get("nodes") or []):
+            continue
+        scoped = fg.namespaced(graph, bot_id, keep_start=is_primary)
+        merged_nodes.extend(scoped.get("nodes") or [])
+        merged_edges.extend(scoped.get("edges") or [])
+        entries[bot_id] = entry_of(scoped, bot_id)
+        grants[bot_id] = sorted(grant)
+
+    if len(entries) < 2:  # nothing actually merged
+        return {}, {}, {}
+    return (
+        {"version": 1, "globalTools": [], "nodes": merged_nodes, "edges": merged_edges},
+        entries,
+        grants,
+    )
+
+
 def compile_bundle(
     *,
     report: CompileReport,
@@ -52,6 +132,7 @@ def compile_bundle(
     prompt_version_id: str | None = None,
     attached_skills: list[SkillPack] | None = None,
     source_ids: dict[str, str] | None = None,
+    members: Sequence[dict[str, Any]] | None = None,
 ) -> CompiledBundle:
     """Fold a ``CompileReport`` plus mouth columns into one hashed artefact."""
     card_dump = report.card if isinstance(report.card, dict) else {}
@@ -148,7 +229,17 @@ def compile_bundle(
     voice_grant = next(
         (set(g.allowed) for g in grants if g.channel == VOICE), set(report.effective_tools)
     )
-    offers = [NodeOffer(**row) for row in node_offers(flow_obj, voice_grant)]
+    # The merged fleet graph, and the per-member grants that go with it. Empty
+    # for a one-member fleet, which is every card today: the runtime then reads
+    # `flow` and the channel grant exactly as before.
+    fleet_flow, entry_by_specialist, by_specialist = _merge_members(
+        primary_bot_id=report.bot_id,
+        primary_flow=flow_obj,
+        primary_grant=voice_grant,
+        members=members or (),
+    )
+    # Offers are reported for whatever graph the runtime will actually walk.
+    offers = [NodeOffer(**row) for row in node_offers(fleet_flow or flow_obj, voice_grant)]
 
     human_gates = []
     if card is not None:
@@ -169,6 +260,7 @@ def compile_bundle(
         connectors=connectors,
         grants=grants,
         node_offers=offers,
+        grant_by_specialist=by_specialist,
         human_gates=human_gates,
         hashes=hashes,
         gates=[g.model_dump(mode="json") for g in report.gates],
@@ -176,6 +268,8 @@ def compile_bundle(
         persona=persona,
         guardrails=guardrails,
         flow=flow_obj,
+        fleet_flow=fleet_flow,
+        entry_by_specialist=entry_by_specialist,
         agent_card=card_dump,
         bundle_hash="",
     )

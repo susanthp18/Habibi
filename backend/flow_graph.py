@@ -31,6 +31,7 @@ Design notes, and where this deliberately differs from the obvious approach:
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 from functools import lru_cache
@@ -42,6 +43,130 @@ logger = logging.getLogger(__name__)
 
 # Node keys and variable names become identifiers in tool schemas.
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
+
+#: Separates a fleet member's slug from its own node key: ``collections/wrap_up``.
+#: Two specialists must be able to own a ``wrap_up`` each — without this, one
+#: member per reserved key is the ceiling, which is one specialist per fleet.
+#: ``/`` is illegal in an OpenAI function name, so a transition tool spells it
+#: ``__`` (``flow_walk.transition_tool_name``); the graph keeps the readable form
+#: because it is what the canvas and the compile report show.
+NAMESPACE_SEP = "/"
+
+#: A member slug is a bot id, which admits hyphens (``kaia-v2-4``).
+_NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+
+
+def split_key(key: str) -> tuple[str | None, str]:
+    """``('collections', 'wrap_up')`` — or ``(None, 'wrap_up')`` when flat."""
+    namespace, sep, local = (key or "").partition(NAMESPACE_SEP)
+    return (namespace, local) if sep else (None, key or "")
+
+
+def local_key(key: str) -> str:
+    """The member-local half. A flat key is its own local key."""
+    return split_key(key)[1]
+
+
+def valid_node_key(key: str) -> bool:
+    namespace, local = split_key(key)
+    if not _KEY_RE.match(local):
+        return False
+    return namespace is None or bool(_NAMESPACE_RE.match(namespace))
+
+
+def resolve_key(keys: Iterable[str], name: str, *, namespace: str | None = None) -> str | None:
+    """Resolve a possibly-local node name against a set of graph keys.
+
+    Order is the whole point: the *speaking* member's namespace first, then the
+    name exactly as given (already-namespaced, or a flat graph), then any single
+    unambiguous namespace holding it. ``voice/tools.py`` transitions by literal
+    local name — ``_node("wrap_up")`` — and must reach its own ``wrap_up`` rather
+    than whichever member happens to be first in the merged graph.
+
+    Returns ``None`` when the name is absent or ambiguous across members; an
+    ambiguous hop is a compile-time authoring error, not something to guess at
+    mid-call.
+    """
+    keyset = set(keys)
+    if namespace:
+        scoped = f"{namespace}{NAMESPACE_SEP}{local_key(name)}"
+        if scoped in keyset:
+            return scoped
+    if name in keyset:
+        return name
+    matches = [k for k in sorted(keyset) if split_key(k)[0] and local_key(k) == name]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        logger.warning("flow node %r is ambiguous across %d namespaces", name, len(matches))
+    return None
+
+
+def graph_namespaces(flow: Any) -> set[str]:
+    """Namespaces carried by a graph's node keys. Empty for a flat graph.
+
+    One derivation, so the compiler and the runtime cannot disagree about who is
+    in a fleet. Takes the raw dict a bundle carries or a parsed ``FlowGraph``.
+    """
+    nodes = flow.nodes if isinstance(flow, FlowGraph) else (flow or {}).get("nodes") or []
+    out: set[str] = set()
+    for node in nodes:
+        key = node.key if isinstance(node, FlowNode) else (node or {}).get("key") or ""
+        namespace = split_key(key)[0]
+        if namespace:
+            out.add(namespace)
+    return out
+
+
+def namespaced(flow: dict[str, Any], ns: str, *, keep_start: bool) -> dict[str, Any]:
+    """One member's graph, rewritten to live inside a merged fleet graph.
+
+    Keys *and* ids are prefixed: two members both ship an ``n-start`` id, and
+    edges address nodes by id, so prefixing keys alone would silently cross-wire
+    the two graphs at merge time.
+
+    ``globalTools`` move onto each node's own ``tools``. That is the load-bearing
+    line. ``flows_dynamic`` builds ``global_functions`` once per graph with no
+    per-member filter, so a merged graph that kept a union of every member's
+    globals would hand the receiving specialist the sending one's tools — the
+    exact leak the hop exists to close, reappearing one level up. Routed through
+    ``data.tools`` they pass the per-node narrowing that is already there.
+
+    ``isStart`` is cleared on everything but the primary: a fleet has one door.
+    ``entryFor`` is kept, because a mission belongs to the member that owns it
+    and G-OB2 checks that pairing per card.
+    """
+    graph = copy.deepcopy(flow or {})
+    globals_ = list(graph.get("globalTools") or [])
+
+    def scoped(value: str) -> str:
+        return f"{ns}{NAMESPACE_SEP}{value}" if value else value
+
+    for node in graph.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        node["key"] = scoped(local_key(str(node.get("key") or "")))
+        node["id"] = scoped(str(node.get("id") or ""))
+        data = node.setdefault("data", {})
+        if not isinstance(data, dict):
+            continue
+        if not keep_start:
+            data["isStart"] = False
+        if globals_:
+            tools = list(data.get("tools") or [])
+            data["tools"] = tools + [t for t in globals_ if t not in tools]
+
+    for edge in graph.get("edges") or []:
+        if not isinstance(edge, dict):
+            continue
+        edge["id"] = scoped(str(edge.get("id") or ""))
+        edge["source"] = scoped(str(edge.get("source") or ""))
+        edge["target"] = scoped(str(edge.get("target") or ""))
+
+    # Folded into the nodes above; a merged graph has no member-level globals.
+    graph["globalTools"] = []
+    return graph
+
 
 #: Node keys that ``voice/tools.py`` transitions to by name. An authored graph
 #: is not required to define them; defining one wires up the corresponding
@@ -459,11 +584,12 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             err("duplicate_node_id", f"Duplicate node id {node.id!r}.", nodeId=node.id)
         seen_ids.add(node.id)
 
-        if not _KEY_RE.match(node.key):
+        if not valid_node_key(node.key):
             err(
                 "invalid_node_key",
                 f"Node key {node.key!r} must be lowercase letters, digits and "
-                "underscores, starting with a letter.",
+                "underscores, starting with a letter, optionally prefixed with "
+                "a member slug and a slash.",
                 nodeId=node.id,
             )
         elif node.key in seen_keys:
@@ -716,7 +842,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             # built-in tools open with a screenful of false positives — worst of
             # all the materialised collections script, where all 11 non-start
             # nodes are reached exactly that way.
-            if node.key in RESERVED_NODE_KEYS:
+            if local_key(node.key) in RESERVED_NODE_KEYS:
                 continue
             # A mission entry is reached by being dialled, not by an edge.
             if node.data.entryFor:

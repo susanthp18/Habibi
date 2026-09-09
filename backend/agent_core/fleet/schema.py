@@ -93,15 +93,47 @@ class CompiledBundle(BaseModel):
     grants: list[ChannelGrant] = Field(default_factory=list)
     #: Per-step offers, in graph order. Empty for a card with no authored flow.
     node_offers: list[NodeOffer] = Field(default_factory=list)
+    #: Namespace -> the tool names that member may execute. Empty for a flat
+    #: graph, which is every graph until a fleet is authored — so the runtime
+    #: falls through to :meth:`grant_for` and today's behaviour is unchanged.
+    #: This is the thing a hop swaps: without it the receiving specialist would
+    #: speak with the sending one's grant, which is precisely what a handoff is
+    #: supposed to stop.
+    grant_by_specialist: dict[str, list[str]] = Field(default_factory=dict)
     human_gates: list[dict[str, Any]] = Field(default_factory=list)
     hashes: CompiledHashes
     gates: list[dict[str, Any]] = Field(default_factory=list)
     prompt: str = ""
     persona: dict[str, Any] = Field(default_factory=dict)
     guardrails: dict[str, Any] = Field(default_factory=dict)
+    #: The card's own authored graph, exactly as published. ``hashes.flow`` is
+    #: its digest, which is why the merged graph below is a separate field: a
+    #: fleet publish must not make ``parity_report`` disagree with the canvas.
     flow: dict[str, Any] = Field(default_factory=dict)
+    #: Every member's graph merged into one, node keys namespaced by bot id.
+    #: Empty for a one-member fleet, which is every card today — the runtime
+    #: then falls back to ``flow`` and behaviour is unchanged.
+    fleet_flow: dict[str, Any] = Field(default_factory=dict)
+    #: bot_id -> the namespaced node a hop into that member lands on. Built by
+    #: the same merge that wrote the namespaces, so the two cannot disagree
+    #: about what a member's entry is called.
+    entry_by_specialist: dict[str, str] = Field(default_factory=dict)
     agent_card: dict[str, Any] = Field(default_factory=dict)
     bundle_hash: str = ""
 
     def grant_for(self, channel: str) -> ChannelGrant | None:
         return next((g for g in self.grants if g.channel == channel), None)
+
+    def allowed_for(self, channel: str, specialist: str | None = None) -> frozenset[str]:
+        """What ``specialist`` may execute on ``channel``.
+
+        Falls back to the channel grant when the graph is flat or the namespace
+        is unknown — an unrecognised specialist must not silently mean "no
+        tools", which would strand a live call mid-sentence. A namespace that
+        should not have been reachable is a compile-time error (G-F4), caught
+        before the call, not a mid-call amputation.
+        """
+        if specialist and specialist in self.grant_by_specialist:
+            return frozenset(self.grant_by_specialist[specialist])
+        grant = self.grant_for(channel)
+        return frozenset(grant.allowed if grant else ())
