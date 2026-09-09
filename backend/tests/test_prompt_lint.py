@@ -318,3 +318,25 @@ def test_no_issues_found_is_not_rendered_as_a_finding(monkeypatch) -> None:
     )
     findings = prompt_lint.lint_prompt("You are an agent.", {}, include_llm=True)
     assert [f for f in findings if f["code"] == "llm_checklist"] == []
+
+
+def test_a_double_brace_token_behaves_differently_by_spacing() -> None:
+    """Both halves are reported as errors, but for opposite reasons, and the
+    lint message used to name only one of them.
+
+    `{{customer_name}}` contains the literal `{customer_name}`, so the CRM
+    stripper matches and the whole line is deleted. `{{ customer_name }}`
+    matches neither, survives into the system message, and is read aloud. The
+    module comment asserted the second was the only behaviour.
+    """
+    from prompt_render import strip_unrendered_crm_tokens
+
+    assert strip_unrendered_crm_tokens("Hi {{customer_name}} welcome.") == ""
+    spaced = "Hi {{ customer_name }} welcome."
+    assert strip_unrendered_crm_tokens(spaced) == spaced
+
+    # Either way the author is stopped: `flow_syntax_in_prompt` is an error and
+    # G-LINT blocks the publish, so neither outcome reaches a caller.
+    for text_in in ("Hi {{customer_name}}.", "Hi {{ customer_name }}."):
+        codes = {f["code"]: f["severity"] for f in lint_prompt(text_in, {})}
+        assert codes.get("flow_syntax_in_prompt") == "error", text_in

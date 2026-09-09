@@ -18,7 +18,7 @@ from prompt_render import KNOWN_VARIABLES, SYSTEM_SAFE_VARIABLES, TOKEN_RE
 logger = logging.getLogger(__name__)
 
 #: ``{{ customer_name }}`` — the Flow tab's variable syntax. Mirrors
-#: ``voice.flow_vars._TEMPLATE_RE`` so the two surfaces agree on what a flow
+#: ``flow_vars._TEMPLATE_RE`` so the two surfaces agree on what a flow
 #: token looks like; this module only ever reports them, never renders them.
 _FLOW_TOKEN_RE = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
 
@@ -61,10 +61,16 @@ def lint_prompt(
     # Flow-authoring syntax, typed into a prompt. The Flow tab substitutes
     # ``{{ customer_name }}`` and the CRM value appears; a prompt substitutes
     # ``{customer_name}`` and the line is deleted. The two look alike, sit two
-    # tabs apart, and behave oppositely — and a double-brace token here matches
-    # neither TOKEN_RE nor the CRM stripper, so it is not substituted, not
-    # dropped, and not reported: it survives verbatim into the system message
-    # and the model reads "open brace open brace customer name" out loud.
+    # tabs apart, and behave oppositely.
+    #
+    # What a double-brace token does here depends on its spacing, which is why
+    # one sentence could not describe it: ``{{customer_name}}`` *contains* the
+    # literal ``{customer_name}``, so ``strip_unrendered_crm_tokens`` matches and
+    # deletes the whole line; ``{{ customer_name }}`` matches neither TOKEN_RE
+    # nor the CRM stripper and survives verbatim, so the model reads "open brace
+    # open brace customer name" aloud. Verified both ways against
+    # ``strip_unrendered_crm_tokens``. Reported as an error either way, and
+    # G-LINT blocks the publish, so neither outcome reaches a caller.
     for match in _FLOW_TOKEN_RE.finditer(text):
         findings.append(
             {
@@ -72,8 +78,10 @@ def lint_prompt(
                 "code": "flow_syntax_in_prompt",
                 "message": (
                     f"{{{{{match.group(1)}}}}} is Flow variable syntax, which a prompt "
-                    "never substitutes — the braces are spoken aloud. Prompt "
-                    "variables use single braces, and only "
+                    "never substitutes. Without inner spaces it also contains a "
+                    "single-brace token, so the whole line is deleted before the "
+                    "model sees it; with spaces the braces survive and are spoken "
+                    "aloud. Prompt variables use single braces, and only "
                     + ", ".join(f"{{{n}}}" for n in sorted(SYSTEM_SAFE_VARIABLES))
                     + " are substituted here."
                 ),
