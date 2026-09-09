@@ -27,6 +27,14 @@ OPTOUT_SPIKE_THRESHOLD = 3
 VOICE_SLO_MS = 800
 
 
+#: "Nobody looked", as distinct from "we looked and the deployment is gone".
+#: A caller that supplies no ``canary_status`` — a test double, or an older
+#: query — must not have its traffic rerouted by a column that was never read;
+#: an explicit NULL means the LEFT JOIN found no deployment row, which *is* a
+#: reason to route to baseline.
+_UNCHECKED = object()
+
+
 def _require_table(conn: Any) -> bool:
     row = conn.execute(text("SELECT to_regclass('public.deployment_experiments') AS t")).mappings().first()
     return bool(row and row["t"])
@@ -40,11 +48,20 @@ def running_experiment(bot_id: str, environment: str = "production") -> dict[str
             conn.execute(
                 text(
                     """
-                    SELECT id, bot_id, environment, canary_deployment_id, baseline_deployment_id,
-                           traffic_pct, shadow, auto_rollback, status, rollback_reason
-                      FROM deployment_experiments
-                     WHERE bot_id = :b AND environment = :e AND status = 'running'
-                       AND tenant_id = :t
+                    SELECT e.id, e.bot_id, e.environment, e.canary_deployment_id,
+                           e.baseline_deployment_id, e.traffic_pct, e.shadow,
+                           e.auto_rollback, e.status, e.rollback_reason,
+                           -- Carried so `pick_deployment_id` can refuse to route to a
+                           -- canary whose deployment is no longer live. A LEFT JOIN
+                           -- rather than a second query because this runs per call, and
+                           -- a *column* rather than a WHERE clause because
+                           -- `sweep_rollbacks` still needs to see the row in order to
+                           -- close it.
+                           d.status AS canary_status
+                      FROM deployment_experiments e
+                      LEFT JOIN bot_deployments d ON d.id = e.canary_deployment_id
+                     WHERE e.bot_id = :b AND e.environment = :e AND e.status = 'running'
+                       AND e.tenant_id = :t
                      LIMIT 1
                     """
                 ),
@@ -72,6 +89,21 @@ def pick_deployment_id(
     exp = running_experiment(bot_id, environment)
     if not exp:
         return (active or {}).get("id")
+    canary_status = exp.get("canary_status", _UNCHECKED)
+    if canary_status is not _UNCHECKED and str(canary_status or "") != "active":
+        # The experiment says running, the deployment it points at is not. That
+        # is what a manual rollback leaves behind — `rollback_bot_deployment`
+        # retires the row and inserts a fresh one — and without this check the
+        # split kept sending its share of traffic to the exact version an
+        # operator had just rolled back, while the screen said the rollback was
+        # done. Checked here rather than in `running_experiment` so
+        # `sweep_rollbacks` can still find the row and close it.
+        logger.warning(
+            "experiment %s names a %s canary deployment — routing to baseline",
+            exp.get("id"),
+            exp.get("canary_status") or "missing",
+        )
+        return (exp.get("baseline_deployment_id") or (active or {}).get("id"))
     canary_id = exp.get("canary_deployment_id")
     baseline_id = exp.get("baseline_deployment_id")
     pct = int(exp.get("traffic_pct") or 0)

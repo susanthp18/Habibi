@@ -57,6 +57,55 @@ def test_missing_customer_id_follows_baseline(monkeypatch) -> None:
     assert pick_deployment_id(COLLECTIONS_BOT_ID, customer_id="") == "DEP-BASE"
 
 
+def _experiment(**over):
+    base = {
+        "id": "EXP-1",
+        "canary_deployment_id": "DEP-CANARY",
+        "baseline_deployment_id": "DEP-BASE",
+        "traffic_pct": 100,
+        "shadow": False,
+    }
+    return {**base, **over}
+
+
+@pytest.mark.parametrize(
+    "canary_status,expected",
+    [
+        ("active", "DEP-CANARY"),
+        ("retired", "DEP-BASE"),
+        ("rolled_back", "DEP-BASE"),
+        (None, "DEP-BASE"),
+    ],
+)
+def test_routing_refuses_a_canary_whose_deployment_is_not_live(
+    monkeypatch, canary_status, expected
+) -> None:
+    """`rollback_bot_deployment` closes running experiments, but best-effort —
+    the call sits in a `try/except` that only logs. If it ever fails, the
+    experiment stays `running` and the split kept sending its share of traffic
+    to the exact deployment an operator had just rolled back, while the screen
+    said the rollback was done. The router now checks rather than trusting it.
+
+    `None` is the LEFT JOIN finding no deployment row at all, which is a reason
+    to follow the baseline, not to ignore.
+    """
+    monkeypatch.setattr(db, "get_active_deployment", lambda **_k: {"id": "DEP-ACTIVE"})
+    monkeypatch.setattr(
+        "agent_core.canary.running_experiment",
+        lambda *_a, **_k: _experiment(canary_status=canary_status),
+    )
+    assert pick_deployment_id(COLLECTIONS_BOT_ID, customer_id="cust-1") == expected
+
+
+def test_an_unchecked_status_does_not_reroute(monkeypatch) -> None:
+    """A caller that supplied no `canary_status` never looked, which is not the
+    same as looking and finding the deployment gone. Rerouting on a column that
+    was never read would move live traffic on the strength of a missing key."""
+    monkeypatch.setattr(db, "get_active_deployment", lambda **_k: {"id": "DEP-ACTIVE"})
+    monkeypatch.setattr("agent_core.canary.running_experiment", lambda *_a, **_k: _experiment())
+    assert pick_deployment_id(COLLECTIONS_BOT_ID, customer_id="cust-1") == "DEP-CANARY"
+
+
 def test_shadow_experiment_follows_baseline(monkeypatch) -> None:
     monkeypatch.setattr(db, "get_active_deployment", lambda **_k: {"id": "DEP-ACTIVE"})
     monkeypatch.setattr(
