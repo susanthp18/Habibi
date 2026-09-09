@@ -94,6 +94,27 @@ def test_shared_human_gates_fail_closed() -> None:
     )
 
 
+def test_an_unverified_caller_is_not_transferred_to_a_specialist() -> None:
+    """Only intake-v1 declared this gate, and intake is not where calls land.
+
+    BOT_ID resolves to collections, whose card declares no gate on
+    handoff_to_agent — so the card every inbound call actually reaches would
+    hand an unverified caller to a specialist that opens with their account in
+    front of it. The floor covers it for every card, including a fleet member
+    added later that forgets to declare the gate its sender holds.
+    """
+    assert (
+        enforce_human_gate("handoff_to_agent", card={}, identity_verified=False)
+        == GATE_IDENTITY
+    )
+    assert enforce_human_gate("handoff_to_agent", card={}, identity_verified=True) is None
+
+
+def test_reaching_a_person_never_requires_passing_a_ceremony() -> None:
+    """The caller failing verification is precisely who needs a human."""
+    assert enforce_human_gate("escalate_to_human", card={}, identity_verified=False) is None
+
+
 def test_sandbox_never_dispatches_writes_or_connectors() -> None:
     ok, write = simulate_sandbox_tool(
         "create_promise_to_pay", {"amount": 1000}

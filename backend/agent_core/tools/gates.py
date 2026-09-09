@@ -45,6 +45,20 @@ IDENTITY_REQUIRED_TOOLS: frozenset[str] = frozenset(
         "decline_offer",
         "request_documents",
         "ingest_customer_document",
+        # Transferring a caller is a regulated act, not navigation: the
+        # receiving specialist opens with the borrower's account in front of it.
+        #
+        # Only intake-v1 declared a human_gate for this, and intake is not the
+        # card inbound traffic lands on — BOT_ID resolves to collections — so
+        # the gate guarded a door nobody enters while the card every call
+        # actually reaches would transfer an unverified caller onward. Gating it
+        # here rather than on two cards closes it for every caller on all three
+        # dispatch paths, and keeps a later fleet member from reopening it by
+        # forgetting to declare the gate its sender holds.
+        #
+        # `escalate_to_human` is deliberately absent: reaching a person must
+        # never require passing a ceremony the caller is failing.
+        "handoff_to_agent",
     }
 )
 
