@@ -138,12 +138,23 @@ class CardHandoff(BaseModel):
     #: Node to come back to when the specialist finishes. Empty means it closes
     #: through its own terminal, which is the common case.
     return_to: str = ""
-    #: Spoken while the swap happens, so the hop is not a silence. The audio is
-    #: what hides the first-token latency of the receiving brief.
+    #: What to say while the swap happens. A *direction to the model*, not a
+    #: script: it rides the tool result's ``say`` key, which the model reads and
+    #: renders in the caller's own language — the same convention every other
+    #: tool here uses ("acknowledge briefly, then verify them"). Write an
+    #: instruction, not a sentence.
+    #:
+    #: It therefore does **not** hide the receiving brief's first-token latency
+    #: today: nothing is spoken during the swap, because the line reaches the
+    #: model on the turn *after* it. Covering the hop with audio needs a
+    #: ``tts_say`` pre-action on the node the hop lands on, which only becomes
+    #: possible once the handler returns that node.
     bridge_line: str = ""
-    #: Spoken when the hop is refused — over the per-call hop cap, or the target
-    #: is not on the allowlist. A refused hop must be a sentence the borrower
-    #: hears, not a stall.
+    #: What to say when the hop is refused — over the per-call hop cap, or the
+    #: target is not on the allowlist. A direction, like ``bridge_line``. Absent
+    #: one the model gets a generic direction rather than this edge's, so the
+    #: borrower still hears something in their own language; what is lost is the
+    #: author's specific wording.
     refusal_line: str = ""
 
 
