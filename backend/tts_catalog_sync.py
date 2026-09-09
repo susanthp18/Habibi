@@ -223,6 +223,7 @@ def run_sync(
                         """
                         SELECT short_name, display_name, status, price_tier, removed_at
                         FROM tts_voice_catalog
+                        WHERE provider_id = 'azure'
                         """
                     )
                 )
@@ -323,6 +324,15 @@ def run_sync(
             # Azure listing AND a result set that is not a large regression on
             # what we already had. A genuine Azure deprecation removes a handful
             # of voices, never 20%+ in one run.
+            #
+            # Both this count and the UPDATE below are scoped to `azure`,
+            # because `fetched` only ever contains Azure voices. Unscoped, the
+            # comparison measured 774 Azure names against 2288 live rows across
+            # four providers, so `plausible` was false on every run and the
+            # removal never happened — an admin Refresh logged a warning and
+            # still toasted success, while retired Azure voices kept being
+            # dialled. Had it ever passed, the unscoped UPDATE would have marked
+            # every Cartesia, Fish and Deepgram voice removed in one click.
             live_prior = sum(1 for row in prior.values() if row.get("removed_at") is None)
             plausible = live_prior == 0 or len(seen) >= live_prior * 0.8
             if seen and full_fetch and plausible:
@@ -332,6 +342,7 @@ def run_sync(
                         UPDATE tts_voice_catalog
                         SET removed_at = now()
                         WHERE removed_at IS NULL
+                          AND provider_id = 'azure'
                           AND NOT (short_name = ANY(CAST(:names AS text[])))
                         """
                     ),
