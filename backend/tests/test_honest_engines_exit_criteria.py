@@ -1,4 +1,4 @@
-"""W0–W4 exit criteria that fail the profile instead of skipping."""
+"""W0–W8 exit criteria that fail the profile instead of skipping."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from agent_core.treatment import attempts, reservations, schema_ready
+from bank_boundary import schema_ready as bank_schema_ready
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -26,6 +27,11 @@ def test_missing_honest_engines_schema_fails_the_profile(db_tx) -> None:
         assert schema_ready.w1_ready(db_tx), "0107 missing"
         assert schema_ready.w2_ready(db_tx), "0107 propensity columns missing"
         assert schema_ready.w4_ready(db_tx), "0108 missing"
+        assert bank_schema_ready.w5_ready(db_tx), "0110 missing"
+        assert bank_schema_ready.evaluation_ready(db_tx), "0110 evaluation schema missing"
+        assert schema_ready.w6_ready(db_tx), "0113 missing"
+        assert schema_ready.w7_ready(db_tx), "0115 missing"
+        assert schema_ready.w8_ready(db_tx), "0116 missing"
         return
     # Default suite still proves the files exist; the require-schema profile
     # is what must fail closed when a scratch DB is missing the waves.
@@ -33,6 +39,9 @@ def test_missing_honest_engines_schema_fails_the_profile(db_tx) -> None:
     assert (BACKEND / "alembic" / "versions" / "20260906_0108_policy_plane.py").is_file()
     assert (BACKEND / "alembic" / "versions" / "20260906_0109_studio_trust_baseline.py").is_file()
     assert (BACKEND / "alembic" / "versions" / "20260906_0110_bank_boundary.py").is_file()
+    assert (BACKEND / "alembic" / "versions" / "20260908_0113_decision_substrate.py").is_file()
+    assert (BACKEND / "alembic" / "versions" / "20260909_0115_analysis_panel.py").is_file()
+    assert (BACKEND / "alembic" / "versions" / "20260909_0116_engine_config.py").is_file()
 
 
 def test_fresh_sql_vocabulary_includes_w5() -> None:
@@ -42,6 +51,23 @@ def test_fresh_sql_vocabulary_includes_w5() -> None:
     assert "awaiting_settlement" in (BACKEND / "sql" / "05_collections.sql").read_text(
         encoding="utf-8"
     )
+
+
+def test_fresh_sql_vocabulary_includes_w6() -> None:
+    sql = (BACKEND / "sql" / "25_decision_substrate.sql").read_text(encoding="utf-8")
+    assert "fct_loan_state" in sql
+    assert "feature_snapshot_daily" in sql
+    assert "EXCLUDE USING gist" in sql
+    assert "btree_gist" in (BACKEND / "sql" / "00_extensions.sql").read_text(encoding="utf-8")
+
+
+def test_fresh_sql_vocabulary_includes_w8() -> None:
+    sql = (BACKEND / "sql" / "27_engine_config.sql").read_text(encoding="utf-8")
+    # The maker-checker CHECK is the structural half of §13.4: a parameter
+    # change is same-day, and same-day is not same-person.
+    assert "changed_by <> approved_by" in sql
+    assert "EXCLUDE USING gist" in sql
+    assert "config_epoch" in sql
 
 
 def test_reservation_release_and_reap(db_tx) -> None:

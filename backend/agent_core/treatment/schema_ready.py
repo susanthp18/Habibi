@@ -88,6 +88,10 @@ def w7_ready(conn: Any) -> bool:
     return has_table(conn, "analysis_panel")
 
 
+def w8_ready(conn: Any) -> bool:
+    return has_table(conn, "engine_config") and has_table(conn, "config_epoch")
+
+
 def w6_ready(conn: Any) -> bool:
     return (
         has_table(conn, "fct_loan_state")

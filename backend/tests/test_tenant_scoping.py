@@ -71,6 +71,12 @@ GLOBAL_BY_DESIGN = [
     # tenant with negotiated rates would need this rooted; none has one today,
     # and pretending otherwise would add a column nothing sets correctly.
     "tts_price_tiers",
+    # One row, one counter, bumped on every engine_config write so every
+    # process can tell whether its cached snapshot is stale. It carries no
+    # tenant because it is not about a tenant: engine_config itself is
+    # tenant-scoped and rooted, and a per-tenant epoch would make the poll a
+    # per-tenant query for no gain.
+    "config_epoch",
     "alembic_version",
 ]
 

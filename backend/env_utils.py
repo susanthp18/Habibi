@@ -21,6 +21,7 @@ __all__ = [
     "env_int",
     "env_float",
     "env_bool",
+    "as_bool",
     "NON_PROD_ENVS",
     "env_name",
     "env_allows_dev_key",
@@ -60,13 +61,29 @@ _BOOL_TRUE = frozenset({"1", "true", "yes", "on"})
 _BOOL_FALSE = frozenset({"0", "false", "no", "off"})
 
 
-def env_bool(name: str, default: bool = False) -> bool:
-    raw = (os.getenv(name) or "").strip().lower()
-    if raw in _BOOL_TRUE:
-        return True
-    if raw in _BOOL_FALSE:
-        return False
+def as_bool(value: object, default: bool = False) -> bool:
+    """The same truth set, applied to a value that did not come from the env.
+
+    JSON is where this earns its place. ``bool("false")`` is ``True``, so a
+    config document saying ``{"suppressDiscretionary": "false"}`` used to mint
+    a control arm through a bare ``bool()`` -- one of the six silent-corruption
+    classes §13.2 of the engines design names. A real bool passes through; a
+    string is read against the one truth set above; anything else is the
+    caller's default rather than a coincidence of truthiness.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in _BOOL_TRUE:
+            return True
+        if raw in _BOOL_FALSE:
+            return False
     return default
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    return as_bool(os.getenv(name), default)
 
 
 def env_int(name: str, default: int) -> int:

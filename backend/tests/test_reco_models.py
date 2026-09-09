@@ -516,13 +516,20 @@ def test_malformed_variant_config_degrades_to_builtins(monkeypatch):
     assert config.resolve_variant("bad").mode is None
 
 
-def test_ab_split_normalises_and_drops_unknown_arms(monkeypatch):
-    monkeypatch.setenv("RECO_AB_SPLIT", "control:70,model:30,ghost:99")
+def test_ab_split_normalises_and_refuses_unknown_arms(monkeypatch):
+    monkeypatch.setenv("RECO_AB_SPLIT", "control:70,model:30")
     split = dict(config.ab_split())
-    assert "ghost" not in split
     assert split["control"] == pytest.approx(0.7)
     assert split["model"] == pytest.approx(0.3)
     assert sum(split.values()) == pytest.approx(1.0)
+
+    # W8a: an unknown arm used to be dropped and the rest renormalised, so
+    # ``control`` silently became 70/100 of the book instead of 70/199 and
+    # ``arm_probability`` — which multiplies into every logged propensity —
+    # reported a number nobody was assigned with. Refusing the whole split is
+    # the honest state: no randomisation, visible in the log.
+    monkeypatch.setenv("RECO_AB_SPLIT", "control:70,model:30,ghost:99")
+    assert config.ab_split() == []
 
 
 def test_variant_assignment_is_stable_per_customer(monkeypatch):

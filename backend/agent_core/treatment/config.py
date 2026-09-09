@@ -1,10 +1,17 @@
 """Tunables for the treatment engine.
 
-Read from the environment at call time, not import time, so a running process
-picks up a change without a restart and tests can monkeypatch ``os.environ``
-without reloading the module. Same discipline as ``reco.config`` and for the
-same reason: deciding that a field visit is worth ₹1,100 rather than ₹800 is an
-operational act, not a release.
+Resolved through :mod:`agent_core.engine_config` at call time, not import time,
+so a running process picks up a change without a restart and tests can
+monkeypatch ``os.environ`` without reloading the module. Same discipline as
+``reco.config`` and for the same reason: deciding that a field visit is worth
+₹1,100 rather than ₹800 is an operational act, not a release.
+
+W8a moved the floor under these accessors. The signatures did not change; what
+changed is that an ``engine_config`` row for the tenant, or for the portfolio,
+now wins over the environment, and that every value -- from either layer --
+must satisfy the bounds in ``engine_config.SPEC`` or it is refused rather than
+used. A negative field-visit cost used to reach ``ev = gross - cost`` and make
+a doorstep visit profitable.
 
 The money constants deserve a word. They are **unit economics, not accounting**
 — what one attempt on one channel costs the floor, all in. They are wrong on
@@ -17,10 +24,12 @@ an env change rather than a ticket.
 from __future__ import annotations
 
 import logging
-import os
+import math
 from dataclasses import dataclass
+from typing import Any
 
-from env_utils import env_bool, env_float, env_int
+from agent_core import engine_config
+from env_utils import as_bool
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +56,19 @@ MODE_SIMULATED = "simulated"
 _MODES = frozenset({MODE_OFF, MODE_SHADOW, MODE_LIVE})
 
 
-def mode() -> str:
+def mode(*, conn: Any = None, portfolio_id: str = "") -> str:
     """Engine mode. Defaults to shadow — an engine earns its way to live.
 
     An unrecognised value degrades to shadow rather than off, for the reason
     reco gives: a typo must not silently stop collecting the data the rollout
     decision depends on.
+
+    ``portfolio_id`` is §15.2 W8's per-portfolio mode: one book can run live
+    while another is still in shadow, without a second deployment.
     """
-    raw = (os.getenv("TREATMENT_MODE") or MODE_SHADOW).strip().lower()
+    raw = engine_config.text_value(
+        "TREATMENT_MODE", MODE_SHADOW, portfolio_id=portfolio_id, conn=conn
+    ).strip().lower()
     if raw not in _MODES:
         logger.warning(
             "TREATMENT_MODE=%r is not one of %s — using shadow", raw, sorted(_MODES)
@@ -64,7 +78,7 @@ def mode() -> str:
 
 
 def scorer_name() -> str:
-    return (os.getenv("TREATMENT_SCORER") or "ev").strip().lower()
+    return engine_config.text_value("TREATMENT_SCORER", "ev").strip().lower()
 
 
 def log_vectors() -> bool:
@@ -73,14 +87,14 @@ def log_vectors() -> bool:
     On by default. Without it there is no leakage-free training corpus, which
     is most of what shadow mode is for.
     """
-    return env_bool("TREATMENT_LOG_VECTORS", True)
+    return engine_config.flag("TREATMENT_LOG_VECTORS", True)
 
 
 def llm_rerank_enabled() -> bool:
-    return env_bool("TREATMENT_LLM_RERANK", False)
+    return engine_config.flag("TREATMENT_LLM_RERANK", False)
 
 
-def greediness() -> float:
+def greediness(*, conn: Any = None, portfolio_id: str = "") -> float:
     """How deterministically the logging policy picks among approved actions.
 
     ``1.0`` is argmax — the highest-scoring approved action, every time, with a
@@ -97,7 +111,15 @@ def greediness() -> float:
     approved. The dial changes which permitted thing happens, never whether a
     forbidden one does.
     """
-    return max(0.0, min(1.0, env_float("TREATMENT_GREEDINESS", 1.0)))
+    return max(
+        0.0,
+        min(
+            1.0,
+            engine_config.number(
+                "TREATMENT_GREEDINESS", 1.0, portfolio_id=portfolio_id, conn=conn
+            ),
+        ),
+    )
 
 
 MANDATE_EXECUTOR_RAIL = "rail"
@@ -118,7 +140,9 @@ def mandate_executor() -> str:
     presenting a debit we were never authorised to present costs a great deal
     more than that.
     """
-    raw = (os.getenv("TREATMENT_MANDATE_EXECUTOR") or MANDATE_EXECUTOR_LMS).strip().lower()
+    raw = engine_config.text_value(
+        "TREATMENT_MANDATE_EXECUTOR", MANDATE_EXECUTOR_LMS
+    ).strip().lower()
     if raw not in {MANDATE_EXECUTOR_RAIL, MANDATE_EXECUTOR_LMS}:
         logger.warning(
             "TREATMENT_MANDATE_EXECUTOR=%r is not recognised — using %r",
@@ -161,27 +185,41 @@ class Costs:
         so the ladder throttles itself and nobody has to write down the expected
         value below which a visit stops being worth making. The optimiser
         discovers that number daily, and it is different on a Tuesday.
+
+        **An action this price book does not carry costs infinity, not zero.**
+        ``scoring.py`` computes ``ev = gross - cost - fatigue``, so a missing
+        price used to make the unpriced action the most profitable thing the
+        engine could do — a new action family added without a price would have
+        outranked every priced one on its first day. Infinity drives its EV to
+        −∞ instead, which excludes it until somebody prices it.
         """
         from agent_core.treatment import allocate
 
-        return float(getattr(self, action, 0.0)) + allocate.price_for_action(action)
+        price = getattr(self, action, None)
+        if price is None:
+            logger.warning("no unit cost for action=%r — refusing to price it", action)
+            return math.inf
+        return float(price) + allocate.price_for_action(action)
 
 
-def costs() -> Costs:
+def costs(*, conn: Any = None, portfolio_id: str = "") -> Costs:
+    def price(key: str, default: float) -> float:
+        return engine_config.number(key, default, portfolio_id=portfolio_id, conn=conn)
+
     return Costs(
-        sms=env_float("TREATMENT_COST_SMS", 0.18),
-        whatsapp=env_float("TREATMENT_COST_WHATSAPP", 0.42),
+        sms=price("TREATMENT_COST_SMS", 0.18),
+        whatsapp=price("TREATMENT_COST_WHATSAPP", 0.42),
         # ~3 min of bot audio at the platform's own cost-per-minute. The
         # billing screen already computes cost/resolved-call from real usage;
         # this default is the planning figure until that number is wired in.
-        voice_bot=env_float("TREATMENT_COST_VOICE_BOT", 7.50),
+        voice_bot=price("TREATMENT_COST_VOICE_BOT", 7.50),
         # A telecaller minute, loaded. AiXBFS-style floors run 100–150 dials a
         # shift, so a dial is a meaningful fraction of a salaried hour.
-        human_call=env_float("TREATMENT_COST_HUMAN_CALL", 45.0),
+        human_call=price("TREATMENT_COST_HUMAN_CALL", 45.0),
         # CarmaOne: ₹800–1,500 per doorstep visit, borrower absent 40–50% of
         # the time. The absence is priced in p_reach, not here.
-        field_visit=env_float("TREATMENT_COST_FIELD_VISIT", 1150.0),
-        legal_notice=env_float("TREATMENT_COST_LEGAL_NOTICE", 2500.0),
+        field_visit=price("TREATMENT_COST_FIELD_VISIT", 1150.0),
+        legal_notice=price("TREATMENT_COST_LEGAL_NOTICE", 2500.0),
         # A presentment costs a per-transaction rail fee measured in paise,
         # and — unlike every other action here — it spends no goodwill at all,
         # so there is no fatigue term to add to it. Near-zero cost against a
@@ -192,14 +230,14 @@ def costs() -> Costs:
         # present at every opportunity the vetoes allow, because there would be
         # nothing to beat; the presentation limit would become the only thing
         # governing it, and a limit is a worse control than a price.
-        represent_mandate=env_float("TREATMENT_COST_REPRESENT_MANDATE", 0.50),
+        represent_mandate=price("TREATMENT_COST_REPRESENT_MANDATE", 0.50),
         # An LMS work item and a schedule rewrite. Cheap, but not free: it is
         # somebody's ten minutes, and it changes the borrower's contract.
-        emi_date_change=env_float("TREATMENT_COST_EMI_DATE_CHANGE", 15.0),
+        emi_date_change=price("TREATMENT_COST_EMI_DATE_CHANGE", 15.0),
         # Cheaper than a date change: no schedule to rebuild, no
         # amortisation to redo. The cost is the servicing tail of a
         # borrower who half-completes one.
-        self_service_plan=env_float("TREATMENT_COST_SELF_SERVICE_PLAN", 8.0),
+        self_service_plan=price("TREATMENT_COST_SELF_SERVICE_PLAN", 8.0),
     )
 
 
@@ -243,25 +281,33 @@ class Policy:
     retry_backoff_hours: float
 
 
-def policy() -> Policy:
+def policy(*, conn: Any = None, portfolio_id: str = "") -> Policy:
+    def value(key: str, default: float) -> float:
+        return engine_config.number(key, default, portfolio_id=portfolio_id, conn=conn)
+
+    def count(key: str, default: int) -> int:
+        return engine_config.integer(key, default, portfolio_id=portfolio_id, conn=conn)
+
     return Policy(
-        min_expected_value=env_float("TREATMENT_MIN_EV", 2.0),
+        min_expected_value=value("TREATMENT_MIN_EV", 2.0),
         recovery_fraction=max(
-            0.0, min(1.0, env_float("TREATMENT_RECOVERY_FRACTION", 0.35))
+            0.0, min(1.0, value("TREATMENT_RECOVERY_FRACTION", 0.35))
         ),
         urgency_halflife_hours=max(
-            1.0, env_float("TREATMENT_URGENCY_HALFLIFE_HOURS", 36.0)
+            1.0, value("TREATMENT_URGENCY_HALFLIFE_HOURS", 36.0)
         ),
-        fatigue_cost=env_float("TREATMENT_FATIGUE_COST", 6.0),
-        max_rung_advance=max(1, env_int("TREATMENT_MAX_RUNG_ADVANCE", 1)),
-        reserve_budget=env_bool("TREATMENT_RESERVE_BUDGET", True),
-        reserve_margin=max(1.0, env_float("TREATMENT_RESERVE_MARGIN", 3.0)),
+        fatigue_cost=value("TREATMENT_FATIGUE_COST", 6.0),
+        max_rung_advance=max(1, count("TREATMENT_MAX_RUNG_ADVANCE", 1)),
+        reserve_budget=engine_config.flag(
+            "TREATMENT_RESERVE_BUDGET", True, portfolio_id=portfolio_id, conn=conn
+        ),
+        reserve_margin=max(1.0, value("TREATMENT_RESERVE_MARGIN", 3.0)),
         field_digital_exhaustion=max(
-            0, env_int("TREATMENT_FIELD_DIGITAL_EXHAUSTION", 4)
+            0, count("TREATMENT_FIELD_DIGITAL_EXHAUSTION", 4)
         ),
-        planning_horizon_hours=max(1, env_int("TREATMENT_HORIZON_HOURS", 72)),
-        max_attempts_per_case=max(1, env_int("TREATMENT_MAX_ATTEMPTS_PER_CASE", 5)),
-        retry_backoff_hours=max(0.0, env_float("TREATMENT_RETRY_BACKOFF_HOURS", 12.0)),
+        planning_horizon_hours=max(1, count("TREATMENT_HORIZON_HOURS", 72)),
+        max_attempts_per_case=max(1, count("TREATMENT_MAX_ATTEMPTS_PER_CASE", 5)),
+        retry_backoff_hours=max(0.0, value("TREATMENT_RETRY_BACKOFF_HOURS", 12.0)),
     )
 
 
@@ -305,7 +351,7 @@ def grace_hours(action: str) -> float:
     """How long an attempt is given before it counts as unanswered."""
     default = _GRACE_DEFAULTS.get(action, 8.0)
     name = _GRACE_ENV.get(action)
-    return max(0.25, env_float(name, default)) if name else default
+    return max(0.25, engine_config.number(name, default)) if name else default
 
 
 # ---------------------------------------------------------------------------
@@ -369,17 +415,29 @@ _BUILTIN_VARIANTS: dict[str, Variant] = {
     "null_treatment": Variant(name="null_treatment", suppress_discretionary=True),
 }
 
+#: The arms configuration may not redefine, at any layer.
+#:
+#: ``variants()`` used to merge the configured table *over* the built-ins, so
+#: one config value could redefine ``null_treatment`` — the control arm itself
+#: — and every incremental number computed afterwards would be measuring
+#: something else while still being labelled a control. ``engine_config`` also
+#: refuses these names at write time; this set is why.
+RESERVED_VARIANTS: frozenset[str] = frozenset(_BUILTIN_VARIANTS)
 
-def _parse_variants(raw: str) -> dict[str, Variant]:
+
+def _parse_variants(raw: object) -> dict[str, Variant]:
     import json
 
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.warning(
-            "TREATMENT_VARIANTS is not valid JSON — using the built-in variants only"
-        )
-        return {}
+    if isinstance(raw, str):
+        try:
+            parsed: object = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(
+                "TREATMENT_VARIANTS is not valid JSON — using the built-in variants only"
+            )
+            return {}
+    else:
+        parsed = raw
     if not isinstance(parsed, dict):
         logger.warning(
             "TREATMENT_VARIANTS must be a JSON object — using the built-in variants only"
@@ -388,6 +446,12 @@ def _parse_variants(raw: str) -> dict[str, Variant]:
 
     out: dict[str, Variant] = {}
     for name, spec in parsed.items():
+        key_check = str(name).strip().lower()
+        if key_check in RESERVED_VARIANTS:
+            logger.warning(
+                "TREATMENT_VARIANTS[%r] would redefine a built-in arm — ignored", name
+            )
+            continue
         if not isinstance(spec, dict):
             logger.warning("TREATMENT_VARIANTS[%r] is not an object — skipped", name)
             continue
@@ -408,7 +472,12 @@ def _parse_variants(raw: str) -> dict[str, Variant]:
             urgency_halflife_hours=_opt_float(
                 spec.get("urgencyHalflifeHours"), name, "urgencyHalflifeHours"
             ),
-            suppress_discretionary=bool(spec.get("suppressDiscretionary", False)),
+            # NOT ``bool()``: bool("false") is True, so the JSON string
+            # "false" used to mint a second control arm out of a value that
+            # said the opposite. One truth set, in env_utils.
+            suppress_discretionary=as_bool(
+                spec.get("suppressDiscretionary", False), False
+            ),
         )
     return out
 
@@ -424,8 +493,10 @@ def _opt_float(value: object, arm: object, field: str) -> float | None:
 
 
 def variants() -> dict[str, Variant]:
-    raw = (os.getenv("TREATMENT_VARIANTS") or "").strip()
-    return {**_BUILTIN_VARIANTS, **(_parse_variants(raw) if raw else {})}
+    """The arm table. Built-ins win — see :data:`RESERVED_VARIANTS`."""
+    configured = engine_config.raw("TREATMENT_VARIANTS")
+    parsed = _parse_variants(configured) if configured else {}
+    return {**parsed, **_BUILTIN_VARIANTS}
 
 
 def resolve_variant(name: str | None) -> Variant | None:
@@ -445,8 +516,16 @@ def resolve_variant(name: str | None) -> Variant | None:
 
 
 def ab_split() -> list[tuple[str, float]]:
-    """``TREATMENT_AB_SPLIT="control:50,patient:50"`` → normalised buckets."""
-    raw = (os.getenv("TREATMENT_AB_SPLIT") or "").strip()
+    """``TREATMENT_AB_SPLIT="control:50,patient:50"`` → normalised buckets.
+
+    **A name this table does not know refuses the whole split.** Dropping the
+    arm and renormalising the rest is not a smaller experiment, it is a
+    different one: ``arm_probability`` — which multiplies into the propensity
+    logged on every decision row — then returns a number that was never the
+    probability anybody was assigned with. No randomisation is an honest state
+    and it is visible in the logs; a silently reweighted one is neither.
+    """
+    raw = engine_config.text_value("TREATMENT_AB_SPLIT", "").strip()
     if not raw:
         return []
 
@@ -459,15 +538,21 @@ def ab_split() -> list[tuple[str, float]]:
         name, _, weight = chunk.partition(":")
         key = name.strip().lower()
         if key not in known:
-            logger.warning("TREATMENT_AB_SPLIT names unknown variant %r — dropped", key)
-            continue
+            logger.error(
+                "TREATMENT_AB_SPLIT names unknown variant %r — refusing the whole "
+                "split rather than renormalising the rest",
+                key,
+            )
+            return []
         try:
             share = float(weight) if weight.strip() else 1.0
         except ValueError:
-            logger.warning(
-                "TREATMENT_AB_SPLIT weight for %r is not a number — using 1", key
+            logger.error(
+                "TREATMENT_AB_SPLIT weight for %r is not a number — refusing the "
+                "whole split",
+                key,
             )
-            share = 1.0
+            return []
         if share > 0:
             buckets.append((key, share))
 

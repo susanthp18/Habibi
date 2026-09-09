@@ -131,7 +131,9 @@ def build(
     portfolio_id = getattr(features, "portfolio_id", None) or ""
     binding_hash = getattr(result, "policy_binding_hash", None)
     image = getattr(result, "engine_image_digest", None) or logging_contract.engine_image_digest()
-    config_ver = getattr(result, "config_version", None) or logging_contract.config_version()
+    config_ver = getattr(result, "config_version", None) or logging_contract.config_version(
+        conn=conn, portfolio_id=portfolio_id
+    )
 
     contract: dict[str, Any] = {
         "version": ACTION_CONTRACT_VERSION,
@@ -250,7 +252,7 @@ def require_for_enactment(
         "engine_image_digest": decision.get("engine_image_digest")
         or logging_contract.engine_image_digest(),
         "config_version": decision.get("config_version")
-        or logging_contract.config_version(),
+        or logging_contract.config_version(conn=conn),
         "veto_stack_version": logging_contract.VETO_STACK_VERSION,
         "arm_propensity": decision.get("arm_propensity"),
         "action_propensity": decision.get("action_propensity"),

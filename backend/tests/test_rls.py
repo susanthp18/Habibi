@@ -36,6 +36,9 @@ BACKEND = Path(__file__).resolve().parents[1]
 GLOBAL_BY_DESIGN = {
     "alembic_version",
     "billing_services",
+    # One counter, bumped on every engine_config write. engine_config
+    # itself is tenant-scoped; the epoch it stamps is not.
+    "config_epoch",
     "event_types",
     "permissions",
     "provider_fields",

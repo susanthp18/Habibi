@@ -21,7 +21,7 @@ import random
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 CONTRACT_VERSION = 2
 LEGACY_CONTRACT_VERSION = 1
@@ -71,8 +71,27 @@ def engine_image_digest() -> str:
     return _DIGEST_CACHE
 
 
-def config_version() -> str:
-    """Economics snapshot until W8's engine_config row exists."""
+def config_version(*, conn: Any = None, portfolio_id: str = "") -> str:
+    """``cfg:<epoch>`` when configuration resolved to ``engine_config`` rows.
+
+    W8's exit criterion is that this *resolves*: given the string on a decision
+    row, the rows in force when that decision was made can be read back. The
+    environment sha below is what W2 shipped as the stated day-1 value, and it
+    remains the fallback on a database where ``0116`` has not been applied or
+    where nobody has written a config row yet -- the column stays non-null,
+    which is W2's own exit criterion, and it names nothing, which is why W8
+    exists.
+    """
+    from agent_core import engine_config
+
+    resolved = engine_config.version(portfolio_id, conn=conn)
+    if resolved:
+        return resolved
+    return environment_config_version()
+
+
+def environment_config_version() -> str:
+    """W2's day-1 value: a sha over the economics that were in the env."""
     keys = (
         "CONTACT_DAILY_CAP",
         "CONTACT_WEEKLY_CAP",

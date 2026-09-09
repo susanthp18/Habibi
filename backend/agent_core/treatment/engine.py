@@ -199,7 +199,9 @@ def recommend_treatment(
 
     arm = config.resolve_variant(variant) or config.assign_variant(customer_id)
     mode = (
-        force_mode or (arm.mode if arm and arm.mode else None) or config.mode()
+        force_mode
+        or (arm.mode if arm and arm.mode else None)
+        or config.mode(conn=conn)
     ).strip().lower()
     arm_name = arm.name if arm else None
 
@@ -254,8 +256,10 @@ def _recommend(
     persist: str = PERSIST_RECORD,
 ) -> TreatmentResult:
     arm_name = arm.name if arm else None
-    active_policy = config.apply_variant(config.policy(), arm)
-    unit_costs = config.costs()
+    # Resolved on the lent connection: this module opens none of its own,
+    # and engine_config would otherwise take a second one per decision.
+    active_policy = config.apply_variant(config.policy(conn=conn), arm)
+    unit_costs = config.costs(conn=conn)
 
     return _decide(
         conn,
@@ -345,6 +349,7 @@ def _decide(
         planned=planned,
         arm_probability=config.arm_probability(arm_name),
         chooser=_chooser(
+            conn=conn,
             customer_id=customer_id,
             trigger=trigger,
             arm=arm,
@@ -420,7 +425,7 @@ def _decide(
             replay_nonce=verdict.replay_nonce,
             veto_stack_version=logging_contract.VETO_STACK_VERSION,
             engine_image_digest=logging_contract.engine_image_digest(),
-            config_version=logging_contract.config_version(),
+            config_version=logging_contract.config_version(conn=conn),
             lambda_bucket=logging_contract.LAMBDA_BUCKET_NONE,
             logging_contract_version=logging_contract.CONTRACT_VERSION,
             feature_snapshot_build_id=features.snapshot_build_id,
@@ -467,7 +472,7 @@ def _decide(
         action_propensity=verdict.action_propensity,
         policy_binding_hash=_binding_kwargs(rules, reason, now).get("policy_binding_hash"),
         engine_image_digest=logging_contract.engine_image_digest(),
-        config_version=logging_contract.config_version(),
+        config_version=logging_contract.config_version(conn=conn),
     )
 
 
@@ -497,6 +502,7 @@ def _horizon_for(action: str, policy: config.Policy) -> int:
 
 def _chooser(
     *,
+    conn: Any,
     customer_id: str,
     trigger: Trigger,
     arm: config.Variant | None,
@@ -513,7 +519,7 @@ def _chooser(
     approved action with a propensity of 1.0 — byte-identical to what the
     engine did before exploration existed. The log simply starts saying so.
     """
-    greed = config.greediness()
+    greed = config.greediness(conn=conn)
     arm_p = config.arm_probability(arm.name if arm else None)
     nonce = logging_contract.new_nonce()
     seed = explore.seed_for(
