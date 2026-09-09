@@ -156,7 +156,20 @@ def idle_offered_tools(
     attached_skills: list[SkillPack] | None = None,
     channel_tools: set[str] | None = None,
 ) -> list[str]:
-    """Tools in the OpenAI/Flows list when no skill body is active."""
+    """Tools in the OpenAI/Flows list when no skill body is active.
+
+    Every ``ext.*`` name is stripped here, for the reason :data:`SKILL_GATED_TOOLS`
+    exists: an idle tool sits in the prompt of every node on every turn, and G6
+    caps that count because the cost is real. A connector's tool list is
+    vendor-sized and unbounded, so admitting it to the idle set would blow that
+    cap on the first busy card.
+
+    The consequence, which was undocumented and is the whole of CONNECTORS-5:
+    binding a connector puts its tools in the *Grant* and in no *Offer*, so
+    nothing can call them until a skill that names them is attached and active
+    (:func:`offered_tools` re-adds them then). Bind alone changes nothing a model
+    can do. Gate ``G18`` reports a binding in that state.
+    """
     full = effective_tools(
         card,
         catalog_names=catalog_names,

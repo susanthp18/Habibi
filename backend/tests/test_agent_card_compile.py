@@ -324,3 +324,43 @@ def test_the_twin_gate_says_where_to_run_it() -> None:
     )
     assert gate.status == "fail"
     assert "Sandbox" in gate.detail and "Twin tab" in gate.detail
+
+
+def _g18(card):
+    report = _compile(COLLECTIONS_BOT_ID, card=card)
+    return next(g for g in report.gates if g.gate == "G18")
+
+
+def test_a_binding_no_skill_can_offer_warns() -> None:
+    """G10 says a binding is allowed; G18 says whether anything can call it.
+
+    `ext.*` names reach the Grant and are stripped from the idle offer, so they
+    return only for tools an active skill pack names. Bind alone therefore
+    changes nothing a model can do — and the live `kaia-v2-4` card is exactly
+    this shape: it binds `paylink`, and no skill version in the tenant names an
+    `ext.paylink.*` tool.
+    """
+    raw = card_dump(COLLECTIONS_BOT_ID)
+    raw["connectors"] = [{"connector_id": "paylink", "allow_prefixes": ["ext.paylink."]}]
+    gate = _g18(raw)
+    assert gate.status == "warn"
+    assert "paylink" in gate.detail
+    assert gate.issues == [{"connector": "paylink", "prefixes": ["ext.paylink."]}]
+
+
+def test_a_binding_with_no_prefixes_is_skipped_not_accused() -> None:
+    """Nothing to match its tools against, so silence beats a wrong accusation
+    on an authoring surface."""
+    raw = card_dump(COLLECTIONS_BOT_ID)
+    raw["connectors"] = [{"connector_id": "paylink", "allow_prefixes": []}]
+    assert _g18(raw).status == "pass"
+
+
+def test_g18_warns_and_does_not_block() -> None:
+    """Warn-first, because it fires on the shipping card: a gate that refuses
+    what is already live is one people switch off instead of adopting."""
+    raw = card_dump(COLLECTIONS_BOT_ID)
+    raw["connectors"] = [{"connector_id": "paylink", "allow_prefixes": ["ext.paylink."]}]
+    report = _compile(COLLECTIONS_BOT_ID, card=raw)
+    assert next(g for g in report.gates if g.gate == "G18").status == "warn"
+    assert report.ok, [g.gate for g in report.blocking]

@@ -986,6 +986,21 @@ export function ConnectorsTab({
     (card.connectors ?? []).map((c) => c.connector_id).filter(Boolean) as string[],
   );
   const approved = (connectorsQuery.data ?? []).filter((c) => c.status === "approved");
+  // A binding outlives approval. The list rendered `approved` only and the
+  // Unbind control lives inside that map, so a card bound to a connector that
+  // was later de-approved kept the binding with no way in the UI to remove it —
+  // while G10 refused the publish for exactly that binding. Shown here, marked,
+  // with Unbind still reachable.
+  const boundNotApproved = (connectorsQuery.data ?? []).filter(
+    (c) => c.status !== "approved" && (bound.has(c.id) || bound.has(c.slug)),
+  );
+  // And the harder case: bound to a connector the registry no longer returns at
+  // all. There is no display name to show, only the id the card carries.
+  const orphanedBindings = (card.connectors ?? [])
+    .map((c) => String(c.connector_id ?? ""))
+    .filter(
+      (id) => id && !(connectorsQuery.data ?? []).some((c) => c.id === id || c.slug === id),
+    );
   const prefixes = (card.connectors ?? []).flatMap((c) => c.allow_prefixes ?? []);
   const editable = Boolean(onChange) && isAuthoredCard(card);
   // Same alias trap as skills: the POST /connectors endpoint stamps the row id
@@ -1072,6 +1087,58 @@ export function ConnectorsTab({
               </li>
             );
           })}
+          {boundNotApproved.map((conn) => (
+            <li
+              key={conn.id}
+              className="flex items-start justify-between gap-150 bg-background-warning-subtler px-150 py-100"
+            >
+              <div>
+                <div className="font-medium">
+                  {conn.displayName}{" "}
+                  <Lozenge tone="warning">no longer approved · {conn.status}</Lozenge>
+                </div>
+                <div className="font-mono text-body-tiny text-text-subtle">{conn.slug}</div>
+                <div className="mt-050 text-body-tiny text-text-warning-bolder">
+                  This card is still bound to it, and G10 refuses a publish while it is.
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!editable}
+                onClick={() => toggle([conn.slug, conn.id], conn.allowPrefixes ?? [])}
+              >
+                Unbind
+              </Button>
+            </li>
+          ))}
+          {orphanedBindings.map((id) => (
+            <li
+              key={id}
+              className="flex items-start justify-between gap-150 bg-background-warning-subtler px-150 py-100"
+            >
+              <div>
+                <div className="font-medium">
+                  <span className="font-mono">{id}</span>{" "}
+                  <Lozenge tone="warning">not in the registry</Lozenge>
+                </div>
+                <div className="mt-050 text-body-tiny text-text-warning-bolder">
+                  Bound by this card, and the connector registry does not return it. Unbind is the
+                  only thing left to do with it.
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!editable}
+                onClick={() => toggle([id], [])}
+              >
+                Unbind
+              </Button>
+            </li>
+          ))}
         </ul>
       </QueryState>
     </div>

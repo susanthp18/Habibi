@@ -209,6 +209,7 @@ _GATE_NAMES: dict[str, str] = {
     "G15": "voice_locale",
     "G16": "flow_grant",
     "G17": "voice_provider_bound",
+    "G18": "connector_is_offerable",
     "G-LINT": "prompt_lint",
     "G-OB9": "outbound",
     "G-F4": "handoff_is_an_edge",
@@ -310,6 +311,47 @@ def _voice_provider_gate(
         "fail",
         f"voice needs {voice_provider}, bound: {', '.join(sorted(bound_providers))}",
         [{"voice": sn, "voiceProvider": voice_provider, "boundProviders": sorted(bound_providers)}],
+    )
+
+
+def _connector_offer_gate(card: AgentCard | None, packs: list[SkillPack]) -> GateResult:
+    """G18 — a bound connector whose tools nothing on this card can offer.
+
+    ``ext.*`` names reach the Grant and are stripped from the idle offer
+    (``skills/intersect.py``), returning only for tools an *active* skill pack
+    names. So a card can bind a connector, pass G10, and never be able to call
+    it — the Bind control looks like it granted a capability and granted none.
+
+    Warn, not fail: `kaia-v2-4`'s live published card is exactly this shape
+    (binds `paylink`, and no skill version in the tenant names an
+    `ext.paylink.*` tool), and a gate that refuses the shipping card on day one
+    is one people switch off instead of adopting.
+
+    A connector with no ``allow_prefixes`` is skipped rather than guessed at:
+    there is nothing to match its tools against, and silence beats a wrong
+    accusation on an authoring surface.
+    """
+    if card is None or not card.connectors:
+        return _gate("G18", "connector_is_offerable", "skipped", "no connectors bound")
+    skill_tools = {n for p in packs for n in (p.allowed_tools or [])}
+    inert: list[dict[str, Any]] = []
+    for conn in card.connectors:
+        prefixes = tuple(p for p in (conn.allow_prefixes or []) if p)
+        if not prefixes:
+            continue
+        if not any(name.startswith(prefixes) for name in skill_tools):
+            inert.append(
+                {"connector": conn.connector_id, "prefixes": list(prefixes)}
+            )
+    if not inert:
+        return _gate("G18", "connector_is_offerable", "pass", "every binding is reachable")
+    names = ", ".join(str(i["connector"]) for i in inert)
+    return _gate(
+        "G18",
+        "connector_is_offerable",
+        "warn",
+        f"bound but offered by nothing: {names} — attach a skill that names its tools",
+        inert,
     )
 
 
@@ -1409,6 +1451,10 @@ def compile_card(
     # G15 because they read the same mouth columns; separate from it because a
     # wrong language is a warning and an unspeakable voice is a dropped call.
     gates.append(_voice_provider_gate(voice_short_name, voice_provider, bound_tts_providers))
+
+    # G18 the other half of a connector binding: G10 says it is allowed, this
+    # says whether anything can actually call it.
+    gates.append(_connector_offer_gate(card, packs))
 
     # G16 the graph and the grant. Last because it is the only gate that reads
     # both, and the second that can warn.
