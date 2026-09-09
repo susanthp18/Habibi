@@ -689,6 +689,12 @@ function FlowCanvasInner({
           inCount: degree?.in ?? 0,
           implicitOut: degree?.implicitOut ?? 0,
           implicitIn: degree?.implicitIn ?? 0,
+          // Most steps in the built-in script move by calling a tool, not by an
+          // authored edge, so those hops are only known once /flow/transitions
+          // answers. Without this flag a failed read made `implicitOut` zero on
+          // every node and the canvas told the author, confidently and about
+          // their whole graph, that nothing leaves any step.
+          transitionsUnknown: !transitionsQuery.data,
           globalToolCount: nodeContext.globalToolCount,
         };
         return {
@@ -1090,6 +1096,16 @@ function FlowCanvasInner({
                 start step lands after a fit — and left the groups with no shared
                 baseline to align to. A real toolbar cannot collide with a real
                 status bar, at any width, ever. */}
+            {transitionsQuery.isError ? (
+              <div
+                role="status"
+                className="shrink-0 border-b border-border-warning bg-background-warning-subtler px-100 py-075 text-body-small text-text-warning-bolder"
+              >
+                Tool-driven hops could not be read, so the dashed edges are missing and no
+                step is marked a dead end. The graph is unchanged — this is the canvas
+                missing information, not the script missing exits.
+              </div>
+            ) : null}
             <div className="flex shrink-0 items-center gap-100 overflow-x-auto border-b border-border px-100 py-075">
               <div className="flex shrink-0 items-center gap-050">
                 <Button

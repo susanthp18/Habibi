@@ -414,8 +414,11 @@ export function EvalsTab({
               </option>
             ))}
           </select>
-          {card.eval?.suite_id &&
-          !(suitesQuery.data ?? []).some((s) => s.id === card.eval?.suite_id) ? (
+          {card.eval?.suite_id && suitesQuery.isError ? (
+            <Lozenge tone="neutral">suite list unavailable — cannot check this id</Lozenge>
+          ) : card.eval?.suite_id &&
+            !suitesQuery.isPending &&
+            !(suitesQuery.data ?? []).some((s) => s.id === card.eval?.suite_id) ? (
             <Lozenge tone="warning">{card.eval.suite_id} is not a suite that exists</Lozenge>
           ) : null}
         </div>
@@ -720,6 +723,15 @@ export function AgentGraphTab({
               This card is unreachable — it has no deployment of its own and nothing hands off to
               it. Until that changes, every handoff below routes nothing.
             </div>
+          ) : null}
+          {graphQuery.isError ? (
+            // Without this the list is simply empty, which on a panel headed
+            // "Handoff allowlist" reads as "this card may hand off to nobody" —
+            // a statement about the fleet, produced by a failed fetch.
+            <p className="text-body-small text-text-danger">
+              The fleet could not be read, so the targets below are missing. The card&apos;s
+              own allowlist is unchanged.
+            </p>
           ) : null}
           <ul className="divide-y divide-border">
             {nodes

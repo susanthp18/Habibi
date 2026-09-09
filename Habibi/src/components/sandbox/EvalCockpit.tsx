@@ -37,7 +37,18 @@ export function EvalCockpit({ compact = false }: { compact?: boolean }) {
         </div>
       ) : null}
       <ul className="divide-y divide-border rounded-medium border border-border">
-        {rows.length === 0 ? (
+        {reports.isError ? (
+          // "No reports" is a fact about the suite; "we could not read the
+          // reports" is a fact about the network. Its sibling on the Evals tab
+          // has said so for a while — this one still asserted the first when it
+          // meant the second, on the panel an operator checks before shipping.
+          <li className="px-150 py-100 text-body-small text-text-danger">
+            The eval history could not be read. This is not "no runs" — retry before
+            reading anything into an empty list.
+          </li>
+        ) : reports.isPending ? (
+          <li className="px-150 py-100 text-body-small text-text-subtlest">Loading…</li>
+        ) : rows.length === 0 ? (
           <li className="px-150 py-100 text-body-small text-text-subtlest">No eval reports yet.</li>
         ) : (
           rows.map((r) => <ReportRow key={r.id} report={r} />)

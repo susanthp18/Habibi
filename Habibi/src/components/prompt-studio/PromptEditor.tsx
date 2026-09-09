@@ -14,6 +14,8 @@ type Props = {
   onChange: (next: string) => void;
   onApplyPreset: (preset: PersonaPreset) => void;
   presets?: PersonaPreset[];
+  /** The presets read failed — an empty list is unknown, not empty. */
+  presetsFailed?: boolean;
   lintFindings?: PromptLintFinding[];
   lintFailed?: boolean;
   lintPending?: boolean;
@@ -31,6 +33,7 @@ export function PromptEditor({
   onChange,
   onApplyPreset,
   presets = [],
+  presetsFailed = false,
   lintFindings = [],
   lintFailed = false,
   lintPending = false,
@@ -385,7 +388,12 @@ export function PromptEditor({
             <Sparkles className="h-3 w-3" /> Presets
           </div>
           <div className="flex flex-col gap-075">
-            {presets.length === 0 ? (
+            {presetsFailed ? (
+              <p className="text-body-small text-text-danger">
+                Presets could not be read. They may well be configured — this is the
+                fetch failing, not the tenant being empty.
+              </p>
+            ) : presets.length === 0 ? (
               <p className="text-body-small text-text-subtle">
                 No presets configured. They are seeded per tenant in{" "}
                 <span className="font-mono">persona_presets</span>.

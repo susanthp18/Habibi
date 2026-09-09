@@ -46,6 +46,8 @@ export type CanvasNodeData = FlowNodeData & {
   outCount: number;
   inCount: number;
   implicitOut: number;
+  /** /flow/transitions has not answered, so tool-driven hops are unknown. */
+  transitionsUnknown?: boolean;
   implicitIn: number;
   /** Offered here too, on top of this node's own list. */
   globalToolCount: number;
@@ -71,7 +73,10 @@ function localHints(d: CanvasNodeData, type: "conversation" | "end"): string[] {
   if (!d.respondImmediately && !(d.entryLine ?? "").trim()) {
     out.push("Listens first with no entry line — silent until the caller speaks.");
   }
-  if (!d.endConversation && d.outCount + d.implicitOut === 0) {
+  // Only when the hops are actually known. "No exit" and "we could not ask
+  // what the exits are" are different facts, and the second must not be
+  // rendered as the first.
+  if (!d.endConversation && !d.transitionsUnknown && d.outCount + d.implicitOut === 0) {
     out.push("Nothing leaves this step and it does not end the call.");
   }
   return out;

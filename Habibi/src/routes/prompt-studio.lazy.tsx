@@ -1459,6 +1459,7 @@ export function PromptStudioPage({
                   onChange={setPrompt}
                   onApplyPreset={applyPreset}
                   presets={presets}
+                  presetsFailed={presetsQuery.isError}
                   lintFindings={freshLint}
                   lintFailed={autoLint.isError}
                   lintPending={autoLint.isPending && !autoLint.data}
