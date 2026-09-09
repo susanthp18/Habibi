@@ -26,9 +26,12 @@ Three states, all derived from real config:
 
 from __future__ import annotations
 
+import logging
 import os
 from collections import deque
 from typing import Any, Iterable
+
+_logger = logging.getLogger(__name__)
 
 
 def runtime_entry_bot_id() -> str:
@@ -42,6 +45,76 @@ def runtime_entry_bot_id() -> str:
     import db
 
     return (os.getenv("BOT_ID") or "").strip() or db.DEFAULT_BOT_ID
+
+
+def door_enabled() -> bool:
+    """Whether authored entry bindings decide who answers.
+
+    Off by default and read per call rather than cached, so unsetting it is a
+    complete rollback with no restart and no data to undo.
+    """
+    return (os.getenv("DOOR_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def resolve_entry(channel: str, address: str | None = None) -> str:
+    """The bot id that answers ``channel`` at ``address``.
+
+    The replacement for :func:`runtime_entry_bot_id`, which takes no arguments —
+    not the channel, not the dialled number — and so resolves the same card for
+    every inbound contact everywhere.
+
+    ``address`` is the *dialled* number, the ``To`` leg. Routing never consults
+    the caller or the CRM: ``twilio_ops.lookup_customer_for_caller`` sits under a
+    bare ``except``, so letting it choose the answering card would turn one flaky
+    round trip into "a different agent picked up", which is unauditable after the
+    fact. A dialled number is a fact the carrier hands us and cannot fail.
+
+    Resolution is most-specific-first: the exact address, then the channel
+    default (``address IS NULL``), then today's env lookup. The text mouths reach
+    the channel default by construction — ``bot_runtime._bot_id()`` has no
+    address to pass — which is why both shapes live in one table rather than
+    becoming a second mechanism for WhatsApp.
+
+    Falls back to :func:`runtime_entry_bot_id` on every uncertainty: flag off,
+    table absent, no row, or a failed read. A door that guesses when it cannot
+    read its own bindings would route calls to an arbitrary card.
+    """
+    if not door_enabled():
+        return runtime_entry_bot_id()
+    import db
+
+    try:
+        from sqlalchemy import text as _text
+
+        with db.engine.connect() as conn:
+            if not conn.execute(
+                _text("SELECT to_regclass('public.entry_bindings')")
+            ).scalar():
+                return runtime_entry_bot_id()
+            row = conn.execute(
+                _text(
+                    """
+                    SELECT bot_id FROM entry_bindings
+                     WHERE tenant_id = :tenant
+                       AND channel = :channel
+                       AND enabled
+                       AND (address = :address OR address IS NULL)
+                     ORDER BY (address IS NULL)
+                     LIMIT 1
+                    """
+                ),
+                {
+                    "tenant": db.current_tenant(),
+                    "channel": (channel or "").strip(),
+                    "address": (address or "").strip() or None,
+                },
+            ).mappings().first()
+    except Exception:
+        _logger.exception("entry binding lookup failed · channel=%s", channel)
+        return runtime_entry_bot_id()
+    if not row:
+        return runtime_entry_bot_id()
+    return str(row["bot_id"])
 
 
 def handoff_targets(card: Any) -> list[str]:
