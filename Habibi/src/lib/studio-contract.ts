@@ -113,9 +113,11 @@ export const sandboxTurnResultSchema = z
     promptVersionId: z.string(),
     compiledBundleHash: z.string().nullable().optional(),
     flowStatus: z
-      .enum(["validated_not_executed_in_text_rehearsal", "not_authored"])
+      .enum(["walked", "validated_not_executed_in_text_rehearsal", "not_authored"])
       .nullable()
       .optional(),
+    nodeKey: z.string().nullable().optional(),
+    offeredTools: z.array(z.string()).nullable().optional(),
     customerTurn: z
       .object({
         id: z.string(),
@@ -224,10 +226,25 @@ type CatalogRow = { key: string; kind?: string; channels?: string[]; alwaysOn?: 
  * it "text". Mapped here rather than in either vocabulary, because both are
  * right in their own file.
  */
+const CARD_CHANNEL_TO_CATALOG: Record<string, string> = {
+  voice: "voice",
+  mcp: "mcp",
+  // Every other channel a card can declare is one the catalog spells "text".
+  // Listing them rather than mapping "whatsapp" alone: `sms`, `internal` and
+  // `a2a` used to fall through as themselves, match no catalog row, and empty
+  // the tab — which then reported "The tool catalog is empty", a claim about the
+  // catalog produced entirely by this filter. `backend/tests/
+  // test_studio_contract_drift.py` fails if a new card channel is not here.
+  whatsapp: "text",
+  sms: "text",
+  internal: "text",
+  a2a: "text",
+};
+
 export function catalogToolsForCard<T extends CatalogRow>(rows: T[], cardChannels?: string[]): T[] {
   const withoutFlowControl = rows.filter((t) => t.kind !== "flow_control");
   if (!cardChannels?.length) return withoutFlowControl;
-  const wanted = new Set(cardChannels.map((c) => (c === "whatsapp" || c === "chat" ? "text" : c)));
+  const wanted = new Set(cardChannels.map((c) => CARD_CHANNEL_TO_CATALOG[c] ?? c));
   return withoutFlowControl.filter(
     (t) => !t.channels?.length || t.channels.some((c) => wanted.has(c)),
   );

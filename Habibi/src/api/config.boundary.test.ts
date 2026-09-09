@@ -5,19 +5,25 @@
 // vitest is environment: "node" — pin the source the way WP-047/WP-050 do.
 // -----------------------------------------------------------------------------
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+// `withFileTypes` rather than a `statSync` per entry. The stat call is the whole
+// cost of this walk — one syscall per file across components/ and routes/ — and
+// on a Windows or bind-mounted filesystem it pushed the test past vitest's 5s
+// default and failed it on a timeout, which reads as "USE_MOCK leaked" when
+// nothing had. readdir already knows what each entry is.
 function walk(dir: string): string[] {
   const out: string[] = [];
-  for (const name of readdirSync(dir)) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const name = entry.name;
     if (name.endsWith(".test.ts") || name.endsWith(".test.tsx")) continue;
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...walk(full));
+    if (entry.isDirectory()) out.push(...walk(full));
     else if (name.endsWith(".ts") || name.endsWith(".tsx")) out.push(full);
   }
   return out;

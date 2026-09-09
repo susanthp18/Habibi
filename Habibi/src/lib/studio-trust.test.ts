@@ -84,7 +84,12 @@ describe("studio truth wiring", () => {
     expect(src).toContain("shipRollbackTarget");
     expect(src).toContain("experiments.isError");
     expect(src).toContain('status === "running"');
-    expect(src).toContain("Disabled — there is no non-customer-serving");
+    // The shadow control is gone, not merely disabled: `experiment.shadow` was
+    // removed from the card, so there is nothing to tick. This used to assert
+    // the disabled checkbox's copy, which is the weakness of a source grep —
+    // it pinned a sentence rather than the absence of a control, and went red
+    // for the change that made it true.
+    expect(src).not.toContain("value.shadow");
   });
 
   it("Outbound and Flow failed reads are not empty/zero", () => {
