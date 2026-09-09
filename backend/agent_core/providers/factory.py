@@ -225,6 +225,21 @@ def build(
     settings = {**binding.settings, **overrides}
     if binding.voice_ref and "voice" not in settings:
         settings["voice"] = binding.voice_ref
+    elif binding.voice_ref:
+        # Unreachable on the voice path today, and silently so: `voice/bot.py`
+        # binds TTS with `settings=tts_settings_kwargs(tuning)`, which always
+        # carries a "voice" key because `normalize_tuning` defaults one. So a
+        # `voice_ref` configured on the Bindings tab changes nothing, and an
+        # operator setting it to fix a wrong voice would watch it have no
+        # effect with nothing said. The card is deliberately authoritative over
+        # the binding here — this only makes the consequence visible.
+        logger.warning(
+            "binding voice_ref ignored, caller supplied a voice · provider=%s · "
+            "voice_ref=%s · voice=%s",
+            binding.provider_id,
+            binding.voice_ref,
+            settings.get("voice"),
+        )
 
     kwargs = _credentials(binding.provider_id, session_id, tenant_id)
     kwargs.update(ctor or {})
