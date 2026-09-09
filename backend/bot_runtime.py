@@ -22,6 +22,7 @@ import bot_tools
 import db
 import whatsapp as wa
 from agent_core import lexicon
+from agent_core import perception
 from agent_core.deployment import load_active_bundle
 from agent_core.prompt import build_system_prompt, default_context
 from agent_core.sentiment import sentiment_label
@@ -1416,6 +1417,20 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                     sentiment_delta=float(sentiment) if sentiment is not None else None,
                     intent=intent,
                     intent_score=top_score,
+                )
+                # W9: the same classification, kept as provenance-tagged facts
+                # instead of only as three untyped columns on the row above.
+                # Written here rather than beside `analyze_turn` because this is
+                # where the turn index exists — a fact keyed to a different
+                # index than the transcript row joins to nothing. Records
+                # nothing on a database without 0119, and never raises.
+                perception.record_turn_for_interaction(
+                    conn,
+                    interaction_id=ix,
+                    turn_index=customer_turn_index,
+                    understanding=understanding,
+                    turn_text=customer_text,
+                    latency_ms=understanding.latency_ms,
                 )
                 # Let the bot turn allocate its own index too. Passing t_idx + 1
                 # with ON CONFLICT DO NOTHING silently dropped the reply if any

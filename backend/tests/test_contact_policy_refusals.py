@@ -36,6 +36,19 @@ def _saturday_local(hour: int = 12) -> datetime:
     return monday + timedelta(days=5)
 
 
+def _inside_the_window() -> datetime:
+    """A UTC instant that lands at noon IST — inside RBI's 08:00–19:00.
+
+    ``datetime.now()`` is not a fixture. The two ``evaluate`` tests below took
+    the wall clock, so they asserted cooling-off and the weekly cap only
+    between 08:00 and 19:00 IST and reported ``outside_calling_hours`` for the
+    other thirteen hours of the day. That is the same defect ``_monday_local``
+    already exists to avoid for the window tests above — a refusal test has to
+    pin the instant it is refusing at, or it is testing the clock.
+    """
+    return _monday_local(12).replace(tzinfo=IST).astimezone(timezone.utc)
+
+
 def _borrower(**overrides) -> dict:
     row = {
         "id": "cust-refusals",
@@ -72,7 +85,7 @@ def _evaluate_outreach(monkeypatch: pytest.MonkeyPatch, **stubs):
     today = stubs.pop("today", 0)
     week_n = stubs.pop("week_n", 0)
     weekly = stubs.pop("weekly", 8)
-    now = stubs.pop("now", datetime.now(timezone.utc))
+    now = stubs.pop("now", _inside_the_window())
     assert not stubs, f"unexpected stubs: {sorted(stubs)}"
 
     monkeypatch.setattr(contact_policy, "_load_customer", lambda *_a, **_k: customer)
@@ -134,7 +147,7 @@ def test_evaluate_emits_cooling_off_inside_the_gap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "120")
-    now = datetime.now(timezone.utc)
+    now = _inside_the_window()
     decision = _evaluate_outreach(
         monkeypatch, last=now - timedelta(minutes=30), now=now
     )

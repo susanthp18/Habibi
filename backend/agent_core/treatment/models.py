@@ -52,6 +52,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent_core import feature_provenance
 from agent_core.treatment.features import SCHEMA_VERSION
 from agent_core.treatment.segments import (
     SEGMENT_VERSION,
@@ -71,7 +72,14 @@ logger = logging.getLogger(__name__)
 #: silently impute every one of them and report the same confident numbers it
 #: always did, which is exactly why the version is checked at load rather than
 #: trusted to a changelog.
-VECTOR_VERSION = "t2"
+#:
+#: t3 narrowed ``on_hold``. It counted every hold; it now counts only the holds
+#: a person or a system of record placed, because a hold the bot placed from
+#: what a borrower said on a call is speech-derived and R-INJ-1 forbids it the
+#: EV vector (§12.3). The name did not change and the meaning did, which is the
+#: precise case this constant exists for — a t2 artifact carries a coefficient
+#: fitted against the old population of that column.
+VECTOR_VERSION = "t3"
 
 #: Observations at which a segment carries half its own weight against the
 #: population estimate. A planning figure, chosen to sit just above
@@ -225,6 +233,16 @@ class ModelArtifact:
     #: The ``k`` in ``n / (n + k)``. A segment needs roughly this many
     #: observations before it carries half its own weight.
     shrinkage_k: float = DEFAULT_SHRINKAGE_K
+    #: R-INJ-1 (§12.3): the provenance classes of every input the model that
+    #: produced this artifact consumed. Empty means "declares nothing", which
+    #: is the state every artifact written before W9 is in — those are judged
+    #: on their feature names alone, which is the check that actually bites.
+    input_provenance: tuple[str, ...] = ()
+    #: Per-stratum calibration, keyed by stratum. A ``model_inference`` feature
+    #: is EV-admissible only where this is non-empty: a model can be well
+    #: calibrated overall and badly calibrated on the hardship stratum, which
+    #: is the one stratum where the EV contribution matters.
+    calibration_strata: dict[str, Any] = field(default_factory=dict)
 
     def age_days(self) -> float | None:
         if self.trained_at is None:
@@ -494,6 +512,10 @@ def load_artifact(
             segments=_parse_segments(raw, n_features=len(names), path=p),
             segment_version=str(raw.get("segmentVersion") or SEGMENT_VERSION),
             shrinkage_k=float(raw.get("shrinkageK") or DEFAULT_SHRINKAGE_K),
+            input_provenance=tuple(
+                str(v) for v in (raw.get("inputProvenance") or ())
+            ),
+            calibration_strata=dict(raw.get("calibrationStrata") or {}),
         )
     except (TypeError, ValueError) as exc:
         _warn_once(f"numeric:{p}", "%s artifact at %s has non-numeric fields (%s)", expect_target, p, exc)
@@ -540,6 +562,25 @@ def load_artifact(
             artifact.version,
             artifact.feature_schema_version,
             SCHEMA_VERSION,
+        )
+        return None
+
+    # R-INJ-1, §12.3. Nothing a borrower says may enter the expected value of
+    # pursuing them, whether or not a classifier wraps it — and a feature this
+    # build has never classified is refused rather than assumed innocent,
+    # because a rule whose default is "allow" is a comment.
+    refusal = feature_provenance.TREATMENT.refuse(
+        artifact.feature_names,
+        declared=artifact.input_provenance,
+        calibration_strata=artifact.calibration_strata,
+    )
+    if refusal is not None:
+        _warn_once(
+            f"provenance:{p}",
+            "%s artifact %s is not EV-admissible: %s — refusing",
+            expect_target,
+            artifact.version,
+            refusal,
         )
         return None
 

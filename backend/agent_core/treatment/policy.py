@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 # --- reasons ---------------------------------------------------------------
 HOLD_PREFIX = "hold:"
 CONTACT_PREFIX = "contact:"
+#: A veto raised by something the borrower said. Prefixed so it can never be
+#: mistaken for a hold a person placed — the two answer different questions in
+#: a complaint pack, and only one of them has an actor.
+SPEECH_PREFIX = "speech:"
 BUCKET_DISALLOWS = "bucket_disallows_action"
 ACCOUNT_NOT_DELINQUENT = "account_not_delinquent"
 ACCOUNT_CLOSED = "account_closed"
@@ -113,6 +117,50 @@ def _hold_veto(action: str, features: AccountFeatures) -> str | None:
     return None
 
 
+#: What each speech-derived flag still permits. Everything not listed is
+#: vetoed while the flag stands.
+#:
+#: §12.3: such a fact "may raise a hold, raise a dispute flag, suppress contact
+#: or escalate to a human. It may never release a veto, satisfy a prerequisite,
+#: or raise EV." So this table maps to *permitted* actions rather than to a
+#: score, and the two escapes are always ``wait`` and, where a person is the
+#: right answer, ``human_call``.
+#:
+#: "I already paid" is the worked example in the design note, and this is where
+#: it lands: a dispute flag that suppresses further discretionary contact. It
+#: does not become ``paid = true``, because a payment is a ledger entry and a
+#: sentence is not.
+SPEECH_SUPPRESSES: dict[str, frozenset[str]] = {
+    "consent_withdrawal": frozenset({A.WAIT}),
+    "dispute_claimed": DISPUTE_PERMITS,
+    "hardship_claimed": frozenset({A.WAIT, A.HUMAN_CALL}),
+    "legal_threat": frozenset({A.WAIT, A.HUMAN_CALL}),
+}
+
+
+def _speech_veto(action: str, features: AccountFeatures) -> str | None:
+    """R-INJ-1's monotone-suppression rule, §12.3, as a shape.
+
+    Every path out of this function is either a veto string or ``None``, and
+    the only ``None`` is the one at the end, reached when no flag objected. So
+    it can add a reason to refuse an action and there is no expressible way for
+    it to remove one, satisfy a prerequisite, or contribute to a score. That is
+    the enforcement — not the comment above it, and not a review.
+
+    An unmapped flag does nothing at all. That is the safe direction: it leaves
+    behaviour exactly as it was before the fact existed, whereas a default that
+    *acted* on an unrecognised code would let a new perception key change what
+    the engine does before anybody decided it should.
+    """
+    for flag in features.speech_flags:
+        code = flag.split(":", 1)[0]
+        permits = SPEECH_SUPPRESSES.get(code)
+        if permits is None or action in permits:
+            continue
+        return f"{SPEECH_PREFIX}{code}"
+    return None
+
+
 def permits_third_party_contact(features: AccountFeatures) -> bool:
     """Whether a non-borrower number may be dialled. Always False today.
 
@@ -157,6 +205,10 @@ def veto(
     held = _hold_veto(action, features)
     if held:
         return held
+
+    spoken = _speech_veto(action, features)
+    if spoken:
+        return spoken
 
     if action not in A.bucket_policy(features.bucket).allowed:
         return BUCKET_DISALLOWS

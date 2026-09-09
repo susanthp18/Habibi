@@ -1,6 +1,6 @@
 """Model-backed recommenders behind the :class:`Recommender` protocol.
 
-Three of them, in the order they earn their way in:
+Two of them, in the order they earn their way in:
 
 * :class:`PropensityScorer` — a calibrated linear model loaded from a JSON
   artifact. Produces ``p_convert`` and therefore ``expected_value``, which is
@@ -9,9 +9,12 @@ Three of them, in the order they earn their way in:
   annealed as the model earns confidence. This is what a real rollout uses:
   going straight from hand-tuned weights to a fresh model is a step change
   nobody can attribute.
-* :class:`LLMReranker` — a wrapper that may reorder an *already approved* list
-  and rewrite the talk track. It cannot add a product, cannot resurrect a
-  vetoed one, and cannot change an amount.
+
+``LLMReranker`` was the third and now lives in :mod:`agent_core.reco.rerank`.
+It left because it held the only Azure call in the ranking path, and §12.1's
+import contract — checked in ``tests/test_perception_boundary.py`` — makes
+"no language model is reachable from the code that ranks" a property of the
+import graph rather than a convention.
 
 **Why a linear model and not a gradient-boosted one.** A logistic regression
 with recorded coefficients is a 3KB JSON file this service can load, explain
@@ -34,17 +37,17 @@ import logging
 import math
 import os
 import threading
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+from agent_core import feature_provenance
 from agent_core.reco import vectorize
 from agent_core.reco.candidates import Candidate
 from agent_core.reco.config import Weights
 from agent_core.reco.features import CallSignals, CustomerFeatures, SCHEMA_VERSION
-from agent_core.reco.scoring import Recommender, RuleScorer, ScoredOffer
-from env_utils import env_bool
+from agent_core.reco.scoring import RuleScorer, ScoredOffer
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +98,12 @@ class ModelArtifact:
     n_samples: int = 0
     vector_version: str = vectorize.VECTOR_VERSION
     feature_schema_version: str = SCHEMA_VERSION
+    # R-INJ-1 (§12.3). This engine ranks offers on a call the customer is
+    # already on, so :data:`feature_provenance.RECO_SPEECH_ADMITTED` names the
+    # in-call signals it may read — and anything outside that list is refused
+    # exactly as it would be on the collections side.
+    input_provenance: tuple[str, ...] = ()
+    calibration_strata: dict[str, Any] = field(default_factory=dict)
 
     def age_days(self) -> float | None:
         if self.trained_at is None:
@@ -198,6 +207,8 @@ def load_artifact(path: str | Path) -> ModelArtifact | None:
         n_samples=int(raw.get("nSamples") or 0),
         vector_version=str(raw.get("vectorVersion") or vectorize.VECTOR_VERSION),
         feature_schema_version=str(raw.get("featureSchemaVersion") or SCHEMA_VERSION),
+        input_provenance=tuple(str(v) for v in (raw.get("inputProvenance") or ())),
+        calibration_strata=dict(raw.get("calibrationStrata") or {}),
     )
 
     if artifact.kind != "logistic":
@@ -229,6 +240,22 @@ def load_artifact(path: str | Path) -> ModelArtifact | None:
             artifact.version,
             artifact.feature_schema_version,
             SCHEMA_VERSION,
+        )
+        return None
+    # R-INJ-1, §12.3. The named in-call signals pass; an unregistered feature
+    # does not, which is what stops a speech-derived quantity being added to
+    # the vector and trained on without anybody deciding that it should be.
+    refusal = feature_provenance.RECO.refuse(
+        artifact.feature_names,
+        declared=artifact.input_provenance,
+        calibration_strata=artifact.calibration_strata,
+    )
+    if refusal is not None:
+        _warn_once(
+            f"provenance:{p}",
+            "propensity artifact %s is not EV-admissible: %s — refusing",
+            artifact.version,
+            refusal,
         )
         return None
     return artifact
@@ -393,108 +420,6 @@ class HybridScorer:
         return blended
 
 
-class LLMReranker:
-    """Reorders an approved shortlist and rewrites its talk track.
-
-    The narrow contract is the whole design. The model sees only offers that
-    already cleared candidate generation, the eligibility veto and scoring; it
-    returns ids, and **any id not in the input set is dropped and logged**. It
-    cannot introduce a product, cannot resurrect a vetoed one, and cannot touch
-    an amount. This is the bounded, defensible answer to "just use an LLM":
-    the LLM does language, the deterministic layers do selection.
-
-    Any failure — timeout, malformed JSON, empty result — returns the base
-    ranking unchanged.
-    """
-
-    def __init__(self, base: Recommender, *, top_k: int = 3) -> None:
-        self._base = base
-        self._top_k = max(1, top_k)
-        self.name = f"llm_rerank({getattr(base, 'name', 'base')})"
-        self.version = getattr(base, "version", "1.0.0")
-
-    def score(
-        self,
-        features: CustomerFeatures,
-        signals: CallSignals,
-        candidates: Sequence[Candidate],
-    ) -> list[ScoredOffer]:
-        base = self._base.score(features, signals, candidates)
-        if len(base) < 2:
-            # Nothing to reorder. Not worth a network round trip on the audio
-            # path to confirm that a one-item list is already sorted.
-            return base
-
-        head, tail = base[: self._top_k], base[self._top_k :]
-        order = self._ask(head, signals)
-        if not order:
-            return base
-
-        by_id = {o.product_id: o for o in head}
-        reordered = [by_id.pop(pid) for pid in order if pid in by_id]
-        # Anything the model omitted keeps its original relative position
-        # rather than being silently dropped from the shortlist.
-        reordered.extend(o for o in head if o.product_id in by_id)
-        return reordered + tail
-
-    def _ask(self, head: Sequence[ScoredOffer], signals: CallSignals) -> list[str]:
-        allowed = {o.product_id for o in head}
-        payload = [
-            {
-                "productId": o.product_id,
-                "productName": o.name,
-                "reasonCodes": list(o.reason_codes),
-                "suggestedAmount": o.suggested_amount,
-            }
-            for o in head
-        ]
-        prompt = (
-            "You are ranking pre-approved offers for a collections call. "
-            "Reorder them by how relevant each is to what the customer has "
-            "said in this conversation.\n\n"
-            f"Conversation intents: {', '.join(signals.intents_seen) or 'none recorded'}\n"
-            f"Products the customer named: {', '.join(signals.product_mentions) or 'none'}\n"
-            f"Knowledge-base topics they asked about: "
-            f"{', '.join(signals.kb_topics_queried) or 'none'}\n"
-            f"Current sentiment: {signals.sentiment_current:+.2f}\n\n"
-            f"Offers: {json.dumps(payload)}\n\n"
-            'Reply with JSON only: {"order": ["productId", ...]}. '
-            "Use only the product ids given. Do not invent products, do not "
-            "add commentary, do not change any amount."
-        )
-
-        try:
-            import azure_openai
-
-            raw = azure_openai.chat_complete(
-                [{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_completion_tokens=200,
-            )
-            parsed = json.loads(_strip_fence(raw))
-            order = [str(pid) for pid in (parsed.get("order") or [])]
-        except Exception:
-            logger.warning("LLM rerank failed — keeping the base order", exc_info=True)
-            return []
-
-        rejected = [pid for pid in order if pid not in allowed]
-        if rejected:
-            # The one failure mode that matters: the model naming a product
-            # nobody approved. Dropped here, and loud, because a silent drop
-            # would hide a prompt-injection attempt as easily as a typo.
-            logger.warning("LLM rerank returned unapproved product ids %s — dropped", rejected)
-        return [pid for pid in order if pid in allowed]
-
-
-def _strip_fence(raw: str) -> str:
-    """Tolerate ```json fences, which models add regardless of instructions."""
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-        if text.rstrip().endswith("```"):
-            text = text.rstrip()[:-3]
-    return text.strip()
-
 
 # ---------------------------------------------------------------------------
 # Resolution
@@ -540,6 +465,3 @@ def hybrid_rule_weight() -> float:
         logger.warning("RECO_HYBRID_RULE_WEIGHT=%r is not a number — using 0.5", raw)
         return 0.5
 
-
-def llm_rerank_enabled() -> bool:
-    return env_bool("RECO_LLM_RERANK")

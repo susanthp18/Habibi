@@ -102,8 +102,45 @@ LEGAL_PATTERNS: tuple[str, ...] = (
 LEGAL_RE = re.compile(r"\b(?:" + "|".join(LEGAL_PATTERNS) + r")\b", re.I)
 
 
+#: "Stop calling me." §12.3's own worked example of the one direction a
+#: borrower's words are always safe to act on: a withdrawal can only ever
+#: restrict what we do, so a false positive costs us a contact and a false
+#: negative costs the borrower a call they asked not to receive.
+#:
+#: Hinglish included because the deployment is, and because a withdrawal
+#: spoken in Hindi is a withdrawal. ``mat karo`` / ``mat karna`` (don't do it),
+#: ``band karo`` (stop it), ``pareshan mat karo`` (stop bothering me).
+OPTOUT_PATTERNS: tuple[str, ...] = (
+    r"(?:stop|quit|cease)\s+(?:calling|call|ringing|contacting|messaging|texting)",
+    r"(?:don'?t|do\s+not|never)\s+(?:call|ring|contact|message|text)\s+(?:me|again)",
+    r"(?:take|remove)\s+me\s+off\s+(?:your\s+)?(?:list|database)",
+    r"remove\s+my\s+(?:number|contact)",
+    r"unsubscribe",
+    r"opt\s*-?\s*out",
+    r"add\s+me\s+to\s+(?:the\s+)?dnd",
+    r"(?:call|phone|contact|message)\s+mat\s+kar(?:o|na|iye)",
+    r"(?:call|phone)\s+band\s+kar(?:o|na|iye|do)",
+    r"pareshan\s+mat\s+kar(?:o|na|iye)",
+)
+
+#: No trailing ``\w*``: every pattern above already ends on a whole word, and a
+#: suffix wildcard on ``opt out`` would match ``opt outside``.
+OPTOUT_RE = re.compile(r"\b(?:" + "|".join(OPTOUT_PATTERNS) + r")\b", re.I)
+
+
 def is_abusive(text: str) -> bool:
     return bool(ABUSE_RE.search(text or ""))
+
+
+def withdraws_consent(text: str) -> bool:
+    """Did the caller ask us to stop contacting them?
+
+    Deterministic on purpose. §12.5's hard rule is that a regulatory constraint
+    is never a model: a supervisor does not accept a false-negative rate on
+    "stop calling me", and no golden set is needed to justify a regex that can
+    only ever suppress.
+    """
+    return bool(OPTOUT_RE.search(text or ""))
 
 
 def is_legal_threat(text: str) -> bool:

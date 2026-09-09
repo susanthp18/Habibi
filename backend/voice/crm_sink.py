@@ -724,6 +724,18 @@ class CrmSink:
             self.session.understanding = result
             self.session.understanding_turn_index = turn_index
 
+        # W9: keep the classification as provenance-tagged facts, not only as
+        # three columns on the transcript. Above the `source != "llm"` return
+        # below on purpose — the keyword pass is §12.6's day-1 baseline and is
+        # the incumbent any model is later measured against.
+        if self.session.interaction_id:
+            persist.record_turn_perception(
+                interaction_id=self.session.interaction_id,
+                turn_index=turn_index,
+                understanding=result,
+                turn_text=str(p.get("text") or ""),
+            )
+
         # Upgrade the call goal's intent from the keyword baseline captured at
         # capture_call_goal time. Matched on the goal's own turn — by now
         # `understanding` describes a later turn (usually the digits the caller

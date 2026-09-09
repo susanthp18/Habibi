@@ -414,8 +414,10 @@ def build_scorer(
     lift and never availability. This function is on the audio path of a live
     phone call; there is no failure here worth dropping a customer for.
 
-    ``RECO_LLM_RERANK=true`` wraps whatever was resolved. The wrapper can only
-    reorder an approved list, so it is safe to layer on any of them.
+    ``RECO_LLM_RERANK=true`` still wraps whatever was resolved, but the wrapping
+    happens in :mod:`agent_core.reco.engine` rather than here. §12.1 forbids
+    this module reaching a language model at all, and a factory that reached one
+    on behalf of its callers was the violation — the arithmetic never needed it.
 
     ``rule_weight`` overrides the hybrid blend for one call, so an A/B arm can
     pin its own blend without changing it for every other arm in the process.
@@ -440,6 +442,4 @@ def build_scorer(
         logger.warning("unknown RECO_SCORER=%r — falling back to the rule scorer", name)
         scorer = RuleScorer(weights)
 
-    if models.llm_rerank_enabled():
-        scorer = models.LLMReranker(scorer)
     return scorer

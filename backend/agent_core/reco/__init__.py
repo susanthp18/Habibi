@@ -25,8 +25,53 @@ Layout
 ``decisions``    the append-only decision log that makes any of this trainable
 ``engine``       orchestration
 ``config``       tunables, read from the environment
+
+Why the re-exports are lazy
+---------------------------
+``recommend`` and ``RecommendationResult`` resolve through PEP 562, the same
+way ``agent_core`` itself already defers its own, and for a sharper reason than
+import cost.
+
+Importing *any* submodule runs this ``__init__`` first. Eagerly pulling
+``engine`` from here therefore made the whole serving stack — including the LLM
+reranker ``engine`` wires up — a prerequisite for importing ``scoring``, which
+computes numbers and must not be able to reach a language model at all
+(§12.1). The contract in ``tests/test_perception_boundary.py`` reported exactly
+that chain:
+
+    agent_core.reco.scoring -> agent_core.reco -> agent_core.reco.engine
+      -> agent_core.reco.rerank -> azure_openai
+
+Deferring costs nothing at runtime — the first attribute access resolves the
+module and caches it in ``globals()`` — and changes no public name.
 """
 
-from agent_core.reco.engine import recommend, RecommendationResult
+from __future__ import annotations
 
-__all__ = ["recommend", "RecommendationResult"]
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, never executed at runtime
+    from agent_core.reco.engine import RecommendationResult as RecommendationResult
+    from agent_core.reco.engine import recommend as recommend
+
+_EXPORTS: dict[str, str] = {
+    "RecommendationResult": "agent_core.reco.engine",
+    "recommend": "agent_core.reco.engine",
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    module_path = _EXPORTS.get(name)
+    if module_path is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
+
+    value = getattr(import_module(module_path), name)
+    globals()[name] = value  # resolve once, then behave like a plain attribute
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_EXPORTS})

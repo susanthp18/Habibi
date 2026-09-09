@@ -90,9 +90,6 @@ def log_vectors() -> bool:
     return engine_config.flag("TREATMENT_LOG_VECTORS", True)
 
 
-def llm_rerank_enabled() -> bool:
-    return engine_config.flag("TREATMENT_LLM_RERANK", False)
-
 
 def greediness(*, conn: Any = None, portfolio_id: str = "") -> float:
     """How deterministically the logging policy picks among approved actions.

@@ -33,6 +33,7 @@ from agent_core.reco.features import (
     SCHEMA_VERSION,
     build_features,
 )
+from agent_core.reco import rerank
 from agent_core.reco.scoring import ScoredOffer, build_scorer
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,12 @@ def _recommend(
         config.weights(),
         rule_weight=(arm.rule_weight if arm else None),
     )
+    # The language layer is wired here, not inside ``build_scorer``: §12.1's
+    # import contract forbids the scoring module reaching a language model, and
+    # assembling the serving stack is this module's job. The wrapper can only
+    # reorder an already-approved list, so it is safe to layer on any scorer.
+    if rerank.llm_rerank_enabled():
+        scorer = rerank.LLMReranker(scorer)
     scored = scorer.score(features, signals, vetted)
 
     verdict = arbitration.arbitrate(

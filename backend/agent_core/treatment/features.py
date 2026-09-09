@@ -33,6 +33,7 @@ from sqlalchemy import text
 
 from agent_core.clock import as_utc
 from agent_core.treatment import actions as A
+from agent_core.treatment import schema_ready
 
 #: `customers.timezone` holds display labels ("Asia/Kolkata (IST)") in
 #: seeded data. An unrecognised zone does not fail one row -- it aborts the
@@ -55,6 +56,13 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION = "v4"
 
 DEFAULT_TZ = "Asia/Kolkata"
+
+#: ``treatment_holds.source`` values that mean "the bot raised this from what
+#: the borrower said". Such a hold still vetoes exactly as any other does; it
+#: is only barred from the EV vector, per R-INJ-1 (§12.3). The other five
+#: sources — manual, system, regulator, feedback, consent_event — are a person,
+#: a rulebook or a system of record.
+SPEECH_HOLD_SOURCES: frozenset[str] = frozenset({"bot"})
 
 #: A voice interaction shorter than this never reached a person: it is a ring-
 #: out, a voicemail beep or an immediate hang-up. Counting those as connects
@@ -255,6 +263,20 @@ class AccountFeatures:
 
     # --- vetoes -------------------------------------------------------------
     holds: tuple[str, ...] = ()
+    #: The subset of :attr:`holds` that a person, a regulator or a system of
+    #: record placed — everything except the ones the bot raised from what the
+    #: borrower said on a call.
+    #:
+    #: The veto stack reads :attr:`holds` and is unaffected. The *EV vector*
+    #: reads this one, because R-INJ-1 (§12.3) forbids a speech-derived fact
+    #: from entering the expected value of pursuing a borrower, and
+    #: ``post_call_actions._place_hold`` writes ``source='bot'`` from a call.
+    holds_of_record: tuple[str, ...] = ()
+    #: Speech-derived facts from ``perception_facts``, as codes. Monotone
+    #: suppressive by construction: ``policy._speech_veto`` may add a veto on
+    #: one of these and can do nothing else with them. Never in the EV vector,
+    #: never free text.
+    speech_flags: tuple[str, ...] = ()
     open_dispute_count: int = 0
     field_visits_90d: int = 0
     legal_notice_at: datetime | None = None
@@ -385,6 +407,11 @@ class AccountFeatures:
             "hasPhone": self.has_phone,
             "hasEmail": self.has_email,
             "holds": list(self.holds),
+            "holdsOfRecord": list(self.holds_of_record),
+            # Codes and bands, never free text. §12.3: the decision log is
+            # retained for training and for the regulator, so what a borrower
+            # said reaches it as a flag or not at all.
+            "speechFlags": list(self.speech_flags),
             "openDisputeCount": self.open_dispute_count,
             "fieldVisits90d": self.field_visits_90d,
             "legalNoticeSent": self.legal_notice_at is not None,
@@ -477,6 +504,7 @@ class SqlFeatureProvider:
         contact = self._contact(conn, customer_id, now, tz)
         reach = self._reachability(conn, customer_id, now, tz)
         holds = self._holds(conn, customer_id, account)
+        perception = self._perception(conn, customer_id, now)
         history = self._treatment_history(conn, customer_id, now)
         case = self._case_history(conn, customer_id, trigger, now)
 
@@ -539,6 +567,7 @@ class SqlFeatureProvider:
             **contact,
             **reach,
             **holds,
+            **perception,
             **history,
             **case,
         )
@@ -1177,7 +1206,7 @@ class SqlFeatureProvider:
         rows = conn.execute(
             text(
                 """
-                SELECT kind FROM treatment_holds
+                SELECT kind, source FROM treatment_holds
                 WHERE customer_id = :cid
                   AND released_at IS NULL
                   AND starts_at <= now()
@@ -1186,7 +1215,11 @@ class SqlFeatureProvider:
                 """
             ),
             {"cid": customer_id, "aid": account["id"] if account else None},
-        ).scalars().all()
+        ).all()
+        kinds = {str(row[0]) for row in rows}
+        of_record = {
+            str(row[0]) for row in rows if str(row[1] or "") not in SPEECH_HOLD_SOURCES
+        }
         disputes = conn.execute(
             text(
                 """
@@ -1198,9 +1231,50 @@ class SqlFeatureProvider:
             {"cid": customer_id},
         ).scalar()
         return {
-            "holds": tuple(sorted(set(rows))),
+            "holds": tuple(sorted(kinds)),
+            "holds_of_record": tuple(sorted(of_record)),
             "open_dispute_count": int(disputes or 0),
         }
+
+    def _perception(
+        self, conn: Any, customer_id: str, now: datetime
+    ) -> dict[str, Any]:
+        """Speech-derived flags, as codes. Suppression-only by construction.
+
+        **This is the one query in this module with an upper time bound**, and
+        it is deliberate: rebuilding a March decision must not see what the
+        borrower said in April. Every other read here is unbounded, which is
+        the point ``[pit-no-upper-time-bound-anywhere]`` makes; the fix belongs
+        with the substrate work rather than here, but a table added under
+        R-INJ-1 does not get to inherit the defect on its first day.
+        """
+        if not schema_ready.w9_ready(conn):
+            return {"speech_flags": ()}
+        rows = conn.execute(
+            text(
+                """
+                SELECT DISTINCT fact_key, fact_value
+                FROM perception_facts
+                WHERE customer_id = :cid
+                  AND observed_at <= :now
+                  AND observed_at > :now - interval '30 days'
+                  AND provenance = 'borrower_utterance'
+                  AND abstained = FALSE
+                  AND superseded_at IS NULL
+                """
+            ),
+            {"cid": customer_id, "now": now},
+        ).all()
+        flags: set[str] = set()
+        for key, value in rows:
+            # A flag is the key, or key:value where the value is a bounded
+            # code. Never the borrower's words: `fact_value` holds an enum or a
+            # band by construction (see agent_core.perception.facts).
+            if value is True or value == "true":
+                flags.add(str(key))
+            elif isinstance(value, str) and value:
+                flags.add(f"{key}:{value}")
+        return {"speech_flags": tuple(sorted(flags))}
 
     def _treatment_history(
         self, conn: Any, customer_id: str, now: datetime

@@ -57,7 +57,14 @@ _DATETIME_FIELDS = {
     "last_inbound_at",
     "legal_notice_at",
 }
-_TUPLE_FIELDS = {"responsive_hours", "allowed_days", "holds", "stale_inputs"}
+_TUPLE_FIELDS = {
+    "responsive_hours",
+    "allowed_days",
+    "holds",
+    "holds_of_record",
+    "speech_flags",
+    "stale_inputs",
+}
 
 
 def features_from_snapshot(vector: dict[str, Any]) -> AccountFeatures:

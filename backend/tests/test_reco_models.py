@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from agent_core.reco import config, models, talk, vectorize
+from agent_core.reco import config, models, rerank, talk, vectorize
 from agent_core.reco.candidates import Candidate
 from agent_core.reco.features import SCHEMA_VERSION, CallSignals, CustomerFeatures
 from agent_core.reco.scoring import (
@@ -242,9 +242,13 @@ def test_build_scorer_resolves_the_model_when_present(tmp_path, monkeypatch):
 
 
 def test_llm_rerank_wraps_without_touching_selection(tmp_path, monkeypatch):
+    """The wrapper still wraps — it is just no longer the scoring module that
+    reaches for it. §12.1's import contract moved the wiring into
+    ``reco.engine``; this asserts the behaviour survived the move."""
     monkeypatch.setenv("RECO_LLM_RERANK", "true")
-    scorer = build_scorer("rule", config.weights())
-    assert isinstance(scorer, models.LLMReranker)
+    assert rerank.llm_rerank_enabled()
+    scorer = rerank.LLMReranker(build_scorer("rule", config.weights()))
+    assert isinstance(scorer, rerank.LLMReranker)
 
 
 # ------------------------------------------------------ propensity behaviour
@@ -362,9 +366,9 @@ def test_reranker_drops_ids_the_engine_never_approved(monkeypatch):
     easily as a typo.
     """
     base = [_offer("a", 0.9), _offer("b", 0.8), _offer("c", 0.7)]
-    reranker = models.LLMReranker(_FixedScorer(base))
+    reranker = rerank.LLMReranker(_FixedScorer(base))
     monkeypatch.setattr(
-        models, "_strip_fence", lambda raw: raw
+        rerank, "_strip_fence", lambda raw: raw
     )
 
     class _FakeAzure:
@@ -383,7 +387,7 @@ def test_reranker_drops_ids_the_engine_never_approved(monkeypatch):
 
 def test_reranker_keeps_the_base_order_when_the_llm_fails(monkeypatch):
     base = [_offer("a", 0.9), _offer("b", 0.8)]
-    reranker = models.LLMReranker(_FixedScorer(base))
+    reranker = rerank.LLMReranker(_FixedScorer(base))
 
     class _Broken:
         @staticmethod
@@ -405,7 +409,7 @@ def test_reranker_skips_the_round_trip_for_a_single_offer(monkeypatch):
             raise AssertionError("should not have been called")
 
     monkeypatch.setitem(__import__("sys").modules, "azure_openai", _Exploding)
-    reranker = models.LLMReranker(_FixedScorer([_offer("a", 0.9)]))
+    reranker = rerank.LLMReranker(_FixedScorer([_offer("a", 0.9)]))
     assert len(reranker.score(_features(), CallSignals(), [])) == 1
 
 

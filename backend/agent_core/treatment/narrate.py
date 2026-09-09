@@ -19,7 +19,7 @@ from datetime import datetime
 import money_inr
 from agent_core.treatment import actions as A
 from agent_core.treatment.features import AccountFeatures, Trigger, zone
-from agent_core.treatment.policy import CONTACT_PREFIX, HOLD_PREFIX
+from agent_core.treatment.policy import CONTACT_PREFIX, HOLD_PREFIX, SPEECH_PREFIX
 from agent_core.treatment.scoring import ScoredAction
 
 _TRIGGER_PHRASE = {
@@ -59,6 +59,17 @@ _CONTACT_PHRASE = {
     "channel_expired": "channel consent has expired",
     "no_customer": "no borrower record",
     "consent_unreadable": "consent could not be read",
+}
+
+#: Speech-derived suppressions, in the borrower's favour by construction — each
+#: one is a reason we did *not* act. The sentence says what they told us and
+#: never quotes them: the decision log is retained for the regulator, and a
+#: transcript line in it is a second copy of the customer record.
+_SPEECH_PHRASE = {
+    "consent_withdrawal": "the borrower asked us to stop contacting them",
+    "dispute_claimed": "the borrower disputes this on a call",
+    "hardship_claimed": "the borrower reported hardship on a call",
+    "legal_threat": "the borrower raised a legal matter on a call",
 }
 
 
@@ -101,6 +112,9 @@ def humanise(reason: str | None) -> str:
         return "no reason recorded"
     if reason.startswith(HOLD_PREFIX):
         return f"{reason[len(HOLD_PREFIX):]} hold is active"
+    if reason.startswith(SPEECH_PREFIX):
+        code = reason[len(SPEECH_PREFIX) :]
+        return _SPEECH_PHRASE.get(code, f"{code.replace('_', ' ')} on a call")
     if reason.startswith(CONTACT_PREFIX):
         code = reason[len(CONTACT_PREFIX) :]
         return _CONTACT_PHRASE.get(code, code.replace("_", " "))

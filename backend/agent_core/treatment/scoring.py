@@ -553,7 +553,13 @@ def vector(
         ),
         "open_disputes": float(features.open_dispute_count),
         "field_visits_90d": float(features.field_visits_90d),
-        "on_hold": 1.0 if features.holds else 0.0,
+        # ``holds_of_record``, not ``holds``. A hold the bot placed from what a
+        # borrower said on a call is speech-derived, and R-INJ-1 (§12.3) forbids
+        # a speech-derived fact the EV vector — whether or not a classifier
+        # wrapped it. The veto stack still reads every hold; this is the one
+        # place the distinction is made, and VECTOR_VERSION moved to t3 with it
+        # because the name did not change and the meaning did.
+        "on_hold": 1.0 if features.holds_of_record else 0.0,
         "has_email": 1.0 if features.has_email else 0.0,
         # The return code, one-hot. This is the single most diagnostic thing we
         # know about a delinquent account and it was not in the vector at all:
@@ -588,15 +594,21 @@ def vector(
     }
 
 
+# W0 deleted the treatment-side LLM wrapper. Its `TREATMENT_LLM_RERANK` flag
+# outlived it by five waves: the docstring below still advertised the wrapping,
+# `config.llm_rerank_enabled()` still read the flag, and nothing called either.
+# A flag that documents behaviour the code does not have is worse than no flag,
+# because an operator setting it gets silence rather than an error. Both are
+# gone, and W9's import contract is what stops one growing back.
 def build_scorer(name: str) -> Recommender:
     """Resolve a scorer by name, degrading to the EV scorer at every step.
 
     An unknown name must cost lift and never availability — this runs on the
     path that decides whether a borrower gets contacted at all.
 
-    ``TREATMENT_LLM_RERANK=true`` wraps whatever was resolved. The wrapper can
-    only reorder an already-approved list, so it is safe to layer on any of
-    them.
+    Every scorer it can return is arithmetic over a feature vector. Nothing
+    here reaches a language model, and §12.1's import contract
+    (``tests/test_perception_boundary.py``) is what keeps that true.
     """
     from agent_core.treatment import models
 

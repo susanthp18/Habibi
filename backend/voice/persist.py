@@ -490,6 +490,38 @@ def update_turn_understanding(
     return updated
 
 
+def record_turn_perception(
+    *,
+    interaction_id: str,
+    turn_index: int,
+    understanding: Any,
+    turn_text: str = "",
+) -> int:
+    """W9: one turn's classification as provenance-tagged facts.
+
+    Its own transaction, because the analysis queue holds none — and its own
+    failures, because a perception row must never cost a turn. The keyword pass
+    is recorded too: §12.6's day-1 baseline *is* the keyword classifier, and
+    keeping only the LLM correction would throw away the incumbent a model-risk
+    reviewer has to compare against.
+    """
+    from agent_core import perception
+
+    try:
+        with db.engine.begin() as conn:
+            return perception.record_turn_for_interaction(
+                conn,
+                interaction_id=interaction_id,
+                turn_index=int(turn_index),
+                understanding=understanding,
+                turn_text=turn_text,
+                latency_ms=getattr(understanding, "latency_ms", None),
+            )
+    except Exception:
+        logger.debug("perception turn not recorded · ix=%s", interaction_id, exc_info=True)
+        return 0
+
+
 def append_interaction_flag(
     *,
     interaction_id: str,

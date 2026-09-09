@@ -31,6 +31,8 @@ import os
 from collections import deque
 from typing import Any, Iterable
 
+from env_utils import env_bool
+
 _logger = logging.getLogger(__name__)
 
 
@@ -53,7 +55,7 @@ def door_enabled() -> bool:
     Off by default and read per call rather than cached, so unsetting it is a
     complete rollback with no restart and no data to undo.
     """
-    return (os.getenv("DOOR_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return env_bool("DOOR_ENABLED")
 
 
 def resolve_entry(channel: str, address: str | None = None) -> str:

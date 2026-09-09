@@ -642,7 +642,6 @@ restart.
 | `TREATMENT_RETRY_BACKOFF_HOURS` | `12` | minimum gap before re-deciding a case |
 | `TREATMENT_GRACE_*_HOURS` | see `config.py` | how long an attempt has before it counts as unanswered |
 | `TREATMENT_COST_*` | see `config.py` | ₹ per attempt, all-in |
-| `TREATMENT_LLM_RERANK` | `false` | let a model reorder the approved list |
 | `TREATMENT_AB_SPLIT` | — | `control:80,null_treatment:20` |
 | `TREATMENT_VARIANTS` | — | JSON, extends the built-ins |
 | `TREATMENT_GREEDINESS` | `1.0` | 1.0 argmax, 0.0 uniform over the approved set |

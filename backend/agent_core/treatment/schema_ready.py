@@ -92,6 +92,10 @@ def w8_ready(conn: Any) -> bool:
     return has_table(conn, "engine_config") and has_table(conn, "config_epoch")
 
 
+def w9_ready(conn: Any) -> bool:
+    return has_table(conn, "perception_facts") and has_table(conn, "perception_runs")
+
+
 def retention_ready(conn: Any) -> bool:
     """W8b. Separate from ``w8_ready`` so a database carrying only 0116 is
     still a valid W8a database rather than a half-failed W8 one."""

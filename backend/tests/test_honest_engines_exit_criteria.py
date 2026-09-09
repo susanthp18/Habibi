@@ -84,6 +84,26 @@ def test_fresh_sql_vocabulary_includes_w8b() -> None:
     assert "subject_keys" in sql
 
 
+def test_fresh_sql_vocabulary_includes_w9() -> None:
+    sql = (BACKEND / "sql" / "30_perception.sql").read_text(encoding="utf-8")
+    assert "perception_facts" in sql
+    assert "perception_runs" in sql
+    # R-INJ-1's four classes. Provenance is a column with a CHECK, not a
+    # convention: it is what makes "may this enter the EV" answerable at all.
+    for cls in (
+        "system_of_record",
+        "operator_input",
+        "borrower_utterance",
+        "model_inference",
+    ):
+        assert f"'{cls}'" in sql
+    assert "input_provenance" in sql
+    # §12.3 and §13.1: tenant leads the key, or a cross-tenant scan is one
+    # planner decision away.
+    assert "PRIMARY KEY (tenant_id, id)" in sql
+    assert (BACKEND / "alembic" / "versions" / "20260909_0119_perception.py").is_file()
+
+
 def test_reservation_release_and_reap(db_tx) -> None:
     schema_ready.reset_cache()
     tenant = db_tx.execute(text("SELECT id FROM tenants LIMIT 1")).scalar()
