@@ -160,8 +160,10 @@ export function GuardrailsPanel({ value, onChange }: Props) {
               onValueChange={([v]) => update({ maxTurns: v })}
             />
             <p className="mt-050 text-body-small text-text-subtlest">
-              Ends the conversation on WhatsApp and in the sandbox. On voice it is recorded as a
-              QA flag and does not stop the call.
+              Ends the conversation on WhatsApp and in the sandbox, which also apply the
+              platform&rsquo;s own turn cap (<span className="font-mono">BOT_HARD_MAX_TURNS</span>)
+              &mdash; a higher value here is reduced to it, not honoured. On voice it is recorded
+              as a QA flag and does not stop the call.
             </p>
             <div className="mt-200 mb-050 flex items-center justify-between text-body-small">
               <span className="font-medium">Max call duration</span>
