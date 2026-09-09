@@ -35,7 +35,6 @@ const SRC = join(ROOT, "src");
  * a real render test; do not add one.
  */
 const ALLOWED = new Set([
-  "src/lib/studio-contract.test.ts", // 6 assertions standing in for 6 panels
   "src/lib/studio-trust.test.ts", // FlowInspector's ungranted-tool chip
   "src/api/sandbox.test.ts", // sandbox.lazy.tsx promote payload
   "src/routes/agent-studio.skills.index.test.ts", // the clone dialog copy

@@ -1,7 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   catalogToolsForCard,
   compileReportSchema,
@@ -11,7 +8,6 @@ import {
   sandboxToolKind,
 } from "./studio-contract";
 
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe("studio compiled contract", () => {
   it("labels ext.* as unsupported on voice", () => {
@@ -127,54 +123,18 @@ describe("studio compiled contract", () => {
     );
   });
 
-  it("Ship tab renders the Effective contract section", () => {
-    const src = readFileSync(
-      join(here, "..", "components", "prompt-studio", "ShipTab.tsx"),
-      "utf8",
-    );
-    expect(src).toContain("Effective contract");
-    expect(src).toContain("parseEffectiveContract");
-  });
-
-  it("Tools tab filters flow-control verbs", () => {
-    const src = readFileSync(
-      join(here, "..", "components", "prompt-studio", "AgentCardPanels.tsx"),
-      "utf8",
-    );
-    expect(src).toContain("catalogToolsForCard");
-  });
-
-  it("import invalidates the canonical studio key", () => {
-    const src = readFileSync(join(here, "..", "routes", "agent-studio.skills.index.tsx"), "utf8");
-    expect(src).toContain("invalidateAgentStudio");
-    expect(src).toContain("onSubmit");
-  });
-
-  it("text rehearsal inspector shows simulated tool traces, not CRM writes", () => {
-    const tools = readFileSync(
-      join(here, "..", "components", "sandbox", "inspector", "ToolsTab.tsx"),
-      "utf8",
-    );
-    expect(tools).not.toMatch(/Start a live call — CRM writes/);
-    expect(tools).toContain("simulated");
-
-    const sandbox = readFileSync(join(here, "..", "routes", "sandbox.lazy.tsx"), "utf8");
-    expect(sandbox).toContain("textToolCalls");
-    expect(sandbox).toContain("result.botTurn.toolCalls");
-  });
-
-  it("sandbox header does not claim text rehearsal writes CRM", () => {
-    const src = readFileSync(
-      join(here, "..", "components", "sandbox", "SandboxHeader.tsx"),
-      "utf8",
-    );
-    expect(src).not.toContain("Both write real CRM rows");
-    expect(src).toContain("no production side effects");
-  });
-
-  it("skill zip revoke is delayed so the download can start", () => {
-    const src = readFileSync(join(here, "..", "api", "agent-studio.ts"), "utf8");
-    expect(src).toContain("revokeObjectURL");
-    expect(src).toContain("setTimeout");
-  });
+  // Six assertions stood here, each reading a component's source and checking
+  // for a substring. Every one of them passed on a string in a comment, on dead
+  // markup, or on a branch no reader reaches — and one of them (`toContain
+  // ("simulated")`) was passing on the inspector's *empty-state* sentence while
+  // saying nothing at all about what a tool call rendered.
+  //
+  // They are now rendered assertions, next to the components they describe:
+  //   ShipTab.tsx                      -> ShipTab.test.tsx
+  //   AgentCardPanels.tsx (Tools)      -> ToolsTab.test.tsx
+  //   sandbox/inspector/ToolsTab.tsx   -> sandbox/inspector/ToolsTab.test.tsx
+  //   sandbox/SandboxHeader.tsx        -> sandbox/SandboxHeader.test.tsx
+  //   api/agent-studio.ts (zip revoke) -> api/agent-studio.export.test.ts
+  //
+  // `check-no-source-grep-tests.mjs` keeps this file out of the ALLOWED set.
 });
