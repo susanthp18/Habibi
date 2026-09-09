@@ -334,6 +334,13 @@ function EffectiveContractPanel({
             : "Effective contract could not be read."}{" "}
           Retry from Compile.
         </p>
+      ) : query.isPending && !compiled ? (
+        // The lozenge above already said "loading…" while this said "No
+        // compiled artefact yet — run Compile", so the panel made an absence
+        // claim about the card in the middle of a request that had not come
+        // back, and told the reader to run something that might be arriving.
+        // Same shape as the isError branch, one degree quieter.
+        <p className="text-body-small text-text-subtle">Reading the compiled artefact…</p>
       ) : !compiled ? (
         <p className="text-body-small text-text-subtle">
           No compiled artefact yet — run Compile, or publish to persist one.
