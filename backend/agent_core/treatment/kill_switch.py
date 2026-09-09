@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 TREATMENT_ENACT = "treatment.enact.enabled"
 TREATMENT_LABELS = "treatment.labels.enabled"
-RECO_ENABLED = "reco.enabled"
 
 
 def _pytest() -> bool:
@@ -39,15 +38,3 @@ def labels_allowed() -> bool:
     if _pytest():
         return True
     return env_bool("TREATMENT_LABELS_ENABLED")
-
-
-def reco_allowed() -> bool:
-    if _pytest():
-        return True
-    try:
-        import platform_switches
-
-        return bool(platform_switches.is_enabled(RECO_ENABLED))
-    except Exception:
-        logger.exception("reco kill switch unreadable — refusing")
-        return False

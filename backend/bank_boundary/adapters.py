@@ -89,6 +89,7 @@ def send_with_outbox(
     contract_code: str,
     action_contract: dict[str, Any],
     idempotency_key: str,
+    prepared_outbox_id: str | None = None,
 ) -> dict[str, Any]:
     binding = conn.execute(
         text(
@@ -151,7 +152,7 @@ def send_with_outbox(
     }
     if existing and existing["state"] in terminal:
         return {"replayed": True, "state": existing["state"], "id": existing["id"]}
-    if existing:
+    if existing and str(existing["id"]) != str(prepared_outbox_id or ""):
         reconciled = adapter.reconcile(idempotency_key)
         if not reconciled.get("reconciled"):
             created = existing.get("created_at")
@@ -184,15 +185,24 @@ def send_with_outbox(
             payload=reconciled,
         )
         return {"replayed": True, "state": state, "id": existing["id"]}
-    oid = outbox.enqueue(
-        conn,
-        tenant_id=tenant_id,
-        contract_code=contract_code,
-        idempotency_key=idempotency_key,
-        payload=action_contract,
-        action_contract_id=action_contract.get("contract_id"),
-        decision_id=action_contract.get("decision_id"),
-    )
+    if prepared_outbox_id:
+        if (
+            existing is None
+            or str(existing["id"]) != str(prepared_outbox_id)
+            or existing["state"] != outbox.PENDING
+        ):
+            raise RuntimeError("prepared_outbox_missing")
+        oid = str(existing["id"])
+    else:
+        oid = outbox.enqueue(
+            conn,
+            tenant_id=tenant_id,
+            contract_code=contract_code,
+            idempotency_key=idempotency_key,
+            payload=action_contract,
+            action_contract_id=action_contract.get("contract_id"),
+            decision_id=action_contract.get("decision_id"),
+        )
     ack = adapter.send({**action_contract, "idempotency_key": idempotency_key})
     if ack.get("status") in outbox.AMBIGUOUS:
         outbox.park(conn, oid, "provider_ambiguous")

@@ -27,6 +27,11 @@ services:
     environment:
       HABIBI_DEPLOYED: "0"
 
+  wk_batch:
+    environment:
+      HABIBI_DEPLOYED: "0"
+      W6_ALLOW_PRIMARY_REPORTING: "true"
+
   bot_worker:
     environment:
       HABIBI_DEPLOYED: "0"

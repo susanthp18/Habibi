@@ -5,7 +5,7 @@
 # Stay under Postgres max_connections (100) − reserved (~10).
 # Do NOT raise uvicorn --workers without re-budgeting.
 #
-# env_file: worker, bot_worker, and voice_insurance mount the full backend/.env
+# env_file: worker and bot_worker mount the full backend/.env
 # (including Azure/Meta/Twilio secrets). For production, prefer per-service
 # env_file lists or Docker secrets so sidecars only receive DB + REDIS + their
 # own credentials. Local compose keeps .env for developer convenience.
@@ -178,6 +178,40 @@ services:
       retries: 3
       start_period: 20s
 
+  # W6's batch plane: the daily feature snapshot, the PIT-skew audit and the
+  # decision cost rollup. Separate from `worker` because it is role-scoped --
+  # it performs no carrier or borrower-facing operation -- and because the
+  # snapshot is the input `SnapshotFeatureProvider` serves from. Without this
+  # service, migration 0113 makes `w6_ready` true, the engine switches to the
+  # snapshot provider, and nothing ever builds a snapshot.
+  wk_batch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
+    image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
+    container_name: collections_wk_batch
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      DB_PROCESS_ROLE: worker
+      HABIBI_DEPLOYED: "1"
+      DB_POOL_SIZE: ${BATCH_DB_POOL_SIZE:-2}
+      DB_MAX_OVERFLOW: ${BATCH_DB_MAX_OVERFLOW:-1}
+      APP_RELEASE: ${IMAGE_TAG:-local}
+    command: ["python", "-m", "wk_batch"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
   bot_worker:
     build:
       context: .
@@ -229,7 +263,6 @@ services:
       DB_POOL_SIZE: ${VOICE_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${VOICE_DB_MAX_OVERFLOW:-2}
       REDIS_URL: redis://redis:6379/0
-      VOICE_MULTI_AGENT_ENABLED: "true"
       APP_RELEASE: ${IMAGE_TAG:-local}
     volumes:
       # See the api service — filesystem fallback for voice_session_store only.
@@ -254,39 +287,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 90s
-
-  voice_insurance:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: voice
-    image: "${IMAGE_PREFIX:-}collections-voice:${IMAGE_TAG:-local}"
-    container_name: collections_voice_insurance
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
-      MINIO_ENDPOINT: minio:9000
-      MINIO_SECURE: "false"
-      DB_PROCESS_ROLE: voice
-      DB_POOL_SIZE: "2"
-      DB_MAX_OVERFLOW: "1"
-      REDIS_URL: redis://redis:6379/0
-      VOICE_MULTI_AGENT_ENABLED: "true"
-      APP_RELEASE: ${IMAGE_TAG:-local}
-    command: ["python", "-m", "voice.workers.insurance"]
-    depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "kill -0 1"]
-      interval: 15s
-      timeout: 3s
-      retries: 3
-      start_period: 20s
 
 volumes:
   pgdata:

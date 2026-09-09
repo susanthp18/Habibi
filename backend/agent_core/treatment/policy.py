@@ -44,6 +44,7 @@ LEGAL_ALREADY_SERVED = "legal_notice_already_served"
 LADDER_TOO_FAR = "ladder_advance_too_far"
 THIRD_PARTY = "third_party_contact"
 FRESHNESS_UNAVAILABLE = "freshness:resolver_unavailable"
+STALE_SNAPSHOT = "stale_snapshot"
 NO_EXPOSURE = "nothing_owed"
 
 # The mandate family. Nothing caps a channel=None action, so these are the
@@ -92,10 +93,6 @@ EMI_TIMING_TOLERANCE_DAYS = 1
 #: settles at T+1/T+2, so anything shorter is submitting a second request
 #: before the first has returned.
 MANDATE_RETRY_BACKOFF = timedelta(hours=48)
-
-
-def active_holds(features: AccountFeatures) -> tuple[str, ...]:
-    return features.holds
 
 
 def _hold_veto(action: str, features: AccountFeatures) -> str | None:
@@ -153,6 +150,9 @@ def veto(
         return None
 
     spec = A.spec(action)
+
+    if STALE_SNAPSHOT in features.stale_inputs and spec.channel:
+        return STALE_SNAPSHOT
 
     held = _hold_veto(action, features)
     if held:

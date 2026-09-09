@@ -284,12 +284,19 @@ def test_subject_request_slo_and_erasure_needs_evidence(db_tx) -> None:
     customer = db_tx.execute(text("SELECT id FROM customers LIMIT 1")).scalar()
     if not customer:
         pytest.skip("no customer")
+    # ``subject_requests.actor_user_id`` carries a FK to ``users``, and no seed
+    # in this repository creates a ``user-a``. The literal only ever survived
+    # because 0108 is unapplied on the running database, so this test skipped
+    # rather than ran. Take an id the database actually holds.
+    actor = db_tx.execute(text("SELECT id FROM users ORDER BY id LIMIT 1")).scalar()
+    if not actor:
+        pytest.skip("no user")
     created = subject_rights.create_request(
         db_tx,
         tenant_id=db.current_tenant(),
         customer_id=customer,
         kind="access",
-        actor_user_id="user-a",
+        actor_user_id=actor,
     )
     assert created["dueAt"] - created["receivedAt"] <= timedelta(days=90)
     erasure = subject_rights.create_request(
@@ -297,14 +304,14 @@ def test_subject_request_slo_and_erasure_needs_evidence(db_tx) -> None:
         tenant_id=db.current_tenant(),
         customer_id=customer,
         kind="erasure",
-        actor_user_id="user-a",
+        actor_user_id=actor,
     )
     with pytest.raises(ValueError, match="erasure_evidence"):
         subject_rights.transition(
-            db_tx, erasure["id"], state="fulfilled", actor_user_id="user-a"
+            db_tx, erasure["id"], state="fulfilled", actor_user_id=actor
         )
     fulfilled = subject_rights.fulfil_erasure(
-        db_tx, erasure["id"], actor_user_id="user-a"
+        db_tx, erasure["id"], actor_user_id=actor
     )
     assert fulfilled["evidenceRef"]
     assert subject_rights.overdue_count(db_tx, tenant_id=db.current_tenant()) == 0

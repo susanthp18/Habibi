@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from agent_core import logging_contract
+from agent_core.clock import as_utc
 from agent_core.treatment import (
     actions as A,
     arbitration,
@@ -191,7 +192,7 @@ def recommend_treatment(
     exists.
     """
     started = time.perf_counter()
-    instant = _aware(now)
+    instant = as_utc(now) or datetime.now(timezone.utc)
     trig = (
         trigger if isinstance(trigger, Trigger) else Trigger(kind=str(trigger))
     ).normalised()
@@ -422,6 +423,9 @@ def _decide(
             config_version=logging_contract.config_version(),
             lambda_bucket=logging_contract.LAMBDA_BUCKET_NONE,
             logging_contract_version=logging_contract.CONTRACT_VERSION,
+            feature_snapshot_build_id=features.snapshot_build_id,
+            feature_snapshot_date=features.snapshot_date,
+            features_known_ts=features.features_known_ts,
             **_binding_kwargs(rules, reason, now),
         )
         savepoint = None
@@ -690,11 +694,3 @@ def _candidate_log(
             # A vector we cannot build costs one training row, not the decision.
             logger.exception("treatment vector logging failed for %s", row.get("action"))
     return rows
-
-
-def _aware(value: datetime | None) -> datetime:
-    if value is None:
-        return datetime.now(timezone.utc)
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)

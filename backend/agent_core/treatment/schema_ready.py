@@ -82,3 +82,14 @@ def w5_ready(conn: Any) -> bool:
     return has_table(conn, "bank_contracts") and has_table(
         conn, "bank_inbound_manifests"
     )
+
+
+def w6_ready(conn: Any) -> bool:
+    return (
+        has_table(conn, "fct_loan_state")
+        and has_table(conn, "feature_snapshot_daily")
+        and has_table(conn, "treatment_sweep_runs")
+        and has_column(conn, "accounts", "shard_key")
+        and has_column(conn, "treatment_decisions", "features_known_ts")
+        and has_column(conn, "usage_events", "decision_id")
+    )

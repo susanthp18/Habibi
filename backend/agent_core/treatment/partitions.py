@@ -19,10 +19,6 @@ def dual_write_enabled() -> bool:
     return env_bool("TREATMENT_PAYLOAD_DUAL_WRITE")
 
 
-def read_from_payload() -> bool:
-    return env_bool("TREATMENT_PAYLOAD_READ")
-
-
 def maybe_dual_write(
     conn: Any,
     *,

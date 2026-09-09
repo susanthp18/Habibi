@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
+from agent_core.clock import as_utc
 from agent_core.treatment import actions as A
 
 #: `customers.timezone` holds display labels ("Asia/Kolkata (IST)") in
@@ -105,14 +106,6 @@ def _f(value: Any) -> float | None:
         return None
 
 
-def _aware(value: Any) -> datetime | None:
-    if not isinstance(value, datetime):
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def zone(name: str | None) -> ZoneInfo:
     label = (name or "").strip() or DEFAULT_TZ
     try:
@@ -141,7 +134,7 @@ class Trigger:
         return Trigger(kind=TRIGGER_MANUAL, at=self.at, ref=self.ref)
 
     def age_hours(self, now: datetime) -> float | None:
-        at = _aware(self.at)
+        at = as_utc(self.at)
         if at is None:
             return None
         return max(0.0, (now - at).total_seconds() / 3600.0)
@@ -158,6 +151,10 @@ class AccountFeatures:
     tenant_id: str
     account_id: str | None = None
     schema_version: str = SCHEMA_VERSION
+    snapshot_build_id: str | None = None
+    snapshot_date: date | None = None
+    features_known_ts: datetime | None = None
+    stale_inputs: tuple[str, ...] = ()
 
     # --- exposure -----------------------------------------------------------
     dpd: int | None = None
@@ -331,6 +328,12 @@ class AccountFeatures:
         return {
             "schemaVersion": self.schema_version,
             "accountId": self.account_id,
+            "snapshotBuildId": self.snapshot_build_id,
+            "snapshotDate": self.snapshot_date.isoformat() if self.snapshot_date else None,
+            "featuresKnownTs": (
+                self.features_known_ts.isoformat() if self.features_known_ts else None
+            ),
+            "staleInputs": list(self.stale_inputs),
             "dpd": self.dpd,
             "bucket": self.bucket,
             "outstanding": self.outstanding,
@@ -610,7 +613,7 @@ class SqlFeatureProvider:
             return empty
         amount = _f(row["amount"])
         paid = _f(row["paid_amount"]) or 0.0
-        due = _aware(row["due_date"])
+        due = as_utc(row["due_date"])
         days = None
         if due is not None:
             days = int((datetime.now(timezone.utc) - due).total_seconds() // 86400)
@@ -723,7 +726,7 @@ class SqlFeatureProvider:
             "mandate_cycle": cycle,
             "mandate_attempts_this_cycle": int((counts or {}).get("this_cycle") or 0),
             "mandate_last_return_reason": (counts or {}).get("last_reason"),
-            "mandate_last_presented_at": _aware((counts or {}).get("last_presented_at")),
+            "mandate_last_presented_at": as_utc((counts or {}).get("last_presented_at")),
         }
 
     def _bounce(
@@ -754,7 +757,7 @@ class SqlFeatureProvider:
                 "bounce_first_touch_channel": None,
                 "next_credit_at": None,
             }
-        occurred = _aware(row["occurred_at"])
+        occurred = as_utc(row["occurred_at"])
         age = (
             None
             if occurred is None
@@ -765,7 +768,7 @@ class SqlFeatureProvider:
             "bounce_reason": row["reason"],
             "bounce_age_hours": age,
             "bounce_first_touch_channel": row["first_touch_channel"],
-            "next_credit_at": _aware(row["next_credit_at"]),
+            "next_credit_at": as_utc(row["next_credit_at"]),
         }
 
     def _promises(
@@ -823,7 +826,7 @@ class SqlFeatureProvider:
 
         broken_at = None
         if latest is not None and latest["status"] == "broken":
-            updated = _aware(latest["updated_at"]) or _aware(latest["promised_at"])
+            updated = as_utc(latest["updated_at"]) or as_utc(latest["promised_at"])
             if updated is not None:
                 broken_at = max(0.0, (now - updated).total_seconds() / 3600.0)
 
@@ -887,7 +890,7 @@ class SqlFeatureProvider:
             "touches_today": int(today or 0),
             "daily_cap": contact_policy.daily_cap(),
             "touches_7d": int(week or 0),
-            "last_touch_at": _aware(last),
+            "last_touch_at": as_utc(last),
             "last_denied_reason": denied,
         }
 
@@ -924,7 +927,7 @@ class SqlFeatureProvider:
         # predates the ledger against an attempt the ledger recorded is how a
         # borrower ends up with a connect rate above 1.
         first_attempt = {
-            r["channel"]: _aware(r["first_at"])
+            r["channel"]: as_utc(r["first_at"])
             for r in attempt_rows
             if r["first_at"] is not None
         }
@@ -951,7 +954,7 @@ class SqlFeatureProvider:
         countable_voice = [
             r
             for r in connects
-            if voice_floor is None or (_aware(r["started_at"]) or since) >= voice_floor
+            if voice_floor is None or (as_utc(r["started_at"]) or since) >= voice_floor
         ]
         wa_floor = first_attempt.get("whatsapp")
 
@@ -975,7 +978,7 @@ class SqlFeatureProvider:
         countable_inbound = [
             r
             for r in inbound
-            if wa_floor is None or (_aware(r["created_at"]) or since) >= wa_floor
+            if wa_floor is None or (as_utc(r["created_at"]) or since) >= wa_floor
         ]
 
         # Delivery receipts, where the provider gives them. This is the real
@@ -1034,21 +1037,21 @@ class SqlFeatureProvider:
         # answers a call rarely.
         hours = sorted(
             {
-                _aware(r["started_at"]).astimezone(tz).hour
+                as_utc(r["started_at"]).astimezone(tz).hour
                 for r in connects
-                if _aware(r["started_at"]) is not None
+                if as_utc(r["started_at"]) is not None
             }
             | set((ledger or {}).get("hours") or ())
             | {
-                _aware(moment).astimezone(tz).hour
+                as_utc(moment).astimezone(tz).hour
                 for observed in receipts.values()
                 for moment in observed["read_at"]
-                if _aware(moment) is not None
+                if as_utc(moment) is not None
             }
         )
 
-        last_connect = _aware(connects[0]["started_at"]) if connects else None
-        last_inbound = _aware(inbound[0]["created_at"]) if inbound else None
+        last_connect = as_utc(connects[0]["started_at"]) if connects else None
+        last_inbound = as_utc(inbound[0]["created_at"]) if inbound else None
 
         floor = max(
             [d for d in (last_connect, last_inbound) if d is not None],
@@ -1231,7 +1234,7 @@ class SqlFeatureProvider:
         ).scalar()
         return {
             "field_visits_90d": int(field_n or 0),
-            "legal_notice_at": _aware(legal_at),
+            "legal_notice_at": as_utc(legal_at),
         }
 
 
@@ -1286,7 +1289,7 @@ class SqlFeatureProvider:
             ),
             {"cid": customer_id, "kind": trigger.kind, "ref": trigger.ref},
         ).mappings().all()
-        last_at = _aware(row["last_at"])
+        last_at = as_utc(row["last_at"])
         return {
             "case_attempts": int(row["attempts"]),
             "case_actions_tried": {
@@ -1309,6 +1312,14 @@ def build_features(
     provider: FeatureProvider | None = None,
     conn: Any | None = None,
 ) -> AccountFeatures:
-    return (provider or SqlFeatureProvider()).build(
+    selected = provider
+    if selected is None and conn is not None:
+        from agent_core.treatment import schema_ready
+
+        if schema_ready.w6_ready(conn):
+            from agent_core.treatment.substrate import SnapshotFeatureProvider
+
+            selected = SnapshotFeatureProvider()
+    return (selected or SqlFeatureProvider()).build(
         customer_id, account_id=account_id, trigger=trigger, now=now, conn=conn
     )

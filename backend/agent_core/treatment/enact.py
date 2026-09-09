@@ -33,6 +33,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from agent_core.clock import as_utc
 from agent_core.treatment import actions as A, attempts, cancel, config, decisions, reservations
 
 logger = logging.getLogger(__name__)
@@ -274,19 +275,29 @@ def _paid_since_decision(conn: Any, decision: dict[str, Any]) -> bool:
     """A payment posted after this plan was written. Distinct from trigger cure."""
     account_id = decision.get("account_id")
     created = decision.get("created_at")
+    known = decision.get("features_known_ts") or created
     if not account_id or created is None:
         return False
-    found = conn.execute(
-        text(
-            """
+    from agent_core.treatment import schema_ready
+
+    if schema_ready.w6_ready(conn):
+        statement = """
+            SELECT 1
+              FROM fct_payment
+             WHERE account_id = :aid
+               AND known_from > :since
+             LIMIT 1
+        """
+    else:
+        statement = """
             SELECT 1 FROM ledger_entries
-            WHERE account_id = :aid
-              AND type = 'payment'
-              AND posted_at > :since
-            LIMIT 1
-            """
-        ),
-        {"aid": account_id, "since": created},
+             WHERE account_id = :aid
+               AND type = 'payment'
+               AND posted_at > :since
+             LIMIT 1
+        """
+    found = conn.execute(
+        text(statement), {"aid": account_id, "since": known if schema_ready.w6_ready(conn) else created}
     ).fetchone()
     return found is not None
 
@@ -682,6 +693,67 @@ def _represent_mandate(
     """
     import db as dbmod
 
+    prepared_id = decision.get("_prepared_presentation_id")
+    prepared_outbox_id = decision.get("_prepared_outbox_id")
+    if prepared_id and prepared_outbox_id:
+        prepared = conn.execute(
+            text(
+                """
+                SELECT p.id, p.tenant_id, p.mandate_id, p.account_id,
+                       p.amount, p.presented_for, p.status, p.decision_id,
+                       m.status AS mandate_status, m.rail
+                  FROM mandate_presentations p
+                  JOIN mandates m ON m.id = p.mandate_id
+                 WHERE p.id = :id AND p.decision_id = :did
+                 FOR UPDATE OF p, m
+                """
+            ),
+            {"id": prepared_id, "did": decision["id"]},
+        ).mappings().first()
+        if prepared is None:
+            raise NoExecutor("prepared_presentation_missing")
+        if str(prepared["mandate_status"]).lower() != "active":
+            raise NoExecutor(f"mandate_{prepared['mandate_status']}")
+        from bank_boundary import adapters
+
+        envelope = {
+            **(contract or decision.get("_action_contract") or {}),
+            "presentation_id": str(prepared["id"]),
+            "mandate_id": str(prepared["mandate_id"]),
+            "account_id": str(prepared["account_id"]),
+            "amount_paise": int(round(float(prepared["amount"]) * 100)),
+            "presented_for": str(prepared["presented_for"]),
+            "rail": str(prepared["rail"]),
+        }
+        ack = adapters.send_with_outbox(
+            conn,
+            tenant_id=str(prepared["tenant_id"]),
+            contract_code="O2",
+            action_contract=envelope,
+            idempotency_key=str(prepared["id"]),
+            prepared_outbox_id=str(prepared_outbox_id),
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE mandate_presentations
+                   SET status = 'awaiting_settlement',
+                       presented_at = CASE
+                         WHEN :submitted THEN now()
+                         ELSE presented_at
+                       END,
+                       updated_at = now()
+                 WHERE id = :id
+                """
+            ),
+            {"id": prepared["id"], "submitted": bool(ack.get("submitted"))},
+        )
+        return (
+            f"rail:{ack.get('ack', {}).get('provider_ref')}"
+            if ack.get("submitted")
+            else f"queued:reference:{ack['id']}"
+        )
+
     account_id = decision.get("account_id")
     if not account_id:
         raise NoExecutor("no_account_on_decision")
@@ -747,27 +819,6 @@ def _represent_mandate(
     presentation_id = dbmod._id("MP")
     scheduled = decision.get("scheduled_at") or datetime.now(timezone.utc)
 
-    if executor == config.MANDATE_EXECUTOR_RAIL:
-        ref = _submit_to_rail(
-            presentation_id=presentation_id,
-            mandate_id=str(state["id"]),
-            rail=str(state["rail"]),
-            amount=amount,
-            cycle=state["cycle"],
-        )
-        status, presented_at = "awaiting_settlement", datetime.now(timezone.utc)
-    else:
-        ref = _hand_to_lms(
-            conn,
-            decision=decision,
-            customer=customer,
-            presentation_id=presentation_id,
-            amount=amount,
-            cycle=state["cycle"],
-            contract=contract,
-        )
-        status, presented_at = "awaiting_settlement", None
-
     conn.execute(
         text(
             """
@@ -792,11 +843,56 @@ def _represent_mandate(
             "cycle": state["cycle"],
             "attempt_no": attempt_no,
             "scheduled_at": scheduled,
-            "presented_at": presented_at,
-            "status": status,
+            "presented_at": None,
+            "status": "scheduled",
             "executor": executor,
             "decision_id": decision["id"],
         },
+    )
+
+    if executor == config.MANDATE_EXECUTOR_RAIL:
+        from bank_boundary import outbox
+
+        envelope = {
+            **(contract or decision.get("_action_contract") or {}),
+            "presentation_id": presentation_id,
+            "mandate_id": str(state["id"]),
+            "account_id": str(account_id),
+            "amount_paise": int(round(amount * 100)),
+            "presented_for": str(state["cycle"]),
+            "rail": str(state["rail"]),
+        }
+        outbox_id = outbox.enqueue(
+            conn,
+            tenant_id=str(customer["tenant_id"]),
+            contract_code="O2",
+            idempotency_key=presentation_id,
+            payload=envelope,
+            action_contract_id=envelope.get("contract_id"),
+            decision_id=str(decision["id"]),
+        )
+        decision["_prepared_presentation_id"] = presentation_id
+        decision["_prepared_outbox_id"] = outbox_id
+        return f"queued:prepared:{outbox_id}"
+
+    ref = _hand_to_lms(
+        conn,
+        decision=decision,
+        customer=customer,
+        presentation_id=presentation_id,
+        amount=amount,
+        cycle=state["cycle"],
+        contract=contract,
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE mandate_presentations
+               SET status = 'awaiting_settlement', updated_at = now()
+             WHERE id = :id
+            """
+        ),
+        {"id": presentation_id},
     )
     return ref
 
@@ -917,7 +1013,7 @@ def _change_emi_date(
     if row is None:
         raise NoExecutor("no_salary_credit_signal")
 
-    credit_day = _aware(row["next_credit_at"]).day
+    credit_day = (as_utc(row["next_credit_at"]) or datetime.now(timezone.utc)).day
     proposed = min(28, credit_day + EMI_DATE_BUFFER_DAYS)
 
     outbound = _outbox_send(conn, customer, decision, contract, "O6")
@@ -1013,12 +1109,6 @@ def _open_self_service_plan(
 EMI_DATE_BUFFER_DAYS = 2
 
 
-def _aware(value: Any) -> datetime:
-    if not isinstance(value, datetime):
-        return datetime.now(timezone.utc)
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-
-
 def _outbox_send(
     conn: Any,
     customer: dict[str, Any],
@@ -1062,6 +1152,8 @@ def process_one(engine: Engine) -> bool:
     if not kill_switch.enact_allowed():
         return False
 
+    prepared_rail = False
+    prepare_failed_note: str | None = None
     with engine.begin() as conn:
         claimed = decisions.claim_due(conn, limit=1)
         if not claimed:
@@ -1089,11 +1181,40 @@ def process_one(engine: Engine) -> bool:
         attempts.set_state(conn, attempt_id, attempts.STATE_COMMITTED)
         decision["_attempt_id"] = attempt_id
         decision["_reservation_id"] = reservation_id
+        if (
+            str(decision.get("chosen_action") or "") == A.REPRESENT_MANDATE
+            and config.mandate_executor() == config.MANDATE_EXECUTOR_RAIL
+        ):
+            acted, note = enact_one(conn, decision)
+            prepared_rail = bool(
+                acted and str(note or "").startswith("queued:prepared:")
+            )
+            if not prepared_rail:
+                prepare_failed_note = str(note or "rail_prepare_failed")
+                attempts.set_state(
+                    conn,
+                    attempt_id,
+                    attempts.STATE_FAILED,
+                    error=prepare_failed_note,
+                )
+
+    if prepare_failed_note is not None:
+        logger.info(
+            "treatment plan %s rail preparation failed note=%s",
+            decision["id"],
+            prepare_failed_note,
+        )
+        return True
 
     # Provider I/O on a fresh connection so a voice FK insert cannot wait
     # on the claim lock, and an ambiguous result can park rather than retry.
     with engine.begin() as conn:
-        acted, note = enact_one(conn, decision)
+        import usage_meter
+
+        with usage_meter.attribute_to(
+            decision.get("interaction_id"), decision_id=str(decision["id"])
+        ):
+            acted, note = enact_one(conn, decision)
         attempt_id = decision.get("_attempt_id")
         reservation_id = decision.get("_reservation_id")
         envelope = decision.get("_action_contract") or {}
@@ -1126,6 +1247,24 @@ def process_one(engine: Engine) -> bool:
         elif note in {"not_live"}:
             reservations.release(conn, reservation_id)
         else:
+            if prepared_rail:
+                from bank_boundary import outbox
+
+                conn.execute(
+                    text(
+                        """
+                        UPDATE mandate_presentations
+                           SET status = 'cancelled', updated_at = now()
+                         WHERE id = :id AND status = 'scheduled'
+                        """
+                    ),
+                    {"id": decision.get("_prepared_presentation_id")},
+                )
+                outbox.mark(
+                    conn,
+                    str(decision.get("_prepared_outbox_id") or ""),
+                    outbox.REJECTED,
+                )
             ambiguous = note in {"dial_failed", "timeout", "unknown"} or "ambiguous" in note
             if ambiguous:
                 attempts.set_state(conn, attempt_id, attempts.STATE_PARKED, error=note)

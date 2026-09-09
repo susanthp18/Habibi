@@ -36,6 +36,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from agent_core.clock import as_utc
 from agent_core.treatment import actions as A, config, decisions, kill_switch
 from agent_core.treatment.features import CONNECT_MIN_SECONDS, Trigger
 
@@ -79,12 +80,6 @@ UNRESOLVED = frozenset(
 #: How many decisions to attribute in one pass. Bounded so a backlog cannot
 #: monopolise the worker.
 BATCH = 25
-
-
-def _aware(value: Any) -> datetime | None:
-    if not isinstance(value, datetime):
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +144,7 @@ def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = B
             conn=conn,
             reach_outcome=reach,
             cure_outcome=cure,
-            observed_days=(instant - since).days if (since := _aware(row.get("created_at"))) else None,
+            observed_days=(instant - since).days if (since := as_utc(row.get("created_at"))) else None,
             event_at=instant,
             label_mature_at=instant + timedelta(days=90) if cure is None else instant,
             label_definition_version="w3-v1",
@@ -179,7 +174,7 @@ def _outcome_for(conn: Any, row: dict[str, Any], *, now: datetime) -> str | None
     happened.
     """
     enacted = bool(row.get("enacted"))
-    since = _aware(row.get("enacted_at")) or _aware(row.get("created_at"))
+    since = as_utc(row.get("enacted_at")) or as_utc(row.get("created_at"))
     if since is None:
         return None
 
@@ -429,7 +424,7 @@ def _send_failed(conn: Any, row: dict[str, Any]) -> bool:
             LIMIT 1
             """
         ),
-        {"cid": row["customer_id"], "since": _aware(row.get("enacted_at"))},
+        {"cid": row["customer_id"], "since": as_utc(row.get("enacted_at"))},
     ).fetchone()
     return found is not None
 
@@ -519,7 +514,7 @@ def advance(conn: Any, case: dict[str, Any], *, now: datetime | None = None) -> 
             account_id=case.get("account_id"),
             trigger=Trigger(
                 kind=str(case["trigger_kind"]),
-                at=_aware(case.get("created_at")),
+                at=as_utc(case.get("created_at")),
                 ref=str(case["trigger_ref"]),
             ),
             now=now,

@@ -98,6 +98,9 @@ def record(
     logging_contract_version: int | None = None,
     policy_binding: Any = None,
     policy_binding_hash: str | None = None,
+    feature_snapshot_build_id: str | None = None,
+    feature_snapshot_date: Any = None,
+    features_known_ts: datetime | None = None,
 ) -> str | None:
     """Persist one decision. Returns its id, or None if logging failed."""
     decision_id = _id()
@@ -164,6 +167,18 @@ def record(
                 extra_vals += ", CAST(:policy_binding AS jsonb), :policy_binding_hash"
                 params["policy_binding"] = json.dumps(list(policy_binding or []), default=str)
                 params["policy_binding_hash"] = policy_binding_hash
+            if schema_ready.w6_ready(active):
+                extra_cols += (
+                    ", feature_snapshot_build_id, feature_snapshot_date, "
+                    "features_known_ts"
+                )
+                extra_vals += (
+                    ", :feature_snapshot_build_id, :feature_snapshot_date, "
+                    ":features_known_ts"
+                )
+                params["feature_snapshot_build_id"] = feature_snapshot_build_id
+                params["feature_snapshot_date"] = feature_snapshot_date
+                params["features_known_ts"] = features_known_ts
             active.execute(
                 text(
                     f"""

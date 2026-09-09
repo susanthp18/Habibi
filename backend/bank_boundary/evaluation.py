@@ -16,10 +16,20 @@ class EvaluationRoleRequired(PermissionError):
 
 
 def evaluation_role_active(conn: Any) -> bool:
-    """Only a connection that has assumed the segregated DB role may write F9."""
+    """Return whether this connection has the segregated F9 write grant."""
     try:
         return (
-            conn.execute(text("SELECT current_user = 'evaluation_role'")).scalar()
+            conn.execute(
+                text(
+                    """
+                    SELECT has_table_privilege(
+                      current_user,
+                      'evaluation.protected_attributes',
+                      'INSERT'
+                    )
+                    """
+                )
+            ).scalar()
             is True
         )
     except Exception:

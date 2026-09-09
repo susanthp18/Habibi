@@ -362,26 +362,3 @@ def _prohibited(features: Any | None) -> tuple[str, ...]:
         # A matter with legal is a matter where anything said becomes evidence.
         out.append("any_settlement_discussion")
     return tuple(out)
-
-
-def _allowed_offers(features: Any | None) -> tuple[str, ...]:
-    """Concessions this intervention may put on the table, and no others.
-
-    Empty is a meaningful answer and the safe one: a channel with no allowed
-    offers may collect, and may not bargain. Widening this is the authority
-    matrix's job (P4) and not the treatment engine's — the engine decides
-    whether to contact, not what may be conceded, and conflating the two is how
-    a bot ends up waiving a fee nobody authorised.
-    """
-    if features is None:
-        return ()
-    holds = tuple(getattr(features, "holds", ()) or ())
-    if any(h in holds for h in ("hardship", "bereavement", "legal", "complaint")):
-        return ()
-    # A pay-link is not a concession — it is the same amount, made easier to
-    # pay — so it needs no authority and is always available where the borrower
-    # has a digital channel.
-    offers = ["payment_link"]
-    if getattr(features, "bucket", None) in {A.B_31_60, A.B_61_90, A.B_90_PLUS}:
-        offers.append("part_payment")
-    return tuple(offers)

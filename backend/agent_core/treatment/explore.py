@@ -168,14 +168,6 @@ def control_arm_choice(action: ScoredAction, *, arm_probability: float) -> Choic
     )
 
 
-def _rank_weights(n: int, greediness: float) -> list[float]:
-    return logging_contract.rank_weights(n, greediness)
-
-
-def _draw(weights: Sequence[float], *, seed: str) -> int:
-    return logging_contract.sample(weights, seed=seed)
-
-
 def seed_for(
     *,
     customer_id: str,
@@ -200,8 +192,7 @@ def seed_for(
     )
 
 
-def _clamp01(value: float) -> float:
-    try:
-        return max(0.0, min(1.0, float(value)))
-    except (TypeError, ValueError):
-        return 1.0
+#: The same clamp the draw contract applies, taken from it rather than
+#: re-typed: a local copy that fell back to 0.0 instead of 1.0 would make an
+#: unreadable arm probability suppress the arm rather than pass it through.
+_clamp01 = logging_contract._clamp01

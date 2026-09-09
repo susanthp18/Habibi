@@ -10,7 +10,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from sqlalchemy import text
 
-from bank_boundary import ALL_CODES, INBOUND, identifiers, mappings, schema_ready
+from bank_boundary import ALL_CODES, INBOUND, facts, identifiers, mappings, schema_ready
 
 
 class IngestRejected(ValueError):
@@ -157,7 +157,32 @@ def load(
               FROM bank_inbound_manifests
              WHERE tenant_id = :tid AND source = :src
                AND business_date = :bd AND schema_version = :ver
+               AND source_ref = :ref AND payload_hash = :hash
+            """
+        ),
+        {
+            "tid": tenant_id,
+            "src": source,
+            "bd": business_date,
+            "ver": schema_version,
+            "ref": source_ref,
+            "hash": payload_hash,
+        },
+    ).mappings().first()
+    if existing:
+        if existing["state"] == "accepted":
+            return {"id": existing["id"], "state": "accepted", "replayed": True}
+        raise IngestRejected(existing["reject_reason"] or "rejected")
+    prior = conn.execute(
+        text(
+            """
+            SELECT id, payload_hash
+              FROM bank_inbound_manifests
+             WHERE tenant_id = :tid AND source = :src
+               AND business_date = :bd AND schema_version = :ver
                AND source_ref = :ref
+             ORDER BY created_at
+             LIMIT 1
             """
         ),
         {
@@ -168,21 +193,55 @@ def load(
             "ref": source_ref,
         },
     ).mappings().first()
-    if existing:
-        if existing["payload_hash"] == payload_hash and existing["state"] == "accepted":
-            return {"id": existing["id"], "state": "accepted", "replayed": True}
-        if existing["payload_hash"] != payload_hash:
-            _record_break(
-                conn,
-                tenant_id=tenant_id,
-                portfolio_id=portfolio_id,
-                contract_code=contract_code,
-                business_date=business_date,
-                kind="hash_mismatch",
-                detail={"source_ref": source_ref},
-            )
+    if prior:
+        rejected_source_ref = (
+            f"{source_ref}#rejected:{payload_hash.removeprefix('sha256:')[:12]}"
+        )
+        already_rejected = conn.execute(
+            text(
+                """
+                SELECT 1 FROM bank_inbound_manifests
+                 WHERE tenant_id = :tid AND source = :src
+                   AND business_date = :bd AND schema_version = :ver
+                   AND source_ref = :ref AND payload_hash = :hash
+                   AND state = 'rejected'
+                """
+            ),
+            {
+                "tid": tenant_id,
+                "src": source,
+                "bd": business_date,
+                "ver": schema_version,
+                "ref": rejected_source_ref,
+                "hash": payload_hash,
+            },
+        ).first()
+        if already_rejected:
             raise IngestRejected("hash_mismatch")
-        raise IngestRejected(existing["reject_reason"] or "rejected")
+        _reject(
+            conn,
+            tenant_id=tenant_id,
+            portfolio_id=portfolio_id,
+            contract_code=contract_code,
+            schema_version=schema_version,
+            source=source,
+            business_date=business_date,
+            source_ref=rejected_source_ref,
+            control_count=control_count,
+            control_sum_paise=control_sum_paise,
+            payload_hash=payload_hash,
+            event_time=event_time,
+            known_from=arrival,
+            reason="hash_mismatch",
+            breaks=[
+                {
+                    "kind": "hash_mismatch",
+                    "source_ref": source_ref,
+                    "prior_manifest_id": prior["id"],
+                }
+            ],
+        )
+        raise IngestRejected("hash_mismatch")
 
     breaks: list[dict[str, Any]] = []
     if len(rows) != control_count:
@@ -318,6 +377,16 @@ def load(
             portfolio_id=portfolio_id,
             rows=validated,
             manifest_id=manifest_id,
+            known_from=arrival,
+        )
+        facts.project_manifest(
+            conn,
+            tenant_id=tenant_id,
+            portfolio_id=portfolio_id,
+            contract_code=contract_code,
+            manifest_id=manifest_id,
+            rows=validated,
+            event_time=event_time,
             known_from=arrival,
         )
         _finish_run(

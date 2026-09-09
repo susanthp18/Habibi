@@ -73,7 +73,3 @@ def from_note(note: str | None) -> str:
     if raw in {"no_phone_on_file", "sms_not_configured", "whatsapp_not_configured"}:
         return ENDPOINT_UNVERIFIED
     return HANDLER_EXCEPTION
-
-
-def pages(reason: str | None) -> bool:
-    return (reason or "") in PAGE_ON
