@@ -51,6 +51,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
+from agent_core.treatment import cluster
+
 logger = logging.getLogger(__name__)
 
 #: Largest importance weight any single observation may contribute.
@@ -87,6 +89,11 @@ class Observation:
     #: action → the candidate entry logged at decision time, vector included.
     candidates: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     variant: str | None = None
+    #: The cluster. Arm membership is randomised per customer (§8.7), so this is
+    #: the unit every standard error below must be computed over. Its absence is
+    #: what made every interval this module published treat one borrower's
+    #: fortnight of daily sweeps as fourteen independent observations.
+    customer_id: str | None = None
 
 
 #: A candidate policy: given the logged candidates, what would it have done?
@@ -108,6 +115,10 @@ class Estimate:
     ess: float
     clipped: int
     unsupported: int
+    #: Distinct borrowers behind the estimate. §8.8: below ~40 clusters an
+    #: interval's coverage is not what it claims, so this is published beside
+    #: every number and gates promotion alongside ESS.
+    clusters: int = 0
     #: The logged policy's own average reward, for comparison. Computing it here
     #: rather than leaving it to the caller means the two numbers always come
     #: from exactly the same rows.
@@ -129,12 +140,15 @@ class Estimate:
     def trustworthy(self) -> bool:
         """Whether this estimate should be allowed to promote anything.
 
-        Three ways to fail, and the first two are what make off-policy
+        Four ways to fail, and the first three are what make off-policy
         evaluation dangerous rather than merely uncertain: an estimate can be
-        precise, plausible and computed from four rows.
+        precise, plausible and computed from four borrowers. The cluster floor
+        is the one that catches that last case -- four hundred decisions on four
+        borrowers passes every row-count check ever written.
         """
         return (
             self.n > 0
+            and self.clusters >= cluster.MIN_CLUSTERS
             and self.ess_fraction >= MIN_ESS_FRACTION
             and self.unsupported_fraction <= MAX_UNSUPPORTED_FRACTION
         )
@@ -151,6 +165,7 @@ class Estimate:
             "essFraction": round(self.ess_fraction, 3),
             "unsupported": self.unsupported,
             "clipped": self.clipped,
+            "clusters": self.clusters,
             "trustworthy": self.trustworthy,
         }
 
@@ -214,6 +229,43 @@ def _ess(weights: Sequence[float]) -> float:
     return (total * total / squares) if squares > 0 else 0.0
 
 
+def _clusters(observations: Sequence[Observation]) -> int:
+    return len({o.customer_id for o in observations if o.customer_id})
+
+
+def _clustered_stderr(
+    observations: Sequence[Observation], terms: Sequence[float]
+) -> float:
+    """Cluster-robust standard error of the mean of ``terms``, on the customer.
+
+    ``sqrt(variance / n)`` assumes the terms are independent draws. They are not:
+    arm membership is randomised per customer (§8.7), so the residuals of one
+    borrower's decisions move together and the i.i.d. formula understates the
+    error by roughly ``sqrt(1 + (m-1)*ICC)`` -- a factor of 1.8 at the design
+    effect measured on this book.
+
+    The estimator is the standard CR0 sandwich for a mean: sum the residuals
+    *within* each cluster first, square the cluster totals, and apply the
+    finite-cluster correction ``G/(G-1)``. With one observation per cluster it
+    reduces exactly to the i.i.d. form, so nothing that was already independent
+    changes.
+    """
+    n = len(terms)
+    if n == 0:
+        return 0.0
+    mean = sum(terms) / n
+    totals: dict[str, float] = {}
+    for obs, term in zip(observations, terms):
+        key = obs.customer_id or obs.decision_id
+        totals[key] = totals.get(key, 0.0) + (term - mean)
+    g = len(totals)
+    if g < 2:
+        variance = sum((t - mean) ** 2 for t in terms) / max(1, n - 1)
+        return math.sqrt(variance / n)
+    meat = sum(v * v for v in totals.values())
+    return math.sqrt(meat * (g / (g - 1.0))) / n
+
+
 def _baseline(observations: Sequence[Observation]) -> float:
     return (
         sum(o.reward for o in observations) / len(observations) if observations else 0.0
@@ -229,11 +281,11 @@ def ips(observations: Sequence[Observation], policy: Policy) -> Estimate:
 
     terms = [w * r for w, r in zip(weights, rewards)]
     value = sum(terms) / n
-    variance = sum((t - value) ** 2 for t in terms) / max(1, n - 1)
     return Estimate(
         method="ips",
         value=value,
-        stderr=math.sqrt(variance / n),
+        stderr=_clustered_stderr(observations, terms),
+        clusters=_clusters(observations),
         n=n,
         ess=_ess(weights),
         clipped=clipped,
@@ -263,11 +315,17 @@ def snips(observations: Sequence[Observation], policy: Policy) -> Estimate:
     # Variance of a ratio estimator, first-order. Good enough to tell "this is
     # a real difference" from "this is noise", which is the only question being
     # asked of it.
-    residual = sum((w * (r - value)) ** 2 for w, r in zip(weights, rewards))
+    # Ratio estimator, first-order: the influence term of row i is
+    # w_i * (r_i - value) / (total / n), and the cluster-robust error is that
+    # term's CR0 sandwich. Good enough to tell "this is a real difference" from
+    # "this is noise", which is the only question being asked of it.
+    scale = n / total
+    influence = [w * (r - value) * scale for w, r in zip(weights, rewards)]
     return Estimate(
         method="snips",
         value=value,
-        stderr=math.sqrt(residual) / total if total > 0 else 0.0,
+        stderr=_clustered_stderr(observations, influence),
+        clusters=_clusters(observations),
         n=n,
         ess=_ess(weights),
         clipped=clipped,
@@ -306,11 +364,11 @@ def doubly_robust(
         terms.append(direct + w * (r - taken))
 
     value = sum(terms) / n
-    variance = sum((t - value) ** 2 for t in terms) / max(1, n - 1)
     return Estimate(
         method="dr",
         value=value,
-        stderr=math.sqrt(variance / n),
+        stderr=_clustered_stderr(observations, terms),
+        clusters=_clusters(observations),
         n=n,
         ess=_ess(weights),
         clipped=clipped,
@@ -467,7 +525,7 @@ def observations(
         params["excluded"] = list(exclude_variants)
 
     sql = f"""
-        SELECT id, chosen_action, outcome, propensity, variant, candidates
+        SELECT id, customer_id, chosen_action, outcome, propensity, variant, candidates
         FROM treatment_decisions
         WHERE {' AND '.join(clauses)}
         ORDER BY created_at ASC
@@ -507,6 +565,7 @@ def observations(
                 support=support,
                 candidates=by_action,
                 variant=row["variant"],
+                customer_id=str(row["customer_id"]),
             )
         )
     return out

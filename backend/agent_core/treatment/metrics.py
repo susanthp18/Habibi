@@ -36,6 +36,8 @@ from sqlalchemy import text
 #: seeded data. An unrecognised zone does not fail one row -- it aborts the
 #: transaction. One definition, shared with contact_policy._zone's policy.
 import contact_policy
+from agent_core.treatment import cluster, schema_ready
+from agent_core.treatment import panel as panel_mod
 
 _SAFE_TZ = contact_policy.safe_tz_sql("c.timezone")
 
@@ -43,10 +45,17 @@ logger = logging.getLogger(__name__)
 
 CONTROL_ARM = "null_treatment"
 
-#: Cases per arm below which no causal figure is reported. Deliberately blunt.
-#: A cure-rate difference computed from forty cases is not a cure-rate
-#: difference, and the whole purpose of this module is to stop a number that
-#: cannot support weight from being put under one.
+#: Weeks of panel below which `m` and ICC are not measurements. §8.7: both must
+#: be measured over >=8 weeks with bootstrap CIs before any power figure or
+#: timeline is quoted, because the design effect's plausible range spans a factor
+#: of three on the minimum detectable effect in an unknown direction.
+MIN_PANEL_WEEKS = 8.0
+
+#: Superseded by the power gate in :func:`causal`. Kept as the historical value
+#: only so a reader of an older artifact can see what the blunt row count was;
+#: nothing reads it. The gate now counts *clusters* against
+#: :data:`cluster.MIN_CLUSTERS`, because a hundred decisions on four borrowers
+#: is four observations, not a hundred.
 MIN_ARM_N = 100
 
 
@@ -57,57 +66,128 @@ def _scalar(row: Any, key: str, default: float = 0.0) -> float:
     return float(value) if value is not None else default
 
 
+def _cure_rate(rows: Any) -> float:
+    if not rows:
+        return 0.0
+    cured = sum(1 for r in rows if r["cure_outcome"] in ("paid", "ptp"))
+    return cured / len(rows)
+
+
 def causal(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
     """Incremental cure rate and incremental rupees per rupee spent.
 
-    Both are differences against the control arm, and both are reported with
-    their arm sizes attached so a reader can see what the number is made of.
+    Read from ``analysis_panel``, one row per **case**, not from
+    ``treatment_decisions``, one row per decision. §8.7: arm membership is
+    randomised per customer and must be analysed on the panel row, and every
+    published interval is a cluster bootstrap on the customer. Counting decisions
+    counted one borrower's fortnight of daily sweeps as fourteen independent
+    observations of the same coin.
+
+    The gate in front of the number is the measured design effect, not a row
+    count: cluster counts against :data:`cluster.MIN_CLUSTERS` and panel span
+    against :data:`MIN_PANEL_WEEKS`. On a book that cannot support the claim this
+    returns ``available: False`` and says which floor it missed — which on
+    today's ~21-customer book is what it will do, and that is correct.
     """
-    row = conn.execute(
-        text(
-            """
-            SELECT
-              count(*) FILTER (WHERE variant = :arm AND outcome IS NOT NULL)::int
-                AS control_n,
-              count(*) FILTER (WHERE variant = :arm AND outcome IN ('paid','ptp'))::int
-                AS control_cured,
-              count(*) FILTER (
-                WHERE variant <> :arm AND outcome IS NOT NULL
-                  AND chosen_action IS NOT NULL AND chosen_action <> 'wait'
-              )::int AS treated_n,
-              count(*) FILTER (
-                WHERE variant <> :arm AND outcome IN ('paid','ptp')
-                  AND chosen_action IS NOT NULL AND chosen_action <> 'wait'
-              )::int AS treated_cured
-            FROM treatment_decisions
-            WHERE mode = ANY(:modes)
-              AND created_at >= now() - make_interval(days => :days)
-            """
-        ),
-        {"arm": CONTROL_ARM, "modes": modes, "days": days},
-    ).mappings().first()
-
-    control_n = int(_scalar(row, "control_n"))
-    treated_n = int(_scalar(row, "treated_n"))
-    control_cured = int(_scalar(row, "control_cured"))
-    treated_cured = int(_scalar(row, "treated_cured"))
-
-    if control_n < MIN_ARM_N or treated_n < MIN_ARM_N:
+    if not schema_ready.w7_ready(conn):
         return {
             "available": False,
             "reason": (
-                f"control arm holds {control_n} and the treated arm {treated_n} "
-                f"labelled cases (need {MIN_ARM_N} each). Without both there is no "
-                "causal number here, only a collections rate — and a collections "
-                "rate is exactly what this scoreboard exists not to report."
+                "analysis_panel is not present (migration 0115). Until the panel "
+                "exists there is no case-level unit to analyse, and a decision-level "
+                "causal number would overstate its own precision."
             ),
-            "controlN": control_n,
-            "treatedN": treated_n,
         }
 
-    control_rate = control_cured / control_n
-    treated_rate = treated_cured / treated_n
+    panel = conn.execute(
+        text(
+            """
+            SELECT customer_id, variant, cure_outcome, reward_inr,
+                   enacted_decisions, censored
+              FROM analysis_panel
+             WHERE randomised_at >= now() - make_interval(days => :days)
+               AND mature IS TRUE
+               AND censored IS FALSE
+               AND modes && CAST(:modes AS text[])
+            """
+        ),
+        {"days": days, "modes": modes},
+    ).mappings().all()
+
+    control = [r for r in panel if r["variant"] == CONTROL_ARM]
+    # Treated means an arm that was actually allowed to act on the case. A
+    # non-control case on which nothing was enacted is not a treated observation.
+    treated = [
+        r
+        for r in panel
+        if r["variant"] != CONTROL_ARM and int(r["enacted_decisions"] or 0) > 0
+    ]
+
+    stats = panel_mod.clustering(conn)
+    control_g = len({r["customer_id"] for r in control})
+    treated_g = len({r["customer_id"] for r in treated})
+    weeks = float(stats["weeks"])
+
+    shortfalls: list[str] = []
+    if control_g < cluster.MIN_CLUSTERS:
+        shortfalls.append(
+            f"{control_g} borrowers in the control arm against a floor of "
+            f"{cluster.MIN_CLUSTERS}"
+        )
+    if treated_g < cluster.MIN_CLUSTERS:
+        shortfalls.append(
+            f"{treated_g} borrowers in the treated arm against a floor of "
+            f"{cluster.MIN_CLUSTERS}"
+        )
+    if weeks < MIN_PANEL_WEEKS:
+        shortfalls.append(
+            f"{weeks:.1f} weeks of panel against a floor of {MIN_PANEL_WEEKS:.0f}, "
+            "so m and ICC are not yet measurements"
+        )
+
+    measured_icc = cluster.icc(panel, value_key="reward_inr")
+    de = cluster.design_effect(stats["casesPerCustomer"], measured_icc)
+
+    if shortfalls:
+        return {
+            "available": False,
+            "reason": (
+                "no causal number here — " + "; ".join(shortfalls) + ". "
+                "Below the cluster floor the bootstrap's coverage is not what it "
+                "claims, and a cure-rate difference computed from a handful of "
+                "borrowers is a collections rate, which is exactly what this "
+                "scoreboard exists not to report."
+            ),
+            "controlClusters": control_g,
+            "treatedClusters": treated_g,
+            "controlN": len(control),
+            "treatedN": len(treated),
+            "panelWeeks": round(weeks, 2),
+            "casesPerCustomer": round(stats["casesPerCustomer"], 3),
+            "icc": round(measured_icc, 4),
+            "designEffect": round(de, 3),
+            # φ. The panel's own clusters, beside the analysable ones, so a
+            # reader can tell "no panel" from "a panel of which almost nothing
+            # is mature yet". §8.8 makes φ a first-class output of the first
+            # eight weeks -- it moves the minimum detectable effect as sqrt(φ)
+            # and is the term with the most leverage after the design effect.
+            "panelCases": stats["cases"],
+            "panelClusters": stats["customers"],
+            "analysableCases": len(panel),
+            "analysableFraction": (
+                round(len(panel) / stats["cases"], 3) if stats["cases"] else 0.0
+            ),
+        }
+
+    control_n, treated_n = len(control), len(treated)
+    control_rate = _cure_rate(control)
+    treated_rate = _cure_rate(treated)
     incremental = treated_rate - control_rate
+    lift = cluster.bootstrap(
+        list(treated) + list(control),
+        lambda rows: _cure_rate([r for r in rows if r["variant"] != CONTROL_ARM])
+        - _cure_rate([r for r in rows if r["variant"] == CONTROL_ARM]),
+    )
 
     # What the treated arm actually cost and actually recovered, so the ratio is
     # rupees over rupees rather than a modelled expectation over a modelled cost.
@@ -171,9 +251,19 @@ def causal(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
         "available": True,
         "controlN": control_n,
         "treatedN": treated_n,
+        "controlClusters": control_g,
+        "treatedClusters": treated_g,
+        "panelWeeks": round(weeks, 2),
+        "casesPerCustomer": round(stats["casesPerCustomer"], 3),
+        "icc": round(measured_icc, 4),
+        "designEffect": round(de, 3),
         "controlCureRate": round(control_rate, 4),
         "treatedCureRate": round(treated_rate, 4),
         "incrementalCureRate": round(incremental, 4),
+        # The interval, not the point, is the claim. It carries its cluster
+        # count and which bootstrap produced it, so no reader sees a lift
+        # without seeing what it was computed from.
+        "incrementalCureRateInterval": lift.as_dict(),
         "recoveredInr": round(recovered, 2),
         "attributableRecoveryInr": round(attributable, 2),
         "spendInr": round(spent, 2),

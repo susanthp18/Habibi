@@ -84,6 +84,10 @@ def w5_ready(conn: Any) -> bool:
     )
 
 
+def w7_ready(conn: Any) -> bool:
+    return has_table(conn, "analysis_panel")
+
+
 def w6_ready(conn: Any) -> bool:
     return (
         has_table(conn, "fct_loan_state")

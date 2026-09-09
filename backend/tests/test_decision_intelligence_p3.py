@@ -547,7 +547,20 @@ def test_a_causal_metric_with_thin_arms_refuses_rather_than_degrading(db_tx) -> 
     )
     out = metrics.causal(db_tx, days=30, modes=["shadow", "live"])
     assert out["available"] is False
-    assert "collections rate" in out["reason"]
+    # W7 moved the unit of analysis from the decision to the case, so there are
+    # now two honest ways to refuse and the test must keep its teeth on both.
+    # Without `analysis_panel` there is no case-level unit at all; with it, the
+    # refusal is the cluster floor. Either way it must say which, and must never
+    # return a rate.
+    from agent_core.treatment import schema_ready
+
+    if schema_ready.w7_ready(db_tx):
+        assert "floor of 40" in out["reason"]
+        assert "collections rate" in out["reason"]
+        assert out["controlClusters"] == 0
+    else:
+        assert "analysis_panel is not present" in out["reason"]
+    assert "incrementalCureRate" not in out
 
 
 def test_the_complaint_rate_reports_that_it_has_no_source(db_tx) -> None:
