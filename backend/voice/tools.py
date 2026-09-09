@@ -54,9 +54,7 @@ logger = logging.getLogger(__name__)
 # session. A single module-level set meant every concurrent call shared one
 # bucket, so under VOICE_EMBEDDED_HOST=true caller A hanging up cancelled
 # caller B's in-flight RTVI emits — B's Inspector silently stopped receiving
-# flow.node breadcrumbs mid-call. Same bug class (and same fix) as the
-# per-session mesh state in voice/mesh.py:84-105. `None` is the
-# single-session/legacy bucket.
+# flow.node breadcrumbs mid-call. `None` is the single-session/legacy bucket.
 _session_tasks: dict[str | None, set[asyncio.Task[Any]]] = {}
 _session_tasks_lock = threading.Lock()
 
@@ -177,8 +175,8 @@ _PRE_CLOSE_TASK = (
 )
 
 
-# Spoken money formatting lives in the shared reco package so voice, chat and
-# the mesh worker cannot drift into quoting the same offer three ways.
+# Spoken money formatting lives in the shared reco package so voice and chat
+# cannot drift into quoting the same offer three ways.
 _speakable_inr = reco_talk.speakable_amount
 
 
@@ -245,9 +243,19 @@ class ToolState:
         # docs. Sticky for the rest of the call, matching legacy behaviour
         # (you never leave gated_upsell except to wrap up).
         self.product_scope = "collections"
-        # gated_upsell ran mesh activation as a node pre_action; a merged node
-        # has no entry hook, so the eligibility handler fires it once instead.
-        self.mesh_upsell_activated = False
+        #: Namespace -> that member's executable set. Empty on a flat graph.
+        self.specialist_grants: dict[str, set[str]] = {}
+        #: bot_id -> the namespaced node a hop into that member lands on. Comes
+        #: from the same merge that wrote the namespaces, so a hop cannot aim at
+        #: a name the graph spells differently.
+        self.specialist_entries: dict[str, str] = {}
+        #: Hops this call has made, against ``card.memory.max_hops_per_call``.
+        self.hops_taken = 0
+        # The fleet member currently speaking. `None` on a flat graph, which is
+        # every graph until a fleet is authored. It decides two things and only
+        # two: which namespace a local node name resolves in, and which entry of
+        # `grant_by_specialist` the per-turn tool filter reads.
+        self.active_specialist: str | None = None
         # --- offer engine ---------------------------------------------------
         # The recommendation this call is working from. capture_lead reports the
         # outcome against it, which is what turns the decision log into training
@@ -278,6 +286,23 @@ class ToolState:
         # the bare "anything else?" is the baseline, an offer is the exception.
         self.close_probe_offer_clause = ""
 
+    def may_offer(self, name: str, *, namespace: str | None = None) -> bool:
+        """Whether the member owning ``namespace`` may be offered ``name``.
+
+        The one-shot filter in :func:`build_tools` narrows to the union over
+        every member; this narrows to the one that is speaking. A flat graph has
+        no namespace and no per-member grant, so this is ``True`` and the union
+        *is* the grant — today's behaviour, unchanged.
+
+        ``ALWAYS_ON`` is exempt for the same reason it is exempt from the grant:
+        a mouth that cannot greet, disclose, verify or hang up is not a safer
+        mouth, it is a broken one.
+        """
+        if name in ALWAYS_ON:
+            return True
+        grant = self.specialist_grants.get(namespace or "")
+        return True if grant is None else name in grant
+
 
 def build_tools(
     session: VoiceSession,
@@ -300,13 +325,15 @@ def build_tools(
     # hub → ("collections_hub", None), where a successful PTP stays put.
     hub_node: str = "state_position",
     upsell_node: str | None = "gated_upsell",
-    # Fired when the caller engages with a pitch. Under legacy this is a node
-    # pre_action; under hub there is no node to hang it on.
-    on_upsell_engaged: Callable[[], None] | None = None,
     sink: Any | None = None,
     allowed_tool_names: set[str] | None = None,
     attached_skills: list[Any] | None = None,
     agent_card: dict[str, Any] | None = None,
+    #: Namespace -> what that fleet member may execute, from
+    #: ``CompiledBundle.grant_by_specialist``. Empty (the only case today) keeps
+    #: the single grant below exactly as it was.
+    specialist_grants: dict[str, set[str]] | None = None,
+    specialist_entries: dict[str, str] | None = None,
 ) -> tuple[ToolState, dict[str, Any]]:
     """Return (state, name→direct_function | FlowsFunctionSchema) bound to this session."""
 
@@ -316,6 +343,8 @@ def build_tools(
     # the live graph. Exposed for tests and for debugging a bad transition.
     state.nodes = nodes
     state.allowed_tools = allowed_tool_names
+    state.specialist_grants = {k: set(v) for k, v in (specialist_grants or {}).items()}
+    state.specialist_entries = dict(specialist_entries or {})
     state.attached_skills = list(attached_skills or [])
     rtvi = emitter or RtviEmitter(enabled=False)
 
@@ -450,15 +479,32 @@ def build_tools(
         return spec.to_flows_schema(_traced(name, handler))
 
 
-    def _node(name: str) -> dict[str, Any] | None:
-        factory = nodes.get(name)
+    def _node(name: str, *, namespace: str | None = None) -> dict[str, Any] | None:
+        # Built-in tools transition by literal local name — `_node("wrap_up")`.
+        # In a fleet graph every member owns a `wrap_up`, so the name is resolved
+        # against the *speaking* member's namespace first. A flat graph resolves
+        # to itself, which is why this is not gated on a flag.
+        #
+        # `namespace` is how a hop lands somewhere else: it names the member
+        # being entered, and the resolved key then sets the speaker below.
+        from flow_graph import local_key, resolve_key, split_key
+
+        key = resolve_key(nodes, name, namespace=namespace or state.active_specialist) or name
+        factory = nodes.get(key)
         if factory is None:
             # Resolve first: an unknown name must not move current_node (which
             # selects the KB corpus) or latch session.extra["ending"] on a call
             # that is not actually ending.
             logger.warning("unknown flow node requested: %s", name)
             return None
-        if name in _TERMINAL_NODES:
+        name = key
+        # The speaker follows the cursor. This is the whole swap: the offer is
+        # narrowed by the node's namespace (flows_dynamic), and the node we just
+        # landed on is the receiving member's — so its grant, and its local
+        # names, take effect from here. `FlowWalker.move_to` applies the same
+        # rule on the text mouths.
+        state.active_specialist = split_key(name)[0] or state.active_specialist
+        if local_key(name) in _TERMINAL_NODES:
             session.extra["ending"] = True
             # Last terminal wins. setdefault kept the first hop (often
             # escalate_close) even after the caller later asked to hang up.
@@ -1882,13 +1928,6 @@ def build_tools(
             # collections for the rest of the conversation, so every later
             # money question was answered from the product corpus.
             state.product_scope = "product"
-            if not state.mesh_upsell_activated:
-                state.mesh_upsell_activated = True
-                if on_upsell_engaged is not None:
-                    try:
-                        on_upsell_engaged()
-                    except Exception:
-                        logger.debug("upsell mesh activation failed", exc_info=True)
         # Deliberately NOT marking upsell_presented here. Passing an eligibility
         # check is not a pitch — the model may still decide not to make one, and
         # counting it inflated the presented rate against a denominator taken
@@ -2072,14 +2111,6 @@ def build_tools(
         except Exception:
             logger.exception("marking offer presented failed")
 
-        if not state.mesh_upsell_activated:
-            state.mesh_upsell_activated = True
-            if on_upsell_engaged is not None:
-                try:
-                    on_upsell_engaged()
-                except Exception:
-                    logger.debug("upsell mesh activation failed", exc_info=True)
-
         payload["say"] = (
             "mention this ONE product in a single short sentence with the indicative "
             "amount, then ask if they would like a specialist to explain it. Never "
@@ -2170,7 +2201,11 @@ def build_tools(
             # Never verified: we do not know who this is, and the call is ending
             # for a reason (refusal, third party, failed attempts).
             return "unverified"
-        if state.current_node in {"terminate_politely", "escalate_close"}:
+        # local_key, because on a merged graph the cursor reads
+        # `insurance-v1/terminate_politely` and a flat comparison never matches.
+        from flow_graph import local_key as _local
+
+        if _local(state.current_node or "") in {"terminate_politely", "escalate_close"}:
             return "terminal_state"
         if float(_sink_call("current_sentiment", 0.0)) < _PROBE_SENTIMENT_FLOOR:
             return "sentiment_below_floor"
@@ -2801,6 +2836,27 @@ def build_tools(
         _escalate_to_human_handler
     )
 
+    def _handoff_edge(target: str) -> dict[str, Any]:
+        """The card's own edge to ``target``, or an empty dict.
+
+        Read from the raw card rather than a parsed one: this runs on the audio
+        path, the fields wanted are three strings, and a card that will not parse
+        must still be able to hand off — the allowlist has already decided
+        whether it may.
+        """
+        from agent_core.cards.routing import handoff_edge
+
+        return handoff_edge(agent_card or {}, target)
+
+    def _max_hops() -> int:
+        memory = (agent_card or {}).get("memory")
+        if isinstance(memory, dict):
+            try:
+                return max(0, int(memory.get("max_hops_per_call", 2)))
+            except (TypeError, ValueError):
+                pass
+        return 2
+
     async def _handoff_to_agent_handler(
         args: dict[str, Any],
         flow_manager,
@@ -2809,13 +2865,31 @@ def build_tools(
         target = str(args.get("target_bot_id") or "").strip()
         reason = str(args.get("reason") or "").strip()
         payload = args.get("payload")
-        from agent_core.cards.defaults import BOT_TO_MESH_ROLE
+        from agent_core.context import (
+            HANDOFF_PACKET_PREFIX,
+            handoff_packet,
+            handoff_packet_message,
+        )
         from agent_core.tools.handoff_allowlist import handoff_allowlist
 
         allowlist = handoff_allowlist(
             agent_card=agent_card,
             bot_id=bot_id,
         )
+        edge = _handoff_edge(target)
+        # The cap is checked before the write, and refused in the author's own
+        # words. Two specialists passing a borrower back and forth is something
+        # the caller experiences as being put on hold repeatedly; the ceiling
+        # turns it into a sentence they hear once.
+        if state.hops_taken >= _max_hops():
+            return {
+                "ok": False,
+                "error": "hop_cap_reached",
+                "say": edge.get("refusal_line")
+                or "stay with this caller and finish here yourself",
+            }, None
+        packet = handoff_packet(session)
+        carry = str(edge.get("carry") or "brief")
         result = await asyncio.to_thread(
             domain.handoff_to_agent,
             interaction_id=session.interaction_id,
@@ -2824,18 +2898,45 @@ def build_tools(
             reason=reason,
             payload=str(payload) if payload is not None else None,
             allowlist=allowlist,
+            packet=packet,
+            carry=carry,
+            turn_index=getattr(session, "turn_index", None),
+            deployment_id=session.deployment_id,
         )
         if not result.ok:
             return result.to_llm(), None
-        role = BOT_TO_MESH_ROLE.get(target)
-        if role:
-            try:
-                from voice import mesh as voice_mesh
-
-                voice_mesh.activate_role(role, session.session_id)
-            except Exception:
-                logger.exception("mesh role after handoff_to_agent failed")
-        return result.to_llm(), None
+        state.hops_taken += 1
+        if replace_developer:
+            message = handoff_packet_message(packet)
+            if message:
+                # Replace, never append: a second hop must evict the first
+                # packet rather than leave the model holding two versions of
+                # what was established.
+                await replace_developer(HANDOFF_PACKET_PREFIX, message)
+        out = result.to_llm()
+        bridge = str(edge.get("bridge_line") or "").strip()
+        if bridge and isinstance(out, dict):
+            out["say"] = bridge
+        # The hop, as a *move*. Setting `active_specialist` never swapped
+        # anything: the offer is narrowed by the node's namespace, so until the
+        # cursor lands on one of the receiving member's nodes the specialist
+        # goes on speaking with the sender's tools. `_node` resolves the entry
+        # against the target's namespace and sets the speaker from what it
+        # resolved, so the grant, the local node names and the offer all follow
+        # in one step.
+        #
+        # Returning the node rather than emitting a `go_to_*` transition tool is
+        # deliberate: a second door to the same hop would be one the cap, the
+        # ledger row and the packet do not guard.
+        entry = str(edge.get("entry_node") or "").strip() or state.specialist_entries.get(target, "")
+        landing = _node(entry, namespace=target) if entry else None
+        if entry and landing is None:
+            # The target has no such node — or no authored graph at all. The hop
+            # is still recorded and still announced; what does not happen is the
+            # tool swap. G-F15 reports this at publish; mid-call it degrades to
+            # exactly the behaviour that shipped before.
+            logger.warning("handoff to %s: no entry node %r in the graph", target, entry)
+        return out, landing
 
     handoff_to_agent = _spec("handoff_to_agent", _handoff_to_agent_handler)
 
@@ -2848,6 +2949,10 @@ def build_tools(
             slug,
             list(state.attached_skills or []),
             include_references=bool(args.get("include_references")),
+            # The turn's grant, so the reply cannot name a tool the registry
+            # will not run. Empty rather than None on a grantless session, for
+            # the reason bot_tools gives at the same call.
+            allowed=state.allowed_tools or frozenset(),
         )
         if not result.get("ok"):
             return result, None
@@ -2945,6 +3050,14 @@ def build_tools(
     }
     # ADR-0002: a missing grant is deny-all. ALWAYS_ON is unioned back so a
     # cardless mouth can still greet, disclose, verify and hang up.
+    #
+    # With a fleet this is the *union* over members, and the narrowing to the
+    # speaking one happens per node in `flows_dynamic` through
+    # `state.may_offer`. Building one dict is what keeps a hop a pointer swap
+    # rather than a rebuild of every tool schema mid-call; with no fleet the
+    # union is empty and this is the same one-shot filter it always was.
     keep = set(allowed_tool_names or ()) | ALWAYS_ON
+    for grant in state.specialist_grants.values():
+        keep |= set(grant)
     tools = {k: v for k, v in tools.items() if k in keep}
     return state, tools

@@ -247,7 +247,12 @@ def product_keys_for_node(
     Both hints are keyword-only and optional, so existing callers keep their
     current behaviour.
     """
-    if (node or "") in _PRODUCT_NODES:
+    # A fleet graph namespaces node keys (`insurance-v1/gated_upsell`), so the
+    # membership test has to be on the member-local half. Fixed here rather
+    # than at the two call sites, which is one guard instead of two.
+    from flow_graph import local_key
+
+    if local_key(node or "") in _PRODUCT_NODES:
         named = product_key_from_text(utterance)
         if named:
             return [named]
@@ -554,6 +559,82 @@ class CallContext:
     def delta_message(self, text: str) -> dict[str, str]:
         """Short developer note after a mutating tool, e.g. 'PTP created id=PR-12'."""
         return {"role": "developer", "content": f"CRM UPDATE: {text}"}
+
+
+#: Every fact a hop may carry, and nothing else.
+#:
+#: The omissions are the design. There is no member for an offer, a waiver, an
+#: amount or a contact time, because each of those is a *decision* an engine
+#: makes — ``recommend_next_offer``, ``evaluate_authority``, ``contact_policy``
+#: — and a packet that could carry one would let a hop launder a number past the
+#: engine that is supposed to produce it. The receiving specialist calls the
+#: engine again, on its own grant, and gets its own decision.
+#:
+#: Everything here is copied from state the tools already wrote, so the packet
+#: is a projection and never an inference.
+PACKET_FIELDS: tuple[str, ...] = (
+    "identity_verified",
+    "disclosure_done",
+    "call_goal",
+    "call_goal_intent",
+    "language",
+    "sentiment",
+    "commitments",
+    "open_questions",
+)
+
+#: Developer-block header. ``replace_developer`` keys off it, so a second hop
+#: evicts the first packet instead of stacking two contradictory ones on a
+#: thirty-turn call.
+HANDOFF_PACKET_PREFIX = "HANDOFF PACKET"
+
+
+def handoff_packet(source: Any) -> dict[str, Any]:
+    """The fact-only packet for a hop, read off live call state.
+
+    ``source`` is duck-typed on purpose: the audio path passes a
+    ``VoiceSession``, the text mouths pass the conversation state dict. Both
+    carry the same facts under the same names, and neither is imported here —
+    ``agent_core`` must stay loadable in the API image, which has no Pipecat.
+    """
+    def _get(name: str) -> Any:
+        if isinstance(source, dict):
+            return source.get(name)
+        return getattr(source, name, None)
+
+    packet: dict[str, Any] = {}
+    for name in PACKET_FIELDS:
+        value = _get(name)
+        if value is None or value == "" or value == []:
+            continue
+        if name in ("identity_verified", "disclosure_done"):
+            packet[name] = bool(value)
+        elif name in ("commitments", "open_questions"):
+            packet[name] = [str(v) for v in value]
+        else:
+            packet[name] = str(value)
+    return packet
+
+
+def handoff_packet_message(packet: dict[str, Any]) -> dict[str, str] | None:
+    """The packet as one developer message, or None when there is nothing to say.
+
+    Rendered deterministically — sorted keys, no prose — so the same call state
+    produces the same bytes, which is what makes the hop's context cost a
+    reviewable constant rather than a model's mood.
+    """
+    if not packet:
+        return None
+    lines = [f"{HANDOFF_PACKET_PREFIX} — facts established before this handoff:"]
+    for key in sorted(packet):
+        value = packet[key]
+        rendered = ", ".join(value) if isinstance(value, list) else str(value)
+        lines.append(f"- {key}: {rendered}")
+    lines.append(
+        "Treat these as established. Any amount, offer, waiver or contact time "
+        "must come from calling the relevant tool yourself."
+    )
+    return {"role": "developer", "content": "\n".join(lines)}
 
 
 def account_tail(account_id: str | None) -> str | None:

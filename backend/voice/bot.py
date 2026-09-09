@@ -39,7 +39,7 @@ from voice import config as voice_config
 from voice.context_edit import replace_developer_block
 from voice.crm_sink import CrmSink, bind_session_start, mark_crm_degraded
 from voice.flows import build_collections_flow
-from voice.latency import KeepAliveAzureLLMService, prewarm_llm_connection
+from voice.llm_pool import KeepAliveAzureLLMService, prewarm_shared_client
 from voice.natural import build_voice_system_prompt, filler_for_function_names
 from voice.recording import attach_recording_handlers
 from voice.session import VoiceSession
@@ -846,7 +846,7 @@ async def run_bot(transport, runner_args) -> None:
         except Exception:
             logger.exception("filler TTS failed")
 
-    _spawn_bg(prewarm_llm_connection())
+    _spawn_bg(prewarm_shared_client())
 
     idle_timeout = user_idle_timeout(tuning)
     user_params_kwargs: dict = {
@@ -1195,38 +1195,6 @@ async def run_bot(transport, runner_args) -> None:
         await audiobuffer.start_recording()
         logger.info("Recording started · session={}", session.session_id)
 
-    def _on_upsell_engaged() -> None:
-        """Activate the insurance specialist when the caller engages a pitch.
-
-        Under the legacy graph this is a ``gated_upsell`` node pre_action. A
-        merged hub has no node-entry hook, so the eligibility handler calls this
-        instead — which is arguably more accurate: it fires when the caller
-        actually engages, not when the graph says they have.
-        """
-
-        async def _run() -> None:
-            try:
-                from voice import mesh_bus
-
-                role = await mesh_bus.activate_and_publish(
-                    "insurance",
-                    session_id=session.session_id,
-                    customer_id=session.customer_id,
-                    interaction_id=session.interaction_id,
-                    bot_id=bot_id,
-                )
-                logger.info(
-                    "mesh role after upsell engagement → {} · session={}",
-                    role,
-                    session.session_id,
-                )
-            except Exception:
-                logger.exception("upsell mesh activation failed (non-fatal)")
-
-        from voice.tools import spawn_session_task
-
-        spawn_session_task(session.session_id, _run())
-
     from agent_core.skills.runtime import resolve_mouth as _resolve_mouth
     from agent_core.tools.catalog import CATALOG
     from agent_core.tools.schema import CHANNEL_VOICE
@@ -1242,6 +1210,19 @@ async def run_bot(transport, runner_args) -> None:
     )
     _allowed_tools = _grant.allowed
     _attached_skills = list(_mouth.packs)
+    # Per-member grants off the compiled bundle. Absent (no bundle, or a flat
+    # graph) leaves this empty and the single grant above is the whole story —
+    # which is every call until a fleet is published.
+    _compiled = bundle.get("compiled") if isinstance(bundle, dict) else None
+    _specialist_grants: dict[str, set[str]] = {}
+    _specialist_entries: dict[str, str] = {}
+    if isinstance(_compiled, dict):
+        for slug, names in (_compiled.get("grant_by_specialist") or {}).items():
+            if isinstance(names, list):
+                _specialist_grants[str(slug)] = {str(n) for n in names}
+        for slug, key in (_compiled.get("entry_by_specialist") or {}).items():
+            if isinstance(key, str) and key:
+                _specialist_entries[str(slug)] = key
 
     _tool_state, _tools, initial_node, global_fns = build_collections_flow(
         session,
@@ -1256,7 +1237,6 @@ async def run_bot(transport, runner_args) -> None:
         channel="sandbox_live" if sandbox_session else "voice",
         on_kb_tool_used=kb_enrich.suppress,
         spoke_this_response=lambda: spoke_probe.spoke_this_response,
-        on_upsell_engaged=_on_upsell_engaged,
         sink=sink,
         allowed_tool_names=_allowed_tools,
         attached_skills=_attached_skills,
@@ -1287,13 +1267,14 @@ async def run_bot(transport, runner_args) -> None:
                 channel="sandbox_live" if sandbox_session else "voice",
                 on_kb_tool_used=kb_enrich.suppress,
                 spoke_this_response=lambda: spoke_probe.spoke_this_response,
-                on_upsell_engaged=_on_upsell_engaged,
                 sink=sink,
                 allowed_tool_names=_allowed_tools,
                 attached_skills=_attached_skills,
                 agent_card=bundle.get("agentCard") if isinstance(bundle.get("agentCard"), dict) else None,
                 objective=session.extra.get("objective") or None,
                 entry_node=session.extra.get("entry_node") or None,
+                specialist_grants=_specialist_grants,
+                specialist_entries=_specialist_entries,
             )
             logger.info(
                 "voice flow: using authored graph · mission={}",
@@ -1616,33 +1597,6 @@ async def run_bot(transport, runner_args) -> None:
         flow_manager.register_action("summarize_context", _summarize_context_action)
     except Exception:
         logger.warning("could not register summarize_context action", exc_info=True)
-
-    async def _mesh_activate_insurance_action(action: dict) -> None:
-        try:
-            from voice import mesh_bus
-            from agent_core.cards.handoff_policy import insurance_handoff_allowed
-
-            if not insurance_handoff_allowed(bot_id, bundle.get("agentCard")):
-                logger.info("insurance handoff not on card — skip mesh_activate_insurance")
-                return
-
-            role = await mesh_bus.activate_and_publish(
-                "insurance",
-                session_id=session.session_id,
-                customer_id=session.customer_id,
-                interaction_id=session.interaction_id,
-                bot_id=bot_id,
-            )
-            logger.info("mesh role after upsell hop → {} · session={}", role, session.session_id)
-        except Exception:
-            logger.exception("mesh_activate_insurance failed (non-fatal)")
-
-    try:
-        flow_manager.register_action(
-            "mesh_activate_insurance", _mesh_activate_insurance_action
-        )
-    except Exception:
-        logger.warning("could not register mesh_activate_insurance", exc_info=True)
 
     @worker.event_handler("on_idle_timeout")
     async def on_worker_idle_timeout(worker_ref):
@@ -2267,8 +2221,8 @@ async def run_bot(transport, runner_args) -> None:
         EndFrame and never reaches that handler, so none of this ran: the
         interaction stayed ``active`` forever with no ended_at, duration,
         summary or disposition, no transcript export was written, and the
-        worker, its shared-runner registry entry, the mesh session and the
-        RTVI task set all leaked.
+        worker, its shared-runner registry entry and the RTVI task set all
+        leaked.
 
         Reached from both ``on_client_disconnected`` and ``on_pipeline_finished``
         so either ending wins; ``finalized`` makes the loser a no-op (the
@@ -2377,13 +2331,6 @@ async def run_bot(transport, runner_args) -> None:
                 await _drain_tasks(bg_tasks, label="voice bg")
             except Exception:
                 logger.exception("background task drain failed")
-            try:
-                from voice.mesh import release_session
-
-                release_session(session.session_id)
-            except Exception:
-                logger.exception("mesh session release failed")
-
         try:
             await asyncio.wait_for(_bookkeeping(), timeout=_FINALIZE_BUDGET_SECS)
         except asyncio.TimeoutError:
@@ -2645,7 +2592,6 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "pipecat.services.azure.stt",
     "pipecat.utils.context.llm_context_summarization",
     "pipecat.workers.runner",
-    "agent_core.cards.handoff_policy",
     "agent_core.cards.routing",
     "agent_core.context",
     "agent_core.deployment",
@@ -2671,7 +2617,6 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "voice.host",
     "voice.ivr",
     "voice.kb_enrich",
-    "voice.mesh",
     "voice.rtvi_events",
     "voice.tools",
     "voice.tts_pool",

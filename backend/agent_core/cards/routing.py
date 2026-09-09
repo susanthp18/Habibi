@@ -12,8 +12,8 @@ Three states, all derived from real config:
 ``handoff``
     In the transitive closure of ``handoffs`` from the entry card. Reached
     mid-conversation by ``handoff_to_agent`` (allowlisted against the *calling*
-    card's targets in agent_core/tools/domain.py) or by the in-call mesh hop
-    (gated by agent_core/cards/handoff_policy.py).
+    card's targets in agent_core/tools/domain.py). The card's ``handoffs`` are
+    the only gate: an authored edge is the permission.
 ``direct``
     Holds its own active production deployment, so ``load_active_bundle`` will
     resolve it when something addresses it by ``bot_id`` -- but nothing hands
@@ -56,6 +56,25 @@ def handoff_targets(card: Any) -> list[str]:
         if target:
             out.append(target)
     return out
+
+
+def handoff_edge(card: Any, target: str) -> dict[str, Any]:
+    """The card's own edge to ``target``, or an empty dict.
+
+    Tolerant of both spellings for the same reason :func:`handoff_targets` is —
+    stored cards carry ``toBotId`` as well as ``to_bot_id``. The voice runtime
+    had its own copy that matched only the snake case, so on a camelCase card a
+    hop silently lost its ``carry``, ``bridge_line`` and ``refusal_line`` and
+    fell back to defaults.
+    """
+    if not isinstance(card, dict):
+        return {}
+    for row in card.get("handoffs") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("to_bot_id") or row.get("toBotId") or "").strip() == target:
+            return row
+    return {}
 
 
 def reachable_from(entry: str | Iterable[str], edges: dict[str, list[str]]) -> set[str]:

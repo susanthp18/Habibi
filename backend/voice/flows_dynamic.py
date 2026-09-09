@@ -57,7 +57,10 @@ from functools import wraps
 from typing import Any, Awaitable, Callable
 
 from flow_graph import FlowGraph, FlowNode, parse_graph
-from voice.flow_vars import FlowVariables, evaluate_condition
+import flow_walk
+from flow_vars import FlowVariables
+from flow_graph import split_key
+from flow_walk import EXTRACT_TOOL, TRANSITION_PREFIX, FlowWalker
 from voice.rtvi_events import RtviEmitter
 from voice.session import VoiceSession
 from voice.tools import (
@@ -70,12 +73,11 @@ logger = logging.getLogger(__name__)
 
 AsyncStartRecording = Callable[[], Awaitable[None]]
 
-#: Prefix for generated edge-transition tools. Namespaced so an authored node
-#: key can never collide with a business tool from the registry.
-TRANSITION_PREFIX = "go_to_"
-EXTRACT_TOOL = "extract_details"
-
-_TYPE_JSON = {"string": "string", "number": "number", "boolean": "boolean"}
+#: The graph rules — which edge fires, what a step offers, how a name maps to a
+#: node — live in ``flow_walk`` so the text mouths can ask the same questions.
+#: Imported rather than re-typed: these names are the wire format between the
+#: generated tools and the walker that reads them back.
+_TYPE_JSON = flow_walk._TYPE_JSON
 
 
 #: Live call state an authored graph may interpolate or branch on. Keys are the
@@ -141,7 +143,6 @@ def build_authored_flow(
     channel: str = "voice",
     on_kb_tool_used: Callable[[], None] | None = None,
     spoke_this_response: Callable[[], bool] | None = None,
-    on_upsell_engaged: Callable[[], None] | None = None,
     sink: Any | None = None,
     initial_variables: dict[str, Any] | None = None,
     allowed_tool_names: set[str] | None = None,
@@ -149,6 +150,8 @@ def build_authored_flow(
     agent_card: dict[str, Any] | None = None,
     objective: str | None = None,
     entry_node: str | None = None,
+    specialist_grants: dict[str, set[str]] | None = None,
+    specialist_entries: dict[str, str] | None = None,
 ) -> tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
     """Compile an authored graph. Mirrors ``build_collections_flow``'s contract.
 
@@ -169,21 +172,10 @@ def build_authored_flow(
         raise ValueError("authored flow has no start node")
     # The card's chosen node wins when it names one: it is what the compiler
     # validated (G-OB2) and what the author saw on the canvas. The objective
-    # lookup is the fallback for a mission placed without a card.
-    entry = None
-    if entry_node:
-        entry = next((n for n in graph.nodes if n.key == entry_node), None)
-        if entry is None:
-            logger.warning("mission names entry node %r which is not in the graph", entry_node)
-    if entry is None and objective:
-        entry = graph.entry_for(objective)
-    if objective and entry is None and objective != "inbound":
-        logger.warning(
-            "authored flow has no entry for mission %r — starting at %s",
-            objective,
-            start.key,
-        )
-    entry = entry or start
+    # lookup is the fallback for a mission placed without a card. Shared with
+    # the text mouths so an outbound mission that starts three steps in does not
+    # restart at "the phone rang" just because the sandbox chose for itself.
+    entry = flow_walk.entry_node(graph, objective=objective, entry_key=entry_node) or start
 
     variables = FlowVariables(initial_variables, context=lambda: session_variables(session))
     # Populated below; handed to build_tools by reference so the built-in tools'
@@ -203,32 +195,35 @@ def build_authored_flow(
         channel=channel,
         on_kb_tool_used=on_kb_tool_used,
         spoke_this_response=spoke_this_response,
-        on_upsell_engaged=on_upsell_engaged,
         sink=sink,
         allowed_tool_names=allowed_tool_names,
         attached_skills=attached_skills,
         agent_card=agent_card,
+        specialist_grants=specialist_grants,
+        specialist_entries=specialist_entries,
     )
 
-    by_id = {node.id: node for node in graph.nodes}
-    outgoing: dict[str, list[Any]] = {}
-    for edge in graph.edges:
-        if edge.source in by_id and edge.target in by_id:
-            outgoing.setdefault(edge.source, []).append(edge)
+    # Who is speaking at the start. Mandatory on a merged graph, not cosmetic:
+    # with this left None, `_node("wrap_up")` finds one `wrap_up` per member,
+    # `resolve_key` calls that ambiguous and returns None, and every built-in
+    # transition in the call stops working — the first fleet call would greet
+    # and then sit there. On a flat graph `split_key` yields None and nothing
+    # changes.
+    from flow_graph import split_key as _split_key
+
+    state.active_specialist = _split_key(entry.key)[0]
+
+    # One walker, shared with the text mouths. It owns the edge rules, the node
+    # index and the variable bag; this module owns everything about speaking.
+    walker = FlowWalker(graph, variables, start=entry)
 
     session.extra.setdefault("flow_variables", variables)
 
     def _deterministic_target(node: FlowNode) -> FlowNode | None:
-        """First non-prompt edge whose condition holds."""
-        for edge in outgoing.get(node.id, ()):
-            if edge.data.condition.type == "prompt":
-                continue
-            if evaluate_condition(edge.data.condition, variables):
-                return by_id.get(edge.target)
-        return None
+        return walker.deterministic_target(node)
 
     def _advance(node: FlowNode) -> dict[str, Any] | None:
-        target = _deterministic_target(node)
+        target = walker.deterministic_target(node)
         if target is None:
             return None
         factory = nodes.get(target.key)
@@ -236,24 +231,31 @@ def build_authored_flow(
 
     # --- generated tools ---------------------------------------------------
 
-    def _transition_tool(node: FlowNode, edge: Any) -> Any:
+    def _transition_tool(name: str, description: str) -> Any:
+        """Wrap one of the walker's transitions as a Pipecat function.
+
+        The name and the description come from ``walker.transitions`` so the
+        text mouths offer the model the identical choice, worded identically.
+        Everything Pipecat-shaped — the handler, the node factory it returns —
+        stays here.
+        """
         from pipecat.flows import FlowsFunctionSchema
 
-        target = by_id[edge.target]
+        # Never re-split the name here: a namespaced key spells ``/`` as ``__``
+        # in a function name, and a local key may itself contain ``__``. The
+        # walker holds the forward map, so it is the only thing that can invert.
+        target_key = walker.key_for_tool(name) or name[len(TRANSITION_PREFIX) :]
 
         async def _handler(flow_manager) -> tuple[Any, dict[str, Any] | None]:
-            factory = nodes.get(target.key)
+            factory = nodes.get(target_key)
             if factory is None:
-                logger.warning("authored flow: unknown target node %s", target.key)
+                logger.warning("authored flow: unknown target node %s", target_key)
                 return {"ok": False, "error": "unknown_node"}, None
-            return {"ok": True, "node": target.key}, factory()
+            return {"ok": True, "node": target_key}, factory()
 
         return FlowsFunctionSchema(
-            name=f"{TRANSITION_PREFIX}{target.key}",
-            # The author's condition text *is* the tool description — it is what
-            # the model reads to decide. Rendered so {{variables}} resolve.
-            description=variables.render(edge.data.condition.prompt)
-            or f"Move to {target.data.name}",
+            name=name,
+            description=description,
             properties={},
             required=[],
             handler=_handler,
@@ -417,7 +419,20 @@ def build_authored_flow(
                 ]
 
             functions: list[Any] = []
+            # The grant of the member that owns this node, not the union. On a
+            # flat graph `namespace` is None and this is a no-op; in a fleet it
+            # is what stops a hop leaving the receiving specialist holding the
+            # sending one's tools.
+            namespace = split_key(node.key)[0]
             for key in node.data.tools:
+                if not state.may_offer(key, namespace=namespace):
+                    logger.debug(
+                        "authored flow: %s is not on %s's grant at node %s",
+                        key,
+                        namespace,
+                        node.key,
+                    )
+                    continue
                 schema = tools.get(key)
                 if schema is None:
                     logger.warning(
@@ -428,10 +443,8 @@ def build_authored_flow(
                     continue
                 functions.append(_with_deterministic_followup(node, schema))
 
-            edges = outgoing.get(node.id, [])
-            prompt_edges = [e for e in edges if e.data.condition.type == "prompt"]
-            for edge in prompt_edges:
-                functions.append(_transition_tool(node, edge))
+            for name, description in walker.transitions(node):
+                functions.append(_transition_tool(name, description))
 
             if node.data.extractVariables:
                 functions.append(_extract_tool(node))
@@ -496,7 +509,9 @@ def build_authored_flow(
             # can still take one earlier (see _wrap_followup); this is the
             # backstop for the turn ending without any tool having run, which is
             # the whole of an `always` node's life.
-            if any(e.data.condition.type != "prompt" for e in edges):
+            if any(
+                e.data.condition.type != "prompt" for e in walker.edges_from(node)
+            ):
                 post_actions.append(_advance_action(node))
             if node.data.endConversation:
                 post_actions.append({"type": "end_conversation"})
