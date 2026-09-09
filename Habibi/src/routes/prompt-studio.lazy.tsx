@@ -471,10 +471,9 @@ export function PromptStudioPage({
    */
   const legacyShipBaseline = useMemo<ShipState>(() => {
     const live = (experimentsQuery.data ?? []).find((e) => e.status === "running");
-    if (!live) return { trafficPct: 100, shadow: false, autoRollback: [] };
+    if (!live) return { trafficPct: 100, autoRollback: [] };
     return {
       trafficPct: live.trafficPct,
-      shadow: live.shadow,
       autoRollback: asRollbackTriggers(live.autoRollback),
     };
   }, [experimentsQuery.data]);
@@ -483,7 +482,6 @@ export function PromptStudioPage({
     const exp = effectiveCard.experiment;
     return {
       trafficPct: typeof exp?.traffic_pct === "number" ? exp.traffic_pct : 100,
-      shadow: Boolean(exp?.shadow),
       autoRollback: asRollbackTriggers(exp?.auto_rollback),
     };
   }, [cardIsAuthored, effectiveCard, legacyShipEdit, legacyShipBaseline]);
@@ -497,7 +495,6 @@ export function PromptStudioPage({
       ...effectiveCard,
       experiment: {
         traffic_pct: next.trafficPct,
-        shadow: next.shadow,
         auto_rollback: next.autoRollback,
       },
     });
@@ -975,7 +972,6 @@ export function PromptStudioPage({
         agentCard: asCard(effectiveCard) ?? undefined,
         botId,
         trafficPct: ship.trafficPct,
-        shadow: ship.shadow,
         autoRollback: ship.autoRollback,
       });
       skipAutosave.current = true;

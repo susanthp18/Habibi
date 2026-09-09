@@ -5706,7 +5706,6 @@ def outbound_card_vocabulary():
         "objectiveBriefs": dict(mission_mod.OBJECTIVE_BRIEF),
         "directions": list(get_args(card_schema.Direction)),
         "voicemailModes": list(get_args(card_schema.VoicemailMode)),
-        "timeOfDay": list(get_args(card_schema.TimeOfDay)),
         "poolKinds": list(get_args(card_schema.PoolKind)),
         "qaModes": ["always", "sampled", "never"],
         # The Closer's taxonomy — what `success` / `partial` / `stop_on` and a

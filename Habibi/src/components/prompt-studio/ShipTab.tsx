@@ -32,7 +32,6 @@ const TRIGGERS: { id: RollbackTrigger; label: string; hint?: string }[] = [
 
 export type ShipState = {
   trafficPct: number;
-  shadow: boolean;
   /**
    * Was `string[]`, which is wider than the card can hold: these land on
    * `card.experiment.auto_rollback`, a Literal on a model with
@@ -178,22 +177,6 @@ export function ShipTab({
           className="w-full"
         />
       </label>
-      <label className="flex items-start gap-100 text-body-small">
-        <input
-          type="checkbox"
-          checked={value.shadow}
-          disabled={!value.shadow}
-          className="mt-025"
-          onChange={(e) => onChange({ ...value, shadow: e.target.checked })}
-        />
-        <span>
-          <span className="font-medium">Shadow</span>
-          <span className="block text-text-subtlest">
-            Disabled — there is no non-customer-serving execution path. A shadow canary would still
-            answer the borrower. Use a split below 100% with auto-rollback instead.
-          </span>
-        </span>
-      </label>
       <div>
         <div className="mb-075 text-body-small font-semibold">Auto-rollback</div>
         <div className="space-y-050">
@@ -219,12 +202,6 @@ export function ShipTab({
         ) : value.trafficPct < 100 && value.autoRollback.length === 0 ? (
           <p className="mt-075 text-body-small text-text-danger">
             G12 will fail — pick at least one rollback condition.
-          </p>
-        ) : null}
-        {value.shadow ? (
-          <p className="mt-075 text-body-small text-text-danger">
-            G12 will fail — shadow is not a customer-facing execution path. Uncheck it before
-            publishing.
           </p>
         ) : null}
       </div>

@@ -42,14 +42,6 @@ FIRST_PARTY_BOTS: tuple[tuple[str, str, str], ...] = (
 
 FIRST_PARTY_BOT_IDS: frozenset[str] = frozenset(b[0] for b in FIRST_PARTY_BOTS)
 
-# Mesh role name the voice worker still keys on. Card identity.slug matches.
-BOT_TO_MESH_ROLE: dict[str, str] = {
-    COLLECTIONS_BOT_ID: "collections",
-    INTAKE_BOT_ID: "intake",
-    INSURANCE_BOT_ID: "insurance",
-    SUPERVISOR_BOT_ID: "supervisor_brief",
-}
-
 _LOCKED = list(LOCKED_POLICY_ENGINES)
 
 _COLLECTIONS_TOOLS = [
@@ -135,7 +127,6 @@ def _card(
     channels: list,
     include: list[str],
     handoffs: list[CardHandoff],
-    data_class: list,
     human_gates: list[HumanGate] | None = None,
     suite_id: str | None = None,
     skills: list[CardSkillRef] | None = None,
@@ -149,8 +140,6 @@ def _card(
             display_name=display_name,
             purpose=purpose,
             channels=channels,
-            data_class=data_class,
-            regulator_tags=["rbi-fair-practices", "dpdp"],
         ),
         skills=skills or [],
         tools=CardTools(include=include, locked=_LOCKED),
@@ -175,7 +164,6 @@ def intake_card() -> AgentCard:
             CardHandoff(to_bot_id=COLLECTIONS_BOT_ID, when="collections intent"),
             CardHandoff(to_bot_id=INSURANCE_BOT_ID, when="product / insurance intent"),
         ],
-        data_class=["pii"],
         human_gates=[HumanGate(tool_name="handoff_to_agent", require="identity")],
         suite_id="eval-regression-intake",
         skills=skill_refs(*INTAKE_SKILLS),
@@ -296,7 +284,6 @@ def collections_card() -> AgentCard:
             CardHandoff(to_bot_id=INSURANCE_BOT_ID, when="in-policy upsell after PTP"),
             CardHandoff(to_bot_id=SUPERVISOR_BOT_ID, when="warm transfer brief"),
         ],
-        data_class=["pii", "money"],
         suite_id="eval-regression-collections",
         skills=skill_refs(*COLLECTIONS_SKILLS),
         connectors=[CardConnector(connector_id="paylink", allow_prefixes=["ext.paylink."])],
@@ -316,7 +303,6 @@ def insurance_card() -> AgentCard:
             CardHandoff(to_bot_id=COLLECTIONS_BOT_ID, when="caller returns to dues"),
             CardHandoff(to_bot_id=SUPERVISOR_BOT_ID, when="warm transfer brief"),
         ],
-        data_class=["pii", "marketing"],
         human_gates=[HumanGate(tool_name="capture_lead", require="identity")],
         suite_id="eval-regression-insurance",
         skills=skill_refs(*INSURANCE_SKILLS),
@@ -332,7 +318,6 @@ def supervisor_brief_card() -> AgentCard:
         channels=["internal"],
         include=_SUPERVISOR_TOOLS,
         handoffs=[],
-        data_class=["pii", "internal"],
         human_gates=[],
         suite_id="eval-regression-supervisor",
         skills=skill_refs(*SUPERVISOR_SKILLS),

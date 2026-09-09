@@ -311,6 +311,194 @@ def _flow_grant_gate(flow: Any, grant: set[str] | frozenset[str]) -> GateResult:
     )
 
 
+def _text_walkability_gate(flow: Any, grant: Any, card: Any) -> dict[str, Any]:
+    """G-F11 — a card with a text mouth can actually be walked on text.
+
+    Until ``flow_walk`` existed this could not be asserted at all: the graph ran
+    only under Pipecat, so "does this script work on WhatsApp" had no answer
+    short of sending a customer a message. The walker answers it in-process, and
+    this gate is that answer at publish time.
+
+    A step is unwalkable when nothing can move the conversation off it on the
+    text channel — no granted tool that transitions, no authored edge, and not
+    an ``end`` node. On voice such a step is usually still fine, because the
+    caller keeps talking and the model keeps choosing; on text it is where the
+    thread stops answering.
+
+    Warn-level, on the G16 precedent: a new graph gate that blocks the shipping
+    card is a gate nobody can adopt. Promote once the fleet compiles clean.
+    """
+    import flow_graph as fg
+
+    channels = {str(c).strip().lower() for c in (card.identity.channels or ())}
+    if not channels & {"whatsapp", "text", "internal"}:
+        return _gate("G-F11", "text_walkability", "skipped", "no text mouth on this card")
+    if not fg.is_authored(flow):
+        return _gate("G-F11", "text_walkability", "skipped", "empty flow — built-in script")
+    try:
+        from flow_vars import FlowVariables
+        from flow_walk import FlowWalker
+
+        graph = fg.parse_graph(flow)
+        walker = FlowWalker(graph, FlowVariables({}))
+    except Exception:
+        return _gate("G-F11", "text_walkability", "skipped", "flow could not be parsed")
+
+    granted = set(grant or ())
+    stuck: list[dict[str, Any]] = []
+    for node in graph.nodes:
+        if node.type == "end":
+            continue
+        if walker.prompt_edges(node) or walker.deterministic_target(node) is not None:
+            continue
+        # No authored way out. The only remaining exit is a built-in tool hop,
+        # and it only counts if the card actually grants that tool.
+        movers = [
+            name
+            for name in walker.offers(node, granted=granted)
+            if walker.implicit_target(name) is not None
+        ]
+        if not movers:
+            stuck.append({"node": node.key})
+    if not stuck:
+        return _gate(
+            "G-F11",
+            "text_walkability",
+            "pass",
+            f"{len(graph.nodes)} steps are walkable on text",
+        )
+    return _gate(
+        "G-F11",
+        "text_walkability",
+        "warn",
+        f"{len(stuck)} step(s) have no exit on the text channel: "
+        + ", ".join(s["node"] for s in stuck),
+        stuck,
+    )
+
+
+#: Words in a handoff ``payload_schema`` that name a decision rather than a fact.
+#:
+#: A hop may carry what happened; it may not carry what an engine decided. If a
+#: sending specialist could put ``waiver_amount`` in the packet, the receiving
+#: one would quote a rupee figure that ``evaluate_authority`` never approved on
+#: its grant — which is laundering, whatever the author meant by it. The
+#: receiver calls the engine again and gets its own answer.
+_DECISION_WORDS: frozenset[str] = frozenset(
+    {
+        "amount",
+        "waiver",
+        "offer",
+        "discount",
+        "settlement",
+        "rupees",
+        "inr",
+        "callback_at",
+        "contact_at",
+        "call_at",
+        "next_contact",
+    }
+)
+
+
+def _carry_gate(card: Any) -> GateResult:
+    """G-F7 — a handoff carries facts, never decisions.
+
+    Reads ``card.handoffs[].payload_schema``, which is the only per-edge shape
+    an author controls: the fact packet itself is a fixed field list in
+    ``agent_core.context.PACKET_FIELDS`` and is not authorable at all. So this
+    gate guards the one door left open.
+
+    Warn-level on the G16/G-F11 precedent, and for the same reason: promoting a
+    new gate to blocking on the day it lands is how a gate gets disabled instead
+    of adopted.
+    """
+    if not card.handoffs:
+        return _gate("G-F7", "carry_is_fact_only", "skipped", "no handoffs on this card")
+    findings: list[dict[str, Any]] = []
+    for handoff in card.handoffs:
+        for field in (handoff.payload_schema or {}):
+            lowered = str(field).lower()
+            hit = next((w for w in _DECISION_WORDS if w in lowered), None)
+            if hit:
+                findings.append(
+                    {"to": handoff.to_bot_id, "field": str(field), "word": hit}
+                )
+    if not findings:
+        return _gate(
+            "G-F7",
+            "carry_is_fact_only",
+            "pass",
+            f"{len(card.handoffs)} handoff(s) carry facts only",
+        )
+    return _gate(
+        "G-F7",
+        "carry_is_fact_only",
+        "warn",
+        f"{len(findings)} handoff field(s) name a decision an engine must make: "
+        + ", ".join(f"{f['to']}.{f['field']}" for f in findings),
+        findings,
+    )
+
+
+def _handoff_edge_gate(flow: Any, card: Any, grant: Any) -> GateResult:
+    """G-F4 — if a step can transfer, the card says where to.
+
+    ``handoff_allowlist`` builds the enforcement set from ``card.handoffs``, so
+    a card that grants ``handoff_to_agent`` and declares no handoffs offers the
+    model a tool whose every call is refused — a dead end the author cannot see,
+    because the Tools tab shows the grant and the canvas shows the step, and
+    neither shows the empty allowlist between them.
+
+    Blocking, unlike G-F7: this is not a new judgement about authoring style, it
+    is a tool that cannot succeed. The fix is one line on the card.
+    """
+    import flow_graph as fg
+
+    if "handoff_to_agent" not in set(grant or ()):
+        return _gate("G-F4", "handoff_is_an_edge", "skipped", "handoff not granted")
+    if card.handoffs:
+        return _gate(
+            "G-F4",
+            "handoff_is_an_edge",
+            "pass",
+            f"{len(card.handoffs)} authored target(s)",
+        )
+    if not fg.is_authored(flow):
+        # No graph to point at, but the tool is still granted and still dead.
+        return _gate(
+            "G-F4",
+            "handoff_is_an_edge",
+            "fail",
+            "handoff_to_agent is granted and the card declares no handoff targets",
+        )
+    try:
+        graph = fg.parse_graph(flow)
+    except Exception:
+        return _gate("G-F4", "handoff_is_an_edge", "skipped", "flow could not be parsed")
+    if "handoff_to_agent" in (graph.globalTools or []):
+        # Offered everywhere, so naming the nodes would be noise.
+        return _gate(
+            "G-F4",
+            "handoff_is_an_edge",
+            "fail",
+            "handoff_to_agent is a global tool and the card declares no targets, "
+            "so every call is refused",
+            [{"node": "globalTools"}],
+        )
+    steps = sorted(n.key for n in graph.nodes if "handoff_to_agent" in (n.data.tools or []))
+    if not steps:
+        return _gate("G-F4", "handoff_is_an_edge", "pass", "no step offers a transfer")
+    return _gate(
+        "G-F4",
+        "handoff_is_an_edge",
+        "fail",
+        f"{len(steps)} step(s) offer handoff_to_agent and the card declares no "
+        "targets, so every call is refused: " + ", ".join(steps),
+        [{"node": key} for key in steps],
+    )
+
+
 def _mission_entries(flow: Any) -> dict[str, str]:
     """objective -> node key from the graph. Empty on an unauthored flow."""
     import flow_graph as fg
@@ -1017,7 +1205,7 @@ def compile_card(
         triggers = []
     pct = max(0, min(100, int(pct)))
     valid_triggers = [t for t in triggers if t in _ROLLBACK_TRIGGERS]
-    shadow_flag = bool(shadow) if shadow is not None else bool(card and card.experiment.shadow)
+    shadow_flag = bool(shadow)  # the card can no longer declare it; a payload still can
     if skip_eval_gates:
         gates.append(
             _gate("G12", "canary", "skipped", "rollback of a previously published version")
@@ -1126,8 +1314,14 @@ def compile_card(
     # both, and the second that can warn.
     if card is None:
         gates.append(_gate("G16", "flow_grant", "skipped", "no card"))
+        gates.append(_gate("G-F11", "text_walkability", "skipped", "no card"))
+        gates.append(_gate("G-F4", "handoff_is_an_edge", "skipped", "no card"))
+        gates.append(_gate("G-F7", "carry_is_fact_only", "skipped", "no card"))
     else:
         gates.append(_flow_grant_gate(flow, tools))
+        gates.append(_text_walkability_gate(flow, tools, card))
+        gates.append(_handoff_edge_gate(flow, card, tools))
+        gates.append(_carry_gate(card))
 
     return CompileReport(
         bot_id=bot_id,

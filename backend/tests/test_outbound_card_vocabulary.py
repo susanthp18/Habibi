@@ -92,7 +92,6 @@ def test_a_refusal_is_never_offered_as_retryable(vocab):
     [
         ("directions", "Direction"),
         ("voicemailModes", "VoicemailMode"),
-        ("timeOfDay", "TimeOfDay"),
         ("poolKinds", "PoolKind"),
     ],
 )
@@ -165,7 +164,6 @@ def test_a_card_built_entirely_from_the_offered_vocabulary_validates(vocab):
                         "per_day": vocab["dailyCap"],
                         "retry_on": vocab["retryStates"],
                         "stop_on": vocab["outcomeCodes"][:3],
-                        "time_of_day": vocab["timeOfDay"][0],
                     }
                 ],
                 "post_call": {

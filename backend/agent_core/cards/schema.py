@@ -7,16 +7,16 @@ handoffs it may make, and the engines it cannot unbind.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "1"
 
 Channel = Literal["voice", "whatsapp", "sms", "internal", "mcp", "a2a"]
-DataClass = Literal["pii", "money", "marketing", "internal"]
-MemoryScope = Literal["turn", "call", "case", "customer"]
 PinMode = Literal["exact", "caret"]
+HandoffCarry = Literal["brief", "full"]
 PolicyBinding = Literal["required"]
 EvalRequire = Literal["regression", "redteam", "capability", "twin", "outbound"]
 #: What may pull a canary automatically.
@@ -86,17 +86,6 @@ class CardIdentity(BaseModel):
     purpose: str = ""
     owner_user_id: str | None = None
     channels: list[Channel] = Field(default_factory=lambda: ["voice", "whatsapp"])
-    data_class: list[DataClass] = Field(default_factory=lambda: ["pii", "money"])
-    regulator_tags: list[str] = Field(default_factory=list)
-
-
-class CardMouthRef(BaseModel):
-    """Pointers, not copies — the columns on prompt_versions are canonical."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    flow_ref: str | None = None
-    languages: list[str] = Field(default_factory=lambda: ["English", "Hindi"])
 
 
 class CardSkillRef(BaseModel):
@@ -116,11 +105,46 @@ class CardTools(BaseModel):
 
 
 class CardHandoff(BaseModel):
+    """One typed edge from this card to another member of the fleet.
+
+    ``to_bot_id`` and ``when`` are what a card has always carried; ``when``
+    reaches the model as the ``target_bot_id`` enum description
+    (``handoff_allowlist.specialise_handoff_tool``). Everything else here is the
+    hop itself, and every field is defaulted so a stored card still parses under
+    ``extra='forbid'``.
+
+    ``carry='brief'`` renders the fact-only packet from rows the tools already
+    wrote — nothing inferred. There is deliberately no ``carry='everything'``:
+    the packet's field list is the boundary, and widening it is an edit to
+    ``agent_core.context.handoff_packet_message``, reviewed, not a per-card
+    switch an author can flip.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     to_bot_id: str
     payload_schema: dict[str, Any] = Field(default_factory=dict)
     when: str = ""
+    #: No ``mode`` and no ``clauses``. A handoff is a ``go_to_*`` transition the
+    #: model may call — the only kind implemented, and the only kind that has a
+    #: node to hang an edge on. A deterministic hop is an ordinary expression
+    #: edge in the graph, authored there.
+    #: How much crosses. ``brief`` is the carry packet; ``full`` additionally
+    #: keeps the last turns, which costs prefix tokens and is opt-in per edge.
+    carry: HandoffCarry = "brief"
+    #: Node in the receiving member's subgraph to enter, local name. Empty means
+    #: that member's start node.
+    entry_node: str = ""
+    #: Node to come back to when the specialist finishes. Empty means it closes
+    #: through its own terminal, which is the common case.
+    return_to: str = ""
+    #: Spoken while the swap happens, so the hop is not a silence. The audio is
+    #: what hides the first-token latency of the receiving brief.
+    bridge_line: str = ""
+    #: Spoken when the hop is refused — over the per-call hop cap, or the target
+    #: is not on the allowlist. A refused hop must be a sentence the borrower
+    #: hears, not a stall.
+    refusal_line: str = ""
 
 
 class CardConnector(BaseModel):
@@ -141,18 +165,18 @@ class PolicyBindings(BaseModel):
     dnd: PolicyBinding = "required"
 
 
-class Compaction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    raw_last_n: int = 8
-    summarize_over_budget: bool = True
-
-
 class CardMemory(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scopes: list[MemoryScope] = Field(default_factory=lambda: ["turn", "call"])
-    compaction: Compaction = Field(default_factory=Compaction)
+    #: No ``scopes`` and no ``compaction``: neither was ever read. Retention is
+    #: decided by ``voice/crm_sink.py`` on the voice_memory flag, and the live
+    #: ``RAW_LAST_N`` belongs to ``agent_core/compaction.py`` — a card knob that
+    #: looked like it controlled compaction and did not.
+    #:
+    #: Hops one call may make. Two specialists arguing over a borrower is a
+    #: ping-pong the caller experiences as being passed around; the cap turns it
+    #: into an authored ``refusal_line`` instead.
+    max_hops_per_call: int = Field(default=2, ge=0, le=8)
 
 
 class HumanGate(BaseModel):
@@ -204,7 +228,6 @@ Objective = Literal[
 ]
 
 VoicemailMode = Literal["always", "never", "first_attempt_only", "engine"]
-TimeOfDay = Literal["engine", "fixed", "spread"]
 PoolKind = Literal["service_1600", "promotional", "general"]
 
 
@@ -289,7 +312,6 @@ class CardCadence(BaseModel):
     #: bot_id on the handoff allowlist, or "human". Where the case goes when the
     #: attempts run out.
     escalate_to: str | None = None
-    time_of_day: TimeOfDay = "engine"
 
 
 class PostCallRule(BaseModel):
@@ -331,7 +353,6 @@ class CardOutbound(BaseModel):
     pool_kind: PoolKind = "general"
     #: Slots reserved out of the outbound fleet gate, so a cross-sell campaign
     #: cannot starve the bounce-cure queue. 0 means "share the general pool".
-    concurrency_share: int = Field(default=0, ge=0, le=100)
     #: Ask the carrier for an answering-machine verdict as a second signal
     #: alongside Pipecat's in-band detector.
     carrier_amd: bool = False
@@ -362,7 +383,10 @@ class CardExperiment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     traffic_pct: int = Field(default=100, ge=0, le=100)
-    shadow: bool = False
+    #: No ``shadow``. There is no non-customer-serving execution path: a shadow
+    #: canary served real callers, which is why ``canary.py`` now refuses to
+    #: open one and rolls back any that exist. A field whose every value is
+    #: rejected is worse than an absent one, because the editor still builds it.
     auto_rollback: list[RollbackTrigger] = Field(default_factory=list)
 
 
@@ -373,12 +397,66 @@ class CardA2A(BaseModel):
     skill_ids: list[str] = Field(default_factory=list)
 
 
+#: Keys this card used to carry, tolerated on read until every published
+#: version has been republished in the new shape.
+#:
+#: Every model here sets ``extra="forbid"``, and every one of the 18 published
+#: cards stores these keys explicitly. So deleting a field is not a schema edit
+#: — without this list it makes every published card unparseable, G0 fails, and
+#: the fleet stops recompiling. This is that migration, done on read.
+#:
+#: Deliberately NOT ``extra="ignore"``: an *invented* key must still fail loudly.
+#: That is the invariant ``agent-card.ts`` and ``test_agent_card_schema_drift``
+#: are both built on, and it is worth more than the convenience.
+#:
+#: A ``*`` segment means "every element of this list". The list is temporary by
+#: construction — ``model_dump`` rewrites a card in the new shape on its next
+#: publish — and it only ever shrinks.
+_RETIRED: tuple[tuple[str, ...], ...] = (
+    ("mouth",),
+    ("memory", "scopes"),
+    ("memory", "compaction"),
+    ("identity", "data_class"),
+    ("identity", "regulator_tags"),
+    ("outbound", "concurrency_share"),
+    ("outbound", "cadences", "*", "time_of_day"),
+    ("experiment", "shadow"),
+)
+
+
+def _drop_path(node: Any, path: tuple[str, ...]) -> None:
+    """Pop ``path`` out of ``node``, walking ``*`` across list elements."""
+    head, rest = path[0], path[1:]
+    if head == "*":
+        if isinstance(node, list):
+            for item in node:
+                _drop_path(item, rest)
+        return
+    if not isinstance(node, dict):
+        return
+    if not rest:
+        node.pop(head, None)
+        return
+    child = node.get(head)
+    if child is not None:
+        _drop_path(child, rest)
+
+
 class AgentCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired(cls, raw: Any) -> Any:
+        if not isinstance(raw, dict):
+            return raw
+        raw = copy.deepcopy(raw)  # a stored card is somebody else's dict
+        for path in _RETIRED:
+            _drop_path(raw, path)
+        return raw
+
     schema_version: Literal["1"] = SCHEMA_VERSION
     identity: CardIdentity
-    mouth: CardMouthRef = Field(default_factory=CardMouthRef)
     skills: list[CardSkillRef] = Field(default_factory=list)
     tools: CardTools = Field(default_factory=CardTools)
     handoffs: list[CardHandoff] = Field(default_factory=list)

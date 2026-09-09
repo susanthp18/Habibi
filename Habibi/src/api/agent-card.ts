@@ -36,7 +36,6 @@
 export const CARD_SCHEMA_VERSION = "1";
 
 export type Channel = "voice" | "whatsapp" | "sms" | "internal" | "mcp" | "a2a";
-export type DataClass = "pii" | "money" | "marketing" | "internal";
 export type MemoryScope = "turn" | "call" | "case" | "customer";
 export type PinMode = "exact" | "caret";
 /** Single-valued today. A binding exists to be *checked*, not to be chosen. */
@@ -76,7 +75,6 @@ export function asRollbackTriggers(raw: unknown): RollbackTrigger[] {
 export type HumanGateRequire = "identity" | "floor" | "both";
 export type Direction = "inbound" | "outbound" | "both";
 export type VoicemailMode = "always" | "never" | "first_attempt_only" | "engine";
-export type TimeOfDay = "engine" | "fixed" | "spread";
 export type PoolKind = "service_1600" | "promotional" | "general";
 export type PostCallQa = "always" | "sampled" | "never";
 
@@ -131,14 +129,6 @@ export type CardIdentity = {
   purpose?: string;
   owner_user_id?: string | null;
   channels?: Channel[];
-  data_class?: DataClass[];
-  regulator_tags?: string[];
-};
-
-/** Pointers, not copies — the columns on `prompt_versions` are canonical. */
-export type CardMouthRef = {
-  flow_ref?: string | null;
-  languages?: string[];
 };
 
 export type CardSkillRef = {
@@ -153,10 +143,28 @@ export type CardTools = {
   max_voice_tools?: number;
 };
 
+export type HandoffMode = "model" | "expression" | "always";
+export type HandoffCarry = "brief" | "full";
+
+/**
+ * One typed edge to another member of the fleet.
+ *
+ * `to_bot_id` and `when` are what the Agent graph tab writes; `when` reaches
+ * the model as the `target_bot_id` enum description. The rest is the hop, and
+ * every field is optional because the server defaults all of them — a card
+ * saved before they existed still parses under `extra="forbid"`.
+ */
 export type CardHandoff = {
   to_bot_id?: string;
   payload_schema?: Record<string, unknown>;
   when?: string;
+  mode?: HandoffMode;
+  clauses?: { variable?: string; operator?: string; value?: string | null }[];
+  carry?: HandoffCarry;
+  entry_node?: string;
+  return_to?: string;
+  bridge_line?: string;
+  refusal_line?: string;
 };
 
 export type CardConnector = {
@@ -174,6 +182,8 @@ export type Compaction = {
 export type CardMemory = {
   scopes?: MemoryScope[];
   compaction?: Compaction;
+  /** Hops one call may make before a handoff is refused in the author's words. */
+  max_hops_per_call?: number;
 };
 
 export type HumanGate = {
@@ -241,7 +251,6 @@ export type CardCadence = {
   stop_on?: string[];
   /** A bot_id on the handoff allowlist, or "human". */
   escalate_to?: string | null;
-  time_of_day?: TimeOfDay;
 };
 
 export type PostCallRule = {
@@ -276,7 +285,6 @@ export type CardOutbound = {
   pool_kind?: PoolKind;
   /** 0–100. Slots reserved out of the outbound fleet gate so a cross-sell
    *  campaign cannot starve the bounce-cure queue. 0 shares the general pool. */
-  concurrency_share?: number;
   carrier_amd?: boolean;
   ivr_traversal?: boolean;
   /** 15–300. */
@@ -286,7 +294,6 @@ export type CardOutbound = {
 export type CardExperiment = {
   /** 0–100. */
   traffic_pct?: number;
-  shadow?: boolean;
   auto_rollback?: RollbackTrigger[];
 };
 
@@ -306,7 +313,6 @@ export type CardA2A = {
 export type AgentCard = {
   schema_version?: string;
   identity?: CardIdentity;
-  mouth?: CardMouthRef;
   skills?: CardSkillRef[];
   tools?: CardTools;
   handoffs?: CardHandoff[];
@@ -324,7 +330,6 @@ export type AgentCard = {
 export const AGENT_CARD_MEMBERS = [
   "schema_version",
   "identity",
-  "mouth",
   "skills",
   "tools",
   "handoffs",

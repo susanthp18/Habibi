@@ -82,7 +82,6 @@ export function resolvedOutbound(
     | "cadences"
     | "number_pool"
     | "pool_kind"
-    | "concurrency_share"
     | "carrier_amd"
     | "ivr_traversal"
     | "ivr_max_sec"
@@ -96,7 +95,6 @@ export function resolvedOutbound(
     cadences: ob.cadences ?? [],
     number_pool: ob.number_pool ?? null,
     pool_kind: ob.pool_kind ?? "general",
-    concurrency_share: ob.concurrency_share ?? 0,
     carrier_amd: ob.carrier_amd ?? false,
     ivr_traversal: ob.ivr_traversal ?? false,
     ivr_max_sec: ob.ivr_max_sec ?? 90,
@@ -335,14 +333,11 @@ export function DirectionPanel({
           ) : null}
         </div>
 
-        {/* `concurrency_share` deliberately has no control here.
-            It is on the schema, it validates, it publishes — and nothing reads
-            it: `outbound.place` gates on a single tenant-wide
-            `OUTBOUND_MAX_IN_FLIGHT` count with no per-card reservation. A
-            slider for it would be the exact failure `test_outbound_conduct.py`
-            was written about, "configured, validated, versioned and
-            publishable, and had no effect", except authored on purpose. It
-            wants a real reservation in the fleet gate first. */}
+        {/* `concurrency_share` and the cadence's `time_of_day` are gone from the
+            card, not merely uncontrolled here: both published, validated and
+            were read by nobody. They come back with a reservation in the fleet
+            gate and a dial-time scheduler respectively — with a consumer, or
+            not at all. */}
         <NumberField
           id="ob-ivr"
           label="IVR traversal budget"
@@ -840,22 +835,6 @@ function CadenceEditor({
             Before attempt 2, 3, … A shorter list repeats its last value.
           </p>
         </div>
-        <div className="space-y-050">
-          <Label htmlFor={`c-tod-${index}`}>Time of day</Label>
-          <select
-            id={`c-tod-${index}`}
-            className={SELECT_CLASS}
-            disabled={!editable}
-            value={cadence.time_of_day ?? "engine"}
-            onChange={(e) => set({ time_of_day: e.target.value as TimeOfDay })}
-          >
-            {vocab.timeOfDay.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
       <div className="space-y-050">
@@ -935,7 +914,6 @@ export function CadencesEditor({
             "deceased",
           ],
           escalate_to: null,
-          time_of_day: "engine",
         },
       ],
     });
