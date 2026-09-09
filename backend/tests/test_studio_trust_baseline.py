@@ -441,9 +441,13 @@ def test_publish_refuses_an_archived_card(cloned_bot: str) -> None:
 def cloned_bot(db_tx):
     from agent_core.cards.clone import clone_card
 
+    from tests.test_agent_change_log import _reset_chain_head
+
+    _reset_chain_head()
     row = clone_card(template_id="hardship", name=f"CL {uuid.uuid4().hex[:6]}")
     bot_id = row["botId"]
     yield bot_id
+    _reset_chain_head()
     with db.engine.begin() as conn:
         conn.execute(text("DELETE FROM audit_log WHERE entity_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM bot_deployments WHERE bot_id = :b"), {"b": bot_id})

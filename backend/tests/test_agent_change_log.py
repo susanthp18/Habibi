@@ -19,11 +19,36 @@ from agent_core import change_log
 from agent_core.cards.clone import clone_card
 
 
+def _reset_chain_head() -> None:
+    """Drop the tenant's persisted chain head so a test starts from genesis.
+
+    `db_tx` rolls the test's own writes back, but `audit_chain_heads` is a
+    committed row that survives — so one run that committed a head leaves every
+    later run chaining onto a hash no surviving row has, and `verify_chain`
+    reports `tail_truncated` forever. Clearing it at *setup* is what makes the
+    suite repeatable; a teardown cannot, because after the rollback there are no
+    rows left to identify the tenant by.
+
+    Safe, not merely convenient: `_write` falls back to `_chain_head`, which
+    re-derives the head from whatever rows survive and returns genesis when none
+    do. Deliberately not done in `_persisted_head` itself — automatic self-heal
+    in the library would erase exactly the tamper evidence the chain exists to
+    provide. Repairing production is an explicit, audited operator action.
+    """
+    with db.engine.begin() as conn:
+        conn.execute(
+            text("DELETE FROM audit_chain_heads WHERE tenant_id = :t"),
+            {"t": db._tenant()},
+        )
+
+
 @pytest.fixture
 def cloned_bot(db_tx):
+    _reset_chain_head()
     row = clone_card(template_id="hardship", name=f"CL {uuid.uuid4().hex[:6]}")
     bot_id = row["botId"]
     yield bot_id
+    _reset_chain_head()
     with db.engine.begin() as conn:
         conn.execute(text("DELETE FROM audit_log WHERE entity_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM bot_deployments WHERE bot_id = :b"), {"b": bot_id})

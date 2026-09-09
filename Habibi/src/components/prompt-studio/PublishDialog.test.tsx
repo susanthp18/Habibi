@@ -53,6 +53,7 @@ function show(extra: Record<string, unknown> = {}) {
       open
       onOpenChange={() => {}}
       onConfirm={() => {}}
+      fromLabel="v1.5"
       toLabel="v1.6"
       from={SIDE}
       to={SIDE}
