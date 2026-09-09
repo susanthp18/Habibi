@@ -208,6 +208,7 @@ _GATE_NAMES: dict[str, str] = {
     "G14": "agent_publish",
     "G15": "voice_locale",
     "G16": "flow_grant",
+    "G17": "voice_provider_bound",
     "G-LINT": "prompt_lint",
     "G-OB9": "outbound",
     "G-F4": "handoff_is_an_edge",
@@ -267,6 +268,48 @@ def _voice_locale_gate(
         "warn",
         f"voice speaks {spoken}, card speaks {', '.join(wanted)}",
         [{"voice": sn, "voiceLocale": spoken, "cardLocales": wanted}],
+    )
+
+
+def _voice_provider_gate(
+    short_name: str | None,
+    voice_provider: str | None,
+    bound_providers: set[str] | frozenset[str] | None,
+) -> GateResult:
+    """G17 — the voice's vendor is one this bot can actually speak through.
+
+    Unlike G15 this blocks, because the failure is a dropped call rather than a
+    wrong language. The catalog namespaces every non-Azure voice as
+    ``{provider}:{ref}``, so a card can name ``fish:abc`` while the only bound
+    TTS provider is Azure. Nothing catches that today: ``build_with_failover``
+    only retries on *construction* errors, and a voice name is a string every
+    service accepts at construction — it fails at synthesis, on the first
+    utterance, after the customer has been dialled.
+
+    Skips rather than guesses in all three unknown cases: no voice, a voice the
+    catalog cannot resolve (``get_tts_voice_warning`` already owns that story,
+    and the runtime speaks a fallback whose provider is not the stored id's),
+    and a caller that could not determine the bindings.
+    """
+    sn = (short_name or "").strip()
+    if not sn:
+        return _gate("G17", "voice_provider_bound", "skipped", "no voice")
+    if not voice_provider:
+        return _gate("G17", "voice_provider_bound", "skipped", f"{sn} is not in the voice catalog")
+    if bound_providers is None:
+        return _gate("G17", "voice_provider_bound", "skipped", "tts bindings unavailable")
+    if not bound_providers:
+        # Nothing bound at all is NoBindingError's story, and voice/bot.py still
+        # has an Azure fallback lambda — so this gate has no opinion.
+        return _gate("G17", "voice_provider_bound", "skipped", "no tts provider bound")
+    if voice_provider in bound_providers:
+        return _gate("G17", "voice_provider_bound", "pass", f"{voice_provider} is bound")
+    return _gate(
+        "G17",
+        "voice_provider_bound",
+        "fail",
+        f"voice needs {voice_provider}, bound: {', '.join(sorted(bound_providers))}",
+        [{"voice": sn, "voiceProvider": voice_provider, "boundProviders": sorted(bound_providers)}],
     )
 
 
@@ -860,6 +903,8 @@ def compile_card(
     voice_short_name: str | None = None,
     voice_locale: str | None = None,
     card_locales: list[str] | None = None,
+    voice_provider: str | None = None,
+    bound_tts_providers: set[str] | frozenset[str] | None = None,
     shadow: bool | None = None,
     prompt: str | None = None,
     prompt_guardrails: dict[str, Any] | None = None,
@@ -1351,6 +1396,11 @@ def compile_card(
 
     # G15 voice locale. Reads the mouth columns rather than the card.
     gates.append(_voice_locale_gate(voice_short_name, voice_locale, card_locales))
+
+    # G17 the voice's vendor against what this bot can speak through. Beside
+    # G15 because they read the same mouth columns; separate from it because a
+    # wrong language is a warning and an unspeakable voice is a dropped call.
+    gates.append(_voice_provider_gate(voice_short_name, voice_provider, bound_tts_providers))
 
     # G16 the graph and the grant. Last because it is the only gate that reads
     # both, and the second that can warn.

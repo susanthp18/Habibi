@@ -926,6 +926,7 @@ def compile_agent_studio_card(
         voice if voice is not None else mouth.get("voice"),
         persona if persona is not None else mouth.get("persona"),
     )
+    voice_provider, bound_tts = voice_provider_facts(voice_short, voice_locale, bot_id)
     attached = None
     try:
         from agent_core.cards.schema import is_authored, parse_card
@@ -964,6 +965,8 @@ def compile_agent_studio_card(
         voice_short_name=voice_short,
         voice_locale=voice_locale,
         card_locales=card_locales,
+        voice_provider=voice_provider,
+        bound_tts_providers=bound_tts,
         prompt=mouth.get("prompt"),
         prompt_guardrails=mouth.get("guardrails") if isinstance(mouth.get("guardrails"), dict) else {},
     )
@@ -1190,6 +1193,58 @@ def voice_locale_facts(voice: Any, persona: Any) -> tuple[str, str | None, list[
         if tag and tag not in tags:
             tags.append(tag)
     return short, locale, tags
+
+
+def voice_provider_facts(
+    short_name: str, locale: str | None, bot_id: str | None
+) -> tuple[str | None, set[str] | None]:
+    """(the vendor that voice needs, the vendors this bot has bound) for G17.
+
+    Kept out of :func:`voice_locale_facts` so its arity — and the four tests
+    that unpack it — stay as they are.
+
+    ``locale`` is the resolution signal, exactly as G15 uses it: when the
+    catalog cannot resolve the id there is no honest provider to name, and the
+    runtime speaks a fallback voice whose vendor is not the stored id's.
+
+    Bindings are collected across *all* locales rather than through
+    ``resolve_chain``, which filters to one. A superset is the fail-safe
+    direction here: the gate then only refuses a voice whose vendor is bound
+    nowhere for TTS, never one that is merely bound under another locale.
+    """
+    if not short_name or not locale:
+        return None, None
+    from provider_tts import provider_for_voice
+
+    _mod = _db()
+    try:
+        provider = provider_for_voice(short_name)
+    except Exception:
+        logger.exception("provider lookup failed for voice %s", short_name)
+        return None, None
+    try:
+        with _mod.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT m.provider_id AS provider_id
+                      FROM agent_provider_bindings b
+                      JOIN provider_models m ON m.id = b.provider_model_id
+                     WHERE b.tenant_id = :tenant
+                       AND b.slot = 'tts'
+                       AND b.enabled
+                       AND m.enabled
+                       AND (b.bot_id IS NULL OR b.bot_id = :bot)
+                    """
+                ),
+                {"tenant": _mod.current_tenant(), "bot": bot_id},
+            ).mappings().all()
+    except Exception:
+        # An unmigrated database has no bindings table; the gate skips on None
+        # rather than refusing every publish.
+        logger.exception("tts binding lookup failed for bot %s", bot_id)
+        return provider, None
+    return provider, {str(r["provider_id"]) for r in rows}
 
 
 def _map_catalog_row(r: dict[str, Any], *, include_raw: bool = False) -> dict[str, Any]:
@@ -2110,6 +2165,7 @@ def publish_prompt_version(
         voice_short, voice_locale, card_locales = voice_locale_facts(
             target.get("voice"), target.get("persona")
         )
+        voice_provider, bound_tts = voice_provider_facts(voice_short, voice_locale, bot_id)
         report = compile_card(
             bot_id=bot_id,
             card_raw=card_raw,
@@ -2134,6 +2190,8 @@ def publish_prompt_version(
             voice_short_name=voice_short,
             voice_locale=voice_locale,
             card_locales=card_locales,
+            voice_provider=voice_provider,
+            bound_tts_providers=bound_tts,
             shadow=bool(shadow),
             prompt=target.get("prompt"),
             prompt_guardrails=(
@@ -2644,6 +2702,9 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
         voice_short, voice_locale, card_locales = voice_locale_facts(
             (version_row or {}).get("voice"), (version_row or {}).get("persona")
         )
+        voice_provider, bound_tts = voice_provider_facts(
+            voice_short, voice_locale, target["bot_id"]
+        )
         report = compile_card(
             bot_id=target["bot_id"],
             card_raw=card_raw,
@@ -2662,6 +2723,8 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
             voice_short_name=voice_short,
             voice_locale=voice_locale,
             card_locales=card_locales,
+            voice_provider=voice_provider,
+            bound_tts_providers=bound_tts,
         )
         _assert_card(report)
 

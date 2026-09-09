@@ -208,3 +208,87 @@ def test_an_unresolvable_voice_skips_rather_than_guessing() -> None:
 def test_no_voice_and_no_language_skip() -> None:
     assert _g15().status == "skipped"
     assert _g15(voice_short_name="en-IN-AartiNeural", voice_locale="en-IN").status == "skipped"
+
+
+# --- G17: the voice's vendor against what the bot can speak through ----------
+# G15's sibling, and deliberately not part of it: a wrong language is a warning
+# an operator may legitimately override, an unspeakable voice is a dropped call.
+
+
+def _g17(**kwargs):
+    report = _compile(COLLECTIONS_BOT_ID, **kwargs)
+    return next(g for g in report.gates if g.gate == "G17")
+
+
+def test_a_fish_voice_with_only_azure_bound_fails() -> None:
+    """The live shape of the bug: `agent_provider_bindings` holds one Azure TTS
+    row, while the catalog offers 2288 voices across four vendors. Nothing else
+    catches this — `build_with_failover` only retries on construction errors,
+    and every service accepts a voice name as a string at construction, so it
+    fails at synthesis on the first utterance after the customer was dialled.
+    """
+    gate = _g17(
+        voice_short_name="fish:7e4fa512aa564e198f8659b466f6ff70",
+        voice_locale="ar",
+        voice_provider="fish",
+        bound_tts_providers={"azure"},
+    )
+    assert gate.status == "fail"
+    assert gate.issues == [
+        {
+            "voice": "fish:7e4fa512aa564e198f8659b466f6ff70",
+            "voiceProvider": "fish",
+            "boundProviders": ["azure"],
+        }
+    ]
+
+
+def test_an_azure_voice_with_azure_bound_passes() -> None:
+    """Every one of the five published cards is this case, which is why the
+    gate ships blocking rather than warn-first."""
+    assert (
+        _g17(
+            voice_short_name="en-IN-AartiNeural",
+            voice_locale="en-IN",
+            voice_provider="azure",
+            bound_tts_providers={"azure"},
+        ).status
+        == "pass"
+    )
+
+
+def test_g17_blocks_the_publish_where_g15_only_warns() -> None:
+    """The severity difference between the two voice gates, asserted."""
+    report = _compile(
+        COLLECTIONS_BOT_ID,
+        voice_short_name="fish:abc",
+        voice_locale="ar",
+        card_locales=["en-IN"],
+        voice_provider="fish",
+        bound_tts_providers={"azure"},
+    )
+    assert next(g for g in report.gates if g.gate == "G15").status == "warn"
+    assert next(g for g in report.gates if g.gate == "G17").status == "fail"
+    assert not report.ok
+    assert "G17" in [g.gate for g in report.blocking]
+
+
+def test_g17_skips_rather_than_guessing() -> None:
+    """Three unknowns, none of which this gate has an honest opinion about."""
+    assert _g17().status == "skipped"
+    # Catalog cannot resolve the id — get_tts_voice_warning owns that story.
+    assert _g17(voice_short_name="ravi", voice_provider=None).status == "skipped"
+    # Caller could not read the bindings (unmigrated database).
+    assert (
+        _g17(voice_short_name="en-IN-AartiNeural", voice_provider="azure").status == "skipped"
+    )
+    # Nothing bound at all is NoBindingError's story, and bot.py still has an
+    # Azure fallback lambda.
+    assert (
+        _g17(
+            voice_short_name="en-IN-AartiNeural",
+            voice_provider="azure",
+            bound_tts_providers=set(),
+        ).status
+        == "skipped"
+    )
