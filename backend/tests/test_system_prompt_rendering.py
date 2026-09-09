@@ -154,13 +154,9 @@ def test_the_editor_variable_palette_matches_the_renderer() -> None:
 
     from prompt_render import KNOWN_VARIABLES, SYSTEM_SAFE_VARIABLES
 
-    seed = (
-        Path(__file__).resolve().parents[2]
-        / "Habibi"
-        / "src"
-        / "data"
-        / "prompt-studio-seed.ts"
-    ).read_text(encoding="utf-8")
+    from tests.conftest import frontend_file
+
+    seed = frontend_file("src", "data", "prompt-studio-seed.ts").read_text(encoding="utf-8")
 
     def names(const: str) -> set[str]:
         block = re.search(rf"export const {const} = \[(.*?)\]", seed, re.S)

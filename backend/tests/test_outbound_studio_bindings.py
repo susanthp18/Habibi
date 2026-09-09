@@ -409,7 +409,7 @@ def test_bot_traces_the_hops_the_demo_log_was_missing() -> None:
     assert '"tool.result"' in tools
     assert '"flow.node"' in tools
     assert "_LOOP_LLM_BUDGET" in src
-    assert "prewarm_llm_connection(force=True)" not in src
+    assert "prewarm_shared_client(force=True)" not in src
     assert "customer_id_for_bind" in src
 
 
@@ -454,7 +454,9 @@ def test_demo_call_product_fixes_are_wired() -> None:
 
 def test_frontend_create_campaign_sends_bot_id() -> None:
 
-    tab = _HABIBI / "src" / "components" / "prompt-studio" / "OutboundTab.tsx"
+    from tests.conftest import frontend_file
+
+    tab = frontend_file("src", "components", "prompt-studio", "OutboundTab.tsx")
     text = tab.read_text(encoding="utf-8")
     assert "botId" in text
     assert "flow={flow}" in text or "flow }" in text or "flow," in text
