@@ -15,26 +15,13 @@ one border away, so the pairing is the fact, not the name.
 from __future__ import annotations
 
 import re
-from pathlib import Path
-
-import pytest
 
 from agent_core import languages
-
-_TS_SEED = (
-    Path(__file__).resolve().parents[2]
-    / "Habibi"
-    / "src"
-    / "data"
-    / "prompt-studio-seed.ts"
-)
-
+from tests.conftest import frontend_file
 
 def _ts_entries() -> list[tuple[str, str]]:
     """Name/tag pairs from the exported `LANGUAGE_ENTRIES` constant."""
-    if not _TS_SEED.exists():  # pragma: no cover - frontend not checked out
-        pytest.skip(f"frontend seed not present at {_TS_SEED}")
-    src = _TS_SEED.read_text(encoding="utf-8")
+    src = frontend_file("src", "data", "prompt-studio-seed.ts").read_text(encoding="utf-8")
     match = re.search(r"LANGUAGE_ENTRIES\s*=\s*\[(.*?)\]\s*as const", src, re.S)
     assert match, "LANGUAGE_ENTRIES not found in prompt-studio-seed.ts"
     return re.findall(r'name:\s*"([^"]+)",\s*tag:\s*"([^"]+)"', match.group(1))

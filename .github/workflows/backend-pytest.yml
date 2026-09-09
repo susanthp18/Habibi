@@ -5,10 +5,22 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/backend-pytest.yml"
+      # Eleven backend tests read Habibi/src to pin a hand-written mirror
+      # against its Python source. Filtered to backend/** they never ran on the
+      # side that can break them: editing agent-card.ts alone triggered no
+      # pytest, which is how the card channel map came to cover two of six
+      # values while its pin was green.
+      - "Habibi/src/**"
   pull_request:
     paths:
       - "backend/**"
       - ".github/workflows/backend-pytest.yml"
+      # Eleven backend tests read Habibi/src to pin a hand-written mirror
+      # against its Python source. Filtered to backend/** they never ran on the
+      # side that can break them: editing agent-card.ts alone triggered no
+      # pytest, which is how the card channel map came to cover two of six
+      # values while its pin was green.
+      - "Habibi/src/**"
 
 jobs:
   pytest:

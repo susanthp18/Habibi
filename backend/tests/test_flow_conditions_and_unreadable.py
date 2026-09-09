@@ -30,7 +30,8 @@ from sqlalchemy import text
 
 import db_prompt_studio as studio
 import flow_graph as fg
-from voice.flow_vars import FlowVariables, evaluate_clause
+from flow_vars import FlowVariables, evaluate_clause
+from tests.conftest import frontend_file
 
 TENANT = "hdfc.retail"
 
@@ -181,11 +182,7 @@ def test_the_editor_holds_an_unreadable_flow_at_null() -> None:
     """The other half, and the one that stops the request being sent at all."""
     from pathlib import Path
 
-    route = (
-        Path(__file__).resolve().parents[2] / "Habibi/src/routes/prompt-studio.lazy.tsx"
-    )
-    if not route.exists():  # the backend container does not mount the frontend
-        pytest.skip("frontend tree not mounted")
+    route = frontend_file("src", "routes", "prompt-studio.lazy.tsx")
     body = route.read_text(encoding="utf-8")
     assert "setFlow(start.flowUnreadable ? null : (start.flow ?? null));" in body
     assert "setFlow(start.flow ?? null);" not in body

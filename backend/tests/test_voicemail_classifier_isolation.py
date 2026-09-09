@@ -23,6 +23,7 @@ greeting looked like separate bugs, and neither produced an error anywhere.
 from __future__ import annotations
 
 import pytest
+from tests.conftest import frontend_file
 
 
 def _frame(name: str):
@@ -280,7 +281,7 @@ def test_bot_does_not_force_prewarm_on_connect() -> None:
     from pathlib import Path
 
     src = (Path(__file__).resolve().parents[1] / "voice" / "bot.py").read_text(encoding="utf-8")
-    assert "prewarm_llm_connection(force=True)" not in src
+    assert "prewarm_shared_client(force=True)" not in src
 
 
 def test_bot_binds_inbound_ani() -> None:
@@ -335,11 +336,7 @@ def test_voicemail_handler_does_not_speak_over_a_live_greeting() -> None:
 
 
 def test_skill_clone_source_does_not_use_window_prompt() -> None:
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1].parent / "Habibi" / "src" / "routes" / "agent-studio.skills.index.tsx"
-    if not root.exists():
-        root = Path(__file__).resolve().parents[2] / "Habibi" / "src" / "routes" / "agent-studio.skills.index.tsx"
+    root = frontend_file("src", "routes", "agent-studio.skills.index.tsx")
     text = root.read_text(encoding="utf-8")
     assert "window.prompt" not in text
     assert "clonePending" in text

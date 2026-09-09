@@ -6,12 +6,39 @@ import os
 import re
 from collections.abc import Callable
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
 from sqlalchemy import text
 
 _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def frontend_file(*parts: str) -> Path:
+    """A path under ``Habibi/``, or skip — except in CI, where it fails.
+
+    Eleven test modules read the frontend tree to pin a hand-written mirror
+    against its Python source. The backend container does not mount ``Habibi``,
+    so each one grew its own ``pytest.skip``. That is right locally and wrong in
+    CI: a pin that skips is a pin that is not holding anything, and the one
+    vocabulary that has drifted so far (the card channel map) drifted while its
+    pin was green.
+
+    ``CI`` is set by GitHub Actions and unset in the backend container, which is
+    exactly the distinction wanted — so the skip stays honest where the file
+    genuinely is not there, and becomes a failure where it must be.
+    """
+    path = _REPO_ROOT.joinpath("Habibi", *parts)
+    if path.exists():
+        return path
+    if os.environ.get("CI"):
+        raise AssertionError(
+            f"{path} is missing and CI is set — the frontend pin must not skip here"
+        )
+    pytest.skip(f"frontend tree not mounted: {path}")
 
 
 @pytest.fixture

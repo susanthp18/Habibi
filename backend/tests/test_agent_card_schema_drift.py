@@ -19,25 +19,13 @@ spans, because the two type systems are on opposite sides of a JSON boundary.
 from __future__ import annotations
 
 import re
-from pathlib import Path
-
-import pytest
 
 from agent_core.cards.schema import AgentCard
-
-_TS_CARD = (
-    Path(__file__).resolve().parents[2]
-    / "Habibi"
-    / "src"
-    / "api"
-    / "agent-card.ts"
-)
+from tests.conftest import frontend_file
 
 
 def _ts_source() -> str:
-    if not _TS_CARD.exists():  # pragma: no cover - frontend not checked out
-        pytest.skip(f"frontend card type not present at {_TS_CARD}")
-    return _TS_CARD.read_text(encoding="utf-8")
+    return frontend_file("src", "api", "agent-card.ts").read_text(encoding="utf-8")
 
 
 def _ts_members() -> set[str]:
@@ -108,15 +96,8 @@ def test_rollback_triggers_match() -> None:
 # Prompt variables — the same boundary, a different vocabulary
 # ---------------------------------------------------------------------------
 
-_TS_SEED = (
-    Path(__file__).resolve().parents[2] / "Habibi" / "src" / "data" / "prompt-studio-seed.ts"
-)
-
-
 def _ts_const(name: str) -> set[str]:
-    if not _TS_SEED.exists():  # pragma: no cover - frontend not checked out
-        pytest.skip(f"frontend seed not present at {_TS_SEED}")
-    src = _TS_SEED.read_text(encoding="utf-8")
+    src = frontend_file("src", "data", "prompt-studio-seed.ts").read_text(encoding="utf-8")
     match = re.search(rf"{name}\s*=\s*\[(.*?)\]\s*as const", src, re.S)
     assert match, f"{name} not found in prompt-studio-seed.ts"
     return set(re.findall(r'"([^"]+)"', match.group(1)))

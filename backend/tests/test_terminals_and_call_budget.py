@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import inspect
 
+from tests.conftest import frontend_file
 from voice import flow_export
 
 
@@ -98,16 +99,7 @@ def test_a_non_numeric_duration_does_not_break_the_call() -> None:
 def test_the_slider_cannot_ask_for_more_than_the_platform_cap() -> None:
     """The panel ran to 15 minutes against a 10-minute runtime cap, so every
     value above 600s was a number the runtime would never honour."""
-    from pathlib import Path
-
-    panel = (
-        Path(__file__).resolve().parents[2]
-        / "Habibi/src/components/prompt-studio/GuardrailsPanel.tsx"
-    )
-    if not panel.exists():  # the backend container does not mount the frontend
-        import pytest
-
-        pytest.skip("frontend tree not mounted")
+    panel = frontend_file("src", "components", "prompt-studio", "GuardrailsPanel.tsx")
     import voice.bot as bot
 
     text = panel.read_text(encoding="utf-8")
