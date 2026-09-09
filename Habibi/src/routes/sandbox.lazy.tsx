@@ -82,6 +82,9 @@ function SandboxPage() {
   const [awaiting, setAwaiting] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [run, setRun] = useState<SandboxRun | null>(null);
+  // Where the authored graph is. The server walks it and reports the step; the
+  // client carries it forward so the next turn continues rather than restarts.
+  const [flowNode, setFlowNode] = useState<string | null>(null);
   const [halted, setHalted] = useState(false);
   const [mode, setMode] = useState<SandboxMode>("text");
   // Declared up here with the other hooks: the panes are assembled after two
@@ -170,10 +173,16 @@ function SandboxPage() {
     setScriptIndex(0);
     setRun(null);
     setHalted(false);
+    setFlowNode(null);
     bootstrapped.current = true;
   }, [scenario, bootstrapLocal]);
 
   useEffect(() => {
+    // The cursor belongs to the graph it was walked in. Carrying it across a
+    // version switch posts card A's node key against card B's graph, which
+    // resolves to nothing — or, on a fleet graph where two members own the same
+    // local name, to a step in the wrong member.
+    setFlowNode(null);
     if (!activePrompt?.voice) return;
     const next = tuningFromVoiceConfig(activePrompt.voice, DEFAULT_AGENT_TUNING);
     setTuning(next);
@@ -215,6 +224,7 @@ function SandboxPage() {
       setScriptIndex(0);
       setRun(null);
       setHalted(false);
+      setFlowNode(null);
       setTextToolCalls([]);
     },
     [bootstrapLocal],
@@ -226,6 +236,7 @@ function SandboxPage() {
     setScriptIndex(0);
     setRun(null);
     setHalted(false);
+    setFlowNode(null);
     setLiveMetrics([]);
     setTextToolCalls([]);
     toast.info("Conversation reset");
@@ -285,6 +296,7 @@ function SandboxPage() {
           text,
           history,
           skillSlug: skillSlug || undefined,
+          nodeKey: flowNode,
           scenario,
           turnIndex: fromScript
             ? scriptIndex
@@ -357,6 +369,10 @@ function SandboxPage() {
           setTextToolCalls((prev) => [...prev, ...simulatedCalls]);
         }
 
+        // The step the server walked to. Null when the card authors no flow,
+        // which leaves the cursor where it was rather than resetting it.
+        if (result.nodeKey) setFlowNode(result.nodeKey);
+
         if (result.botTurn.halted) {
           setHalted(true);
           setRun((r) => (r ? { ...r, status: "completed" } : r));
@@ -370,7 +386,7 @@ function SandboxPage() {
         setAwaiting(false);
       }
     },
-    [scenario, activePrompt, halted, ensureRun, turns, scriptIndex, mode, skillSlug],
+    [scenario, activePrompt, halted, ensureRun, turns, scriptIndex, mode, skillSlug, flowNode],
   );
 
   const playNext = useCallback(() => {
