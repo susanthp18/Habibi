@@ -843,8 +843,24 @@ def test_the_sweep_reports_no_work_once_the_book_is_done(db_tx, monkeypatch) -> 
     monkeypatch.setenv("TREATMENT_SWEEP", "1")
     monkeypatch.setenv("TREATMENT_MODE", config.MODE_SHADOW)
 
+    from agent_core.treatment import schema_ready
+
     tenant = sweep._tenant(db_tx)
     assert tenant is not None
+
+    if schema_ready.w6_ready(db_tx):
+        # W6 replaced the single account cursor with per-shard day runs, so
+        # "the book is done" is a completed run per shard rather than a cursor
+        # past the last id. Drive it the same way: run until it says no.
+        engine = _EngineOnConnection(db_tx)
+        for _ in range(200):
+            if sweep.process_one(engine) is False:
+                break
+        else:  # pragma: no cover - a sweep that never exhausts is the bug
+            pytest.fail("the sharded sweep never reported the book done")
+        assert sweep.process_one(engine) is False
+        return
+
     # The largest account id there is, so the next claim (`a.id > cursor`)
     # comes back empty. Read from the table rather than invented: the
     # comparison runs under the database's collation, and a hand-written

@@ -110,7 +110,19 @@ def transition(
 
 
 def fulfil_erasure(conn: Any, request_id: str, *, actor_user_id: str | None) -> dict[str, Any]:
-    """Cancel unenacted plans and record an erasure event. Does not shred keys."""
+    """Cancel unenacted plans, destroy the subject key, record the evidence.
+
+    Cancelling plans is the forward half -- nothing further is done to this
+    borrower. Destroying the subject's pseudonym (W8b, §14.2) is the backward
+    half: it is what makes an erasure reach records that have already been
+    written, and it is per subject precisely so it can be done for one borrower
+    without touching anyone else's.
+
+    On a database without 0117 the destruction is skipped rather than raised.
+    An erasure that half-completes and then errors is worse than one that
+    completes what it can and says what it did: ``keyDestroyed`` is in the
+    evidence either way.
+    """
     row = get_request(conn, request_id)
     if row["kind"] != "erasure":
         raise ValueError("not_an_erasure")
@@ -129,6 +141,21 @@ def fulfil_erasure(conn: Any, request_id: str, *, actor_user_id: str | None) -> 
         ),
         {"cid": row["customerId"]},
     ).scalars().all()
+    key_destroyed = False
+    try:
+        from agent_core import retention
+
+        if schema_ready.has_table(conn, "subject_keys"):
+            key_destroyed = retention.destroy_subject_key(
+                conn,
+                tenant_id=row["tenantId"],
+                subject_id=row["customerId"],
+                reason=f"dpdp_erasure:{request_id}",
+                actor=actor_user_id,
+            )
+    except Exception:
+        logger.exception("subject key destruction failed for %s", request_id)
+
     evidence_id = _id("ERS")
     conn.execute(
         text(
@@ -152,7 +179,7 @@ def fulfil_erasure(conn: Any, request_id: str, *, actor_user_id: str | None) -> 
         state="fulfilled",
         actor_user_id=actor_user_id,
         evidence_ref=evidence_id,
-        note=f"cancelled_plans={len(cancelled)}",
+        note=f"cancelled_plans={len(cancelled)} key_destroyed={key_destroyed}",
     )
 
 

@@ -30,7 +30,7 @@ from agent_core.treatment import (
 )
 from agent_core.treatment.engine import recommend_treatment
 from tests.conftest import bank_feeds_are_current
-from agent_core.treatment.features import Trigger
+from agent_core.treatment.features import SqlFeatureProvider, Trigger
 
 TENANT = "hdfc.retail"
 
@@ -520,6 +520,11 @@ def _walk(db_tx, account, bounce, *, steps: int = 8) -> list:
             trigger=trigger,
             conn=db_tx,
             force_mode=config.MODE_LIVE,
+            # Score from SQL: this loop writes an attempt and re-decides in the
+            # same transaction, and a snapshot is built nightly and correctly
+            # does not see any of it. The snapshot path has its own suite in
+            # test_honest_engines_w6.py.
+            provider=SqlFeatureProvider(),
         )
         walked.append(result)
         if not result.actionable:
@@ -572,6 +577,7 @@ def test_a_recent_attempt_blocks_the_next_one(db_tx, account, bounce, monkeypatc
         trigger=trigger,
         conn=db_tx,
         force_mode=config.MODE_LIVE,
+        provider=SqlFeatureProvider(),
     )
     assert first.actionable
     _attempt(db_tx, account, first)  # enacted 1 day ago, backoff is 2 days
@@ -581,6 +587,7 @@ def test_a_recent_attempt_blocks_the_next_one(db_tx, account, bounce, monkeypatc
         trigger=trigger,
         conn=db_tx,
         force_mode=config.MODE_LIVE,
+        provider=SqlFeatureProvider(),
     )
     assert second.reason == arbitration.SUPPRESS_BACKOFF
 

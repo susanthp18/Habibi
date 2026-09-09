@@ -32,6 +32,7 @@ def test_missing_honest_engines_schema_fails_the_profile(db_tx) -> None:
         assert schema_ready.w6_ready(db_tx), "0113 missing"
         assert schema_ready.w7_ready(db_tx), "0115 missing"
         assert schema_ready.w8_ready(db_tx), "0116 missing"
+        assert schema_ready.retention_ready(db_tx), "0117 missing"
         return
     # Default suite still proves the files exist; the require-schema profile
     # is what must fail closed when a scratch DB is missing the waves.
@@ -42,6 +43,7 @@ def test_missing_honest_engines_schema_fails_the_profile(db_tx) -> None:
     assert (BACKEND / "alembic" / "versions" / "20260908_0113_decision_substrate.py").is_file()
     assert (BACKEND / "alembic" / "versions" / "20260909_0115_analysis_panel.py").is_file()
     assert (BACKEND / "alembic" / "versions" / "20260909_0116_engine_config.py").is_file()
+    assert (BACKEND / "alembic" / "versions" / "20260909_0117_retention.py").is_file()
 
 
 def test_fresh_sql_vocabulary_includes_w5() -> None:
@@ -68,6 +70,18 @@ def test_fresh_sql_vocabulary_includes_w8() -> None:
     assert "changed_by <> approved_by" in sql
     assert "EXCLUDE USING gist" in sql
     assert "config_epoch" in sql
+
+
+def test_fresh_sql_vocabulary_includes_w8b() -> None:
+    sql = (BACKEND / "sql" / "28_retention.sql").read_text(encoding="utf-8")
+    # A retention rule without a citation cannot answer why a record died on a
+    # particular Tuesday, which is the whole question §14.2 exists to answer.
+    assert "citation TEXT NOT NULL CHECK" in sql
+    assert "changed_by <> approved_by" in sql
+    for cls in ("identified", "pseudonymous", "recording", "processing_log", "evaluation"):
+        assert f"'{cls}'" in sql
+    assert "recording_holds" in sql
+    assert "subject_keys" in sql
 
 
 def test_reservation_release_and_reap(db_tx) -> None:

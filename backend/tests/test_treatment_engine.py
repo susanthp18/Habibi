@@ -38,7 +38,11 @@ from agent_core.treatment import (
 )
 from agent_core.treatment.engine import recommend_treatment
 from tests.conftest import bank_feeds_are_current
-from agent_core.treatment.features import AccountFeatures, Trigger
+from agent_core.treatment.features import (
+    AccountFeatures,
+    SqlFeatureProvider,
+    Trigger,
+)
 
 #: 11:30 IST on a Friday — inside RBI's 08:00–19:00 window, so a test about
 #: something other than calling hours is not silently a test about calling
@@ -863,6 +867,13 @@ def _decide(account, conn, **kw):
         account_id=account["id"],
         trigger=kw.pop("trigger", default),
         conn=conn,
+        # Score from SQL, not from the daily snapshot. These tests write an
+        # attempt, a hold or a payment and then re-decide in the same
+        # transaction; a snapshot is built nightly and correctly does not see
+        # any of it, so on a W6 database the whole file would assert against
+        # frozen inputs. The snapshot path has its own suite in
+        # test_honest_engines_w6.py.
+        provider=kw.pop("provider", None) or SqlFeatureProvider(),
         **kw,
     )
 

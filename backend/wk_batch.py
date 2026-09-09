@@ -25,7 +25,11 @@ logger = logging.getLogger("wk_batch")
 SNAPSHOT = "w6.snapshot_daily"
 PIT_SKEW = "w6.pit_skew"
 COST_ROLLUP = "w6.cost_rollup"
-JOBS = frozenset({SNAPSHOT, PIT_SKEW, COST_ROLLUP})
+#: W8b. Runs on the primary, not the reporting replica -- it writes. It is
+#: here rather than in its own worker because it is the same shape as the
+#: other three: nightly, idempotent, and nothing borrower-facing.
+RETENTION = "w8.retention_sweep"
+JOBS = frozenset({SNAPSHOT, PIT_SKEW, COST_ROLLUP, RETENTION})
 
 
 def reporting_engine() -> tuple[Engine, str]:
@@ -168,6 +172,20 @@ def _run(
             source_kind=source_kind,
             sample_percent=int(payload.get("sample_percent") or 1),
         )
+    if job_type == RETENTION:
+        from agent_core import retention
+
+        if str(payload.get("backfill") or "") == "1":
+            for kind in retention.DEFAULTS:
+                retention.backfill(sink, tenant_id=tenant_id, record_kind=kind)
+        return {
+            "kinds": retention.sweep(
+                sink,
+                tenant_id=tenant_id,
+                record_kind=(payload.get("record_kind") or None),
+                limit=int(payload.get("limit") or 5000),
+            )
+        }
     if job_type == COST_ROLLUP:
         count = substrate.rollup_decision_costs(
             source, sink, usage_date=date.fromisoformat(str(payload["usage_date"]))

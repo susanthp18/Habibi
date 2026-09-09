@@ -26,7 +26,7 @@ import contextlib
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterator, Mapping, Sequence
 
 from sqlalchemy import text
@@ -179,6 +179,23 @@ def record(
                 params["feature_snapshot_build_id"] = feature_snapshot_build_id
                 params["feature_snapshot_date"] = feature_snapshot_date
                 params["features_known_ts"] = features_known_ts
+            if schema_ready.retention_ready(active):
+                # W8b, §14.2: the expiry is computed AT WRITE, from the rule in
+                # force now, and never recomputed at purge time. A rule that
+                # changes must not silently re-date every row written under the
+                # old one -- when a record dies is a fact about the record.
+                from agent_core import retention
+
+                stamp = retention.stamp_for(
+                    active,
+                    tenant_id=tenant_id,
+                    record_kind="treatment_decision",
+                    anchor_at=datetime.now(timezone.utc),
+                )
+                if stamp is not None:
+                    extra_cols += ", retention_class, retain_until"
+                    extra_vals += ", :retention_class, :retain_until"
+                    params["retention_class"], params["retain_until"] = stamp
             active.execute(
                 text(
                     f"""

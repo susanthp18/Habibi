@@ -92,6 +92,17 @@ def w8_ready(conn: Any) -> bool:
     return has_table(conn, "engine_config") and has_table(conn, "config_epoch")
 
 
+def retention_ready(conn: Any) -> bool:
+    """W8b. Separate from ``w8_ready`` so a database carrying only 0116 is
+    still a valid W8a database rather than a half-failed W8 one."""
+    return (
+        has_table(conn, "retention_rules")
+        and has_table(conn, "subject_keys")
+        and has_table(conn, "recording_holds")
+        and has_column(conn, "treatment_decisions", "retain_until")
+    )
+
+
 def w6_ready(conn: Any) -> bool:
     return (
         has_table(conn, "fct_loan_state")

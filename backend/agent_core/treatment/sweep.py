@@ -116,10 +116,60 @@ def _process_legacy(conn: Any) -> bool:
     return decided > 0
 
 
+def _ensure_shards(conn: Any, *, tenant: str, limit: int = 5_000) -> int:
+    """Give unsharded accounts a shard key before the sweep looks for them.
+
+    ``0113`` adds ``accounts.shard_key`` as a plain nullable column, so on a
+    fresh install every account has NULL and ``_claim_shard`` -- which filters
+    on ``shard_key IS NOT NULL`` -- finds nothing. The sweep then decides zero
+    accounts, reports no work, and looks exactly like a book that is already
+    done. ``scripts/backfill_account_shards.py`` fixes it, and a step somebody
+    has to remember is a step that does not happen: the day 0113 landed the
+    engine would have gone quiet on the whole book with no error anywhere.
+
+    The key is a pure function of ``(tenant_id, id)``, so computing it here is
+    the same answer the script gives, and re-running is a no-op.
+    """
+    from bank_boundary.facts import SHARD_COUNT, SHARD_VERSION, shard_key
+
+    rows = conn.execute(
+        text(
+            """
+            SELECT a.id FROM accounts a
+              JOIN customers c ON c.id = a.customer_id
+             WHERE c.tenant_id = :tenant
+               AND (a.shard_key IS NULL OR a.shard_version IS DISTINCT FROM :version)
+             ORDER BY a.id
+             LIMIT :limit
+            """
+        ),
+        {"tenant": tenant, "version": SHARD_VERSION, "limit": limit},
+    ).scalars().all()
+    if not rows:
+        return 0
+    conn.execute(
+        text(
+            "UPDATE accounts SET shard_key = :shard_key, shard_version = :version"
+            " WHERE id = :account_id"
+        ),
+        [
+            {
+                "account_id": str(account_id),
+                "shard_key": shard_key(tenant, str(account_id), shard_count=SHARD_COUNT),
+                "version": SHARD_VERSION,
+            }
+            for account_id in rows
+        ],
+    )
+    logger.info("sweep sharded %s account(s) for tenant=%s", len(rows), tenant)
+    return len(rows)
+
+
 def _process_sharded(conn: Any) -> bool:
     tenant = _tenant(conn)
     if tenant is None:
         return False
+    _ensure_shards(conn, tenant=tenant)
     from bank_boundary.facts import SHARD_VERSION
 
     owner = (os.getenv("HOSTNAME") or f"wk-batch-{uuid.uuid4().hex[:8]}")[:100]
@@ -132,7 +182,7 @@ def _process_sharded(conn: Any) -> bool:
               shard_version, state
             )
             SELECT 'TSR-' || substr(md5(
-                     c.tenant_id || ':' || :day::text || ':' ||
+                     c.tenant_id || ':' || CAST(:day AS text) || ':' ||
                      a.shard_version::text || ':' || a.shard_key::text
                    ), 1, 24),
                    c.tenant_id, '', :day, a.shard_key, a.shard_version, 'pending'
@@ -301,7 +351,7 @@ def _claim_sharded_accounts(
                 state, lease_owner, lease_until
               )
               SELECT 'TSC-' || substr(md5(
-                       :tenant || ':' || e.account_id || ':' || :kind || ':' || :day::text
+                       :tenant || ':' || e.account_id || ':' || :kind || ':' || CAST(:day AS text)
                      ), 1, 24),
                      :tenant, :run_id, e.account_id, :kind, :day,
                      'claimed', :owner, now() + interval '10 minutes'
