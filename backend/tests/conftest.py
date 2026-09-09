@@ -17,6 +17,95 @@ _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def bank_feeds_are_current(conn: Any, *, customer_id: str) -> bool:
+    """Declare this borrower's tenant's bank feeds fresh, as of now.
+
+    Returns False when the W5 schema is not applied, so a caller on an older
+    database behaves exactly as it did before.
+
+    Why this is a fixture and not a fix. ``bank_boundary/freshness.py`` vetoes
+    every contacting action when the C8 feed has not been accepted inside
+    ``C8_ENDPOINT_HOURS``, and *absent* counts as stale — correctly, because a
+    feed that never arrived is not a fresh one. Nothing seeds ``bank_freshness``:
+    it is written by the bank's own inbound contracts, not by ``seed_demo``. So
+    the day W5 landed, every test asserting *which* rung the ladder picks began
+    getting ``no_eligible_action`` instead — sms and whatsapp vetoed on
+    freshness, voice and human on ``ladder_advance_too_far``, field and legal on
+    the bucket. Nothing was wrong with those tests and nothing was wrong with
+    the veto; they simply stopped establishing a precondition that had come into
+    existence underneath them.
+
+    Note for the next person to read a ``freshness:endpoint_stale`` and go
+    looking at ``bank_consent_snapshots``: that label is what
+    ``freshness.py:210`` reports for *any* ``contacting_blocked``, including a
+    missing C8 feed row, which is a portfolio-level lag and has nothing to do
+    with an endpoint. The consent snapshot is written here too so both halves
+    are satisfied.
+
+    Fail-closed on a missing feed is the right production behaviour and it is
+    asserted where it belongs, in ``test_honest_engines_w5.py``. A test about
+    rung ordering should not also be a test about feed freshness.
+    """
+    from agent_core.treatment import schema_ready as _schema_ready
+
+    if not _schema_ready.has_table(conn, "bank_freshness"):
+        return False
+    row = conn.execute(
+        text("SELECT tenant_id, phone_primary FROM customers WHERE id = :cid"),
+        {"cid": customer_id},
+    ).mappings().first()
+    if row is None:
+        return False
+
+    from bank_boundary import SHADOW_STREAK_DAYS
+
+    for code in ("C1", "C2", "C5", "C6", "C7", "C8", "C9", "C10"):
+        conn.execute(
+            text(
+                """
+                INSERT INTO bank_freshness (
+                  tenant_id, portfolio_id, contract_code, last_accepted_at,
+                  last_business_date, consecutive_ok_days, lag_hours, updated_at
+                ) VALUES (
+                  :tid, '', :code, now(), current_date, :streak, 0, now()
+                )
+                ON CONFLICT (tenant_id, portfolio_id, contract_code) DO UPDATE
+                   SET last_accepted_at = now(),
+                       last_business_date = current_date,
+                       consecutive_ok_days = EXCLUDED.consecutive_ok_days,
+                       lag_hours = 0,
+                       updated_at = now()
+                """
+            ),
+            {"tid": row["tenant_id"], "code": code, "streak": SHADOW_STREAK_DAYS},
+        )
+
+    if row["phone_primary"] and _schema_ready.has_table(
+        conn, "bank_consent_snapshots"
+    ):
+        conn.execute(
+            text(
+                """
+                INSERT INTO bank_consent_snapshots (
+                  id, tenant_id, customer_id, endpoint, purpose, channel,
+                  permitted, source_ref, event_time, known_from
+                ) VALUES (
+                  :id, :tid, :cid, :ep, 'all', 'all', TRUE, 'test-fixture',
+                  now(), now()
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {
+                "id": f"TESTC8-{customer_id}"[:120],
+                "tid": row["tenant_id"],
+                "cid": customer_id,
+                "ep": row["phone_primary"],
+            },
+        )
+    return True
+
+
 def frontend_file(*parts: str) -> Path:
     """A path under ``Habibi/``, or skip — except in CI, where it fails.
 
@@ -136,6 +225,24 @@ class _RealDb:
             )
 
         self._cleanups.append(_delete)
+
+        if table == "audit_log":
+            # Deleting audit rows without clearing the persisted chain head
+            # leaves the head pointing at a hash no surviving row has, so the
+            # *next* run chains onto it and `verify_chain` reports a break for
+            # the rest of time. Observed: the head climbed 27 -> 33 across runs
+            # while every row was cleaned, so the chain tests failed on a table
+            # that was empty. One guard here covers every test that tracks
+            # audit rows, rather than one per fixture.
+            def _reset_chain_head(conn: Any) -> None:
+                import db as _db
+
+                conn.execute(
+                    text("DELETE FROM audit_chain_heads WHERE tenant_id = :t"),
+                    {"t": _db.current_tenant()},
+                )
+
+            self._cleanups.append(_reset_chain_head)
 
     def on_teardown(self, fn: Callable[[Any], None]) -> None:
         """Run ``fn(conn)`` inside the fixture's cleanup transaction."""

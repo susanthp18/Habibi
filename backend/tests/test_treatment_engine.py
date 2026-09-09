@@ -37,6 +37,7 @@ from agent_core.treatment import (
     timing,
 )
 from agent_core.treatment.engine import recommend_treatment
+from tests.conftest import bank_feeds_are_current
 from agent_core.treatment.features import AccountFeatures, Trigger
 
 #: 11:30 IST on a Friday — inside RBI's 08:00–19:00 window, so a test about
@@ -838,6 +839,12 @@ def account(db_tx):
     ).mappings().first()
     if row is None:
         pytest.skip("seed has no early-bucket account with a phone number")
+    # These tests assert which rung the ladder picks. W5's freshness resolver
+    # vetoes every contacting action while the bank's inbound feeds are absent,
+    # and nothing seeds them — so without this the whole file asserts against
+    # ``no_eligible_action`` instead. Feed freshness is covered on its own in
+    # ``test_honest_engines_w5.py``.
+    bank_feeds_are_current(db_tx, customer_id=row["customer_id"])
     return dict(row)
 
 

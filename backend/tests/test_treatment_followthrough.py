@@ -29,6 +29,7 @@ from agent_core.treatment import (
     followthrough,
 )
 from agent_core.treatment.engine import recommend_treatment
+from tests.conftest import bank_feeds_are_current
 from agent_core.treatment.features import Trigger
 
 TENANT = "hdfc.retail"
@@ -50,6 +51,11 @@ def account(db_tx):
     ).mappings().first()
     if row is None:
         pytest.skip("seed has no early-bucket account with a phone number")
+
+    # The ladder tests below assert which rung is chosen. W5's freshness
+    # resolver vetoes every contacting action while the bank's inbound feeds
+    # are absent, and nothing seeds them.
+    bank_feeds_are_current(db_tx, customer_id=row["customer_id"])
 
     # Clear the demo seed's own recent payments off this account.
     #

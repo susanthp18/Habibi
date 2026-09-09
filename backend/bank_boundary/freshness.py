@@ -25,6 +25,10 @@ WAIT_ONLY = "freshness:wait_only"
 NON_CONTACTING = "freshness:non_contacting"
 MANDATE_STALE = "freshness:mandate_stale"
 ENDPOINT_STALE = "freshness:endpoint_stale"
+#: The C8 feed itself has not been accepted inside its window. Distinct
+#: from ENDPOINT_STALE, which is one borrower's consent snapshot: this is
+#: the whole portfolio, and the fix is a feed run, not a consent record.
+C8_FEED_STALE = "freshness:c8_feed_stale"
 FIELD_STALE = "freshness:field_stale"
 MFI_UNPROTECTED = "freshness:c10_absent"
 C7_RESERVED = "freshness:c7_reserved_cap"
@@ -207,7 +211,16 @@ def resolve(
     elif field_blocked and (action == "field_visit" or channel == "field"):
         veto = FIELD_STALE
     elif contacting_blocked and channel:
-        veto = ENDPOINT_STALE if "endpoint" in ",".join(reasons) else MFI_UNPROTECTED if "C10" in ",".join(reasons) else ENDPOINT_STALE
+        # Both arms of the old ternary returned ENDPOINT_STALE, so a missing
+        # C8 *feed* -- a portfolio-level lag -- reported itself as a stale
+        # endpoint, and every investigation went to bank_consent_snapshots
+        # rather than to bank_freshness. Three causes, three labels.
+        if "C10" in ",".join(reasons):
+            veto = MFI_UNPROTECTED
+        elif "C8" in ",".join(reasons):
+            veto = C8_FEED_STALE
+        else:
+            veto = ENDPOINT_STALE
     elif wait_only and channel:
         veto = WAIT_ONLY
     elif non_contacting and channel:
