@@ -159,7 +159,12 @@ export function PublishDialog({
         <div className="space-y-150 text-body">
           {compileBusy && (
             <div className="rounded-medium border border-border bg-surface-sunken p-150 text-body-small text-text-subtle">
-              Running compiler G0–G16…
+              {/* Was "G0–G16", which had already stopped being true: it named
+                  none of the G-OB, G-F or G-LINT gates, so the one number an
+                  operator saw while waiting undercounted the checks by a third.
+                  A range that has to be maintained by hand is a range that
+                  goes stale — say what is running instead of how many. */}
+              Running the publish compiler…
             </div>
           )}
           {compileError && !compileBusy && (

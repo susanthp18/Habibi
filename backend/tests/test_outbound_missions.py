@@ -397,7 +397,10 @@ def test_the_ladder_runs_out(db_tx) -> None:
         business=None,
         card_outbound=collections_card().outbound,
     )
-    assert state == cadence.STATE_EXHAUSTED
+    # The collections card names `escalate_to: human`, and since that field got
+    # a reader the ladder stops as `escalated` rather than `exhausted` — the
+    # exhausted state is now only for a cadence that named nobody.
+    assert state == cadence.STATE_ESCALATED
 
 
 def test_a_manual_dial_does_not_open_a_ladder(db_tx) -> None:

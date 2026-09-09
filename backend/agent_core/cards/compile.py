@@ -177,8 +177,50 @@ _OUTBOUND_GATE_NAMES: dict[str, str] = {
     "G-OB8": "cadence_defined",
 }
 
+#: Every gate id and the one name it goes by.
+#:
+#: The ids lived only as string literals at ~40 call sites, and two things went
+#: wrong that a registry makes impossible. ``G-OB1`` was emitted as
+#: ``missions_declared`` from the loop below and as ``outbound`` on its two skip
+#: paths — one id, two names, in the same function. And two designs each
+#: independently specified a ``G-F12``, because nothing said which ids were
+#: taken.
+#:
+#: The ``G-F`` prefix is a separate space from ``G``: G4 (``tools``) and G-F4
+#: (``handoff_is_an_edge``) coexist deliberately. Reserved but not yet built:
+#: G-F15 ``fleet_hop`` and G-F16 ``gate_monotonicity``; G-F12 belongs to publish
+#: scope and lands with the Door.
+_GATE_NAMES: dict[str, str] = {
+    "G0": "schema",
+    "G1": "flowValid",
+    "G2": "flow_persisted",
+    "G3": "policy_bindings",
+    "G4": "tools",
+    "G5": "handoffs",
+    "G6": "latency",
+    "G7": "regression",
+    "G8": "redteam",
+    "G9": "signed_skills",
+    "G10": "connectors",
+    "G11": "twin",
+    "G12": "canary",
+    "G13": "a2a_mtls",
+    "G14": "agent_publish",
+    "G15": "voice_locale",
+    "G16": "flow_grant",
+    "G-LINT": "prompt_lint",
+    "G-OB9": "outbound",
+    "G-F4": "handoff_is_an_edge",
+    "G-F7": "carry_is_fact_only",
+    "G-F11": "text_walkability",
+    **_OUTBOUND_GATE_NAMES,
+}
+
 
 def _gate(gate: str, name: str, status: GateStatus, detail: str = "", issues: list | None = None) -> GateResult:
+    registered = _GATE_NAMES.get(gate)
+    assert registered is not None, f"unregistered gate id {gate!r} — add it to _GATE_NAMES"
+    assert registered == name, f"{gate} is {registered!r} everywhere else, not {name!r}"
     return GateResult(gate=gate, name=name, status=status, detail=detail, issues=issues or [])
 
 
@@ -536,11 +578,11 @@ def _outbound_gates(
 
     out: list[GateResult] = []
     if card is None:
-        out.append(_gate("G-OB1", "outbound", "skipped", "no card"))
+        out.append(_gate("G-OB1", "missions_declared", "skipped", "no card"))
         return out
     ob = card.outbound
     if not ob.dials:
-        out.append(_gate("G-OB1", "outbound", "skipped", "inbound-only card"))
+        out.append(_gate("G-OB1", "missions_declared", "skipped", "inbound-only card"))
         return out
 
     issues: list[dict[str, Any]] = []
