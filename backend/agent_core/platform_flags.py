@@ -6,11 +6,7 @@ Do not invent a new name in a feature PR — add it here and in ``.env.example``
 
 from __future__ import annotations
 
-from env_utils import env_bool
-
-
-def _flag(name: str) -> bool:
-    return env_bool(name)
+from env_utils import env_bool as _flag
 
 
 def mcp_http_enabled() -> bool:
@@ -43,6 +39,21 @@ def fleet_enabled() -> bool:
     return _flag("FLEET_ENABLED")
 
 
+def door_enabled() -> bool:
+    """Whether authored ``entry_bindings`` decide which card answers.
+
+    Off (default): ``resolve_entry`` falls back to ``runtime_entry_bot_id`` and
+    every inbound contact lands on the tenant default, exactly as today. On: the
+    dialled number chooses. Read per call rather than cached, so unsetting it is
+    a complete rollback with no restart and no data to undo.
+
+    ``agent_core.cards.routing.door_enabled`` is the caller-facing name and
+    delegates here; this module is where the flag is *declared*, alongside
+    ``FLEET_ENABLED`` which it is meaningless without.
+    """
+    return _flag("DOOR_ENABLED")
+
+
 def eval_gate_enabled() -> bool:
     return _flag("EVAL_GATE_ENABLED")
 
@@ -57,10 +68,6 @@ def llm_gateway_enabled() -> bool:
 
 def vision_ingest_enabled() -> bool:
     return _flag("VISION_INGEST_ENABLED")
-
-
-def temporal_enabled() -> bool:
-    return _flag("TEMPORAL_ENABLED")
 
 
 def policy_export_enabled() -> bool:

@@ -31,7 +31,6 @@ import os
 from collections import deque
 from typing import Any, Iterable
 
-from env_utils import env_bool
 
 _logger = logging.getLogger(__name__)
 
@@ -52,10 +51,14 @@ def runtime_entry_bot_id() -> str:
 def door_enabled() -> bool:
     """Whether authored entry bindings decide who answers.
 
-    Off by default and read per call rather than cached, so unsetting it is a
-    complete rollback with no restart and no data to undo.
+    Declared in ``agent_core.platform_flags`` -- that module's own rule is "do
+    not invent a new name in a feature PR; add it here and in .env.example", and
+    this flag was breaking it. Imported lazily because ``routing`` is on the
+    voice import path and ``platform_flags`` is not otherwise needed there.
     """
-    return env_bool("DOOR_ENABLED")
+    from agent_core.platform_flags import door_enabled as _door_enabled
+
+    return _door_enabled()
 
 
 def resolve_entry(channel: str, address: str | None = None) -> str:
