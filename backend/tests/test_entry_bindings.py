@@ -145,3 +145,76 @@ def test_only_one_default_per_channel_is_storable(db_tx, door_on) -> None:
 
     # And the transaction is still usable, which is the point of the savepoint.
     assert resolve_entry("voice") == "kaia-v2-4"
+
+
+# ---------------------------------------------------------------------------
+# Authoring a binding
+# ---------------------------------------------------------------------------
+
+
+def test_an_authored_binding_answers_the_number_it_names(db_tx, door_on) -> None:
+    from agent_core.cards.routing import upsert_entry_binding
+
+    upsert_entry_binding(channel="voice", address="+914412345678", bot_id="intake-v1")
+
+    assert resolve_entry("voice", "+914412345678") == "intake-v1"
+    # A number nobody bound is still today's behaviour, not the door.
+    assert resolve_entry("voice", "+914499999999") == runtime_entry_bot_id()
+
+
+def test_an_exact_address_beats_the_channel_default(db_tx, door_on) -> None:
+    from agent_core.cards.routing import upsert_entry_binding
+
+    upsert_entry_binding(channel="voice", bot_id="kaia-v2-4", note="default")
+    upsert_entry_binding(channel="voice", address="+914412345678", bot_id="intake-v1")
+
+    assert resolve_entry("voice", "+914412345678") == "intake-v1"
+    assert resolve_entry("voice", "+914499999999") == "kaia-v2-4"
+
+
+def test_the_text_mouths_reach_the_channel_default(db_tx, door_on) -> None:
+    """`bot_runtime._bot_id()` has no address to pass, which is why the default
+    row and the per-number row live in one table rather than WhatsApp growing a
+    second mechanism."""
+    from agent_core.cards.routing import upsert_entry_binding
+
+    upsert_entry_binding(channel="whatsapp", bot_id="intake-v1")
+
+    assert resolve_entry("whatsapp") == "intake-v1"
+
+
+def test_rebinding_a_number_moves_it_rather_than_duplicating_it(db_tx, door_on) -> None:
+    """Two enabled rows for one number would make the answering card depend on
+    whichever the planner returned first."""
+    from agent_core.cards.routing import list_entry_bindings, upsert_entry_binding
+
+    upsert_entry_binding(channel="voice", address="+914412345678", bot_id="kaia-v2-4")
+    upsert_entry_binding(channel="voice", address="+914412345678", bot_id="intake-v1")
+
+    rows = [b for b in list_entry_bindings() if b["address"] == "+914412345678"]
+    assert len(rows) == 1
+    assert resolve_entry("voice", "+914412345678") == "intake-v1"
+
+
+def test_disabling_a_binding_falls_back_rather_than_stranding(db_tx, door_on) -> None:
+    from agent_core.cards.routing import upsert_entry_binding
+
+    upsert_entry_binding(
+        channel="voice", address="+914412345678", bot_id="intake-v1", enabled=False
+    )
+
+    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()
+
+
+def test_a_binding_changes_nothing_while_the_flag_is_off(db_tx, monkeypatch) -> None:
+    """The row can be authored, reviewed and left in place before anything
+    routes by it -- which is what makes the switch-on a flag flip and not a
+    data migration."""
+    from agent_core.cards.routing import upsert_entry_binding
+
+    monkeypatch.setenv("DOOR_ENABLED", "1")
+    upsert_entry_binding(channel="voice", address="+914412345678", bot_id="intake-v1")
+    assert resolve_entry("voice", "+914412345678") == "intake-v1"
+
+    monkeypatch.delenv("DOOR_ENABLED", raising=False)
+    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()

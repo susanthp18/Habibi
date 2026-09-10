@@ -408,14 +408,25 @@ async def run_bot(transport, runner_args) -> None:
     cohort_customer_id: str | None = None
     cohort_bot_id: str | None = None
     pre_from_number: str | None = None
+    #: The dialled leg. Routing reads this and never the caller: which card
+    #: answers must not depend on a CRM lookup, and
+    #: `twilio_ops.lookup_customer_for_caller` sits under a bare `except`, so
+    #: letting it choose would turn one flaky query into "a different agent
+    #: answered the phone". Pulled out here rather than at :532 because the
+    #: entry decision happens before the session exists.
+    pre_to_number: str | None = None
     pre_attempt_id: str | None = None
     if call_data is not None:
         pre_from_number = getattr(call_data, "from_number", None) or (
             call_data.get("from") if isinstance(call_data, dict) else None
         )
+        pre_to_number = getattr(call_data, "to_number", None) or (
+            call_data.get("to") if isinstance(call_data, dict) else None
+        )
         body_params = getattr(call_data, "body", None) or {}
         if isinstance(body_params, dict):
             pre_from_number = pre_from_number or body_params.get("from")
+            pre_to_number = pre_to_number or body_params.get("to")
             if str(body_params.get("call_type") or "").strip().lower() == "outbound":
                 pre_attempt_id = str(body_params.get("attempt_id") or "").strip() or None
     if pre_attempt_id:
@@ -447,9 +458,13 @@ async def run_bot(transport, runner_args) -> None:
             logger.exception("Twilio caller lookup failed before bundle load")
     if cohort_bot_id is None:
         try:
-            from agent_core.cards.routing import runtime_entry_bot_id
+            from agent_core.cards.routing import resolve_entry
 
-            cohort_bot_id = runtime_entry_bot_id()
+            # With DOOR_ENABLED unset this *is* `runtime_entry_bot_id()`:
+            # `resolve_entry` falls back to it on the flag, on the table being
+            # absent, and on no row matching. Reversal is unsetting the flag --
+            # no restart, no data to undo.
+            cohort_bot_id = resolve_entry("voice", address=pre_to_number)
         except Exception:
             cohort_bot_id = None
     # Hash on ANI when the caller is unmatched so the split stays deterministic

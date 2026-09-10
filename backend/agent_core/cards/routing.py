@@ -122,6 +122,87 @@ def resolve_entry(channel: str, address: str | None = None) -> str:
     return str(row["bot_id"])
 
 
+def upsert_entry_binding(
+    *,
+    channel: str,
+    bot_id: str,
+    address: str | None = None,
+    note: str = "",
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Author which card answers ``channel`` at ``address``.
+
+    ``address=None`` is the channel default -- the row the text mouths reach,
+    because ``bot_runtime._bot_id()`` has no address to pass. The table's two
+    partial unique indexes enforce one binding per address and one default per
+    channel, so the conflict target differs between the two shapes and there is
+    no single ``ON CONFLICT`` that covers both.
+
+    Writing a binding changes nothing while ``DOOR_ENABLED`` is unset:
+    ``resolve_entry`` does not read the table at all until the flag is on. That
+    is deliberate -- the row can be authored, reviewed and left in place before
+    anything routes by it.
+    """
+    import uuid
+
+    import db
+    from sqlalchemy import text as _text
+
+    addr = (address or "").strip() or None
+    params = {
+        "id": f"eb-{uuid.uuid4().hex[:12]}",
+        "tenant": db.current_tenant(),
+        "channel": (channel or "").strip(),
+        "address": addr,
+        "bot": (bot_id or "").strip(),
+        "note": note,
+        "enabled": bool(enabled),
+    }
+    conflict = (
+        "(tenant_id, channel, address) WHERE address IS NOT NULL"
+        if addr
+        else "(tenant_id, channel) WHERE address IS NULL"
+    )
+    with db.engine.begin() as conn:
+        row = conn.execute(
+            _text(
+                f"""
+                INSERT INTO entry_bindings
+                  (id, tenant_id, channel, address, bot_id, note, enabled)
+                VALUES (:id, :tenant, :channel, :address, :bot, :note, :enabled)
+                ON CONFLICT {conflict} DO UPDATE SET
+                  bot_id = EXCLUDED.bot_id,
+                  note = EXCLUDED.note,
+                  enabled = EXCLUDED.enabled,
+                  updated_at = now()
+                RETURNING id, channel, address, bot_id, enabled
+                """
+            ),
+            params,
+        ).mappings().first()
+    return dict(row) if row else {}
+
+
+def list_entry_bindings() -> list[dict[str, Any]]:
+    """Every authored binding for this tenant, most specific first."""
+    import db
+    from sqlalchemy import text as _text
+
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            _text(
+                """
+                SELECT id, channel, address, bot_id, enabled, note, updated_at
+                  FROM entry_bindings
+                 WHERE tenant_id = :tenant
+                 ORDER BY channel, (address IS NULL), address
+                """
+            ),
+            {"tenant": db.current_tenant()},
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
 def handoff_targets(card: Any) -> list[str]:
     """``to_bot_id`` values off a raw card dict, tolerant of unmigrated JSON."""
     if not isinstance(card, dict):
