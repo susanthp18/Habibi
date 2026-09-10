@@ -247,3 +247,62 @@ def test_the_layout_fits_a_narrow_canvas(graph: dict) -> None:
     height = max(ys) - min(ys) + NODE_H
     zoom = min(PANE_W / width, PANE_H / height)
     assert zoom > 0.35, f"fits at {zoom:.2f} zoom — nodes would be unreadable"
+
+
+# ---------------------------------------------------------------------------
+# The door / servicing split
+# ---------------------------------------------------------------------------
+
+
+def _keys(part: str) -> list[str]:
+    from voice.flow_export import built_in_collections_graph as export
+
+    return [n["key"] for n in export(part=part)["nodes"]]
+
+
+def test_door_and_servicing_partition_the_whole_graph() -> None:
+    """A partition, asserted as one -- not two hand-listed sets.
+
+    `part=` filters the same derivation `part="all"` runs, so the two halves
+    must cover it exactly and share nothing. Asserting the property rather than
+    the membership means adding a node to the built-in script cannot silently
+    fall out of both halves.
+    """
+    door, servicing, whole = _keys("door"), _keys("servicing"), _keys("all")
+
+    assert set(door) | set(servicing) == set(whole)
+    assert set(door) & set(servicing) == set()
+    assert len(door) + len(servicing) == len(whole)
+
+
+def test_the_door_half_answers_the_phone_and_ends_the_call() -> None:
+    door = set(_keys("door"))
+    assert {"greet_disclose", "discover_intent", "verify_identity"} <= door
+    assert {"call_ended", "terminate_politely", "escalate_close"} <= door
+
+
+def test_the_door_does_not_inherit_the_collections_hub() -> None:
+    """`state_position` is the servicing hub in this script.
+
+    A door owning the derived version would carry collections' business tools
+    into the node that answers every call. The door needs its own node under
+    that key, but authored as a route -- which is the seeder's job, not this
+    module's, because this module is derived and that node is not.
+    """
+    assert "state_position" not in _keys("door")
+    assert "state_position" in _keys("servicing")
+
+
+def test_the_door_half_still_carries_real_instructions(graph: dict) -> None:
+    """Guards against the filter emitting shells.
+
+    A filter that dropped node bodies would still satisfy the partition test
+    above, and every gate downstream reads instructions.
+    """
+    from voice.flow_export import built_in_collections_graph as export
+
+    by_key = {n["key"]: n for n in export(part="door")["nodes"]}
+    whole = {n["key"]: n for n in graph["nodes"]}
+    for key, node in by_key.items():
+        assert node["data"]["instructions"] == whole[key]["data"]["instructions"]
+        assert node["data"]["instructions"].strip()

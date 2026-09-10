@@ -28,7 +28,10 @@ carrying both arms under an explicit condition, with ``{{call_goal}}`` and
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Literal
+
+#: Which half of the script to emit. See ``built_in_collections_graph``.
+Part = Literal["all", "door", "servicing"]
 
 from voice.flows import MONEY_GOAL_INTENTS
 from voice.session import VoiceSession
@@ -89,6 +92,36 @@ _ORDER: tuple[str, ...] = (
     "terminate_politely",
     "escalate_close",
     "call_ended",
+)
+
+
+#: The part of the script that answers the phone, as opposed to the part that
+#: does collections business on it.
+#:
+#: Every one of these is already in ``_ORDER`` and ``_LAYOUT`` -- this is a
+#: *filter over the derivation*, not a second copy of it, because a hand-written
+#: door graph would be the next duplicated vocabulary to drift and this module
+#: exists on the opposite principle.
+#:
+#: ``state_position`` is deliberately absent. In the collections script that key
+#: is the servicing hub, so a door that owned the derived version would inherit
+#: collections' business tools. The door needs a node under that name (a
+#: verification success lands there by key, and if only one namespace owns it the
+#: hop crosses the boundary through ``resolve_key``'s third tier with no ledger
+#: row and no hop-cap decrement) -- but it needs a *route* node, which is
+#: authored by the seeder, not derived here.
+_DOOR_KEYS: frozenset[str] = frozenset(
+    {
+        "greet_disclose",
+        "confirm_identity",
+        "third_party",
+        "discover_intent",
+        "verify_identity",
+        "terminate_politely",
+        "escalate_close",
+        "pre_close",
+        "call_ended",
+    }
 )
 
 
@@ -272,11 +305,18 @@ def _merge_goal_arms(no_goal: str, with_goal: str) -> str:
     )
 
 
-def built_in_collections_graph(*, graph: str | None = None) -> dict[str, Any]:
+def built_in_collections_graph(
+    *, graph: str | None = None, part: Part = "all"
+) -> dict[str, Any]:
     """The running built-in script, as an authored graph.
 
     ``graph`` picks the shape the same way the runtime does: the default
     multi-node script, or ``"hub"`` for the merged single-hub variant.
+
+    ``part`` splits the same derivation in two along ``_DOOR_KEYS``: ``"door"``
+    is greet/disclose, discover, verify and the shared terminals; ``"servicing"``
+    is everything else. Both halves come from the same node factories as
+    ``"all"``, so neither can drift from the script the runtime runs.
     """
     plain, tools, globals_ = _registry(graph, _stub_session())
     # A non-money intent so the goal-first arm renders. The goal *text* stays a
@@ -285,6 +325,10 @@ def built_in_collections_graph(*, graph: str | None = None) -> dict[str, Any]:
 
     keys = [k for k in _ORDER if k in plain]
     keys += [k for k in plain if k not in keys]
+    if part == "door":
+        keys = [k for k in keys if k in _DOOR_KEYS]
+    elif part == "servicing":
+        keys = [k for k in keys if k not in _DOOR_KEYS]
 
     nodes: list[dict[str, Any]] = []
     for index, key in enumerate(keys):
