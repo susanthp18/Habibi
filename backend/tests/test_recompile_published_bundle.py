@@ -138,3 +138,25 @@ def test_it_compiles_the_published_row_not_the_draft(db_tx) -> None:
         ).scalar()
         is None
     )
+
+
+def test_doors_merging_reads_what_was_compiled_not_the_handoff_graph(db_tx) -> None:
+    """The handoff graph cannot answer this. `insurance-v1` and
+    `collections-clone-9ff4b6` each hand off to cards the other also reaches, so
+    "the owning door" is not a single value and a topology walk would be picking
+    by sort order. `entry_by_specialist` is what the compiler actually merged."""
+    assert dps.doors_merging(BOT) == []
+
+    db_tx.execute(
+        text(
+            "UPDATE prompt_versions SET compiled = "
+            "  jsonb_set(coalesce(compiled, '{}'::jsonb), '{entry_by_specialist}', "
+            "            CAST(:e AS jsonb)) "
+            " WHERE bot_id = 'intake-v1' AND status = 'published'"
+        ),
+        {"e": '{"intake-v1": "greet_disclose", "kaia-v2-4": "state_position"}'},
+    )
+
+    assert dps.doors_merging(BOT) == ["intake-v1"]
+    # A bundle never lists itself as something it merged in.
+    assert dps.doors_merging("intake-v1") == []

@@ -1001,6 +1001,43 @@ def compile_agent_studio_card(
     return report.model_copy(update={"bundle": bundle.model_dump(mode="json")}).model_dump()
 
 
+def doors_merging(bot_id: str) -> list[str]:
+    """Published cards whose compiled bundle contains ``bot_id``'s subgraph.
+
+    Read from `compiled.entry_by_specialist` -- what was actually merged -- and
+    not from the handoff graph. The graph cannot answer this: `insurance-v1` and
+    `collections-clone-9ff4b6` both hand off to cards the other also reaches, so
+    "the owning door" is not a single value, and a function returning the first
+    match would be picking by sort order.
+
+    Empty for every card today, because `_merge_members` bails under two members
+    and no published row carries a door graph yet. It stops being empty the
+    moment one does, which is the point: publishing a member has to refresh the
+    bundle that merged it, or the door keeps serving that member's old flow.
+    """
+    bid = (bot_id or "").strip()
+    if not bid:
+        return []
+    _mod = _db()
+    with _mod.engine.connect() as conn:
+        if not _column_exists(conn, "prompt_versions", "compiled"):
+            return []
+        rows = _mod._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT bot_id
+                      FROM prompt_versions
+                     WHERE status = 'published' AND tenant_id = :t
+                       AND compiled -> 'entry_by_specialist' ? :b
+                    """
+                ),
+                {"t": _mod._tenant(), "b": bid},
+            )
+        )
+    return sorted(str(r["bot_id"]) for r in rows if str(r["bot_id"]) != bid)
+
+
 def recompile_published_bundle(bot_id: str) -> dict[str, Any]:
     """Fill in `prompt_versions.compiled` for a card that is already live.
 
@@ -2644,6 +2681,18 @@ def publish_prompt_version(
 
         row = _fetch_prompt_version(conn, version_id)
     assert row is not None
+
+    # A member's new flow is not live until the bundle that merged it is rebuilt
+    # -- the door serves `compiled.fleet_flow`, so without this it keeps speaking
+    # the member's previous graph. Outside the transaction above because
+    # `recompile_published_bundle` opens its own, and best-effort because a
+    # failure here must not roll back a publish that already succeeded: a stale
+    # bundle is what the parity logger reports, a half-published card is not.
+    for door in doors_merging(bot_id):
+        try:
+            recompile_published_bundle(door)
+        except Exception:
+            logger.exception("could not refresh the fleet bundle owned by %s", door)
     return row
 
 
