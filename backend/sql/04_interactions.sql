@@ -68,7 +68,16 @@ CREATE TABLE IF NOT EXISTS interaction_handoffs (
   to_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   to_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
   to_team_id TEXT REFERENCES teams(id) ON DELETE SET NULL,
-  reason TEXT NOT NULL CHECK (reason IN ('sentiment_drop','verification_failed','compliance','customer_requested','hardship','dispute','high_value','routing_rule')),
+  -- Two populations share this table. `to_kind='human'` rows are escalations —
+  -- the eight values this CHECK has always admitted. `to_kind='bot'` rows are
+  -- fleet routing: one specialist handing the call to another inside the same
+  -- deployment. Anything reading this table as "escalated" must filter on
+  -- to_kind (see db_bot_analytics._ESCALATED_PRED).
+  reason TEXT NOT NULL CHECK (reason IN (
+    'sentiment_drop','verification_failed','compliance','customer_requested',
+    'hardship','dispute','high_value','routing_rule',
+    'specialist_route','specialist_return','mission_entry'
+  )),
   queue TEXT,
   requested_at timestamptz,
   accepted_at timestamptz,
@@ -76,6 +85,23 @@ CREATE TABLE IF NOT EXISTS interaction_handoffs (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_interaction_handoffs_interaction_id ON interaction_handoffs(interaction_id);
+-- The hop's own columns. `turn_index` is where in the transcript the hop
+-- happened, so "which specialist said this sentence" is a range lookup rather
+-- than a guess; `deployment_id` pins the compiled bundle the hop was decided
+-- under; `packet` is the fact-only carry packet, recorded because a regulator
+-- asking what crossed the boundary must not be answered from memory.
+ALTER TABLE interaction_handoffs ADD COLUMN IF NOT EXISTS turn_index INTEGER;
+ALTER TABLE interaction_handoffs ADD COLUMN IF NOT EXISTS deployment_id TEXT;
+ALTER TABLE interaction_handoffs ADD COLUMN IF NOT EXISTS carry TEXT;
+ALTER TABLE interaction_handoffs ADD COLUMN IF NOT EXISTS packet jsonb;
+-- Widen the reason CHECK on databases created before the fleet existed.
+ALTER TABLE interaction_handoffs DROP CONSTRAINT IF EXISTS interaction_handoffs_reason_check;
+ALTER TABLE interaction_handoffs ADD CONSTRAINT interaction_handoffs_reason_check
+  CHECK (reason IN (
+    'sentiment_drop','verification_failed','compliance','customer_requested',
+    'hardship','dispute','high_value','routing_rule',
+    'specialist_route','specialist_return','mission_entry'
+  ));
 
 CREATE TABLE IF NOT EXISTS interaction_transcript (
   id TEXT PRIMARY KEY,

@@ -76,6 +76,16 @@ _TURN_BUCKETS: list[tuple[str, int, int]] = [
     ("13+", 13, 99),
 ]
 
+# Escalated = handed to a *human*. ``interaction_handoffs`` also carries
+# specialist hops (``to_kind='bot'``, reason ``specialist_route``), which are the
+# fleet routing itself and not a failure to contain. Without the ``to_kind``
+# filter the first hop would inflate every escalation and containment figure a
+# grievance MIS report is built on.
+_ESCALATED_PRED = """EXISTS (
+  SELECT 1 FROM interaction_handoffs h
+   WHERE h.interaction_id = i.id AND h.to_kind = 'human'
+)"""
+
 # Abandoned = explicit status or contact-failure dispositions (seed has no status='abandoned').
 _ABANDONED_PRED = """(
   i.status = 'abandoned'
@@ -148,9 +158,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                         i.avg_sentiment,
                         coalesce(i.upsell_presented, false) AS upsell_presented,
                         coalesce(i.ptp_captured, false) AS ptp_captured,
-                        EXISTS (
-                          SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = i.id
-                        ) AS escalated,
+                        {_ESCALATED_PRED} AS escalated,
                         {_ABANDONED_PRED} AS abandoned,
                         (
                           SELECT count(*)::int
@@ -205,9 +213,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                         i.query_resolved,
                         i.latency_ms,
                         i.sentiment_label,
-                        EXISTS (
-                          SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = i.id
-                        ) AS escalated,
+                        {_ESCALATED_PRED} AS escalated,
                         {_ABANDONED_PRED} AS abandoned,
                         (
                           SELECT count(*)::int
@@ -250,7 +256,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                         SELECT h.reason, count(*)::int AS count
                         FROM interaction_handoffs h
                         JOIN interactions i ON i.id = h.interaction_id
-                        WHERE {where_sql}
+                        WHERE {where_sql} AND h.to_kind = 'human'
                         GROUP BY h.reason
                         """
                     ),
@@ -270,6 +276,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                         JOIN interactions i ON i.id = h.interaction_id
                         WHERE i.started_at >= (now() - make_interval(days => :prior_days))
                           AND i.started_at < (now() - make_interval(days => :days))
+                          AND h.to_kind = 'human'
                           {"AND i.channel = :channel" if "channel" in params else ""}
                         GROUP BY h.reason
                         """
@@ -334,11 +341,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
                       count(*) FILTER (
                         WHERE i.handler_kind = 'bot' AND i.query_resolved
                       )::int AS contained,
-                      count(*) FILTER (
-                        WHERE EXISTS (
-                          SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = i.id
-                        )
-                      )::int AS escalated,
+                      count(*) FILTER (WHERE {_ESCALATED_PRED})::int AS escalated,
                       coalesce(
                         percentile_cont(0.99) WITHIN GROUP (ORDER BY i.latency_ms),
                         0
