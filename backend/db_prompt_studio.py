@@ -402,7 +402,7 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
     _tenant = _mod._tenant
     _iso_ts = _mod._iso_ts
     from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
-    from agent_core.cards.routing import reachability, runtime_entry_bot_id
+    from agent_core.cards.routing import reachability, resolve_entry
 
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
@@ -433,7 +433,9 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
         out.append(summary)
         seen.add(r["id"])
 
-    entry = runtime_entry_bot_id()
+    # The channel default: the fleet index is asking which card is the root of
+    # routing, not which number was dialled.
+    entry = resolve_entry("voice")
     # A retired card cannot carry traffic, so its handoffs are not a path: leaving
     # them in made a card look reachable through an agent that no longer answers.
     routes = reachability(
@@ -671,7 +673,7 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
     _tenant = _mod._tenant
     _iso_ts = _mod._iso_ts
     from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
-    from agent_core.cards.routing import reachability, runtime_entry_bot_id
+    from agent_core.cards.routing import reachability, resolve_entry
 
     bid = (bot_id or "").strip()
     if not bid:
@@ -703,7 +705,9 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
         )
     summary["archivedAt"] = archived_at
 
-    entry = runtime_entry_bot_id()
+    # The channel default: the fleet index is asking which card is the root of
+    # routing, not which number was dialled.
+    entry = resolve_entry("voice")
     edges = {b: c for b, c in _handoff_edges()}
     edges[bid] = summary["agentCard"]  # unsaved-but-loaded card wins for this one
     summary["entryBotId"] = entry
@@ -741,14 +745,14 @@ def archive_agent_studio_card(bot_id: str) -> dict[str, Any]:
     _id = _mod._id
     _actor_user_id = _mod._actor_user_id
     from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS
-    from agent_core.cards.routing import runtime_entry_bot_id
+    from agent_core.cards.routing import is_entry_card
 
     bid = (bot_id or "").strip()
     if not bid:
         raise ValueError("bot_id_required")
     if bid in FIRST_PARTY_BOT_IDS:
         raise ValueError("first_party_card_not_archivable")
-    if bid == runtime_entry_bot_id():
+    if is_entry_card(bid):
         raise ValueError("entry_card_not_archivable")
     with engine.begin() as conn:
         updated = conn.execute(

@@ -27,7 +27,6 @@ Three states, all derived from real config:
 from __future__ import annotations
 
 import logging
-import os
 from collections import deque
 from typing import Any, Iterable
 
@@ -35,17 +34,18 @@ from typing import Any, Iterable
 _logger = logging.getLogger(__name__)
 
 
-def runtime_entry_bot_id() -> str:
-    """The bot id inbound traffic resolves to.
+def _env_default_bot_id() -> str:
+    """Where routing lands when no binding answers.
 
-    Both runtimes read the same env var: ``bot_runtime._bot_id()`` for the
-    message channels, and ``db.DEFAULT_BOT_ID`` for voice via
-    ``load_active_bundle``'s ``bot_id or DEFAULT_BOT_ID``. Kept as one function
-    so the console cannot drift from what the workers actually do.
+    Was ``runtime_entry_bot_id()``, a public function six callers used to mean
+    "the card that answers". It read ``BOT_ID`` and fell back to
+    ``db.DEFAULT_BOT_ID``, which is itself ``os.getenv("BOT_ID", "kaia-v2-4")``
+    -- the same variable twice. Now private, because "which card answers" is
+    :func:`resolve_entry`'s question and there must be one way to ask it.
     """
     import db
 
-    return (os.getenv("BOT_ID") or "").strip() or db.DEFAULT_BOT_ID
+    return db.DEFAULT_BOT_ID
 
 
 def door_enabled() -> bool:
@@ -64,7 +64,7 @@ def door_enabled() -> bool:
 def resolve_entry(channel: str, address: str | None = None) -> str:
     """The bot id that answers ``channel`` at ``address``.
 
-    The replacement for :func:`runtime_entry_bot_id`, which takes no arguments —
+    The replacement for the old ``runtime_entry_bot_id``, which took no arguments —
     not the channel, not the dialled number — and so resolves the same card for
     every inbound contact everywhere.
 
@@ -80,12 +80,12 @@ def resolve_entry(channel: str, address: str | None = None) -> str:
     address to pass — which is why both shapes live in one table rather than
     becoming a second mechanism for WhatsApp.
 
-    Falls back to :func:`runtime_entry_bot_id` on every uncertainty: flag off,
+    Falls back to the env default on every uncertainty: flag off,
     table absent, no row, or a failed read. A door that guesses when it cannot
     read its own bindings would route calls to an arbitrary card.
     """
     if not door_enabled():
-        return runtime_entry_bot_id()
+        return _env_default_bot_id()
     import db
 
     try:
@@ -95,7 +95,7 @@ def resolve_entry(channel: str, address: str | None = None) -> str:
             if not conn.execute(
                 _text("SELECT to_regclass('public.entry_bindings')")
             ).scalar():
-                return runtime_entry_bot_id()
+                return _env_default_bot_id()
             row = conn.execute(
                 _text(
                     """
@@ -116,9 +116,9 @@ def resolve_entry(channel: str, address: str | None = None) -> str:
             ).mappings().first()
     except Exception:
         _logger.exception("entry binding lookup failed · channel=%s", channel)
-        return runtime_entry_bot_id()
+        return _env_default_bot_id()
     if not row:
-        return runtime_entry_bot_id()
+        return _env_default_bot_id()
     return str(row["bot_id"])
 
 
@@ -203,6 +203,28 @@ def list_entry_bindings() -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def is_entry_card(bot_id: str) -> bool:
+    """Does anything inbound land on this card?
+
+    The archive guard's question. It used to compare against a single env var,
+    so with the door on it would happily archive a card that a dialled number
+    still points at -- the binding would survive and route to an archived card.
+    """
+    bid = (bot_id or "").strip()
+    if not bid:
+        return False
+    if bid == _env_default_bot_id():
+        return True
+    if not door_enabled():
+        return False
+    try:
+        return any(b["bot_id"] == bid and b["enabled"] for b in list_entry_bindings())
+    except Exception:
+        _logger.exception("entry binding scan failed · bot=%s", bid)
+        # Refuse the archive rather than allow one we could not check.
+        return True
+
+
 def handoff_targets(card: Any) -> list[str]:
     """``to_bot_id`` values off a raw card dict, tolerant of unmigrated JSON."""
     if not isinstance(card, dict):
@@ -283,7 +305,7 @@ def reachability(
     edge at all.
     """
     rows = list(cards)
-    entry_id = entry or runtime_entry_bot_id()
+    entry_id = entry or _env_default_bot_id()
     deployed_ids = {b for b in deployed if b}
     edges = {bot_id: handoff_targets(card) for bot_id, card in rows}
     closure = reachable_from({entry_id, *deployed_ids}, edges)

@@ -1,6 +1,6 @@
 """The Door's routing seam, before any caller is switched.
 
-`runtime_entry_bot_id()` takes no arguments — not the channel, not the dialled
+`db.DEFAULT_BOT_ID` takes no arguments — not the channel, not the dialled
 number — so every inbound contact on every channel resolves the same card.
 `resolve_entry` is its replacement, and the property that matters most here is
 what it does when it is *not* sure: a door that guesses when it cannot read its
@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import text
 
 import db
-from agent_core.cards.routing import door_enabled, resolve_entry, runtime_entry_bot_id
+from agent_core.cards.routing import door_enabled, resolve_entry
 
 _SQL = Path(__file__).resolve().parents[1] / "sql" / "29_entry_bindings.sql"
 
@@ -32,19 +32,26 @@ def _create_table(conn) -> None:
 
 def test_the_flag_off_is_todays_behaviour_exactly(monkeypatch) -> None:
     monkeypatch.delenv("DOOR_ENABLED", raising=False)
-    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()
-    assert resolve_entry("whatsapp") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
+    assert resolve_entry("whatsapp") == db.DEFAULT_BOT_ID
 
 
 def test_an_absent_table_falls_back_rather_than_raising(db_tx, door_on) -> None:
-    """The migration ships unapplied, so this is the live shape today."""
+    """A database that never ran 0118 -- still the shape of any environment
+    behind on migrations.
+
+    The DROP is rolled back with the fixture's transaction, but it takes ACCESS
+    EXCLUSIVE for the length of the test, so this one blocks (and is blocked by)
+    anything else touching the table. That is the cost of testing an absent
+    table against a real one, and it is why this is the only test here that does
+    DDL."""
     db_tx.execute(text("DROP TABLE IF EXISTS entry_bindings"))
-    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
 
 
 def test_an_empty_table_falls_back(db_tx, door_on) -> None:
     _create_table(db_tx)
-    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
 
 
 def test_the_dialled_number_chooses_the_card(db_tx, door_on) -> None:
@@ -60,7 +67,7 @@ def test_the_dialled_number_chooses_the_card(db_tx, door_on) -> None:
     )
     assert resolve_entry("voice", "+914412345678") == "intake-v1"
     # A number nobody bound is not this door's business.
-    assert resolve_entry("voice", "+919999999999") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+919999999999") == db.DEFAULT_BOT_ID
 
 
 def test_the_exact_address_beats_the_channel_default(db_tx, door_on) -> None:
@@ -96,7 +103,7 @@ def test_the_text_mouth_reaches_the_channel_default_with_no_address(db_tx, door_
     )
     assert resolve_entry("whatsapp") == "intake-v1"
     # A channel with no binding is untouched.
-    assert resolve_entry("voice") == runtime_entry_bot_id()
+    assert resolve_entry("voice") == db.DEFAULT_BOT_ID
 
 
 def test_a_disabled_binding_does_not_answer(db_tx, door_on) -> None:
@@ -110,7 +117,7 @@ def test_a_disabled_binding_does_not_answer(db_tx, door_on) -> None:
         ),
         {"t": db.current_tenant()},
     )
-    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
 
 
 def test_only_one_default_per_channel_is_storable(db_tx, door_on) -> None:
@@ -159,7 +166,7 @@ def test_an_authored_binding_answers_the_number_it_names(db_tx, door_on) -> None
 
     assert resolve_entry("voice", "+914412345678") == "intake-v1"
     # A number nobody bound is still today's behaviour, not the door.
-    assert resolve_entry("voice", "+914499999999") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+914499999999") == db.DEFAULT_BOT_ID
 
 
 def test_an_exact_address_beats_the_channel_default(db_tx, door_on) -> None:
@@ -203,7 +210,7 @@ def test_disabling_a_binding_falls_back_rather_than_stranding(db_tx, door_on) ->
         channel="voice", address="+914412345678", bot_id="intake-v1", enabled=False
     )
 
-    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
 
 
 def test_a_binding_changes_nothing_while_the_flag_is_off(db_tx, monkeypatch) -> None:
@@ -217,4 +224,30 @@ def test_a_binding_changes_nothing_while_the_flag_is_off(db_tx, monkeypatch) -> 
     assert resolve_entry("voice", "+914412345678") == "intake-v1"
 
     monkeypatch.delenv("DOOR_ENABLED", raising=False)
-    assert resolve_entry("voice", "+914412345678") == runtime_entry_bot_id()
+    assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
+
+
+def test_a_bound_card_cannot_be_archived(db_tx, door_on) -> None:
+    """The archive guard used to compare against one env var, so with the door
+    on it would archive a card a dialled number still points at -- the binding
+    survives and routes to an archived card."""
+    from agent_core.cards.routing import is_entry_card, upsert_entry_binding
+
+    # insurance-v1, not intake-v1: this database already carries the production
+    # door binding, and a test that asserts "unbound" about a bound card is
+    # asserting the fixture, not the code.
+    assert not is_entry_card("insurance-v1")
+
+    upsert_entry_binding(channel="voice", address="+914412345678", bot_id="insurance-v1")
+    assert is_entry_card("insurance-v1")
+
+    upsert_entry_binding(
+        channel="voice", address="+914412345678", bot_id="insurance-v1", enabled=False
+    )
+    assert not is_entry_card("insurance-v1")
+
+
+def test_the_env_default_is_always_an_entry_card(db_tx) -> None:
+    from agent_core.cards.routing import is_entry_card
+
+    assert is_entry_card(db.DEFAULT_BOT_ID)

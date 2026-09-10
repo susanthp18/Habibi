@@ -22,17 +22,22 @@ from sqlalchemy import text
 
 import db
 from agent_core.cards.clone import clone_card
-from agent_core.cards.routing import reachability, reachable_from, runtime_entry_bot_id
+from agent_core.cards.routing import reachability, reachable_from, resolve_entry
 
 
 def _card(*targets: str) -> dict:
     return {"handoffs": [{"to_bot_id": t} for t in targets]}
 
 
-def test_entry_card_is_the_runtime_bot() -> None:
-    """Both runtimes read BOT_ID — bot_runtime._bot_id() for the message
-    channels, db.DEFAULT_BOT_ID for voice."""
-    assert runtime_entry_bot_id() == db.DEFAULT_BOT_ID
+def test_entry_card_is_the_runtime_bot(monkeypatch) -> None:
+    """With the door off, routing is the env default on every channel.
+
+    `runtime_entry_bot_id()` used to be a second way to ask this, reading BOT_ID
+    itself and falling back to `db.DEFAULT_BOT_ID`, which is *also* BOT_ID. One
+    variable, two readers, and nothing keeping them in step."""
+    monkeypatch.delenv("DOOR_ENABLED", raising=False)
+    assert resolve_entry("voice") == db.DEFAULT_BOT_ID
+    assert resolve_entry("whatsapp") == db.DEFAULT_BOT_ID
 
 
 def test_reachability_splits_entry_handoff_and_orphan() -> None:
@@ -66,7 +71,7 @@ def test_reachable_from_ignores_unknown_targets() -> None:
 
 def test_live_fleet_marks_the_real_entry_point(db_tx) -> None:
     cards = {c["botId"]: c for c in db.list_agent_studio_cards()}
-    entry = runtime_entry_bot_id()
+    entry = resolve_entry("voice")
     assert cards[entry]["reachability"] == "entry"
     assert sum(1 for c in cards.values() if c["reachability"] == "entry") == 1
     for card in cards.values():

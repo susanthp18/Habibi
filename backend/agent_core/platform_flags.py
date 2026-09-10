@@ -42,7 +42,7 @@ def fleet_enabled() -> bool:
 def door_enabled() -> bool:
     """Whether authored ``entry_bindings`` decide which card answers.
 
-    Off (default): ``resolve_entry`` falls back to ``runtime_entry_bot_id`` and
+    Off (default): ``resolve_entry`` falls back to ``db.DEFAULT_BOT_ID`` and
     every inbound contact lands on the tenant default, exactly as today. On: the
     dialled number chooses. Read per call rather than cached, so unsetting it is
     a complete rollback with no restart and no data to undo.

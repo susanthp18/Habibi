@@ -460,7 +460,7 @@ async def run_bot(transport, runner_args) -> None:
         try:
             from agent_core.cards.routing import resolve_entry
 
-            # With DOOR_ENABLED unset this *is* `runtime_entry_bot_id()`:
+            # With DOOR_ENABLED unset this is the old env lookup exactly:
             # `resolve_entry` falls back to it on the flag, on the table being
             # absent, and on no row matching. Reversal is unsetting the flag --
             # no restart, no data to undo.
