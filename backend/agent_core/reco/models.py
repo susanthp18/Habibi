@@ -51,6 +51,11 @@ from agent_core.reco.scoring import RuleScorer, ScoredOffer
 
 logger = logging.getLogger(__name__)
 
+#: The books an artifact may claim. Deliberately the same closed set the
+#: collections loader uses: two engines disagreeing about what counts as a
+#: provenance claim is how one of them ends up with a looser one.
+KNOWN_CORPORA: frozenset[str] = frozenset({"live", "simulated"})
+
 # One warning per distinct reason per process. A model that is missing is
 # missing on every call, and a log line per call would bury the incident it is
 # trying to report.
@@ -98,6 +103,12 @@ class ModelArtifact:
     n_samples: int = 0
     vector_version: str = vectorize.VECTOR_VERSION
     feature_schema_version: str = SCHEMA_VERSION
+    #: Which book this was fitted on — Gate 13. The collections side has
+    #: carried this since W0 and this side never had it at all, which meant the
+    #: one artifact that ranks offers to real customers made no claim about
+    #: where its coefficients came from. ``scripts/simulate_offer_decisions.py``
+    #: exists, so "it was probably live" is not a safe reading of silence.
+    corpus: str = ""
     # R-INJ-1 (§12.3). This engine ranks offers on a call the customer is
     # already on, so :data:`feature_provenance.RECO_SPEECH_ADMITTED` names the
     # in-call signals it may read — and anything outside that list is refused
@@ -209,6 +220,7 @@ def load_artifact(path: str | Path) -> ModelArtifact | None:
         feature_schema_version=str(raw.get("featureSchemaVersion") or SCHEMA_VERSION),
         input_provenance=tuple(str(v) for v in (raw.get("inputProvenance") or ())),
         calibration_strata=dict(raw.get("calibrationStrata") or {}),
+        corpus=str(raw.get("corpus") or "").strip().lower(),
     )
 
     if artifact.kind != "logistic":
@@ -258,7 +270,62 @@ def load_artifact(path: str | Path) -> ModelArtifact | None:
             refusal,
         )
         return None
+
+    # Gate 13. An artifact that names no corpus is refused rather than assumed
+    # live — the collections loader learned this as
+    # `[artifact-corpus-defaults-to-live]`, and this side had the stronger
+    # version of the same problem: no field at all, so there was nothing even
+    # to default. Stamping the shipped file was declined deliberately: nobody
+    # can now say whether it was fitted on the live offer log or on
+    # ``scripts/simulate_offer_decisions.py``, and writing "live" into it to
+    # make a gate pass is how an unverifiable claim becomes a recorded fact.
+    if artifact.corpus not in KNOWN_CORPORA:
+        _warn_once(
+            f"corpus:{p}",
+            "propensity artifact %s declares corpus=%r; %s are the ones this "
+            "build can reason about — refusing",
+            artifact.version,
+            artifact.corpus or None,
+            sorted(KNOWN_CORPORA),
+        )
+        return None
+
+    unfinite = _non_finite(artifact)
+    if unfinite:
+        # A NaN does not crash and does not propagate as a NaN: ``nan >= 0`` is
+        # False, so ``_sigmoid`` takes its negative branch and returns a
+        # confident ~0. An offer scorer full of NaNs therefore recommends
+        # nothing, quietly, and reads exactly like a customer with no good
+        # offers `[nan-and-inf-unguarded-end-to-end]`.
+        _warn_once(
+            f"finite:{p}",
+            "propensity artifact %s carries non-finite values at %s — refusing",
+            artifact.version,
+            ", ".join(unfinite[:6]),
+        )
+        return None
     return artifact
+
+
+def _non_finite(artifact: ModelArtifact) -> list[str]:
+    """Every field of ``artifact`` holding a NaN or an Inf, named."""
+    bad: list[str] = []
+    for i, c in enumerate(artifact.coefficients):
+        name = artifact.feature_names[i] if i < len(artifact.feature_names) else "?"
+        if not math.isfinite(c):
+            bad.append(f"coefficients[{i}] ({name})")
+    for label, value in (
+        ("intercept", artifact.intercept),
+        ("calibration.a", artifact.calibration_a),
+        ("calibration.b", artifact.calibration_b),
+        ("metrics.baseRate", artifact.base_rate),
+    ):
+        if not math.isfinite(value):
+            bad.append(label)
+    for key, value in artifact.means.items():
+        if not math.isfinite(value):
+            bad.append(f"means.{key}")
+    return bad
 
 
 def _model_path() -> str:

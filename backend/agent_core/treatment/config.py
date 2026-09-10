@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from sqlalchemy import text as sqltext
 
 from agent_core import engine_config
 from env_utils import as_bool
@@ -169,8 +171,30 @@ class Costs:
     emi_date_change: float
     self_service_plan: float
 
+    #: Actions for which ``usage_events`` holds a measured per-attempt cost,
+    #: keyed by action. Empty is the normal state and the honest one — see
+    #: :func:`observed_costs` for which actions can ever appear here and why
+    #: most of them cannot.
+    observed: dict[str, float] = field(default_factory=dict)
+
+    def measured(self, action: str) -> bool:
+        """Whether :meth:`for_action` priced this from spend or from a constant.
+
+        Logged onto the decision, because "a field visit costs ₹1,150" and "a
+        field visit has cost ₹1,150 on average over the last 90 days" are
+        different claims and only one of them is evidence.
+        """
+        return action in self.observed
+
     def for_action(self, action: str) -> float:
         """Rupees to attempt this action, ledger price plus today's scarcity.
+
+        The ledger price is what the platform *observed* this action costing
+        where there is spend to observe, and the configured constant where
+        there is not (§8.2: "the planning constant survives only as a
+        documented fallback"). Never a blend of the two — an average of a
+        measurement and a guess is a guess with a smaller error bar drawn on
+        it, and :meth:`measured` is what lets a reader tell them apart.
 
         The second term is Layer 3's dual price and it is zero until somebody
         turns dual pricing on, so this is the same constant it has always been
@@ -192,18 +216,126 @@ class Costs:
         """
         from agent_core.treatment import allocate
 
-        price = getattr(self, action, None)
+        price = self.observed.get(action)
+        if price is None:
+            price = getattr(self, action, None)
         if price is None:
             logger.warning("no unit cost for action=%r — refusing to price it", action)
             return math.inf
         return float(price) + allocate.price_for_action(action)
 
 
-def costs(*, conn: Any = None, portfolio_id: str = "") -> Costs:
+#: Trailing window for a measured unit cost. Ninety days because that is the
+#: primary outcome horizon, so a cost and the outcome it bought are described
+#: over the same span; and because provider pricing moves, so a mean over the
+#: whole history would be an average of two price books.
+OBSERVED_COST_WINDOW_DAYS = 90
+
+#: Enacted decisions an action needs before its measured cost replaces the
+#: constant. A mean over three calls is not a unit cost, it is three calls —
+#: and this number multiplies rupees inside an EV, so a noisy one reorders
+#: channels. Deliberately blunt: §8.3's ESS machinery is for estimating
+#: effects, and this is arithmetic over invoices.
+MIN_OBSERVED_ATTEMPTS = 20
+
+
+def observed_costs(conn: Any, *, tenant_id: str = "") -> dict[str, float]:
+    """Measured rupees per attempt, per action, from what was actually spent.
+
+    §8.2 asks for ``costs.for_action`` to return "the observed per-unit cost
+    from ``usage_events`` plus today's dual price", with the planning constant
+    surviving "only as a documented fallback". This is the observation half.
+    The loop it closes is the one [CRITIC G1] names: the engine plans against
+    nine hand-set constants and scores itself against the same nine, so it
+    cannot notice that any of them is wrong.
+
+    **What this can and cannot measure, stated rather than discovered.**
+    ``usage_events`` prices the platform's *AI* units — ``llm_chat``,
+    ``tts_az``, ``stt_az``, ``llm_embed``. So an attempt that spends a model
+    can be costed and one that does not, cannot:
+
+    * ``voice_bot`` — measurable. A bot call's spend is its STT, its LLM turns
+      and its TTS, all metered against that decision.
+    * ``whatsapp``, ``sms`` — not measurable here. Their cost is a Meta
+      conversation price and a carrier rate, neither of which is metered
+      anywhere in this tree.
+    * ``human_call``, ``field_visit``, ``legal_notice`` — not measurable here
+      and never will be. These are salaried minutes, vendor invoices and legal
+      fees. They belong to a finance feed, which is F-something in §7.4's
+      inbound contracts and is not built.
+
+    Returning a dict with one key in it is therefore the correct outcome, not a
+    degraded one. An empty dict is also correct: no enactments, no evidence.
+
+    Savepoint-guarded and column-probed per W0. This runs on a connection the
+    caller lent us, on a database that may not carry 0120, and a failed read
+    outside a savepoint aborts *their* transaction.
+    """
+    if conn is None:
+        return {}
+    try:
+        from agent_core.treatment import schema_ready
+
+        if not schema_ready.has_column(conn, "usage_events", "decision_id"):
+            return {}
+        if not tenant_id:
+            # Scoped explicitly rather than left to RLS. What a bot call costs
+            # is a function of one tenant's traffic and one tenant's provider
+            # contract; pooling the observation would price Bank A's decisions
+            # off Bank B's spend, which is the mistake
+            # `[mt-trainers-pool-every-tenant]` names on the trainer side. And
+            # a predicate holds on a connection that bypasses RLS, which a
+            # migration or an operator session does.
+            import db
+
+            tenant_id = db.current_tenant() or ""
+        with conn.begin_nested():
+            rows = conn.execute(
+                sqltext(
+                    """
+                    SELECT d.chosen_action AS action,
+                           count(DISTINCT d.id) AS attempts,
+                           sum(u.cost_inr) AS spend
+                      FROM treatment_decisions d
+                      JOIN usage_events u ON u.decision_id = d.id
+                     WHERE d.enacted
+                       AND d.chosen_action IS NOT NULL
+                       AND d.created_at > now() - make_interval(days => :days)
+                       AND (:tenant = '' OR d.tenant_id = :tenant)
+                     GROUP BY d.chosen_action
+                    """
+                ),
+                {"days": OBSERVED_COST_WINDOW_DAYS, "tenant": tenant_id or ""},
+            ).mappings().all()
+    except Exception:
+        # A cost model that cannot read is a cost model that uses its
+        # constants, which is exactly the state this deployment is in anyway.
+        logger.exception("observed unit costs could not be read — using constants")
+        return {}
+
+    out: dict[str, float] = {}
+    for row in rows:
+        attempts = int(row["attempts"] or 0)
+        spend = float(row["spend"] or 0.0)
+        # PostgreSQL ``numeric`` admits NaN, and `SELECT ('NaN'::numeric <= 0)`
+        # is false - so a single poisoned ``cost_inr`` would pass the guard
+        # below and put a NaN unit cost into ``ev = gross - cost``, which is
+        # the same silent-zero failure the artifact loader now refuses.
+        if not math.isfinite(spend):
+            logger.warning("non-finite observed spend for %s - using the constant", row["action"])
+            continue
+        if attempts < MIN_OBSERVED_ATTEMPTS or spend <= 0:
+            continue
+        out[str(row["action"])] = spend / attempts
+    return out
+
+
+def costs(*, conn: Any = None, portfolio_id: str = "", tenant_id: str = "") -> Costs:
     def price(key: str, default: float) -> float:
         return engine_config.number(key, default, portfolio_id=portfolio_id, conn=conn)
 
     return Costs(
+        observed=observed_costs(conn, tenant_id=tenant_id),
         sms=price("TREATMENT_COST_SMS", 0.18),
         whatsapp=price("TREATMENT_COST_WHATSAPP", 0.42),
         # ~3 min of bot audio at the platform's own cost-per-minute. The

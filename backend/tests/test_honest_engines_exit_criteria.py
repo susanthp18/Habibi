@@ -104,6 +104,50 @@ def test_fresh_sql_vocabulary_includes_w9() -> None:
     assert (BACKEND / "alembic" / "versions" / "20260909_0119_perception.py").is_file()
 
 
+def test_usage_events_carries_exactly_one_decision_link() -> None:
+    """W6 already delivered this column, and W10a nearly added it twice.
+
+    ``\\d usage_events`` on the running database shows no ``decision_id``,
+    because 0113 is deliberately unapplied there. Reading that as "the schema
+    lacks the column" is a mistake the fresh-install path makes impossible to
+    detect at runtime and easy to make while measuring — so it is asserted
+    here instead: the column is declared once, in the W6 mirror, and a second
+    file adding it would mean two migrations racing to define one link.
+    """
+    files = sorted((BACKEND / "sql").glob("*.sql"))
+    adders = [
+        p.name
+        for p in files
+        if "ALTER TABLE usage_events" in p.read_text(encoding="utf-8")
+        and "decision_id" in p.read_text(encoding="utf-8")
+    ]
+    assert adders == ["25_decision_substrate.sql"], adders
+
+    sql = (BACKEND / "sql" / "25_decision_substrate.sql").read_text(encoding="utf-8")
+    # SET NULL, not CASCADE: a retention sweep that deletes a decision must not
+    # delete the record that money was spent on it.
+    assert "REFERENCES treatment_decisions(id) ON DELETE SET NULL" in sql
+
+
+def test_the_mirror_carries_every_migration() -> None:
+    """[[fresh-build-stamps-not-migrates]], asserted rather than remembered.
+
+    A fresh install applies ``sql/*.sql`` and runs ``alembic stamp head`` — it
+    never replays a migration. So a migration whose DDL exists only in
+    ``alembic/versions`` ships to every existing deployment and to no new one,
+    and the difference surfaces months later as a table that is missing on
+    exactly the databases nobody was testing against.
+    """
+    versions = BACKEND / "alembic" / "versions"
+    mirrors = {p.name for p in (BACKEND / "sql").glob("*.sql")}
+    for migration in versions.glob("2026091*_01[12][0-9]_*.py"):
+        body = migration.read_text(encoding="utf-8")
+        if "exec_driver_sql" not in body:
+            continue
+        named = [name for name in mirrors if name in body]
+        assert named, f"{migration.name} executes SQL that sql/ does not mirror"
+
+
 def test_reservation_release_and_reap(db_tx) -> None:
     schema_ready.reset_cache()
     tenant = db_tx.execute(text("SELECT id FROM tenants LIMIT 1")).scalar()

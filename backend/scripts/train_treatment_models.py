@@ -61,7 +61,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import NormalDist
-from typing import Any, Iterable
+from typing import Any, Iterable, NamedTuple, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -127,7 +127,8 @@ def _rows(conn: Any, *, include_simulated: bool) -> list[dict[str, Any]]:
                 """
                 SELECT id, customer_id, account_id, variant, mode,
                        chosen_action, chosen_channel, enacted, outcome,
-                       scheduled_at, created_at, candidates, features
+                       scheduled_at, created_at, label_mature_at,
+                       candidates, features
                 FROM treatment_decisions
                 WHERE mode = ANY(:modes)
                   AND feature_schema_version = :schema
@@ -158,6 +159,32 @@ def _vector_for(row: dict[str, Any]) -> dict[str, float | None] | None:
         vec = entry.get("vector")
         return vec if isinstance(vec, dict) else None
     return None
+
+
+def _as_utc(raw: Any) -> datetime | None:
+    """A timestamptz off the driver, normalised. Naive is read as UTC."""
+    if not isinstance(raw, datetime):
+        return None
+    return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+
+
+class Sample(NamedTuple):
+    """One labelled decision, carrying what the split needs to be honest.
+
+    ``customer_id`` and ``at`` are not features and never reach the design
+    matrix. They are here because a training row that cannot say *whose*
+    decision it was and *when* can only be split at random, and a random split
+    of a time-ordered, borrower-clustered corpus is the defect this record
+    exists to make impossible to reintroduce.
+    """
+
+    vec: dict[str, float | None]
+    label: int
+    customer_id: str
+    at: datetime
+    #: When this row's label became final. ``None`` means it never will under
+    #: this build — a decision logged before W3 defined the horizon.
+    mature_at: datetime | None
 
 
 def _label_reach(row: dict[str, Any]) -> int | None:
@@ -343,22 +370,23 @@ def logloss(probabilities: list[float], y: list[int]) -> float:
 
 
 def _design(
-    samples: list[tuple[dict[str, float | None], int]], names: tuple[str, ...]
+    samples: list[Sample], names: tuple[str, ...]
 ) -> tuple[list[list[float]], list[int], dict[str, float]]:
     """Feature matrix with mean imputation. Absent is filled, never zeroed."""
     means: dict[str, float] = {}
     for name in names:
         seen = [
             float(v[name])
-            for v, _ in samples
+            for s in samples
+            for v in (s.vec,)
             if v.get(name) is not None
         ]
         means[name] = sum(seen) / len(seen) if seen else 0.0
     X = [
-        [float(v[n]) if v.get(n) is not None else means[n] for n in names]
-        for v, _ in samples
+        [float(s.vec[n]) if s.vec.get(n) is not None else means[n] for n in names]
+        for s in samples
     ]
-    y = [label for _, label in samples]
+    y = [s.label for s in samples]
     return X, y, means
 
 
@@ -433,11 +461,95 @@ def _unscale(
     return raw_w, raw_b
 
 
-def _split(n: int, holdout: float, seed: int) -> tuple[list[int], list[int]]:
-    idx = list(range(n))
-    random.Random(seed).shuffle(idx)
-    cut = max(1, int(n * (1.0 - holdout)))
-    return idx[:cut], idx[cut:]
+class SplitReport(NamedTuple):
+    """What the split did, in numbers, so it can be printed and filed."""
+
+    train: int
+    test: int
+    train_customers: int
+    test_customers: int
+    #: Rows dropped for not having reached the primary horizon. §8.12 gate 3
+    #: requires this reported rather than silently excluded: the immature tail
+    #: is always the most recent slice, so dropping it quietly is how a model
+    #: comes to be graded on a period that no longer resembles today.
+    immature: int
+
+    def describe(self) -> str:
+        return (
+            f"train {self.train} rows / {self.train_customers} customers · "
+            f"holdout {self.test} rows / {self.test_customers} customers · "
+            f"{self.immature} immature rows excluded"
+        )
+
+
+def holdout_split(
+    samples: Sequence[Sample], *, fraction: float
+) -> tuple[list[int], list[int], SplitReport]:
+    """Gate 3 — out of time, and disjoint by borrower.
+
+    What this replaces was ``random.Random(seed).shuffle(idx)`` over rows the
+    extractor had deliberately pulled ``ORDER BY created_at ASC``, with
+    ``customer_id`` selected and never used. Two leaks, both inflating the AUC a
+    risk committee reads: the model memorises borrowers and is then graded on
+    borrowers it has seen `[train-holdout-split-is-by-row-not-by-borrower]`, and
+    March's decisions predict February's `[random-split-not-out-of-time]`.
+
+    **The split is by customer, not by row, and the ordering is by time.** Rank
+    each borrower by their most recent mature decision, take the most recent
+    borrowers until the holdout holds ``fraction`` of the rows, and give each
+    borrower's rows entirely to one side. Splitting rows and then repairing the
+    overlap would leave a borrower straddling the boundary with nowhere honest
+    to put their early decisions; splitting borrowers cannot produce one.
+
+    Immature rows are dropped first and counted, per gate 3 — a decision whose
+    90-day window is still open contributes a label of "has not paid yet", and
+    the immature tail is always the newest slice, so training on it teaches the
+    model that recent means unsuccessful.
+
+    There is no ``seed``. An ordering is not a draw, and a seed here would be an
+    invitation to re-roll a holdout somebody did not like.
+    """
+    now = datetime.now(timezone.utc)
+    mature = [i for i, s in enumerate(samples) if s.mature_at is not None and s.mature_at <= now]
+    immature = len(samples) - len(mature)
+    if not mature:
+        return [], [], SplitReport(0, 0, 0, 0, immature)
+
+    last_seen: dict[str, datetime] = {}
+    rows_by_customer: dict[str, list[int]] = {}
+    for i in mature:
+        s = samples[i]
+        rows_by_customer.setdefault(s.customer_id, []).append(i)
+        if s.customer_id not in last_seen or s.at > last_seen[s.customer_id]:
+            last_seen[s.customer_id] = s.at
+
+    # Most recent borrower first, then by id so the split is reproducible
+    # without a seed.
+    order = sorted(last_seen, key=lambda c: (last_seen[c], c), reverse=True)
+    want = max(1, int(round(len(mature) * max(0.0, min(1.0, fraction)))))
+    test_customers: set[str] = set()
+    held = 0
+    for customer in order:
+        # Stop *before* taking a borrower who would leave nothing to train on:
+        # a holdout containing every customer is not a holdout.
+        if held >= want or len(test_customers) >= len(order) - 1:
+            break
+        test_customers.add(customer)
+        held += len(rows_by_customer[customer])
+
+    test = sorted(i for c in test_customers for i in rows_by_customer[c])
+    train = sorted(i for i in mature if samples[i].customer_id not in test_customers)
+    return (
+        train,
+        test,
+        SplitReport(
+            train=len(train),
+            test=len(test),
+            train_customers=len(order) - len(test_customers),
+            test_customers=len(test_customers),
+            immature=immature,
+        ),
+    )
 
 
 def _artifact(
@@ -489,7 +601,7 @@ def _artifact(
 
 
 def train_one(
-    samples: list[tuple[dict[str, float | None], int]],
+    samples: list[Sample],
     *,
     target: str,
     holdout: float,
@@ -500,16 +612,23 @@ def train_one(
         logger.error("%s: only %d labelled rows — refusing to fit", target, len(samples))
         return None
     names = models.trainable_features(
-        {k for vec, _ in samples for k in vec}
+        {k for s in samples for k in s.vec}
     )
     if not names:
         logger.error("%s: no trainable features in the logged vectors", target)
         return None
 
     X, y, means = _design(samples, names)
-    train_idx, test_idx = _split(len(X), holdout, seed)
-    if not test_idx:
-        logger.error("%s: holdout is empty — raise --holdout or gather more rows", target)
+    train_idx, test_idx, split = holdout_split(samples, fraction=holdout)
+    logger.info("%s: %s", target, split.describe())
+    if not test_idx or not train_idx:
+        logger.error(
+            "%s: the out-of-time holdout is empty (%s). Gate 3 splits by borrower "
+            "and by date, so this means too few mature borrowers rather than too "
+            "few rows — raise --holdout only if there are borrowers to move",
+            target,
+            split.describe(),
+        )
         return None
 
     mu = [means[n] for n in names]
@@ -555,8 +674,8 @@ def train_one(
 
 
 def train_uplift(
-    treated: list[tuple[dict[str, float | None], int]],
-    control: list[tuple[dict[str, float | None], int]],
+    treated: list[Sample],
+    control: list[Sample],
     *,
     holdout: float,
     seed: int,
@@ -584,14 +703,14 @@ def train_uplift(
         return None
 
     names = models.trainable_features(
-        {k for vec, _ in (treated + control) for k in vec}
+        {k for s in (treated + control) for k in s.vec}
     )
     X_t, y_t, means = _design(treated, names)
     X_c = [
-        [float(v[n]) if v.get(n) is not None else means[n] for n in names]
-        for v, _ in control
+        [float(s.vec[n]) if s.vec.get(n) is not None else means[n] for n in names]
+        for s in control
     ]
-    y_c = [label for _, label in control]
+    y_c = [s.label for s in control]
 
     # One scaling for both halves. Two would make the coefficients
     # incomparable, and τ is a difference of the two predictions.
@@ -600,7 +719,11 @@ def train_uplift(
     Z_t = _standardise(X_t, mu, scales)
     Z_c = _standardise(X_c, mu, scales)
 
-    t_idx, t_test = _split(len(X_t), holdout, seed)
+    t_idx, t_test, t_split = holdout_split(treated, fraction=holdout)
+    logger.info("uplift: treated half %s", t_split.describe())
+    if not t_idx or not t_test:
+        logger.error("uplift: the treated half has no out-of-time holdout (%s)", t_split.describe())
+        return None
     zw_t, zb_t = fit_logistic([Z_t[i] for i in t_idx], [y_t[i] for i in t_idx], seed=seed)
     w_t, b_t = _unscale(zw_t, zb_t, mu, scales)
     zw_c, zb_c = fit_logistic(Z_c, y_c, seed=seed + 1)
@@ -749,8 +872,8 @@ def _ate_stderr(p_t: float, n_t: int, p_c: float, n_c: int) -> float:
 
 
 def fit_segments(
-    treated: list[tuple[dict[str, float | None], int]],
-    control: list[tuple[dict[str, float | None], int]],
+    treated: list[Sample],
+    control: list[Sample],
     *,
     names: tuple[str, ...],
     means: dict[str, float],
@@ -799,26 +922,31 @@ def fit_segments(
     # gate toward the population model, which is the safe direction but is still
     # a rigged comparison, and a rigged comparison in the safe direction is how
     # a genuinely better segment model never gets found.
-    t_train_idx, t_test_idx = _split(len(treated), holdout, seed)
-    c_train_idx, c_test_idx = _split(len(control), holdout, seed + 101)
+    t_train_idx, t_test_idx, _ = holdout_split(treated, fraction=holdout)
+    c_train_idx, c_test_idx, _ = holdout_split(control, fraction=holdout)
     t_fold = {i: "train" for i in t_train_idx}
     t_fold.update({i: "test" for i in t_test_idx})
     c_fold = {i: "train" for i in c_train_idx}
     c_fold.update({i: "test" for i in c_test_idx})
 
+    def _empty() -> dict[str, list[Any]]:
+        return {"t": [], "c": [], "t_train": [], "t_test": [], "c_train": [], "c_test": []}
+
+    # A row in neither fold is an immature one that ``holdout_split`` dropped.
+    # It still counts toward the segment's ATE — that estimate is a description
+    # of the corpus — but it may not enter a fit or a holdout, which is the
+    # whole point of dropping it.
     buckets: dict[str, dict[str, list[Any]]] = {}
-    for i, (vec, label) in enumerate(treated):
-        entry = buckets.setdefault(
-            seg.key_for(vec), {"t": [], "c": [], "t_train": [], "t_test": [], "c_train": [], "c_test": []}
-        )
-        entry["t"].append((vec, label))
-        entry[f"t_{t_fold[i]}"].append((vec, label))
-    for i, (vec, label) in enumerate(control):
-        entry = buckets.setdefault(
-            seg.key_for(vec), {"t": [], "c": [], "t_train": [], "t_test": [], "c_train": [], "c_test": []}
-        )
-        entry["c"].append((vec, label))
-        entry[f"c_{c_fold[i]}"].append((vec, label))
+    for i, sample in enumerate(treated):
+        entry = buckets.setdefault(seg.key_for(sample.vec), _empty())
+        entry["t"].append(sample)
+        if i in t_fold:
+            entry[f"t_{t_fold[i]}"].append(sample)
+    for i, sample in enumerate(control):
+        entry = buckets.setdefault(seg.key_for(sample.vec), _empty())
+        entry["c"].append(sample)
+        if i in c_fold:
+            entry[f"c_{c_fold[i]}"].append(sample)
 
     mu = [means[n] for n in names]
 
@@ -871,8 +999,8 @@ def fit_segments(
             })
             continue
 
-        p_t = sum(label for _, label in rows_t) / len(rows_t)
-        p_c = sum(label for _, label in rows_c) / len(rows_c)
+        p_t = sum(s.label for s in rows_t) / len(rows_t)
+        p_c = sum(s.label for s in rows_c) / len(rows_c)
         ate = p_t - p_c
         se = _ate_stderr(p_t, len(rows_t), p_c, len(rows_c))
         z = abs(ate - population_ate) / se if se > 0 else 0.0
@@ -907,10 +1035,10 @@ def fit_segments(
         held_pop = [(pop_wt, pop_bt)] * len(test_t) + [(pop_wc, pop_bc)] * len(test_c)
         held_seg = [(w_t, b_t)] * len(test_t) + [(w_c, b_c)] * len(test_c)
         X = [
-            [float(v[n]) if v.get(n) is not None else means[n] for n in names]
-            for v, _ in held
+            [float(s.vec[n]) if s.vec.get(n) is not None else means[n] for n in names]
+            for s in held
         ]
-        y = [label for _, label in held]
+        y = [s.label for s in held]
         loss_pop = logloss(
             [_predict(x, w, b, cal) for x, (w, b) in zip(X, held_pop)], y
         )
@@ -950,7 +1078,7 @@ def fit_segments(
 
 
 def _fit_half(
-    samples: list[tuple[dict[str, float | None], int]],
+    samples: list[Sample],
     names: tuple[str, ...],
     mu: list[float],
     scales: list[float],
@@ -964,19 +1092,17 @@ def _fit_half(
     are blended against — and τ is a difference of exactly those predictions.
     """
     X = [
-        [float(v[n]) if v.get(n) is not None else mu[i] for i, n in enumerate(names)]
-        for v, _ in samples
+        [float(s.vec[n]) if s.vec.get(n) is not None else mu[i] for i, n in enumerate(names)]
+        for s in samples
     ]
-    y = [label for _, label in samples]
+    y = [s.label for s in samples]
     Z = _standardise(X, mu, scales)
     zw, zb = fit_logistic(Z, y, seed=seed)
     return _unscale(zw, zb, mu, scales)
 
 
-def _samples(
-    rows: Iterable[dict[str, Any]], labeller: Any
-) -> list[tuple[dict[str, float | None], int]]:
-    out: list[tuple[dict[str, float | None], int]] = []
+def _samples(rows: Iterable[dict[str, Any]], labeller: Any) -> list[Sample]:
+    out: list[Sample] = []
     missing_vector = 0
     for row in rows:
         label = labeller(row)
@@ -986,7 +1112,15 @@ def _samples(
         if vec is None:
             missing_vector += 1
             continue
-        out.append((vec, label))
+        out.append(
+            Sample(
+                vec=vec,
+                label=label,
+                customer_id=str(row.get("customer_id") or ""),
+                at=_as_utc(row.get("created_at")) or datetime.now(timezone.utc),
+                mature_at=_as_utc(row.get("label_mature_at")),
+            )
+        )
     if missing_vector:
         logger.info(
             "%d labelled rows had no logged vector and were refused rather than "
@@ -1071,7 +1205,25 @@ def main() -> int:
         if artifact is None:
             continue
         path = out_dir / f"treatment_{target}.json"
-        path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+        try:
+            # ``allow_nan=False`` is the write half of the finite-value gate.
+            # Python's default emits the JavaScript-illegal literals ``NaN`` and
+            # ``Infinity``, which ``json.loads`` then reads back happily — so a
+            # column with no variance in it produces an artifact that loads and
+            # scores a confident zero rather than one that fails. Refusing at
+            # the point of writing means the trainer, which knows which column
+            # it was, reports it instead of the loader months later.
+            body = json.dumps(artifact, indent=2, allow_nan=False)
+        except ValueError as exc:
+            logger.error(
+                "%s: refusing to write a non-finite artifact (%s). A NaN here "
+                "does not crash downstream — it scores ~0 with full confidence "
+                "and the engine goes quiet.",
+                target,
+                exc,
+            )
+            continue
+        path.write_text(body, encoding="utf-8")
         logger.info("wrote %s", path)
         written += 1
 

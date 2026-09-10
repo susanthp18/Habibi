@@ -96,6 +96,21 @@ def w9_ready(conn: Any) -> bool:
     return has_table(conn, "perception_facts") and has_table(conn, "perception_runs")
 
 
+def w10_ready(conn: Any) -> bool:
+    """Whether an attempt's cost can be attributed to the decision that bought it.
+
+    The column is W6's — ``sql/25_decision_substrate.sql`` adds it and migration
+    0113 mirrors it — so this probe is not gating a new migration. It gates the
+    fact that 0113 is deliberately unapplied to the running database, which is
+    why ``config.observed_costs`` has to ask rather than assume.
+
+    W10a's contribution is not the column. It is that something finally reads
+    it: the writer, the context variable and the enactment scope were all in
+    place, and ``costs.for_action`` still returned a constant.
+    """
+    return has_column(conn, "usage_events", "decision_id")
+
+
 def retention_ready(conn: Any) -> bool:
     """W8b. Separate from ``w8_ready`` so a database carrying only 0116 is
     still a valid W8a database rather than a half-failed W8 one."""

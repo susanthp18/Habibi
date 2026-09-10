@@ -377,10 +377,73 @@ def test_drift_is_measured_in_training_sigmas() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _evaluation(**over):
+def _evaluation(path=None, **over):
+    """A promotion evaluation, sealed and bound to the artifact it scored.
+
+    Gate 2. Before this, ``check`` read a ``lift`` key off an arbitrary mapping
+    and nothing tied it to the file being promoted, so any JSON carrying a lift
+    promoted any artifact `[evaluation-not-bound-to-artifact]`.
+    """
+    from agent_core.treatment import evaluation_seal, registry
+
     base = {"lift": 0.04, "trustworthy": True, "ate": 0.18}
+    if path is not None:
+        base["artifact_sha"] = registry._sha(Path(path))
     base.update(over)
-    return base
+    return evaluation_seal.sealed(base)
+
+
+def _schema_version() -> str:
+    from agent_core.treatment.features import SCHEMA_VERSION
+
+    return SCHEMA_VERSION
+
+
+def _seed_corpus(db_tx, tenant_id: str = "hdfc.retail") -> None:
+    """A corpus that clears §8.10 rung 1, so the *other* gates can be tested.
+
+    Seeded rather than bypassed. §8.12 is explicit that "a gate with a
+    documented bypass is worse than no gate, because it will be cited as
+    evidence that the property was tested" — so the way past the corpus gate in
+    a test is the same as the way past it in production: have the corpus.
+
+    250 treated and 300 control borrowers, one mature labelled decision each,
+    comfortably over the 150/200 customer floors and the 40-cluster one.
+    """
+    from sqlalchemy import text as _text
+
+    db_tx.execute(
+        _text(
+            """
+            INSERT INTO customers (id, tenant_id, name, risk)
+            SELECT 'w10-seed-' || g, :tenant, 'Seed ' || g, 'low'
+              FROM generate_series(1, 550) g
+            ON CONFLICT (id) DO NOTHING
+            """
+        ),
+        {"tenant": tenant_id},
+    )
+    db_tx.execute(
+        _text(
+            """
+            INSERT INTO treatment_decisions (
+              id, tenant_id, customer_id, trigger_kind, mode, variant,
+              recommender, recommender_version, feature_schema_version,
+              chosen_action, reach_outcome, cure_outcome, observed_days,
+              label_mature_at, created_at
+            )
+            SELECT 'w10-dec-' || g, :tenant, 'w10-seed-' || g, 'dpd_tick', 'live',
+                   CASE WHEN g > 250 THEN 'null_treatment' ELSE 'control' END,
+                   'ev', '1.0.0', :schema,
+                   CASE WHEN g > 250 THEN 'wait' ELSE 'whatsapp' END,
+                   'reached', CASE WHEN g % 3 = 0 THEN 'cured' ELSE 'not_cured' END,
+                   90, now() - interval '1 day', now() - interval '120 days'
+              FROM generate_series(1, 550) g
+            ON CONFLICT (id) DO NOTHING
+            """
+        ),
+        {"tenant": tenant_id, "schema": _schema_version()},
+    )
 
 
 def test_promotion_is_refused_without_holdout_evidence(db_tx, tmp_path) -> None:
@@ -406,7 +469,7 @@ def test_a_challenger_that_ties_the_champion_is_refused(db_tx, tmp_path) -> None
     path = _write(tmp_path, {})
     objections = registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(lift=0.0001),
+        evaluation=_evaluation(path, lift=0.0001),
     )
     assert any("below the" in o for o in objections)
 
@@ -420,7 +483,7 @@ def test_an_untrustworthy_estimate_cannot_promote_anything(db_tx, tmp_path) -> N
     path = _write(tmp_path, {})
     objections = registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(trustworthy=False),
+        evaluation=_evaluation(path, trustworthy=False),
     )
     assert any("untrustworthy" in o for o in objections)
 
@@ -434,7 +497,7 @@ def test_an_uplift_model_with_no_control_arm_cannot_promote(db_tx, tmp_path) -> 
     path = _write(tmp_path, {"controlArm": None, "controlN": 0})
     objections = registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(),
+        evaluation=_evaluation(path),
     )
     assert any("cannot be causal" in o for o in objections)
 
@@ -449,7 +512,7 @@ def test_a_negative_measured_ate_cannot_promote(db_tx, tmp_path) -> None:
     path = _write(tmp_path, {})
     objections = registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(ate=-0.02),
+        evaluation=_evaluation(path, ate=-0.02),
     )
     assert any("measured ATE" in o for o in objections)
 
@@ -458,15 +521,20 @@ def test_a_simulated_artifact_cannot_promote_by_accident(db_tx, tmp_path) -> Non
     from agent_core.treatment import registry
 
     models._reset_warnings()
+    _seed_corpus(db_tx)
     path = _write(tmp_path, {"corpus": "simulated"})
     objections = registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(),
+        evaluation=_evaluation(path),
     )
     assert any("does not exist" in o for o in objections)
+    # ... and with the exception argued, nothing else objects. A gate that can
+    # only ever refuse is a deletion, so this half is as load-bearing as the
+    # other: it is the assertion that the corpus, the seal and the artifact
+    # binding can all be satisfied at once.
     assert registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(), allow_simulated=True,
+        evaluation=_evaluation(path), allow_simulated=True,
     ) == []
 
 
@@ -478,6 +546,7 @@ def test_promotion_installs_the_file_and_retires_the_incumbent(db_tx, tmp_path) 
     from agent_core.treatment import registry
 
     models._reset_warnings()
+    _seed_corpus(db_tx)
     serving = tmp_path / "serving.json"
 
     _write(tmp_path, {"version": "v1"})
@@ -486,7 +555,8 @@ def test_promotion_installs_the_file_and_retires_the_incumbent(db_tx, tmp_path) 
     )
     out = registry.promote(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=tmp_path / "v1.json",
-        evaluation=_evaluation(), promoted_by="tester", serving_path=serving,
+        evaluation=_evaluation(tmp_path / "v1.json"), promoted_by="tester",
+        serving_path=serving,
     )
     assert out["retired"] is None
     assert serving.exists(), "promotion did not install the artifact"
@@ -497,7 +567,8 @@ def test_promotion_installs_the_file_and_retires_the_incumbent(db_tx, tmp_path) 
     )
     out = registry.promote(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=tmp_path / "v2.json",
-        evaluation=_evaluation(), promoted_by="tester", serving_path=serving,
+        evaluation=_evaluation(tmp_path / "v2.json"), promoted_by="tester",
+        serving_path=serving,
     )
     assert out["retired"] == "v1"
 
@@ -861,15 +932,38 @@ def _two_strata(seed: int = 11):
     Stratum B: 90+ DPD, going dark, capacity      -- treatment adds nothing.
     """
     import random
+    from datetime import datetime, timedelta, timezone
 
+    train = _trainer()
     rng = random.Random(seed)
+    # Gate 3 splits by borrower and by date, so the fixture has to have both.
+    # One borrower per row and a spread of days: any narrower and the split
+    # would be measuring the fixture rather than the ladder.
+    epoch = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def _sample(vec, label, i, j):
+        # ``j`` is the position *within* the stratum, so both strata span the
+        # same window. Stamping by the global index instead would put all of
+        # stratum A before all of stratum B in time, and an out-of-time split
+        # would then hold out one whole stratum — which is a property of the
+        # fixture, not of the ladder.
+        at = epoch + timedelta(hours=j)
+        return train.Sample(
+            vec=vec,
+            label=label,
+            customer_id=f"cust-{i}",
+            at=at,
+            mature_at=at + timedelta(days=1),
+        )
+
     treated, control = [], []
+    i = 0
     for dpd, attempts, gap, base, lift in (
         (15.0, 0.0, 2.0, 0.30, 0.30),
         (120.0, 5.0, 40.0, 0.20, 0.00),
     ):
-        for _ in range(2000):
-            treated.append((
+        for j in range(2000):
+            treated.append(_sample(
                 {
                     "dpd": dpd + rng.uniform(-3, 3),
                     "digital_attempts_since_connect": attempts,
@@ -878,9 +972,12 @@ def _two_strata(seed: int = 11):
                     "rung": float(rng.randint(1, 3)),
                 },
                 1 if rng.random() < base + lift else 0,
+                i,
+                j,
             ))
-        for _ in range(700):
-            control.append((
+            i += 1
+        for j in range(700):
+            control.append(_sample(
                 {
                     "dpd": dpd + rng.uniform(-3, 3),
                     "digital_attempts_since_connect": attempts,
@@ -889,20 +986,23 @@ def _two_strata(seed: int = 11):
                     "rung": 0.0,
                 },
                 1 if rng.random() < base else 0,
+                i,
+                j,
             ))
+            i += 1
     return treated, control
 
 
 def _fit(train, treated, control):
     names = train.models.trainable_features(
-        {k for v, _ in treated + control for k in v}
+        {k for s in treated + control for k in s.vec}
     )
     X_t, y_t, means = train._design(treated, names)
     X_c = [
-        [float(v[n]) if v.get(n) is not None else means[n] for n in names]
-        for v, _ in control
+        [float(s.vec[n]) if s.vec.get(n) is not None else means[n] for n in names]
+        for s in control
     ]
-    y_c = [label for _, label in control]
+    y_c = [s.label for s in control]
     mu = [means[n] for n in names]
     scales = train._scales(X_t + X_c, mu)
     pop_ate = sum(y_t) / len(y_t) - sum(y_c) / len(y_c)
@@ -965,8 +1065,8 @@ def test_underpowered_strata_are_skipped_not_rejected() -> None:
     train = _trainer()
     treated, control = _two_strata()
     # Starve one stratum below the control-arm floor.
-    thin = [(v, label) for v, label in control if v["dpd"] < 60][:5]
-    fat = [(v, label) for v, label in control if v["dpd"] >= 60]
+    thin = [s for s in control if s.vec["dpd"] < 60][:5]
+    fat = [s for s in control if s.vec["dpd"] >= 60]
     _, report, _ = _fit(train, treated, thin + fat)
 
     row = report["b0030/open/timing"]

@@ -658,6 +658,7 @@ restart.
 | `TREATMENT_UPLIFT_MODEL_PATH` | `models/treatment_uplift.json` | |
 | `TREATMENT_MODEL_MAX_AGE_DAYS` | `90` | refuse an artifact older than this |
 | `TREATMENT_ALLOW_SIMULATED_MODELS` | `false` | let a model of a synthetic book score real borrowers |
+| `TREATMENT_EVALUATION_KEY` | dev constant | HMAC over a promotion evaluation (§8.12 gate 2). Unset outside a non-production `APP_ENV` is an error, not a fallback |
 | `TREATMENT_DUAL_PRICING` | `false` | let capacity prices reach `costs.for_action` |
 | `TREATMENT_CAPACITY_AGENT_MINUTES` | — | unset means unconstrained, not zero |
 | `TREATMENT_CAPACITY_FIELD_SLOTS` | — | |

@@ -71,11 +71,18 @@ def _load_evaluation(path: str | None) -> dict[str, Any] | None:
     # some other way is not rejected for its shape.
     if isinstance(raw.get("promotion"), dict):
         return raw["promotion"]
-    if "lift" in raw:
+    if "lift" in raw and registry.evaluation_seal.SEAL_FIELD in raw:
         return raw
     raise SystemExit(
-        "--evaluation has neither a 'promotion' block nor a top-level 'lift'. "
-        "Produce it with: scripts/evaluate_policy.py --json > report.json"
+        "--evaluation has neither a sealed 'promotion' block nor a sealed "
+        "top-level object. Produce it with:\n"
+        "  scripts/evaluate_policy.py --json --artifact <the challenger> > report.json\n"
+        "\n"
+        "A bare {\"lift\": ...} used to be accepted here, and that was the whole "
+        "of Gate 2's failure: the evaluation named no artifact, so any JSON "
+        "carrying a lift promoted any file. The gate will refuse an unsealed "
+        "block anyway; this message exists so the refusal arrives with an "
+        "instruction rather than as an objection list."
     )
 
 

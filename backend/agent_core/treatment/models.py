@@ -81,6 +81,11 @@ logger = logging.getLogger(__name__)
 #: fitted against the old population of that column.
 VECTOR_VERSION = "t3"
 
+#: The books an artifact may claim to have been fitted on. Not an open set: the
+#: whole value of the field is that the simulated-corpus refusal below can act
+#: on it, and a corpus nobody recognises is a claim nothing can check.
+KNOWN_CORPORA: frozenset[str] = frozenset({"live", "simulated"})
+
 #: Observations at which a segment carries half its own weight against the
 #: population estimate. A planning figure, chosen to sit just above
 #: :data:`MIN_CONTROL_N` so that a stratum which has only just cleared the
@@ -248,6 +253,49 @@ class ModelArtifact:
         if self.trained_at is None:
             return None
         return (datetime.now(timezone.utc) - self.trained_at).total_seconds() / 86400.0
+
+    def non_finite(self) -> list[str]:
+        """Every field holding a NaN or an Inf, named. Empty means clean.
+
+        Named rather than counted because "the artifact has a NaN" sends
+        somebody back to a 1,000-line trainer, and ``coefficients[7]
+        (ptp_keep_rate)`` sends them to the column with no variance in it.
+
+        Covers the segments too: a population model can be perfectly finite
+        while one stratum divided by a zero-variance column, and that stratum
+        is the one a borrower is shrunk toward.
+        """
+        bad: list[str] = []
+
+        def _check(label: str, value: float) -> None:
+            if not math.isfinite(value):
+                bad.append(label)
+
+        for i, c in enumerate(self.coefficients):
+            name = self.feature_names[i] if i < len(self.feature_names) else "?"
+            _check(f"coefficients[{i}] ({name})", c)
+        for i, c in enumerate(self.control_coefficients):
+            name = self.feature_names[i] if i < len(self.feature_names) else "?"
+            _check(f"controlCoefficients[{i}] ({name})", c)
+        _check("intercept", self.intercept)
+        _check("controlIntercept", self.control_intercept)
+        _check("calibration.a", self.calibration_a)
+        _check("calibration.b", self.calibration_b)
+        _check("metrics.baseRate", self.base_rate)
+        _check("shrinkageK", self.shrinkage_k)
+        for key, value in self.means.items():
+            _check(f"means.{key}", value)
+        for key, value in self.stdevs.items():
+            _check(f"stdevs.{key}", value)
+        for skey, segment in self.segments.items():
+            for i, c in enumerate(segment.coefficients):
+                _check(f"segments.{skey}.coefficients[{i}]", c)
+            for i, c in enumerate(segment.control_coefficients):
+                _check(f"segments.{skey}.controlCoefficients[{i}]", c)
+            _check(f"segments.{skey}.intercept", segment.intercept)
+            _check(f"segments.{skey}.controlIntercept", segment.control_intercept)
+            _check(f"segments.{skey}.holdoutLift", segment.holdout_lift)
+        return bad
 
     def predict(self, vec: Mapping[str, float | None]) -> float:
         """Calibrated probability from a feature vector.
@@ -498,7 +546,7 @@ def load_artifact(
             calibration_a=float(cal.get("a", 1.0)),
             calibration_b=float(cal.get("b", 0.0)),
             base_rate=min(0.99, max(0.0001, float(metrics.get("baseRate") or 0.1))),
-            corpus=str(raw.get("corpus") or "live").strip().lower(),
+            corpus=str(raw.get("corpus") or "").strip().lower(),
             trained_at=_parse_trained_at(raw.get("trainedAt")),
             n_samples=int(raw.get("nSamples") or 0),
             vector_version=str(raw.get("vectorVersion") or VECTOR_VERSION),
@@ -581,6 +629,46 @@ def load_artifact(
             expect_target,
             artifact.version,
             refusal,
+        )
+        return None
+
+    # Gate 13, the half that used to default the other way. ``corpus`` said
+    # which book this was fitted on, and an artifact that carried no such field
+    # was read as ``"live"`` — so the one artifact nobody had bothered to stamp
+    # was also the one the simulated-corpus check below could never catch
+    # `[artifact-corpus-defaults-to-live]`. Absent is now refused. An older
+    # artifact that genuinely was fitted live needs one field added, and that
+    # is the correct price for the claim.
+    if artifact.corpus not in KNOWN_CORPORA:
+        _warn_once(
+            f"corpus:{p}",
+            "%s artifact %s declares corpus=%r; %s are the ones this build can "
+            "reason about, and an unstamped artifact is refused rather than "
+            "assumed live — refusing",
+            expect_target,
+            artifact.version,
+            artifact.corpus or None,
+            sorted(KNOWN_CORPORA),
+        )
+        return None
+
+    # NaN and Inf, end to end. ``json.loads`` parses the JavaScript-illegal
+    # literals ``NaN`` and ``Infinity`` by default and ``float()`` accepts both,
+    # so a trainer that divides by a zero-variance column writes an artifact
+    # that loads without complaint. What it then does is worse than crashing:
+    # ``_sigmoid(nan)`` takes its negative branch because ``nan >= 0`` is False,
+    # ``max(-60.0, nan)`` returns -60.0, and the prediction comes back as
+    # 8.8e-27 — a confident zero. A NaN reach coefficient pins p_reach at its
+    # floor; a NaN uplift coefficient drives every EV to -cost and **the engine
+    # falls silent with no error anywhere** `[nan-and-inf-unguarded-end-to-end]`.
+    unfinite = artifact.non_finite()
+    if unfinite:
+        _warn_once(
+            f"finite:{p}",
+            "%s artifact %s carries non-finite values at %s — refusing",
+            expect_target,
+            artifact.version,
+            ", ".join(unfinite[:6]),
         )
         return None
 
@@ -746,15 +834,20 @@ class EstimatorScorer:
     Each substitution is independent and each falls back on its own. With no
     artifacts at all this scores byte-identically to ``EVScorer``.
 
-    The formula, once every term is learned::
+    The formula is :func:`scoring.expected_value`, unchanged and shared — this
+    class substitutes *terms*, never the arithmetic::
 
-        EV = exposure × recovery × P(still unpaid at t) × P(reach) × τ − cost − fatigue
+        EV = p_reach · p_resolve · rupees_given_cure · decay − cost − fatigue
 
-    ``P(still unpaid at t)`` is the timing model standing in for the fixed
-    half-life, and it composes with τ rather than double-counting it: τ is the
-    incremental effect *given we act*, and this is the chance acting is still
-    relevant when it lands. A borrower who has already paid cannot be moved by
-    anything.
+    ``decay`` is ``1 − P(already resolved)`` once the timing model is loaded,
+    standing in for the fixed half-life. It composes with τ rather than
+    double-counting it: τ is the incremental effect *given we act*, and this is
+    the chance acting is still relevant when it lands. A borrower who has
+    already paid cannot be moved by anything.
+
+    ``p_resolve`` holds a different estimand depending on whether the uplift
+    artifact loaded, and :attr:`ScoredAction.estimand` is what records which —
+    see §8.1's opening paragraph for why that column had to exist.
     """
 
     version = "1.0.0"
@@ -837,12 +930,19 @@ class EstimatorScorer:
             reasons.append("reach_from_model")
 
         resolve = s.p_resolve
+        estimand = s.estimand
         if self._uplift is not None:
             # τ, not P(cure | contacted). The difference is the entire point of
             # the reframing: a response model ranks a borrower who would have
             # paid anyway at the top, because they genuinely do have the
             # highest absolute repayment probability.
+            #
+            # And the *name* of the quantity moves with it. The same slot
+            # holding two estimands on different rows, under one
+            # ``expected_value`` column, is §8.1's opening complaint; the row
+            # now says which one it got.
             resolve = max(0.0, min(0.95, self._uplift.predict(vec)))
+            estimand = scoring.ESTIMAND_TAU_MODEL
             reasons.append("uplift_from_model")
 
         decay = s.components.get("urgency_decay", 1.0)
@@ -854,25 +954,39 @@ class EstimatorScorer:
             decay = 1.0 - already
             reasons.append("timing_from_model")
 
-        exposure = s.components.get("exposure", features.exposure)
-        value = exposure * policy.recovery_fraction * scoring.VALUE_HORIZON.get(
-            s.action, 1.0
-        )
-        gross = value * reach * resolve * decay
+        # Through ``scoring``'s own functions rather than a second copy of the
+        # arithmetic. The copy was the defect: the same formula written twice
+        # is the same formula until one of them acquires a term, and
+        # ``tests/test_ev_identity.py`` now exercises both scorers through this
+        # one implementation.
+        value = scoring.rupees_given_cure(s.action, features, policy=policy)
         cost = s.cost
         fatigue = -s.components.get("fatigue", 0.0)
+        gross = scoring.gross_value(
+            p_reach=reach, p_resolve=resolve, rupees=value, decay=decay
+        )
+        ev = scoring.expected_value(
+            p_reach=reach,
+            p_resolve=resolve,
+            rupees=value,
+            decay=decay,
+            cost=cost,
+            fatigue=fatigue,
+        )
 
         return replace(
             s,
-            expected_value=gross - cost - fatigue,
+            expected_value=ev,
             p_reach=reach,
             p_resolve=resolve,
+            estimand=estimand,
             reason_codes=tuple(reasons),
             components={
                 **s.components,
                 "p_reach": reach,
                 "p_resolve": resolve,
                 "urgency_decay": decay,
+                "value_at_stake": value,
                 "gross": gross,
             },
         )

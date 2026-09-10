@@ -64,6 +64,12 @@ def _artifact_dict(**overrides) -> dict:
         "nSamples": 2000,
         "vectorVersion": vectorize.VECTOR_VERSION,
         "featureSchemaVersion": SCHEMA_VERSION,
+        # Gate 13. The reco artifact carried no corpus field at all, which is
+        # the stronger version of `[artifact-corpus-defaults-to-live]` — there
+        # was not even a default to argue with, so the one artifact that ranks
+        # offers to real customers made no claim about where its coefficients
+        # came from.
+        "corpus": "live",
         "metrics": {"baseRate": 0.15},
     }
     base.update(overrides)
@@ -206,6 +212,16 @@ def test_malformed_artifact_is_refused(tmp_path):
         ({"vectorVersion": "v99"}, "features whose meaning has changed"),
         ({"featureSchemaVersion": "v99"}, "a different feature schema"),
         ({"coefficients": ["a"] * len(vectorize.FEATURE_NAMES)}, "non-numeric coefficients"),
+        # Gate 13, both halves: silence is refused, and so is a corpus nobody
+        # recognises. An open set would make the field unactionable.
+        ({"corpus": None}, "no claim about which book it was fitted on"),
+        ({"corpus": "staging"}, "a corpus this build cannot reason about"),
+        # A NaN does not crash and does not propagate as a NaN: nan >= 0 is
+        # False, so _sigmoid takes its negative branch and returns ~0. An offer
+        # model full of them recommends nothing, quietly, and reads exactly
+        # like a customer with no good offers.
+        ({"coefficients": [float("nan")] * len(vectorize.FEATURE_NAMES)}, "a NaN coefficient"),
+        ({"intercept": float("inf")}, "an infinite intercept"),
     ],
 )
 def test_unusable_artifacts_are_refused(tmp_path, override, why):

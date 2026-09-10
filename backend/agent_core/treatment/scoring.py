@@ -129,6 +129,16 @@ ATTEMPT_DECAY = 0.85
 REPEAT_ACTION_DECAY = 0.55
 
 
+#: What ``ScoredAction.p_resolve`` holds, and therefore what the expected value
+#: is a number about. Written on every decision row so the corpus can be split
+#: by estimand rather than by which artifacts happened to load that week.
+#: Two values, not three: ``RESOLVE_PRIOR`` is the only response model in the
+#: tree, and there is no ``target='response'`` artifact to add a third for. A
+#: constant with no producer is a claim the log cannot make.
+ESTIMAND_RESPONSE_PRIOR = "response_prior"
+ESTIMAND_TAU_MODEL = "tau_model"
+
+
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
 
@@ -148,6 +158,19 @@ class ScoredAction:
     timing_rationale: str = ""
     reason_codes: tuple[str, ...] = ()
     components: dict[str, float] = field(default_factory=dict)
+    #: **Which quantity ``p_resolve`` actually holds**, and therefore what
+    #: ``expected_value`` is a number about. §8.1 opens by observing that the
+    #: system "holds four quantities all called the treatment effect and
+    #: promotes models by comparing them to each other", and this column is
+    #: where that stops being true of the decision log.
+    #:
+    #: ``RESOLVE_PRIOR`` is P(cure | the message landed) — a *response*
+    #: probability, and a response model ranks the borrower who would have paid
+    #: anyway at the top. An uplift artifact replaces the same slot with τ, the
+    #: incremental effect. Both are legitimate; they are not the same estimand,
+    #: and a corpus that mixes them without saying so cannot be split by which
+    #: one produced each row when somebody later asks whether the model helped.
+    estimand: str = ESTIMAND_RESPONSE_PRIOR
 
     @property
     def rung(self) -> int:
@@ -161,6 +184,7 @@ class ScoredAction:
             "expectedValue": round(self.expected_value, 2),
             "pReach": round(self.p_reach, 4),
             "pResolve": round(self.p_resolve, 4),
+            "estimand": self.estimand,
             "cost": round(self.cost, 2),
             "reasonCodes": list(self.reason_codes),
             "components": {k: round(v, 4) for k, v in self.components.items()},
@@ -334,6 +358,92 @@ def urgency_decay(
     return 0.5 ** (delay_hours / halflife)
 
 
+def rupees_given_cure(
+    action: str, features: AccountFeatures, *, policy: Policy
+) -> float:
+    """§8.1's third term — ``E[recovered rupees | cure]``, as a planning figure.
+
+    A named function rather than a product buried inside ``gross``, because
+    §8.1 asks for it to be *"a separately fitted, separately calibrated
+    conditional mean"* and the first step toward that is for it to be a thing
+    with a name and one call site. What ships here is the prior:
+    ``exposure × recovery_fraction × VALUE_HORIZON[action]``.
+
+    **And the prior is known to be biased upward.** §8.1: ``P(cure) × exposure``
+    overstates rupees by ``exposure / E[recovered | cure]``, partial payment is
+    the norm in Indian retail collections, and with no instalment feed
+    ``exposure`` is the whole outstanding balance
+    `[exposure-falls-back-to-full-outstanding]`. ``recovery_fraction`` is the
+    single constant standing in for that ratio across every borrower and every
+    bucket. It is logged as a component so a quarter of traffic can replace it.
+
+    The mandate ceiling is applied through :func:`capped_exposure` rather than
+    at the call site, so "how many rupees could this action actually recover"
+    has one answer.
+    """
+    return (
+        capped_exposure(action, features)
+        * policy.recovery_fraction
+        * VALUE_HORIZON.get(action, 1.0)
+    )
+
+
+def capped_exposure(action: str, features: AccountFeatures) -> float:
+    """Arrears this action could collect, ceilinged by what it is authorised to.
+
+    A mandate authorises an amount. Presenting for more than the borrower agreed
+    to is refused by the rail, so scoring the full arrears would price a
+    collection that cannot happen.
+    """
+    exposure = features.exposure
+    if action == A.REPRESENT_MANDATE and features.mandate_max_amount is not None:
+        return min(exposure, features.mandate_max_amount)
+    return exposure
+
+
+def gross_value(
+    *, p_reach: float, p_resolve: float, rupees: float, decay: float
+) -> float:
+    """Rupees before what the attempt costs. The product, in one place."""
+    return p_reach * p_resolve * rupees * decay
+
+
+def expected_value(
+    *,
+    p_reach: float,
+    p_resolve: float,
+    rupees: float,
+    decay: float,
+    cost: float,
+    fatigue: float,
+) -> float:
+    """§8.1's arithmetic, with each discount appearing exactly once.
+
+        EV = p_reach · p_resolve · rupees_given_cure · decay − cost − fatigue
+
+    One function, called by both scorers, so there is exactly one place the
+    formula exists. The failure this prevents is specific and was live: the
+    served τ is already marginal on some paths and conditional on others, and
+    an EV that multiplies by reach a second time discounts the effect twice
+    `[tau-double-discounted-by-reach-and-timing]`. ``tests/test_ev_identity.py``
+    asserts that ``EV(p_reach=1, p_resolve=p_reach·τ) == EV(p_reach, τ)`` — an
+    identity that holds if and only if reach enters here once, and fails the
+    build the moment somebody adds it again somewhere else.
+
+    ``decay`` is a fourth discount §8.1's formula does not carry, and it is
+    named rather than folded in for that reason: it is the fixed half-life the
+    payment-timing hazard is meant to replace (§8.2), so when the hazard
+    promotes, this argument is what goes away. ``λ·usage`` is not a separate
+    term here because ``Costs.for_action`` already adds today's dual price to
+    the ledger price — one place, and the same one an operator can read.
+    """
+    return (
+        gross_value(p_reach=p_reach, p_resolve=p_resolve, rupees=rupees, decay=decay)
+        - cost
+        - fatigue
+    )
+
+
 def fatigue_cost(action: str, features: AccountFeatures, *, policy: Policy) -> float:
     """Rupees of goodwill an attempt spends, given what today already cost.
 
@@ -420,17 +530,21 @@ class EVScorer:
             halflife_hours=policy.urgency_halflife_hours,
             action=action,
         )
-        exposure = features.exposure
-        if action == A.REPRESENT_MANDATE and features.mandate_max_amount is not None:
-            # A mandate authorises a ceiling. Presenting for more than the
-            # borrower agreed to is refused by the rail, so scoring the full
-            # arrears would price a collection that cannot happen.
-            exposure = min(exposure, features.mandate_max_amount)
-        value = exposure * policy.recovery_fraction * VALUE_HORIZON.get(action, 1.0)
-        gross = value * reach * resolve * decay
+        exposure = capped_exposure(action, features)
+        value = rupees_given_cure(action, features, policy=policy)
         cost = costs.for_action(action)
         fatigue = fatigue_cost(action, features, policy=policy)
-        ev = gross - cost - fatigue
+        gross = gross_value(
+            p_reach=reach, p_resolve=resolve, rupees=value, decay=decay
+        )
+        ev = expected_value(
+            p_reach=reach,
+            p_resolve=resolve,
+            rupees=value,
+            decay=decay,
+            cost=cost,
+            fatigue=fatigue,
+        )
 
         if used_history:
             reasons.append("reach_from_history")
@@ -460,6 +574,9 @@ class EVScorer:
             expected_value=ev,
             p_reach=reach,
             p_resolve=resolve,
+            # The priors are a response model, and saying so on the row is what
+            # stops a later corpus mixing this with a τ under one column name.
+            estimand=ESTIMAND_RESPONSE_PRIOR,
             cost=cost,
             explanation=self._explain(action, ev, reach, resolve, cost, fatigue),
             timing_rationale=candidate.timing_rationale,
@@ -472,6 +589,12 @@ class EVScorer:
                 "urgency_decay": decay,
                 "gross": gross,
                 "cost": -cost,
+                # 1.0 where the ledger price came from measured spend against
+                # this action's own decisions, 0.0 where it is the planning
+                # constant. §11's `cost_basis='observed'` at the decision
+                # grain: without it, "the engine spent ₹45 to recover ₹900" is
+                # a claim about a config value rather than about money.
+                "cost_measured": 1.0 if costs.measured(action) else 0.0,
                 "fatigue": -fatigue,
             },
         )

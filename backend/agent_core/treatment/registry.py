@@ -33,7 +33,7 @@ from typing import Any, Mapping
 
 from sqlalchemy import text
 
-from agent_core.treatment import models
+from agent_core.treatment import evaluation_seal, models
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,33 @@ SERVING_PATHS: dict[str, str] = {
 #: deployment, a retraining cadence and an explanation, and buys nothing. The
 #: unit is whatever the evaluation reports as ``lift``.
 MIN_HOLDOUT_LIFT = 0.005
+
+# --- The corpus gates -------------------------------------------------------
+# §8.10's rung 1, as numbers rather than as a paragraph. They are here rather
+# than in the trainer because the trainer is not what promotes: a model fitted
+# on forty borrowers is not a defect, it is a draft, and the gate is where a
+# draft stops being allowed to decide who gets called.
+#
+# §8.12: "No artefact is promoted while any gate cannot be *evaluated*: an
+# unevaluable gate is a refusal, recorded as considered-and-declined." So a
+# corpus this cannot read produces an objection, never silence -- the failure
+# mode being avoided is a gate that returns [] because the query fell over.
+
+#: Distinct **customers**, not rows. §8.7: the causal unit is the borrower, and
+#: `[metrics-causal-unit-is-decision-not-customer]` is what counting rows here
+#: would re-introduce.
+MIN_TREATED_CUSTOMERS = 150
+MIN_CONTROL_CUSTOMERS = 200
+
+#: Below forty clusters per arm the cluster bootstrap of Gate 8 stops being
+#: trustworthy and the wild bootstrap with t(G-1) critical values takes over.
+#: A promotion is not the place to be doing that for the first time.
+MIN_CLUSTERS_PER_ARM = 40
+
+#: The arm name that means "we deliberately did nothing", as written by
+#: ``explore.choose``. Named once so the corpus gate and the artifact's own
+#: ``controlArm`` field cannot drift apart.
+CONTROL_VARIANT = "null_treatment"
 
 
 class PromotionRefused(Exception):
@@ -189,6 +216,89 @@ def _refuse(reason: str) -> None:
     raise PromotionRefused(reason)
 
 
+def corpus_objections(conn: Any, *, tenant_id: str) -> list[str]:
+    """Every reason this corpus cannot yet support a promotion, with its number.
+
+    Separated and public because the number is the useful part. "Refused" tells
+    an operator to try again later; "0 mature cases, 21 distinct customers"
+    tells them the wait is months and that the labeller, not the trainer, is
+    what is next.
+
+    Reads inside ``begin_nested`` per W0: this runs on a connection the caller
+    lent us, and a failed read outside a savepoint aborts *their* transaction —
+    the abort cascade W8a shipped and W9a's notes describe.
+    """
+    if conn is None:
+        return [
+            "no connection, so the corpus gates could not be evaluated at all — "
+            "§8.12 makes an unevaluable gate a refusal"
+        ]
+    try:
+        with conn.begin_nested():
+            row = conn.execute(
+                text(
+                    """
+                    SELECT
+                      count(*) FILTER (
+                        WHERE label_mature_at IS NOT NULL AND label_mature_at <= now()
+                      ) AS mature,
+                      count(DISTINCT customer_id) FILTER (
+                        WHERE variant IS DISTINCT FROM :control
+                      ) AS treated_customers,
+                      count(DISTINCT customer_id) FILTER (
+                        WHERE variant = :control
+                      ) AS control_customers,
+                      count(*) FILTER (WHERE reach_outcome IS NOT NULL) AS reach_labelled,
+                      count(*) FILTER (WHERE cure_outcome IS NOT NULL) AS cure_labelled
+                    FROM treatment_decisions
+                    WHERE tenant_id = :tenant AND mode = 'live'
+                    """
+                ),
+                {"tenant": tenant_id, "control": CONTROL_VARIANT},
+            ).mappings().first()
+    except Exception as exc:
+        logger.exception("corpus gate could not be evaluated for %s", tenant_id)
+        return [
+            f"the corpus gates could not be evaluated ({exc.__class__.__name__}), "
+            "and §8.12 makes an unevaluable gate a refusal rather than a pass"
+        ]
+
+    counts = dict(row or {})
+    mature = int(counts.get("mature") or 0)
+    treated = int(counts.get("treated_customers") or 0)
+    control = int(counts.get("control_customers") or 0)
+    reach_labelled = int(counts.get("reach_labelled") or 0)
+    cure_labelled = int(counts.get("cure_labelled") or 0)
+
+    out: list[str] = []
+    if mature <= 0:
+        out.append(
+            "0 decisions have reached the primary horizon — a promotion gate on "
+            "immature labels is a promotion gate on nothing (§8.10)"
+        )
+    if treated < MIN_TREATED_CUSTOMERS:
+        out.append(
+            f"{treated} treated customers against a floor of {MIN_TREATED_CUSTOMERS} "
+            "(§8.10 rung 1, counted as borrowers rather than rows)"
+        )
+    if control < MIN_CONTROL_CUSTOMERS:
+        out.append(
+            f"{control} control customers against a floor of {MIN_CONTROL_CUSTOMERS} "
+            "(§8.10 rung 1)"
+        )
+    if min(treated, control) < MIN_CLUSTERS_PER_ARM:
+        out.append(
+            f"{min(treated, control)} clusters in the smaller arm against the "
+            f"{MIN_CLUSTERS_PER_ARM} the cluster bootstrap needs (§8.12 gate 8)"
+        )
+    if not reach_labelled or not cure_labelled:
+        out.append(
+            f"{reach_labelled} rows carry a reach label and {cure_labelled} carry a "
+            "cure label — there is no outcome to have fitted against"
+        )
+    return out
+
+
 def check(
     conn: Any,
     *,
@@ -212,6 +322,13 @@ def check(
     artifact = models.load_artifact(p, expect_target=target, allow_simulated=True)
     if artifact is None:
         return [f"{p} does not load as a {target} artifact under this build"]
+
+    # Gate 2, and it comes first because everything after it is a statement
+    # about a file. An evaluation that describes a different artifact makes
+    # every objection below it a claim about something that is not being
+    # promoted — including the absence of objections.
+    objections.extend(evaluation_seal.objections(evaluation, artifact_sha=_sha(p)))
+    objections.extend(corpus_objections(conn, tenant_id=tenant_id))
 
     if artifact.corpus != "live" and not allow_simulated:
         # The simulator writes a corpus that looks exactly like a real one,

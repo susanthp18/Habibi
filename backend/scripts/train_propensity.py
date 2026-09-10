@@ -58,9 +58,21 @@ MIN_SAMPLES = 200
 MIN_POSITIVES = 30
 
 
-def fetch_rows(limit: int) -> list[dict[str, Any]]:
+def fetch_rows(limit: int, *, include_simulated: bool = False) -> list[dict[str, Any]]:
+    """Presented offers, from the modes this trainer is allowed to learn from.
+
+    The mode predicate is new and it is an allowlist rather than a
+    ``mode <> 'simulated'``: the extractor read *every* row regardless of mode,
+    so a simulated offer log fitted a model that then ranked offers for real
+    customers with nothing on the artifact saying so. The same discipline the
+    treatment trainer already applies, and the same reason — a new mode added
+    later leaks into a trainer that excludes by name and cannot leak into one
+    that includes by name.
+    """
     import db
     from sqlalchemy import text
+
+    modes = ["live", "shadow"] + (["simulated"] if include_simulated else [])
 
     with db.engine.connect() as conn:
         return [
@@ -81,11 +93,12 @@ def fetch_rows(limit: int) -> list[dict[str, Any]]:
                     LEFT JOIN leads l ON l.id = d.lead_id
                     WHERE d.presented IS TRUE
                       AND d.chosen_product_id IS NOT NULL
+                      AND d.mode = ANY(:modes)
                     ORDER BY d.created_at DESC
                     LIMIT :lim
                     """
                 ),
-                {"lim": limit},
+                {"lim": limit, "modes": modes},
             ).mappings()
         ]
 
@@ -284,10 +297,20 @@ def main() -> int:
         action="store_true",
         help="write the artifact even if it is below the sample floor or fails to beat a coin flip",
     )
+    ap.add_argument(
+        "--include-simulated",
+        action="store_true",
+        help=(
+            "fit on simulated offer decisions too. The artifact then records "
+            "corpus='simulated' and the loader refuses to serve it unless "
+            "somebody opts in, which is the point."
+        ),
+    )
     args = ap.parse_args()
 
-    rows = fetch_rows(args.limit)
-    logger.info("read %d presented decisions", len(rows))
+    corpus = "simulated" if args.include_simulated else "live"
+    rows = fetch_rows(args.limit, include_simulated=args.include_simulated)
+    logger.info("read %d presented decisions from the %s corpus", len(rows), corpus)
 
     vectors, labels, skipped = extract(rows)
     logger.info(
@@ -373,6 +396,11 @@ def main() -> int:
         "nSamples": len(X_train),
         "vectorVersion": vectorize.VECTOR_VERSION,
         "featureSchemaVersion": SCHEMA_VERSION,
+        # Gate 13. The shipped models/propensity.json carries no such field,
+        # which is why it no longer loads: it claims 1,335 training samples
+        # against an offer log holding 16 rows, none of them trainable, so
+        # nothing can now reconstruct what it was fitted on.
+        "corpus": corpus,
         "metrics": {
             "holdoutN": len(y_test),
             "auc": None if math.isnan(model_auc) else round(model_auc, 4),
@@ -393,7 +421,15 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     # Atomic: a half-written artifact is one a running service may load.
     tmp = out.with_suffix(out.suffix + ".tmp")
-    tmp.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+    try:
+        # The write half of the finite-value gate, matching the treatment
+        # trainer. A NaN scores a confident ~0 rather than raising, so an offer
+        # model full of them reads exactly like a customer with no good offers.
+        body = json.dumps(artifact, indent=2, allow_nan=False)
+    except ValueError as exc:
+        logger.error("refusing to write a non-finite artifact (%s)", exc)
+        return 2
+    tmp.write_text(body, encoding="utf-8")
     tmp.replace(out)
     logger.info("wrote %s (version %s)", out, artifact["version"])
     return 0

@@ -33,6 +33,7 @@ exploration had to come first.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
@@ -48,7 +49,7 @@ load_env()
 import db  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
-from agent_core.treatment import config, models, ope  # noqa: E402
+from agent_core.treatment import config, evaluation_seal, models, ope  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("evaluate_policy")
@@ -69,6 +70,18 @@ def main() -> int:
     ap.add_argument("--include-simulated", action="store_true")
     ap.add_argument("--json", action="store_true", help="emit machine-readable output")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument(
+        "--artifact",
+        default=None,
+        help=(
+            "the challenger this evaluation is about. Its sha256 is written "
+            "into the promotion block and the promotion gate recomputes it, so "
+            "an evaluation can no longer describe one artifact and promote "
+            "another. Without it the block is still emitted and promote_model "
+            "will refuse it, which is the correct outcome rather than a "
+            "silently weaker one."
+        ),
+    )
     args = ap.parse_args()
 
     modes = ("shadow", "live") + (("simulated",) if args.include_simulated else ())
@@ -152,7 +165,14 @@ def main() -> int:
         snips["policy"] = best
         snips["ate"] = effect.ate
         snips["ateSignificant"] = effect.significant
-        report["promotion"] = snips
+        # Gate 2. The sha binds the numbers above to one file, and the seal
+        # says they were produced by something holding the key rather than
+        # edited on the way to the gate.
+        if args.artifact:
+            snips["artifact_sha"] = hashlib.sha256(
+                Path(args.artifact).read_bytes()
+            ).hexdigest()
+        report["promotion"] = evaluation_seal.sealed(snips)
 
     if args.json:
         print(json.dumps(report, indent=2))
