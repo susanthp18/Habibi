@@ -44,6 +44,23 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _bot_id() -> str | None:
+    """Which card answers a text thread.
+
+    Returns ``None`` when nothing is configured, exactly as it always has:
+    several call sites below pass this straight through and treat ``None`` as
+    "no card", falling back themselves. ``resolve_entry`` never returns None --
+    it ends at ``db.DEFAULT_BOT_ID`` -- so it is consulted only when the flag is
+    on, and with ``DOOR_ENABLED`` unset this function is byte-for-byte what it
+    was.
+
+    The channel default is the row the text mouths reach: there is no address to
+    match on, which is why ``entry_bindings`` carries ``address IS NULL`` rows
+    rather than WhatsApp growing a second mechanism.
+    """
+    from agent_core.cards.routing import door_enabled, resolve_entry
+
+    if door_enabled():
+        return resolve_entry("whatsapp")
     return (os.getenv("BOT_ID") or "").strip() or None
 
 
