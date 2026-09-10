@@ -22,9 +22,14 @@
 -- matches and when the table is absent, so an unmigrated database and an
 -- unconfigured one both behave exactly as they do now.
 
+-- `tenant_id` carries the same FK every other tenant-scoped table does, and not
+-- only for consistency: `rls.orphan_rows` skips depth-0 tables on the stated
+-- ground that "a NOT NULL tenant_id with a foreign key cannot be orphaned". A
+-- bare `text NOT NULL` satisfies half of that and would put this table outside
+-- the one check that finds rows belonging to no tenant.
 CREATE TABLE IF NOT EXISTS entry_bindings (
   id            text PRIMARY KEY,
-  tenant_id     text NOT NULL,
+  tenant_id     text NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   channel       text NOT NULL,
   address       text,
   bot_id        text NOT NULL REFERENCES bots(id),
