@@ -130,9 +130,11 @@ def _noon_today() -> datetime:
 def _pause_running_campaigns(conn) -> None:
     import campaigns
 
-    rows = conn.execute(text("SELECT id FROM campaign_runs WHERE status = 'running'"))
-    for (run_id,) in rows:
-        campaigns.set_status(conn, run_id, campaigns.STATUS_PAUSED)
+    rows = conn.execute(
+        text("SELECT id, tenant_id FROM campaign_runs WHERE status = 'running'")
+    )
+    for run_id, tenant_id in rows:
+        campaigns.set_status(conn, run_id, campaigns.STATUS_PAUSED, tenant_id=tenant_id)
 
 
 def _a_campaign_borrower(conn) -> dict:
@@ -219,7 +221,9 @@ def _running_campaign(conn, cust: dict, *, bot_id: str):
     )
     added = campaigns.add_targets(conn, run["id"], [cust["id"]])
     assert added == 1
-    started = campaigns.set_status(conn, run["id"], campaigns.STATUS_RUNNING)
+    started = campaigns.set_status(
+        conn, run["id"], campaigns.STATUS_RUNNING, tenant_id=cust["tenant_id"]
+    )
     assert started is not None
     return started
 

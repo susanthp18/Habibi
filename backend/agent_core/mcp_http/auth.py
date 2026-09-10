@@ -117,7 +117,9 @@ def mint_key(*, name: str, scopes: list[str]) -> dict[str, Any]:
                 "name": name.strip() or kid,
                 "hash": hash_key(raw),
                 "prefix": raw[:7],
-                "scopes": "{" + ",".join(allowed) + "}",
+                # A list, not a "{a,b}" literal: a scope containing a comma
+                # splits into two, silently granting a scope nobody asked for.
+                "scopes": list(allowed),
             },
         )
     return {"id": kid, "name": name, "scopes": allowed, "key": raw, "prefix": raw[:7]}

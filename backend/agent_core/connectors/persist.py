@@ -177,8 +177,12 @@ def upsert_connector(payload: dict[str, Any]) -> dict[str, Any]:
                 "kind": kind,
                 "url": url,
                 "auth": payload.get("authRef") or payload.get("auth_ref"),
-                "pref": "{" + ",".join(prefixes) + "}",
-                "dc": "{" + ",".join(data_class) + "}",
+                # Lists, not "{a,b}" literals. `allow_prefixes` is the bound
+                # that decides which ext.* tool names this connector may serve
+                # and G10 checks it, so a comma in a slug or an authored prefix
+                # widening it by one element is a real widening of the grant.
+                "pref": list(prefixes),
+                "dc": list(data_class),
                 "ttl": int(payload.get("ttlMs") or payload.get("ttl_ms") or 30_000),
                 "timeout": int(payload.get("timeoutMs") or payload.get("timeout_ms") or 2500),
                 "env": str(payload.get("allowedEnv") or payload.get("allowed_env") or "sandbox"),

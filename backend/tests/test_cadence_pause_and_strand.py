@@ -243,7 +243,9 @@ def test_a_held_ladder_fires_on_the_first_poll_after_the_campaign_resumes(
     assert cadence.process_one(dbmod.engine) is False
     assert dialler.calls == []
 
-    campaigns.set_status(db_tx, run_id, campaigns.STATUS_RUNNING)
+    campaigns.set_status(
+        db_tx, run_id, campaigns.STATUS_RUNNING, tenant_id=dbmod.current_tenant()
+    )
 
     assert cadence.process_one(dbmod.engine) is True
     assert len(dialler.calls) == 1

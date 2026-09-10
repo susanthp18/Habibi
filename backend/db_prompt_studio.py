@@ -1953,11 +1953,19 @@ def patch_prompt_version(version_id: str, payload: dict[str, Any]) -> dict[str, 
     _one = _mod._one
     _jsonb = _mod._jsonb
     _as_dict = _mod._as_dict
+    _tenant = _mod._tenant
     with engine.begin() as conn:
+        # Scoped: this lookup is the gate for everything below it, so a
+        # cross-tenant id takes the not-found path instead of reaching a
+        # write. The card-level writes in this module already scope; the
+        # version-level ones did not.
         existing = _one(
             conn.execute(
-                text("SELECT id, status, voice, tuning FROM prompt_versions WHERE id = :id"),
-                {"id": version_id},
+                text(
+                    "SELECT id, status, voice, tuning FROM prompt_versions "
+                    "WHERE id = :id AND tenant_id = :t"
+                ),
+                {"id": version_id, "t": _tenant()},
             )
         )
         if not existing:
@@ -2103,10 +2111,10 @@ def publish_prompt_version(
                     """
                     SELECT id, status, voice, persona, label, tuning, flow, bot_id, agent_card,
                            prompt, guardrails
-                    FROM prompt_versions WHERE id = :id
+                    FROM prompt_versions WHERE id = :id AND tenant_id = :t
                     """
                 ),
-                {"id": version_id},
+                {"id": version_id, "t": _tenant()},
             )
         )
         if not target:
@@ -2133,7 +2141,16 @@ def publish_prompt_version(
         from agent_core.cards.compile import compile_card, assert_publishable as _assert_card
         from agent_core.tools.catalog import CATALOG as _CATALOG
 
-        known_bots = {r["id"] for r in _rows(conn.execute(text("SELECT id FROM bots")))}
+        # Tenant-scoped: this is G5's allowlist of legal handoff targets.
+        known_bots = {
+            r["id"]
+            for r in _rows(
+                conn.execute(
+                    text("SELECT id FROM bots WHERE tenant_id = :t"),
+                    {"t": _tenant()},
+                )
+            )
+        }
         card_raw = target.get("agent_card") if isinstance(target.get("agent_card"), dict) else {}
         attached = None
         try:
@@ -2536,10 +2553,10 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
                     """
                     SELECT id, label, prompt, persona, voice, guardrails, tuning, flow,
                            bot_id, agent_card
-                    FROM prompt_versions WHERE id = :id
+                    FROM prompt_versions WHERE id = :id AND tenant_id = :t
                     """
                 ),
-                {"id": version_id},
+                {"id": version_id, "t": _tenant()},
             )
         )
         if not source:
@@ -2590,11 +2607,19 @@ def discard_prompt_version(version_id: str) -> dict[str, Any]:
     _mod = _db()
     engine = _mod.engine
     _one = _mod._one
+    _tenant = _mod._tenant
     with engine.begin() as conn:
+        # Scoped: this lookup is the gate for everything below it, so a
+        # cross-tenant id takes the not-found path instead of reaching a
+        # write. The card-level writes in this module already scope; the
+        # version-level ones did not.
         existing = _one(
             conn.execute(
-                text("SELECT id, status FROM prompt_versions WHERE id = :id"),
-                {"id": version_id},
+                text(
+                    "SELECT id, status FROM prompt_versions "
+                    "WHERE id = :id AND tenant_id = :t"
+                ),
+                {"id": version_id, "t": _tenant()},
             )
         )
         if not existing:
@@ -2640,10 +2665,10 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                       d.id, d.bot_id, d.prompt_version_id, d.kb_snapshot_id,
                       d.tts_voice_id, d.environment, d.status, d.voice_config, d.tuning
                     FROM bot_deployments d
-                    WHERE d.id = :id
+                    WHERE d.id = :id AND d.tenant_id = :t
                     """
                 ),
-                {"id": deployment_id},
+                {"id": deployment_id, "t": _tenant()},
             )
         )
         if not target:
@@ -2698,7 +2723,16 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                 attached = packs_for_skill_refs(parsed.skills)
         except Exception:
             pass
-        known_bots = {r["id"] for r in _mod._rows(conn.execute(text("SELECT id FROM bots")))}
+        # Tenant-scoped: this is G5's allowlist of legal handoff targets.
+        known_bots = {
+            r["id"]
+            for r in _mod._rows(
+                conn.execute(
+                    text("SELECT id FROM bots WHERE tenant_id = :t"),
+                    {"t": _tenant()},
+                )
+            )
+        }
         voice_short, voice_locale, card_locales = voice_locale_facts(
             (version_row or {}).get("voice"), (version_row or {}).get("persona")
         )

@@ -1579,8 +1579,24 @@ def handoff_to_agent(
 
 
 def list_bot_ids() -> set[str]:
+    """Bot ids this tenant may name.
+
+    Scoped because this set is G5's allowlist of legal handoff targets: an
+    unscoped read let a card declare a handoff to another tenant's bot and pass
+    the gate that exists to refuse exactly that. `mission.py` also walks it
+    looking for mission owners, and neither caller has any business seeing
+    another tenant's fleet.
+    """
     with _engine().connect() as conn:
-        return {r["id"] for r in _rows(conn.execute(text("SELECT id FROM bots")))}
+        return {
+            r["id"]
+            for r in _rows(
+                conn.execute(
+                    text("SELECT id FROM bots WHERE tenant_id = :t"),
+                    {"t": _tenant()},
+                )
+            )
+        }
 
 
 def get_latest_context_summary(interaction_id: str) -> dict[str, Any] | None:

@@ -3179,8 +3179,17 @@ def get_eval_report(report_id: str):
     from sqlalchemy import text as _text
 
     with db.engine.connect() as conn:
+        # Scoped like every sibling read -- db_inbox.list_eval_reports,
+        # list_eval_suites, critique.list_critiques and corpus.list_corpus all
+        # filter on the tenant. This one returned the raw row, tenant_id
+        # included, to anyone holding the id.
         row = db._one(
-            conn.execute(_text("SELECT * FROM eval_reports WHERE id = :id"), {"id": report_id})
+            conn.execute(
+                _text(
+                    "SELECT * FROM eval_reports WHERE id = :id AND tenant_id = :t"
+                ),
+                {"id": report_id, "t": db.current_tenant()},
+            )
         )
     if row is None:
         raise HTTPException(status_code=404, detail="eval_report_not_found")
@@ -5549,7 +5558,7 @@ def set_campaign_status(run_id: str, payload: dict[str, Any]):
         if not platform_switches.outbound_enabled():
             raise HTTPException(status_code=409, detail="outbound_disabled")
     with db.engine.begin() as conn:
-        run = campaigns.set_status(conn, run_id, status)
+        run = campaigns.set_status(conn, run_id, status, tenant_id=db.current_tenant())
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     return dict(run)

@@ -335,13 +335,17 @@ def upsert_partner(payload: dict[str, Any]) -> dict[str, Any]:
             "url": str(payload.get("cardUrl") or payload.get("card_url") or ""),
             "fp": fp,
             "dn": dn,
-            "sk": "{" + ",".join(str(s) for s in skills) + "}",
+            # Bound as a list, not "{" + ",".join(...) + "}". A skill name
+            # containing a comma splits into two elements in the literal form,
+            # so a caller could add entries to this allowlist that they never
+            # named. `kb_ingest.py` already binds text[] this way.
+            "sk": [str(s) for s in skills],
         }
         cols += ", bot_id"
         vals += ", :bot"
         extra_update = ", bot_id = EXCLUDED.bot_id"
         params["bot"] = bot_id
-        conn.execute(
+        row = conn.execute(
             text(
                 f"""
                 INSERT INTO a2a_partners ({cols})
@@ -355,10 +359,21 @@ def upsert_partner(payload: dict[str, Any]) -> dict[str, Any]:
                   status = EXCLUDED.status
                   {extra_update},
                   updated_at = now()
+                WHERE a2a_partners.tenant_id = :t
+                RETURNING id
                 """
             ),
             params,
-        )
+        ).first()
+        if row is None:
+            # The id exists and belongs to someone else. `tenant_id` is
+            # deliberately absent from the SET list, so without this predicate
+            # the row kept its owner while its certificate fingerprint, DN and
+            # allowed skills were all replaced by this caller's -- a silent
+            # cross-tenant rewrite of an mTLS trust record. The conflict target
+            # stays `(id)` because that is the primary key; the guard is the
+            # WHERE, which needs no new unique index to be correct.
+            raise ValueError("a2a_partner_belongs_to_another_tenant")
     partners = [p for p in list_partners() if p["id"] == pid]
     return partners[0]
 

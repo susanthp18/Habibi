@@ -370,7 +370,17 @@ def add_targets_from_selector(
     return add_targets(conn, run_id, [r["customer_id"] for r in rows])
 
 
-def set_status(conn: Any, run_id: str, status: str) -> dict[str, Any] | None:
+def set_status(
+    conn: Any, run_id: str, status: str, *, tenant_id: str
+) -> dict[str, Any] | None:
+    """Start / pause / finish / cancel one run.
+
+    ``tenant_id`` is required rather than optional. This UPDATE is what the
+    Outbound tab's Start/Pause button calls, and without the predicate a run id
+    from any tenant could be started, paused or cancelled by any other -- every
+    sibling read here already scopes (see ``add_targets_from_selector``). An
+    optional parameter would have let the two internal callers keep the hole.
+    """
     stamps = {
         STATUS_RUNNING: "started_at = COALESCE(started_at, now()), paused_at = NULL",
         STATUS_PAUSED: "paused_at = now()",
@@ -383,11 +393,11 @@ def set_status(conn: Any, run_id: str, status: str) -> dict[str, Any] | None:
             UPDATE campaign_runs
             SET status = :status, updated_at = now()
                 {(', ' + stamps) if stamps else ''}
-            WHERE id = :id
+            WHERE id = :id AND tenant_id = :t
             RETURNING *
             """
         ),
-        {"id": run_id, "status": status},
+        {"id": run_id, "status": status, "t": tenant_id},
     ).mappings().first()
     return dict(row) if row else None
 
@@ -497,7 +507,7 @@ def process_one(engine: Engine) -> bool:
             {"run": run_id},
         ).mappings().first()
         if target is None:
-            _finish_if_drained(conn, run_id)
+            _finish_if_drained(conn, run_id, tenant_id=run["tenant_id"])
             return True
 
         target = dict(target)
@@ -678,7 +688,7 @@ def _mark(conn: Any, target_id: str, state: str, *, note: str | None = None) -> 
     )
 
 
-def _finish_if_drained(conn: Any, run_id: str) -> None:
+def _finish_if_drained(conn: Any, run_id: str, *, tenant_id: str) -> None:
     """Finish a run only when nothing is still in the air.
 
     A run with pending targets that are all waiting for their window is not
@@ -694,7 +704,7 @@ def _finish_if_drained(conn: Any, run_id: str) -> None:
         {"run": run_id},
     ).scalar()
     if int(remaining or 0) == 0:
-        set_status(conn, run_id, STATUS_FINISHED)
+        set_status(conn, run_id, STATUS_FINISHED, tenant_id=tenant_id)
         logger.info("campaign %s finished", run_id)
 
 

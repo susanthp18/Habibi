@@ -339,7 +339,10 @@ def upsert_skill_from_pack(
                 "status": status,
                 "fm": db._jsonb(pack.frontmatter),
                 "body": pack.body,
-                "tools": "{" + ",".join(pack.allowed_tools) + "}",
+                # A list, not a "{a,b}" literal. These are the tool names the
+                # pack may grant; a comma in one splits it into two names that
+                # nothing in the pack declared.
+                "tools": list(pack.allowed_tools),
                 "hash": pack.content_hash,
                 "signature": signature,
                 "signed_by": signed_by,
