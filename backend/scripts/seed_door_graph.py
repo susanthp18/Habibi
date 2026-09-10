@@ -1,0 +1,140 @@
+"""Author the door graph onto a card's draft.
+
+The door half of the built-in script is *derived* (``flow_export.part="door"``),
+so this script does not write nodes -- with one exception it has to write,
+explained below. Everything else here is plumbing: fetch the draft, attach the
+graph, report what changed.
+
+**Why one node is authored.** ``build_tools`` takes ``hub_node`` as a parameter
+defaulting to ``"state_position"``, and ``flows_dynamic`` never overrides it. So
+on any authored graph a successful verification transitions to
+``_node("state_position")``. If the door's namespace has no node under that key,
+``resolve_key`` falls through to its third tier, finds the single
+``kaia-v2-4/state_position``, and lands the call in another member's namespace
+with no ledger row, no carry packet and no hop-cap decrement -- a boundary
+crossing that no gate sees because no handoff happened. The door therefore owns
+that key, as a *route* node whose business tool is ``handoff_to_agent`` and
+nothing else. It cannot be derived, because the derived node under that key is
+the collections hub.
+
+**Why ``entryFor`` is stripped.** The derived ``confirm_identity`` advertises
+four collections outbound missions. Those belong to the card that owns the
+cadences for them; a door claiming them would be claiming mission entries it
+cannot run.
+
+Read-only by default. ``--apply`` writes, and writes only to a draft.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+# Python puts this script's own directory on sys.path, not the caller's cwd, so
+# `python scripts/seed_door_graph.py` cannot see `voice` or `db` without this.
+# Same line as scripts/eval_gate_preflight.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# The route node the door owns. Not derived -- see the module docstring.
+_ROUTE_NODE = {
+    "id": "n_state_position",
+    "key": "state_position",
+    "type": "conversation",
+    # `_LAYOUT["state_position"]` in flow_export, so the authored node sits
+    # where a reader of the full graph already expects the hub to be.
+    "position": {"x": 0, "y": 460},
+    "data": {
+        "name": "Route to a specialist",
+        "instructionType": "prompt",
+        "instructions": (
+            "The caller is verified and you know why they rang. Hand the call to "
+            "the specialist that owns it, using handoff_to_agent. Say one short "
+            "bridging line first so the caller knows what is happening; do not "
+            "discuss balances, arrears, offers, payments or policy terms "
+            "yourself -- you do not have the tools for it and the specialist "
+            "does. If you cannot tell which specialist owns the request, ask one "
+            "clarifying question, then hand off."
+        ),
+        "isStart": False,
+        "entryFor": [],
+        "respondImmediately": False,
+        "entryLine": "",
+        "tools": ["handoff_to_agent"],
+        "extractVariables": [],
+        "endConversation": False,
+    },
+}
+
+
+def door_graph() -> dict:
+    """The derived door half plus the one authored route node."""
+    from voice.flow_export import built_in_collections_graph
+
+    graph = built_in_collections_graph(part="door")
+    for node in graph["nodes"]:
+        if node["key"] == "confirm_identity":
+            node["data"]["entryFor"] = []
+    graph["nodes"].append(_ROUTE_NODE)
+    return graph
+
+
+def _draft_for(bot_id: str) -> dict | None:
+    import db
+    from sqlalchemy import text
+
+    with db.engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT id, status FROM prompt_versions "
+                "WHERE bot_id = :b AND status = 'draft' AND tenant_id = :t "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"b": bot_id, "t": db.current_tenant()},
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--bot", default="intake-v1", help="card whose draft gets the graph")
+    ap.add_argument("--apply", action="store_true", help="write it (default: report only)")
+    args = ap.parse_args()
+
+    graph = door_graph()
+    keys = [n["key"] for n in graph["nodes"]]
+    print(f"door graph: {len(keys)} nodes")
+    for n in graph["nodes"]:
+        mark = "authored" if n["key"] == _ROUTE_NODE["key"] else "derived"
+        print(f"  {n['key']:22s} {mark:8s} tools={n['data']['tools']}")
+    print(f"globalTools: {graph['globalTools']}")
+
+    draft = _draft_for(args.bot)
+    if draft is None:
+        print(f"\n{args.bot}: no draft to write to", file=sys.stderr)
+        return 1
+    print(f"\ntarget draft: {draft['id']} ({args.bot})")
+
+    if not args.apply:
+        print("\nread-only; pass --apply to write")
+        return 0
+
+    import db_prompt_studio as dps
+
+    row = dps.patch_prompt_version(draft["id"], {"flow": graph})
+    stored = row.get("flow") or {}
+    print(f"wrote {len(stored.get('nodes', []))} nodes to {draft['id']}")
+
+    report = dps.compile_agent_studio_card(args.bot, prompt_version_id=draft["id"])
+    bad = [
+        (g["gate"], g["status"], str(g.get("detail"))[:80])
+        for g in report["gates"]
+        if g["status"] in ("fail", "warn")
+    ]
+    print("gates:", json.dumps(bad, indent=2) if bad else "all clean")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
