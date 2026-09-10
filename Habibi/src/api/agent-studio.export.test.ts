@@ -90,6 +90,16 @@ describe("invalidateAgentStudio", () => {
 
     const keys = invalidateQueries.mock.calls.map((c) => (c[0] as { queryKey: string[] }).queryKey[0]);
     expect(keys).toContain("agent-studio");
-    expect(keys).toEqual(expect.arrayContaining(["agent-change-log", "deployments", "eval-reports"]));
+    // Both deployment roots: experiments live under ["deployments"] and the
+    // rows themselves under ["bot-deployments"], so a rollback that refreshed
+    // one left the other on screen contradicting it.
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "agent-change-log",
+        "deployments",
+        "bot-deployments",
+        "eval-reports",
+      ]),
+    );
   });
 });

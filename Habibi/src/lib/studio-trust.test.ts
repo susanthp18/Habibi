@@ -66,57 +66,21 @@ describe("connectorHealthToast", () => {
   });
 });
 
-describe("studio truth wiring", () => {
-  it("invalidates both deployment query roots after rollback", () => {
-    const prompt = readFileSync(join(here, "..", "api", "prompt-studio.ts"), "utf8");
-    expect(prompt).toContain('queryKey: ["deployments"]');
-    expect(prompt).toContain('["bot-deployments"]');
-    const studio = readFileSync(join(here, "..", "api", "agent-studio.ts"), "utf8");
-    expect(studio).toContain('queryKey: ["deployments"]');
-    expect(studio).toContain('queryKey: ["bot-deployments"]');
-  });
-
-  it("Ship tab rolls back the prior deployment and surfaces experiment errors", () => {
-    const src = readFileSync(
-      join(here, "..", "components", "prompt-studio", "ShipTab.tsx"),
-      "utf8",
-    );
-    expect(src).toContain("shipRollbackTarget");
-    expect(src).toContain("experiments.isError");
-    expect(src).toContain('status === "running"');
-    // The shadow control is gone, not merely disabled: `experiment.shadow` was
-    // removed from the card, so there is nothing to tick. This used to assert
-    // the disabled checkbox's copy, which is the weakness of a source grep —
-    // it pinned a sentence rather than the absence of a control, and went red
-    // for the change that made it true.
-    expect(src).not.toContain("value.shadow");
-  });
-
-  it("Outbound and Flow failed reads are not empty/zero", () => {
-    const outbound = readFileSync(
-      join(here, "..", "components", "prompt-studio", "OutboundTab.tsx"),
-      "utf8",
-    );
-    expect(outbound).toContain("preview.isError");
-    expect(outbound).toContain("campaigns.isError");
-    expect(outbound).toContain("stats.isError");
-    const flow = readFileSync(join(here, "..", "components", "flow", "FlowInspector.tsx"), "utf8");
-    expect(flow).toContain("vocab.isError");
-  });
-
-  it("Guardrails labels unenforced controls as post-reply flags", () => {
-    const src = readFileSync(
-      join(here, "..", "components", "prompt-studio", "GuardrailsPanel.tsx"),
-      "utf8",
-    );
-    expect(src).toContain("not a live hard-block");
-  });
-
-  it("Bindings disable non-live models", () => {
-    const src = readFileSync(
-      join(here, "..", "components", "prompt-studio", "BindingsTab.tsx"),
-      "utf8",
-    );
-    expect(src).toContain("modelBindingSelectable");
-  });
-});
+// The "studio truth wiring" block stood here: six assertions that read a
+// component's source for a substring. Each is now either a rendered assertion
+// or a lint, next to the thing it describes:
+//   ShipTab rollback / experiments  -> ShipTab.test.tsx
+//   GuardrailsPanel copy            -> GuardrailsPanel.test.tsx
+//   BindingsTab selectable models   -> BindingsTab.test.tsx
+//   deployment query keys           -> api/agent-studio.export.test.ts, which
+//                                      asserts the key set `invalidateAgentStudio`
+//                                      actually invalidates. `prompt-studio.ts`'s
+//                                      own rollback mutation is not covered by a
+//                                      test; the grep did not cover it either,
+//                                      it only checked two strings appeared.
+//   OutboundTab                     -> OutboundTab.test.tsx
+//   FlowInspector                   -> FlowInspector.test.tsx (via NodeInspector)
+//   no raw fetch in a view          -> scripts/check-layering.mjs
+//
+// `shipRollbackTarget` and `modelBindingSelectable` were already unit-tested
+// above, so those two greps asserted nothing the file did not already prove.

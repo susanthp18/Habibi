@@ -27,10 +27,11 @@ const contract = vi.hoisted(() => ({
     string,
     unknown
   >,
+  experiments: { data: [], isPending: false, isError: false } as Record<string, unknown>,
 }));
 
 vi.mock("@/api/agent-studio", () => ({
-  useDeploymentExperiments: () => ({ data: [], isPending: false, isError: false }),
+  useDeploymentExperiments: () => contract.experiments,
   useEffectiveContract: () => contract.state,
   useRollbackExperiment: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -41,8 +42,9 @@ vi.mock("@/api/prompt-studio", () => ({
 
 const { ShipTab } = await import("./ShipTab");
 
-function show(state: Record<string, unknown>) {
+function show(state: Record<string, unknown>, experiments: Record<string, unknown> = {}) {
   contract.state = { data: undefined, isPending: false, isError: false, error: undefined, ...state };
+  contract.experiments = { data: [], isPending: false, isError: false, ...experiments };
   return render(
     <ShipTab
       botId="kaia-v2-4"
@@ -81,5 +83,39 @@ describe("ShipTab · Effective contract", () => {
     expect(screen.getByText("abc123def456")).toBeInTheDocument();
     expect(screen.queryByText(/No compiled artefact yet/)).toBeNull();
     expect(screen.queryByText("could not load")).toBeNull();
+  });
+});
+
+describe("ShipTab · experiments", () => {
+  it("a failed experiments read is not a claim that none are running", () => {
+    // Replaces a source-grep for the string "experiments.isError". The whole
+    // point is which sentence a reader is shown, and the file contains both
+    // either way.
+    show({}, { isError: true });
+    expect(
+      screen.getByText(/not a statement that none are running/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a running canary with its split and rollback triggers", () => {
+    show(
+      {},
+      {
+        data: [
+          { id: "exp-1", status: "running", trafficPct: 25, autoRollback: ["slo_miss"] },
+        ],
+      },
+    );
+    expect(screen.getByText(/25% canary/)).toBeInTheDocument();
+    expect(screen.getByText(/slo_miss/)).toBeInTheDocument();
+  });
+
+  it("offers no shadow control, because the card cannot hold one", () => {
+    // `experiment.shadow` was retired from the schema, so this is the absence
+    // of a control rather than a disabled one. The grep this replaces asserted
+    // the file did not contain "value.shadow", which went red for the very
+    // change that made it true.
+    show({});
+    expect(screen.queryByText(/shadow/i)).toBeNull();
   });
 });

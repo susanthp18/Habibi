@@ -10,6 +10,7 @@
  * that is imported and never mounted.
  *
  * The studio had six of these standing in for its only coverage of six panels.
+ * The list below is now empty and must stay that way.
  * jsdom and @testing-library/react are already installed and
  * `src/test/jsdom.ts` already exists, so the honest version costs a `// @vitest-
  * environment jsdom` line and a render.
@@ -34,11 +35,7 @@ const SRC = join(ROOT, "src");
  * .github/workflows/frontend-typecheck.yml. Delete an entry when its panel gets
  * a real render test; do not add one.
  */
-const ALLOWED = new Set([
-  "src/lib/studio-trust.test.ts", // FlowInspector's ungranted-tool chip
-  "src/api/sandbox.test.ts", // sandbox.lazy.tsx promote payload
-  "src/routes/agent-studio.skills.index.test.ts", // the clone dialog copy
-]);
+const ALLOWED = new Set([]);
 
 /** `readFileSync(...)` anywhere near a path that ends in .tsx. */
 const READS_A_COMPONENT = /readFileSync\([^)]*\.tsx/;
