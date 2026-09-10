@@ -390,10 +390,17 @@ def fleet_gates(
 ) -> list[GateResult]:
     """G-F2, G-F6, G-F12 and G-F15 over the merged fleet graph.
 
-    All warn-level for now. Every one of them reports on cards that are already
-    published, so introducing them as blocking would make live cards
-    unpublishable on the commit that added the gate -- and a gate introduced red
-    is a gate people learn to route around.
+    G-F15 and G-F2 block. Both describe a call that breaks -- a hop replaying
+    the greeting and recording disclosure at an already-verified caller, and a
+    member that cannot reach a terminal -- and both pass on every card that
+    emits them today, which is the condition for promoting a gate here.
+
+    G-F6 and G-F12 stay warn, and not out of caution. G-F6 fires on the shipped
+    intake card (`load_skill`, `set_contact_preference`), so blocking on it
+    would make the door unpublishable on the commit that promoted it; settling
+    the door's tool surface is card authoring, and the gate goes red the day
+    that is done. G-F12 is informational by construction -- it reports that
+    publishing a door deploys its members, which is the design, not a defect.
 
     Returns ``[]`` when there is no fleet: a single-member card has no hop to
     check, no sibling to share a terminal with, and no door.
@@ -460,7 +467,7 @@ def fleet_gates(
         _gate(
             "G-F15",
             "fleet_hop",
-            "warn" if landings else "pass",
+            "fail" if landings else "pass",
             (
                 f"{len(landings)} hop(s) land on a door node — "
                 "author entry_node on the handoff edge"
@@ -483,7 +490,7 @@ def fleet_gates(
         _gate(
             "G-F2",
             "door_and_terminals",
-            "warn" if partial else "pass",
+            "fail" if partial else "pass",
             (
                 f"{len(partial)} terminal(s) exist in some members and not others"
                 if partial

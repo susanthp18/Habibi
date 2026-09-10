@@ -1,10 +1,11 @@
 """The four gates that need the merged graph.
 
-All warn-level. Every one reports on cards that are already published, so
-shipping them as blocking would make live cards unpublishable on the commit that
-added the gate -- and a gate introduced red is a gate people learn to route
-around, which is the reasoning `npm audit --audit-level=high` and the eslint
-warning budget are already pinned on here.
+G-F15 and G-F2 block; G-F6 and G-F12 warn. The split is not caution: both
+blocking gates describe a call that breaks, and both pass on every card that
+emits them. G-F6 fires on the shipped intake card, so promoting it would make
+the door unpublishable on the same commit -- and a gate introduced red is a gate
+people learn to route around, which is what `npm audit --audit-level=high` and
+the eslint warning budget are already pinned on here.
 
 `door_keys` is passed explicitly throughout rather than imported from
 `voice.flow_export`, so these run in a container without pipecat.
@@ -91,7 +92,7 @@ def test_a_hop_with_no_entry_node_lands_on_the_greeting() -> None:
         members=[_member()],
     )
     g = gates["G-F15"]
-    assert g.status == "warn"
+    assert g.status == "fail"
     assert g.issues[0]["member"] == "kaia-v2-4"
     assert g.issues[0]["entry_node"] == "greet_disclose"
     assert g.issues[0]["authored"] is False
@@ -122,7 +123,7 @@ def test_authoring_a_door_node_as_the_entry_is_still_caught() -> None:
         flow=_DOOR_FLOW,
         members=[_member()],
     )
-    assert gates["G-F15"].status == "warn"
+    assert gates["G-F15"].status == "fail"
     assert gates["G-F15"].issues[0]["authored"] is True
 
 
@@ -145,7 +146,7 @@ def test_a_member_missing_a_terminal_its_sibling_owns_is_caught() -> None:
         members=[_member(flow=_graph(["state_position", "negotiate_ptp"], start="state_position"))],
     )
     g = gates["G-F2"]
-    assert g.status == "warn"
+    assert g.status == "fail"
     assert [i["terminal"] for i in g.issues] == ["call_ended"]
     assert g.issues[0]["missing"] == ["kaia-v2-4"]
 
@@ -246,12 +247,18 @@ def test_every_emitted_id_is_registered() -> None:
         assert _GATE_NAMES[gate_id] == result.name
 
 
-def test_none_of_them_can_block_a_publish() -> None:
-    """Warn-level by design, for this phase. If one of these is ever promoted to
-    blocking, this test is the place that says so out loud."""
+def test_only_the_two_that_describe_a_broken_call_can_block() -> None:
+    """A card that trips all four. G-F15 and G-F2 block because the call is
+    broken either way -- the caller is re-greeted, or a member cannot reach a
+    terminal. G-F6 and G-F12 report on cards that ship today, so blocking on
+    them would make the door unpublishable on the commit that promoted them."""
     gates = _run(
         card=_card("intake-v1", tools=["load_skill"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
         flow=_DOOR_FLOW,
-        members=[_member(flow=_graph(["state_position"], start="state_position"))],
+        # Starts on a door node *and* owns no terminal: re-greets the caller and
+        # then cannot hang up on them.
+        members=[_member(flow=_graph(["greet_disclose", "state_position"], start="greet_disclose"))],
     )
-    assert [g.status for g in gates.values() if g.status == "fail"] == []
+    assert {g for g, r in gates.items() if r.status == "fail"} == {"G-F15", "G-F2"}
+    assert gates["G-F6"].status == "warn"
+    assert gates["G-F12"].status == "warn"
