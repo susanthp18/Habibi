@@ -41,10 +41,22 @@ def test_a_registered_id_cannot_be_given_a_second_name() -> None:
 
 
 def test_reserved_ids_are_not_yet_in_use() -> None:
-    """G-F12/15/16 are spoken for by design; taking one by accident is the bug
-    the registry exists to prevent."""
-    for reserved in ("G-F12", "G-F15", "G-F16"):
-        assert reserved not in _GATE_NAMES
+    """G-F16 is spoken for by design; taking one by accident is the bug the
+    registry exists to prevent.
+
+    G-F12 and G-F15 left this list when they were built (`fleet.compile
+    .fleet_gates`), which is the only way an id may leave it -- being claimed,
+    with a name, by code that runs.
+    """
+    assert "G-F16" not in _GATE_NAMES
+
+
+def test_the_fleet_gates_that_were_reserved_now_have_the_names_they_were_reserved_for() -> None:
+    """Two designs each independently specified a `G-F12`, which is why the
+    registry exists. Pinning the name against the reservation is what stops the
+    id being reused for something else later."""
+    assert _GATE_NAMES["G-F12"] == "publish_scope"
+    assert _GATE_NAMES["G-F15"] == "fleet_hop"
 
 
 @pytest.mark.parametrize("bot_id", sorted(FIRST_PARTY_BOT_IDS))

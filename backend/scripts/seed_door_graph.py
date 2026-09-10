@@ -80,6 +80,34 @@ def door_graph() -> dict:
     return graph
 
 
+def entry_nodes_for(card_raw: dict) -> dict[str, str]:
+    """Where each handoff should land, derived from the target's own graph.
+
+    `CardHandoff.entry_node` defaults to "" and is documented as "that member's
+    start node". There is no start node to fall back to: `namespaced` clears
+    `isStart` on every non-primary member, so `_merge_members` picks "the first
+    node in the list", which for a collections graph is `greet_disclose`. The
+    hop would greet an already-verified caller and read the recording
+    disclosure a second time.
+
+    Derived rather than a hand-written {bot_id: node} map: the first node in the
+    target's own order that is not a door node is the point where its business
+    starts, and a map would drift the first time a member's graph changed.
+    """
+    from db_prompt_studio import _fleet_members
+    from voice.flow_export import _DOOR_KEYS
+
+    out: dict[str, str] = {}
+    # `_fleet_members` is the same reader the compiler uses to build the merged
+    # graph, so the node this picks is a node that will actually be there.
+    for member in _fleet_members(card_raw):
+        keys = [str(n.get("key") or "") for n in (member.get("flow") or {}).get("nodes") or []]
+        business = [k for k in keys if k and k not in _DOOR_KEYS]
+        if business:
+            out[str(member.get("bot_id") or "")] = business[0]
+    return out
+
+
 def _draft_for(bot_id: str) -> dict | None:
     import db
     from sqlalchemy import text
@@ -125,6 +153,24 @@ def main() -> int:
     row = dps.patch_prompt_version(draft["id"], {"flow": graph})
     stored = row.get("flow") or {}
     print(f"wrote {len(stored.get('nodes', []))} nodes to {draft['id']}")
+
+    # Author where each hop lands. Without this the merged graph sends a
+    # verified caller back to `greet_disclose` in the receiving member -- G-F15
+    # is the gate that says so, and this is the fix it asks for.
+    card = row.get("agentCard") or {}
+    entries = entry_nodes_for(card)
+    changed = []
+    for hop in card.get("handoffs") or []:
+        target = str(hop.get("to_bot_id") or "")
+        want = entries.get(target)
+        if want and hop.get("entry_node") != want:
+            hop["entry_node"] = want
+            changed.append(f"{target} -> {want}")
+    if changed:
+        row = dps.patch_prompt_version(draft["id"], {"agentCard": card})
+        print("authored entry_node:", ", ".join(changed))
+    else:
+        print("entry_node: nothing to author")
 
     report = dps.compile_agent_studio_card(args.bot, prompt_version_id=draft["id"])
     bad = [

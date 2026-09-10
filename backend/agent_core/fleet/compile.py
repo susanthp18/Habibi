@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import flow_graph as fg
-from agent_core.cards.compile import CompileReport, node_offers
+from agent_core.cards.compile import CompileReport, GateResult, _gate, node_offers
 from agent_core.cards.schema import AgentCard, is_authored, parse_card
 from agent_core.fleet.schema import (
     ChannelGrant,
@@ -319,3 +319,207 @@ def parity_report(
         "live_only": sorted(live_set - bundle_set),
         "bundle_only": sorted(bundle_set - live_set),
     }
+
+
+# ---------------------------------------------------------------------------
+# Fleet gates
+#
+# These need the *merged* graph, which is why they live here and not in
+# cards/compile.py. Their ids are registered in that module's `_GATE_NAMES`
+# all the same: the id space is one space wherever the gate runs, and `_gate`
+# asserts against it.
+# ---------------------------------------------------------------------------
+
+#: Nodes every member must be able to reach, whoever is speaking.
+#:
+#: `resolve_key` tries the speaking member's namespace first, so a duplicated
+#: terminal is safe *if every namespace has one* and fatal if only some do: a
+#: member without its own `call_ended` resolves through the third tier into a
+#: sibling's, or -- once two siblings own one -- resolves to nothing at all,
+#: because `resolve_key` calls that ambiguous and returns None. A caller whose
+#: `end_call` returns None is a caller nobody can hang up on.
+_TERMINAL_KEYS: frozenset[str] = frozenset(
+    {"call_ended", "pre_close", "terminate_politely", "escalate_close"}
+)
+
+#: What a door may hold.
+#:
+#: An allowlist, not a deny-list, because a deny-list fails open on the next
+#: tool anyone adds to the catalog. `ToolSpec.entity` was the tempting derived
+#: signal -- "this tool creates a CRM record" -- but it marks only six tools and
+#: misses `apply_goodwill`, which moves money. A gate that would let a door
+#: write off a balance is worse than one with a list in it.
+#:
+#: The rule the list encodes: a door may identify the caller, read what it needs
+#: to route, answer a general question, record what happened, and leave. It may
+#: not change the borrower's record, and it may not widen its own tool surface
+#: at runtime -- which is why `load_skill` and `run_skill_script` are absent.
+_DOOR_TOOLS: frozenset[str] = frozenset(
+    {
+        "verify_identity",
+        "identify_customer",
+        "capture_call_goal",
+        "get_customer_context",
+        "search_knowledge_base",
+        "add_customer_note",
+        "handoff_to_agent",
+        "escalate_to_human",
+    }
+)
+
+
+def _namespace_locals(fleet_flow: dict[str, Any]) -> dict[str, set[str]]:
+    """namespace -> the local node keys it owns."""
+    out: dict[str, set[str]] = {}
+    for node in fleet_flow.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        namespace, local = fg.split_key(str(node.get("key") or ""))
+        if namespace:
+            out.setdefault(namespace, set()).add(local)
+    return out
+
+
+def fleet_gates(
+    *,
+    primary_bot_id: str,
+    card_raw: dict[str, Any] | None,
+    flow: dict[str, Any],
+    members: Sequence[dict[str, Any]],
+    door_keys: frozenset[str] | None = None,
+) -> list[GateResult]:
+    """G-F2, G-F6, G-F12 and G-F15 over the merged fleet graph.
+
+    All warn-level for now. Every one of them reports on cards that are already
+    published, so introducing them as blocking would make live cards
+    unpublishable on the commit that added the gate -- and a gate introduced red
+    is a gate people learn to route around.
+
+    Returns ``[]`` when there is no fleet: a single-member card has no hop to
+    check, no sibling to share a terminal with, and no door.
+    """
+    card: AgentCard | None = None
+    if isinstance(card_raw, dict) and is_authored(card_raw):
+        try:
+            card = parse_card(card_raw)
+        except Exception:
+            # G0 already reports an unparseable card. Emitting a second failure
+            # for the same cause would double-count it.
+            card = None
+
+    if door_keys is None:
+        try:
+            from voice.flow_export import _DOOR_KEYS as door_keys  # type: ignore[no-redef]
+        except Exception:
+            # The API container has no pipecat, so `voice` will not import
+            # there. Skipping is honest; claiming a pass would not be.
+            return [
+                _gate("G-F15", "fleet_hop", "skipped", "door key list unavailable here")
+            ]
+
+    fleet_flow, entries, _grants = _merge_members(
+        primary_bot_id=primary_bot_id,
+        primary_flow=flow if isinstance(flow, dict) else {},
+        # Grants are not read by any gate here; `_merge_members` needs the
+        # argument to build `grant_by_specialist`, which is discarded.
+        primary_grant=set(),
+        members=members,
+    )
+    if not entries:
+        return []
+
+    gates: list[GateResult] = []
+    owned = _namespace_locals(fleet_flow)
+
+    # G-F15 -- where a hop lands.
+    #
+    # `CardHandoff.entry_node` defaults to "", documented as "that member's
+    # start node". There is no start node: `namespaced(keep_start=False)` clears
+    # `isStart` on every non-primary member, so `_merge_members.entry_of` falls
+    # through to "the first node in the list" -- `greet_disclose`. A hop into
+    # collections would greet the caller and read the recording disclosure a
+    # second time, mid-call, after they had already been verified.
+    landings: list[dict[str, Any]] = []
+    declared = {h.to_bot_id: (h.entry_node or "") for h in (card.handoffs if card else [])}
+    for namespace, entry in sorted(entries.items()):
+        if namespace == primary_bot_id:
+            continue
+        local = fg.local_key(entry)
+        authored = declared.get(namespace, "")
+        effective = authored or local
+        if effective in door_keys:
+            landings.append(
+                {
+                    "member": namespace,
+                    "entry_node": effective,
+                    "authored": bool(authored),
+                    "why": "a hop lands on a door node and replays greeting/disclosure",
+                }
+            )
+    gates.append(
+        _gate(
+            "G-F15",
+            "fleet_hop",
+            "warn" if landings else "pass",
+            (
+                f"{len(landings)} hop(s) land on a door node — "
+                "author entry_node on the handoff edge"
+            )
+            if landings
+            else f"{len(entries) - 1} hop(s) land on a business node",
+            landings,
+        )
+    )
+
+    # G-F2 -- complete residency, not exclusive ownership.
+    partial: list[dict[str, Any]] = []
+    for key in sorted(_TERMINAL_KEYS):
+        owners = {ns for ns, locals_ in owned.items() if key in locals_}
+        if owners and owners != set(owned):
+            partial.append(
+                {"terminal": key, "owned_by": sorted(owners), "missing": sorted(set(owned) - owners)}
+            )
+    gates.append(
+        _gate(
+            "G-F2",
+            "door_and_terminals",
+            "warn" if partial else "pass",
+            (
+                f"{len(partial)} terminal(s) exist in some members and not others"
+                if partial
+                else f"{len(owned)} namespace(s) agree on the terminals"
+            ),
+            partial,
+        )
+    )
+
+    # G-F6 -- a door that can do business is not a door.
+    extra = sorted(set((card.tools.include if card else []) or []) - _DOOR_TOOLS)
+    gates.append(
+        _gate(
+            "G-F6",
+            "door_readonly",
+            "warn" if extra else "pass",
+            (
+                f"the door holds {len(extra)} tool(s) beyond routing: {', '.join(extra)}"
+                if extra
+                else "the door can identify, read, route and leave, and nothing else"
+            ),
+            [{"beyond_routing": extra}] if extra else [],
+        )
+    )
+
+    # G-F12 -- informational until publish is split into member and fleet scope.
+    gates.append(
+        _gate(
+            "G-F12",
+            "publish_scope",
+            "warn",
+            (
+                f"publishing {primary_bot_id} deploys {len(entries)} member(s) as one "
+                "bundle; a member cannot ship alone"
+            ),
+            [{"members": sorted(entries)}],
+        )
+    )
+    return gates

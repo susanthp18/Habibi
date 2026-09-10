@@ -970,7 +970,18 @@ def compile_agent_studio_card(
         prompt=mouth.get("prompt"),
         prompt_guardrails=mouth.get("guardrails") if isinstance(mouth.get("guardrails"), dict) else {},
     )
-    from agent_core.fleet.compile import compile_bundle
+    from agent_core.fleet.compile import compile_bundle, fleet_gates
+
+    # Warn-level, and appended rather than folded into `compile_card` because
+    # they need the merged graph, which only exists once the members are known.
+    report.gates.extend(
+        fleet_gates(
+            primary_bot_id=bot_id,
+            card_raw=card if isinstance(card, dict) else {},
+            flow=graph if isinstance(graph, dict) else {},
+            members=_fleet_members(card),
+        )
+    )
 
     bundle = compile_bundle(
         report=report,
@@ -2214,6 +2225,22 @@ def publish_prompt_version(
             prompt_guardrails=(
                 target.get("guardrails") if isinstance(target.get("guardrails"), dict) else {}
             ),
+        )
+        # The fleet gates run here, before the assert, rather than alongside
+        # `compile_bundle` further down. They are warn-level today so this
+        # changes no publish outcome -- which is the point of wiring them now:
+        # when G-F2/G-F6/G-F15 are promoted to blocking, the promotion is a
+        # status change in one function and not new plumbing on the publish
+        # path.
+        from agent_core.fleet.compile import fleet_gates as _fleet_gates
+
+        report.gates.extend(
+            _fleet_gates(
+                primary_bot_id=bot_id,
+                card_raw=card_raw if isinstance(card_raw, dict) else {},
+                flow=target.get("flow") if isinstance(target.get("flow"), dict) else {},
+                members=_fleet_members(card_raw),
+            )
         )
         _assert_card(report)
         # Fold the shipped experiment back into the card. The deployment row

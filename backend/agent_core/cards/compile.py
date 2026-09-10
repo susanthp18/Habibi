@@ -187,9 +187,11 @@ _OUTBOUND_GATE_NAMES: dict[str, str] = {
 #: taken.
 #:
 #: The ``G-F`` prefix is a separate space from ``G``: G4 (``tools``) and G-F4
-#: (``handoff_is_an_edge``) coexist deliberately. Reserved but not yet built:
-#: G-F15 ``fleet_hop`` and G-F16 ``gate_monotonicity``; G-F12 belongs to publish
-#: scope and lands with the Door.
+#: (``handoff_is_an_edge``) coexist deliberately. The fleet gates that need the
+#: merged graph -- G-F2, G-F6, G-F12, G-F15 -- are emitted from
+#: ``agent_core.fleet.compile.fleet_gates`` and registered here, because the id
+#: space is one space wherever the gate runs. Reserved but not yet built: G-F16
+#: ``gate_monotonicity``.
 _GATE_NAMES: dict[str, str] = {
     "G0": "schema",
     "G1": "flowValid",
@@ -212,9 +214,13 @@ _GATE_NAMES: dict[str, str] = {
     "G18": "connector_is_offerable",
     "G-LINT": "prompt_lint",
     "G-OB9": "outbound",
+    "G-F2": "door_and_terminals",
     "G-F4": "handoff_is_an_edge",
+    "G-F6": "door_readonly",
     "G-F7": "carry_is_fact_only",
     "G-F11": "text_walkability",
+    "G-F12": "publish_scope",
+    "G-F15": "fleet_hop",
     **_OUTBOUND_GATE_NAMES,
 }
 
