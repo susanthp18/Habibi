@@ -27,6 +27,7 @@ Three states, all derived from real config:
 from __future__ import annotations
 
 import logging
+import os
 from collections import deque
 from typing import Any, Iterable
 
@@ -45,7 +46,11 @@ def _env_default_bot_id() -> str:
     """
     import db
 
-    return db.DEFAULT_BOT_ID
+    # Read at call time, not import time. `db.DEFAULT_BOT_ID` is a module
+    # constant frozen when db was imported, so returning it alone made this
+    # blind to a later change of BOT_ID -- which is exactly what
+    # `test_archiving_still_refuses_the_entry_card` does, and it caught this.
+    return (os.getenv("BOT_ID") or "").strip() or db.DEFAULT_BOT_ID
 
 
 def door_enabled() -> bool:
