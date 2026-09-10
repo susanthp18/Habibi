@@ -997,6 +997,112 @@ def compile_agent_studio_card(
     return report.model_copy(update={"bundle": bundle.model_dump(mode="json")}).model_dump()
 
 
+def recompile_published_bundle(bot_id: str) -> dict[str, Any]:
+    """Fill in `prompt_versions.compiled` for a card that is already live.
+
+    `compiled` is NULL on every published row, because the column landed after
+    they were published and only `publish_prompt_version` writes it. While it is
+    NULL, `deployment._dual_compute_parity` returns at its first guard: no parity
+    is logged, and `fleet_enabled()` is never even reached. So the compiled
+    artefact cannot be trusted before it is switched on, because nothing has
+    ever compared it to the live path.
+
+    **This is not a republish, and the difference matters.**
+    `publish_prompt_version` archives the live row, inserts a new
+    `bot_deployments` row, re-snapshots frozen connector tools, re-applies the
+    tuning overlay and rewrites the card through `model_dump`. Running it on an
+    unchanged card is therefore a real production swap of the deployment every
+    inbound call resolves, and it would rewrite the card in the same motion.
+    This writes two columns and changes no row's identity: `compiled` on the
+    published version, and `bundle_hash` on the deployment that is already
+    active. Reversal is `UPDATE prompt_versions SET compiled = NULL`.
+
+    Compile members before the door: `_fleet_members` reads each member's
+    *published* row, so a door compiled first would merge whatever those rows
+    held at the time.
+    """
+    _mod = _db()
+    engine = _mod.engine
+    _one = _mod._one
+    _jsonb = _mod._jsonb
+    _tenant = _mod._tenant
+
+    with engine.connect() as conn:
+        live = _one(
+            conn.execute(
+                text(
+                    "SELECT id FROM prompt_versions "
+                    " WHERE bot_id = :b AND status = 'published' AND tenant_id = :t "
+                    " LIMIT 1"
+                ),
+                {"b": bot_id, "t": _tenant()},
+            )
+        )
+    if live is None:
+        raise KeyError(f"no_published_version: {bot_id}")
+
+    # Named explicitly. `compile_agent_studio_card(bot_id)` with no version
+    # resolves the *draft* when there is one -- correct for a preview, wrong
+    # here: it would stamp the column the runtime reads with an artefact
+    # compiled from a card nobody has published.
+    report = compile_agent_studio_card(bot_id, prompt_version_id=str(live["id"]))
+    bundle = report.get("bundle") or {}
+    bundle_hash = str(bundle.get("bundle_hash") or "")
+    version_id = str(bundle.get("prompt_version_id") or "")
+    if not bundle_hash or not version_id:
+        raise ValueError(f"no compiled bundle for {bot_id}")
+
+    with engine.begin() as conn:
+        if not _column_exists(conn, "prompt_versions", "compiled"):
+            raise RuntimeError("prompt_versions.compiled does not exist")
+        row = _one(
+            conn.execute(
+                text(
+                    "SELECT id, status FROM prompt_versions "
+                    "WHERE id = :id AND tenant_id = :t"
+                ),
+                {"id": version_id, "t": _tenant()},
+            )
+        )
+        if row is None:
+            raise KeyError(f"prompt_version_not_found: {version_id}")
+        if row["status"] != "published":
+            # Only the live row. A draft's bundle is what the preview is for,
+            # and stamping one here would put an artefact nothing serves into
+            # the column the runtime reads.
+            raise ValueError(f"prompt_version_not_published: {version_id}")
+
+        conn.execute(
+            text(
+                "UPDATE prompt_versions SET compiled = CAST(:c AS jsonb), "
+                "updated_at = now() WHERE id = :id AND tenant_id = :t"
+            ),
+            {"c": _jsonb(bundle), "id": version_id, "t": _tenant()},
+        )
+        deployments = 0
+        if _column_exists(conn, "bot_deployments", "bundle_hash"):
+            # No tenant predicate here, and it is not an omission:
+            # `bot_deployments` has no `tenant_id` column -- it reaches its
+            # tenant through `bot_id`, which is how `rls.plan` derives its
+            # policy at depth 1. `version_id` was matched against a
+            # tenant-scoped `prompt_versions` row three statements above, so
+            # the row this updates is already known to be ours.
+            deployments = conn.execute(
+                text(
+                    "UPDATE bot_deployments SET bundle_hash = :h "
+                    " WHERE prompt_version_id = :pv AND status = 'active'"
+                ),
+                {"h": bundle_hash, "pv": version_id},
+            ).rowcount
+
+    return {
+        "botId": bot_id,
+        "promptVersionId": version_id,
+        "bundleHash": bundle_hash,
+        "deploymentsStamped": int(deployments or 0),
+    }
+
+
 def _fleet_members(card_raw: Any) -> list[dict[str, Any]]:
     """The published card and flow of every agent this one hands off to.
 
