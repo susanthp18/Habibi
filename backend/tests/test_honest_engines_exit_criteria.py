@@ -33,6 +33,7 @@ def test_missing_honest_engines_schema_fails_the_profile(db_tx) -> None:
         assert schema_ready.w7_ready(db_tx), "0115 missing"
         assert schema_ready.w8_ready(db_tx), "0116 missing"
         assert schema_ready.retention_ready(db_tx), "0117 missing"
+        assert schema_ready.w11_ready(db_tx), "0120 missing"
         return
     # Default suite still proves the files exist; the require-schema profile
     # is what must fail closed when a scratch DB is missing the waves.
@@ -44,6 +45,7 @@ def test_missing_honest_engines_schema_fails_the_profile(db_tx) -> None:
     assert (BACKEND / "alembic" / "versions" / "20260909_0115_analysis_panel.py").is_file()
     assert (BACKEND / "alembic" / "versions" / "20260909_0116_engine_config.py").is_file()
     assert (BACKEND / "alembic" / "versions" / "20260909_0117_retention.py").is_file()
+    assert (BACKEND / "alembic" / "versions" / "20260910_0120_promotion_gate.py").is_file()
 
 
 def test_fresh_sql_vocabulary_includes_w5() -> None:
@@ -102,6 +104,51 @@ def test_fresh_sql_vocabulary_includes_w9() -> None:
     # planner decision away.
     assert "PRIMARY KEY (tenant_id, id)" in sql
     assert (BACKEND / "alembic" / "versions" / "20260909_0119_perception.py").is_file()
+
+
+def test_fresh_sql_vocabulary_includes_w11() -> None:
+    sql = (BACKEND / "sql" / "31_promotion_gate.sql").read_text(encoding="utf-8")
+    assert "treatment_pre_registrations" in sql
+    # §8.12 gate 14's contents. A pre-registration missing any of these is a
+    # note, and every one of them is what somebody would otherwise decide after
+    # seeing the number it is meant to constrain.
+    for column in (
+        "primary_endpoint",
+        "horizon_days",
+        "estimator",
+        "threshold",
+        "family_size",
+        "alpha_spending",
+        "stopping_rule",
+    ):
+        assert f"{column} " in sql, column
+    # §8.12 gate 15, as a database constraint rather than as application code --
+    # the same choice engine_config and retention_rules already made.
+    assert "ck_treatment_prereg_maker_checker" in sql
+    assert "validator" in sql and "author" in sql
+    assert "pre_registration_id" in sql
+    assert (
+        BACKEND / "alembic" / "versions" / "20260910_0120_promotion_gate.py"
+    ).is_file()
+
+
+def test_the_promotion_gate_has_no_lift_shaped_bypass() -> None:
+    """§8.12: "A gate with a documented bypass is worse than no gate, because it
+    will be cited as evidence that the property was tested."
+
+    Gate 7 promotes on the confidence sequence's lower bound. An evaluation
+    written before W11a carries a ``lift`` and no ``lcb``, and accepting the
+    first in place of the second would make the new gate optional for exactly
+    the artifacts that predate it -- which is every artifact in the tree.
+    """
+    src = (
+        BACKEND / "agent_core" / "treatment" / "registry.py"
+    ).read_text(encoding="utf-8")
+    # ``lift`` survives only inside the refusal that names it, never as the
+    # quantity compared against the floor.
+    assert 'lift = evaluation.get("lift")' not in src
+    assert 'evaluation.get("lcb")' in src
+    assert "MIN_HOLDOUT_LIFT" in src
 
 
 def test_usage_events_carries_exactly_one_decision_link() -> None:

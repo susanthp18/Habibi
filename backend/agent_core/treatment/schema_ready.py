@@ -62,6 +62,11 @@ def w2_ready(conn: Any) -> bool:
     return has_column(conn, "treatment_decisions", "arm_propensity")
 
 
+def w11_ready(conn: Any) -> bool:
+    """Whether gates 14 and 15 can be evaluated at all on this database."""
+    return has_table(conn, "treatment_pre_registrations")
+
+
 def w1_ready(conn: Any) -> bool:
     return has_table(conn, "enactment_attempts") and has_column(
         conn, "treatment_decisions", "cancel_reason"

@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -33,7 +34,7 @@ from typing import Any, Mapping
 
 from sqlalchemy import text
 
-from agent_core.treatment import evaluation_seal, models
+from agent_core.treatment import evaluation_seal, models, prereg
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,27 @@ SERVING_PATHS: dict[str, str] = {
     "uplift": "models/treatment_uplift.json",
 }
 
-#: Minimum holdout improvement a challenger must show before it may serve.
+#: Minimum improvement a challenger must show before it may serve.
 #: Not zero: a challenger that ties the champion is a challenger that costs a
-#: deployment, a retraining cadence and an explanation, and buys nothing. The
-#: unit is whatever the evaluation reports as ``lift``.
+#: deployment, a retraining cadence and an explanation, and buys nothing.
+#:
+#: **The quantity compared against it is the lower bound, not the point
+#: estimate.** §8.12 gate 7: "the **confidence sequence's** lower bound on ΔEV
+#: in rupees per borrower clears a margin". A point estimate above a floor is a
+#: coin that landed the right way up; `ope.delta` produces the bound and
+#: `evaluation["lcb"]` is where it travels.
 MIN_HOLDOUT_LIFT = 0.005
+
+#: §8.12 gate 7's margin, as a multiple of the **measured** per-borrower
+#: recovery standard deviation.
+#:
+#: Not a rupee constant, and §8.12 says why at length: "nobody had computed the
+#: dispersion of per-case recovery: at a ₹3,000 mean and CV 1–4, at 14,600 cases
+#: with DE 3, the SE of Δ per case is ₹108–₹430, so a flat ₹1.50 margin is
+#: 0.3–1.4% of one standard error and does literally nothing." A margin that is
+#: a fraction of the book's own dispersion scales with the book; a rupee figure
+#: written down once does not.
+VALUE_MARGIN_SD_MULTIPLE = 0.05
 
 # --- The corpus gates -------------------------------------------------------
 # §8.10's rung 1, as numbers rather than as a paragraph. They are here rather
@@ -299,6 +316,131 @@ def corpus_objections(conn: Any, *, tenant_id: str) -> list[str]:
     return out
 
 
+def value_margin(conn: Any, *, tenant_id: str) -> tuple[float | None, str]:
+    """§8.12 gate 7's margin, measured. Returns ``(margin, basis)``.
+
+    ``margin`` is ``None`` when the panel cannot measure the dispersion, and
+    then ``basis`` says why. That is a refusal, not a licence to substitute a
+    constant: the whole point of §8.12's worked example is that an unmeasured
+    margin is indistinguishable from no margin, and the flat ₹1.50 it describes
+    passed every promotion it was ever shown.
+
+    The unit is the **borrower**, so cases are summed per customer before the
+    standard deviation is taken. Taking it over cases instead would divide by a
+    count of sweeps and report a dispersion smaller than the one a promotion is
+    actually exposed to.
+    """
+    from agent_core.treatment import schema_ready
+
+    if conn is None:
+        return None, "no connection, so the per-borrower recovery SD could not be measured"
+    if not schema_ready.has_table(conn, "analysis_panel"):
+        # Expected on a database behind W7, and not worth a stack trace. The
+        # answer is the same either way — unmeasurable is a refusal — but a
+        # genuine query failure should stay loud, which is why this is a probe
+        # rather than a broader except.
+        return None, (
+            "`analysis_panel` is absent on this database (W7, sql/26), so there "
+            "is no borrower-level reward to take a standard deviation of"
+        )
+    try:
+        with conn.begin_nested():
+            row = conn.execute(
+                text(
+                    """
+                    SELECT count(*)::int AS borrowers,
+                           stddev_samp(total) AS sd,
+                           avg(total) AS mean
+                    FROM (
+                      SELECT customer_id, sum(reward_inr)::float AS total
+                      FROM analysis_panel
+                      WHERE tenant_id = :tenant AND mature IS TRUE
+                        AND reward_inr IS NOT NULL
+                      GROUP BY customer_id
+                    ) per_borrower
+                    """
+                ),
+                {"tenant": tenant_id},
+            ).mappings().first()
+    except Exception as exc:
+        logger.exception("value margin could not be measured for %s", tenant_id)
+        return None, (
+            f"the per-borrower recovery SD could not be measured "
+            f"({exc.__class__.__name__}) — `analysis_panel` is W7's table and "
+            "this database may not carry it"
+        )
+
+    counts = dict(row or {})
+    borrowers = int(counts.get("borrowers") or 0)
+    sd = counts.get("sd")
+    if borrowers < 2 or sd is None:
+        return None, (
+            f"{borrowers} borrowers carry a mature panel reward, so the recovery "
+            "SD has no dispersion to measure — §8.12 gate 7's margin is a "
+            "multiple of that SD and there is nothing to take a multiple of"
+        )
+    sd = float(sd)
+    if not math.isfinite(sd) or sd <= 0:
+        return None, "the measured per-borrower recovery SD is not a positive finite number"
+    return (
+        VALUE_MARGIN_SD_MULTIPLE * sd,
+        f"{VALUE_MARGIN_SD_MULTIPLE} × ₹{sd:,.2f}, the measured per-borrower "
+        f"recovery SD over {borrowers} borrowers with mature panel rewards",
+    )
+
+
+def _value_objections(
+    conn: Any, *, tenant_id: str, evaluation: Mapping[str, Any]
+) -> list[str]:
+    """§8.12 gate 7 — the lower bound against a measured margin.
+
+    Three ways to fail, and the middle one is the one this wave exists for: an
+    evaluation that reports a lift and no bound is an evaluation from before the
+    gate changed shape, and accepting its ``lift`` as a fallback would make the
+    new gate optional. §8.12: "A gate with a documented bypass is worse than no
+    gate, because it will be cited as evidence that the property was tested."
+    """
+    out: list[str] = []
+    lcb = evaluation.get("lcb")
+    if isinstance(lcb, Mapping):  # an ope.sequence.Bound, serialised
+        if lcb.get("refusal"):
+            return [f"the confidence sequence could not be computed: {lcb['refusal']}"]
+        lcb = lcb.get("lower")
+    if lcb is None:
+        if evaluation.get("lift") is not None:
+            return [
+                "the evaluation reports a point estimate and no confidence-sequence "
+                "lower bound. §8.12 gate 7 promotes on the bound, and a point "
+                "estimate above a floor is a coin that landed the right way up — "
+                "re-run scripts/evaluate_policy.py under this build"
+            ]
+        return ["the evaluation carries no lower bound (`lcb`)"]
+
+    bound = float(lcb)
+    if not math.isfinite(bound):
+        return [f"the lower bound is {lcb}, which is not a number a gate can compare"]
+    if bound < MIN_HOLDOUT_LIFT:
+        out.append(
+            f"the lower bound is {bound:+.4f}, below the {MIN_HOLDOUT_LIFT:+.4f} "
+            "floor — a challenger that cannot be shown to beat the champion costs "
+            "a deployment and buys nothing"
+        )
+
+    margin, basis = value_margin(conn, tenant_id=tenant_id)
+    if margin is None:
+        out.append(
+            f"gate 7's margin could not be measured: {basis}. §8.12 makes an "
+            "unevaluable gate a refusal, and substituting a constant here is the "
+            "flat ₹1.50 margin that passed everything it was shown"
+        )
+    elif bound < margin:
+        out.append(
+            f"the lower bound is {bound:+.4f} against a margin of {margin:+.4f} "
+            f"({basis})"
+        )
+    return out
+
+
 def check(
     conn: Any,
     *,
@@ -307,6 +449,7 @@ def check(
     path: str | Path,
     evaluation: Mapping[str, Any] | None,
     allow_simulated: bool = False,
+    promoted_by: str = "",
 ) -> list[str]:
     """Every reason this challenger may not serve. Empty means it may.
 
@@ -342,20 +485,12 @@ def check(
 
     if evaluation is None:
         objections.append(
-            "no evaluation attached. Promotion is gated on holdout lift, and an "
+            "no evaluation attached. Promotion is gated on a lower bound, and an "
             "artifact with good training metrics and no holdout is precisely the "
             "thing the gate exists to stop"
         )
     else:
-        lift = evaluation.get("lift")
-        if lift is None:
-            objections.append("evaluation carries no lift figure")
-        elif float(lift) < MIN_HOLDOUT_LIFT:
-            objections.append(
-                f"holdout lift {float(lift):+.4f} is below the {MIN_HOLDOUT_LIFT:+.4f} "
-                "floor — a challenger that ties the champion costs a deployment and "
-                "buys nothing"
-            )
+        objections.extend(_value_objections(conn, tenant_id=tenant_id, evaluation=evaluation))
         if evaluation.get("trustworthy") is False:
             # The diagnostics, not the estimate. A number computed from forty
             # effective samples wearing ten thousand samples' confidence
@@ -364,6 +499,20 @@ def check(
                 "the evaluation reports itself as untrustworthy — read its effective "
                 "sample size and unsupported fraction before anything else"
             )
+        for reason in evaluation.get("objections") or []:
+            objections.append(f"the evaluation refuses itself: {reason}")
+
+    # Gates 14 and 15. Last, because they are about people rather than about the
+    # file, and an operator reading a refusal wants the arithmetic first.
+    objections.extend(
+        prereg.objections(
+            conn,
+            tenant_id=tenant_id,
+            target=target,
+            evaluation=evaluation,
+            promoted_by=promoted_by,
+        )
+    )
 
     if target == "uplift":
         if not artifact.control_arm:
@@ -418,6 +567,7 @@ def promote(
         path=path,
         evaluation=evaluation,
         allow_simulated=allow_simulated,
+        promoted_by=promoted_by,
     )
     if objections:
         raise PromotionRefused("; ".join(objections))
@@ -450,13 +600,22 @@ def promote(
             {"id": previous["id"], "now": _now(), "version": artifact.version},
         )
 
+    # The licence travels onto the champion row itself, so "why is this model
+    # serving?" resolves to a filed claim rather than to the evaluation blob it
+    # happens to be stored next to.
+    from agent_core.treatment import schema_ready
+
+    licence = ""
+    if schema_ready.w11_ready(conn):
+        licence = ", pre_registration_id = :prereg"
     conn.execute(
         text(
-            """
+            f"""
             UPDATE treatment_model_registry
             SET status = 'champion', promoted_at = :now, promoted_by = :by,
                 reason = :reason,
                 evaluation = COALESCE(CAST(:evaluation AS jsonb), evaluation)
+                {licence}
             WHERE tenant_id = :tenant AND target = :target
               AND version = :version AND artifact_sha = :sha
             """
@@ -470,6 +629,11 @@ def promote(
             "by": promoted_by,
             "reason": reason or None,
             "evaluation": json.dumps(dict(evaluation)) if evaluation else None,
+            **(
+                {"prereg": str((evaluation or {}).get(prereg.PREREG_FIELD) or "") or None}
+                if licence
+                else {}
+            ),
         },
     )
 

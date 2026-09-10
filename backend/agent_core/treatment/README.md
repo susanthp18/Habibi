@@ -503,11 +503,71 @@ Two questions, deliberately different machinery:
   treated arms only. The control arm is excluded: it is not a different ranking
   of the same actions, it is the absence of one.
 
-**Read the diagnostics before the estimate.** ESS, unsupported count and
-clipping are reported with every number, and `Estimate.trustworthy` is what
-gates a promotion. A deterministic logging policy has support on exactly one
-action per decision, so *every* disagreement is unsupported — which is why
+**Read the diagnostics before the estimate.** ESS, unsupported count, single-
+customer leverage and clipping are reported with every number, and
+`Estimate.objections` is what gates a promotion — a list of reasons with their
+numbers, not a boolean. A deterministic logging policy has support on exactly
+one action per decision, so *every* disagreement is unsupported — which is why
 exploration had to come first.
+
+**The ESS that gates is over borrowers, not rows** (§8.9 tier 0). Measured on
+`collections` 2026-09-10: the row figure reads **97.3 of 124** (a fraction of
+0.78, comfortably past the 10% floor) while the customer-aggregated figure reads
+**9.45 over 10 borrowers**. Both are published, because the gap between them is
+itself the diagnostic. `MAX_CUSTOMER_LEVERAGE` refuses any evaluation where one
+borrower carries more than a quarter of the total weight (§8.3).
+
+**The corpus is filtered on its equivalence class, and it is allowed to come
+back empty.** `ope.scan` returns a `CorpusScope` beside the observations: what
+was considered, what was excluded and why, each with a count. Contract-1 rows
+are excluded because `sql/05_collections.sql` has said since W2 that they are —
+they fuse P(arm) with P(action|arm) — and on the live book that is **every row**,
+so the honest answer is a refusal naming the number rather than an estimate over
+rows the schema excludes. Suppressed decisions are *kept*: `wait` is a real
+action with a logged propensity, and dropping it scored every policy against the
+population the engine had already decided to act on.
+
+### Δ-OPE, and the bound that gates
+
+`ope.delta(observations, champion, challenger)` estimates the **difference**
+directly (§8.9 tier 1). The variance reduction comes from agreement, which is
+also the trap: on the agreement set the difference is exactly zero and carries
+no information, so the interval that gates is computed on the **disagreement
+set** alone, through `cluster.bootstrap`. Below a minimum disagreement mass or a
+minimum ESS within it, `DeltaEstimate.evaluable` is false and says why.
+
+`sequence.py` is the instrument. A **predictable-mixture empirical-Bernstein
+confidence sequence** gives an anytime-valid lower bound — readable after every
+new borrower, forever, which is what makes a weekly retrain cadence honest where
+a fixed-sample bound would be thirteen chances a quarter to cross. That bound is
+`EV_lcb`, and §8.12 gate 7 promotes on it rather than on the point estimate.
+`sequence.logarithmic_smoothing` is the one-shot corroboration and never gates.
+The range `[lo, hi]` is **declared, not measured**: a value outside it is a
+refusal, because clamping would restore the guarantee by deleting the evidence
+against it.
+
+Gate 7's margin is `0.05 × the measured per-borrower recovery SD`, read from
+`analysis_panel`. Where the panel cannot measure it, `registry.value_margin`
+returns `None` and the gate refuses — §8.12's worked example is that an
+unmeasured margin is indistinguishable from no margin.
+
+### Pre-registration and sign-off (gates 14 and 15)
+
+`prereg.py` and `treatment_pre_registrations` (`sql/31`, migration 0120). The
+threshold, endpoint, horizon, estimator, family size, alpha schedule and
+stopping rule are filed **before** the challenger runs, and the gate compares
+`filed_at` against the evaluation's `computed_at` — which sits inside the body
+W10a's HMAC covers, so it cannot be backdated without the key. Gate 2 and Gate
+14 are one mechanism read twice.
+
+The author is recorded there because there was nowhere else, which is what
+unblocks Gate 15: `validator <> author` is a database CHECK, the same choice
+`engine_config` and `retention_rules` already made, and the promoter may not be
+the author either.
+
+    python scripts/pre_register.py file --target uplift --author alice ...
+    python scripts/evaluate_policy.py --pre-registration TPR-... --artifact ...
+    python scripts/pre_register.py sign --id TPR-... --validator bob
 
 Measured on a 400-account, 10-day simulated book: the greedy-on-logged-EV policy
 scores SNIPS 0.594 against a logged baseline of 0.540, ESS 64%, 0 unsupported —

@@ -386,7 +386,10 @@ def _evaluation(path=None, **over):
     """
     from agent_core.treatment import evaluation_seal, registry
 
-    base = {"lift": 0.04, "trustworthy": True, "ate": 0.18}
+    # W11a moved gate 7 onto the confidence-sequence lower bound, in rupees per
+    # borrower, and made a bare ``lift`` a refusal rather than a fallback -- so
+    # the evaluation this helper builds is the one the gate now reads.
+    base = {"lcb": 500.0, "trustworthy": True, "ate": 0.18}
     if path is not None:
         base["artifact_sha"] = registry._sha(Path(path))
     base.update(over)
@@ -444,6 +447,76 @@ def _seed_corpus(db_tx, tenant_id: str = "hdfc.retail") -> None:
         ),
         {"tenant": tenant_id, "schema": _schema_version()},
     )
+    # W11a's gate 7 takes its margin from the measured per-borrower recovery SD
+    # (§8.12), so a corpus that clears rung 1 and carries no panel still refuses
+    # -- correctly, and for a reason that has nothing to do with the challenger.
+    # Rewards vary because the margin is a multiple of their dispersion and a
+    # constant reward has none.
+    if _has_table(db_tx, "analysis_panel"):
+        db_tx.execute(
+            _text(
+                """
+                INSERT INTO analysis_panel (
+                  id, tenant_id, customer_id, account_id, trigger_kind, spell_ref,
+                  variant, randomised_at, decisions, reward_inr, observed_days,
+                  mature, first_decision_at, last_decision_at
+                )
+                SELECT 'w10-case-' || g, :tenant, 'w10-seed-' || g, NULL,
+                       'dpd_tick', 'spell-' || g,
+                       CASE WHEN g > 250 THEN 'null_treatment' ELSE 'control' END,
+                       now() - interval '120 days', 1, (g % 37) * 500.0, 90,
+                       TRUE, now() - interval '120 days', now() - interval '30 days'
+                  FROM generate_series(1, 550) g
+                ON CONFLICT ON CONSTRAINT uq_analysis_panel_case DO NOTHING
+                """
+            ),
+            {"tenant": tenant_id},
+        )
+
+
+def _has_table(conn, name: str) -> bool:
+    from agent_core.treatment import schema_ready
+
+    return schema_ready.has_table(conn, name)
+
+
+def _prereg(db_tx, *, tenant_id: str = "hdfc.retail", target: str = "uplift") -> dict:
+    """A filed, signed pre-registration and a `computed_at` after it — gates 14/15.
+
+    The author is neither the validator nor the promoter, because both of those
+    are database-enforced (`sql/31_promotion_gate.sql`) rather than conventions
+    this helper is free to bend.
+    """
+    from datetime import timedelta
+
+    from agent_core.treatment import prereg
+
+    record = prereg.declare(
+        db_tx,
+        tenant_id=tenant_id,
+        target=target,
+        primary_endpoint="cure within the primary horizon",
+        horizon_days=90,
+        estimator="delta-OPE with an empirical-Bernstein CS lower bound",
+        threshold=100.0,
+        threshold_basis="0.05 x measured per-borrower recovery SD",
+        family_size=4,
+        alpha_spending="none; the confidence sequence is anytime-valid",
+        stopping_rule="promote at the first look whose lower bound clears the margin",
+        author="analyst",
+    )
+    prereg.sign(db_tx, pre_registration_id=record["id"], validator="reviewer")
+    return {
+        "pre_registration_id": record["id"],
+        "computed_at": (record["filed_at"] + timedelta(seconds=1)).isoformat(),
+    }
+
+
+def _require_w11(db_tx) -> None:
+    from agent_core.treatment import schema_ready
+
+    if not schema_ready.w11_ready(db_tx):
+        pytest.skip("treatment_pre_registrations absent (sql/31_promotion_gate.sql)")
 
 
 def test_promotion_is_refused_without_holdout_evidence(db_tx, tmp_path) -> None:
@@ -469,7 +542,7 @@ def test_a_challenger_that_ties_the_champion_is_refused(db_tx, tmp_path) -> None
     path = _write(tmp_path, {})
     objections = registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(path, lift=0.0001),
+        evaluation=_evaluation(path, lcb=0.0001),
     )
     assert any("below the" in o for o in objections)
 
@@ -521,11 +594,13 @@ def test_a_simulated_artifact_cannot_promote_by_accident(db_tx, tmp_path) -> Non
     from agent_core.treatment import registry
 
     models._reset_warnings()
+    _require_w11(db_tx)
     _seed_corpus(db_tx)
+    filed = _prereg(db_tx)
     path = _write(tmp_path, {"corpus": "simulated"})
     objections = registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(path),
+        evaluation=_evaluation(path, **filed), promoted_by="tester",
     )
     assert any("does not exist" in o for o in objections)
     # ... and with the exception argued, nothing else objects. A gate that can
@@ -534,7 +609,8 @@ def test_a_simulated_artifact_cannot_promote_by_accident(db_tx, tmp_path) -> Non
     # binding can all be satisfied at once.
     assert registry.check(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=path,
-        evaluation=_evaluation(path), allow_simulated=True,
+        evaluation=_evaluation(path, **filed), allow_simulated=True,
+        promoted_by="tester",
     ) == []
 
 
@@ -546,7 +622,9 @@ def test_promotion_installs_the_file_and_retires_the_incumbent(db_tx, tmp_path) 
     from agent_core.treatment import registry
 
     models._reset_warnings()
+    _require_w11(db_tx)
     _seed_corpus(db_tx)
+    filed = _prereg(db_tx)
     serving = tmp_path / "serving.json"
 
     _write(tmp_path, {"version": "v1"})
@@ -555,7 +633,7 @@ def test_promotion_installs_the_file_and_retires_the_incumbent(db_tx, tmp_path) 
     )
     out = registry.promote(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=tmp_path / "v1.json",
-        evaluation=_evaluation(tmp_path / "v1.json"), promoted_by="tester",
+        evaluation=_evaluation(tmp_path / "v1.json", **filed), promoted_by="tester",
         serving_path=serving,
     )
     assert out["retired"] is None
@@ -567,7 +645,7 @@ def test_promotion_installs_the_file_and_retires_the_incumbent(db_tx, tmp_path) 
     )
     out = registry.promote(
         db_tx, tenant_id="hdfc.retail", target="uplift", path=tmp_path / "v2.json",
-        evaluation=_evaluation(tmp_path / "v2.json"), promoted_by="tester",
+        evaluation=_evaluation(tmp_path / "v2.json", **filed), promoted_by="tester",
         serving_path=serving,
     )
     assert out["retired"] == "v1"
