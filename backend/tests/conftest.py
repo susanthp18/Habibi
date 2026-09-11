@@ -381,6 +381,16 @@ def _kb_model_path_off(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _eval_gates_off_unless_a_test_says_otherwise(monkeypatch):
+    """The dev stack ships with EVAL_GATE_ENABLED / REDTEAM_GATE_ENABLED on
+    (WS6). A test that publishes a fresh clone has no eval report for it
+    and would fail G7/G8 for a reason it is not about. tests/test_eval_provenance.py
+    turns them on explicitly."""
+    monkeypatch.setenv("EVAL_GATE_ENABLED", "false")
+    monkeypatch.setenv("REDTEAM_GATE_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
 def _treatment_is_deterministic_unless_a_test_says_otherwise(monkeypatch):
     """Pin the decision engine's stochastic dials to their code defaults.
 

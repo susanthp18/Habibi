@@ -1371,15 +1371,15 @@ def export_transcript_json(
         import storage
 
         if storage.is_configured():
-            try:
-                storage_ref = storage.put_bytes(
-                    key,
-                    raw,
-                    "application/json",
-                    bucket="recordings",
-                )
-            except Exception:
-                storage_ref = storage.put_bytes(key, raw, "application/json")
+            # No fallback into the KB bucket: a transcript filed beside the
+            # knowledge base sits under the wrong retention and the wrong
+            # readers. `ensure_bucket` provisions this one at boot.
+            storage_ref = storage.put_bytes(
+                key,
+                raw,
+                "application/json",
+                bucket=storage.RECORDINGS_BUCKET,
+            )
     except Exception:
         logger.exception("transcript export minio upload failed — falling back to local")
 

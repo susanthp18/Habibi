@@ -70,15 +70,14 @@ def upload_recording(
         import storage
 
         if storage.is_configured():
-            try:
-                storage_ref = storage.put_bytes(
-                    key,
-                    wav,
-                    "audio/wav",
-                    bucket="recordings",
-                )
-            except Exception:
-                storage_ref = storage.put_bytes(key, wav, "audio/wav")
+            # No fallback into the KB bucket (see voice/persist.py); the local
+            # disk fallback below is the honest one.
+            storage_ref = storage.put_bytes(
+                key,
+                wav,
+                "audio/wav",
+                bucket=storage.RECORDINGS_BUCKET,
+            )
     except Exception:
         logger.exception("minio upload failed — falling back to local disk")
 

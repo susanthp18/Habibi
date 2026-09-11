@@ -100,3 +100,23 @@ def test_every_worker_entrypoint_installs_a_log_handler() -> None:
             or "logging.basicConfig(" in src
             or "from voice import log_bridge" in src
         ), f"{module} installs no log handler"
+
+
+def test_every_bucket_the_platform_writes_is_provisioned(monkeypatch) -> None:
+    """WS8: ensure_bucket created the KB bucket alone, so a recording on a
+    fresh MinIO fell back into `collections-kb`."""
+    import storage
+
+    made: list[str] = []
+
+    class _Client:
+        def bucket_exists(self, b):
+            return False
+
+        def make_bucket(self, b):
+            made.append(b)
+
+    monkeypatch.setattr(storage, "is_configured", lambda: True)
+    monkeypatch.setattr(storage, "get_client", lambda: _Client())
+    storage.ensure_bucket()
+    assert set(made) == {storage.get_bucket(), storage.RECORDINGS_BUCKET}

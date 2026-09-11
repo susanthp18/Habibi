@@ -131,19 +131,30 @@ def get_bucket() -> str:
     return _cfg()["bucket"]
 
 
+#: Every bucket the platform writes. `ensure_bucket` created the KB bucket
+#: alone, so a recording or transcript on a fresh MinIO found no
+#: `recordings` bucket and fell back into `collections-kb` -- a call
+#: recording filed beside the knowledge base, under the KB's retention.
+RECORDINGS_BUCKET = "recordings"
+
+
+def buckets() -> tuple[str, ...]:
+    return (get_bucket(), RECORDINGS_BUCKET)
+
+
 def ensure_bucket() -> None:
-    """Create the KB bucket if missing. No-op when MinIO is not configured."""
+    """Create every bucket the platform writes. No-op when MinIO is not configured."""
     if not is_configured():
         logger.info("minio_skip_ensure reason=not_configured")
         return
     try:
         client = get_client()
-        bucket = get_bucket()
-        if not client.bucket_exists(bucket):
-            client.make_bucket(bucket)
-            logger.info("minio_bucket_created bucket=%s", bucket)
-        else:
-            logger.info("minio_bucket_ready bucket=%s", bucket)
+        for bucket in buckets():
+            if not client.bucket_exists(bucket):
+                client.make_bucket(bucket)
+                logger.info("minio_bucket_created bucket=%s", bucket)
+            else:
+                logger.info("minio_bucket_ready bucket=%s", bucket)
     except Exception as exc:
         # Do not crash API startup — upload routes will surface unavailability.
         logger.warning("minio_ensure_bucket_failed: %s", exc)
