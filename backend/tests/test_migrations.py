@@ -95,3 +95,31 @@ def test_alembic_upgrade_downgrade_roundtrip() -> None:
         # one revision behind breaks every later test in the session.
         restore = _alembic("upgrade", "head")
         assert restore.returncode == 0, restore.stderr + restore.stdout
+
+
+def test_every_mirrored_sql_file_has_exactly_one_migration() -> None:
+    """The chain cannot be replayed from any recorded base -- the initial
+    commit's ``sql/`` already carried what migration 0003 adds -- so drift is
+    caught by the mirror convention instead: from ``sql/24_*`` on, a migration
+    reads its DDL from the sql file it names. A deleted migration leaves its
+    mirror unreferenced; a deleted mirror leaves a migration dangling; both
+    fail here.
+    """
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    refs: dict[str, list[str]] = {}
+    for path in sorted((backend / "alembic" / "versions").glob("*.py")):
+        for name in re.findall(r'"sql"\s*/\s*"([^"]+\.sql)"', path.read_text(encoding="utf-8")):
+            refs.setdefault(name, []).append(path.name)
+    mirrored = sorted(
+        p.name for p in (backend / "sql").glob("*.sql") if 24 <= int(p.name.split("_")[0]) < 90
+    )
+    assert mirrored, "no mirrored sql files found"
+    unreferenced = [m for m in mirrored if m not in refs]
+    assert unreferenced == [], f"sql mirrors with no migration: {unreferenced}"
+    dangling = [n for n in refs if not (backend / "sql" / n).exists()]
+    assert dangling == [], f"migrations naming a missing sql mirror: {dangling}"
+    doubled = {n: v for n, v in refs.items() if len(v) > 1}
+    assert doubled == {}, f"sql mirror read by more than one migration: {doubled}"
