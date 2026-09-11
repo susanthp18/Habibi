@@ -176,12 +176,52 @@ def test_every_lifecycle_action_has_a_verb_the_log_can_render(cloned_bot: str) -
         "agent.restore",
         "agent.role_grants",
         "agent.experiment_rollback",
+        "agent.entry_binding",
     }
 
     db.archive_agent_studio_card(cloned_bot)
     db.restore_agent_studio_card(cloned_bot)
     for entry in _entries(cloned_bot):
         assert entry["action"] in emitted
+
+
+def test_the_screen_knows_every_verb_the_log_can_write() -> None:
+    """The half the Python-only test could not see. The two TypeScript maps
+    drifted from this list twice (`agent.restore`, then `agent.role_grants`
+    rendered as wire strings); there is one table now, and it is pinned here."""
+    from pathlib import Path
+
+    table = Path(__file__).resolve().parents[2] / "Habibi" / "src" / "lib" / "change-log-actions.ts"
+    if not table.exists():
+        pytest.skip("frontend not checked out beside the backend")
+    src = table.read_text(encoding="utf-8")
+    emitted = {
+        value
+        for name, value in vars(change_log).items()
+        if name.isupper() and isinstance(value, str) and value.startswith("agent.")
+    }
+    missing = sorted(a for a in emitted if f'"{a}"' not in src)
+    assert not missing, f"change-log-actions.ts has no row for {missing}"
+
+
+def test_a_rollback_records_the_gates_of_the_version_it_reships(cloned_bot: str) -> None:
+    """CHANGELOG-10: a rollback never recompiles, so it recorded no verdict at
+    all. It records the gates the re-shipped version passed at its publish."""
+    from agent_core import change_log as cl
+
+    with db.engine.begin() as conn:
+        row = cl.record_rollback(
+            conn,
+            tenant_id=db.current_tenant(),
+            actor_user_id=db._actor_user_id(),
+            entry_id="AUD-test-rollback-gates",
+            bot_id=cloned_bot,
+            to_deployment_id="DEP-x",
+            from_deployment_id=None,
+            version_id="pv-x",
+            report={"gates": [{"gate": "G0", "status": "pass"}, {"gate": "G6", "status": "warn"}]},
+        )
+    assert row["gates"] == {"G0": "pass", "G6": "warn"}
 
 
 def test_the_chain_detects_an_edited_entry(cloned_bot: str) -> None:

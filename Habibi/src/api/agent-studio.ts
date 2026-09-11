@@ -995,6 +995,8 @@ export type ChangeLogEntry = {
   changed?: ChangedComponent[];
   rollout?: { trafficPct: number; shadow: boolean; autoRollback: string[] };
   gates?: Record<string, string>;
+  /** component -> sha256 of what shipped; what the entry hash is made of. */
+  hashes?: Record<string, string>;
   /** agent.rollback / agent.archive. */
   replacedDeploymentId?: string | null;
   retiredDeploymentId?: string | null;
@@ -1011,7 +1013,12 @@ export type ChainVerdict = {
   reason: string | null;
 };
 
-export type ChangeLog = { entries: ChangeLogEntry[]; chain: ChainVerdict };
+export type ChangeLog = {
+  entries: ChangeLogEntry[];
+  chain: ChainVerdict;
+  /** Entries matching the filter, before the limit. */
+  total?: number;
+};
 
 const MOCK_CHANGE_LOG: ChangeLog = {
   entries: [

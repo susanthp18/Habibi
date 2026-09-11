@@ -147,3 +147,16 @@ def test_compile_preview_reads_the_draft_not_the_published_card(cloned_bot) -> N
 
     report = db.compile_agent_studio_card(cloned_bot)
     assert any(g["status"] == "fail" for g in report["gates"]), report["gates"]
+
+
+def test_a_restored_draft_keeps_the_label_it_restores(db_tx) -> None:
+    """HEADER-2: restore-as-draft stored a NULL label, so publishing the
+    restored draft stamped a row id as the version label."""
+    import db
+
+    published = db.get_published_prompt_version("kaia-v2-4")
+    if published is None:
+        pytest.skip("no published collections prompt")
+    draft = db.restore_prompt_version_as_draft(published["id"])
+    assert draft["label"] == published["label"]
+    assert draft["status"] == "draft"

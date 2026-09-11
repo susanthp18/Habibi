@@ -19,9 +19,9 @@ import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { changeVerb, parseLogTimestamp } from "@/lib/change-log-actions";
 import {
   archiveAvailability,
-  changeVerb,
   groupRoster,
   sandboxAvailability,
   type ActionAvailability,
@@ -314,8 +314,8 @@ function RecentChanges() {
             <span className="truncate text-body-small text-text-subtle">
               {latest
                 ? `${latest.actorUserId ?? "unknown"} ${changeVerb(latest.action)} ${latest.botId}${
-                    latest.at
-                      ? ` · ${new Date(latest.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                    parseLogTimestamp(latest.at)
+                      ? ` · ${parseLogTimestamp(latest.at)!.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
                       : ""
                   }`
                 : "nothing published, rolled back, archived or restored yet"}
@@ -376,14 +376,12 @@ function RecentChanges() {
                     </span>
                   ) : null}
                   <span className="ml-auto text-body-tiny text-text-subtlest">
-                    {entry.at
-                      ? new Date(entry.at).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "—"}
+                    {parseLogTimestamp(entry.at)?.toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }) ?? "—"}
                   </span>
                 </li>
               ))}

@@ -1067,7 +1067,12 @@ export function useEnsureStudioDraft() {
   return useMutation({
     meta: { errors: "caller" },
     mutationFn: ensureStudioDraft,
-    onSuccess: () => invalidatePromptStudio(qc),
+    // Narrow: a keystroke's autosave used to refetch the fleet, the card and
+    // any mounted compile preview -- a sixteen-gate POST per save.
+    onSuccess: (_row, vars) => {
+      void qc.invalidateQueries({ queryKey: VERSIONS_KEY });
+      void qc.invalidateQueries({ queryKey: ["agent-studio", "card", vars.botId] });
+    },
   });
 }
 

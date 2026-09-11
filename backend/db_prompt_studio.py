@@ -941,6 +941,7 @@ def agent_change_log(bot_id: str | None = None, *, limit: int = 50) -> dict[str,
             "entries": change_log.read_entries(
                 conn, tenant_id=_tenant(), bot_id=bot_id, limit=limit
             ),
+            "total": change_log.count_entries(conn, tenant_id=_tenant(), bot_id=bot_id),
             "chain": change_log.verify_chain(conn, tenant_id=_tenant()),
         }
 
@@ -2845,7 +2846,9 @@ def restore_prompt_version_as_draft(version_id: str) -> dict[str, Any]:
                 # a draft that is not actually the version it claims to restore.
                 "flow": _jsonb(_as_dict(source.get("flow"))),
                 "agent_card": _jsonb(_as_dict(source.get("agent_card"))),
-                "label": None,
+                # The source's label, carried. NULL here made a publish of the
+                # restored draft stamp a row id as the version label.
+                "label": source.get("label"),
                 "summary": f"restored from {src_label}",
             },
         )
@@ -3120,6 +3123,14 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
             # does, so it belongs in the same chain.
             from agent_core import change_log
 
+            # The gates the re-shipped version passed at its publish, from the
+            # bundle stored on it. A rollback recorded no verdict at all before.
+            compiled = _as_dict(
+                conn.execute(
+                    text("SELECT compiled FROM prompt_versions WHERE id = :id"),
+                    {"id": prompt_version_id},
+                ).scalar()
+            )
             change_log.record_rollback(
                 conn,
                 tenant_id=_tenant(),
@@ -3129,6 +3140,7 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                 to_deployment_id=new_id,
                 from_deployment_id=current["id"] if current else None,
                 version_id=prompt_version_id,
+                report=compiled,
             )
             try:
                 from agent_core.canary import close_running_experiments

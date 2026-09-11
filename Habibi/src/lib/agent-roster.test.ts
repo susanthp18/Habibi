@@ -166,6 +166,7 @@ describe("changeVerb", () => {
     expect(changeVerb("agent.restore")).toBe("restored");
     expect(changeVerb("agent.role_grants")).toBe("updated role grants");
     expect(changeVerb("agent.experiment_rollback")).toBe("rolled back experiment");
+    expect(changeVerb("agent.entry_binding")).toBe("changed an entry binding");
   });
 
   it("degrades an unknown action into something readable", () => {

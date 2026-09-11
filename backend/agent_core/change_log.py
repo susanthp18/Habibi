@@ -299,12 +299,18 @@ def record_rollback(
     to_deployment_id: str,
     from_deployment_id: str | None,
     version_id: str | None,
+    report: Any = None,
 ) -> dict[str, Any]:
-    """Rollback changes what callers hear just as much as publish does."""
+    """Rollback changes what callers hear just as much as publish does.
+
+    ``report`` is the compiled bundle stored on the version being re-shipped:
+    a rollback does not recompile, so the gates it records are the ones that
+    version passed when it was published. Recorded, not re-judged."""
     payload = {
         "deploymentId": to_deployment_id,
         "replacedDeploymentId": from_deployment_id,
         "versionId": version_id,
+        "gates": gate_summary(report),
     }
     return _write(
         conn,
@@ -449,6 +455,23 @@ def record_experiment_rollback(
     )
 
 
+def count_entries(conn: Any, *, tenant_id: str, bot_id: str | None = None) -> int:
+    """How many entries the filter matches, so a window can say it is one."""
+    from sqlalchemy import text as _text
+
+    clauses = ["tenant_id = :tenant", "entity_type = :entity"]
+    params: dict[str, Any] = {"tenant": tenant_id, "entity": _ENTITY_TYPE}
+    if bot_id:
+        clauses.append("entity_id = :bot")
+        params["bot"] = bot_id
+    return int(
+        conn.execute(
+            _text(f"SELECT count(*) FROM audit_log WHERE {' AND '.join(clauses)}"), params
+        ).scalar()
+        or 0
+    )
+
+
 def read_entries(
     conn: Any, *, tenant_id: str, bot_id: str | None = None, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -484,7 +507,13 @@ def read_entries(
                 "actorUserId": row["actor_user_id"],
                 "action": row["action"],
                 "botId": row["entity_id"],
-                "at": str(row["created_at"]) if row["created_at"] else None,
+                # ISO, not `str(datetime)`: Postgres's repr has a space where
+                # ISO has a T, and every consumer had to know that.
+                "at": (
+                    row["created_at"].isoformat()
+                    if hasattr(row["created_at"], "isoformat")
+                    else (str(row["created_at"]) if row["created_at"] else None)
+                ),
                 # The payload copies of `action` and `botId` are inside the
                 # digest; the `audit_log` columns above are not. Excluding them
                 # here meant the screen rendered the unhashed value, so editing

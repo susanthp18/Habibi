@@ -21,41 +21,81 @@
 // draw.
 // -----------------------------------------------------------------------------
 
+import { useState } from "react";
 import { AlertCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { useChangeLog, type ChainVerdict, type ChangeLogEntry } from "@/api/agent-studio";
+import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
-import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import { Lozenge } from "@/components/ui/lozenge";
+import {
+  actionLabel,
+  actionTone,
+  actionVerbList,
+  parseLogTimestamp,
+} from "@/lib/change-log-actions";
 import { partitionGates } from "@/lib/gate-status";
 
 // `agent.restore` was missing from both maps although the backend has recorded
 // it since `record_restore` landed, so a restore rendered as the raw string
 // "agent.restore" in a neutral chip — the one screen an auditor reads, spelling
 // an action in wire format because nobody added the row.
-const ACTION_LABEL: Record<string, string> = {
-  "agent.publish": "Published",
-  "agent.rollback": "Rolled back",
-  "agent.archive": "Archived",
-  "agent.restore": "Restored",
-};
-
-const ACTION_TONE: Record<string, LozengeTone> = {
-  "agent.publish": "success",
-  "agent.rollback": "warning",
-  "agent.archive": "neutral",
-  "agent.restore": "information",
-};
-
 const CHAIN_REASON: Record<string, string> = {
   prev_hash_mismatch: "a link does not point at the entry before it",
   entry_hash_mismatch: "an entry's contents no longer match its own hash",
 };
 
 function stamp(at: string | null): string {
-  if (!at) return "—";
-  const ms = Date.parse(at.replace(" ", "T"));
-  if (Number.isNaN(ms)) return at;
-  return new Date(ms).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const d = parseLogTimestamp(at);
+  if (!d) return at ?? "—";
+  return d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+}
+
+/**
+ * The evidence: the digests the entry hash is made of, and the link to the
+ * entry before. Fetched and dropped until now -- the response's most
+ * load-bearing fields, never rendered.
+ */
+function Evidence({ entry }: { entry: ChangeLogEntry }) {
+  const digests = Object.entries(entry.hashes ?? {});
+  return (
+    <dl className="mt-075 grid grid-cols-[auto_1fr] gap-x-150 gap-y-025 rounded-medium bg-surface-sunken px-100 py-075 font-mono text-body-tiny text-text-subtle">
+      {entry.seq != null && (
+        <>
+          <dt>seq</dt>
+          <dd>{entry.seq}</dd>
+        </>
+      )}
+      <dt>entry</dt>
+      <dd className="truncate" title={entry.entryHash ?? ""}>
+        {entry.entryHash ?? "—"}
+      </dd>
+      <dt>prev</dt>
+      <dd className="truncate" title={entry.prevHash ?? ""}>
+        {entry.prevHash ?? "— (first in chain)"}
+      </dd>
+      {entry.versionId && (
+        <>
+          <dt>version</dt>
+          <dd>{entry.versionId}</dd>
+        </>
+      )}
+      {entry.deploymentId && (
+        <>
+          <dt>deployment</dt>
+          <dd>{entry.deploymentId}</dd>
+        </>
+      )}
+      {digests.map(([component, digest]) => (
+        <span key={component} className="contents">
+          <dt>{component}</dt>
+          <dd className="truncate" title={digest}>
+            {digest}
+          </dd>
+        </span>
+      ))}
+    </dl>
+  );
 }
 
 function ChainBanner({ chain, entryCount }: { chain: ChainVerdict; entryCount: number }) {
@@ -85,8 +125,8 @@ function ChainBanner({ chain, entryCount }: { chain: ChainVerdict; entryCount: n
           <span className="text-body font-medium text-text">Nothing recorded yet</span>
         </div>
         <p className="mt-050 text-body-small text-text-subtle">
-          No agent has been published, rolled back or archived in this tenant, so there is no chain
-          to verify. This is not the same as a verified empty log.
+          No agent has been {actionVerbList()} in this tenant, so there is no chain to verify. This
+          is not the same as a verified empty log.
         </p>
       </div>
     );
@@ -107,6 +147,7 @@ function ChainBanner({ chain, entryCount }: { chain: ChainVerdict; entryCount: n
 }
 
 function EntryRow({ entry }: { entry: ChangeLogEntry }) {
+  const [showEvidence, setShowEvidence] = useState(false);
   // `warn` is not `fail`. This used to bucket everything that was neither
   // "pass" nor "skipped" as a failure and print it in red as "gates failed",
   // which turned a G10 warning — a verdict the compiler issues on publishes it
@@ -117,9 +158,7 @@ function EntryRow({ entry }: { entry: ChangeLogEntry }) {
   return (
     <li className="border-b border-border px-150 py-150 last:border-b-0">
       <div className="flex flex-wrap items-center gap-100">
-        <Lozenge tone={ACTION_TONE[entry.action] ?? "neutral"}>
-          {ACTION_LABEL[entry.action] ?? entry.action}
-        </Lozenge>
+        <Lozenge tone={actionTone(entry.action)}>{actionLabel(entry.action)}</Lozenge>
         {entry.versionLabel && (
           <span className="font-mono text-body-small text-text">
             {entry.previousVersionLabel ? `${entry.previousVersionLabel} → ` : ""}
@@ -163,18 +202,32 @@ function EntryRow({ entry }: { entry: ChangeLogEntry }) {
                 : `${gateCount} gates recorded`}
           </span>
         )}
+        {entry.action === "agent.rollback" && gateCount === 0 && (
+          <span className="text-text-subtlest">
+            gates as recorded at the original publish; a rollback re-ships without recompiling
+          </span>
+        )}
         {entry.entryHash && (
-          <code className="ml-auto font-mono text-text-subtlest" title={entry.entryHash}>
-            {entry.entryHash.slice(0, 12)}…
-          </code>
+          <button
+            type="button"
+            className="ml-auto font-mono text-text-subtlest underline-offset-2 hover:underline"
+            title={entry.entryHash}
+            aria-expanded={showEvidence}
+            onClick={() => setShowEvidence((v) => !v)}
+          >
+            {entry.entryHash.slice(0, 12)}… {showEvidence ? "hide" : "evidence"}
+          </button>
         )}
       </div>
+      {showEvidence && <Evidence entry={entry} />}
     </li>
   );
 }
 
 export function ChangeLogTab({ botId }: { botId: string }) {
-  const { data, isPending, isError, error } = useChangeLog(botId);
+  // Grows toward the API's 500 ceiling; the window used to be a silent 50.
+  const [limit, setLimit] = useState(50);
+  const { data, isPending, isError, error, isFetching } = useChangeLog(botId, limit);
 
   if (isPending) {
     return (
@@ -216,16 +269,32 @@ export function ChangeLogTab({ botId }: { botId: string }) {
         <div className="rounded-medium border border-dashed border-border bg-surface-sunken/40 px-200 py-250 text-center">
           <div className="text-body font-medium text-text">No entries for this card</div>
           <p className="mx-auto mt-050 max-w-prose text-body-small text-text-subtle">
-            This card has never been published, rolled back or archived. The chain verdict above is
-            tenant-wide and covers other cards.
+            This card has never been {actionVerbList()}. The chain verdict above is tenant-wide and
+            covers other cards.
           </p>
         </div>
       ) : (
-        <ul className="overflow-hidden rounded-medium border border-border bg-surface">
-          {entries.map((entry) => (
-            <EntryRow key={entry.id} entry={entry} />
-          ))}
-        </ul>
+        <>
+          <ul className="overflow-hidden rounded-medium border border-border bg-surface">
+            {entries.map((entry) => (
+              <EntryRow key={entry.id} entry={entry} />
+            ))}
+          </ul>
+          {data?.total != null && data.total > entries.length ? (
+            <div className="flex items-center gap-100 text-body-small text-text-subtle">
+              showing {entries.length} of {data.total} for this card
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isFetching || limit >= 500}
+                onClick={() => setLimit((n) => Math.min(500, n + 50))}
+              >
+                Load more
+              </Button>
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );

@@ -148,16 +148,4 @@ export function groupRoster<T extends GroupableCard>(cards: readonly T[]): Roste
   return groups;
 }
 
-/** Past tense, because the log records what happened rather than what to do. */
-const CHANGE_VERBS: Record<string, string> = {
-  "agent.publish": "published",
-  "agent.rollback": "rolled back",
-  "agent.archive": "archived",
-  "agent.restore": "restored",
-  "agent.role_grants": "updated role grants",
-  "agent.experiment_rollback": "rolled back experiment",
-};
-
-export function changeVerb(action: string): string {
-  return CHANGE_VERBS[action] ?? action.replace(/^agent\./, "").replace(/_/g, " ");
-}
+export { changeVerb } from "@/lib/change-log-actions";
