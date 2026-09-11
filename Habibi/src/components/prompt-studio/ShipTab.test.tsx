@@ -43,14 +43,16 @@ vi.mock("@/api/prompt-studio", () => ({
 const { ShipTab } = await import("./ShipTab");
 
 function show(state: Record<string, unknown>, experiments: Record<string, unknown> = {}) {
-  contract.state = { data: undefined, isPending: false, isError: false, error: undefined, ...state };
+  contract.state = {
+    data: undefined,
+    isPending: false,
+    isError: false,
+    error: undefined,
+    ...state,
+  };
   contract.experiments = { data: [], isPending: false, isError: false, ...experiments };
   return render(
-    <ShipTab
-      botId="kaia-v2-4"
-      value={{ trafficPct: 100, autoRollback: [] }}
-      onChange={() => {}}
-    />,
+    <ShipTab botId="kaia-v2-4" value={{ trafficPct: 100, autoRollback: [] }} onChange={() => {}} />,
   );
 }
 
@@ -121,18 +123,14 @@ describe("ShipTab · experiments", () => {
     // point is which sentence a reader is shown, and the file contains both
     // either way.
     show({}, { isError: true });
-    expect(
-      screen.getByText(/not a statement that none are running/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/not a statement that none are running/i)).toBeInTheDocument();
   });
 
   it("shows a running canary with its split and rollback triggers", () => {
     show(
       {},
       {
-        data: [
-          { id: "exp-1", status: "running", trafficPct: 25, autoRollback: ["slo_miss"] },
-        ],
+        data: [{ id: "exp-1", status: "running", trafficPct: 25, autoRollback: ["slo_miss"] }],
       },
     );
     expect(screen.getByText(/25% canary/)).toBeInTheDocument();

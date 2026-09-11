@@ -28,7 +28,8 @@ const noSilentMutation = {
               meta &&
               meta.value.type === "ObjectExpression" &&
               meta.value.properties.find(
-                (p) => p.type === "Property" && p.key.type === "Identifier" && p.key.name === "errors",
+                (p) =>
+                  p.type === "Property" && p.key.type === "Identifier" && p.key.name === "errors",
               );
             if (!errors) {
               context.report({
