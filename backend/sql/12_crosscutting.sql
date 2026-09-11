@@ -33,10 +33,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_id ON audit_log(tenant_id);
 -- leave a still-valid prefix, so tail truncation was invisible. verify_chain
 -- compares this head to the newest remaining entry.
 CREATE TABLE IF NOT EXISTS audit_chain_heads (
-  tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  -- One chain per entity: 'bot' (Agent Studio), 'consent', 'ledger' (sql/42).
+  entity_type TEXT NOT NULL DEFAULT 'bot',
   entry_hash TEXT NOT NULL,
   seq BIGINT NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, entity_type)
 );
 
 -- Replay guard for mutating endpoints and bot tool writes (migration

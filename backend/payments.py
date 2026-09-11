@@ -30,6 +30,19 @@ def _env(name: str, default: str = "") -> str:
     return (os.getenv(name) or default).strip()
 
 
+def _chain_ledger(conn: Any, entry: dict[str, Any], *, tenant_id: str | None) -> None:
+    """Every money movement lands on the tenant's ledger chain (change_log)."""
+    import db as dbmod
+    from agent_core import change_log
+
+    change_log.record_ledger_entry(
+        conn,
+        tenant_id=str(tenant_id or dbmod.current_tenant()),
+        actor_user_id=dbmod._actor_user_id(),
+        entry={**entry, "posted_at": str(entry.get("posted_at"))},
+    )
+
+
 def provider() -> str:
     raw = _env("PAYMENT_PROVIDER", "hosted").lower()
     return raw if raw in {"hosted", "razorpay"} else "hosted"
@@ -170,21 +183,24 @@ def record_payment(
 
     ledger_id = dbmod._id("LED")
     posted = datetime.now(timezone.utc)
+    ledger_row = {
+        "id": ledger_id,
+        "account_id": intent["account_id"],
+        "type": "payment",
+        "description": f"PTP payment {intent['id']}",
+        "amount": float(-paid),
+        "posted_at": posted,
+    }
     conn.execute(
         text(
             """
             INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at)
-            VALUES (:id, :account_id, 'payment', :description, :amount, :posted_at)
+            VALUES (:id, :account_id, :type, :description, :amount, :posted_at)
             """
         ),
-        {
-            "id": ledger_id,
-            "account_id": intent["account_id"],
-            "description": f"PTP payment {intent['id']}",
-            "amount": float(-paid),
-            "posted_at": posted,
-        },
+        ledger_row,
     )
+    _chain_ledger(conn, ledger_row, tenant_id=intent.get("tenant_id"))
     conn.execute(
         text(
             """

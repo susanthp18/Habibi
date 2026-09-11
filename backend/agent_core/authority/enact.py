@@ -203,6 +203,22 @@ def _post(
             "dispute_id": resolved_dispute,
         },
     )
+    from payments import _chain_ledger
+
+    _chain_ledger(
+        conn,
+        {
+            "id": ledger_id,
+            "account_id": account_id,
+            "type": "waiver",
+            "description": desc,
+            "amount": float(-abs(amount)),
+            "posted_at": posted_at,
+            "decision_id": decision_id,
+            "dispute_id": resolved_dispute,
+        },
+        tenant_id=None,
+    )
     conn.execute(
         text(
             """

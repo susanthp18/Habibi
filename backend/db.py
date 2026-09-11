@@ -5950,6 +5950,17 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         else:
             kind, label = "consent_updated", note or "Consent preferences updated."
         _activity(conn, "customer", customer_id, kind, label, note or None, customer_id)
+        # On the consent chain: what was written, hashed, so a later edit of
+        # the row is visible against the last authorised one.
+        from agent_core import change_log
+
+        change_log.record_consent_change(
+            conn,
+            tenant_id=current_tenant(),
+            actor_user_id=_actor_user_id(),
+            customer_id=customer_id,
+            change={"kind": kind, "fields": {k: v for k, v in payload.items() if k != "note"}},
+        )
 
     customer = get_customer(customer_id)
     if customer is None:
@@ -6019,6 +6030,15 @@ def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         )
         label = f"Opt-out captured via {source} ({channel_raw})."
         _activity(conn, "customer", customer_id, "opt_out", label, note, customer_id)
+        from agent_core import change_log
+
+        change_log.record_consent_change(
+            conn,
+            tenant_id=current_tenant(),
+            actor_user_id=_actor_user_id(),
+            customer_id=customer_id,
+            change={"kind": "opt_out", "channel": channel_raw, "source": source},
+        )
     customer = get_customer(customer_id)
     if customer is None:
         raise KeyError("customer_not_found")

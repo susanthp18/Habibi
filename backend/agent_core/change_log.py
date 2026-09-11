@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -58,8 +59,19 @@ COMPONENTS: tuple[str, ...] = (
     "agent_card",
 )
 
-_ENTITY_TYPE = "bot"
+#: One chain per (tenant, entity). ``bot`` is the Agent Studio's history;
+#: ``consent`` and ``ledger`` are the two records a regulator asks about that
+#: used to sit outside every chain -- a consent window or a waiver could be
+#: edited in place under a green "chain intact" banner that only covered bot
+#: configuration.
+ENTITY_BOT = "bot"
+ENTITY_CONSENT = "consent"
+ENTITY_LEDGER = "ledger"
+ENTITIES = (ENTITY_BOT, ENTITY_CONSENT, ENTITY_LEDGER)
+_ENTITY_TYPE = ENTITY_BOT
 _GENESIS = "0" * 64
+CONSENT_CHANGE = "consent.change"
+LEDGER_ENTRY = "ledger.entry"
 
 
 def _canonical(value: Any) -> str:
@@ -111,7 +123,7 @@ def gate_summary(report: Any) -> dict[str, str]:
     return out
 
 
-def _chain_head(conn: Any, tenant_id: str) -> tuple[str, int]:
+def _chain_head(conn: Any, tenant_id: str, entity: str = ENTITY_BOT) -> tuple[str, int]:
     """Digest and sequence number of the newest entry, ordered by ``seq``.
 
     Not by ``created_at``: Postgres ``now()`` is transaction start time, so
@@ -130,7 +142,7 @@ def _chain_head(conn: Any, tenant_id: str) -> tuple[str, int]:
              LIMIT 1
             """
         ),
-        {"tenant": tenant_id, "entity": _ENTITY_TYPE},
+        {"tenant": tenant_id, "entity": entity},
     ).scalar()
     if not row:
         return _GENESIS, 0
@@ -147,6 +159,7 @@ def _write(
     bot_id: str,
     payload: dict[str, Any],
     entry_id: str,
+    entity: str = ENTITY_BOT,
 ) -> dict[str, Any]:
     from sqlalchemy import text as _text
 
@@ -155,14 +168,14 @@ def _write(
     try:
         conn.execute(
             _text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-            {"k": f"audit_chain:{tenant_id}"},
+            {"k": f"audit_chain:{tenant_id}:{entity}"},
         )
     except Exception:
         logger.exception("audit chain advisory lock failed — continuing without it")
 
-    prev_hash, prev_seq = _persisted_head(conn, tenant_id)
+    prev_hash, prev_seq = _persisted_head(conn, tenant_id, entity)
     if prev_hash is None:
-        prev_hash, prev_seq = _chain_head(conn, tenant_id)
+        prev_hash, prev_seq = _chain_head(conn, tenant_id, entity)
     body = {
         **payload,
         "action": action,
@@ -188,13 +201,13 @@ def _write(
             "tenant": tenant_id,
             "actor": actor_user_id,
             "action": action,
-            "entity": _ENTITY_TYPE,
+            "entity": entity,
             "bot": bot_id,
             "payload": json.dumps(body),
             "at": now,
         },
     )
-    _persist_head(conn, tenant_id, body["entryHash"], int(body["seq"]))
+    _persist_head(conn, tenant_id, body["entryHash"], int(body["seq"]), entity)
     return body
 
 
@@ -205,7 +218,9 @@ def _chain_heads_ready(conn: Any) -> bool:
     return bool(conn.execute(_text("SELECT to_regclass('public.audit_chain_heads')")).scalar())
 
 
-def _persisted_head(conn: Any, tenant_id: str) -> tuple[str, int] | tuple[None, int]:
+def _persisted_head(
+    conn: Any, tenant_id: str, entity: str = ENTITY_BOT
+) -> tuple[str, int] | tuple[None, int]:
     from sqlalchemy import text as _text
 
     if not _chain_heads_ready(conn):
@@ -214,17 +229,19 @@ def _persisted_head(conn: Any, tenant_id: str) -> tuple[str, int] | tuple[None, 
         _text(
             """
             SELECT entry_hash, seq FROM audit_chain_heads
-             WHERE tenant_id = :tenant
+             WHERE tenant_id = :tenant AND entity_type = :entity
             """
         ),
-        {"tenant": tenant_id},
+        {"tenant": tenant_id, "entity": entity},
     ).mappings().first()
     if not row:
         return None, 0
     return str(row["entry_hash"] or _GENESIS), int(row["seq"] or 0)
 
 
-def _persist_head(conn: Any, tenant_id: str, entry_hash: str, seq: int) -> None:
+def _persist_head(
+    conn: Any, tenant_id: str, entry_hash: str, seq: int, entity: str = ENTITY_BOT
+) -> None:
     from sqlalchemy import text as _text
 
     if not _chain_heads_ready(conn):
@@ -232,15 +249,15 @@ def _persist_head(conn: Any, tenant_id: str, entry_hash: str, seq: int) -> None:
     conn.execute(
         _text(
             """
-            INSERT INTO audit_chain_heads (tenant_id, entry_hash, seq, updated_at)
-            VALUES (:t, :h, :s, now())
-            ON CONFLICT (tenant_id) DO UPDATE
+            INSERT INTO audit_chain_heads (tenant_id, entity_type, entry_hash, seq, updated_at)
+            VALUES (:t, :e, :h, :s, now())
+            ON CONFLICT (tenant_id, entity_type) DO UPDATE
                SET entry_hash = EXCLUDED.entry_hash,
                    seq = EXCLUDED.seq,
                    updated_at = now()
             """
         ),
-        {"t": tenant_id, "h": entry_hash, "s": seq},
+        {"t": tenant_id, "e": entity, "h": entry_hash, "s": seq},
     )
 
 
@@ -455,6 +472,56 @@ def record_experiment_rollback(
     )
 
 
+def _entry_id() -> str:
+    return f"AUD-{uuid.uuid4().hex[:12].upper()}"
+
+
+def record_consent_change(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    customer_id: str,
+    change: dict[str, Any],
+) -> dict[str, Any]:
+    """One consent edit or opt-out on the tenant's consent chain.
+
+    ``change`` is what moved -- the fields written, or the opt-out event --
+    and it is inside the digest, so a later in-place edit of the consent row
+    is visible against the entry that recorded the last authorised one.
+    """
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=CONSENT_CHANGE,
+        bot_id=customer_id,
+        payload={"customerId": customer_id, "change": change},
+        entry_id=_entry_id(),
+        entity=ENTITY_CONSENT,
+    )
+
+
+def record_ledger_entry(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    """One money movement on the tenant's ledger chain: the row as posted."""
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=LEDGER_ENTRY,
+        bot_id=str(entry.get("account_id") or ""),
+        payload={"entry": entry},
+        entry_id=_entry_id(),
+        entity=ENTITY_LEDGER,
+    )
+
+
 def count_entries(conn: Any, *, tenant_id: str, bot_id: str | None = None) -> int:
     """How many entries the filter matches, so a window can say it is one."""
     from sqlalchemy import text as _text
@@ -527,11 +594,11 @@ def read_entries(
     return out
 
 
-def verify_chain(conn: Any, *, tenant_id: str) -> dict[str, Any]:
+def verify_chain(conn: Any, *, tenant_id: str, entity: str = ENTITY_BOT) -> dict[str, Any]:
     """Walk the chain oldest-first and report the first broken link.
 
     ``ok`` false means a historical entry was altered or removed after the fact.
-    Scoped to the tenant because the chain is per tenant.
+    Scoped to the tenant and the entity because each chain is per both.
     """
     from sqlalchemy import text as _text
 
@@ -544,7 +611,7 @@ def verify_chain(conn: Any, *, tenant_id: str) -> dict[str, Any]:
                  ORDER BY COALESCE((payload->>'seq')::bigint, 0) ASC, id ASC
                 """
             ),
-            {"tenant": tenant_id, "entity": _ENTITY_TYPE},
+            {"tenant": tenant_id, "entity": entity},
         ).mappings()
     )
     expected_prev = _GENESIS
@@ -562,7 +629,7 @@ def verify_chain(conn: Any, *, tenant_id: str) -> dict[str, Any]:
             if _digest(legacy) != stored:
                 return {"ok": False, "checked": len(rows), "brokenAt": row["id"], "reason": "entry_hash_mismatch"}
         expected_prev = stored
-    head_hash, head_seq = _persisted_head(conn, tenant_id)
+    head_hash, head_seq = _persisted_head(conn, tenant_id, entity)
     if head_hash is not None and rows:
         last = rows[-1]
         payload = last["payload"] if isinstance(last["payload"], dict) else json.loads(last["payload"])

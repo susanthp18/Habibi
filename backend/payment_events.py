@@ -26,6 +26,7 @@ from agent_core.clock import as_utc
 from contact_policy import BLOCKING_CONSENT
 from env_loader import env_str, load_env
 from env_utils import env_bool
+from agent_core import clock
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ REASON_LABELS = {
     "technical": "a technical failure",
     "unknown": "an unknown reason",
 }
-DEFAULT_TZ = "Asia/Kolkata"
+DEFAULT_TZ = clock.DEFAULT_TIMEZONE
 
 
 def bounce_voice_enabled() -> bool:
@@ -386,21 +387,26 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
     if fee > 0:
         import db as dbmod
 
+        fee_row = {
+            "id": dbmod._id("LED"),
+            "account_id": account_id,
+            "type": "fee",
+            "description": "EMI bounce fee",
+            "amount": float(fee),
+            "posted_at": occurred,
+        }
         conn.execute(
             text(
                 """
                 INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at)
-                VALUES (:id, :account_id, 'fee', :description, :amount, :posted_at)
+                VALUES (:id, :account_id, :type, :description, :amount, :posted_at)
                 """
             ),
-            {
-                "id": dbmod._id("LED"),
-                "account_id": account_id,
-                "description": "EMI bounce fee",
-                "amount": float(fee),
-                "posted_at": occurred,
-            },
+            fee_row,
         )
+        from payments import _chain_ledger
+
+        _chain_ledger(conn, fee_row, tenant_id=tenant_id)
         conn.execute(
             text(
                 """
