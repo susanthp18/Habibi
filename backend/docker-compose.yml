@@ -93,6 +93,7 @@ services:
     image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
     container_name: collections_api
     restart: unless-stopped
+    cap_drop: [ALL]
     env_file:
       - .env
     environment:
@@ -160,6 +161,7 @@ services:
     image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
     container_name: collections_kb_worker
     restart: unless-stopped
+    cap_drop: [ALL]
     env_file:
       - .env
     environment:
@@ -205,6 +207,7 @@ services:
     image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
     container_name: collections_wk_batch
     restart: unless-stopped
+    cap_drop: [ALL]
     env_file:
       - .env
     environment:
@@ -233,6 +236,7 @@ services:
     image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
     container_name: collections_bot_worker
     restart: unless-stopped
+    cap_drop: [ALL]
     env_file:
       - .env
     environment:
@@ -265,6 +269,7 @@ services:
     image: "${IMAGE_PREFIX:-}collections-voice:${IMAGE_TAG:-local}"
     container_name: collections_voice
     restart: unless-stopped
+    cap_drop: [ALL]
     env_file:
       - .env
     environment:

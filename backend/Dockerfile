@@ -23,8 +23,15 @@ RUN apt-get update \
 COPY requirements.txt requirements.lock .
 RUN pip install --require-hashes -r requirements.lock
 
-# Application source (see .dockerignore)
+# Application source (see .dockerignore). Runs as an unprivileged user: the
+# only tree the app writes is /app/.cache (TTS previews, recordings, the
+# session-store fallback); everything else is read-only to it.
 COPY . .
+RUN useradd --system --uid 1000 --create-home --home-dir /home/app app \
+    && mkdir -p /app/.cache \
+    && chown -R app:app /app
+USER app
+ENV HOME=/home/app
 
 # Default = API. Compose overrides command + DB_PROCESS_ROLE per service.
 ENV DB_PROCESS_ROLE=api
@@ -39,6 +46,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 # puts the binary in /usr/bin, outside this COPY.
 FROM base AS builder
 
+USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -69,12 +77,14 @@ RUN python -c "import os, nltk; nltk.download('punkt_tab', download_dir=os.envir
 # terminates borrower calls.
 FROM base AS voice
 
+USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local /usr/local
+USER app
 
 ENV NLTK_DATA=/usr/local/share/nltk_data
 ENV DB_PROCESS_ROLE=voice
