@@ -98,6 +98,23 @@ class _Job:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
+
+def _cached_input_tokens(usage: Any) -> int | None:
+    """Prompt-cache hits, whichever field the provider spells them in."""
+    direct = getattr(usage, "cache_read_input_tokens", None)
+    if direct is not None:
+        return int(direct)
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is None and isinstance(usage, dict):
+        details = usage.get("prompt_tokens_details")
+    if details is None:
+        return None
+    cached = getattr(details, "cached_tokens", None)
+    if cached is None and isinstance(details, dict):
+        cached = details.get("cached_tokens")
+    return int(cached) if cached is not None else None
+
+
 class CrmSink:
     """Queue-backed CRM writer bound to one VoiceSession."""
 
@@ -487,6 +504,21 @@ class CrmSink:
         self._recent_turns.append((speaker, line))
         if len(self._recent_turns) > self._RECENT_TURNS_KEPT:
             del self._recent_turns[: -self._RECENT_TURNS_KEPT]
+
+    def run_up(self) -> list[tuple[str, str]]:
+        """The interleaved run-up, oldest first — a copy, for readers off-thread.
+
+        ``_recent_turns`` is private because :meth:`_remember_turn` is the only
+        thing allowed to write it. Reading it, though, is legitimate for anything
+        that has to work out what a caller *meant*: the turn analyser already
+        does (via :meth:`enqueue_understanding`), and retrieval has exactly the
+        same problem — "tell me the benefits" names no product, and only the
+        preceding turns say which one.
+
+        Returns a copy rather than the list, because the caller may be a worker
+        thread and the pipeline keeps appending to the original.
+        """
+        return list(self._recent_turns)
 
     def enqueue_understanding(
         self,
@@ -1392,9 +1424,12 @@ class CrmSink:
                                         prompt_tokens=prompt,
                                         completion_tokens=completion,
                                         model=getattr(item, "model", None),
-                                        cached_input_tokens=getattr(
-                                            usage, "cache_read_input_tokens", None
-                                        ),
+                                        # Anthropic spells it cache_read_input_tokens;
+                                        # Azure/OpenAI nest it as
+                                        # prompt_tokens_details.cached_tokens. Only the
+                                        # first was read, against an Azure deployment,
+                                        # so no voice call had ever recorded a hit.
+                                        cached_input_tokens=_cached_input_tokens(usage),
                                         reasoning_tokens=getattr(
                                             usage, "reasoning_tokens", None
                                         ),

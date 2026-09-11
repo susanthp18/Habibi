@@ -314,3 +314,41 @@ def test_a_hop_does_not_rebuild_the_tool_registry() -> None:
     # The union is what got built, so a hop finds the target's tools already
     # in the registry.
     assert "recommend_next_offer" in tools
+
+
+def test_system_message_hash_is_stable_across_a_hop() -> None:
+    """Assemble at the door, hop into the specialist, assemble again: same bytes.
+
+    Pipecat keeps the existing system message when a node config carries no
+    ``role_message`` (``flows_dynamic`` restates it on the entry node only), so
+    the merged fleet graph's member entries must carry none. Asserted as a
+    digest over the message the door assembles versus the one the hop would
+    leave in place -- the CI-checkable half of "a hop costs no prefix".
+    """
+    import hashlib
+
+    from agent_core.fleet.compile import _merge_members
+    from tests.test_flow_export import _stub_session
+    from voice.flow_export import built_in_collections_graph
+    from voice.flows_dynamic import build_authored_flow
+
+    door = built_in_collections_graph(part="door")
+    fleet_flow, entries, _grants = _merge_members(
+        primary_bot_id="intake-v1",
+        primary_flow=door,
+        primary_grant=set(),
+        members=[{"bot_id": "kaia-v2-4", "flow": built_in_collections_graph(), "card": {}}],
+    )
+    assert set(entries) == {"intake-v1", "kaia-v2-4"}
+    state, _tools, initial, _globals = build_authored_flow(
+        _stub_session(),
+        fleet_flow,
+        role_message="You are Priya.",
+        bot_id="intake-v1",
+        specialist_entries=entries,
+    )
+    before = hashlib.sha256(initial()["role_message"].encode()).hexdigest()
+    landing = state.nodes[entries["kaia-v2-4"]]()
+    assert "role_message" not in landing, "the hop restates the system message"
+    after = hashlib.sha256((landing.get("role_message") or initial()["role_message"]).encode()).hexdigest()
+    assert before == after

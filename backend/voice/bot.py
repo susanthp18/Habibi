@@ -672,18 +672,17 @@ async def run_bot(transport, runner_args) -> None:
                 session.extra["max_duration_sec"] = int(_mission["maxDurationSec"])
             if _mission.get("customerName"):
                 session.extra["expected_customer_name"] = _mission["customerName"]
+            # The briefing is a developer block, not part of the system prefix.
+            # Appended to the prefix it made every outbound call's system
+            # message unique to the borrower (their name, balance, mission), so
+            # the prefix a provider could cache -- and the prefix a regulator
+            # reads as "what this deployment says" -- differed per call. It is
+            # injected after the persona block below; the direction line
+            # ("OUTBOUND CALL -- you placed this call") is the briefing's own.
             try:
-                system_instruction = (
-                    system_instruction.rstrip()
-                    + chr(10) * 2
-                    + mission_mod.briefing(_mission)
-                )
+                session.extra["mission_briefing"] = mission_mod.briefing(_mission)
             except Exception:
                 logger.exception("mission briefing render failed")
-            system_instruction = system_instruction.replace(
-                "inbound collections voice agent",
-                "outbound collections voice agent",
-            )
 
     vparams = voice_params_from_config(
         bundle.get("voiceConfig"),
@@ -2168,6 +2167,9 @@ async def run_bot(transport, runner_args) -> None:
         # Persona describes the simulated caller the tester is playing. It was
         # written into the session file but never read — the bot had no idea who
         # it was talking to in a rehearsal.
+        briefing = session.extra.get("mission_briefing")
+        if briefing:
+            await _inject_developer([{"role": "developer", "content": str(briefing)}])
         if sandbox_persona:
             try:
                 from agent_core.context import CallContext

@@ -432,7 +432,8 @@ def test_demo_call_product_fixes_are_wired() -> None:
     kb = (_BACKEND / "agent_core" / "tools" / "kb.py").read_text(encoding="utf-8")
     natural = (_BACKEND / "voice" / "natural.py").read_text(encoding="utf-8")
     bot = (_BACKEND / "voice" / "bot.py").read_text(encoding="utf-8")
-    flows = (_BACKEND / "voice" / "flows.py").read_text(encoding="utf-8")
+    # The conversation is data now (voice/flows.py was materialised and deleted).
+    flows = (_BACKEND / "agent_core" / "cards" / "graphs" / "collections.json").read_text(encoding="utf-8")
 
     # The VS-2E3096 invariant: an empty retrieve is never reported as
     # confident, which is how a travel-insurance question got a fabricated
@@ -449,7 +450,10 @@ def test_demo_call_product_fixes_are_wired() -> None:
     assert "first_names_match" in tools
     assert "AFTER the caller has spoken" in natural
     assert "first words of the call" in natural
-    assert "outbound collections voice agent" in bot
+    # The mission briefing is a developer block, not a string spliced into the
+    # system prefix; the prefix is per deployment, not per borrower.
+    assert 'session.extra["mission_briefing"]' in bot
+    assert "outbound collections voice agent" not in bot
     assert "garbled STT fragments" in bot
     assert "on_user_turn_stopped_rearm_idle" in bot
     assert "Never open with a tool acknowledgement" in flows
