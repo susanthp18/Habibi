@@ -157,6 +157,7 @@ _VALUE_ERROR_STATUS: dict[str, int] = {
     "vault_name_required": 422,
     "mcp_scopes_required": 422,
     "a2a_cert_required": 422,
+    "a2a_signal_unknown": 422,
     "clone_source_required": 422,
     "unknown_clone_template": 422,
     "agent_required": 422,

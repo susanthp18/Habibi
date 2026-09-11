@@ -311,8 +311,14 @@ def mark_succeeded(conn: Connection, job_id: str, *, outbound_message_id: str | 
     )
 
 
-def mark_cancelled(conn: Connection, job_id: str, reason: str) -> None:
-    conn.execute(
+def mark_cancelled(conn: Connection, job_id: str, reason: str) -> bool:
+    """Cancel a job that has not finished. False when it already had.
+
+    Unconditional before: a takeover that arrived after the turn was done
+    rewrote a `succeeded` row as `cancelled`, and the trace then said the reply
+    the borrower had already received was never sent.
+    """
+    res = conn.execute(
         text(
             """
             UPDATE bot_turn_jobs
@@ -321,11 +327,12 @@ def mark_cancelled(conn: Connection, job_id: str, reason: str) -> None:
                 locked_at = NULL,
                 locked_by = NULL,
                 updated_at = now()
-            WHERE id = :id
+            WHERE id = :id AND status IN ('queued', 'running')
             """
         ),
         {"id": job_id, "error": (reason or "")[:MAX_JOB_ERROR_CHARS]},
     )
+    return res.rowcount == 1
 
 
 def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> str:

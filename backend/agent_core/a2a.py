@@ -318,16 +318,35 @@ def list_tasks(*, limit: int = 50) -> list[dict[str, Any]]:
     return [_map_task(r) for r in rows]
 
 
+#: What a signal may do to a task. Anything else -- a typo, `"Approve"`,
+#: `"resume"` -- used to fall through to `cancelled`, and a task that was
+#: already `completed` could be cancelled after the fact.
+_SIGNALS: dict[str, tuple[str, frozenset[str]]] = {
+    "approve": ("submitted", frozenset({"input-required"})),
+    "reject": ("cancelled", frozenset({"input-required"})),
+    "cancel": ("cancelled", frozenset({"submitted", "working", "input-required"})),
+}
+
+
 def signal_task(task_id: str, name: str) -> dict[str, Any]:
     row = get_task(task_id)
     if row is None:
         raise KeyError("a2a_task_not_found")
-    nxt = "submitted" if name == "approve" else "cancelled"
+    if name not in _SIGNALS:
+        raise ValueError(f"a2a_signal_unknown: {name}")
+    nxt, allowed_from = _SIGNALS[name]
     with db.engine.begin() as conn:
-        conn.execute(
-            text("UPDATE a2a_tasks SET status = :s, updated_at = now() WHERE id = :id"),
-            {"s": nxt, "id": task_id},
+        res = conn.execute(
+            text(
+                """
+                UPDATE a2a_tasks SET status = :s, updated_at = now()
+                 WHERE id = :id AND status = ANY(CAST(:from_states AS text[]))
+                """
+            ),
+            {"s": nxt, "id": task_id, "from_states": sorted(allowed_from)},
         )
+    if res.rowcount != 1:
+        raise ValueError(f"a2a_signal_not_applicable: {name} from {row.get('status')}")
     if nxt == "submitted":
         _enqueue_work(task_id, row.get("partnerId") or "", row.get("skillId") or "", row.get("input") or {})
     return get_task(task_id) or row

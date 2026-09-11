@@ -161,39 +161,99 @@ def list_jobs(
     return [_public(r) for r in rows]
 
 
-def claim_next() -> dict[str, Any] | None:
+def claim_next(
+    workflow_types: tuple[str, ...] | None = None,
+) -> dict[str, Any] | None:
+    kind_filter = (
+        " AND workflow_type = ANY(CAST(:workflow_types AS text[]))"
+        if workflow_types
+        else ""
+    )
     with db.engine.begin() as conn:
+        # `working` is a claim with a lease (`locked_at`), so a job whose
+        # worker died is re-claimed once the lease lapses and one whose
+        # handler keeps raising is not re-run without bound. Both used to be
+        # true: `working` was a label, and this SELECT picked it up on every
+        # tick forever. Same shape as bot_turn_jobs.
         row = db._one(
             conn.execute(
                 text(
-                    """
-                    SELECT id FROM work_runtime_jobs
-                     WHERE tenant_id = :t AND status IN ('submitted','working')
+                    f"""
+                    SELECT id, attempts FROM work_runtime_jobs
+                     WHERE tenant_id = :t
+                       AND (status = 'submitted'
+                            OR (status = 'working'
+                                AND COALESCE(locked_at, updated_at) < now() - :lease * interval '1 second'))
+                       {kind_filter}
                      ORDER BY created_at
                      FOR UPDATE SKIP LOCKED
                      LIMIT 1
                     """
                 ),
-                {"t": db._tenant()},
+                {
+                    "t": db._tenant(),
+                    "lease": _lease_seconds(),
+                    **({"workflow_types": list(workflow_types)} if workflow_types else {}),
+                },
             )
         )
         if not row:
             return None
+        if int(row["attempts"] or 0) >= _max_attempts():
+            conn.execute(
+                text(
+                    """
+                    UPDATE work_runtime_jobs
+                       SET status = 'failed', locked_at = NULL, updated_at = now(),
+                           error = left(COALESCE(error, '') || ' [dead: attempts exhausted]', 500)
+                     WHERE id = :id
+                    """
+                ),
+                {"id": row["id"]},
+            )
+            return None
         conn.execute(
-            text("UPDATE work_runtime_jobs SET status = 'working' WHERE id = :id"),
+            text(
+                """
+                UPDATE work_runtime_jobs
+                   SET status = 'working', locked_at = now(), attempts = attempts + 1,
+                       updated_at = now()
+                 WHERE id = :id
+                """
+            ),
             {"id": row["id"]},
         )
     return query(row["id"])
 
 
-def finish(job_id: str, *, ok: bool, result: dict[str, Any] | None = None, error: str | None = None) -> None:
+def _lease_seconds() -> int:
+    from env_utils import env_int
+
+    return env_int("WORK_RUNTIME_LEASE_SECONDS", 300)
+
+
+def _max_attempts() -> int:
+    from env_utils import env_int
+
+    return env_int("WORK_RUNTIME_MAX_ATTEMPTS", 3)
+
+
+# `finish` and `park_input_required` used to UPDATE unconditionally, so a late
+# worker could move a cancelled or completed job back to `failed`, and a stale
+# one could re-park a job an operator had already approved. Both now require
+# `working` -- the only status a worker holds.
+
+
+def finish(job_id: str, *, ok: bool, result: dict[str, Any] | None = None, error: str | None = None) -> bool:
+    """Close a working job. False when it was no longer ours to close."""
     with db.engine.begin() as conn:
-        conn.execute(
+        res = conn.execute(
             text(
                 """
                 UPDATE work_runtime_jobs
-                   SET status = :st, result = CAST(:result AS jsonb), error = :err
-                 WHERE id = :id AND tenant_id = :t
+                   SET status = :st, result = CAST(:result AS jsonb), error = :err,
+                       locked_at = NULL, updated_at = now()
+                 WHERE id = :id AND tenant_id = :t AND status = 'working'
                 """
             ),
             {
@@ -204,6 +264,7 @@ def finish(job_id: str, *, ok: bool, result: dict[str, Any] | None = None, error
                 "err": error,
             },
         )
+    return res.rowcount == 1
 
 
 def park_input_required(job_id: str, reason: str) -> None:
@@ -212,8 +273,9 @@ def park_input_required(job_id: str, reason: str) -> None:
             text(
                 """
                 UPDATE work_runtime_jobs
-                   SET status = 'input_required', input_required_reason = :r
-                 WHERE id = :id AND tenant_id = :t
+                   SET status = 'input_required', input_required_reason = :r,
+                       locked_at = NULL, updated_at = now()
+                 WHERE id = :id AND tenant_id = :t AND status = 'working'
                 """
             ),
             {"id": job_id, "t": db._tenant(), "r": reason},
