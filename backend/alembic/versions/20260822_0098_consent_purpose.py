@@ -75,12 +75,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Promotional rows have to go before the old key can be restored: it cannot
-    # hold two rows for one channel, and the servicing row is the one that
-    # existed before this revision.
-    op.execute("DELETE FROM channel_consents WHERE purpose = 'promotional'")
-    op.drop_index("idx_channel_consents_purpose", table_name="channel_consents")
-    op.drop_constraint(_UNIQUE_NEW, "channel_consents", type_="unique")
-    op.create_unique_constraint(_UNIQUE_OLD, "channel_consents", ["consent_id", "channel"])
-    op.drop_constraint("ck_channel_consents_purpose", "channel_consents", type_="check")
-    op.drop_column("channel_consents", "purpose")
+    # Irreversible on purpose. The forward path here created promotional
+    # channel_consents rows -- regulated evidence of who was contacted,
+    # when, and under which consent. Reversing it dropped that evidence with
+    # no archive; a rollback is the documented procedure in
+    # docs/ops/rollback.md (redeploy the image, keep the schema), never
+    # `alembic downgrade` past this revision.
+    raise RuntimeError(
+        "irreversible: revision 20260822_0098 destroys regulated evidence; see docs/ops/rollback.md"
+    )

@@ -355,9 +355,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("agent_obligations")
-    op.drop_table("call_outcomes")
-    op.execute("DROP INDEX IF EXISTS ux_call_attempts_provider_call")
-    op.execute("DROP INDEX IF EXISTS idx_call_attempts_unclosed")
-    op.execute("DROP INDEX IF EXISTS idx_call_attempts_in_flight")
-    op.drop_table("call_attempts")
+    # Irreversible on purpose. The forward path here created call_attempts,
+    # call_outcomes and agent_obligations -- regulated evidence of who was
+    # contacted, when, and under which consent. Reversing it dropped that
+    # evidence with no archive; a rollback is the documented procedure in
+    # docs/ops/rollback.md (redeploy the image, keep the schema), never
+    # `alembic downgrade` past this revision.
+    raise RuntimeError(
+        "irreversible: revision 20260822_0094 destroys regulated evidence; see docs/ops/rollback.md"
+    )

@@ -130,11 +130,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("whatsapp_outbound_jobs", "source")
-    op.drop_column("whatsapp_outbound_jobs", "purpose")
-    op.drop_table("contact_day_counters")
-    op.drop_index("idx_contact_events_related", table_name="contact_events")
-    op.drop_index("idx_contact_events_session", table_name="contact_events")
-    op.drop_index("idx_contact_events_customer_occurred", table_name="contact_events")
-    op.drop_index("idx_contact_events_tenant_id", table_name="contact_events")
-    op.drop_table("contact_events")
+    # Irreversible on purpose. The forward path here created contact_events
+    # and contact_day_counters -- regulated evidence of who was contacted,
+    # when, and under which consent. Reversing it dropped that evidence with
+    # no archive; a rollback is the documented procedure in
+    # docs/ops/rollback.md (redeploy the image, keep the schema), never
+    # `alembic downgrade` past this revision.
+    raise RuntimeError(
+        "irreversible: revision 20260813_0066 destroys regulated evidence; see docs/ops/rollback.md"
+    )
