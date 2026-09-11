@@ -75,9 +75,12 @@ LOCKED_MOUTH_TOOLS: frozenset[str] = frozenset(
 #: runs in is env-driven and reported live, not authored on a card.
 POLICY_ENGINES: tuple[tuple[str, str, str | None], ...] = (
     ("reco", "Recommend next offer", "recommend_next_offer"),
-    ("treatment", "Treatment", "recommend_treatment"),
+    # Python engines -- no mouth tool. `recommend_treatment` and
+    # `evaluate_live_qa` are in no catalog and on no call path; naming them
+    # put two tools that do not exist on the Policy tab.
+    ("treatment", "Treatment", None),
     ("authority", "Authority", "evaluate_authority"),
-    ("live_qa", "Live QA", "evaluate_live_qa"),
+    ("live_qa", "Live QA", None),
     ("routing", "Routing", None),
     ("dnd", "DND / calling hours", None),
 )

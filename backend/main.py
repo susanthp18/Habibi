@@ -2121,6 +2121,19 @@ def get_flow_transitions():
     return flow_graph.implicit_transitions()
 
 
+@app.get("/flow/variables", response_model=list[str])
+def flow_variables():
+    """The live-call variables a graph may interpolate or branch on.
+
+    `SESSION_VARIABLES` called itself "the contract the Flow editor
+    advertises" while the editor advertised nothing -- authors typed variable
+    names from memory into the condition editor.
+    """
+    from voice.flows_dynamic import SESSION_VARIABLES
+
+    return list(SESSION_VARIABLES)
+
+
 @app.get("/flow/reserved-keys", response_model=dict[str, str])
 def list_flow_reserved_keys():
     """Node keys the built-in tools transition to by name.

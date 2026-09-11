@@ -327,7 +327,8 @@ export function BindingsTab({ botId }: { botId: string }) {
           <div className="text-body font-medium text-text">No bindings resolved</div>
           <p className="mx-auto mt-050 max-w-prose text-body-small text-text-subtle">
             This card has no bindings of its own and inherits no tenant defaults, so the runtime
-            falls back to whatever the registry defaults to. Add one to make the choice explicit.
+            runs the Azure default configured in the environment. Add one to make the choice
+            explicit.
           </p>
         </div>
       ) : (

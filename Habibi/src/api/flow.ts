@@ -279,6 +279,11 @@ export function fetchReservedKeys(): Promise<Record<string, string>> {
   return apiGet<Record<string, string>>("/flow/reserved-keys");
 }
 
+/** Live-call variables a condition may test (GET /flow/variables). */
+export function fetchFlowVariables(): Promise<string[]> {
+  return apiGet<string[]>("/flow/variables");
+}
+
 /**
  * The built-in collections script as an authored graph. Derived server-side
  * from the Python the runtime actually executes, so starting from it is not a
@@ -317,6 +322,14 @@ export function useFlowTools() {
     queryKey: ["flow-tools"],
     queryFn: fetchFlowTools,
     // The registry only changes on deploy.
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useFlowVariables() {
+  return useQuery({
+    queryKey: ["flow-variables"],
+    queryFn: fetchFlowVariables,
     staleTime: 5 * 60_000,
   });
 }

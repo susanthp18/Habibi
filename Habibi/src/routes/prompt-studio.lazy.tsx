@@ -1703,10 +1703,11 @@ export function PromptStudioPage({
                       <div className="max-w-lg space-y-100 px-200">
                         <h3 className="heading-small text-text">No authored flow</h3>
                         <p className="text-body-small leading-relaxed text-text-subtle">
-                          This version runs the built-in collections script — Python that publish
-                          and rollback cannot touch. Load it here to turn it into a graph you own:
-                          it then publishes and rolls back with this prompt version. Nothing changes
-                          for live callers until you publish. Set{" "}
+                          Voice calls only: WhatsApp answers from the prompt and walks the graph on
+                          text. This version runs the built-in collections script — Python that
+                          publish and rollback cannot touch. Load it here to turn it into a graph
+                          you own: it then publishes and rolls back with this prompt version.
+                          Nothing changes for live callers until you publish. Set{" "}
                           <code className="font-mono text-text-subtlest">
                             VOICE_FLOW_GRAPH=legacy
                           </code>{" "}

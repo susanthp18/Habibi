@@ -477,16 +477,17 @@ function FleetIndex() {
               Skills library
             </Button>
             <Button type="button" onClick={() => setOpen(true)}>
-              Clone card
+              New agent from template
             </Button>
           </div>
         </header>
         {open ? (
           <div className="border-b border-border bg-surface-sunken px-400 py-200">
-            <div className="text-body font-semibold">Clone a template</div>
+            <div className="text-body font-semibold">New agent from a template</div>
             <p className="mb-150 text-body-small text-text-subtle">
-              Lapse / Hardship / Clerk are recipes, not a fifth first-party mouth. Clone the skill
-              first if the card pins one.
+              Lapse / Hardship / Clerk are recipes, not a fifth first-party mouth. The card comes
+              from the template; the prompt and flow are copied from the source agent — its own card
+              edits are not. Clone the skill first if the card pins one.
             </p>
             {templates.isPending ? (
               <LoadingState label="Loading templates" />

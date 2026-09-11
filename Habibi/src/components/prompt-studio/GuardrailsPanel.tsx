@@ -22,12 +22,12 @@ const TOGGLES: Array<{ key: keyof Guardrails; label: string; hint: string }> = [
   {
     key: "escalateAbuse",
     label: "Escalate on abusive language",
-    hint: "Hard flag + handoff when customer uses abuse",
+    hint: "Always on for live channels — this switch changes the prompt wording and the QA flag, not the tripwire",
   },
   {
     key: "escalateLegal",
     label: "Escalate on legal threats",
-    hint: "Court / lawyer intents auto-escalate",
+    hint: "Always on for live channels — this switch changes the prompt wording and the QA flag, not the tripwire",
   },
   {
     key: "neverQuoteRate",
@@ -162,8 +162,8 @@ export function GuardrailsPanel({ value, onChange }: Props) {
             <p className="mt-050 text-body-small text-text-subtlest">
               Ends the conversation on WhatsApp and in the sandbox, which also apply the
               platform&rsquo;s own turn cap (<span className="font-mono">BOT_HARD_MAX_TURNS</span>)
-              &mdash; a higher value here is reduced to it, not honoured. On voice it is recorded
-              as a QA flag and does not stop the call.
+              &mdash; a higher value here is reduced to it, not honoured. On voice it is recorded as
+              a QA flag and does not stop the call.
             </p>
             <div className="mt-200 mb-050 flex items-center justify-between text-body-small">
               <span className="font-medium">Max call duration</span>
@@ -180,8 +180,8 @@ export function GuardrailsPanel({ value, onChange }: Props) {
             />
             <p className="mt-050 text-body-small text-text-subtlest">
               Voice only. The agent is asked to wrap up and then the call is ended with a spoken
-              sign-off. It can shorten the platform&rsquo;s {MAX_CALL_SECONDS / 60}-minute cap, never
-              extend it.
+              sign-off. It can shorten the platform&rsquo;s {MAX_CALL_SECONDS / 60}-minute cap,
+              never extend it.
             </p>
           </div>
         </div>

@@ -22,6 +22,7 @@ import {
   type FlowOperator,
   type FlowTool,
   type FlowVariable,
+  useFlowVariables,
 } from "@/api/flow";
 import { useOutboundVocabulary } from "@/api/outbound";
 import { Button } from "@/components/ui/button";
@@ -872,6 +873,15 @@ export function NodeInspector({
  * teaches against — `identity_verified` — was stored `"true"`. Both spell it
  * `true` now, and a picker is what stops the next author guessing.
  */
+/** System variables plus every value the graph's steps capture. */
+function knownVariables(graph: FlowGraph | undefined, system: string[]): string[] {
+  const out = new Set<string>(system);
+  for (const node of graph?.nodes ?? []) {
+    for (const v of node.data.extractVariables ?? []) if (v.key) out.add(v.key);
+  }
+  return [...out].sort();
+}
+
 function booleanVariables(graph: FlowGraph | undefined): Set<string> {
   const out = new Set<string>(["identity_verified"]);
   for (const node of graph?.nodes ?? []) {
@@ -903,6 +913,8 @@ export function EdgeInspector({
   onDelete: () => void;
 }) {
   const booleans = booleanVariables(graph);
+  const systemVariables = useFlowVariables();
+  const variableNames = knownVariables(graph, systemVariables.data ?? []);
   const condition = edge.data.condition;
   const setCondition = (patch: Partial<FlowCondition>) => {
     if (readOnly) return;
@@ -999,9 +1011,15 @@ export function EdgeInspector({
                   className="font-mono"
                   value={clause.variable}
                   placeholder="variable"
+                  list="flow-variable-names"
                   disabled={readOnly}
                   onChange={(e) => setClause(i, { variable: e.target.value })}
                 />
+                <datalist id="flow-variable-names">
+                  {variableNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
                 <select
                   className={selectCls}
                   value={clause.operator}

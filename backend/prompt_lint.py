@@ -171,10 +171,11 @@ def lint_prompt(
                 "severity": "warn",
                 "code": "recording_disclosure_unenforced",
                 "message": (
-                    "Nothing on this card discloses call recording — the "
-                    "alwaysDiscloseRecording guardrail is off and the prompt does not "
-                    "mention it either. Turn the guardrail on rather than writing the "
-                    "line here; it is worded to be said once and not repeated."
+                    "The alwaysDiscloseRecording guardrail is off and the prompt does "
+                    "not mention recording. Inbound voice still discloses through the "
+                    "greet_disclose flow node; outbound calls and WhatsApp will not. "
+                    "Turn the guardrail on rather than writing the line here; it is "
+                    "worded to be said once and not repeated."
                 ),
                 "span": None,
             }

@@ -163,7 +163,13 @@ export function ShipTab({
         ) : null}
       </section>
       <label className="block space-y-050">
-        <span className="text-body-small font-semibold">Canary traffic {value.trafficPct}%</span>
+        <span className="text-body-small font-semibold">
+          Next publish: canary traffic {value.trafficPct}%
+        </span>
+        <span className="block text-body-tiny text-text-subtlest">
+          Edits the draft. A running experiment's split cannot be changed — the live controls are
+          promote (publish at 100%) and roll back.
+        </span>
         <input
           type="range"
           min={0}

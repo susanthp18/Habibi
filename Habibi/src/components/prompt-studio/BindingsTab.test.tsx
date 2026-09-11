@@ -60,7 +60,9 @@ describe("BindingsTab", () => {
     // the runtime falls back to the registry default, which is a choice nobody
     // made.
     expect(screen.getByText("No bindings resolved")).toBeInTheDocument();
-    expect(screen.getByText(/falls back to whatever the registry defaults to/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/runs the Azure default configured in the environment/i),
+    ).toBeInTheDocument();
   });
 
   it("opens a slot-and-model form rather than binding blind", () => {

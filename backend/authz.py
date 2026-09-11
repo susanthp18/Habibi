@@ -298,6 +298,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/bot-deployments/experiments/{experiment_id}/rollback"): AGENT_PUBLISH,
     ("POST", "/bot-deployments/{deployment_id}/rollback"): AGENT_PUBLISH,
     ("GET", "/flow/reserved-keys"): BOT_READ,
+    ("GET", "/flow/variables"): BOT_READ,
     ("GET", "/flow/tools"): BOT_READ,
     ("POST", "/flow/validate"): BOT_READ,
     ("GET", "/persona-presets"): BOT_READ,
