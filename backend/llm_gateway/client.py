@@ -39,6 +39,16 @@ def base_url() -> str:
     return (os.getenv("LITELLM_BASE_URL") or os.getenv("LLM_GATEWAY_URL") or "").rstrip("/")
 
 
+class SpendCapExceeded(RuntimeError):
+    """The profile's spend cap is spent. Not a transport fault: the caller
+    must not fall through to uncapped Azure, which is what a bare
+    RuntimeError swallowed by the kill-switch made it do."""
+
+    def __init__(self, profile: str) -> None:
+        super().__init__(f"llm_gateway_spend_cap:{profile}")
+        self.profile = profile
+
+
 def chat(
     messages: list[dict[str, Any]],
     *,
@@ -53,7 +63,7 @@ def chat(
     if profile not in PROFILES:
         profile = "text"
     if _over_cap(profile):
-        raise RuntimeError(f"llm_gateway_spend_cap:{profile}")
+        raise SpendCapExceeded(profile)
     if not base_url():
         raise RuntimeError("llm_gateway_url_missing")
 
@@ -112,6 +122,10 @@ def _http_chat(
     retries = 2
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
+        if attempt:
+            # A retry with no pause hits a gateway that is still failing with
+            # the same request a few milliseconds later.
+            time.sleep(0.25 * (2 ** (attempt - 1)))
         try:
             resp = httpx.post(
                 base_url() + "/chat/completions",

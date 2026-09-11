@@ -385,16 +385,6 @@ def _embed_cache_key(deployment: str, text: str) -> str:
     return digest
 
 
-def embed_cache_stats() -> dict[str, int]:
-    with _embed_cache_lock:
-        return {
-            "size": len(_embed_cache),
-            "max": _embed_cache_max(),
-            "hits": _EMBED_CACHE_HITS,
-            "misses": _EMBED_CACHE_MISSES,
-        }
-
-
 # Azure OpenAI embedding request ceilings. Both are hard API limits: exceeding
 # either returns a 400 for the whole batch, so batching honours both.
 EMBED_MAX_INPUTS_PER_REQUEST = 2048
@@ -632,7 +622,12 @@ def chat_with_tools(
         )
         if routed is not None:
             return routed
-    except Exception:
+    except Exception as exc:
+        # A spent cap is a decision, not an outage: falling through here
+        # served the turn from uncapped Azure while the meter labelled it
+        # gateway spend. Re-raised; the caller's breaker path sees it.
+        if type(exc).__name__ == "SpendCapExceeded":
+            raise
         logger.exception("llm gateway routing failed; Azure kill-switch")
 
     if profile == PROFILE_ANALYSIS:
