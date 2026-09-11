@@ -105,6 +105,21 @@ def test_a_public_hostname_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cp._guard_outbound_url("https://mcp.example.com") == "https://mcp.example.com"
 
 
+def test_the_dial_lands_on_the_checked_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard's verdict and the socket's destination are one address.
+
+    ``httpx.post(name)`` resolved the name again after the check; a resolver
+    that answered publicly once and privately the second time walked past
+    the guard. ``_pinned`` hands the socket the address and keeps the name in
+    ``Host`` and SNI, so there is no second lookup to lie to.
+    """
+    _resolves_to(monkeypatch, "93.184.216.34")
+    pinned = cp._pinned("https://mcp.example.com/base")
+    assert pinned.url == "https://93.184.216.34/base"
+    assert pinned.headers == {"Host": "mcp.example.com"}
+    assert pinned.extensions == {"sni_hostname": "mcp.example.com"}
+
+
 def test_one_private_answer_among_public_ones_is_enough(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

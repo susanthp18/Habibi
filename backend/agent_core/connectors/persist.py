@@ -27,6 +27,11 @@ def _https_ok(url: str | None) -> bool:
 
 
 def _guard_outbound_url(url: str | None) -> str:
+    """The connector URL, checked. See :func:`_pinned` for what dials it."""
+    return _pinned(url).original
+
+
+def _pinned(url: str | None) -> "webhooks_dispatch.Pinned":
     """Resolve ``url`` and refuse anything that is not publicly routable.
 
     ``_https_ok`` reads the scheme and netloc and nothing else, so
@@ -47,7 +52,7 @@ def _guard_outbound_url(url: str | None) -> str:
     if not target:
         raise ValueError("connector_url_required")
     try:
-        webhooks_dispatch.resolve_public_host(target)
+        pinned = webhooks_dispatch.pin(target)
     except ValueError as exc:
         reason = str(exc)
         if "private_forbidden" in reason:
@@ -57,7 +62,7 @@ def _guard_outbound_url(url: str | None) -> str:
         if "https_required" in reason:
             raise ValueError("connector_url_https_only") from exc
         raise ValueError(f"connector_url_unresolvable: {reason}") from exc
-    return target
+    return pinned
 
 
 def _blocked_url_code(exc: BaseException) -> str | None:
@@ -398,10 +403,10 @@ def _call_remote(
 
     remote_name = name.split(".", 2)[-1] if name.startswith("ext.") else name
     timeout = max(0.2, (conn.get("timeoutMs") or 2500) / 1000)
-    endpoint = _guard_outbound_url(conn.get("url")).rstrip("/") + "/mcp"
+    pinned = _pinned(conn.get("url"))
     resp = httpx.post(
-        endpoint,
-        headers={**_auth_header(conn), "Content-Type": "application/json"},
+        pinned.url.rstrip("/") + "/mcp",
+        headers={**pinned.headers, **_auth_header(conn), "Content-Type": "application/json"},
         json={
             "jsonrpc": "2.0",
             "id": 1,
@@ -412,6 +417,7 @@ def _call_remote(
             },
         },
         timeout=timeout,
+        extensions=pinned.extensions,
     )
     resp.raise_for_status()
     payload = resp.json()
@@ -431,35 +437,17 @@ def _remote_tools_list(conn: dict[str, Any]) -> list[dict[str, Any]]:
     import httpx
 
     timeout = max(0.2, (conn.get("timeoutMs") or 2500) / 1000)
-    endpoint = _guard_outbound_url(conn.get("url")).rstrip("/") + "/mcp"
+    pinned = _pinned(conn.get("url"))
     resp = httpx.post(
-        endpoint,
-        headers={**_auth_header(conn), "Content-Type": "application/json"},
+        pinned.url.rstrip("/") + "/mcp",
+        headers={**pinned.headers, **_auth_header(conn), "Content-Type": "application/json"},
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
         timeout=timeout,
+        extensions=pinned.extensions,
     )
     resp.raise_for_status()
     tools = (resp.json().get("result") or {}).get("tools") or []
     return [{"name": t.get("name")} for t in tools if isinstance(t, dict)]
-
-
-def seed_first_party() -> None:
-    for slug, title, prefixes, data_class in (
-        ("paylink", "Pay-link status", ["ext.paylink."], ["money", "pii"]),
-        ("lms", "LMS balance", ["ext.lms."], ["money", "pii"]),
-    ):
-        upsert_connector(
-            {
-                "id": f"conn-{slug}",
-                "slug": slug,
-                "displayName": title,
-                "kind": "first_party",
-                "allowPrefixes": prefixes,
-                "dataClass": data_class,
-                "status": "approved",
-                "allowedEnv": "both",
-            }
-        )
 
 
 def cimd_connect(connector_id: str, issuer: str) -> dict[str, Any]:

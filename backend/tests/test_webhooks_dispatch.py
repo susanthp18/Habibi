@@ -130,8 +130,10 @@ def transport(monkeypatch: pytest.MonkeyPatch):
     calls: list[dict[str, Any]] = []
     reply: dict[str, Any] = {"status": 200, "body": '{"ok":true}'}
 
-    def _fake_post(url: str, *, headers: dict[str, str], body: str, timeout: float):
-        calls.append({"url": url, "headers": headers, "body": body, "timeout": timeout})
+    def _fake_post(
+        url: str, *, headers: dict[str, str], body: str, timeout: float, sni: str | None = None
+    ):
+        calls.append({"url": url, "headers": headers, "body": body, "timeout": timeout, "sni": sni})
         if isinstance(reply.get("raises"), Exception):
             raise reply["raises"]
         return int(reply["status"]), str(reply["body"])
@@ -316,6 +318,37 @@ def test_resolve_public_host_rejects_a_mixed_answer(monkeypatch: pytest.MonkeyPa
     )
     with pytest.raises(ValueError, match="private_forbidden"):
         wd.resolve_public_host("https://hooks.example.com/crm")
+
+
+def test_the_socket_gets_the_address_that_was_checked(db_tx, transport) -> None:
+    """The rebinding attack lives between the check and the connect.
+
+    ``resolve_public_host`` said 203.0.113.10; the client used to resolve the
+    name a second time on its own and connect wherever *that* answer pointed.
+    Now the seam receives the address, and the name rides in ``Host`` and SNI.
+    """
+    import db
+
+    _park_foreign_pending(db_tx)
+    _endpoint(db_tx)
+    wd.dispatch(db_tx, "promise.kept", {"promiseId": "P-1"})
+
+    wd.process_one(db.engine)
+
+    call = transport["calls"][0]
+    assert call["url"].startswith("https://203.0.113.10/")
+    assert call["headers"]["Host"] == "hooks.example.com"
+    assert call["sni"] == "hooks.example.com"
+
+
+def test_pin_keeps_the_port_and_the_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(wd, "resolve_public_host", lambda url: "93.184.216.34")
+    pinned = wd.pin("https://Hooks.Example.com:8443/crm?x=1")
+    assert pinned.url == "https://93.184.216.34:8443/crm?x=1"
+    assert pinned.host == "hooks.example.com"
+    assert pinned.original == "https://Hooks.Example.com:8443/crm?x=1"
+    assert pinned.headers == {"Host": "hooks.example.com"}
+    assert pinned.extensions == {"sni_hostname": "hooks.example.com"}
 
 
 def test_resolve_public_host_requires_https() -> None:

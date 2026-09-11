@@ -59,7 +59,9 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
     monkeypatch.setattr(httpx, "post", _post)
     # The SSRF guard has its own suite; here it must simply not resolve DNS.
-    monkeypatch.setattr(cp, "_guard_outbound_url", lambda url: str(url))
+    import webhooks_dispatch as wd
+
+    monkeypatch.setattr(cp, "_pinned", lambda url: wd.Pinned(str(url), "mcp.example.com", str(url)))
     return bodies
 
 

@@ -63,8 +63,8 @@ import socket
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
-from urllib.parse import urlparse
+from typing import Any, NamedTuple
+from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
@@ -157,10 +157,53 @@ def resolve_public_host(url: str) -> str:
     return sorted(addrs)[0]
 
 
+class Pinned(NamedTuple):
+    """A URL whose connect lands on the address that was checked.
+
+    ``resolve_public_host`` answered once and the client then resolved the
+    name again for the connect -- a resolver that says 203.0.113.7 to the
+    check and 10.0.0.5 to the socket walked straight past it. So the socket
+    gets the address and the name travels beside it: ``Host`` for the server,
+    SNI for the certificate, which httpx verifies against ``sni_hostname``.
+    """
+
+    url: str
+    host: str
+    #: The URL as registered -- what an operator recognises in a log line.
+    original: str
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Host": self.host}
+
+    @property
+    def extensions(self) -> dict[str, Any]:
+        return {"sni_hostname": self.host}
+
+
+def pin(url: str) -> Pinned:
+    """Check the host, then rewrite ``url`` so the connect cannot re-resolve."""
+    addr = resolve_public_host(url)
+    parsed = urlparse(url)
+    netloc = f"[{addr}]" if ":" in addr else addr
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    return Pinned(
+        urlunparse(parsed._replace(netloc=netloc)), (parsed.hostname or "").lower(), url
+    )
+
+
 # --- transport -------------------------------------------------------------
 
 
-def _post(url: str, *, headers: dict[str, str], body: str, timeout: float) -> tuple[int, str]:
+def _post(
+    url: str,
+    *,
+    headers: dict[str, str],
+    body: str,
+    timeout: float,
+    sni: str | None = None,
+) -> tuple[int, str]:
     """POST and return (http_status, response_text). The seam tests replace.
 
     httpx is imported lazily so that importing this module — which the worker
@@ -169,7 +212,12 @@ def _post(url: str, *, headers: dict[str, str], body: str, timeout: float) -> tu
     import httpx
 
     with httpx.Client(timeout=timeout, follow_redirects=False) as client:
-        response = client.post(url, headers=headers, content=body.encode("utf-8"))
+        response = client.post(
+            url,
+            headers=headers,
+            content=body.encode("utf-8"),
+            extensions={"sni_hostname": sni} if sni else None,
+        )
         return response.status_code, response.text
 
 
@@ -435,17 +483,20 @@ def process_one(engine: Engine) -> bool:
             # Unsigned delivery is not a degraded mode, it is a different
             # security posture. Fail loudly; rotating the secret fixes it.
             raise ValueError("secret_unavailable: rotate the endpoint secret to enable signing")
-        resolve_public_host(job["url"])
+        pinned = pin(job["url"])
         raw = json.dumps(job["payload"], separators=(",", ":"), sort_keys=True)
         timestamp = str(int(time.time()))
         headers = {
+            **pinned.headers,
             "Content-Type": "application/json",
             EVENT_HEADER: str(job.get("event_name") or ""),
             DELIVERY_HEADER: str(job["id"]),
             TIMESTAMP_HEADER: timestamp,
             SIGNATURE_HEADER: sign(secret_hash, timestamp, raw),
         }
-        http_status, body = _post(job["url"], headers=headers, body=raw, timeout=timeout_seconds())
+        http_status, body = _post(
+            pinned.url, headers=headers, body=raw, timeout=timeout_seconds(), sni=pinned.host
+        )
     except Exception as exc:
         # No response means no HTTP status. 0 classifies as server_err, which is
         # right: a connection that never completed is worth another attempt, and
