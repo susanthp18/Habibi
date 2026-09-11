@@ -304,9 +304,11 @@ def test_write_helper_maps_value_error_codes_by_table() -> None:
     from fastapi import HTTPException
 
     assert not hasattr(main, "_handoff_call")
-    assert all(status == 422 for status in main._VALUE_ERROR_STATUS.values())
-    assert "publish_conflict" not in main._VALUE_ERROR_STATUS
-    assert "handoff_already_claimed" not in main._VALUE_ERROR_STATUS
+    import api_support
+
+    assert all(status == 422 for status in api_support._VALUE_ERROR_STATUS.values())
+    assert "publish_conflict" not in api_support._VALUE_ERROR_STATUS
+    assert "handoff_already_claimed" not in api_support._VALUE_ERROR_STATUS
 
     cases = [
         ("bot_id_required", 422),

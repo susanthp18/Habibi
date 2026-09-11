@@ -205,11 +205,15 @@ def test_canary_hash_split_and_rollback(db_tx) -> None:
 
     suite = db_tx.execute(text("SELECT id FROM eval_suites WHERE kind = 'redteam' LIMIT 1")).mappings().first()
     if suite:
+        # Against the candidate version: the sweep reads the report filed for
+        # the version the canary runs, and the dev stack now carries a keyed
+        # pass for it (WS6), which a bot-wide row would no longer outrank.
         db.save_eval_report(
             suite_id=suite["id"],
             bot_id=bot_id,
             status="fail",
             summary={"failed": 1, "total": 1},
+            prompt_version_id=pv,
         )
         assert sweep_rollbacks() is True
         exp = db_tx.execute(

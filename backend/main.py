@@ -257,7 +257,6 @@ def _assert_hardening_gate() -> None:
     )
 
 
-@asynccontextmanager
 def _warn_if_no_policy_rules() -> None:
     import policy_rules
 
@@ -271,6 +270,7 @@ def _warn_if_no_policy_rules() -> None:
         )
 
 
+@asynccontextmanager
 async def lifespan(_app: FastAPI):
     # Before anything else logs: converting handlers after startup has already
     # emitted its lines leaves the boot sequence in the old format, which is

@@ -45,7 +45,7 @@ def test_treatment_enact_resolves_the_bot(monkeypatch) -> None:
 
 
 def test_demo_uses_resolved_bot() -> None:
-    src = (_BACKEND / "main.py").read_text(encoding="utf-8")
+    src = (_BACKEND / "routers" / "outbound.py").read_text(encoding="utf-8")
     assert "def _demo_outbound_bot_id" in src
     assert "bot_id = _demo_outbound_bot_id()" in src
     assert "bot_id = str(db.DEFAULT_BOT_ID)" not in src
@@ -71,7 +71,7 @@ def test_campaign_create_persists_bot_id(db_tx) -> None:
 
 
 def test_campaign_start_refuses_when_outbound_switch_is_off() -> None:
-    src = (_BACKEND / "main.py").read_text(encoding="utf-8")
+    src = (_BACKEND / "routers" / "outbound.py").read_text(encoding="utf-8")
     start = src.index("def set_campaign_status")
     chunk = src[start : start + 1800]
     assert "platform_switches.outbound_enabled" in chunk
@@ -99,7 +99,7 @@ def test_inbound_ani_bind_uses_pstn_customer() -> None:
 
 
 def test_missions_prefer_the_draft_graph() -> None:
-    src = (_BACKEND / "main.py").read_text(encoding="utf-8")
+    src = (_BACKEND / "routers" / "outbound.py").read_text(encoding="utf-8")
     start = src.index("def list_missions")
     chunk = src[start : start + 2500]
     assert "draftVersionId" in chunk

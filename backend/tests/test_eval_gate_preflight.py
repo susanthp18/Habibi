@@ -12,15 +12,25 @@ import db
 from scripts.eval_gate_preflight import missing_reports
 
 
-def test_todays_database_would_block_every_published_card(db_tx) -> None:
-    """Not hypothetical: every `eval_reports` row carries a NULL
-    `prompt_version_id`, because nothing supplied one until the plumbing landed.
-    """
+def _forget_kaias_reports(db_tx) -> None:
+    """The unsatisfied state, made rather than assumed: the dev stack now
+    carries a keyed pass per required kind (WS6), and the preflight is the
+    reason it may."""
+    from sqlalchemy import text
+
+    db_tx.execute(
+        text("DELETE FROM eval_trials WHERE report_id IN (SELECT id FROM eval_reports WHERE bot_id = 'kaia-v2-4')")
+    )
+    db_tx.execute(text("DELETE FROM eval_reports WHERE bot_id = 'kaia-v2-4'"))
+
+
+def test_a_card_with_no_report_for_its_content_is_listed(db_tx) -> None:
+    """Every requirement without a report for the published content names
+    the gate that would refuse, so the reader knows what to run."""
+    _forget_kaias_reports(db_tx)
     rows = missing_reports()
-    assert rows, "expected the unscoped-report condition to still be present"
     bots = {r["bot"] for r in rows}
     assert "kaia-v2-4" in bots
-    # Every row names the gate that would refuse, so the reader knows what to run.
     assert {r["gate"] for r in rows} <= {"G7", "G8", "G-OB9", "G0"}
 
 
@@ -31,17 +41,21 @@ def test_a_scoped_passing_report_clears_that_requirement(db_tx) -> None:
     stamping an existing row: a report's provenance is the thing these gates
     read, and back-dating one would fabricate exactly what they check.
     """
+    _forget_kaias_reports(db_tx)
     before = [r for r in missing_reports() if r["bot"] == "kaia-v2-4" and r["require"] == "regression"]
     assert before, "precondition: kaia-v2-4 regression is unsatisfied"
 
     published = db.get_published_prompt_version("kaia-v2-4")
     assert published is not None
+    from agent_core.eval.provenance import content_key_for_version
+
     db.save_eval_report(
         suite_id="eval-regression-collections",
         bot_id="kaia-v2-4",
         status="pass",
         summary={"failed": 0, "total": 1},
         prompt_version_id=published["id"],
+        content_key=content_key_for_version(published),
     )
 
     after = [r for r in missing_reports() if r["bot"] == "kaia-v2-4" and r["require"] == "regression"]

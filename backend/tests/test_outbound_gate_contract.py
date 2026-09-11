@@ -38,8 +38,8 @@ _STEPS = ("reserve", "gate", "admit", "suppress", "place")
 _PLACE_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("campaigns.py", "process_one", ("gate", "place")),
     ("cadence.py", "process_one", ("gate", "place")),
-    ("main.py", "twilio_voice_outbound", ("gate", "place")),
-    ("main.py", "demo_outbound_call", ("gate", "place")),
+    ("routers/telephony.py", "twilio_voice_outbound", ("gate", "place")),
+    ("routers/outbound.py", "demo_outbound_call", ("gate", "place")),
     # The dry run reserves and *evaluates* (never admits) so a rehearsal does
     # not spend the borrower's budget; the real path is the gate.
     ("scripts/dial_test.py", "main", ("reserve", "gate", "place")),
