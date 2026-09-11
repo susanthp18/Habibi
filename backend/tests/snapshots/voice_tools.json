@@ -1,0 +1,851 @@
+{
+  "collections_nodes": {
+    "call_ended": {
+      "functions": [],
+      "post_actions": [
+        {
+          "type": "end_conversation"
+        }
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "confirm_identity": {
+      "functions": [
+        "not_account_holder",
+        "refuse_verification",
+        "verify_identity"
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer",
+        "developer"
+      ]
+    },
+    "discover_intent": {
+      "functions": [
+        "capture_call_goal"
+      ],
+      "respond_immediately": false,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "escalate_close": {
+      "functions": [
+        "end_call",
+        "request_callback",
+        "search_knowledge_base"
+      ],
+      "post_actions": [
+        {
+          "type": "end_conversation"
+        }
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer",
+        "developer"
+      ]
+    },
+    "gated_upsell": {
+      "functions": [
+        "begin_wrap_up",
+        "capture_lead",
+        "decline_offer",
+        "recommend_next_offer",
+        "return_to_position"
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "greet_disclose": {
+      "functions": [
+        "disclose_recording"
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "handle_dispute": {
+      "functions": [
+        "apply_goodwill",
+        "evaluate_authority",
+        "flag_dispute",
+        "return_to_position"
+      ],
+      "pre_actions": [
+        {
+          "append_text_to_context": false,
+          "text": "I understand, let me note that carefully.",
+          "type": "tts_say"
+        }
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "negotiate_ptp": {
+      "functions": [
+        "begin_wrap_up",
+        "create_promise_to_pay",
+        "get_account_position",
+        "request_callback",
+        "return_to_position"
+      ],
+      "pre_actions": [
+        {
+          "append_text_to_context": false,
+          "text": "Happy to set that up.",
+          "type": "tts_say"
+        }
+      ],
+      "respond_immediately": false,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "pre_close": {
+      "functions": [
+        "capture_lead",
+        "decline_offer",
+        "end_call",
+        "return_to_position",
+        "set_contact_preference"
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer",
+        "developer"
+      ]
+    },
+    "state_position": {
+      "functions": [
+        "begin_dispute",
+        "begin_negotiate",
+        "begin_wrap_up",
+        "capture_nonpayment_reason",
+        "create_promise_to_pay",
+        "get_account_position",
+        "request_callback"
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "terminate_politely": {
+      "functions": [],
+      "post_actions": [
+        {
+          "type": "end_conversation"
+        }
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "third_party": {
+      "functions": [],
+      "pre_actions": [
+        {
+          "append_text_to_context": false,
+          "text": "Thanks for letting me know.",
+          "type": "tts_say"
+        }
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "verify_identity": {
+      "functions": [
+        "not_account_holder",
+        "refuse_verification",
+        "verify_identity"
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    },
+    "wrap_up": {
+      "functions": [],
+      "post_actions": [
+        {
+          "type": "end_conversation"
+        }
+      ],
+      "respond_immediately": true,
+      "task_message_roles": [
+        "developer"
+      ]
+    }
+  },
+  "global_functions": [
+    "add_customer_note",
+    "end_call",
+    "escalate_to_human",
+    "pause_for_caller",
+    "search_knowledge_base"
+  ],
+  "registry": {
+    "add_customer_note": {
+      "cancel_on_interruption": false,
+      "description": "Add an internal CRM note on the customer (agent-facing; never spoken).",
+      "handler": "_add_customer_note_handler",
+      "kind": "schema",
+      "properties": {
+        "pinned": {
+          "description": "Pin the note to the top.",
+          "type": "boolean"
+        },
+        "text": {
+          "description": "Note body.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "timeout_secs": null
+    },
+    "apply_goodwill": {
+      "cancel_on_interruption": false,
+      "description": "Post an in-policy late-fee goodwill waiver that evaluate_authority already approved. Amount must be at or below the approved amount. Do not call this for settlement, restructuring, or bounce charges.",
+      "handler": "_apply_goodwill_handler",
+      "kind": "schema",
+      "properties": {
+        "amount": {
+          "description": "Rupees to reverse. Must be \u2264 the approved amount.",
+          "type": "number"
+        },
+        "decision_id": {
+          "description": "The decisionId evaluate_authority returned.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision_id"
+      ],
+      "timeout_secs": null
+    },
+    "begin_dispute": {
+      "kind": "direct",
+      "name": "begin_dispute",
+      "params": []
+    },
+    "begin_negotiate": {
+      "kind": "direct",
+      "name": "begin_negotiate",
+      "params": []
+    },
+    "begin_wrap_up": {
+      "kind": "direct",
+      "name": "begin_wrap_up",
+      "params": []
+    },
+    "capture_call_goal": {
+      "cancel_on_interruption": false,
+      "description": "Record why the caller says they called, in their own words, and move on to identity verification. Call this as soon as the caller has stated what they want \u2014 never before they have spoken, and never with a guess.",
+      "handler": "_capture_call_goal_handler",
+      "kind": "schema",
+      "properties": {
+        "goal_summary": {
+          "description": "One short phrase in the caller's own terms, e.g. 'dispute a late fee', 'pay the EMI today', 'ask about insurance coverage'. Never placeholder text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "goal_summary"
+      ],
+      "timeout_secs": null
+    },
+    "capture_lead": {
+      "cancel_on_interruption": false,
+      "description": "Capture an upsell/cross-sell lead into the CRM pipeline (Interested). Runs eligibility first; hard-blocks on DND/consent fail or DPD rule fail. Unknown bureau/KYC does not block. Only after the customer shows interest.",
+      "handler": "_capture_lead_handler",
+      "kind": "schema",
+      "properties": {
+        "offer_amount": {
+          "description": "Optional offer amount in INR.",
+          "minimum": 1,
+          "type": "number"
+        },
+        "offer_id": {
+          "description": "The offerId from recommend_next_offer. Pass it whenever you have one so the captured lead is tied to the offer that was actually pitched.",
+          "type": "string"
+        },
+        "priority": {
+          "description": "Lead priority.",
+          "enum": [
+            "low",
+            "normal",
+            "high",
+            "urgent"
+          ],
+          "type": "string"
+        },
+        "product_id": {
+          "description": "Product the customer is interested in \u2014 must be one recommend_next_offer returned.",
+          "type": "string"
+        },
+        "summary": {
+          "description": "What the customer actually said about their interest, in their own words where possible \u2014 this is the only context the follow-up specialist gets.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id"
+      ],
+      "timeout_secs": null
+    },
+    "capture_nonpayment_reason": {
+      "cancel_on_interruption": false,
+      "description": "Record WHY the customer has not paid, using one of the fixed codes. Call this once, as soon as they give a reason in their own words \u2014 before negotiating, because the reason changes what may be offered. Choose the code that matches what they actually said; use 'not_stated' if they would not say. Never guess a reason from the account balance. Declaring hardship (income_loss, medical) stops any product offer for the rest of the call.",
+      "handler": "_capture_nonpayment_reason_handler",
+      "kind": "schema",
+      "properties": {
+        "reason": {
+          "description": "salary_timing: money arrives after the EMI date. income_loss: job loss or business downturn. medical: illness or hospitalisation. mandate_broken: the auto-debit is failing but they are willing. disputes_amount: they believe the amount is wrong. competing_obligation: paying another lender first. forgot: genuine oversight, they intend to pay. unwilling: able to pay and refusing. not_stated: they would not say.",
+          "enum": [
+            "salary_timing",
+            "income_loss",
+            "medical",
+            "mandate_broken",
+            "disputes_amount",
+            "competing_obligation",
+            "forgot",
+            "unwilling",
+            "not_stated"
+          ],
+          "type": "string"
+        },
+        "verbatim": {
+          "description": "Short paraphrase of what they said, in their words. No amounts, no account numbers.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "timeout_secs": null
+    },
+    "check_product_eligibility": {
+      "cancel_on_interruption": false,
+      "description": "Re-confirm eligibility for a product recommend_next_offer already returned, using live account DPD, consent/DND and product rules. Bureau/KYC/income return unknown (not fake passes).",
+      "handler": "_check_eligibility_handler",
+      "kind": "schema",
+      "properties": {
+        "product_id": {
+          "description": "Product id, exactly as returned by recommend_next_offer.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id"
+      ],
+      "timeout_secs": null
+    },
+    "create_promise_to_pay": {
+      "cancel_on_interruption": false,
+      "description": "Record the customer's promise to pay an amount by a date. Records the promise and sends a written confirm with a pay link.",
+      "handler": "_create_ptp_handler",
+      "kind": "schema",
+      "properties": {
+        "amount": {
+          "description": "Amount in INR the customer commits to pay.",
+          "minimum": 0.01,
+          "type": "number"
+        },
+        "confidence": {
+          "description": "How firm the commitment sounded. firm: they stated it plainly and without hedging. hedged: they agreed but with conditions or uncertainty ('I'll try', 'if my salary comes'). extracted: they agreed only after you proposed it more than once. Report what you heard, not what you hoped.",
+          "enum": [
+            "firm",
+            "hedged",
+            "extracted"
+          ],
+          "type": "string"
+        },
+        "promise_date": {
+          "description": "ISO date YYYY-MM-DD the customer will pay by.",
+          "type": "string"
+        },
+        "verbatim": {
+          "description": "Short quote of the commitment in their own words. No account numbers.",
+          "type": "string"
+        },
+        "whose_number": {
+          "description": "Who named the amount \u2014 'customer' if they proposed it, 'agent' if they accepted a figure you suggested.",
+          "enum": [
+            "customer",
+            "agent"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "promise_date"
+      ],
+      "timeout_secs": null
+    },
+    "decline_offer": {
+      "cancel_on_interruption": false,
+      "description": "Record that the customer said no to the product you just mentioned. Call it as soon as they decline, then move on without pressing. This is what stops us raising the same product with them again.",
+      "handler": "_decline_offer_handler",
+      "kind": "schema",
+      "properties": {
+        "reason": {
+          "description": "Short paraphrase of why they declined, if they gave one.",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "timeout_secs": null
+    },
+    "disclose_recording": {
+      "kind": "direct",
+      "name": "disclose_recording",
+      "params": []
+    },
+    "end_call": {
+      "kind": "direct",
+      "name": "end_call",
+      "params": []
+    },
+    "escalate_to_human": {
+      "cancel_on_interruption": false,
+      "description": "Hand the conversation to a human agent. Use for legal threats, abuse, identity confusion, or when tools fail. This QUEUES a human callback \u2014 it does not transfer the caller live.",
+      "handler": "_escalate_to_human_handler",
+      "kind": "schema",
+      "properties": {
+        "detail": {
+          "description": "Optional free-text context for the supervisor.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Escalation reason.",
+          "enum": [
+            "sentiment_drop",
+            "verification_failed",
+            "compliance",
+            "customer_requested",
+            "hardship",
+            "dispute",
+            "high_value"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "timeout_secs": null
+    },
+    "evaluate_authority": {
+      "cancel_on_interruption": false,
+      "description": "Ask the authority matrix what \u2014 if anything \u2014 may close on this call for a fee waiver, bounce-charge reversal, settlement or restructuring. Returns a verdict (auto_approve, cap_inr, or escalate) and an approved rupee amount that is already inside policy. Never invent a figure this tool did not return. Call it before quoting any waiver or settlement amount, and before apply_goodwill.",
+      "handler": "_evaluate_authority_handler",
+      "kind": "schema",
+      "properties": {
+        "asked_amount": {
+          "description": "Rupee amount they asked for, if they named one.",
+          "type": "number"
+        },
+        "fee_type": {
+          "description": "What they asked to reverse or settle.",
+          "enum": [
+            "late_fee",
+            "bounce_charge",
+            "settlement",
+            "restructuring"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "timeout_secs": null
+    },
+    "flag_dispute": {
+      "cancel_on_interruption": false,
+      "description": "Flag a payment/charge dispute for human review (capture only).",
+      "handler": "_flag_dispute_handler",
+      "kind": "schema",
+      "properties": {
+        "amount": {
+          "description": "Optional disputed amount in INR.",
+          "type": "number"
+        },
+        "dispute_type": {
+          "description": "Dispute classification.",
+          "enum": [
+            "paid_already",
+            "wrong_amount",
+            "not_my_account",
+            "fee_waiver",
+            "duplicate_charge",
+            "fraud"
+          ],
+          "type": "string"
+        },
+        "summary": {
+          "description": "Brief transcript snippet of the customer's claim.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dispute_type"
+      ],
+      "timeout_secs": null
+    },
+    "get_account_position": {
+      "cancel_on_interruption": true,
+      "description": "Return the verified caller's outstanding balance and amounts due. Must not be called before identity verification succeeds.",
+      "handler": "_get_account_position_handler",
+      "kind": "schema",
+      "properties": {},
+      "required": [],
+      "timeout_secs": null
+    },
+    "get_customer_context": {
+      "cancel_on_interruption": false,
+      "description": "Authoritative customer/account snapshot: name, outstanding, DPD, DND, consent, open promises/disputes. Use for any money question.",
+      "handler": "_get_customer_context_handler",
+      "kind": "schema",
+      "properties": {},
+      "required": [],
+      "timeout_secs": null
+    },
+    "get_emi_schedule": {
+      "cancel_on_interruption": false,
+      "description": "EMI installment schedule for the customer's primary account.",
+      "handler": "_get_emi_schedule_handler",
+      "kind": "schema",
+      "properties": {
+        "limit": {
+          "default": 6,
+          "description": "How many installments to return.",
+          "maximum": 24,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "timeout_secs": null
+    },
+    "get_payment_history": {
+      "cancel_on_interruption": false,
+      "description": "Recent ledger entries for the customer's primary account.",
+      "handler": "_get_payment_history_handler",
+      "kind": "schema",
+      "properties": {
+        "limit": {
+          "default": 8,
+          "description": "How many entries to return.",
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "timeout_secs": null
+    },
+    "handoff_to_agent": {
+      "cancel_on_interruption": false,
+      "description": "Transfer this conversation to another first-party agent card. Only call this tool \u2014 never announce a transfer in prose. The target must be on this card's handoff allowlist.",
+      "handler": "_handoff_to_agent_handler",
+      "kind": "schema",
+      "properties": {
+        "payload": {
+          "description": "Compact JSON context for the receiving card.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why this specialist should take the call.",
+          "type": "string"
+        },
+        "target_bot_id": {
+          "description": "Destination bot id (e.g. kaia-v2-4, insurance-v1).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "target_bot_id"
+      ],
+      "timeout_secs": null
+    },
+    "load_skill": {
+      "cancel_on_interruption": false,
+      "description": "Load a signed skill's instructions into this turn. Pass the slug from the Skills list. Replaces any previously loaded skill body. Does not grant extra tools beyond that skill's allowlist.",
+      "handler": "_load_skill_handler",
+      "kind": "schema",
+      "properties": {
+        "include_references": {
+          "description": "If true, also load references/ text. Still grants no extra tools.",
+          "type": "boolean"
+        },
+        "slug": {
+          "description": "Skill slug (e.g. ptp-negotiate, hardship-intake).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug"
+      ],
+      "timeout_secs": null
+    },
+    "not_account_holder": {
+      "kind": "direct",
+      "name": "not_account_holder",
+      "params": []
+    },
+    "pause_for_caller": {
+      "kind": "direct",
+      "name": "pause_for_caller",
+      "params": []
+    },
+    "recommend_next_offer": {
+      "cancel_on_interruption": false,
+      "description": "Ask the offer engine what \u2014 if anything \u2014 is worth mentioning to this customer right now. Returns at most a couple of pre-approved offers, each with a product id and an indicative amount, or suppressed=true meaning say nothing about products at all. Never invent a product id and never pitch anything this tool did not return. Call it before mentioning any product, and before closing the call.",
+      "handler": "_recommend_next_offer_handler",
+      "kind": "schema",
+      "properties": {},
+      "required": [],
+      "timeout_secs": null
+    },
+    "refuse_verification": {
+      "kind": "direct",
+      "name": "refuse_verification",
+      "params": []
+    },
+    "request_callback": {
+      "cancel_on_interruption": false,
+      "description": "Schedule a human callback for the verified customer. Respects DND windows.",
+      "handler": "_request_callback_handler",
+      "kind": "schema",
+      "properties": {
+        "reason": {
+          "description": "Why the callback is needed.",
+          "enum": [
+            "payment_discussion",
+            "dispute_followup",
+            "document_query",
+            "hardship_review",
+            "upsell_interest",
+            "general"
+          ],
+          "type": "string"
+        },
+        "scheduled_at": {
+          "description": "ISO datetime when the customer wants to be called back.",
+          "type": "string"
+        },
+        "window_mins": {
+          "description": "Acceptable window around the slot, in minutes.",
+          "maximum": 120,
+          "minimum": 15,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scheduled_at"
+      ],
+      "timeout_secs": null
+    },
+    "request_documents": {
+      "cancel_on_interruption": false,
+      "description": "Raise a document request for the verified customer (statement, no-dues certificate, interest certificate, foreclosure letter, schedule, receipt, KYC letter). Operations fulfils and delivers it.",
+      "handler": "_request_documents_handler",
+      "kind": "schema",
+      "properties": {
+        "delivery_channel": {
+          "description": "How to deliver it. Defaults to email.",
+          "enum": [
+            "whatsapp",
+            "email",
+            "sms"
+          ],
+          "type": "string"
+        },
+        "document_type": {
+          "description": "Which document the customer asked for.",
+          "enum": [
+            "account_statement",
+            "no_dues_certificate",
+            "interest_certificate",
+            "foreclosure_letter",
+            "loan_schedule",
+            "payment_receipt",
+            "kyc_letter"
+          ],
+          "type": "string"
+        },
+        "period": {
+          "description": "Optional period the document should cover, e.g. 'FY2025-26' or 'last 6 months'.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_type"
+      ],
+      "timeout_secs": null
+    },
+    "return_to_position": {
+      "kind": "direct",
+      "name": "return_to_position",
+      "params": []
+    },
+    "run_skill_script": {
+      "cancel_on_interruption": false,
+      "description": "Run an allowlisted pure function (JSON in, JSON out). No shell, no network, no ledger writes. Scripts: emi_remaining, promise_date_in_window.",
+      "handler": "_run_skill_script_handler",
+      "kind": "schema",
+      "properties": {
+        "name": {
+          "description": "Script name.",
+          "enum": [
+            "emi_remaining",
+            "promise_date_in_window"
+          ],
+          "type": "string"
+        },
+        "payload": {
+          "description": "JSON object of script arguments.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "timeout_secs": null
+    },
+    "search_knowledge_base": {
+      "cancel_on_interruption": true,
+      "description": "Search the knowledge base for policy or FAQ answers. NEVER for balance, dues, EMI, or fees \u2014 CRM tools are authoritative for money. Honor answer_policy in the result: if confident is false, do not answer from the snippets.",
+      "handler": "_search_knowledge_base_handler",
+      "kind": "schema",
+      "properties": {
+        "query": {
+          "description": "Customer's question in plain language.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "timeout_secs": 20
+    },
+    "set_contact_preference": {
+      "cancel_on_interruption": false,
+      "description": "Record the hours the customer says we may call them, when they state a restriction in their own words - 'don't call before ten', 'not after six', 'mornings only'. Call this the moment they say it, not at the end. It can only make the calling window SMALLER: if they say we may call any time, do not call this tool, because removing a restriction they set earlier needs a person. Never infer a preference from when they happened to answer.",
+      "handler": "_set_contact_preference_handler",
+      "kind": "schema",
+      "properties": {
+        "earliest_hour": {
+          "description": "First hour of the day we may call, 0-23, local time. 'not before ten' is 10. Omit if they only named a latest hour.",
+          "type": "integer"
+        },
+        "latest_hour": {
+          "description": "Last hour of the day we may call, 0-23, local time. 'not after six in the evening' is 18. Omit if they only named an earliest hour.",
+          "type": "integer"
+        },
+        "verbatim": {
+          "description": "Short paraphrase of what they said, in their words.",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "timeout_secs": null
+    },
+    "verify_identity": {
+      "cancel_on_interruption": false,
+      "description": "Verify caller identity before any account details are shared. Call only after the caller has spoken digits \u2014 never with placeholder text.",
+      "handler": "_verify_identity_handler",
+      "kind": "schema",
+      "properties": {
+        "method": {
+          "description": "phone_match (mobile digits) or account_tail (last 4 of account).",
+          "enum": [
+            "phone_match",
+            "account_tail"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "description": "Digits the caller spoke (not instruction text).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "value"
+      ],
+      "timeout_secs": null
+    }
+  },
+  "transitions": {
+    "begin_dispute": [
+      "handle_dispute"
+    ],
+    "begin_negotiate": [
+      "negotiate_ptp"
+    ],
+    "begin_wrap_up": [
+      "pre_close",
+      "wrap_up"
+    ],
+    "capture_call_goal": [
+      "verify_identity"
+    ],
+    "capture_lead": [
+      "wrap_up"
+    ],
+    "create_promise_to_pay": [
+      "gated_upsell"
+    ],
+    "disclose_recording": [
+      "discover_intent",
+      "verify_identity"
+    ],
+    "end_call": [
+      "call_ended",
+      "pre_close"
+    ],
+    "escalate_to_human": [
+      "escalate_close"
+    ],
+    "flag_dispute": [
+      "escalate_close"
+    ],
+    "not_account_holder": [
+      "terminate_politely",
+      "third_party"
+    ],
+    "recommend_next_offer": [
+      "wrap_up"
+    ],
+    "refuse_verification": [
+      "terminate_politely"
+    ],
+    "request_callback": [
+      "wrap_up"
+    ],
+    "return_to_position": [
+      "state_position"
+    ],
+    "verify_identity": [
+      "state_position",
+      "terminate_politely"
+    ]
+  }
+}
