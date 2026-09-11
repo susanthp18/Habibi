@@ -16,6 +16,8 @@ metadata:
   mouth:
     - voice
     - whatsapp
+  intents:
+    - product_faq
 ---
 
 # Insurance lapse

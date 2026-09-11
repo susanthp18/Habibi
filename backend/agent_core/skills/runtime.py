@@ -25,15 +25,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 SKILL_BODY_PREFIX = "ACTIVE SKILL"
-INTENT_TO_SKILL: dict[str, str] = {
-    "hardship": "hardship-intake",
-    "dispute": "dispute-capture",
-    "payment_intent": "ptp-negotiate",
-    "waiver_request": "ptp-negotiate",
-    "upsell_opportunity": "upsell-pitch",
-    "product_faq": "insurance-lapse",
-    "balance_query": "verify-and-disclose",
-}
 
 
 def description_block(skills: list[SkillPack]) -> str:
@@ -109,10 +100,19 @@ def packs_from_card(card_raw: Any) -> list[SkillPack]:
 
 
 def resolve_intent_skill(intent: str | None, attached: list[SkillPack]) -> SkillPack | None:
-    slug = INTENT_TO_SKILL.get((intent or "").strip())
-    if not slug:
+    """The attached pack that claims ``intent`` in its own frontmatter.
+
+    Which intent loads which pack is authored on the pack (``metadata.intents``)
+    and read from the packs the *card* carries -- so a tenant's skill can
+    activate on intent, and a first-party pack the card does not carry never
+    does. It used to be a Python dict of seven first-party slugs, which the
+    Skills tab described as "loads on load_skill or intent" without being able
+    to show or change it. First attached pack in card order wins a tie.
+    """
+    wanted = (intent or "").strip()
+    if not wanted:
         return None
-    return next((s for s in attached if s.slug == slug), None)
+    return next((s for s in attached if wanted in s.intents), None)
 
 
 @dataclass(frozen=True)

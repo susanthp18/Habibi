@@ -16,6 +16,8 @@ metadata:
   mouth:
     - voice
     - whatsapp
+  intents:
+    - hardship
 ---
 
 # Hardship intake

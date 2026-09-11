@@ -17,6 +17,8 @@ metadata:
   mouth:
     - voice
     - whatsapp
+  intents:
+    - dispute
 ---
 
 # Dispute capture

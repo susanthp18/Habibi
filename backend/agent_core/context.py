@@ -652,8 +652,9 @@ def account_tail(account_id: str | None) -> str | None:
     have no trailing digits and a naive ``[-4:]`` would have the bot read
     "ANTH" aloud. Return None so callers omit the phrasing entirely.
     """
-    digits = "".join(ch for ch in (account_id or "") if ch.isdigit())
-    return digits[-4:] if len(digits) >= 4 else None
+    from db_core import _account_tail
+
+    return _account_tail(account_id)
 
 
 def _summarize(rows: list[dict[str, Any]]) -> str:

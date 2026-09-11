@@ -294,8 +294,16 @@ def third_party_disclosure(ctx: ScanContext) -> Finding | None:
 # Consent, verification, conduct
 # ---------------------------------------------------------------------------
 
-RBI_CALL_START_HOUR = 8
-RBI_CALL_END_HOUR = 19
+# The statutory window has one owner. This module restated it as two literals
+# for months; a change to the window in contact_policy would have left the
+# detector flagging calls the gate had admitted. Imported lazily -- the
+# detectors run in the API process and contact_policy pulls db at import.
+
+
+def _calling_hours() -> tuple[int, int]:
+    from contact_policy import RBI_VOICE_END, RBI_VOICE_START
+
+    return RBI_VOICE_START, RBI_VOICE_END
 
 
 @detector("r-dnd-win")
@@ -314,12 +322,13 @@ def contact_outside_window(ctx: ScanContext) -> Finding | None:
     from contact_policy import _zone  # one definition of the timezone fallback
 
     local = ctx.started_at.astimezone(_zone(ctx.timezone))
-    if RBI_CALL_START_HOUR <= local.hour < RBI_CALL_END_HOUR:
+    start_hour, end_hour = _calling_hours()
+    if start_hour <= local.hour < end_hour:
         return None
     return Finding(
         "r-dnd-win",
         f"Outbound contact at {local:%H:%M} local, outside the permitted "
-        f"{RBI_CALL_START_HOUR:02d}:00-{RBI_CALL_END_HOUR:02d}:00 window.",
+        f"{start_hour:02d}:00-{end_hour:02d}:00 window.",
     )
 
 

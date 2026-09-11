@@ -915,11 +915,10 @@ def compile_agent_studio_card(
             if isinstance(candidate, dict) and candidate:
                 card = candidate
                 break
-    if not card:
-        try:
-            card = card_dump(bot_id)
-        except KeyError:
-            card = {}
+    # No card on any version is what the compiler is told: G0 reports the
+    # legacy mouth. It used to be handed the first-party constant instead,
+    # which gated a card nobody had stored.
+    card = card or {}
     graph = flow if flow is not None else ((explicit or draft or published or {}).get("flow") or {})
     # Same precedence the card itself follows: preview what publish will ship,
     # which is the draft. The caller may pass the editor's unsaved voice and

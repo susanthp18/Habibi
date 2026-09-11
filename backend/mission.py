@@ -366,8 +366,13 @@ def load(conn: Any, attempt_id: str) -> dict[str, Any] | None:
 
 
 def _inr(value: Any) -> str:
+    """Whole rupees without the symbol, Indian grouping -- this is spoken to
+    the borrower in the mission brief, so "twelve lakh" must not read as
+    "one million two hundred thousand"."""
+    import money_inr
+
     try:
-        return f"{int(round(float(value))):,}"
+        return money_inr.group_indian(str(abs(int(round(float(value))))))
     except (TypeError, ValueError):
         return ""
 
@@ -501,14 +506,16 @@ def card_for_bot(
     environment: str = "production",
     customer_id: str | None = None,
 ) -> Any | None:
-    """The published card for this agent, or the first-party default, or None.
+    """The published card for this agent, or None.
 
-    Order matters. The *published* card is what the compiler gated and what a
-    regulator would be shown, so it wins. The first-party default is the
-    fallback for a fresh install whose bot has no version yet — useful in
-    development and never authoritative. Neither is required: a dial with no
-    card still happens, it just carries no mission envelope, which is exactly
-    what every outbound call did before this module existed.
+    The *published* card is what the compiler gated and what a regulator would
+    be shown, so it is the only card a dial may run under. There used to be a
+    second answer -- the first-party Python constant -- "never authoritative"
+    by its own docstring and yet reached on every call to a bot with no
+    published version, so a card could be edited, published and still not be
+    what the dial used. A dial with no card still happens; it carries no
+    mission envelope, which is what every outbound call did before this
+    module existed. The constants are seed data now (`seed_first_party`).
     """
     bot = (bot_id or "").strip()
     if not bot:
@@ -531,13 +538,7 @@ def card_for_bot(
                 return parse_card(raw)
     except Exception:
         logger.debug("published card unreadable for %s", bot, exc_info=True)
-
-    try:
-        from agent_core.cards.defaults import card_for
-
-        return card_for(bot)
-    except Exception:
-        return None
+    return None
 
 
 def objective_for_trigger(trigger: str | None) -> str:

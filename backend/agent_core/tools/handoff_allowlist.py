@@ -28,26 +28,23 @@ def handoff_allowlist(
 ) -> set[str]:
     """Targets this mouth may transfer to. Empty set — never None — on miss.
 
-    Resolution order is the live published/runtime card, then the first-party
-    built-in, then deny. ``domain.handoff_to_agent`` reads ``None`` as
-    unrestricted, so this helper never returns ``None``.
+    The live published card on the bundle, or deny. There is no longer a
+    second source: the first-party Python constant used to answer for a bot
+    whose bundle carried no card, which meant a target removed in the Studio
+    was still reachable on the phone (ADR-0002: a cardless agent is denied
+    every tool). ``domain.handoff_to_agent`` reads ``None`` as unrestricted,
+    so this helper never returns ``None``.
     """
-    from agent_core.cards.defaults import card_for
     from agent_core.cards.schema import parse_card
 
     if agent_card:
         try:
             return set(parse_card(dict(agent_card)).handoff_targets())
         except Exception:
-            logger.warning("handoff allowlist: live card unreadable, falling back to built-in")
-
+            logger.warning("handoff allowlist: live card unreadable — denying every target")
+            return set()
     if bot_id:
-        try:
-            return set(card_for(bot_id).handoff_targets())
-        except KeyError:
-            logger.warning(
-                "handoff allowlist: no card for bot_id=%s — denying every target", bot_id
-            )
+        logger.warning("handoff allowlist: no card on the bundle for bot_id=%s — denying every target", bot_id)
     return set()
 
 
@@ -62,7 +59,6 @@ def handoff_routes(
     :func:`handoff_allowlist` — an unreadable card describes no route, which is
     consistent with it permitting none.
     """
-    from agent_core.cards.defaults import card_for
     from agent_core.cards.schema import parse_card
 
     card = None
@@ -70,11 +66,6 @@ def handoff_routes(
         try:
             card = parse_card(dict(agent_card))
         except Exception:
-            card = None
-    if card is None and bot_id:
-        try:
-            card = card_for(bot_id)
-        except KeyError:
             card = None
     if card is None:
         return []

@@ -18,6 +18,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
+
+import money_inr
 from sqlalchemy.engine import Engine
 
 import webhooks_dispatch
@@ -103,13 +105,20 @@ def _phone_last4(phone: str | None) -> str | None:
 
 
 def _fmt_inr(amount: Any) -> str:
+    """Rupees for an SMS or a pay-link template, without the symbol (the copy
+    carries it). Indian grouping -- "12,34,567", not Python's "1,234,567" --
+    because this is the number the borrower reads. Paise kept only when there
+    are any; a template slot reads better as "1,500" than "1,500.00"."""
     try:
         n = Decimal(str(amount)).quantize(Decimal("0.01"))
     except Exception:
         return str(amount)
+    whole = money_inr.group_indian(str(abs(int(n))))
+    sign = "-" if n < 0 else ""
     if n == n.to_integral():
-        return f"{int(n):,}"
-    return f"{n:,}"
+        return f"{sign}{whole}"
+    paise = f"{abs(n) % 1:.2f}"[1:]
+    return f"{sign}{whole}{paise}"
 
 
 def _promised_date_ist(promised_at: datetime) -> datetime.date:

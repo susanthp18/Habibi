@@ -370,7 +370,15 @@ def _dump(model: Any) -> dict[str, Any]:
 
 
 def _account_tail(account_id: str | None) -> str | None:
-    return account_id[-4:] if account_id else None
+    """Last 4 *digits* of an account id -- never letters.
+
+    Ids look like ``AC-77410`` (-> ``7410``); a vanity id like ``AC-SUSANTH``
+    has no trailing digits, and the old ``[-4:]`` here showed the desk "SANTH"
+    while the mouth (``agent_core.context.account_tail``, which delegates to
+    this) said nothing. One rule now, and the desk and the phone agree.
+    """
+    digits = "".join(ch for ch in (account_id or "") if ch.isdigit())
+    return digits[-4:] if len(digits) >= 4 else None
 
 
 def _id(prefix: str) -> str:

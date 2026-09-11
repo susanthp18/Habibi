@@ -29,6 +29,11 @@ class SkillPack:
     data_class: list[str] = field(default_factory=list)
     eval_suite: str | None = None
     mouth: list[str] = field(default_factory=list)
+    #: Understanding-vocabulary intents that auto-load this pack when the card
+    #: carries it (`metadata.intents` in SKILL.md). Authored on the pack, so a
+    #: tenant's own skill can activate on intent without a code change --
+    #: this used to be a Python dict naming seven first-party slugs.
+    intents: list[str] = field(default_factory=list)
     frontmatter: dict[str, Any] = field(default_factory=dict)
     references: dict[str, str] = field(default_factory=dict)
     examples: list[dict[str, Any]] = field(default_factory=list)
@@ -144,6 +149,9 @@ def parse_skill_md(text: str, *, slug_hint: str | None = None) -> SkillPack:
     mouth = metadata.get("mouth") or []
     if not isinstance(mouth, list):
         mouth = [str(mouth)]
+    intents = metadata.get("intents") or []
+    if not isinstance(intents, list):
+        intents = [str(intents)]
     return SkillPack(
         slug=slug,
         description=str(meta.get("description") or "").strip(),
@@ -153,6 +161,7 @@ def parse_skill_md(text: str, *, slug_hint: str | None = None) -> SkillPack:
         data_class=[str(x) for x in data_class],
         eval_suite=str(metadata.get("eval_suite") or "") or None,
         mouth=[str(x) for x in mouth],
+        intents=[str(x).strip() for x in intents if str(x).strip()],
         frontmatter=meta,
     )
 

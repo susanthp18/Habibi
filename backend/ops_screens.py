@@ -28,14 +28,10 @@ def _floor_agent_card(row: dict[str, Any], fallback_name: str) -> dict[str, str]
     bot_id = row.get("handler_bot_id")
     if not bot_id:
         return None
-    display = fallback_name
-    try:
-        from agent_core.cards.defaults import card_for
-
-        display = card_for(str(bot_id)).identity.display_name
-    except KeyError:
-        pass
-    return {"botId": str(bot_id), "displayName": display}
+    # `handler_name` is already COALESCE(u.name, b.name, ...) from the bots
+    # row -- not the Python constant, which a renamed or cloned card never
+    # told about its name.
+    return {"botId": str(bot_id), "displayName": fallback_name}
 
 def _tenant() -> str:
     """Read tenant dynamically so tests/env overrides apply.

@@ -15,6 +15,8 @@ metadata:
   mouth:
     - voice
     - whatsapp
+  intents:
+    - balance_query
 ---
 
 # Verify and disclose

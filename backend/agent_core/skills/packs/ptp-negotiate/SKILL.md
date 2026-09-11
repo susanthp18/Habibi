@@ -19,6 +19,9 @@ metadata:
   mouth:
     - voice
     - whatsapp
+  intents:
+    - payment_intent
+    - waiver_request
 ---
 
 # Promise-to-Pay negotiate

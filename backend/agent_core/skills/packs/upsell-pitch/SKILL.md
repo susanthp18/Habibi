@@ -14,6 +14,8 @@ metadata:
   eval_suite: skill.upsell-pitch
   mouth:
     - voice
+  intents:
+    - upsell_opportunity
 ---
 
 # Upsell pitch
