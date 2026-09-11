@@ -481,3 +481,31 @@ def test_missing_account_raises(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
         )
     after = db_tx.execute(text("SELECT count(*) FROM payment_events")).scalar()
     assert int(after) == int(before)
+
+
+def test_a_replayed_source_ref_without_an_emi_is_deduplicated_not_lost(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The unique violation is the expected outcome of a race, not a crash.
+
+    Without an EMI the pre-check cannot see the earlier row, so the INSERT
+    hits `uq_payment_events_source_ref`. That IntegrityError used to abort the
+    shared transaction, so the SELECT that finds the winner failed with
+    "current transaction is aborted" and the bounce was lost. The INSERT runs
+    under a savepoint now, and the fee is posted only by the row that won.
+    """
+    _cid, aid = _prep(db_tx, monkeypatch)
+    now = datetime(2026, 8, 13, 10, 0, tzinfo=IST)
+    ref = f"NACH-{uuid.uuid4().hex}"
+    first, _ = _ingest(db_tx, aid, now=now, sourceRef=ref, bounceFee=250.0)
+    second, _ = _ingest(db_tx, aid, now=now, sourceRef=ref, bounceFee=250.0)
+    assert first["eventId"] == second["eventId"]
+    assert second["idempotent"] is True
+    fees = db_tx.execute(
+        text(
+            "SELECT count(*) FROM ledger_entries WHERE account_id = :aid AND type = 'fee' "
+            "AND description = 'EMI bounce fee' AND posted_at = :at"
+        ),
+        {"aid": aid, "at": now},
+    ).scalar()
+    assert int(fees) == 1

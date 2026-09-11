@@ -173,15 +173,19 @@ def start_voice_call(
             },
         )
         try:
-            db._activity(
-                conn,
-                "interaction",
-                interaction_id,
-                "voice_session_started",
-                "Voice session started",
-                f"transport={transport_n}",
-                cid,
-            )
+            # Non-fatal only with a savepoint: a failed statement here left
+            # the transaction aborted, and the interaction INSERT above went
+            # with it while the log said "non-fatal".
+            with conn.begin_nested():
+                db._activity(
+                    conn,
+                    "interaction",
+                    interaction_id,
+                    "voice_session_started",
+                    "Voice session started",
+                    f"transport={transport_n}",
+                    cid,
+                )
         except Exception:
             logger.exception("activity_events write failed (non-fatal)")
 
@@ -778,12 +782,15 @@ def complete_voice_call(
         try:
             import capture
 
-            capture.rollup_interaction(
-                conn,
-                interaction_id,
-                channel_hint="voice",
-                force_summary=not bool(summary),
-            )
+            # Same shape: the rollup is derived and may fail; the completion
+            # UPDATE above and the session close below must not fail with it.
+            with conn.begin_nested():
+                capture.rollup_interaction(
+                    conn,
+                    interaction_id,
+                    channel_hint="voice",
+                    force_summary=not bool(summary),
+                )
         except Exception:
             logger.exception("capture rollup failed for %s", interaction_id)
 

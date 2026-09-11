@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -22,8 +21,9 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
 import pg_errors
+from agent_core.clock import as_utc
 from contact_policy import BLOCKING_CONSENT
-from env_loader import load_env
+from env_loader import env_str, load_env
 from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
@@ -42,18 +42,13 @@ REASON_LABELS = {
 DEFAULT_TZ = "Asia/Kolkata"
 
 
-def _env(name: str, default: str = "") -> str:
-    load_env()
-    return (os.getenv(name) or default).strip()
-
-
 def bounce_voice_enabled() -> bool:
     load_env()
     return env_bool("BOUNCE_VOICE_ENABLED")
 
 
 def webhook_secret() -> str:
-    return _env("PAYMENT_EVENTS_WEBHOOK_SECRET") or _env("PAYMENT_WEBHOOK_SECRET")
+    return env_str("PAYMENT_EVENTS_WEBHOOK_SECRET") or env_str("PAYMENT_WEBHOOK_SECRET")
 
 
 def verify_webhook_signature(*, raw_body: bytes, header: str | None) -> bool:
@@ -100,22 +95,16 @@ def _money(value: Any) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"))
 
 
-def _aware(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def _parse_dt(raw: Any, fallback: datetime) -> datetime:
     if raw is None or raw == "":
         return fallback
     if isinstance(raw, datetime):
-        return _aware(raw)
+        return as_utc(raw)
     try:
         parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except ValueError:
         return fallback
-    return _aware(parsed)
+    return as_utc(parsed)
 
 
 def _zone(name: str | None) -> ZoneInfo:
@@ -191,7 +180,7 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
     if not source_ref:
         raise ValueError("source_ref_required")
 
-    instant = _aware(now or datetime.now(timezone.utc))
+    instant = as_utc(now or datetime.now(timezone.utc))
     occurred = _parse_dt(parsed.get("occurred_at"), instant)
 
     account = conn.execute(
@@ -272,63 +261,7 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
             ).mappings().first()
             return _result(dict(refreshed or event), idempotent=True, deferred=deferred)
 
-    if emi is not None and emi["status"] != "paid":
-        conn.execute(
-            text(
-                """
-                UPDATE emi_installments
-                SET status = 'overdue'
-                WHERE id = :id AND status <> 'paid'
-                """
-            ),
-            {"id": emi["id"]},
-        )
-
-    bucket = account.get("bucket")
-    new_bucket = bucket
-    if not bucket or str(bucket).strip() in {"", "0"}:
-        new_bucket = "0-30"
-    conn.execute(
-        text(
-            """
-            UPDATE accounts
-            SET dpd = GREATEST(dpd, 1),
-                bucket = :bucket
-            WHERE id = :id
-            """
-        ),
-        {"id": account_id, "bucket": new_bucket},
-    )
-
     fee = _money(parsed.get("bounce_fee")) if parsed.get("bounce_fee") not in (None, "") else Decimal("0")
-    if fee > 0:
-        import db as dbmod
-
-        conn.execute(
-            text(
-                """
-                INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at)
-                VALUES (:id, :account_id, 'fee', :description, :amount, :posted_at)
-                """
-            ),
-            {
-                "id": dbmod._id("LED"),
-                "account_id": account_id,
-                "description": "EMI bounce fee",
-                "amount": float(fee),
-                "posted_at": occurred,
-            },
-        )
-        conn.execute(
-            text(
-                """
-                UPDATE accounts
-                SET outstanding = outstanding + :fee
-                WHERE id = :id
-                """
-            ),
-            {"id": account_id, "fee": float(fee)},
-        )
 
     import db as dbmod
 
@@ -337,36 +270,41 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
     if parsed.get("next_credit_at") in (None, ""):
         next_credit = None
     try:
-        conn.execute(
-            text(
-                """
-                INSERT INTO payment_events (
-                  id, tenant_id, customer_id, account_id, emi_installment_id,
-                  kind, reason, amount, bounce_fee, source, source_ref, status,
-                  next_credit_at, assignee_user_id, occurred_at
-                ) VALUES (
-                  :id, :tenant_id, :customer_id, :account_id, :emi_id,
-                  'bounce', :reason, :amount, :bounce_fee, :source, :source_ref, 'open',
-                  :next_credit_at, :assignee_user_id, :occurred_at
-                )
-                """
-            ),
-            {
-                "id": event_id,
-                "tenant_id": tenant_id,
-                "customer_id": account["customer_id"],
-                "account_id": account_id,
-                "emi_id": emi["id"] if emi else None,
-                "reason": parsed["reason"],
-                "amount": float(amount),
-                "bounce_fee": float(fee) if fee > 0 else None,
-                "source": parsed["source"],
-                "source_ref": source_ref,
-                "next_credit_at": next_credit,
-                "assignee_user_id": account.get("assigned_user_id"),
-                "occurred_at": occurred,
-            },
-        )
+        # A savepoint: the unique violation below is the expected outcome of a
+        # race, and without one it aborted the whole transaction, so the
+        # SELECT that finds the winner failed with "current transaction is
+        # aborted" and the bounce was lost instead of deduplicated.
+        with conn.begin_nested():
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO payment_events (
+                      id, tenant_id, customer_id, account_id, emi_installment_id,
+                      kind, reason, amount, bounce_fee, source, source_ref, status,
+                      next_credit_at, assignee_user_id, occurred_at
+                    ) VALUES (
+                      :id, :tenant_id, :customer_id, :account_id, :emi_id,
+                      'bounce', :reason, :amount, :bounce_fee, :source, :source_ref, 'open',
+                      :next_credit_at, :assignee_user_id, :occurred_at
+                    )
+                    """
+                ),
+                {
+                    "id": event_id,
+                    "tenant_id": tenant_id,
+                    "customer_id": account["customer_id"],
+                    "account_id": account_id,
+                    "emi_id": emi["id"] if emi else None,
+                    "reason": parsed["reason"],
+                    "amount": float(amount),
+                    "bounce_fee": float(fee) if fee > 0 else None,
+                    "source": parsed["source"],
+                    "source_ref": source_ref,
+                    "next_credit_at": next_credit,
+                    "assignee_user_id": account.get("assigned_user_id"),
+                    "occurred_at": occurred,
+                },
+            )
     except IntegrityError as exc:
         # Only a duplicate key is a replay. A foreign-key or CHECK failure
         # inside this INSERT is a broken write, and treating it as "the other
@@ -408,6 +346,65 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
             {"id": event["id"]},
         ).mappings().first()
         return _result(dict(refreshed or event), idempotent=True, deferred=deferred)
+
+    # The row is the claim; everything derived from the bounce follows it, so
+    # the loser of a race posts no second fee and marks nothing overdue.
+    if emi is not None and emi["status"] != "paid":
+        conn.execute(
+            text(
+                """
+                UPDATE emi_installments
+                SET status = 'overdue'
+                WHERE id = :id AND status <> 'paid'
+                """
+            ),
+            {"id": emi["id"]},
+        )
+
+    bucket = account.get("bucket")
+    new_bucket = bucket
+    if not bucket or str(bucket).strip() in {"", "0"}:
+        new_bucket = "0-30"
+    conn.execute(
+        text(
+            """
+            UPDATE accounts
+            SET dpd = GREATEST(dpd, 1),
+                bucket = :bucket
+            WHERE id = :id
+            """
+        ),
+        {"id": account_id, "bucket": new_bucket},
+    )
+
+    if fee > 0:
+        import db as dbmod
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at)
+                VALUES (:id, :account_id, 'fee', :description, :amount, :posted_at)
+                """
+            ),
+            {
+                "id": dbmod._id("LED"),
+                "account_id": account_id,
+                "description": "EMI bounce fee",
+                "amount": float(fee),
+                "posted_at": occurred,
+            },
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE accounts
+                SET outstanding = outstanding + :fee
+                WHERE id = :id
+                """
+            ),
+            {"id": account_id, "fee": float(fee)},
+        )
 
     event = conn.execute(
         text("SELECT * FROM payment_events WHERE id = :id FOR UPDATE"),
