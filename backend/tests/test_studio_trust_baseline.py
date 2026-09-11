@@ -356,47 +356,26 @@ def test_entry_hash_covers_actor_and_timestamp(cloned_bot: str) -> None:
     assert change_log._digest(tampered) != payload["entryHash"]
 
 
-def test_tail_deletion_is_visible_once_the_head_table_exists(cloned_bot: str) -> None:
-    with db.engine.begin() as conn:
-        # Created only when absent: the schema check on CREATE runs before the
-        # IF NOT EXISTS shortcut, and the suite's role may not create tables.
-        if not conn.execute(text("SELECT to_regclass('public.audit_chain_heads')")).scalar():
-            from tests.conftest import require_owner
+def test_tail_deletion_is_visible_once_the_head_table_exists(db_real) -> None:
+    """Deleting the newest entry left the chain verifying clean; the persisted
+    head is what makes the truncation visible. Tampering is the owner's act
+    (sql/43 makes audit_log append-only for the app role) against committed
+    rows, so this runs on db_real."""
+    from tests.conftest import owner_engine
+    from tests.test_agent_change_log import _committed_chain
 
-            require_owner(conn, "audit_chain_heads is absent and only the owner can create it")
-            conn.execute(
-                text(
-                    """
-                    CREATE TABLE IF NOT EXISTS audit_chain_heads (
-                      tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
-                      entry_hash TEXT NOT NULL,
-                      seq BIGINT NOT NULL,
-                      updated_at timestamptz NOT NULL DEFAULT now()
-                    )
-                    """
-                )
-            )
-    version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
-    db.publish_prompt_version(version_id, "v1")
-    second = db.restore_prompt_version_as_draft(version_id)["id"]
-    db.publish_prompt_version(second, "v2")
-
+    owner = owner_engine()
+    if owner is None:
+        pytest.skip("MIGRATION_DATABASE_URL unset: cannot act as the owner (sql/43)")
     with db.engine.connect() as conn:
-        newest = conn.execute(
-            text(
-                """
-                SELECT id FROM audit_log
-                 WHERE entity_id = :b AND entity_type = 'bot'
-                 ORDER BY COALESCE((payload->>'seq')::bigint, 0) DESC, id DESC
-                 LIMIT 1
-                """
-            ),
-            {"b": cloned_bot},
-        ).scalar()
-    with db.engine.begin() as conn:
+        if not conn.execute(text("SELECT to_regclass('public.audit_chain_heads')")).scalar():
+            pytest.skip("audit_chain_heads is absent (sql/12)")
+
+    bot_id, (_first, newest) = _committed_chain(db_real)
+    with owner.begin() as conn:
         conn.execute(text("DELETE FROM audit_log WHERE id = :id"), {"id": newest})
 
-    verdict = db.agent_change_log(cloned_bot)["chain"]
+    verdict = db.agent_change_log(bot_id)["chain"]
     assert verdict["ok"] is False
     assert verdict["reason"] == "tail_truncated"
 
@@ -537,8 +516,14 @@ def cloned_bot(db_tx):
     bot_id = row["botId"]
     yield bot_id
     _reset_chain_head()
+    from tests.conftest import owner_engine
+
+    owner = owner_engine()
+    if owner is not None:
+        # audit_log is append-only for the app role (sql/43); the owner cleans.
+        with owner.begin() as conn:
+            conn.execute(text("DELETE FROM audit_log WHERE entity_id = :b"), {"b": bot_id})
     with db.engine.begin() as conn:
-        conn.execute(text("DELETE FROM audit_log WHERE entity_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM bot_deployments WHERE bot_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM prompt_versions WHERE bot_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM bots WHERE id = :b"), {"b": bot_id})

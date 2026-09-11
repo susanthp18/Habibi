@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import text
 
 import db
+from tests.conftest import owner_engine
 from agent_core import change_log
 from agent_core.cards.clone import clone_card
 
@@ -49,8 +50,12 @@ def cloned_bot(db_tx):
     bot_id = row["botId"]
     yield bot_id
     _reset_chain_head()
+    owner = owner_engine()
+    if owner is not None:
+        # audit_log is append-only for the app role (sql/43); the owner cleans.
+        with owner.begin() as conn:
+            conn.execute(text("DELETE FROM audit_log WHERE entity_id = :b"), {"b": bot_id})
     with db.engine.begin() as conn:
-        conn.execute(text("DELETE FROM audit_log WHERE entity_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM bot_deployments WHERE bot_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM prompt_versions WHERE bot_id = :b"), {"b": bot_id})
         conn.execute(text("DELETE FROM bots WHERE id = :b"), {"b": bot_id})
@@ -58,6 +63,16 @@ def cloned_bot(db_tx):
 
 def _entries(bot_id: str) -> list[dict]:
     return db.agent_change_log(bot_id)["entries"]
+
+
+def _tamperer():
+    """Rewriting history is the owner's act by construction (sql/43): the app
+    role cannot UPDATE or DELETE audit_log at all. The chain still has to
+    notice the owner doing it, which is what these tests prove."""
+    owner = owner_engine()
+    if owner is None:
+        pytest.skip("MIGRATION_DATABASE_URL unset: cannot act as the owner")
+    return owner
 
 
 def test_publishing_records_who_what_and_the_compiler_verdict(cloned_bot: str) -> None:
@@ -224,66 +239,98 @@ def test_a_rollback_records_the_gates_of_the_version_it_reships(cloned_bot: str)
     assert row["gates"] == {"G0": "pass", "G6": "warn"}
 
 
-def test_the_chain_detects_an_edited_entry(cloned_bot: str) -> None:
-    """The point of the hash chain. Rewriting history has to be visible, not
-    merely unlikely."""
-    version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
-    db.publish_prompt_version(version_id, "as shipped")
-    assert db.agent_change_log(cloned_bot)["chain"]["ok"] is True
+# ---------------------------------------------------------------------------
+# Tampering. audit_log is append-only for the application role (sql/43), so
+# these run as the owner -- the only role that can rewrite history -- against
+# committed rows (db_real). The chain still has to notice the owner doing it.
+# ---------------------------------------------------------------------------
 
-    entry_id = _entries(cloned_bot)[0]["id"]
-    with db.engine.begin() as conn:
+
+def _committed_chain(db_real, n: int = 2) -> tuple[str, list[str]]:
+    """``n`` archive entries for a probe bot, committed; returns (bot_id, entry ids)."""
+    from agent_core import change_log
+
+    bot_id = f"chain-tamper-{uuid.uuid4().hex[:8]}"
+    db_real.track("audit_log", entity_id=bot_id)
+    ids: list[str] = []
+    for _ in range(n):
+        entry_id = db._id("AUD")
+        with db.engine.begin() as conn:
+            change_log.record_archive(
+                conn,
+                tenant_id=db.current_tenant(),
+                actor_user_id=db._actor_user_id(),
+                entry_id=entry_id,
+                bot_id=bot_id,
+                retired_deployment_id=None,
+            )
+        ids.append(entry_id)
+    return bot_id, ids
+
+
+def test_the_application_role_cannot_rewrite_history(db_real) -> None:
+    """The stronger property: not "we would notice" but "it cannot be done"."""
+    from sqlalchemy.exc import DBAPIError
+
+    _bot, (first, _second) = _committed_chain(db_real)
+    with pytest.raises(DBAPIError, match="append-only"):
+        with db.engine.begin() as conn:
+            conn.execute(text("DELETE FROM audit_log WHERE id = :id"), {"id": first})
+    with pytest.raises(DBAPIError, match="append-only"):
+        with db.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE audit_log SET action = 'agent.rollback' WHERE id = :id"), {"id": first}
+            )
+
+
+def test_the_chain_detects_an_edited_entry(db_real) -> None:
+    """The point of the hash chain. Rewriting history has to be visible, not
+    merely unlikely -- even when the owner does it."""
+    bot_id, (first, _second) = _committed_chain(db_real)
+    assert db.agent_change_log(bot_id)["chain"]["ok"] is True
+
+    with _tamperer().begin() as conn:
         payload = conn.execute(
-            text("SELECT payload FROM audit_log WHERE id = :id"), {"id": entry_id}
+            text("SELECT payload FROM audit_log WHERE id = :id"), {"id": first}
         ).scalar()
         payload = payload if isinstance(payload, dict) else json.loads(payload)
-        payload["summary"] = "something else entirely"
+        payload["retiredDeploymentId"] = "something else entirely"
         conn.execute(
             text("UPDATE audit_log SET payload = CAST(:p AS jsonb) WHERE id = :id"),
-            {"id": entry_id, "p": json.dumps(payload)},
+            {"id": first, "p": json.dumps(payload)},
         )
 
-    verdict = db.agent_change_log(cloned_bot)["chain"]
+    verdict = db.agent_change_log(bot_id)["chain"]
     assert verdict["ok"] is False
-    assert verdict["brokenAt"] == entry_id
+    assert verdict["brokenAt"] == first
     assert verdict["reason"] == "entry_hash_mismatch"
 
 
-def test_the_screen_renders_the_hashed_action_not_the_raw_column(cloned_bot: str) -> None:
+def test_the_screen_renders_the_hashed_action_not_the_raw_column(db_real) -> None:
     """`action` and `botId` exist twice: in the digest, and in `audit_log`
     columns that are outside it. The screen used to render the columns, so an
     UPDATE against them changed what a compliance reviewer read while
-    `verify_chain` still reported ok — tamper-visible text sourced from the one
-    copy nothing protects.
-    """
-    version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
-    db.publish_prompt_version(version_id, "as shipped")
-    entry_id = _entries(cloned_bot)[0]["id"]
-
-    with db.engine.begin() as conn:
+    `verify_chain` still reported ok -- tamper-visible text sourced from the one
+    copy nothing protects."""
+    bot_id, (first, _second) = _committed_chain(db_real)
+    with _tamperer().begin() as conn:
         conn.execute(
-            text("UPDATE audit_log SET action = 'agent.rollback' WHERE id = :id"),
-            {"id": entry_id},
+            text("UPDATE audit_log SET action = 'agent.rollback' WHERE id = :id"), {"id": first}
         )
 
-    entry = _entries(cloned_bot)[0]
-    assert entry["action"] == "agent.publish"
-    # The digest never covered the column, so the chain cannot see this edit —
-    # which is exactly why the reader must not present it as the record.
-    assert db.agent_change_log(cloned_bot)["chain"]["ok"] is True
+    entries = {e["id"]: e for e in _entries(bot_id)}
+    assert entries[first]["action"] == "agent.archive"
+    # The digest never covered the column, so the chain cannot see this edit --
+    # which is exactly why the screen must not read it.
+    assert db.agent_change_log(bot_id)["chain"]["ok"] is True
 
 
-def test_the_chain_detects_a_deleted_entry(cloned_bot: str) -> None:
-    version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
-    db.publish_prompt_version(version_id, "v1")
-    second = db.restore_prompt_version_as_draft(version_id)["id"]
-    db.publish_prompt_version(second, "v2")
+def test_the_chain_detects_a_deleted_entry(db_real) -> None:
+    bot_id, (first, _second) = _committed_chain(db_real)
+    with _tamperer().begin() as conn:
+        conn.execute(text("DELETE FROM audit_log WHERE id = :id"), {"id": first})
 
-    first_entry = _entries(cloned_bot)[-1]["id"]
-    with db.engine.begin() as conn:
-        conn.execute(text("DELETE FROM audit_log WHERE id = :id"), {"id": first_entry})
-
-    verdict = db.agent_change_log(cloned_bot)["chain"]
+    verdict = db.agent_change_log(bot_id)["chain"]
     assert verdict["ok"] is False
     assert verdict["reason"] == "prev_hash_mismatch"
 

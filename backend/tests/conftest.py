@@ -159,6 +159,31 @@ def acting_as(conn, tenant: str):
         )
 
 
+_OWNER_ENGINE = None
+
+
+def owner_engine():
+    """An Engine on the schema owner's DSN (MIGRATION_DATABASE_URL), or None.
+
+    The suite runs as the application role, which -- since sql/43 -- cannot
+    UPDATE or DELETE audit_log. A test that tampers with the audit trail to
+    prove the chain notices, or cleans up the rows it wrote, is acting as an
+    operator with the owner's credentials, and says so by reaching the owner
+    through this rather than pretending the app role could.
+    """
+    global _OWNER_ENGINE
+    if _OWNER_ENGINE is None:
+        import os
+
+        from sqlalchemy import create_engine
+
+        url = (os.getenv("MIGRATION_DATABASE_URL") or "").strip()
+        if not url:
+            return None
+        _OWNER_ENGINE = create_engine(url, pool_pre_ping=True)
+    return _OWNER_ENGINE
+
+
 def require_owner(conn, why: str) -> None:
     """Skip unless the connection is the schema owner.
 
@@ -354,7 +379,10 @@ def db_real(request: pytest.FixtureRequest):
         # context where one is propagating.
         errors: list[BaseException] = []
         if handle._cleanups:
-            with db.engine.begin() as conn:
+            # The owner cleans when reachable: audit_log is append-only for
+            # the app role (sql/43), and a tracked row on it must still go.
+            cleaner = owner_engine() or db.engine
+            with cleaner.begin() as conn:
                 for fn in reversed(handle._cleanups):
                     nested = conn.begin_nested()
                     try:

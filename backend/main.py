@@ -37,6 +37,7 @@ import authz
 import azure_openai
 import circuit_breaker
 import db
+from sqlalchemy import text
 import observability
 import request_context
 import storage
@@ -228,16 +229,39 @@ class MetricsMiddleware(BaseHTTPMiddleware):
                 logger.debug("request metric failed", exc_info=True)
 
 
-# Controls whose enforcement is still deferred (see DATA_MODEL.md, "Scope of
-# this build pass"): RLS tenant isolation, PII column encryption, and
-# append-only audit enforcement. Until those land, this build must not be run
-# against real customer data — so a non-local deployment fails closed unless an
-# operator has explicitly acknowledged the gap.
-_DEFERRED_HARDENING_CONTROLS = (
-    "RLS tenant isolation",
-    "PII column encryption / Vault secret refs",
-    "append-only enforcement on audit tables",
-)
+# The data-layer controls a deployed process must run under (DATA_MODEL.md,
+# "Scope of this build pass"). Two are read from the database at boot; the
+# third has no implementation yet and is the one honest reason a deployed
+# boot still refuses. This used to be a constant list that named RLS as
+# deferred after RLS was on -- a gate that reads a list cannot notice the
+# list is stale.
+_PII_ENCRYPTION_DEFERRED = "PII column encryption / Vault secret refs"
+
+
+def _inactive_hardening_controls() -> list[str]:
+    """The controls not enforced on the database this process is about to use."""
+    import rls
+
+    inactive: list[str] = []
+    with db.engine.connect() as conn:
+        status = rls.status(conn)
+        if status["role_bypasses_rls"] or not status["enforcing"] or status["missing_policy"]:
+            inactive.append(
+                "RLS tenant isolation (role=%s bypasses=%s enforcing=%s missing=%s)"
+                % (
+                    status["role"],
+                    status["role_bypasses_rls"],
+                    status["enforcing"],
+                    len(status["missing_policy"]),
+                )
+            )
+        append_only = conn.execute(
+            text("SELECT 1 FROM pg_trigger WHERE tgname = 'audit_log_append_only' AND NOT tgisinternal")
+        ).scalar()
+        if not append_only:
+            inactive.append("append-only enforcement on audit_log (trigger absent)")
+    inactive.append(_PII_ENCRYPTION_DEFERRED)
+    return inactive
 
 
 def _assert_hardening_gate() -> None:
@@ -250,10 +274,13 @@ def _assert_hardening_gate() -> None:
     unhardened_ok = _APP_ENV in {"dev", "test", "local"} and not deployed
     if unhardened_ok:
         return
+    inactive = _inactive_hardening_controls()
+    if not inactive:
+        return
     raise RuntimeError(
-        f"APP_ENV={_APP_ENV} but the data layer's deferred controls are not active: "
-        + "; ".join(_DEFERRED_HARDENING_CONTROLS)
-        + ". Run this build locally with APP_ENV=dev, or complete the deferred controls."
+        f"APP_ENV={_APP_ENV} but the data layer's controls are not all active: "
+        + "; ".join(inactive)
+        + ". Run this build locally with APP_ENV=dev, or complete the controls."
     )
 
 

@@ -39,6 +39,9 @@ services:
   voice:
     environment:
       HABIBI_DEPLOYED: "0"
+      # The suite runs here as the app role; tests of the owner's path (audit
+      # maintenance, DDL) reach the owner through this DSN and skip without it.
+      MIGRATION_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
     volumes:
       - .:/app
       - /app/__pycache__

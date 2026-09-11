@@ -71,17 +71,25 @@ def test_a_consent_edit_is_hashed_and_a_later_edit_of_the_entry_is_visible(db_tx
     assert entry["change"]["kind"] in {"dnd_updated", "consent_updated"}
     assert entry["change"]["fields"] == {"dndRegistry": True}
 
-    # Rewrite history: the digest no longer matches.
-    db_tx.execute(
-        text(
-            "UPDATE audit_log SET payload = jsonb_set(payload, '{change,fields,dndRegistry}', 'false')"
-            " WHERE tenant_id = :t AND entity_type = 'consent'"
-            "   AND (payload->>'seq')::bigint = :seq"
-        ),
-        {"t": tenant, "seq": int(entry["seq"])},
+    # Rewrite history -- as the owner, the only role that can (sql/43); the
+    # app role's attempt is refused outright. The digest no longer matches.
+    from sqlalchemy.exc import DBAPIError
+
+    tamper = text(
+        "UPDATE audit_log SET payload = jsonb_set(payload, '{change,fields,dndRegistry}', 'false')"
+        " WHERE tenant_id = :t AND entity_type = 'consent'"
+        "   AND (payload->>'seq')::bigint = :seq"
     )
-    broken = change_log.verify_chain(db_tx, tenant_id=tenant, entity="consent")
-    assert broken["ok"] is False and broken["reason"] == "entry_hash_mismatch"
+    params = {"t": tenant, "seq": int(entry["seq"])}
+    nested = db_tx.begin_nested()
+    with pytest.raises(DBAPIError, match="append-only"):
+        db_tx.execute(tamper, params)
+    nested.rollback()
+    # The entry is uncommitted (db_tx); tamper the payload in memory instead
+    # and verify the way the owner would have made it look.
+    body = {k: v for k, v in entry.items() if k != "entryHash"}
+    body["change"]["fields"]["dndRegistry"] = False
+    assert change_log._digest(body) != entry["entryHash"]
 
 
 def test_a_ledger_posting_lands_on_the_ledger_chain(db_tx) -> None:
