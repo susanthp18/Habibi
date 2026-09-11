@@ -278,8 +278,8 @@ def offer_sourcing_violation(
             "allowed": sorted(offered_product_ids or ()),
         },
         spoken_summary=(
-            "do not mention this product; call recommend_next_offer and only "
-            "discuss what it returns"
+            "do not mention this product, or any product; recommend_next_offer "
+            "records what was scored and returns none, by design"
         ),
     )
 

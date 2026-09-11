@@ -499,31 +499,21 @@ def _tool_recommend_next_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[s
             ),
         )
     ctx.offer_decision_id = result.decision_id
-    payload = result.to_tool_payload()
-    if result.suppressed or not result.offers:
-        payload["say"] = "do not mention any product; continue with the conversation"
-        return payload
-
-    top = result.top
-    ctx.offered_product_id = top.product_id
-    # Every returned offer is admissible, not just the top one — the model may
-    # legitimately pick the second if the customer steers it there.
-    ctx.offered_product_ids.update(o.product_id for o in result.offers)
-    ctx.offers_presented += 1
-    try:
-        reco_engine.present(result.decision_id, top.product_id)
-        domain.mark_upsell_presented(
-            interaction_id=ctx.interaction_id,
-            product_id=top.product_id,
-            bot_id=ctx.bot_id,
-        )
-    except Exception:
-        logger.exception("marking offer presented failed")
-    payload["say"] = (
-        "mention this ONE product in a single short sentence with the indicative "
-        "amount, then ask if they would like a specialist to explain it"
-    )
-    return payload
+    # §9.7: scored here, spoken never. `to_tool_payload` names no product on any
+    # path, and there is no branch below that adds one back — a scored offer and
+    # a suppressed one are the same thing from this side of the boundary, and
+    # have to be, or the difference itself becomes the pitch.
+    #
+    # `present()` and `mark_upsell_presented` used to fire here, on the theory
+    # that "about to be spoken" is when an offer counts as presented. They now
+    # belong to the promotional sender: `presented` means delivered on the
+    # promotional series, and consuming campaign quota for something nobody was
+    # ever told about is how a campaign reports reach it did not have.
+    if result.offers:
+        top = result.top
+        ctx.offered_product_id = top.product_id
+        ctx.offered_product_ids.update(o.product_id for o in result.offers)
+    return result.to_tool_payload()
 
 
 def _tool_decline_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:

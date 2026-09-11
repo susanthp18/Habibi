@@ -227,3 +227,60 @@ def design_effect(cases_per_customer: float, intraclass: float) -> float:
     as the thing nothing did before.
     """
     return max(1.0, 1.0 + (max(1.0, cases_per_customer) - 1.0) * max(0.0, intraclass))
+
+
+#: §8.10 rung 3's multiplicity control. 0.10 rather than 0.05 because this is a
+#: false *discovery* rate over an exploratory partition, not a family-wise error
+#: rate over a confirmatory one: the cost of wrongly promoting a segment is a
+#: model that shrinks back toward the pool, and the cost of wrongly rejecting one
+#: is never finding heterogeneity that is there. Benjamini & Hochberg's own
+#: worked examples use 0.10 for exactly this shape of screen.
+DEFAULT_FDR = 0.10
+
+
+def bh_reject(pvalues: Sequence[float], *, fdr: float = DEFAULT_FDR) -> list[bool]:
+    """Benjamini-Hochberg step-up. One boolean per input, in input order.
+
+    Replaces the Bonferroni correction the granularity ladder used to apply.
+    Bonferroni controls the probability of **any** false positive across the
+    family; with thirty candidate strata that means each one is tested at
+    0.05/30 = 0.0017, which on a corpus of this size means nothing is ever found
+    — and §8.10's ladder is built to climb *down* to homogeneity, not to be
+    unable to climb at all. BH instead controls the expected *share* of the
+    promotions that are false, which is the quantity a validator asking "how
+    many of these six segments are real?" is actually asking about.
+
+    The procedure: sort ascending, find the largest rank ``i`` where
+    ``p_(i) <= i/m * fdr``, and reject every hypothesis at or below it —
+    including ones whose own p-value exceeds their own critical value, which is
+    the step-up part and the part that gets reimplemented wrongly.
+
+    Ties are handled by rank rather than by value, which is conservative in the
+    direction that matters: two identical p-values straddling the cutoff are
+    both rejected, because the larger rank is the one that sets the threshold.
+    """
+    m = len(pvalues)
+    if m == 0:
+        return []
+    order = sorted(range(m), key=lambda i: pvalues[i])
+    cutoff_rank = 0
+    for rank, idx in enumerate(order, start=1):
+        if pvalues[idx] <= (rank / m) * fdr:
+            cutoff_rank = rank
+    rejected = [False] * m
+    for rank, idx in enumerate(order, start=1):
+        if rank <= cutoff_rank:
+            rejected[idx] = True
+    return rejected
+
+
+def bh_critical(rank: int, tested: int, *, fdr: float = DEFAULT_FDR) -> float:
+    """The threshold BH assigns to one rank, for the report.
+
+    Published per cell so a refusal is readable: "this segment's p was 0.031
+    against a critical value of 0.017 at rank 5 of 30" is a finding somebody can
+    check. A refusal that says only "rejected" is a refusal nobody can audit.
+    """
+    if tested <= 0:
+        return 0.0
+    return (max(1, rank) / tested) * fdr

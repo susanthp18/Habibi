@@ -356,6 +356,74 @@ no shape check can detect. A *malformed* segment is dropped while the artifact
 still loads, because the population model is right behind it; a malformed
 population model is refused, because nothing is.
 
+## `k` is measured, or there are no segments (W12, §8.10)
+
+The ladder blends a segment estimate toward the pooled one with
+`weight = control_n / (control_n + k)`. `k` decides where that blend sits, and
+until W12 it was **750** — selected on `simulate_treatment_corpus.py`, whose
+reported n is roughly thirty times its own information content because its book
+never changes state and one borrower contributes N near-identical rows with
+independent labels. §15.3 forbids any number measured there from selecting a
+hyperparameter again.
+
+§8.10 asks for `k = σ²_within / σ²_between`, estimated per level from the panel,
+with a named estimator and a CI. **That is the intraclass correlation
+rearranged**, so `hierarchy.shrinkage_k` reads `cluster.icc` — built in W7 for
+the design effect, already the one-way random-effects estimator with the
+unequal-cluster-size correction, already tested — and returns `(1 - ICC) / ICC`
+with the ICC's cluster-bootstrap band transformed at the endpoints. There is no
+second estimator to defend and no second answer to reconcile.
+
+**An unmeasurable `k` is a refusal, not a fallback to 750**, on the same rule
+§8.12 applies to gate 7's margin. It is a cheap refusal: no measured `k` means
+the trainer promotes no segments, the population halves answer for every
+stratum, and `weight()` is never consulted on the serving path. Measured on
+`collections` on 2026-09-10 the panel holds **0 cases**, so every level refuses
+today.
+
+Two smaller repairs travel with it. `SegmentModel.weight` now shrinks on the
+**control** count — τ's variance is driven by the control arm, because
+withholding treatment is the expensive half and that arm is always thinner, and
+a stratum with 50,000 treated and 180 control cases used to take 98.5% of the
+answer on a difference whose standard error came almost entirely from those 180.
+And `LEVELS` names `global` while nothing reads it: §18.1 makes cross-tenant
+pooling an open legal question and §17 R9 makes per-tenant the shipped default,
+so the level is enumerable and unreachable rather than quietly absent.
+
+## The repaired heterogeneity gate (W12, §8.10 rung 3)
+
+`fit_segments`' causal gate was wrong in four independent ways, each in the
+direction nobody checks `[heterogeneity-gate-is-in-sample-and-subset-vs-pool]`:
+
+| Was | Is |
+|---|---|
+| the segment ATE over **all** its rows | over the **held-out slice only** |
+| compared to a pool **containing** the segment | to the **leave-one-segment-out** population |
+| SE from independent proportions, over rows | **cluster bootstrap** over `customer_id`, on the **difference** |
+| Bonferroni at FWER 0.05 | **Benjamini–Hochberg at FDR 0.10** (`cluster.bh_reject`) |
+| power floors counted **rows** | counted **customers** |
+
+The first two mattered most: a subset is always closer to a mean it is part of,
+so the old test was biased toward finding no heterogeneity, and the rows the
+verdict was measured on were the rows the segment model then fitted. The third
+counted fourteen decisions on one borrower as fourteen observations. The fourth
+tested each of thirty cells at 0.0017, which on a corpus of this size means
+nothing is ever found — and §8.10's ladder is built to climb *down* to
+homogeneity, not to be unable to climb at all.
+
+Because BH is a **step-up** procedure the gate cannot be applied one cell at a
+time, so `fit_segments` runs in three passes: measure every testable cell,
+correct across the family, then fit the survivors. Every cell files `pValue`,
+`bhRank`, `bhCritical`, `losoAte` and `differenceInterval` whether it passed or
+not. §15.2 makes that report W12's deliverable in its own right — *"a segment
+promotion under the repaired gate, **or an honest refusal with the FDR-adjusted
+numbers filed**"*.
+
+The holdout log-loss gate is unchanged and still separate, which is the point: a
+segment model nearly always fits its own stratum better than a pooled one does,
+and on a difference of two noisy quantities that is exactly how confident noise
+ships.
+
 ## Drift, calibration and the promotion gate (§15)
 
 `monitor.py` runs three checks that fail in three different ways, which is why

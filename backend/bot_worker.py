@@ -14,6 +14,7 @@ Drains:
   6) treatment follow-through: outcome attribution + ladder re-decision
   7) the delinquent-book sweep (TREATMENT_SWEEP=1) — the corpus generator
   8) outbound webhook deliveries (webhook_deliveries.status='pending')
+  9) offer follow-through: silence becomes a label after the grace
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ import outbound
 import payment_events
 from agent_core.treatment import enact as treatment_enact
 from agent_core.treatment import followthrough as treatment_followthrough
+from agent_core.reco import followthrough as offer_followthrough
 from agent_core.treatment import sweep as treatment_sweep
 import promise_fulfillment
 import webhooks_dispatch
@@ -139,6 +141,12 @@ def process_one_any() -> bool:
     # on an otherwise idle worker.
     if _run_stage("webhooks_dispatch", lambda: webhooks_dispatch.process_one(db.engine)):
         return True
+    # The offer family's follow-through. Periodic rather than per-iteration: it
+    # is a batch sweep over a fourteen-day grace, so running it every pass would
+    # be a full scan per second to close nothing. W12 -- silence is a label, and
+    # which one it is depends on whether the offer was ever delivered.
+    if _iteration % SETTLE_EVERY == 1:
+        _run_stage("offer_followthrough", lambda: offer_followthrough.process_one(db.engine))
     try:
         from agent_core.clerk import process_one as clerk_one, sweep_overdue
 

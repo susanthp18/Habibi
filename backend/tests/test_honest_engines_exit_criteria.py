@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 from pathlib import Path
 
@@ -130,6 +131,144 @@ def test_fresh_sql_vocabulary_includes_w11() -> None:
     assert (
         BACKEND / "alembic" / "versions" / "20260910_0120_promotion_gate.py"
     ).is_file()
+
+
+def test_fresh_sql_vocabulary_includes_w12() -> None:
+    sql = (BACKEND / "sql" / "32_offer_absorption.sql").read_text(encoding="utf-8")
+    assert "suitability_assessments" in sql
+    # §9.7's column list. The mis-selling audit trail is what an inspection asks
+    # for, and one whose evidence pointer is optional is a note.
+    for column in ("assessed_at", "assessor", "policy_version", "verdict", "evidence_ref"):
+        assert f"{column} " in sql, column
+    assert "ck_suitability_evidence" in sql
+    # §15.4: one log. The family column, and the state that keeps the offer off
+    # the collections call.
+    assert "action_family" in sql
+    assert "'deferred_promotional'" in sql
+    assert "ck_treatment_decisions_family_shape" in sql
+    # §15.2 W0: no ACCESS EXCLUSIVE without NOT VALID or CONCURRENTLY. Both
+    # CHECK repairs on the busiest table in the schema go through the two-step.
+    assert sql.count("NOT VALID") >= 2
+    assert sql.count("VALIDATE CONSTRAINT") >= 2
+    assert (
+        BACKEND / "alembic" / "versions" / "20260910_0121_offer_absorption.py"
+    ).is_file()
+
+
+#: What `offer_decisions` costs today, outside alembic history. W12 opened a
+#: dual-write window rather than cutting over, so this number is what says the
+#: window is closing rather than a promise that it will.
+#:
+#: Measured 2026-09-10, immediately after the W12 commit. Lower it when a reader
+#: moves; never raise it. A new reader of the retired log is a new thing to
+#: migrate later, and "later" is what turned a missing propensity column into a
+#: corpus that can never be off-policy evaluated.
+OFFER_DECISIONS_REFERENCE_CEILING = 57
+
+
+def test_the_retired_offer_log_only_ever_loses_readers() -> None:
+    """The ratchet that closes W12's dual-write window.
+
+    §15.4 retires `offer_decisions` into `treatment_decisions` as
+    `action_family='offer'`, and the write is dual for one window so that no
+    reader is missed in a single commit. What stops a window from becoming a
+    permanent second source of truth is not a deadline, which nobody enforces,
+    but a count that may only go down.
+    """
+    import re
+
+    # Enumerated rather than rglob'd: `backend/.venv` and `node_modules` make a
+    # recursive walk of this tree slow enough to look hung, which the repo has
+    # been bitten by before. These are every directory that can hold a reader.
+    roots = [BACKEND] + [
+        BACKEND / d for d in ("agent_core", "scripts", "voice", "bank_boundary")
+    ]
+    paths: set[Path] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        paths.update(root.glob("*.py") if root == BACKEND else root.rglob("*.py"))
+
+    hits = 0
+    offenders: list[str] = []
+    for path in sorted(paths):
+        rel = path.relative_to(BACKEND).as_posix()
+        if "__pycache__" in rel:
+            continue
+        found = len(re.findall(r"offer_decisions", path.read_text(encoding="utf-8")))
+        if found:
+            hits += found
+            offenders.append(f"{rel}:{found}")
+    assert hits <= OFFER_DECISIONS_REFERENCE_CEILING, (
+        f"{hits} references to the retired offer log, ceiling is "
+        f"{OFFER_DECISIONS_REFERENCE_CEILING}. Lower the ceiling when a reader "
+        f"moves; never raise it. Current: {offenders}"
+    )
+
+
+def test_no_reachable_say_in_the_offer_path_names_a_product() -> None:
+    """W12's exit criterion: 0 code paths in which an offer is utterable on a
+    collections call.
+
+    §9.7 makes a promotional utterance inside a recorded collections call three
+    breaches at once, and the invariant that makes the absorption lawful is that
+    the offer is *scored* on the call and never *spoken* on it. The gate is one
+    function -- `reco.engine.RecommendationResult.to_tool_payload` -- because
+    both mouths and every future one route through it.
+    """
+    from agent_core.reco import engine as reco_engine
+
+    for name in ("bot_tools.py", "voice/tools.py", "bot_runtime.py"):
+        code = "\n".join(
+            line
+            for line in (BACKEND / name).read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        for pitch in (
+            "mention this ONE product",
+            "talkTrack",
+            "suggestedAmount",
+        ):
+            assert pitch not in code, f"{name} can still put a product in a mouth"
+
+    payload_src = inspect.getsource(reco_engine.RecommendationResult.to_tool_payload)
+    for leaked in ("productId", "productName", "suggestedAmount", "talkTrack", "roi"):
+        assert leaked not in payload_src, f"to_tool_payload still emits {leaked}"
+    assert "do not mention any product" in reco_engine.DEFERRED_SAY
+
+
+def test_the_shrinkage_constant_is_measured_or_refused() -> None:
+    """§15.3: no number measured on `simulate_treatment_corpus.py` may select a
+    hyperparameter again, and `DEFAULT_SHRINKAGE_K = 750` was.
+
+    §8.10 replaces it with `k = sigma2_within / sigma2_between` from the panel.
+    An unmeasurable `k` is a refusal on §8.12's rule, not a fallback to 750 --
+    and the refusal is cheap, because no measured `k` means no promoted segments
+    and the population model answers for every stratum.
+    """
+    from agent_core.treatment import hierarchy
+
+    k, band, basis = hierarchy.shrinkage_k([], level="borrower")
+    assert k is None and band is None
+    assert "750" in basis, "the refusal does not name what it is refusing to use"
+    src = inspect.getsource(hierarchy)
+    assert "cluster.icc" in src, "k is not measured off the panel's ICC"
+    assert "DEFAULT_SHRINKAGE_K" not in src, "the simulator's constant leaked back in"
+
+
+def test_the_heterogeneity_gate_has_no_bonferroni_left_in_it() -> None:
+    """Two multiplicity corrections in one file is a bypass waiting to be cited.
+
+    §8.10 rung 3 asks for Benjamini-Hochberg at FDR 0.10, out of sample, against
+    the leave-one-segment-out population, with a cluster-bootstrap SE for the
+    difference `[heterogeneity-gate-is-in-sample-and-subset-vs-pool]`.
+    """
+    src = (BACKEND / "scripts" / "train_treatment_models.py").read_text(encoding="utf-8")
+    assert "heterogeneity_z" not in src
+    assert "HETEROGENEITY_ALPHA" not in src
+    assert "_ate_stderr" not in src.replace("`_ate_stderr`", "")
+    assert "bh_reject" in src and "losoAte" in src
+    assert "cluster.bootstrap" in src
 
 
 def test_the_promotion_gate_has_no_lift_shaped_bypass() -> None:

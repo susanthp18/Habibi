@@ -601,6 +601,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # --- leads -------------------------------------------------------------
     ("GET", "/leads"): LEADS_READ,
     ("GET", "/leads/metrics"): LEADS_READ,
+    # A borrower's answer to a deferred offer. LEADS_WRITE rather than
+    # COLLECTIONS_WRITE: the row it closes is the sales side of the call, and
+    # since W12 nobody on the collections side can have spoken the offer at all.
+    ("POST", "/offers/{decisionId}/response"): LEADS_WRITE,
     ("POST", "/leads"): LEADS_WRITE,
     ("PATCH", "/leads/{lead_id}"): LEADS_WRITE,
     ("POST", "/leads/{lead_id}/followups"): LEADS_WRITE,

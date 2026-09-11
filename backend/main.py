@@ -56,6 +56,8 @@ from schemas import (
     BillingBudgetRuleResponse,
     BotAnalyticsResponse,
     OfferHealthResponse,
+    OfferResponseRequest,
+    OfferResponseResponse,
     TurnTraceResponse,
     InteractionCostResponse,
     FlowGraph,
@@ -1104,6 +1106,30 @@ def get_offer_health(
     from agent_core.reco import observability
 
     return observability.offer_health(window, include_simulated=includeSimulated)
+
+
+@app.post("/offers/{decisionId}/response", response_model=OfferResponseResponse)
+def post_offer_response(decisionId: str, payload: OfferResponseRequest):
+    """Record what the borrower said about a delivered offer.
+
+    The route whose absence is the structural reason the offer log has recorded
+    **zero** responses in its entire history. `decisionId` is produced, typed and
+    serialised on every recommendation and every consumer discarded it at the
+    call boundary; nothing posted an outcome back, so the one engine that
+    produces a human-visible recommendation produced no label from it.
+
+    Returns 404 for an id that names no decision, so a caller cannot silently
+    label nothing. `recorded: false` means the decision already carried a
+    response and the first one stands.
+    """
+    from agent_core.reco import decisions as reco_decisions
+
+    if not db.offer_decision_exists(decisionId):
+        raise HTTPException(status_code=404, detail="unknown offer decision")
+    written = reco_decisions.record_response(decisionId, payload.response)
+    return OfferResponseResponse(
+        decisionId=decisionId, response=payload.response, recorded=written
+    )
 
 
 @app.get("/billing", response_model=BillingOverviewResponse)

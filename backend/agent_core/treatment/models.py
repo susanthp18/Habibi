@@ -155,7 +155,16 @@ class SegmentModel:
     holdout_lift: float = 0.0
 
     def weight(self, k: float) -> float:
-        """Empirical-Bayes shrinkage weight, ``n / (n + k)``.
+        """Empirical-Bayes shrinkage weight, ``control_n / (control_n + k)``.
+
+        **The count is the CONTROL arm's, not the treated arm's** (§8.10), and
+        this used to be ``self.n``. τ is a difference of two proportions and its
+        variance is ``p_t(1-p_t)/n_t + p_c(1-p_c)/n_c`` — dominated by whichever
+        arm is thinner, which is always the control one, because withholding
+        treatment is the expensive half. A stratum with 50,000 treated cases and
+        180 controls used to score a weight of 0.985 and take 98.5% of the
+        answer on a τ whose standard error came almost entirely from those 180
+        `[models-segment-shrinkage-weight-uses-treated-n]`.
 
         The segment estimate is never used raw. A stratum with 600 observations
         and one with 60,000 are not equally believable, and hard-switching to
@@ -168,9 +177,9 @@ class SegmentModel:
         §14 needs for cross-tenant priors — the only thing that changes there is
         what "the pool" means.
         """
-        if self.n <= 0:
+        if self.control_n <= 0:
             return 0.0
-        return self.n / (self.n + max(1.0, k))
+        return self.control_n / (self.control_n + max(1.0, k))
 
 
 @dataclass(frozen=True)

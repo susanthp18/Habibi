@@ -110,6 +110,105 @@ what makes swapping one safe.
 already-approved top-K and draft the phrasing. It must not be able to introduce
 a product id that did not come out of `candidates` + veto.
 
+## The offer is scored on the call and never spoken on it (W12, §9.7)
+
+This is the invariant the whole package now turns on, and until W12 it was
+false. `_tool_recommend_next_offer` returned a product id, a product name, an
+indicative amount, an ROI and a ready-phrased talk track, and then told the
+model to *"mention this ONE product in a single short sentence with the
+indicative amount"*. The close probe did the same thing by a second route,
+reading `top.talk_track` straight off the result and folding it into the
+`pre_close` prompt.
+
+A promotional utterance inside a recorded collections call is three breaches at
+once. It **reclassifies the entire communication as Promotional**, which then
+subjects the collections call itself to the borrower's DND. It is **marketing
+without a suitability finding**, and an explicit consent artefact does not cure
+unsuitability. And on a delinquent borrower it is the **textbook mis-selling
+fact pattern**, carrying refund plus compensation.
+
+So the score is written to a decision row with
+`chosen_channel='deferred_promotional'` and delivered later as a separate,
+consented, suitability-gated promotional communication — never in the call,
+never in the collections message, never in the same template.
+
+The gate is `RecommendationResult.to_tool_payload()`, and it lives there rather
+than in each caller because both mouths and every future one route through it. A
+model that is never told a product name cannot be prompted, jailbroken or
+flow-graphed into saying one. A scored offer and a suppressed one produce the
+*identical* payload, which they must: a payload saying "there is something I am
+not telling you" is one turn of pressure away from an allusion.
+
+`present()` left the call path with it. It now belongs to the promotional
+sender: `presented` means delivered on the promotional series, and consuming
+campaign quota for something nobody was ever told about is how a campaign
+reports reach it did not have.
+
+## Suitability, and the audit trail (W12, §9.7)
+
+`capture.evaluate_product_eligibility` answers *"does this borrower qualify"*
+from the catalog's rules. `suitability.objection()` answers the different
+question a supervisor and an inspection actually ask: **was the product
+suitable for this person, who says so, and on what evidence.**
+
+`suitability_assessments` is the record — `sql/32_offer_absorption.sql`, one row
+per borrower × product, with `assessor`, `policy_version`, `verdict`,
+`evidence_ref` and `expires_at`. `evidence_ref` is NOT NULL and non-empty under
+a database CHECK, on the same rule the pre-registration table applies: an audit
+trail whose evidence pointer is optional is a note.
+
+**An absent finding is a refusal, not a pass**, and so is an absent *table* —
+§8.12's rule about unevaluable gates, applied to a schema. The check runs per
+candidate inside `_apply_eligibility`, so the reason lands in the decision log's
+`excluded` map next to the eligibility vetoes and a validator can see which of
+the two fired.
+
+## One log, and the window that closes it (W12, §15.4)
+
+`offer_decisions` is retired into `treatment_decisions` as
+`action_family='offer'`. Measured on `collections` on 2026-09-10, the reason is
+not tidiness: **16 rows, 9 live, all on logging contract 1, none carrying a
+propensity, and zero recording a response in the log's entire history.** The
+corpus is simultaneously unevaluable and unlabelled. Migration `0085` gave
+`treatment_decisions` a propensity, a policy version and an explore kind and did
+not give them to `offer_decisions`, and its own docstring says why that is
+terminal — you can retrain on old data forever, but you can never go back and
+record what the odds were.
+
+The write is **dual for one window**: `decisions.record` writes both tables,
+sharing one `OD-…` id, and `mark_presented` / `record_response` / `attach_lead`
+update both. What closes the window is not a date but a ratchet —
+`test_the_retired_offer_log_only_ever_loses_readers` counts references to the
+old table outside alembic history and fails if the count rises. Lower the
+ceiling when a reader moves; never raise it.
+
+Two things the absorption brings on day one, both of which W11a had to repair
+retroactively on the treatment side:
+
+- **A suppressed offer is an observation.** It is written as `chosen_action='wait'`
+  carrying its logged propensity, not dropped. Dropping them scores every policy
+  against the population the engine had already decided to act on.
+- **Legacy rows keep their contract version.** `scripts/absorb_offer_decisions.py`
+  copies the 16 old rows without stamping them current, so W11a's
+  equivalence-class filter keeps excluding them. A backfill that "fixed" the
+  version would make sixteen rows with no propensity look like sixteen rows an
+  estimator may divide by. It defaults to `--dry-run` and prints the counts.
+
+## Silence is a label (W12, §11.5)
+
+`POST /offers/{decisionId}/response` is the route whose absence is the
+structural reason the log has zero responses: `decisionId` was produced, typed
+and serialised on every recommendation, and every consumer discarded it at the
+call boundary.
+
+Almost nobody answers, so `followthrough.sweep` closes what is left after a
+14-day grace — and **which** label it writes depends on a fact the log already
+holds. Delivered and unanswered is `deferred`; never delivered is `not_reached`,
+which is **censoring**, not refusal. Nobody was asked, so nobody declined, and
+an estimator that scores the two the same is measuring the promotional series'
+delivery rate and calling it demand. The sweep never writes `interested` or
+`declined`: those are things a person said.
+
 ## Guarantees worth not breaking
 
 - `recommend()` never raises.
@@ -120,3 +219,7 @@ a product id that did not come out of `candidates` + veto.
   not ranked as though they had a bad one.
 - Every invocation is logged, including suppressed and shadow ones. Those are
   the counterfactuals; without them there is no offline evaluation.
+- **No product ever crosses the boundary to a text generator.** Not the id, not
+  the name, not the amount, not the talk track, on any path, whatever survived
+  scoring. §9.7, and it is the one guarantee here that is a legal matter rather
+  than an engineering preference.

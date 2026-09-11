@@ -757,6 +757,37 @@ class OfferHealthResponse(BaseModel):
     alerts: list[dict[str, Any]]
 
 
+class OfferResponseRequest(BaseModel):
+    """What the borrower said about an offer that was delivered to them.
+
+    The route this feeds is the one whose absence is the structural reason
+    `offer_decisions` recorded **zero** responses in its entire history: the
+    decision id was produced, typed and serialised, and every consumer discarded
+    it at the call boundary. A self-improving system that never observes its own
+    actions is not self-improving.
+
+    `not_reached` is **censoring**, not refusal (§11.5) -- the offer never got
+    there, so nobody declined it. Keeping the two apart is what stops an
+    undelivered message being scored as a rejection.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    response: Literal["interested", "declined", "deferred", "not_reached"]
+    #: Free text from whoever recorded it. Never parsed, never scored.
+    reason: str | None = None
+
+
+class OfferResponseResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decisionId: str
+    response: str
+    #: False when the decision already carried a response. The first answer
+    #: stands: a label that can be overwritten is a label somebody can tune.
+    recorded: bool
+
+
 class HandoffLastPromise(BaseModel):
     amount: float
     date: str

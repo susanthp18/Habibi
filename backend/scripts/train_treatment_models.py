@@ -61,7 +61,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import NormalDist
-from typing import Any, Iterable, NamedTuple, Sequence
+from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -72,7 +72,7 @@ load_env()
 import db  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
-from agent_core.treatment import models  # noqa: E402
+from agent_core.treatment import cluster, models  # noqa: E402
 from agent_core.treatment.features import SCHEMA_VERSION  # noqa: E402
 from agent_core.treatment.segments import SEGMENT_VERSION  # noqa: E402
 
@@ -781,7 +781,6 @@ def train_uplift(
             means=means,
             scales=scales,
             cal=cal,
-            population_ate=treated_rate - control_rate,
             holdout=holdout,
             seed=seed,
         )
@@ -830,45 +829,71 @@ def train_uplift(
 # The granularity ladder — §9's middle rung
 # ---------------------------------------------------------------------------
 
-#: Treated rows a stratum needs before it is worth fitting at all. The control
-#: side has its own, stricter floor in ``models.MIN_SEGMENT_CONTROL_N``.
+#: Treated **customers** a stratum needs before it is worth testing at all, and
+#: the control side has its own stricter floor in
+#: ``models.MIN_SEGMENT_CONTROL_N``. §8.10 rung 3 states both in customers, and
+#: they used to be applied to rows: on a corpus where one borrower contributes
+#: fourteen decisions, a "150-row" stratum can be eleven people, and a variance
+#: estimated across it is a description of those eleven.
 MIN_SEGMENT_TREATED_N = 150
 
-#: Family-wise error rate for the heterogeneity gate. 0.05 two-sided is the
-#: conventional choice and the right conventionality to borrow: this number
-#: will be read by a risk committee, and "we used the usual threshold" is a
-#: shorter conversation than a bespoke one.
-HETEROGENEITY_ALPHA = 0.05
+#: §8.10 rung 3's multiplicity control, and it lives in
+#: ``agent_core/treatment/cluster.py`` beside the intervals whose p-values it
+#: corrects. Named here so the trainer has one import rather than a literal.
+HETEROGENEITY_FDR = cluster.DEFAULT_FDR
 
 
-def heterogeneity_z(strata_tested: int) -> float:
-    """The z the gate demands, Bonferroni-corrected for how many strata were tried.
+def _customers(rows: Sequence[Sample]) -> int:
+    """Distinct borrowers, which is the unit every floor in §8.10 is stated in."""
+    return len({r.customer_id for r in rows})
 
-    Thirty candidate strata tested at an uncorrected 5% produce about one and a
-    half spurious "this segment is different" findings *by construction*, and
-    each one would ship a segment model fitted to noise. The ladder exists to
-    stop confident noise; a gate that manufactures its own would be a poor place
-    to leave a multiple-comparisons hole.
 
-    Correcting on the number actually tested rather than on the size of the
-    partition matters: most strata never reach this gate because they are
-    underpowered, and charging the correction for cells nobody looked at would
-    make the threshold depend on the banding rather than on the evidence.
+def _arm_rate(rows: Sequence[Mapping[str, Any]], arm: str) -> float:
+    """Cure rate within one arm of a mixed row set. 0.0 when the arm is empty."""
+    vals = [float(r["label"]) for r in rows if r["arm"] == arm]
+    return (sum(vals) / len(vals)) if vals else 0.0
+
+
+def _difference(rows: Sequence[Mapping[str, Any]]) -> float:
+    """(segment ATE) - (leave-one-segment-out population ATE), on one row set.
+
+    The statistic the cluster bootstrap resamples. It is computed *inside* the
+    resample rather than differenced afterwards, which is the whole point: the
+    segment and the population estimate share borrowers, so their errors are
+    correlated, and the standard error of a difference of two correlated
+    quantities is not the root of the sum of their squares. Resampling the
+    borrowers and recomputing both halves gets that right without anyone having
+    to write down the covariance.
     """
-    tested = max(1, int(strata_tested))
-    return NormalDist().inv_cdf(1.0 - HETEROGENEITY_ALPHA / (2.0 * tested))
+    inside = [r for r in rows if r["inside"]]
+    outside = [r for r in rows if not r["inside"]]
+    seg = _arm_rate(inside, "t") - _arm_rate(inside, "c")
+    pop = _arm_rate(outside, "t") - _arm_rate(outside, "c")
+    return seg - pop
+
+
+def _pvalue(point: float, band: cluster.Interval) -> float:
+    """Two-sided p for the difference, from the bootstrap band's width.
+
+    The band is a percentile or wild-bootstrap interval, not a normal one, so
+    reading a standard error back out of it assumes symmetry that the bootstrap
+    did not promise. It is done anyway and said out loud, because BH needs a
+    p-value per cell and the alternative — a bootstrap p from the sign of the
+    replicate draws — is granular at 1/replications, which at 400 replications
+    cannot express a p below 0.0025 and would floor every genuinely strong cell
+    at the same value.
+    """
+    if not math.isfinite(band.low) or not math.isfinite(band.high):
+        return 1.0
+    se = (band.high - band.low) / (2.0 * NormalDist().inv_cdf(0.975))
+    if se <= 0:
+        return 0.0 if abs(point) > 0 else 1.0
+    return 2.0 * (1.0 - NormalDist().cdf(abs(point) / se))
 
 
 def _predict(row: list[float], weights: list[float], intercept: float,
              cal: tuple[float, float]) -> float:
     return _sigmoid(cal[0] * (sum(a * c for a, c in zip(row, weights)) + intercept) + cal[1])
-
-
-def _ate_stderr(p_t: float, n_t: int, p_c: float, n_c: int) -> float:
-    """SE of a difference of two independent proportions."""
-    if n_t <= 0 or n_c <= 0:
-        return float("inf")
-    return math.sqrt(p_t * (1 - p_t) / n_t + p_c * (1 - p_c) / n_c)
 
 
 def fit_segments(
@@ -879,7 +904,6 @@ def fit_segments(
     means: dict[str, float],
     scales: list[float],
     cal: tuple[float, float],
-    population_ate: float,
     holdout: float,
     seed: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -893,15 +917,23 @@ def fit_segments(
 
     **Three gates, and all three must pass.**
 
-    *Power.* Enough treated and control rows to estimate a difference at all.
-    Skipped strata are reported as skipped, never as failed — those are
-    different facts about a book.
+    *Power.* Enough treated and control **customers** (§8.10 rung 3 states the
+    floors in customers, and they used to be applied to rows). Skipped strata
+    are reported as skipped, never as failed — those are different facts about
+    a book.
 
-    *Heterogeneity.* The segment's measured ATE must sit more than
-    :data:`HETEROGENEITY_Z` standard errors from the population ATE. This is the
-    causal gate and the load-bearing one: it is backed by the randomisation
-    rather than by a model, so passing it means this stratum genuinely responds
-    differently, not that a fit found a pattern in it.
+    *Heterogeneity.* §8.10 rung 3, and W12 rebuilt it. The segment's ATE is
+    measured **out of sample**, on the held-out slice only; compared against the
+    **leave-one-segment-out** population ATE rather than against a pool
+    containing it; with a **cluster-bootstrap standard error for the
+    difference**, resampling borrowers so the two halves' shared errors are
+    carried rather than assumed away; and multiplicity is controlled by
+    **Benjamini–Hochberg at FDR 0.10** across the cells actually tested. Each of
+    the four replaces something that was wrong in a direction nobody checks
+    `[heterogeneity-gate-is-in-sample-and-subset-vs-pool]`. This is the causal
+    gate and the load-bearing one: it is backed by the randomisation rather than
+    by a model, so passing it means this stratum genuinely responds differently,
+    not that a fit found a pattern in it.
 
     *Holdout fit.* Both halves must predict held-out cure labels better than the
     population halves do on the same rows, measured in log loss.
@@ -911,6 +943,14 @@ def fit_segments(
     model does — it has fewer rows to explain and its own intercept. That is
     overfitting, and on a difference of two noisy quantities it is exactly how
     confident noise gets shipped.
+
+    Because BH is a **step-up** procedure, the causal gate cannot be applied one
+    cell at a time: which cells pass depends on how many were tested and on
+    where each p-value ranks. So this runs in three passes — measure, correct,
+    fit — and the report carries every cell's ``pValue``, ``bhRank`` and
+    ``bhCritical`` whether it passed or not. §15.2 makes that report W12's
+    deliverable in its own right: *"a segment promotion under the repaired gate,
+    **or an honest refusal with the FDR-adjusted numbers filed**"*.
     """
     from agent_core.treatment import segments as seg
 
@@ -958,28 +998,16 @@ def fit_segments(
     pop_wt, pop_bt = _fit_half([treated[i] for i in t_train_idx], names, mu, scales, seed)
     pop_wc, pop_bc = _fit_half([control[i] for i in c_train_idx], names, mu, scales, seed + 1)
 
-    # Counted before the loop so every stratum faces the same threshold. Doing
-    # it as we go would charge the first candidate a laxer test than the last,
-    # and which stratum is "first" is an alphabetical accident.
-    testable = sum(
-        1
-        for key, rows in buckets.items()
-        if key != seg.UNKNOWN
-        and len(rows["t"]) >= MIN_SEGMENT_TREATED_N
-        and len(rows["c"]) >= models.MIN_SEGMENT_CONTROL_N
-    )
-    z_required = heterogeneity_z(testable)
-    if testable:
-        logger.info(
-            "granularity ladder: %d strata have the power to be tested, so the "
-            "heterogeneity gate is Bonferroni-corrected to z >= %.2f",
-            testable,
-            z_required,
-        )
-
     promoted: dict[str, Any] = {}
     report: list[dict[str, Any]] = []
 
+    # ---------------------------------------------------------------------
+    # Pass 1 -- measure every testable cell. Nothing is decided here, because
+    # Benjamini-Hochberg is a step-up procedure over the whole family: which
+    # cells pass depends on how many were tried and on where each p-value ranks
+    # among the others, so no cell can be judged until all are measured.
+    # ---------------------------------------------------------------------
+    measured: list[tuple[str, dict[str, Any]]] = []
     for key in sorted(buckets):
         if key == seg.UNKNOWN:
             # Never fitted. A model of "the rows whose DPD was missing" is a
@@ -989,42 +1017,129 @@ def fit_segments(
             continue
         rows_t = buckets[key]["t"]
         rows_c = buckets[key]["c"]
-        if len(rows_t) < MIN_SEGMENT_TREATED_N or len(rows_c) < models.MIN_SEGMENT_CONTROL_N:
+        # The floors are in CUSTOMERS (§8.10 rung 3). They used to be applied to
+        # rows, and on a corpus where one borrower contributes fourteen
+        # decisions that is a different and far weaker test: a "150-row" stratum
+        # can be eleven people, and a variance estimated across it is a
+        # description of those eleven.
+        cust_t, cust_c = _customers(rows_t), _customers(rows_c)
+        if cust_t < MIN_SEGMENT_TREATED_N or cust_c < models.MIN_SEGMENT_CONTROL_N:
             report.append({
                 "segment": key,
                 "verdict": "skipped",
                 "reason": "underpowered",
                 "treatedN": len(rows_t),
                 "controlN": len(rows_c),
+                "treatedCustomers": cust_t,
+                "controlCustomers": cust_c,
+                "treatedCustomersRequired": MIN_SEGMENT_TREATED_N,
+                "controlCustomersRequired": models.MIN_SEGMENT_CONTROL_N,
             })
             continue
 
-        p_t = sum(s.label for s in rows_t) / len(rows_t)
-        p_c = sum(s.label for s in rows_c) / len(rows_c)
-        ate = p_t - p_c
-        se = _ate_stderr(p_t, len(rows_t), p_c, len(rows_c))
-        z = abs(ate - population_ate) / se if se > 0 else 0.0
+        if not buckets[key]["t_test"] or not buckets[key]["c_test"]:
+            report.append({
+                "segment": key,
+                "verdict": "skipped",
+                "reason": "empty_holdout",
+                "treatedCustomers": cust_t,
+                "controlCustomers": cust_c,
+            })
+            continue
+
+        # The gate is measured OUT OF SAMPLE, on the held-out slice only, and
+        # against the LEAVE-ONE-SEGMENT-OUT population -- the two repairs §8.10
+        # rung 3 asks for. What this replaces compared each segment ATE, over
+        # every one of its rows, to a population ATE computed over a pool that
+        # CONTAINED those rows: a subset is always closer to a mean it is part
+        # of, so the test was biased toward finding no heterogeneity, and the
+        # rows the verdict was measured on were the rows the segment model then
+        # fitted `[heterogeneity-gate-is-in-sample-and-subset-vs-pool]`.
+        inside = {id(x) for x in buckets[key]["t_test"]}
+        inside |= {id(x) for x in buckets[key]["c_test"]}
+        held: list[dict[str, Any]] = []
+        for arm, idx, source in (("t", t_test_idx, treated), ("c", c_test_idx, control)):
+            for i in idx:
+                sample = source[i]
+                held.append({
+                    "customer_id": sample.customer_id,
+                    "arm": arm,
+                    "label": float(sample.label),
+                    "inside": id(sample) in inside,
+                })
+
+        point = _difference(held)
+        # Clustered on the borrower, because a borrower contributes to the
+        # segment half and the population half of the same difference and the
+        # two errors are the same person's. `_ate_stderr` counted fourteen
+        # decisions on one borrower as fourteen independent observations.
+        band = cluster.bootstrap(held, _difference, cluster_key="customer_id")
+        pvalue = _pvalue(point, band)
+        held_in = [r for r in held if r["inside"]]
+        held_out = [r for r in held if not r["inside"]]
 
         entry: dict[str, Any] = {
             "segment": key,
             "label": seg.describe(key),
             "treatedN": len(rows_t),
             "controlN": len(rows_c),
-            "ate": round(ate, 6),
-            "ateStderr": round(se, 6),
-            "z": round(z, 3),
-            "zRequired": round(z_required, 3),
+            "treatedCustomers": cust_t,
+            "controlCustomers": cust_c,
+            "ate": round(_arm_rate(held_in, "t") - _arm_rate(held_in, "c"), 6),
+            "losoAte": round(_arm_rate(held_out, "t") - _arm_rate(held_out, "c"), 6),
+            "difference": round(point, 6),
+            "differenceInterval": band.as_dict(),
+            "pValue": round(pvalue, 6),
+            "clusters": band.clusters,
         }
+        measured.append((key, entry))
 
-        if z < z_required:
+    # ---------------------------------------------------------------------
+    # Pass 2 -- Benjamini-Hochberg across everything that was tested.
+    # ---------------------------------------------------------------------
+    tested = len(measured)
+    rejected = cluster.bh_reject(
+        [e["pValue"] for _, e in measured], fdr=HETEROGENEITY_FDR
+    )
+    ranks = {
+        key: rank
+        for rank, (key, _) in enumerate(
+            sorted(measured, key=lambda item: item[1]["pValue"]), start=1
+        )
+    }
+    if tested:
+        logger.info(
+            "granularity ladder: %d strata had the power to be tested; "
+            "Benjamini-Hochberg at FDR %.2f finds %d heterogeneous",
+            tested,
+            HETEROGENEITY_FDR,
+            sum(rejected),
+        )
+
+    # ---------------------------------------------------------------------
+    # Pass 3 -- the holdout fit, for the cells BH let through.
+    # ---------------------------------------------------------------------
+    for (key, entry), heterogeneous in zip(measured, rejected):
+        entry["bhRank"] = ranks[key]
+        entry["bhTested"] = tested
+        entry["bhFdr"] = HETEROGENEITY_FDR
+        entry["bhCritical"] = round(
+            cluster.bh_critical(ranks[key], tested, fdr=HETEROGENEITY_FDR), 6
+        )
+        if not heterogeneous:
             entry.update({"verdict": "rejected", "reason": "no_heterogeneity"})
             report.append(entry)
             continue
 
+        rows_t = buckets[key]["t"]
+        rows_c = buckets[key]["c"]
         train_t, test_t = buckets[key]["t_train"], buckets[key]["t_test"]
         train_c, test_c = buckets[key]["c_train"], buckets[key]["c_test"]
-        if not test_t or not test_c or len(train_t) < 40 or len(train_c) < 40:
-            entry.update({"verdict": "skipped", "reason": "empty_holdout"})
+        if len(train_t) < 40 or len(train_c) < 40:
+            # The cell is heterogeneous and there is not enough of it left to
+            # fit both halves on. "Skipped" rather than "rejected": the finding
+            # stands, what is missing is a model to carry it.
+            entry.update({"verdict": "skipped", "reason": "thin_training_split"})
             report.append(entry)
             continue
 

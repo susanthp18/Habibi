@@ -440,6 +440,21 @@ def _assemble(**parts: Any) -> dict[str, Any]:
         # Not a fault. Stated anyway, because "presented 0" on a shadow engine
         # is the expected outcome and reads as a broken funnel without it.
         alert("engine", "RECO_MODE=shadow — decisions are scored and logged but never spoken")
+    elif presented == 0:
+        # W12 (§9.7): the offer is scored on the call and never spoken on it, so
+        # `presented` no longer means "the bot said it" — it means "delivered on
+        # the promotional series", and that sender does not exist yet. Every
+        # ratio below `presentationRate` is therefore null by construction, not
+        # because the funnel broke. Said out loud, because a zero nobody explains
+        # is a zero somebody eventually fixes by reverting the gate that caused
+        # it, and the gate is the lawful part.
+        alert(
+            "engine",
+            "presented 0 — since W12 an offer is scored on the servicing contact "
+            "and delivered later on the promotional series; that sender is not "
+            "built, so nothing has been delivered and no interest rate can exist "
+            "yet. This is §9.7 working, not a broken funnel",
+        )
 
     return {
         "window": parts["window"],

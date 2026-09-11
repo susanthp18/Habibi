@@ -162,12 +162,17 @@ _FAREWELL_TASK = (
 # negative to ask" means the same thing here as it does everywhere else.
 _PROBE_SENTIMENT_FLOOR = -0.15
 
-# The close probe. One question, asked once, never a menu. The offer clause is
-# injected only when the engine returned something that survived every gate —
-# most calls get the bare question, which is the point.
+# The close probe. One question, asked once, never a menu.
+#
+# W12 removed its `{offer}` injection point rather than leaving it and never
+# filling it. §9.7 forbids a promotional utterance inside a recorded
+# collections call, and a template with a slot for one is a slot somebody
+# fills: an empty string is a policy, an absent placeholder is a property.
+# The offer is still scored at the close (see `_prepare_close_probe`); it is
+# simply not spoken.
 _PRE_CLOSE_TASK = (
     "Ask ONE short question: whether there is anything else you can help them "
-    "with today. Do not list options and do not summarise the call again.{offer}"
+    "with today. Do not list options and do not summarise the call again."
     "\n"
     "If they say no or that's all, call end_call. "
     "If they raise a new topic, call return_to_position and handle it. "
@@ -280,9 +285,6 @@ class ToolState:
         # than a prompt line: a model that re-enters the closing node must not
         # be able to ask a second time.
         self.close_probe_done = False
-        # Injected into the pre_close node's task message. Empty on most calls —
-        # the bare "anything else?" is the baseline, an offer is the exception.
-        self.close_probe_offer_clause = ""
 
     def may_offer(self, name: str, *, namespace: str | None = None) -> bool:
         """Whether the member owning ``namespace`` may be offered ``name``.
@@ -2067,53 +2069,35 @@ def build_tools(
             }, None
 
         state.offer_decision_id = result.decision_id
+        # §9.7: scored on the call, never spoken on it. `to_tool_payload` names
+        # no product on any path, so a scored offer and a suppressed one are
+        # indistinguishable from the model's side of the boundary — which they
+        # must be, or the difference is itself the pitch.
+        #
+        # `present()` and `mark_upsell_presented` used to fire here, on the
+        # theory that "about to be spoken" is when an offer counts as presented.
+        # They belong to the promotional sender now: `presented` means delivered
+        # on the promotional series, and consuming campaign quota for something
+        # nobody was ever told about is how a campaign reports reach it did not
+        # have.
         payload = result.to_tool_payload()
+        if result.offers:
+            top = result.top
+            state.offered_product_id = top.product_id
+            state.offered_product_ids.update(o.product_id for o in result.offers)
 
-        if result.suppressed or not result.offers:
-            payload["say"] = "do not mention any product; continue with the call"
-            # Leave the upsell step here, in code, rather than returning to the
-            # model and asking it to notice that there is nothing to offer.
-            # That round trip is a whole extra inference — and it is silent,
-            # because there is nothing to say while it happens. On
-            # VS-92CDE3F088 a suppressed offer cost three chained inferences
-            # (recommend → return_to_position → hub) and seven seconds of dead
-            # line before the caller gave up and spoke. Suppression is a
-            # decision the engine has already made; the flow can act on it.
-            #
-            # Only when this node exists as a separate step: under the merged
-            # hub graph there is nowhere to go and staying put is correct.
-            if upsell_node:
-                return payload, _node("wrap_up")
-            return payload, None
-
-        top = result.top
-        state.offered_product_id = top.product_id
-        # Every returned offer is admissible, not just the top one — the caller
-        # may steer the model to the second.
-        state.offered_product_ids.update(o.product_id for o in result.offers)
-        state.last_product_id = top.product_id
-        state.product_scope = "product"
-        state.offers_presented += 1
-        state.upsell_presented = True
-
-        # The offer is about to be spoken, so this is the moment it counts as
-        # presented — and the moment campaign quota is actually consumed.
-        try:
-            await asyncio.to_thread(reco_engine.present, result.decision_id, top.product_id)
-            await asyncio.to_thread(
-                domain.mark_upsell_presented,
-                interaction_id=session.interaction_id,
-                product_id=top.product_id,
-                bot_id=bot_id,
-            )
-        except Exception:
-            logger.exception("marking offer presented failed")
-
-        payload["say"] = (
-            "mention this ONE product in a single short sentence with the indicative "
-            "amount, then ask if they would like a specialist to explain it. Never "
-            "promise approval, rates or limits."
-        )
+        # Leave the upsell step here, in code, rather than returning to the
+        # model and asking it to notice that there is nothing to say. That round
+        # trip is a whole extra inference — and it is silent, because there is
+        # nothing to say while it happens. On VS-92CDE3F088 it cost three
+        # chained inferences (recommend → return_to_position → hub) and seven
+        # seconds of dead line before the caller gave up and spoke. Now that no
+        # offer is ever spoken, this is the only path.
+        #
+        # Only when this node exists as a separate step: under the merged hub
+        # graph there is nowhere to go and staying put is correct.
+        if upsell_node:
+            return payload, _node("wrap_up")
         return payload, None
 
     recommend_next_offer = _spec("recommend_next_offer", 
@@ -2216,14 +2200,16 @@ def build_tools(
         return None
 
     async def _prepare_close_probe() -> None:
-        """Work out whether the probe carries an offer, and stash the clause.
+        """Score an offer at the close. It is logged; it is never spoken.
 
-        The clause is empty far more often than not, and that is the intended
-        behaviour: a bare "is there anything else I can help you with?" is the
-        baseline, and an offer is folded in only when the engine has something
-        that survived every gate.
+        This used to build the sentence the model would read out. §9.7 makes
+        that unlawful inside a recorded collections call, so what is left is
+        the half that was always the point: the close is the one moment in a
+        servicing contact where a cross-sell can be *scored* without
+        interrupting anything, and the decision row is what the offer corpus
+        has never had. Delivery happens later, on the promotional series,
+        against a current suitability finding.
         """
-        state.close_probe_offer_clause = ""
         cid = session.customer_id
         if not cid:
             return
@@ -2257,39 +2243,18 @@ def build_tools(
         if result.suppressed or not result.offers:
             return
 
-        top = result.top
+        # Scored, logged, and not spoken. The close was the last place an offer
+        # reached the model without passing through `to_tool_payload` -- it read
+        # `top.talk_track` and `top.name` straight off the result and folded a
+        # ready-phrased sentence into the pre_close prompt. §9.7: the offer is
+        # scored on the call and it is never spoken on it, so what survives here
+        # is the decision row, which is the thing this corpus was missing.
         state.offer_decision_id = result.decision_id
-        state.offered_product_id = top.product_id
-        # Without this the probe would pitch a product that capture_lead then
-        # refuses as un-offered — the customer says yes and nothing is recorded.
+        # Kept so `capture_lead` can still tie an inbound "actually, tell me
+        # about that" to the decision that scored it, rather than refusing it
+        # as un-offered.
+        state.offered_product_id = result.top.product_id
         state.offered_product_ids.update(o.product_id for o in result.offers)
-        state.last_product_id = top.product_id
-        state.offers_presented += 1
-        state.upsell_presented = True
-
-        # The sentence itself is generated deterministically by the engine, not
-        # improvised here and not left to the model. It may be reworded for
-        # flow; the product, the amount and the absence of any rate promise are
-        # not the model's to change.
-        track = top.talk_track or f"A {top.name} is available on your account."
-        state.close_probe_offer_clause = (
-            f" If — and only if — they say there is nothing else, you may add ONE "
-            f"short sentence to this effect: \"{track}\" Keep the product and the "
-            f"amount exactly as written; you may reword it to sound natural. "
-            f"Never promise approval, rates or limits. If they are not "
-            f"interested, call decline_offer and close warmly."
-        )
-
-        try:
-            await asyncio.to_thread(reco_engine.present, result.decision_id, top.product_id)
-            await asyncio.to_thread(
-                domain.mark_upsell_presented,
-                interaction_id=session.interaction_id,
-                product_id=top.product_id,
-                bot_id=bot_id,
-            )
-        except Exception:
-            logger.exception("marking close-probe offer presented failed")
 
     async def _record_close_probe(with_offer: bool) -> None:
         ix = session.interaction_id
@@ -2331,7 +2296,9 @@ def build_tools(
             # Registry miss (tools built without a graph) — fall through to the
             # caller's normal terminal rather than dropping the call.
             return None
-        await _record_close_probe(bool(state.close_probe_offer_clause))
+        # Always without an offer now, and the constant says so rather than a
+        # variable that could only ever be empty.
+        await _record_close_probe(False)
         return node
 
     async def _capture_lead_handler(

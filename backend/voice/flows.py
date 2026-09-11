@@ -119,7 +119,6 @@ def build_collections_flow(
     channel: str = "sandbox_live",
     on_kb_tool_used: Callable[[], None] | None = None,
     spoke_this_response: Callable[[], bool] | None = None,
-    on_upsell_engaged: Callable[[], None] | None = None,
     graph: str | None = None,
     sink: Any | None = None,
     allowed_tool_names: set[str] | None = None,
@@ -150,7 +149,6 @@ def build_collections_flow(
         nodes=nodes,
         hub_node="collections_hub" if hub else "state_position",
         upsell_node=None if hub else "gated_upsell",
-        on_upsell_engaged=on_upsell_engaged,
         emitter=emitter,
         kb_snapshot_id=kb_snapshot_id,
         inject_developer=inject_developer,
@@ -660,7 +658,6 @@ def build_collections_flow(
             # full PTP haggle. Registered in bot.py via FlowManager.register_action.
             "pre_actions": [
                 {"type": "summarize_context"},
-                {"type": "mesh_activate_insurance"},
             ],
             "respond_immediately": True,
         }
@@ -682,9 +679,7 @@ def build_collections_flow(
             "task_messages": [
                 {
                     "role": "developer",
-                    "content": _PRE_CLOSE_TASK.format(
-                        offer=state.close_probe_offer_clause or ""
-                    ),
+                    "content": _PRE_CLOSE_TASK,
                 }
             ],
             # `set_contact_preference` is granted here and nowhere else in this

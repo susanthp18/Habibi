@@ -67,6 +67,29 @@ def w11_ready(conn: Any) -> bool:
     return has_table(conn, "treatment_pre_registrations")
 
 
+def w12_ready(conn: Any) -> bool:
+    """Whether the offer family has somewhere to live in the treatment log.
+
+    Gates the *second* half of W12's dual write. On a database behind
+    ``sql/32_offer_absorption.sql`` the reco engine keeps writing
+    ``offer_decisions`` alone, which is the state every deployment is in until
+    0121 is applied -- and is why the absorption is a window rather than a
+    cutover.
+    """
+    return has_column(conn, "treatment_decisions", "action_family")
+
+
+def suitability_ready(conn: Any) -> bool:
+    """Whether a suitability finding can be read at all on this database.
+
+    Separate from :func:`w12_ready` because the two answer different questions
+    to different callers, and because an absent table here is a *refusal* rather
+    than a degradation: §9.7 makes an offer unenactable without a current row,
+    and a database that cannot say whether one exists has not said yes.
+    """
+    return has_table(conn, "suitability_assessments")
+
+
 def w1_ready(conn: Any) -> bool:
     return has_table(conn, "enactment_attempts") and has_column(
         conn, "treatment_decisions", "cancel_reason"

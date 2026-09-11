@@ -56,6 +56,7 @@ from db_core import (
     _speaker_screen as _speaker_screen,
     _sql as _sql,
     _tenant as _tenant,
+    _vector_literal as _vector_literal,
     _vis_params as _vis_params,
     clamp_list_limit as clamp_list_limit,
     clamp_offset as clamp_offset,
@@ -5093,6 +5094,20 @@ def create_lead(
                     ),
                     {"id": decision_id, "lead_id": lead_id, "tenant": _tenant()},
                 )
+                # W12: the same label into the absorbed log. This is the third
+                # writer of an offer response and the one most easily missed --
+                # it is not in `agent_core/reco/` at all.
+                from agent_core.reco import decisions as reco_decisions
+
+                reco_decisions.mirror_update(
+                    conn,
+                    "lead_id = :lead_id,"
+                    " offer_response = COALESCE(offer_response, 'interested'),"
+                    " responded_at = COALESCE(responded_at, now()),"
+                    " presented = true,"
+                    " presented_at = COALESCE(presented_at, now())",
+                    {"id": decision_id, "lead_id": lead_id},
+                )
             except Exception:
                 logger.exception("attach_lead failed for decision %s", decision_id)
         response = _lead_by_id(conn, lead_id)
@@ -5113,6 +5128,27 @@ _LEAD_STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
     "lost": frozenset({"won", "interested"}),
 }
 _CLOSED_LEAD_STAGES = frozenset({"won", "lost"})
+
+
+def offer_decision_exists(decision_id: str) -> bool:
+    """Whether this tenant has an offer decision with that id.
+
+    Tenant-scoped, so an id guessed or leaked from another tenant reads as
+    absent rather than as labellable. The route above returns 404 on False:
+    without it a caller could POST a response for an hour and silently label
+    nothing, which is exactly the failure mode that left `offer_decisions` with
+    zero responses in the first place.
+    """
+    with engine.connect() as conn:
+        return bool(
+            conn.execute(
+                text(
+                    "SELECT 1 FROM offer_decisions"
+                    " WHERE id = :id AND tenant_id = :tenant"
+                ),
+                {"id": decision_id, "tenant": _tenant()},
+            ).first()
+        )
 
 
 def patch_lead(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:

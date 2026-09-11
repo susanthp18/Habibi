@@ -319,17 +319,16 @@ def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recordin
             "Do not pivot to EMI/PTP unless they also ask about the loan."
         )
     if _looks_like_closing(customer_text):
-        # The text-channel equivalent of the voice close probe. Same shape: ONE
-        # question, asked once, and the offer half only exists if the engine
-        # approved something. Chat is asynchronous, so the risk here is being
-        # annoying rather than interrupting — hence the same suppressions.
+        # The text-channel equivalent of the voice close probe. ONE question,
+        # asked once. W12 removed its offer half: §9.7 forbids a promotional
+        # utterance inside a servicing conversation, so the engine is still
+        # asked -- the decision row is what the offer corpus has never had --
+        # and the answer is never spoken.
         lines.append(
             "- They are wrapping up: close warmly and ask ONE short question about "
             "whether there is anything else you can help with. Do not list options. "
-            "If nothing is pending and sentiment is fine, you may call "
-            "recommend_next_offer first and, only if it returns an offer, fold a "
-            "single sentence about it into that same question. If it returns "
-            "suppressed=true, just ask the plain question. Never ask twice."
+            "Do not mention any product, offer, top-up or upgrade, whatever any tool "
+            "returns. Never ask twice."
         )
     return "\n".join(lines)
 
@@ -652,13 +651,13 @@ def _build_messages(
         "- search_knowledge_base is only for product/insurance FAQ; it is blocked for "
         "collections intents. Always call it for exclusions, invalidation, coverage, or "
         "\"tell me all / full details\" follow-ups on a product thread.\n"
-        "- NEVER name a product you were not given by recommend_next_offer, and never "
-        "guess a product id. Call recommend_next_offer when the customer asks about "
-        "products, or once their main question is handled and sentiment is not "
-        "negative. If it returns suppressed=true or no offers, say nothing about "
-        "products and do not explain why. Otherwise mention ONE offer in a single "
-        "short sentence and ask if they want a specialist to explain it — on interest "
-        "call capture_lead with the offerId, on refusal call decline_offer.\n"
+        "- NEVER name a product, offer, top-up or upgrade, to anyone, on any turn. "
+        "Call recommend_next_offer when the customer asks about products or once "
+        "their main question is handled -- it records what was scored and returns "
+        "no product, by design: an offer is scored on a servicing contact "
+        "and never spoken on it. Say nothing about products and do not explain "
+        "why. If the customer raises a product unprompted and asks to be "
+        "contacted, call capture_lead; on refusal call decline_offer.\n"
         "- If the caller identity is unclear, call identify_customer with phone digits "
         "or account last-4 before money or lead tools.\n"
         "- You cannot collect payments. Offer guidance and PTP / callback / escalate when needed.\n"

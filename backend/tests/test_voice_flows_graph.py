@@ -140,7 +140,7 @@ def test_hub_does_not_advertise_a_way_to_pick_a_product_directly() -> None:
     state, tools, _initial, _globals = _flow("hub")
     advertised = _names(state.nodes["collections_hub"]()["functions"])
     assert "check_product_eligibility" not in advertised
-    # Still callable — the insurance mesh worker and the API path both use it.
+    # Still callable — the API path uses it.
     assert "check_product_eligibility" in tools
 
 
@@ -308,11 +308,22 @@ def test_pre_close_asks_exactly_one_question_and_offers_nothing_by_default() -> 
     assert "specialist" not in content
 
 
-def test_pre_close_folds_in_an_offer_when_one_was_prepared() -> None:
+def test_no_state_a_caller_can_set_makes_pre_close_name_a_product() -> None:
+    """W12 (§9.7): the offer is scored on the call and never spoken on it.
+
+    This test asserted the opposite until W12. `_PRE_CLOSE_TASK` carried an
+    `{offer}` placeholder that `_prepare_close_probe` filled from the winning
+    candidate's `talk_track` — a second route to the borrower's ear that went
+    around `to_tool_payload`, which is where the gate lives. The placeholder is
+    gone and the node's text is a constant, so setting the old attribute is
+    inert. That inertness is the assertion: a caller cannot reach the prompt.
+    """
     state, _tools, _initial, _globals = _flow("hub")
+    before = state.nodes["pre_close"]()["task_messages"][0]["content"]
     state.close_probe_offer_clause = " OFFER-CLAUSE-HERE"
-    content = state.nodes["pre_close"]()["task_messages"][0]["content"]
-    assert "OFFER-CLAUSE-HERE" in content
+    after = state.nodes["pre_close"]()["task_messages"][0]["content"]
+    assert after == before
+    assert "OFFER-CLAUSE-HERE" not in after
 
 
 def test_end_call_routes_through_the_probe_once_then_terminates() -> None:

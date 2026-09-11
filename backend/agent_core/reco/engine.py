@@ -38,15 +38,27 @@ from agent_core.reco.scoring import ScoredOffer, build_scorer
 
 logger = logging.getLogger(__name__)
 
+#: The only instruction this engine gives a text generator, on every path.
+#: §9.7: the offer is scored on the call and it is never spoken on it, so there
+#: is no branch in which the right answer is "mention the product". One constant
+#: rather than a phrase repeated at each call site, because the value of the
+#: rule is that no path has its own version of it — and because
+#: ``tests/test_honest_engines_w12.py`` asserts that no reachable `say` in the
+#: offer path says anything else.
+DEFERRED_SAY = (
+    "do not mention any product, offer, top-up or upgrade; continue with the "
+    "conversation and do not explain why"
+)
+
 
 @dataclass(frozen=True)
 class RecommendationResult:
     """What the tool layer hands the model.
 
-    ``offers`` is empty whenever ``suppressed`` is true. Both are returned so a
-    caller can distinguish "nothing to say" from "told not to say it", which
-    the close probe needs in order to decide between asking a bare "anything
-    else?" and folding an offer into the question.
+    ``offers`` carries what was scored. It is **not** what the model sees:
+    :meth:`to_tool_payload` names no product on any path (§9.7). The distinction
+    matters because the decision log, the operator surfaces and the promotional
+    sender all need the scored list, and exactly one consumer must not have it.
     """
 
     offers: list[ScoredOffer] = field(default_factory=list)
@@ -62,23 +74,44 @@ class RecommendationResult:
         return self.offers[0] if self.offers else None
 
     def to_tool_payload(self) -> dict[str, Any]:
-        """Compact, model-facing shape. Scores and feature internals stay out:
-        the model's job is to phrase the offer, not to second-guess the rank."""
+        """Model-facing, and it names no product. §9.7, and this is the whole gate.
+
+        This function used to hand the model a product id, a product name, an
+        indicative amount, an ROI and a ready-phrased talk track, and both call
+        paths then instructed it to *"mention this ONE product in a single short
+        sentence with the indicative amount"*. That is a promotional utterance
+        inside a recorded collections call, and it is three breaches at once:
+        reclassification of the entire communication as Promotional — which then
+        subjects the collections call itself to the borrower's DND — marketing
+        without a suitability finding, where an explicit consent artefact does
+        not cure unsuitability; and, on a delinquent borrower, the textbook
+        mis-selling fact pattern carrying refund **plus** compensation.
+
+        **The invariant that makes the absorption lawful: the offer is scored on
+        the call and it is never spoken on it.** So the score goes to a decision
+        row with ``chosen_channel='deferred_promotional'`` and is delivered later
+        as a separate, consented, suitability-gated promotional communication on
+        the promotional series — never in the call, never in the collections
+        message, never in the same template.
+
+        The gate lives *here* rather than in each caller because both mouths and
+        every future one route through this one function. A model that is never
+        told a product name cannot be prompted, jailbroken or flow-graphed into
+        saying one. ``self.offers`` still carries everything, for the decision
+        log and the operator surfaces; what changes is what crosses the boundary
+        to a text generator.
+        """
         return {
-            "offers": [
-                {
-                    "offerId": f"{self.decision_id}:{o.product_id}" if self.decision_id else o.product_id,
-                    "productId": o.product_id,
-                    "productName": o.name,
-                    "suggestedAmount": o.suggested_amount,
-                    "roi": o.roi,
-                    "talkTrack": o.talk_track,
-                    "reasonCodes": list(o.reason_codes),
-                }
-                for o in self.offers
-            ],
-            "suppressed": self.suppressed,
+            # Empty, always. Kept as a key rather than dropped so the callers
+            # that branch on `payload["offers"]` keep their shape.
+            "offers": [],
+            "deferred": bool(self.offers),
+            # An offer that may not be spoken is, from the model's side of the
+            # boundary, indistinguishable from no offer — and must be, or the
+            # absence itself becomes the signal it asks about.
+            "suppressed": True,
             **({"suppressionReason": self.reason} if self.reason else {}),
+            "say": DEFERRED_SAY,
         }
 
 
@@ -371,13 +404,23 @@ def _collections_hold(conn: Any, customer_id: str) -> str | None:
 def _apply_eligibility(
     conn: Any, *, customer_id: str, channel: str, pool: list[Any]
 ) -> tuple[list[Any], dict[str, str]]:
-    """Run the existing compliance veto over each candidate.
+    """Run the existing compliance veto over each candidate, then suitability.
 
     Reuses capture.evaluate_product_eligibility rather than reimplementing the
     rules, so there is exactly one definition of "may we offer this" in the
     system — the bot, the API and the engine cannot drift apart.
+
+    W12 adds the second gate §9.7 requires and nothing enforced: an offer
+    decision refuses to enact without a **current suitability assessment**.
+    Eligibility is a property of the product and answers "does this borrower
+    qualify"; suitability is a finding about the person and answers "should this
+    borrower be sold it", which an explicit consent artefact does not cure. It
+    runs per candidate, after eligibility, because the two produce different
+    reasons and a validator reading `excluded` needs to know which one fired.
     """
     import capture
+
+    from agent_core.reco import suitability
 
     kept: list[Any] = []
     vetoed: dict[str, str] = {}
@@ -409,6 +452,12 @@ def _apply_eligibility(
             continue
         if block:
             vetoed[candidate.product_id] = f"eligibility:{block}"[:200]
+            continue
+        unsuitable = suitability.objection(
+            conn, customer_id=customer_id, product_id=candidate.product_id
+        )
+        if unsuitable:
+            vetoed[candidate.product_id] = unsuitable[:200]
             continue
         kept.append(candidate)
     return kept, vetoed

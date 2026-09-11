@@ -23,7 +23,16 @@ ROLES: dict[str, frozenset[str]] = {
         }
     ),
     "treatment": frozenset(
-        {"treatment_enact", "treatment_followthrough", "treatment_sweep"}
+        # `offer_followthrough` belongs to the treatment role rather than to a
+        # role of its own: §15.4 absorbs the offer family at the infrastructure
+        # layer, and a second worker role for one batch sweep would be the
+        # parallel plumbing the absorption exists to remove.
+        {
+            "treatment_enact",
+            "treatment_followthrough",
+            "treatment_sweep",
+            "offer_followthrough",
+        }
     ),
     "integration": frozenset(
         {"webhooks_dispatch", "clerk", "clerk_overdue", "canary"}

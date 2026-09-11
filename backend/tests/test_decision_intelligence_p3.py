@@ -130,10 +130,14 @@ def _artifact(segs=None):
 
 def test_a_thin_segment_barely_moves_the_pooled_answer() -> None:
     """And a fat one dominates it. Continuously, so the estimate does not jump
-    when a borrower crosses a boundary by aging one day."""
+    when a borrower crosses a boundary by aging one day.
+
+    "Thin" and "fat" are counted on the CONTROL arm since W12 — see
+    :func:`test_shrinkage_weight_is_monotone_in_the_control_count`.
+    """
     key = segments.key_for({"dpd": 20.0})
-    thin = _artifact({key: _segment(key, n=50)})
-    fat = _artifact({key: _segment(key, n=50_000)})
+    thin = _artifact({key: _segment(key, n=50, control_n=50)})
+    fat = _artifact({key: _segment(key, n=50_000, control_n=50_000)})
     vec = {"dpd": 20.0}
 
     pooled = _artifact().predict(vec)
@@ -142,12 +146,28 @@ def test_a_thin_segment_barely_moves_the_pooled_answer() -> None:
     assert thin.predict(vec) < fat.predict(vec)
 
 
-def test_shrinkage_weight_is_monotone_in_sample_size() -> None:
+def test_shrinkage_weight_is_monotone_in_the_control_count() -> None:
+    """And in the control count ONLY.
+
+    §8.10: "`n` is the **control** count, because τ's variance is driven by the
+    control arm". This shrank on the treated count until W12, which is the
+    opposite of the thing being estimated: 50,000 treated against 180 controls
+    took 98.5% of the answer on a difference whose standard error came entirely
+    from the 180 — and the treated arm is the arm a campaign can grow at will,
+    so the weight rose with spend rather than with evidence.
+    """
     k = models.DEFAULT_SHRINKAGE_K
-    weights = [_segment("x", n=n).weight(k) for n in (10, 100, 1_000, 100_000)]
+    weights = [
+        _segment("x", n=1_000, control_n=c).weight(k)
+        for c in (10, 100, 1_000, 100_000)
+    ]
     assert weights == sorted(weights)
     assert weights[0] < 0.05 and weights[-1] > 0.99
-    assert _segment("x", n=int(k)).weight(k) == pytest.approx(0.5, abs=0.01)
+    assert _segment("x", n=1, control_n=int(k)).weight(k) == pytest.approx(0.5, abs=0.01)
+    # The treated arm cannot buy confidence.
+    assert _segment("x", n=50_000, control_n=180).weight(k) == pytest.approx(
+        _segment("x", n=180, control_n=180).weight(k)
+    )
 
 
 def test_a_negative_segment_effect_can_pull_the_population_estimate_down() -> None:
@@ -161,7 +181,7 @@ def test_a_negative_segment_effect_can_pull_the_population_estimate_down() -> No
         means={"dpd": 20.0}, control_coefficients=(0.0,), control_intercept=0.0,
         control_arm="null_treatment", control_n=1000,
     )
-    harmful = _segment(key, n=100_000, bump=-4.0)
+    harmful = _segment(key, n=100_000, control_n=100_000, bump=-4.0)
     with_segment = models.ModelArtifact(
         **{**base.__dict__, "segments": {key: harmful}}
     )
@@ -1087,7 +1107,7 @@ def _fit(train, treated, control):
     promoted, report = train.fit_segments(
         treated, control,
         names=names, means=means, scales=scales, cal=(1.0, 0.0),
-        population_ate=pop_ate, holdout=0.25, seed=7,
+        holdout=0.25, seed=7,
     )
     return promoted, {r["segment"]: r for r in report}, pop_ate
 
@@ -1101,8 +1121,12 @@ def test_the_ladder_promotes_a_stratum_the_pooled_model_gets_wrong() -> None:
     row = report[heterogeneous]
     assert row["verdict"] == "promoted"
     # The stratum's own effect is roughly double the pooled one, which is the
-    # thing the pooled model cannot say.
+    # thing the pooled model cannot say. Since W12 both numbers are measured on
+    # the held-out slice, and the comparison is leave-one-segment-out rather
+    # than against a pool containing the stratum.
     assert row["ate"] > pop_ate * 1.5
+    assert row["ate"] > row["losoAte"]
+    assert row["pValue"] < row["bhCritical"]
     assert row["holdoutLift"] > 0
 
 
@@ -1124,17 +1148,36 @@ def test_the_ladder_refuses_a_stratum_the_pooled_model_already_handles() -> None
     row = report[homogeneous]
     assert row["verdict"] == "rejected"
     assert row["reason"] == "no_holdout_lift"
-    assert row["z"] > row["zRequired"], "it passed the causal gate and was still refused"
+    assert row["pValue"] < row["bhCritical"], (
+        "it passed the causal gate and was still refused"
+    )
 
 
 def test_the_heterogeneity_gate_is_corrected_for_how_many_strata_were_tried() -> None:
     """Thirty candidate strata tested at an uncorrected 5% produce about one and
     a half spurious findings by construction, and each would ship a segment
-    model fitted to noise."""
-    train = _trainer()
-    assert train.heterogeneity_z(1) == pytest.approx(1.96, abs=0.01)
-    assert train.heterogeneity_z(10) > train.heterogeneity_z(1)
-    assert train.heterogeneity_z(30) > train.heterogeneity_z(10)
+    model fitted to noise.
+
+    W12 replaced Bonferroni at FWER 0.05 with Benjamini-Hochberg at FDR 0.10
+    (§8.10 rung 3). BH is a step-up procedure, so the correction is not a
+    threshold a cell can be handed on its own — it depends on how many cells
+    were tried and on where this one's p-value ranks among them. That is what
+    this asserts: every tested cell carries the size of the family it was judged
+    in, and its own critical value is BH's rank/tested x FDR. Bonferroni's
+    arithmetic is gone from the trainer entirely; ``cluster.bh_reject`` is unit
+    tested against the 1995 worked example in ``test_honest_engines_w12.py``.
+    """
+    _promoted, report, _ = _standard_ladder()
+    tested = [r for r in report.values() if "bhRank" in r]
+    assert tested, "no cell had the power to be tested, so nothing was corrected"
+    ranks = sorted(r["bhRank"] for r in tested)
+    assert ranks == list(range(1, len(tested) + 1)), "ranks are not a permutation"
+    for row in tested:
+        assert row["bhTested"] == len(tested)
+        assert row["bhFdr"] == pytest.approx(0.10)
+        assert row["bhCritical"] == pytest.approx(
+            row["bhRank"] / row["bhTested"] * row["bhFdr"], abs=1e-6
+        )
 
 
 def test_underpowered_strata_are_skipped_not_rejected() -> None:
@@ -1150,6 +1193,9 @@ def test_underpowered_strata_are_skipped_not_rejected() -> None:
     row = report["b0030/open/timing"]
     assert row["verdict"] == "skipped"
     assert row["reason"] == "underpowered"
+    # Counted in CUSTOMERS since W12: a "150-row" stratum can be eleven people.
+    assert row["controlCustomers"] < row["controlCustomersRequired"]
+    assert "bhRank" not in row, "an untested cell must not carry a correction"
 
 
 def test_the_ladder_reports_every_stratum_it_considered() -> None:
