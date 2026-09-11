@@ -269,3 +269,63 @@ def test_the_env_default_is_always_an_entry_card(db_tx) -> None:
     from agent_core.cards.routing import is_entry_card
 
     assert is_entry_card(db.DEFAULT_BOT_ID)
+
+
+# ---------------------------------------------------------------------------
+# The Studio's writer: on the record, and on the fleet index
+# ---------------------------------------------------------------------------
+
+
+def _change_log_rows(conn, bot_id: str) -> list[dict]:
+    from agent_core import change_log
+
+    return [
+        dict(r)
+        for r in conn.execute(
+            text(
+                "SELECT action, payload FROM audit_log "
+                "WHERE tenant_id = :t AND entity_id = :b AND action = :a ORDER BY created_at"
+            ),
+            {"t": db.current_tenant(), "b": bot_id, "a": change_log.ENTRY_BINDING},
+        ).mappings()
+    ]
+
+
+def test_the_studio_writer_records_who_answers_what(db_tx, door_on) -> None:
+    """The table holds the current answer; an auditor asks about March. Every
+    bind and unbind is a change-log entry, in the same transaction."""
+    row = db.set_entry_binding(
+        {"channel": "voice", "address": "+914412345678", "botId": "kaia-v2-4", "note": "collections line"}
+    )
+    assert row["id"].startswith("eb-")
+    assert resolve_entry("voice", "+914412345678") == "kaia-v2-4"
+    assert any(b["id"] == row["id"] for b in db.list_entry_bindings())
+
+    gone = db.remove_entry_binding(row["id"])
+    assert gone["id"] == row["id"]
+    assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
+
+    logged = _change_log_rows(db_tx, "kaia-v2-4")
+    assert [e["payload"]["removed"] for e in logged] == [False, True]
+    assert logged[0]["payload"]["address"] == "+914412345678"
+    with pytest.raises(KeyError):
+        db.remove_entry_binding(row["id"])
+
+
+def test_a_binding_needs_a_card_that_can_answer(db_tx, door_on) -> None:
+    """A number bound to a card with no live deployment rings into silence."""
+    with pytest.raises(ValueError, match="entry_binding_target_not_live"):
+        db.set_entry_binding({"channel": "voice", "botId": "no-such-card"})
+
+
+def test_the_fleet_index_reads_the_chip_from_the_table(db_tx, door_on) -> None:
+    """"takes inbound" came from BOT_ID; a WhatsApp default bound to another
+    card read "via handoff" on the index while it answered every message."""
+    db.set_entry_binding({"channel": "whatsapp", "botId": "intake-v1"})
+
+    by_id = {c["botId"]: c for c in db.list_agent_studio_cards()}
+    intake = by_id["intake-v1"]
+    assert intake["reachability"] == "entry"
+    # The dev database already carries the production voice binding on this card.
+    assert ("whatsapp", None) in [(b["channel"], b["address"]) for b in intake["entryBindings"]]
+    assert by_id[db.DEFAULT_BOT_ID]["reachability"] == "entry"

@@ -134,6 +134,7 @@ def upsert_entry_binding(
     address: str | None = None,
     note: str = "",
     enabled: bool = True,
+    conn: Any = None,
 ) -> dict[str, Any]:
     """Author which card answers ``channel`` at ``address``.
 
@@ -147,12 +148,18 @@ def upsert_entry_binding(
     ``resolve_entry`` does not read the table at all until the flag is on. That
     is deliberate -- the row can be authored, reviewed and left in place before
     anything routes by it.
+
+    ``conn`` lets the Studio write its change-log entry in the same
+    transaction; without one the write runs on its own.
     """
     import uuid
+    from contextlib import nullcontext
 
     import db
     from sqlalchemy import text as _text
 
+    if not (channel or "").strip() or not (bot_id or "").strip():
+        raise ValueError("entry_binding_channel_and_bot_required")
     addr = (address or "").strip() or None
     params = {
         "id": f"eb-{uuid.uuid4().hex[:12]}",
@@ -168,8 +175,8 @@ def upsert_entry_binding(
         if addr
         else "(tenant_id, channel) WHERE address IS NULL"
     )
-    with db.engine.begin() as conn:
-        row = conn.execute(
+    with (nullcontext(conn) if conn is not None else db.engine.begin()) as c:
+        row = c.execute(
             _text(
                 f"""
                 INSERT INTO entry_bindings
@@ -180,12 +187,41 @@ def upsert_entry_binding(
                   note = EXCLUDED.note,
                   enabled = EXCLUDED.enabled,
                   updated_at = now()
-                RETURNING id, channel, address, bot_id, enabled
+                RETURNING id, channel, address, bot_id, enabled, note, updated_at
                 """
             ),
             params,
         ).mappings().first()
-    return dict(row) if row else {}
+    return _binding_row(row) if row else {}
+
+
+def delete_entry_binding(binding_id: str, *, conn: Any = None) -> dict[str, Any] | None:
+    """Remove one binding. Returns the row it removed, or None when there was
+    none -- the route turns that into 404 rather than a success nobody earned."""
+    from contextlib import nullcontext
+
+    import db
+    from sqlalchemy import text as _text
+
+    with (nullcontext(conn) if conn is not None else db.engine.begin()) as c:
+        row = c.execute(
+            _text(
+                """
+                DELETE FROM entry_bindings
+                 WHERE id = :id AND tenant_id = :tenant
+                RETURNING id, channel, address, bot_id, enabled, note, updated_at
+                """
+            ),
+            {"id": (binding_id or "").strip(), "tenant": db.current_tenant()},
+        ).mappings().first()
+    return _binding_row(row) if row else None
+
+
+def _binding_row(row: Any) -> dict[str, Any]:
+    out = dict(row)
+    ts = out.get("updated_at")
+    out["updated_at"] = ts.isoformat() if hasattr(ts, "isoformat") else ts
+    return out
 
 
 def list_entry_bindings() -> list[dict[str, Any]]:
@@ -194,6 +230,8 @@ def list_entry_bindings() -> list[dict[str, Any]]:
     from sqlalchemy import text as _text
 
     with db.engine.connect() as conn:
+        if not conn.execute(_text("SELECT to_regclass('public.entry_bindings')")).scalar():
+            return []
         rows = conn.execute(
             _text(
                 """
@@ -205,7 +243,21 @@ def list_entry_bindings() -> list[dict[str, Any]]:
             ),
             {"tenant": db.current_tenant()},
         ).mappings().all()
-    return [dict(r) for r in rows]
+    return [_binding_row(r) for r in rows]
+
+
+def entry_bindings_by_bot() -> dict[str, list[dict[str, Any]]]:
+    """bot_id -> its enabled bindings, for the fleet index's "answers" chips.
+
+    Empty when the door is off: a binding that does not route is not an
+    answer, and the chip would claim one."""
+    if not door_enabled():
+        return {}
+    out: dict[str, list[dict[str, Any]]] = {}
+    for b in list_entry_bindings():
+        if b.get("enabled"):
+            out.setdefault(str(b["bot_id"]), []).append(b)
+    return out
 
 
 def is_entry_card(bot_id: str) -> bool:
@@ -291,6 +343,7 @@ def reachability(
     *,
     entry: str | None = None,
     deployed: Iterable[str] = (),
+    entries: Iterable[str] = (),
 ) -> dict[str, str]:
     """bot_id → "entry" | "handoff" | "direct" | "unreachable".
 
@@ -308,18 +361,22 @@ def reachability(
     holds its own deployment: its position in the conversation graph is the more
     specific fact, and ``direct`` is reserved for the cards that have no inbound
     edge at all.
+
+    ``entries`` are the cards an enabled entry binding points at. Each is an
+    entry in its own right -- a WhatsApp default is not "via handoff" from the
+    voice default just because the fleet index asked about voice first.
     """
     rows = list(cards)
-    entry_id = entry or _env_default_bot_id()
+    entry_ids = {entry or _env_default_bot_id(), *(e for e in entries if e)}
     deployed_ids = {b for b in deployed if b}
     edges = {bot_id: handoff_targets(card) for bot_id, card in rows}
-    closure = reachable_from({entry_id, *deployed_ids}, edges)
+    closure = reachable_from({*entry_ids, *deployed_ids}, edges)
     # Reached *through an edge*, rather than merely present in the closure —
     # a seed is in its own closure without anything routing to it.
     inbound = {target for node in closure for target in edges.get(node, ())}
     out: dict[str, str] = {}
     for bot_id, _ in rows:
-        if bot_id == entry_id:
+        if bot_id in entry_ids:
             out[bot_id] = "entry"
         elif bot_id in inbound:
             out[bot_id] = "handoff"

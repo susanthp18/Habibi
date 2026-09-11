@@ -36,6 +36,12 @@ export type AgentCardSummary = {
   /** The bot inbound traffic resolves to (BOT_ID). One per environment. */
   entryBotId: string;
   /**
+   * The enabled entry bindings that land on this card, from the table the
+   * door routes by. `address: null` is the channel default. Empty when the
+   * door is off or nothing is bound here.
+   */
+  entryBindings: EntryBinding[];
+  /**
    * Routing, not deployment. `entry` is the bot BOT_ID resolves to; `handoff`
    * is reached through some live card's allowlist; `direct` holds its own
    * active deployment so it is addressable by bot_id even though nothing hands
@@ -51,6 +57,21 @@ export type AgentCardSummary = {
   /** What production is actually running. Empty until first publish. */
   publishedCard: Record<string, unknown>;
 };
+
+export type EntryBinding = {
+  id: string;
+  channel: string;
+  address: string | null;
+  bot_id: string;
+  enabled: boolean;
+  note: string;
+  updated_at: string | null;
+};
+
+/** "answers +1937… · whatsapp default" — one chip per binding. */
+export function entryBindingLabel(b: EntryBinding): string {
+  return b.address ? `answers ${b.address} · ${b.channel}` : `${b.channel} default`;
+}
 
 export type CompileGate = {
   gate: string;
@@ -91,6 +112,7 @@ const MOCK_CARDS: AgentCardSummary[] = [
     hasDraft: false,
     cardSource: "published",
     entryBotId: "kaia-v2-4",
+    entryBindings: [],
     reachability: "handoff",
     archivedAt: null,
     isFirstParty: true,
@@ -124,6 +146,7 @@ const MOCK_CARDS: AgentCardSummary[] = [
     hasDraft: false,
     cardSource: "published",
     entryBotId: "kaia-v2-4",
+    entryBindings: [],
     reachability: "handoff",
     archivedAt: null,
     isFirstParty: true,
@@ -148,6 +171,7 @@ const MOCK_CARDS: AgentCardSummary[] = [
     hasDraft: false,
     cardSource: "published",
     entryBotId: "kaia-v2-4",
+    entryBindings: [],
     reachability: "handoff",
     archivedAt: null,
     isFirstParty: true,
@@ -172,6 +196,7 @@ const MOCK_CARDS: AgentCardSummary[] = [
     hasDraft: false,
     cardSource: "published",
     entryBotId: "kaia-v2-4",
+    entryBindings: [],
     reachability: "handoff",
     archivedAt: null,
     isFirstParty: true,

@@ -402,7 +402,7 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
     _tenant = _mod._tenant
     _iso_ts = _mod._iso_ts
     from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
-    from agent_core.cards.routing import reachability, resolve_entry
+    from agent_core.cards.routing import entry_bindings_by_bot, reachability, resolve_entry
 
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
@@ -436,6 +436,7 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
     # The channel default: the fleet index is asking which card is the root of
     # routing, not which number was dialled.
     entry = resolve_entry("voice")
+    bound = entry_bindings_by_bot()
     # A retired card cannot carry traffic, so its handoffs are not a path: leaving
     # them in made a card look reachable through an agent that no longer answers.
     routes = reachability(
@@ -445,12 +446,14 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
             if not c.get("archivedAt")
         ],
         entry=entry,
+        entries=bound,
         # A card holding its own active deployment is addressable by bot_id, so
         # it seeds the walk too. deploymentStatus is already computed per card.
         deployed=[c["botId"] for c in out if c.get("deploymentStatus") == "live"],
     )
     for card in out:
         card["entryBotId"] = entry
+        card["entryBindings"] = bound.get(card["botId"], [])
         card["reachability"] = (
             "archived" if card.get("archivedAt") else routes.get(card["botId"], "unreachable")
         )
@@ -673,7 +676,7 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
     _tenant = _mod._tenant
     _iso_ts = _mod._iso_ts
     from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
-    from agent_core.cards.routing import reachability, resolve_entry
+    from agent_core.cards.routing import entry_bindings_by_bot, reachability, resolve_entry
 
     bid = (bot_id or "").strip()
     if not bid:
@@ -708,17 +711,79 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
     # The channel default: the fleet index is asking which card is the root of
     # routing, not which number was dialled.
     entry = resolve_entry("voice")
+    bound = entry_bindings_by_bot()
     edges = {b: c for b, c in _handoff_edges()}
     edges[bid] = summary["agentCard"]  # unsaved-but-loaded card wins for this one
     summary["entryBotId"] = entry
+    summary["entryBindings"] = bound.get(bid, [])
     summary["reachability"] = (
         "archived"
         if archived_at
         else reachability(
-            list(edges.items()), entry=entry, deployed=_live_deployment_bot_ids()
+            list(edges.items()), entry=entry, entries=bound, deployed=_live_deployment_bot_ids()
         ).get(bid, "unreachable")
     )
     return summary
+
+
+def list_entry_bindings() -> list[dict[str, Any]]:
+    from agent_core.cards.routing import list_entry_bindings as _list
+
+    return _list()
+
+
+def set_entry_binding(payload: dict[str, Any]) -> dict[str, Any]:
+    """Author which card answers a channel (or a dialled number), on the record.
+
+    The bot must hold an active production deployment: a binding to a card
+    nothing can serve is a number that rings into silence."""
+    from agent_core import change_log
+    from agent_core.cards.routing import upsert_entry_binding
+
+    _mod = _db()
+    _tenant = _mod._tenant
+    bot_id = str(payload.get("botId") or payload.get("bot_id") or "").strip()
+    if bot_id not in _live_deployment_bot_ids():
+        raise ValueError("entry_binding_target_not_live")
+    with _mod.engine.begin() as conn:
+        row = upsert_entry_binding(
+            channel=str(payload.get("channel") or ""),
+            address=payload.get("address"),
+            bot_id=bot_id,
+            note=str(payload.get("note") or ""),
+            enabled=bool(payload.get("enabled", True)),
+            conn=conn,
+        )
+        change_log.record_entry_binding(
+            conn,
+            tenant_id=_tenant(),
+            actor_user_id=_mod._actor_user_id() or "system",
+            entry_id=_mod._id("AUD"),
+            bot_id=bot_id,
+            binding=row,
+        )
+    return row
+
+
+def remove_entry_binding(binding_id: str) -> dict[str, Any]:
+    from agent_core import change_log
+    from agent_core.cards.routing import delete_entry_binding
+
+    _mod = _db()
+    with _mod.engine.begin() as conn:
+        row = delete_entry_binding(binding_id, conn=conn)
+        if row is None:
+            raise KeyError(f"entry_binding_not_found: {binding_id}")
+        change_log.record_entry_binding(
+            conn,
+            tenant_id=_mod._tenant(),
+            actor_user_id=_mod._actor_user_id() or "system",
+            entry_id=_mod._id("AUD"),
+            bot_id=str(row["bot_id"]),
+            binding=row,
+            removed=True,
+        )
+    return row
 
 
 def archive_agent_studio_card(bot_id: str) -> dict[str, Any]:

@@ -46,6 +46,7 @@ ARCHIVE = "agent.archive"
 RESTORE = "agent.restore"
 ROLE_GRANTS = "agent.role_grants"
 EXPERIMENT_ROLLBACK = "agent.experiment_rollback"
+ENTRY_BINDING = "agent.entry_binding"
 
 #: Components of a prompt version that are hashed and diffed independently.
 COMPONENTS: tuple[str, ...] = (
@@ -385,6 +386,37 @@ def record_role_grants(
         actor_user_id=actor_user_id,
         action=ROLE_GRANTS,
         bot_id=role_id,
+        payload=payload,
+        entry_id=entry_id,
+    )
+
+
+def record_entry_binding(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    entry_id: str,
+    bot_id: str,
+    binding: Mapping[str, Any],
+    removed: bool = False,
+) -> dict[str, Any]:
+    """Which card answers a channel or a dialled number is configuration an
+    auditor asks about -- "who was on that number in March" -- and the table
+    only holds the current answer. The log holds every one."""
+    payload = {
+        "bindingId": binding.get("id"),
+        "channel": binding.get("channel"),
+        "address": binding.get("address"),
+        "enabled": bool(binding.get("enabled")),
+        "removed": bool(removed),
+    }
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=ENTRY_BINDING,
+        bot_id=bot_id,
         payload=payload,
         entry_id=entry_id,
     )

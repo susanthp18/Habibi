@@ -123,6 +123,8 @@ from schemas import (
     AgentStudioSkillResponse,
     AgentStudioSkillSummaryResponse,
     AgentStudioTemplateResponse,
+    EntryBindingResponse,
+    EntryBindingUpsert,
     PromiseCreateRequest,
     PromiseListResponse,
     PromisePatchRequest,
@@ -2143,6 +2145,23 @@ def list_flow_reserved_keys():
 @app.get("/agent-studio/cards", response_model=list[AgentStudioCardResponse])
 def list_agent_studio_cards(includeArchived: bool = Query(default=False)):
     return db.list_agent_studio_cards(include_archived=includeArchived)
+
+
+@app.get("/agent-studio/entry-bindings", response_model=list[EntryBindingResponse])
+def list_agent_studio_entry_bindings():
+    """Which card answers each channel and dialled number. Authored here, read
+    by `resolve_entry` on every inbound contact once DOOR_ENABLED is on."""
+    return db.list_entry_bindings()
+
+
+@app.put("/agent-studio/entry-bindings", response_model=EntryBindingResponse)
+def put_agent_studio_entry_binding(payload: EntryBindingUpsert):
+    return _handle_write(db.set_entry_binding, payload.model_dump())
+
+
+@app.delete("/agent-studio/entry-bindings/{binding_id}", response_model=EntryBindingResponse)
+def delete_agent_studio_entry_binding(binding_id: str):
+    return _handle_write(db.remove_entry_binding, binding_id)
 
 
 @app.get("/agent-studio/templates", response_model=list[AgentStudioTemplateResponse])

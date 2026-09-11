@@ -3605,11 +3605,39 @@ class AgentStudioCardResponse(BaseModel):
     hasDraft: bool
     cardSource: AgentStudioCardSource
     entryBotId: str
+    #: The enabled entry bindings that land on this card -- "answers +1937…"
+    #: -- read from the table, not the env.
+    entryBindings: list["EntryBindingResponse"] = []
     reachability: AgentStudioReachability
     archivedAt: str | None
     isFirstParty: bool
     agentCard: dict[str, Any]
     publishedCard: dict[str, Any]
+
+
+class EntryBindingResponse(BaseModel):
+    """One row of `entry_bindings`: which card answers `channel` at `address`
+    (`None` = the channel default)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    channel: str
+    address: str | None = None
+    bot_id: str
+    enabled: bool = True
+    note: str = ""
+    updated_at: str | None = None
+
+
+class EntryBindingUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: str
+    botId: str
+    address: str | None = None
+    note: str = ""
+    enabled: bool = True
 
 
 class AgentStudioTemplateResponse(BaseModel):

@@ -8,6 +8,7 @@ import {
   useArchiveAgentCard,
   useChangeLog,
   useCloneAgentCard,
+  entryBindingLabel,
   type AgentCardSummary,
   type EvalReport,
 } from "@/api/agent-studio";
@@ -59,7 +60,7 @@ const ROUTING: Record<
   entry: {
     label: "takes inbound",
     tone: "success",
-    help: () => "Every inbound call and message resolves to this card.",
+    help: () => "Inbound traffic resolves to this card.",
   },
   handoff: {
     label: "via handoff",
@@ -594,7 +595,15 @@ function FleetIndex() {
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-050">
-                        <Lozenge tone={routing(card).tone}>{routing(card).label}</Lozenge>
+                        {card.entryBindings.length > 0 ? (
+                          card.entryBindings.map((b) => (
+                            <Lozenge key={b.id} tone="success" title={b.note || undefined}>
+                              {entryBindingLabel(b)}
+                            </Lozenge>
+                          ))
+                        ) : (
+                          <Lozenge tone={routing(card).tone}>{routing(card).label}</Lozenge>
+                        )}
                         <Lozenge
                           tone={
                             card.deploymentStatus === "live"
