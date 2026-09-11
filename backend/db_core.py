@@ -177,6 +177,16 @@ DB_POOL_RECYCLE = max(60, _env_int("DB_POOL_RECYCLE", 1800))
 _PROCESS_ROLE = (os.getenv("DB_PROCESS_ROLE") or "api").strip().lower()
 _DEFAULT_STATEMENT_TIMEOUT_MS = 60000 if _PROCESS_ROLE in {"worker", "bot_worker", "voice"} else 15000
 DB_STATEMENT_TIMEOUT_MS = max(1000, _env_int("DB_STATEMENT_TIMEOUT_MS", _DEFAULT_STATEMENT_TIMEOUT_MS))
+# The three that were missing. A pool with no `pool_timeout` waits forever for
+# a connection when the pool is exhausted; a session with no
+# `idle_in_transaction_session_timeout` holds its locks for as long as a
+# crashed request leaves it; a statement with no `lock_timeout` queues behind
+# a migration until the statement timeout, and a connect with no
+# `connect_timeout` hangs a worker on a database that is down.
+DB_CONNECT_TIMEOUT_S = max(1, _env_int("DB_CONNECT_TIMEOUT_S", 10))
+DB_LOCK_TIMEOUT_MS = max(1000, _env_int("DB_LOCK_TIMEOUT_MS", 15_000))
+DB_IDLE_IN_TX_TIMEOUT_MS = max(1000, _env_int("DB_IDLE_IN_TX_TIMEOUT_MS", 60_000))
+DB_POOL_TIMEOUT_S = max(1, _env_int("DB_POOL_TIMEOUT_S", 30))
 
 # The tenant travels to Postgres as a libpq *startup* parameter, not as a
 # statement issued after connecting. That choice is the whole safety argument
@@ -196,11 +206,15 @@ engine: Engine = create_engine(
     pool_size=DB_POOL_SIZE,
     max_overflow=DB_MAX_OVERFLOW,
     pool_recycle=DB_POOL_RECYCLE,
+    pool_timeout=DB_POOL_TIMEOUT_S,
     connect_args={
+        "connect_timeout": DB_CONNECT_TIMEOUT_S,
         "options": (
             f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS} "
+            f"-c lock_timeout={DB_LOCK_TIMEOUT_MS} "
+            f"-c idle_in_transaction_session_timeout={DB_IDLE_IN_TX_TIMEOUT_MS} "
             f"-c {tenant_context.GUC}={tenant_context.validate(TENANT_ID)}"
-        )
+        ),
     },
 )
 
@@ -469,6 +483,18 @@ def _as_utc(value: Any) -> datetime | None:
             return None
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     return None
+
+
+def _vector_literal(vec: list[float]) -> str:
+    """A float list as a pgvector literal. The 8dp is the storage precision.
+
+    Four modules formatted this themselves — ``db_kb``, ``kb_ingest``,
+    ``kb_retrieve`` and the source-DB ingest script — byte for byte the same
+    line. They agreed only by luck: a fifth writer choosing ``repr`` or a
+    different precision would produce vectors that no longer match the ones
+    already in the column, and nothing would fail loudly.
+    """
+    return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
 
 def _speaker_screen(speaker: str | None) -> str:

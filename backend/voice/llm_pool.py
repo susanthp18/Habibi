@@ -40,7 +40,30 @@ _prewarmed = False
 _last_prewarm_ms: float | None = None
 
 
+def _guard_completions(client: AsyncAzureOpenAI) -> AsyncAzureOpenAI:
+    """Route `chat.completions.create` through the `voice_llm` breaker.
+
+    Every other Azure caller sits behind `circuit_breaker`; the voice client
+    did not, so a dead deployment was rediscovered by every call in flight,
+    each waiting its full timeout. Wrapped at the one seam pipecat uses.
+    """
+    import circuit_breaker
+
+    breaker = circuit_breaker.get_breaker("voice_llm")
+    create = client.chat.completions.create
+
+    async def guarded(*args, **kwargs):
+        return await breaker.acall(create, *args, **kwargs)
+
+    client.chat.completions.create = guarded  # type: ignore[method-assign]
+    return client
+
+
 def _build_client() -> AsyncAzureOpenAI:
+    return _guard_completions(_unguarded_client())
+
+
+def _unguarded_client() -> AsyncAzureOpenAI:
     return AsyncAzureOpenAI(
         api_key=voice_config.azure_openai_voice_api_key(),
         api_version=voice_config.azure_openai_voice_api_version(),

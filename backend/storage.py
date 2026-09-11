@@ -108,11 +108,20 @@ def get_client():
     with _client_lock:
         if _cached_client is not None and _cached_cfg_key == key:
             return _cached_client
+        # urllib3 defaults to no timeout: a MinIO that stops answering held
+        # the request thread forever. Read as one env knob, seconds.
+        import urllib3
+
+        timeout_s = float((os.getenv("MINIO_TIMEOUT_S") or "15").strip() or 15)
         _cached_client = Minio(
             c["endpoint"],
             access_key=c["access_key"],
             secret_key=c["secret_key"],
             secure=c["secure"],
+            http_client=urllib3.PoolManager(
+                timeout=urllib3.Timeout(connect=min(5.0, timeout_s), read=timeout_s),
+                retries=urllib3.Retry(total=2, backoff_factor=0.2),
+            ),
         )
         _cached_cfg_key = key
         return _cached_client
@@ -191,11 +200,6 @@ def _safe_segment(raw: str | None, *, fallback: str) -> str:
     if not value or set(value) == {"."}:
         return fallback
     return value
-
-
-def make_storage_ref(doc_id: str, filename: str, *, bucket: str | None = None) -> str:
-    b = bucket or get_bucket()
-    return f"minio://{b}/{object_key(doc_id, filename)}"
 
 
 def parse_storage_ref(storage_ref: str) -> tuple[str, str]:

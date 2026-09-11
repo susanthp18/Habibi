@@ -182,6 +182,26 @@ class CircuitBreaker:
         self._on_success(probe_id)
         return result
 
+    async def acall(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """`call` for a coroutine function -- the voice LLM client is async."""
+        probe_id = self._before_call()
+        try:
+            result = await fn(*args, **kwargs)
+        except self.ignore_exceptions:
+            self._release_probe(probe_id)
+            raise
+        except Exception as exc:
+            if self.failure_exceptions is not None and not isinstance(exc, self.failure_exceptions):
+                self._release_probe(probe_id)
+                raise
+            self._on_failure(probe_id)
+            raise
+        except BaseException:
+            self._release_probe(probe_id)
+            raise
+        self._on_success(probe_id)
+        return result
+
 
 _breakers: dict[str, CircuitBreaker] = {}
 _breakers_lock = threading.Lock()
