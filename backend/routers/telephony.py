@@ -20,7 +20,18 @@ from fastapi import (
     Response,
     WebSocket,
 )
-from schemas import CallResponse, VoiceSandboxStartRequest, VoiceSandboxTuneRequest
+from schemas import (
+    CallResponse,
+    TwilioOutboundCallRequest,
+    TwilioOutboundCallResponse,
+    TwilioVoiceStatusResponse,
+    VoiceSandboxStartRequest,
+    VoiceSandboxStartResponse,
+    VoiceSandboxStopResponse,
+    VoiceSandboxTuneRequest,
+    VoiceSandboxTuneResponse,
+    VoiceStatusResponse,
+)
 from sqlalchemy import text
 from typing import Any
 
@@ -28,6 +39,13 @@ from api_support import EMBEDDED_VOICE_HOST as _EMBEDDED_VOICE_HOST, _handle_wri
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
+
+
+class TwiMLResponse(Response):
+    """Declared on the Twilio webhook routes so the OpenAPI document says XML.
+    The handlers still build their own ``Response`` bodies."""
+
+    media_type = "application/xml"
 
 
 @router.get("/calls", response_model=list[CallResponse])
@@ -39,13 +57,13 @@ def list_calls(
     is deliberately smaller than for flat lists."""
     return db.list_calls(limit=limit, offset=offset)
 
-@router.get("/voice/status")
+@router.get("/voice/status", response_model=VoiceStatusResponse)
 def get_voice_status():
     import voice_sandbox
 
     return voice_sandbox.voice_status()
 
-@router.post("/voice/sandbox/start")
+@router.post("/voice/sandbox/start", response_model=VoiceSandboxStartResponse)
 def start_voice_sandbox_session(payload: VoiceSandboxStartRequest):
     import voice_sandbox
 
@@ -54,13 +72,13 @@ def start_voice_sandbox_session(payload: VoiceSandboxStartRequest):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-@router.post("/voice/sandbox/{session_id}/stop")
+@router.post("/voice/sandbox/{session_id}/stop", response_model=VoiceSandboxStopResponse)
 def stop_voice_sandbox_session(session_id: str):
     import voice_sandbox
 
     return _handle_write(voice_sandbox.stop_voice_sandbox, session_id)
 
-@router.post("/voice/sandbox/{session_id}/tune")
+@router.post("/voice/sandbox/{session_id}/tune", response_model=VoiceSandboxTuneResponse)
 def tune_voice_sandbox_session(session_id: str, payload: VoiceSandboxTuneRequest):
     import voice_sandbox
 
@@ -158,7 +176,9 @@ def _voice_ws_upgrade_authorized(
         logger.warning("Voice WS proxy rejected: missing/invalid proxy secret")
     return False
 
-@router.post("/twilio/voice/incoming")
+# The five Twilio webhooks below answer in TwiML or with an empty 204, never
+# JSON — listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.post("/twilio/voice/incoming", response_class=TwiMLResponse)
 async def twilio_voice_incoming(request: Request):
     """Twilio Voice webhook — return TwiML that streams audio to the Pipecat runner."""
     from voice import twilio_ops
@@ -224,7 +244,7 @@ async def twilio_voice_incoming(request: Request):
     )
     return Response(content=xml, media_type="application/xml")
 
-@router.post("/twilio/voice/fallback")
+@router.post("/twilio/voice/fallback", response_class=TwiMLResponse)
 async def twilio_voice_fallback(request: Request):
     """VoiceFallbackUrl — primary webhook failed or timed out."""
     from voice import twilio_ops
@@ -247,7 +267,7 @@ async def twilio_voice_fallback(request: Request):
         media_type="application/xml",
     )
 
-@router.post("/twilio/voice/stream-status")
+@router.post("/twilio/voice/stream-status", status_code=204, response_class=Response)
 async def twilio_voice_stream_status(request: Request):
     """``<Stream statusCallback>`` — stream-started / stopped / error."""
     form = dict(await request.form())
@@ -271,7 +291,7 @@ async def twilio_voice_stream_status(request: Request):
     )
     return Response(status_code=204)
 
-@router.post("/twilio/voice/call-status")
+@router.post("/twilio/voice/call-status", status_code=204, response_class=Response)
 async def twilio_voice_call_status(request: Request):
     """Call StatusCallback — dial / ring / answer / complete.
 
@@ -341,7 +361,7 @@ async def twilio_voice_call_status(request: Request):
         logger.debug("call-status for unknown attempt sid=%s", call_sid)
     return Response(status_code=204)
 
-@router.post("/twilio/sms/status")
+@router.post("/twilio/sms/status", status_code=204, response_class=Response)
 async def twilio_sms_status(request: Request):
     """SMS StatusCallback — queued / sent / delivered / undelivered / failed.
 
@@ -405,8 +425,12 @@ async def twilio_sms_status(request: Request):
     await asyncio.to_thread(_record)
     return Response(status_code=204)
 
-@router.post("/twilio/voice/outbound")
-async def twilio_voice_outbound(payload: dict[str, Any], request: Request):
+@router.post(
+    "/twilio/voice/outbound",
+    response_model=TwilioOutboundCallResponse,
+    response_model_exclude_unset=True,
+)
+async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Request):
     """Start an outbound PSTN call that connects into the same Media Stream bot.
 
     The order here is the design's, not a convenience: the attempt row is
@@ -419,12 +443,12 @@ async def twilio_voice_outbound(payload: dict[str, Any], request: Request):
 
     if not twilio_ops.configured():
         raise HTTPException(status_code=503, detail="twilio_not_configured")
-    to = str(payload.get("to") or payload.get("phone") or "").strip()
+    to = payload.to.strip()
     if not to:
         raise HTTPException(status_code=400, detail="to_required")
-    customer_id = str(payload.get("customerId") or payload.get("customer_id") or "").strip()
-    objective = str(payload.get("objective") or "manual_outbound").strip() or "manual_outbound"
-    account_id = str(payload.get("accountId") or payload.get("account_id") or "").strip() or None
+    customer_id = (payload.customerId or "").strip()
+    objective = payload.objective.strip() or "manual_outbound"
+    account_id = (payload.accountId or "").strip() or None
 
     import mission as mission_mod
     import outbound
@@ -437,7 +461,7 @@ async def twilio_voice_outbound(payload: dict[str, Any], request: Request):
     def _gate() -> outbound.Gated:
         with db.engine.begin() as conn:
             built = None
-            bot_id = str(payload.get("botId") or db.DEFAULT_BOT_ID)
+            bot_id = str(payload.botId or db.DEFAULT_BOT_ID)
             if customer_id:
                 built = mission_mod.build(
                     conn,
@@ -470,7 +494,7 @@ async def twilio_voice_outbound(payload: dict[str, Any], request: Request):
 
     custom = {
         k: str(v)
-        for k, v in (payload.get("custom") or {}).items()
+        for k, v in (payload.custom or {}).items()
         if v is not None
     }
     if customer_id:
@@ -498,7 +522,7 @@ async def twilio_voice_outbound(payload: dict[str, Any], request: Request):
         )
     return result
 
-@router.get("/twilio/voice/status")
+@router.get("/twilio/voice/status", response_model=TwilioVoiceStatusResponse)
 def twilio_voice_status():
     from voice import twilio_ops
     from voice.ws_proxy import voice_ws_upstream, ws_proxy_enabled

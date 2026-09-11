@@ -15,13 +15,45 @@ import os
 from fastapi import APIRouter
 from fastapi import HTTPException, Query
 from schemas import (
+    BankBreachCoverageResponse,
+    BankComplaintEventResponse,
+    BankComplaintFiledResponse,
+    BankComplaintFileRequest,
+    BankContractStatusResponse,
+    BankFairnessResponse,
+    BankIngestResponse,
+    BankManifestIngestRequest,
+    BankManifestResponse,
+    BankOutboxItemResponse,
+    BankReadinessResponse,
+    BankReconciliationBreakResponse,
+    ConnectorCimdRequest,
+    ConnectorCimdResponse,
+    ConnectorHealthTestResponse,
+    ConnectorResponse,
+    ConnectorUpsertRequest,
+    GatewayCanaryPromoteRequest,
+    GatewayCanaryProposeRequest,
+    GatewayCanaryResponse,
+    GatewayCanaryStateResponse,
+    GatewayStatusResponse,
+    McpKeyMintedResponse,
+    McpKeyMintRequest,
+    McpKeyResponse,
+    McpStatusResponse,
+    McpTaskResponse,
+    OkResponse,
     ProviderBindingInput,
     ProviderBindingItem,
     ProviderEnabledPatchRequest,
     ProviderModelItem,
     ProviderPoolStatus,
+    ProviderResponse,
+    ProviderTestLogResponse,
+    VaultRefPutRequest,
+    VaultRefResponse,
+    VaultRefRotateRequest,
 )
-from typing import Any
 
 from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
 
@@ -29,11 +61,11 @@ router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_
 logger = logging.getLogger(__name__)
 
 
-@router.get("/providers")
+@router.get("/providers", response_model=list[ProviderResponse])
 def list_providers(env: str = Query(default="sandbox")):
     return ops_screens.list_providers(env)
 
-@router.patch("/providers/{provider_id}/configs/{environment}")
+@router.patch("/providers/{provider_id}/configs/{environment}", response_model=ProviderResponse)
 def patch_provider_config(
     provider_id: str, environment: str, payload: ProviderEnabledPatchRequest
 ):
@@ -44,30 +76,30 @@ def patch_provider_config(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.post("/providers/{provider_id}/test")
+@router.post("/providers/{provider_id}/test", response_model=ProviderTestLogResponse)
 def test_provider(provider_id: str, env: str = Query(default="sandbox")):
     try:
         return ops_screens.test_provider(provider_id, env)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.get("/providers/{provider_id}/test-logs")
+@router.get("/providers/{provider_id}/test-logs", response_model=list[ProviderTestLogResponse])
 def list_provider_test_logs(provider_id: str):
     return ops_screens.list_provider_test_logs(provider_id)
 
-@router.get("/connectors")
+@router.get("/connectors", response_model=list[ConnectorResponse])
 def list_connectors_api():
     from agent_core.connectors.persist import list_connectors
 
     return list_connectors()
 
-@router.post("/connectors")
-def upsert_connector_api(payload: dict[str, Any]):
+@router.post("/connectors", response_model=ConnectorResponse)
+def upsert_connector_api(payload: ConnectorUpsertRequest):
     from agent_core.connectors.persist import upsert_connector
 
-    return _handle_write(upsert_connector, payload)
+    return _handle_write(upsert_connector, payload.model_dump(exclude_none=True))
 
-@router.get("/connectors/{connector_id}")
+@router.get("/connectors/{connector_id}", response_model=ConnectorResponse)
 def get_connector_api(connector_id: str):
     from agent_core.connectors.persist import get_connector
 
@@ -76,83 +108,84 @@ def get_connector_api(connector_id: str):
         raise HTTPException(status_code=404, detail="connector_not_found")
     return row
 
-@router.post("/connectors/{connector_id}/approve")
+@router.post("/connectors/{connector_id}/approve", response_model=ConnectorResponse)
 def approve_connector_api(connector_id: str):
     from agent_core.connectors.persist import approve
 
     return _handle_write(approve, connector_id)
 
-@router.post("/connectors/{connector_id}/test")
+@router.post(
+    "/connectors/{connector_id}/test",
+    response_model=ConnectorHealthTestResponse,
+    response_model_exclude_unset=True,
+)
 def test_connector_api(connector_id: str):
     from agent_core.connectors.persist import health_test
 
     return _handle_write(health_test, connector_id)
 
-@router.post("/connectors/{connector_id}/cimd")
-def cimd_connector_api(connector_id: str, payload: dict[str, Any]):
+@router.post("/connectors/{connector_id}/cimd", response_model=ConnectorCimdResponse)
+def cimd_connector_api(connector_id: str, payload: ConnectorCimdRequest):
     from agent_core.connectors.persist import cimd_connect
 
-    issuer = str(payload.get("issuer") or "").strip()
+    issuer = payload.issuer.strip()
     return _handle_write(cimd_connect, connector_id, issuer)
 
-@router.get("/vault/refs")
+@router.get("/vault/refs", response_model=list[VaultRefResponse])
 def list_vault_refs_api():
     from agent_core.vault.persist import list_refs
 
     return list_refs()
 
-@router.post("/vault/refs")
-def put_vault_ref_api(payload: dict[str, Any]):
+@router.post("/vault/refs", response_model=VaultRefResponse)
+def put_vault_ref_api(payload: VaultRefPutRequest):
     from agent_core.vault.persist import put_secret
 
     return _handle_write(
         put_secret,
-        name=str(payload.get("name") or ""),
-        purpose=str(payload.get("purpose") or "other"),
-        secret=str(payload.get("secret") or ""),
+        name=payload.name,
+        purpose=payload.purpose or "other",
+        secret=payload.secret,
     )
 
-@router.post("/vault/refs/{ref_id}/rotate")
-def rotate_vault_ref_api(ref_id: str, payload: dict[str, Any]):
+@router.post("/vault/refs/{ref_id}/rotate", response_model=VaultRefResponse)
+def rotate_vault_ref_api(ref_id: str, payload: VaultRefRotateRequest):
     from agent_core.vault.persist import rotate
 
-    return _handle_write(rotate, ref_id, str(payload.get("secret") or ""))
+    return _handle_write(rotate, ref_id, payload.secret)
 
-@router.get("/mcp/keys")
+@router.get("/mcp/keys", response_model=list[McpKeyResponse])
 def list_mcp_keys_api():
     from agent_core.mcp_http.auth import list_keys
 
     return list_keys()
 
-@router.post("/mcp/keys")
-def mint_mcp_key_api(payload: dict[str, Any]):
+@router.post("/mcp/keys", response_model=McpKeyMintedResponse)
+def mint_mcp_key_api(payload: McpKeyMintRequest):
     from agent_core.mcp_http.auth import mint_key
 
-    scopes = payload.get("scopes") or []
-    if not isinstance(scopes, list):
-        raise HTTPException(status_code=422, detail="scopes_must_be_list")
-    return _handle_write(mint_key, name=str(payload.get("name") or "key"), scopes=scopes)
+    return _handle_write(mint_key, name=payload.name or "key", scopes=payload.scopes)
 
-@router.post("/mcp/keys/{key_id}/rotate")
+@router.post("/mcp/keys/{key_id}/rotate", response_model=McpKeyMintedResponse)
 def rotate_mcp_key_api(key_id: str):
     from agent_core.mcp_http.auth import rotate_key
 
     return _handle_write(rotate_key, key_id)
 
-@router.post("/mcp/keys/{key_id}/revoke")
+@router.post("/mcp/keys/{key_id}/revoke", response_model=OkResponse)
 def revoke_mcp_key_api(key_id: str):
     from agent_core.mcp_http.auth import revoke_key
 
     _handle_write(revoke_key, key_id)
     return {"ok": True}
 
-@router.get("/mcp/tasks")
+@router.get("/mcp/tasks", response_model=list[McpTaskResponse])
 def list_mcp_tasks_api(status: str | None = None):
     from agent_core.mcp_http.tasks import list_tasks
 
     return list_tasks(status=status)
 
-@router.get("/mcp/tasks/{task_id}")
+@router.get("/mcp/tasks/{task_id}", response_model=McpTaskResponse)
 def get_mcp_task_api(task_id: str):
     from agent_core.mcp_http.tasks import get_task
 
@@ -161,7 +194,7 @@ def get_mcp_task_api(task_id: str):
         raise HTTPException(status_code=404, detail="mcp_task_not_found")
     return row
 
-@router.get("/mcp/status")
+@router.get("/mcp/status", response_model=McpStatusResponse)
 def mcp_status_api():
     from agent_core.platform_flags import mcp_apps_enabled, mcp_http_enabled, mcp_tasks_enabled
 
@@ -183,7 +216,7 @@ def mcp_status_api():
         ],
     }
 
-@router.get("/gateway/status")
+@router.get("/gateway/status", response_model=GatewayStatusResponse)
 def gateway_status_api():
     from agent_core.platform_flags import llm_gateway_enabled
     from llm_gateway import canary as gw_canary
@@ -212,27 +245,25 @@ def gateway_status_api():
         "voiceSloMs": 800,
     }
 
-@router.get("/integrations/bank/contracts")
+@router.get("/integrations/bank/contracts", response_model=BankContractStatusResponse)
 def bank_contract_status():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.contract_status(conn, tenant_id=db.current_tenant())
 
-@router.get("/integrations/bank/manifests")
+@router.get("/integrations/bank/manifests", response_model=list[BankManifestResponse])
 def bank_manifests():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.manifests(conn, tenant_id=db.current_tenant())
 
-@router.post("/integrations/bank/manifests")
-def bank_ingest_manifest(payload: dict[str, Any]):
+@router.post("/integrations/bank/manifests", response_model=BankIngestResponse)
+def bank_ingest_manifest(body: BankManifestIngestRequest):
     from bank_boundary import api as bank_api
     from bank_boundary.ingest import IngestRejected
-    from schemas import BankManifestIngestRequest
 
-    body = BankManifestIngestRequest.model_validate(payload)
     with db.engine.begin() as conn:
         try:
             return bank_api.ingest_manifest(
@@ -241,48 +272,46 @@ def bank_ingest_manifest(payload: dict[str, Any]):
         except IngestRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-@router.get("/integrations/bank/reconciliation")
+@router.get("/integrations/bank/reconciliation", response_model=list[BankReconciliationBreakResponse])
 def bank_reconciliation():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.reconciliation(conn, tenant_id=db.current_tenant())
 
-@router.get("/integrations/bank/readiness")
+@router.get("/integrations/bank/readiness", response_model=BankReadinessResponse)
 def bank_readiness():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.readiness(conn, tenant_id=db.current_tenant())
 
-@router.get("/integrations/bank/outbox")
+@router.get("/integrations/bank/outbox", response_model=list[BankOutboxItemResponse])
 def bank_outbox():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.outbox_state(conn, tenant_id=db.current_tenant())
 
-@router.get("/integrations/bank/breach-coverage")
+@router.get("/integrations/bank/breach-coverage", response_model=BankBreachCoverageResponse)
 def bank_breach_coverage():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.breach_coverage(conn, tenant_id=db.current_tenant())
 
-@router.get("/integrations/bank/fairness")
+@router.get("/integrations/bank/fairness", response_model=BankFairnessResponse)
 def bank_fairness():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.fairness(conn, tenant_id=db.current_tenant())
 
-@router.post("/integrations/bank/complaints")
-def bank_file_complaint(payload: dict[str, Any]):
+@router.post("/integrations/bank/complaints", response_model=BankComplaintFiledResponse)
+def bank_file_complaint(body: BankComplaintFileRequest):
     from bank_boundary import api as bank_api
     from bank_boundary.ingest import IngestRejected
-    from schemas import BankComplaintFileRequest
 
-    body = BankComplaintFileRequest.model_validate(payload)
     with db.engine.begin() as conn:
         try:
             return bank_api.file_complaint(
@@ -295,42 +324,38 @@ def bank_file_complaint(payload: dict[str, Any]):
         except IngestRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-@router.get("/integrations/bank/complaints")
+@router.get("/integrations/bank/complaints", response_model=list[BankComplaintEventResponse])
 def bank_list_complaints():
     from bank_boundary import api as bank_api
 
     with db.engine.connect() as conn:
         return bank_api.list_complaints(conn, tenant_id=db.current_tenant())
 
-@router.get("/gateway/canary")
+@router.get("/gateway/canary", response_model=GatewayCanaryStateResponse)
 def get_gateway_canary():
     from llm_gateway import canary as gw_canary
 
     return {"current": gw_canary.current(), "history": gw_canary.list_canaries()}
 
-@router.post("/gateway/canary")
-def propose_gateway_canary(payload: dict[str, Any]):
+@router.post("/gateway/canary", response_model=GatewayCanaryResponse)
+def propose_gateway_canary(payload: GatewayCanaryProposeRequest):
     from llm_gateway import canary as gw_canary
 
     try:
-        return gw_canary.propose(
-            str(payload.get("candidateModel") or payload.get("candidate_model") or ""),
-            skip_redteam=bool(payload.get("skipRedteam") or payload.get("skip_redteam")),
-        )
+        return gw_canary.propose(payload.candidateModel, skip_redteam=payload.skipRedteam)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-@router.post("/gateway/canary/{canary_id}/promote")
-def promote_gateway_canary(canary_id: str, payload: dict[str, Any] | None = None):
+@router.post("/gateway/canary/{canary_id}/promote", response_model=GatewayCanaryResponse)
+def promote_gateway_canary(canary_id: str, payload: GatewayCanaryPromoteRequest | None = None):
     from llm_gateway import canary as gw_canary
 
-    body = payload or {}
     try:
         return gw_canary.promote(
             canary_id,
-            skip_redteam=bool(body.get("skipRedteam") or body.get("skip_redteam")),
+            skip_redteam=bool(payload and payload.skipRedteam),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -452,7 +477,7 @@ def upsert_provider_binding(payload: ProviderBindingInput):
         "enabled": bool(b["enabled"]),
     }
 
-@router.delete("/providers/bindings/{binding_id}")
+@router.delete("/providers/bindings/{binding_id}", response_model=OkResponse)
 def delete_provider_binding(binding_id: str):
     from agent_core.providers import persist as pv
 

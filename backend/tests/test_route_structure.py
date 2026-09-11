@@ -16,6 +16,21 @@ from fastapi.routing import APIRoute
 
 BACKEND = Path(__file__).resolve().parents[1]
 
+# Routes that do not speak JSON, so a `response_model` would be a lie. Each
+# declares its `response_class` instead. Not a ratchet: a route belongs here
+# only while its wire format is not JSON.
+_UNTYPED_BY_DESIGN = frozenset(
+    {
+        "GET /webhooks/whatsapp",  # Meta verification: echoes hub.challenge as text/plain
+        "GET /webhook/whatsapp",  # same handler, the singular spelling Meta's UI sometimes sends
+        "POST /twilio/voice/incoming",  # TwiML (application/xml) for Twilio
+        "POST /twilio/voice/fallback",  # TwiML (application/xml) for Twilio
+        "POST /twilio/voice/stream-status",  # Twilio status callback: 204, no body
+        "POST /twilio/voice/call-status",  # Twilio status callback: 204, no body
+        "POST /twilio/sms/status",  # Twilio status callback: 204, no body
+    }
+)
+
 
 def _baseline(name: str) -> list[str]:
     """One entry per line; `#` lines are comments. The file is the ratchet."""
@@ -55,6 +70,7 @@ def test_response_model_totality() -> None:
         and not r.path.startswith(("/docs", "/openapi", "/redoc"))
         and "text/event-stream" not in str(getattr(r, "response_class", ""))
     )
+    untyped = [u for u in untyped if u not in _UNTYPED_BY_DESIGN]
     baseline = _baseline("route_shape_baseline.txt")
     new = sorted(set(untyped) - set(baseline))
     assert not new, f"routes added without a response_model: {new}"

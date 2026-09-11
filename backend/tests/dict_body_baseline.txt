@@ -23,15 +23,6 @@ compliance.create_subject_request
 compliance.transition_subject_request
 compliance.create_security_incident
 floor.signal_floor_approval
-integrations.upsert_connector_api
-integrations.cimd_connector_api
-integrations.put_vault_ref_api
-integrations.rotate_vault_ref_api
-integrations.mint_mcp_key_api
-integrations.bank_ingest_manifest
-integrations.bank_file_complaint
-integrations.propose_gateway_canary
-integrations.promote_gateway_canary
 outbound.treatment_decision_feedback
 outbound.create_campaign_run
 outbound.preview_campaign_cohort
@@ -41,4 +32,3 @@ platform.patch_platform_switch
 sandbox.sandbox_payment_event
 sandbox.run_simulation_twin
 telephony._twilio_signature_ok
-telephony.twilio_voice_outbound

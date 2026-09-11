@@ -24,14 +24,29 @@ from fastapi import (
     Request,
     Response,
 )
-from schemas import WebhookEndpointPatchRequest, WebhookEndpointUpsertRequest
+from fastapi.responses import PlainTextResponse
+from schemas import (
+    EventTypeResponse,
+    OkResponse,
+    PaymentEventWebhookResponse,
+    PaymentWebhookResponse,
+    WebhookDeliveryResponse,
+    WebhookEndpointPatchRequest,
+    WebhookEndpointResponse,
+    WebhookEndpointUpsertRequest,
+    WhatsAppWebhookResponse,
+)
 from typing import Any
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
 
 
-@router.post("/webhooks/payments/{provider}")
+@router.post(
+    "/webhooks/payments/{provider}",
+    response_model=PaymentWebhookResponse,
+    response_model_exclude_unset=True,
+)
 async def payment_provider_webhook(provider: str, request: Request):
     """HMAC-verified PSP webhook → ledger + PTP allocate."""
     import payments
@@ -66,7 +81,11 @@ async def payment_provider_webhook(provider: str, request: Request):
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.post("/webhooks/collections/payment-events")
+@router.post(
+    "/webhooks/collections/payment-events",
+    response_model=PaymentEventWebhookResponse,
+    response_model_exclude_unset=True,
+)
 async def payment_events_webhook(request: Request):
     """HMAC-verified CBS bounce ingest → case + statutory pay-link."""
     import payment_events as pe
@@ -91,22 +110,22 @@ async def payment_events_webhook(request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.get("/event-types")
+@router.get("/event-types", response_model=list[EventTypeResponse])
 def list_event_types():
     return ops_screens.list_event_types()
 
-@router.get("/webhook-endpoints")
+@router.get("/webhook-endpoints", response_model=list[WebhookEndpointResponse])
 def list_webhook_endpoints():
     return ops_screens.list_webhook_endpoints()
 
-@router.post("/webhook-endpoints")
+@router.post("/webhook-endpoints", response_model=WebhookEndpointResponse)
 def create_webhook_endpoint(payload: WebhookEndpointUpsertRequest):
     try:
         return ops_screens.create_webhook_endpoint(payload.model_dump(mode="json"))
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.patch("/webhook-endpoints/{endpoint_id}")
+@router.patch("/webhook-endpoints/{endpoint_id}", response_model=WebhookEndpointResponse)
 def patch_webhook_endpoint(endpoint_id: str, payload: WebhookEndpointPatchRequest):
     try:
         return ops_screens.patch_webhook_endpoint(
@@ -117,7 +136,7 @@ def patch_webhook_endpoint(endpoint_id: str, payload: WebhookEndpointPatchReques
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.delete("/webhook-endpoints/{endpoint_id}")
+@router.delete("/webhook-endpoints/{endpoint_id}", response_model=OkResponse)
 def delete_webhook_endpoint(endpoint_id: str):
     try:
         ops_screens.delete_webhook_endpoint(endpoint_id)
@@ -125,14 +144,14 @@ def delete_webhook_endpoint(endpoint_id: str):
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.post("/webhook-endpoints/{endpoint_id}/rotate-secret")
+@router.post("/webhook-endpoints/{endpoint_id}/rotate-secret", response_model=WebhookEndpointResponse)
 def rotate_webhook_secret(endpoint_id: str):
     try:
         return ops_screens.rotate_webhook_secret(endpoint_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.post("/webhook-endpoints/{endpoint_id}/test")
+@router.post("/webhook-endpoints/{endpoint_id}/test", response_model=WebhookDeliveryResponse)
 def test_webhook_endpoint(endpoint_id: str, event: str | None = Query(default=None)):
     try:
         return ops_screens.test_fire_webhook(endpoint_id, event)
@@ -141,19 +160,21 @@ def test_webhook_endpoint(endpoint_id: str, event: str | None = Query(default=No
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-@router.get("/webhook-deliveries")
+@router.get("/webhook-deliveries", response_model=list[WebhookDeliveryResponse])
 def list_webhook_deliveries(endpointId: str | None = Query(default=None)):
     return ops_screens.list_webhook_deliveries(endpointId)
 
-@router.post("/webhook-deliveries/{delivery_id}/retry")
+@router.post("/webhook-deliveries/{delivery_id}/retry", response_model=WebhookDeliveryResponse)
 def retry_webhook_delivery(delivery_id: str):
     try:
         return ops_screens.retry_webhook_delivery(delivery_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.get("/webhooks/whatsapp")
-@router.get("/webhook/whatsapp")  # Meta UI sometimes omits the plural "s"
+# text/plain by design: Meta expects hub.challenge echoed back verbatim. Listed
+# in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/webhooks/whatsapp", response_class=PlainTextResponse)
+@router.get("/webhook/whatsapp", response_class=PlainTextResponse)  # Meta UI sometimes omits the plural "s"
 def whatsapp_webhook_verify(
     hub_mode: str | None = Query(None, alias="hub.mode"),
     hub_verify_token: str | None = Query(None, alias="hub.verify_token"),
@@ -166,8 +187,8 @@ def whatsapp_webhook_verify(
         return Response(content=hub_challenge, media_type="text/plain")
     raise HTTPException(status_code=403, detail="whatsapp_verify_failed")
 
-@router.post("/webhooks/whatsapp")
-@router.post("/webhook/whatsapp")
+@router.post("/webhooks/whatsapp", response_model=WhatsAppWebhookResponse, response_model_exclude_unset=True)
+@router.post("/webhook/whatsapp", response_model=WhatsAppWebhookResponse, response_model_exclude_unset=True)
 async def whatsapp_webhook_receive(
     request: Request,
     x_hub_signature_256: str | None = Header(None, alias="X-Hub-Signature-256"),
