@@ -47,10 +47,28 @@ from env_utils import env_int
 
 logger = logging.getLogger(__name__)
 
-#: Chosen against the documented connection budget in ``docker-compose.yml``
-#: (voice gets 3+2 connections) and the per-call Azure concurrency, not picked
-#: for roundness. Raise it only together with the pool and the Azure semaphore.
-DEFAULT_MAX_CONCURRENT_CALLS = 25
+#: Calls admitted per pooled connection when ``VOICE_MAX_CONCURRENT_CALLS`` is
+#: unset. A call holds a connection only for its writes -- a session start, a
+#: tool's CRM row, the completion -- so the pool serves several calls, but not
+#: without bound: the old constant of 25 sat beside a pool of 3+2 and claimed
+#: to have been "chosen against" it, and a burst of end-of-call writes queued
+#: on five connections until ``pool_timeout`` failed them mid-call.
+#:
+#: ponytail: a ratio, not a measurement. Tune it with the pool; the honest
+#: upgrade is a pool-wait metric that says what the ratio should be.
+_CALLS_PER_CONNECTION = 4
+
+
+def default_max_concurrent() -> int:
+    """The cap the pool can carry: connections × calls-per-connection."""
+    from db_core import DB_MAX_OVERFLOW, DB_POOL_SIZE
+
+    return _CALLS_PER_CONNECTION * (DB_POOL_SIZE + DB_MAX_OVERFLOW)
+
+
+#: Kept as a name for the tests and the dashboards that read it; the value is
+#: what the pool allows, not a constant.
+DEFAULT_MAX_CONCURRENT_CALLS = default_max_concurrent()
 
 
 class AtCapacity(RuntimeError):
@@ -70,7 +88,7 @@ def max_concurrent() -> int:
     ``0`` or negative disables admission control entirely — an explicit escape
     hatch for a load test, not a supported production setting.
     """
-    return env_int("VOICE_MAX_CONCURRENT_CALLS", DEFAULT_MAX_CONCURRENT_CALLS)
+    return env_int("VOICE_MAX_CONCURRENT_CALLS", default_max_concurrent())
 
 
 def enabled() -> bool:

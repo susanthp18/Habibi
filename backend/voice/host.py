@@ -89,8 +89,13 @@ async def shutdown() -> None:
     except Exception:
         logger.exception("embedded voice host cancel failed")
     if task is not None:
+        # At least the end-of-call bookkeeping budget: a 10 s wait here
+        # cancelled finalize halfway through a 20 s budget, and the records
+        # of every call in flight at shutdown were the ones that lost.
+        from voice.bot import _FINALIZE_BUDGET_SECS
+
         try:
-            await asyncio.wait_for(task, timeout=10)
+            await asyncio.wait_for(task, timeout=_FINALIZE_BUDGET_SECS + 5)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             task.cancel()
         except Exception:

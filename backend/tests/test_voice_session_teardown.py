@@ -381,3 +381,27 @@ def test_teardown_waits_for_the_bind_it_might_have_overtaken() -> None:
     book = src[src.index("async def _bookkeeping()") :]
     assert "_crm_bind_task" in book
     assert "wait_for" in book, "bounded, like every other step in teardown"
+
+
+def test_the_host_waits_at_least_the_finalize_budget_on_shutdown() -> None:
+    """A 10 s host wait cancelled a 20 s finalize halfway; the records of every
+    call in flight at shutdown were the ones that lost."""
+    import ast
+    import inspect
+
+    from voice import bot, host
+
+    tree = ast.parse(inspect.getsource(host.shutdown))
+    waits = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "wait_for"
+    ]
+    assert waits, "host.shutdown no longer waits for the runner task"
+    for call in waits:
+        timeout = next(k.value for k in call.keywords if k.arg == "timeout")
+        assert isinstance(timeout, ast.BinOp), "the wait is a literal again"
+        assert getattr(timeout.left, "id", None) == "_FINALIZE_BUDGET_SECS"
+    assert bot._FINALIZE_BUDGET_SECS >= 5.0

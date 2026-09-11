@@ -282,3 +282,28 @@ def test_bot_releases_the_slot_when_cancelled(monkeypatch) -> None:
 
     asyncio.run(_scenario())
     assert admission.in_flight() == 0
+
+
+# ---------------------------------------------------------------------------
+# The default cap follows the connection pool
+# ---------------------------------------------------------------------------
+
+
+def test_the_default_cap_is_derived_from_the_pool(monkeypatch) -> None:
+    """25 sat beside a pool of 3+2 and claimed to have been chosen against it.
+
+    A call holds a connection only for its writes, so the pool serves several
+    calls -- a ratio, tuned with the pool, rather than a number that outlived
+    the pool it was written for.
+    """
+    import db_core
+
+    monkeypatch.delenv("VOICE_MAX_CONCURRENT_CALLS", raising=False)
+    monkeypatch.setattr(db_core, "DB_POOL_SIZE", 3)
+    monkeypatch.setattr(db_core, "DB_MAX_OVERFLOW", 2)
+    assert admission.max_concurrent() == admission._CALLS_PER_CONNECTION * 5
+    monkeypatch.setattr(db_core, "DB_POOL_SIZE", 10)
+    monkeypatch.setattr(db_core, "DB_MAX_OVERFLOW", 10)
+    assert admission.max_concurrent() == admission._CALLS_PER_CONNECTION * 20
+    monkeypatch.setenv("VOICE_MAX_CONCURRENT_CALLS", "7")
+    assert admission.max_concurrent() == 7
