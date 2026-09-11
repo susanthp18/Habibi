@@ -358,18 +358,24 @@ def test_entry_hash_covers_actor_and_timestamp(cloned_bot: str) -> None:
 
 def test_tail_deletion_is_visible_once_the_head_table_exists(cloned_bot: str) -> None:
     with db.engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS audit_chain_heads (
-                  tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
-                  entry_hash TEXT NOT NULL,
-                  seq BIGINT NOT NULL,
-                  updated_at timestamptz NOT NULL DEFAULT now()
+        # Created only when absent: the schema check on CREATE runs before the
+        # IF NOT EXISTS shortcut, and the suite's role may not create tables.
+        if not conn.execute(text("SELECT to_regclass('public.audit_chain_heads')")).scalar():
+            from tests.conftest import require_owner
+
+            require_owner(conn, "audit_chain_heads is absent and only the owner can create it")
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS audit_chain_heads (
+                      tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+                      entry_hash TEXT NOT NULL,
+                      seq BIGINT NOT NULL,
+                      updated_at timestamptz NOT NULL DEFAULT now()
+                    )
+                    """
                 )
-                """
             )
-        )
     version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
     db.publish_prompt_version(version_id, "v1")
     second = db.restore_prompt_version_as_draft(version_id)["id"]

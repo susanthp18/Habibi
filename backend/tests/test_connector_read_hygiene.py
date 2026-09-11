@@ -85,43 +85,49 @@ def _customer_with_paid_intent(db_tx, tenant_id: str) -> str:
         text("INSERT INTO tenants (id, name) VALUES (:t, :t) ON CONFLICT DO NOTHING"),
         {"t": tenant_id},
     )
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO customers (id, tenant_id, name, risk)
-            VALUES (:id, :t, 'Cross Tenant Probe', 'low')
-            """
-        ),
-        {"id": customer_id, "t": tenant_id},
-    )
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO accounts (id, customer_id, product_id, outstanding)
-            VALUES (:id, :cid, :pid, 1000.00)
-            """
-        ),
-        {"id": account_id, "cid": customer_id, "pid": _product(db_tx)},
-    )
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO payment_intents (
-              id, tenant_id, customer_id, account_id, amount, public_token,
-              status, paid_at, provider_ref
-            ) VALUES (
-              :id, :t, :cid, :aid, 250.00, :tok, 'paid', now(), 'upi-ok'
-            )
-            """
-        ),
-        {
-            "id": f"pi-xt-{suffix}",
-            "t": tenant_id,
-            "cid": customer_id,
-            "aid": account_id,
-            "tok": f"tok-{uuid.uuid4().hex}",
-        },
-    )
+    # A product is a tenant's row too; the probe's account needs one it can
+    # see. Read ours before switching, since the rival owns none.
+    product_id = _product(db_tx)
+    from tests.conftest import acting_as
+
+    with acting_as(db_tx, tenant_id):
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO customers (id, tenant_id, name, risk)
+                VALUES (:id, :t, 'Cross Tenant Probe', 'low')
+                """
+            ),
+            {"id": customer_id, "t": tenant_id},
+        )
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO accounts (id, customer_id, product_id, outstanding)
+                VALUES (:id, :cid, :pid, 1000.00)
+                """
+            ),
+            {"id": account_id, "cid": customer_id, "pid": product_id},
+        )
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO payment_intents (
+                  id, tenant_id, customer_id, account_id, amount, public_token,
+                  status, paid_at, provider_ref
+                ) VALUES (
+                  :id, :t, :cid, :aid, 250.00, :tok, 'paid', now(), 'upi-ok'
+                )
+                """
+            ),
+            {
+                "id": f"pi-xt-{suffix}",
+                "t": tenant_id,
+                "cid": customer_id,
+                "aid": account_id,
+                "tok": f"tok-{uuid.uuid4().hex}",
+            },
+        )
     return customer_id
 
 

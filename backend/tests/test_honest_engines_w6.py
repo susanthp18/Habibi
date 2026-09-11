@@ -467,26 +467,29 @@ def _second_tenant_account(conn, first_tenant: str, first_account: str) -> tuple
         return other, str(row)
     cid = f"W6C-{other}"[:40]
     aid = f"W6A-{other}"[:40]
-    conn.execute(
-        text(
-            """
-            INSERT INTO customers (id, tenant_id, name, risk, phone_primary)
-            VALUES (:id, :tid, 'W6 borrower', 'medium', '9999999998')
-            ON CONFLICT (id) DO NOTHING
-            """
-        ),
-        {"id": cid, "tid": other},
-    )
-    conn.execute(
-        text(
-            """
-            INSERT INTO accounts (id, customer_id, product_id, outstanding, dpd, status)
-            VALUES (:id, :cid, :pid, 1000, 15, 'active')
-            ON CONFLICT (id) DO NOTHING
-            """
-        ),
-        {"id": aid, "cid": cid, "pid": product},
-    )
+    from tests.conftest import acting_as
+
+    with acting_as(conn, other):
+        conn.execute(
+            text(
+                """
+                INSERT INTO customers (id, tenant_id, name, risk, phone_primary)
+                VALUES (:id, :tid, 'W6 borrower', 'medium', '9999999998')
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {"id": cid, "tid": other},
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO accounts (id, customer_id, product_id, outstanding, dpd, status)
+                VALUES (:id, :cid, :pid, 1000, 15, 'active')
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {"id": aid, "cid": cid, "pid": product},
+        )
     return other, aid
 
 
@@ -496,61 +499,73 @@ def test_colliding_external_loan_id_is_tenant_scoped(db_tx) -> None:
     other_tenant, other_account = _second_tenant_account(db_tx, tenant, ids["account_id"])
     now = datetime.now(timezone.utc)
     loan_id = "LOAN-SHARED"
+    from tests.conftest import acting_as
+
     for tenant_id, account_id, fact_id in (
         (tenant, ids["account_id"], "W6-loan-a"),
         (other_tenant, other_account, "W6-loan-b"),
     ):
-        manifest = db_tx.execute(
-            text(
-                """
-                INSERT INTO bank_inbound_manifests (
-                  id, tenant_id, portfolio_id, contract_code, schema_version,
-                  source, business_date, source_ref, control_count, control_sum_paise,
-                  payload_hash, event_time, known_from, state
-                ) VALUES (
-                  :id, :tid, '', 'C1', 'bank-boundary.v1', 'w6-test', :day,
-                  :ref, 1, 1, :hash, :now, :now, 'accepted'
-                )
-                RETURNING id
-                """
-            ),
-            {
-                "id": f"BM-{fact_id}",
-                "tid": tenant_id,
-                "day": now.date(),
-                "ref": fact_id,
-                "hash": f"sha256:{fact_id}",
-                "now": now,
-            },
-        ).scalar_one()
-        db_tx.execute(
-            text(
-                """
-                INSERT INTO fct_loan_state (
-                  id, tenant_id, portfolio_id, fact_key, account_id,
-                  external_loan_id, valid_at, known_from,
-                  source_manifest_id, source_row_id
-                ) VALUES (
-                  :id, :tid, '', :key, :aid, :loan,
-                  tstzrange(:now, NULL, '[)'), :now, :manifest, 'shared'
-                )
-                """
-            ),
-            {
-                "id": fact_id,
-                "tid": tenant_id,
-                "key": f"loan:{account_id}",
-                "aid": account_id,
-                "loan": loan_id,
-                "now": now,
-                "manifest": manifest,
-            },
-        )
+          with acting_as(db_tx, tenant_id):
+            manifest = db_tx.execute(
+                text(
+                    """
+                    INSERT INTO bank_inbound_manifests (
+                      id, tenant_id, portfolio_id, contract_code, schema_version,
+                      source, business_date, source_ref, control_count, control_sum_paise,
+                      payload_hash, event_time, known_from, state
+                    ) VALUES (
+                      :id, :tid, '', 'C1', 'bank-boundary.v1', 'w6-test', :day,
+                      :ref, 1, 1, :hash, :now, :now, 'accepted'
+                    )
+                    RETURNING id
+                    """
+                ),
+                {
+                    "id": f"BM-{fact_id}",
+                    "tid": tenant_id,
+                    "day": now.date(),
+                    "ref": fact_id,
+                    "hash": f"sha256:{fact_id}",
+                    "now": now,
+                },
+            ).scalar_one()
+            db_tx.execute(
+                text(
+                    """
+                    INSERT INTO fct_loan_state (
+                      id, tenant_id, portfolio_id, fact_key, account_id,
+                      external_loan_id, valid_at, known_from,
+                      source_manifest_id, source_row_id
+                    ) VALUES (
+                      :id, :tid, '', :key, :aid, :loan,
+                      tstzrange(:now, NULL, '[)'), :now, :manifest, 'shared'
+                    )
+                    """
+                ),
+                {
+                    "id": fact_id,
+                    "tid": tenant_id,
+                    "key": f"loan:{account_id}",
+                    "aid": account_id,
+                    "loan": loan_id,
+                    "now": now,
+                    "manifest": manifest,
+                },
+            )
+    # One row per tenant, and each tenant sees only its own.
+    for tenant_id in (tenant, other_tenant):
+        with acting_as(db_tx, tenant_id):
+            n = db_tx.execute(
+                text("SELECT count(*) FROM fct_loan_state WHERE external_loan_id = :loan"),
+                {"loan": loan_id},
+            ).scalar()
+        assert n == 1
+    # As ourselves, the policy hides the other tenant's row outright.
     count = db_tx.execute(
         text("SELECT count(*) FROM fct_loan_state WHERE external_loan_id = :loan"),
         {"loan": loan_id},
     ).scalar()
-    assert count == 2
+    assert count == 1
 
 
 def test_usage_events_decision_id_is_typed_and_nullable(db_tx) -> None:

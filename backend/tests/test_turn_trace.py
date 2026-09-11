@@ -201,9 +201,12 @@ def test_an_unattributable_tool_call_is_rejected(db_tx) -> None:
 
 
 def test_the_database_also_rejects_it(db_tx) -> None:
-    from sqlalchemy.exc import IntegrityError
+    """Two layers refuse an unattributed tool call. The CHECK constraint is the
+    one this test was written for; the row-level policy now refuses it first,
+    as a row that belongs to no tenant. Either is the database saying no."""
+    from sqlalchemy.exc import IntegrityError, ProgrammingError
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises((IntegrityError, ProgrammingError)):
         db_tx.execute(
             text(
                 "INSERT INTO bot_tool_calls (id, tool_name, result_ok) "

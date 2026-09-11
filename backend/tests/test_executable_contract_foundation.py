@@ -265,6 +265,7 @@ def test_a2a_partner_cannot_cross_bot_or_tenant(
     import agent_core.a2a as a2a
 
     monkeypatch.setenv("A2A_ENABLED", "true")
+    monkeypatch.setenv("A2A_TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
     monkeypatch.setattr(a2a, "_partners_have_bot_id", lambda _conn: True)
     monkeypatch.setattr(a2a.db, "engine", _Engine(partner))
     monkeypatch.setattr(a2a.db, "_one", lambda rows: rows.row)
@@ -278,4 +279,5 @@ def test_a2a_partner_cannot_cross_bot_or_tenant(
                 "x-ssl-client-fingerprint": "ab" * 32,
             },
             bot_id="bot-a",
+            client_host="127.0.0.1",
         )

@@ -36,6 +36,19 @@ def _reset_schema_cache():
     schema_ready.reset_cache()
 
 
+@pytest.fixture(autouse=True)
+def _as_the_owner(db_tx):
+    """This module bootstraps the W5 schema (DDL) and seeds contract bindings
+    for *every* tenant, then loads the same feed under two tenants to prove
+    isolation -- platform operations, done from the outside. The application
+    role, which row-level security constrains, cannot perform them. Run as
+    the owner: ``docker compose exec -e DATABASE_URL=<owner dsn> voice pytest
+    tests/test_honest_engines_w5.py``."""
+    from tests.conftest import require_owner
+
+    require_owner(db_tx, "W5 bootstrap and tenant-pair seeding are owner operations")
+
+
 def _tenant_pair(conn):
     rows = [str(x) for x in conn.execute(text("SELECT id FROM tenants ORDER BY id")).scalars().all()]
     if not rows:

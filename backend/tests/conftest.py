@@ -130,6 +130,47 @@ def frontend_file(*parts: str) -> Path:
     pytest.skip(f"frontend tree not mounted: {path}")
 
 
+@contextmanager
+def acting_as(conn, tenant: str):
+    """Write (or read) as ``tenant`` for the duration of the block.
+
+    Row-level security is on and the suite runs as the application role, so
+    an INSERT of another tenant's row is refused by the policy's WITH CHECK
+    unless the connection *is* that tenant. ``SET LOCAL`` moves the tenant
+    GUC for this transaction only -- the same thing the request layer does per
+    call -- and the block restores the process tenant on the way out, so the
+    assertion that follows runs as the tenant under test. Two-tenant tests
+    build the rival's rows inside this and assert outside it.
+    """
+    import db
+    import tenant_context
+
+    conn.execute(
+        text(f"SET LOCAL {tenant_context.GUC} = '{tenant_context.validate(tenant)}'")
+    )
+    try:
+        yield
+    finally:
+        conn.execute(
+            text(
+                f"SET LOCAL {tenant_context.GUC} = "
+                f"'{tenant_context.validate(db.current_tenant())}'"
+            )
+        )
+
+
+def require_owner(conn, why: str) -> None:
+    """Skip unless the connection is the schema owner.
+
+    The suite runs as the application role, which cannot run DDL and cannot
+    write rows the policies reserve for the platform (a statutory rule set, a
+    platform-wide budget). A test that needs either is a test of the owner's
+    path and says so, rather than failing on a privilege it should not have.
+    """
+    if conn.execute(text("SELECT current_user")).scalar() != "collections":
+        pytest.skip(f"needs the schema owner: {why}")
+
+
 @pytest.fixture
 def db_tx(monkeypatch: pytest.MonkeyPatch):
     """Route ``db.engine.begin()`` / ``connect()`` through one outer transaction.
@@ -138,15 +179,41 @@ def db_tx(monkeypatch: pytest.MonkeyPatch):
     nested savepoints lets the fixture roll everything back at teardown.
     """
     import db
+    import db_core
+    import tenant_context
 
     connection = db.engine.connect()
     outer = connection.begin()
+
+    def _set_tenant(tenant: str) -> None:
+        connection.execute(
+            text(f"SET LOCAL {tenant_context.GUC} = '{tenant_context.validate(tenant)}'")
+        )
+
+    @contextmanager
+    def _bound_tenant():
+        """What ``db_core._bind_tenant_for_transaction`` does for a real
+        ``engine.begin()``: a call that bound its own tenant gets that tenant
+        on the connection for the duration. The fixture's savepoints bypass
+        the engine's ``begin`` event, so without this ``tenant_context.bind``
+        would move the Python-side tenant and leave the policies reading the
+        old one -- every write under the bind refused, every read empty."""
+        bound = tenant_context.current_tenant()
+        switched = bound != db_core.TENANT_ID
+        if switched:
+            _set_tenant(bound)
+        try:
+            yield
+        finally:
+            if switched:
+                _set_tenant(db_core.TENANT_ID)
 
     @contextmanager
     def _begin():
         nested = connection.begin_nested()
         try:
-            yield connection
+            with _bound_tenant():
+                yield connection
             nested.commit()
         except Exception:
             nested.rollback()
@@ -154,10 +221,13 @@ def db_tx(monkeypatch: pytest.MonkeyPatch):
 
     class _ConnectCM:
         def __enter__(self):
+            self._tenant = _bound_tenant()
+            self._tenant.__enter__()
             return connection
 
         def __exit__(self, *_exc):
             # Do not close the shared fixture connection.
+            self._tenant.__exit__(None, None, None)
             return False
 
         def execute(self, *args, **kwargs):

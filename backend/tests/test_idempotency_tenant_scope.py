@@ -55,45 +55,55 @@ def test_primary_key_includes_tenant(db_tx) -> None:
 
 def test_same_key_in_two_tenants_stores_two_rows(db_tx) -> None:
     """Previously the second INSERT hit ON CONFLICT and was silently dropped."""
+    from tests.conftest import acting_as
+
     other = _foreign_tenant(db_tx)
     for tenant, body in ((db.TENANT_ID, {"id": "ours"}), (other, {"id": "theirs"})):
+        with acting_as(db_tx, tenant):
+            db_tx.execute(
+                text(
+                    """
+                    INSERT INTO idempotency_keys (tenant_id, key, endpoint, response)
+                    VALUES (:t, :k, :e, CAST(:r AS jsonb))
+                    ON CONFLICT (tenant_id, endpoint, key) DO NOTHING
+                    """
+                ),
+                {"t": tenant, "k": SHARED_KEY, "e": ENDPOINT, "r": json.dumps(body)},
+            )
+
+    # Each tenant sees exactly its own row; the policy is what keeps the
+    # count at one per tenant rather than two for whoever asks.
+    for tenant in (db.TENANT_ID, other):
+        with acting_as(db_tx, tenant):
+            n = db_tx.execute(
+                text(
+                    "SELECT count(*) FROM idempotency_keys WHERE key = :k AND endpoint = :e"
+                ),
+                {"k": SHARED_KEY, "e": ENDPOINT},
+            ).scalar()
+        assert n == 1, f"{tenant} must keep its own cached response, and only its own"
+
+
+def test_replay_never_returns_another_tenants_response(db_tx) -> None:
+    """The leak itself: our lookup must not see the other tenant's body."""
+    from tests.conftest import acting_as
+
+    other = _foreign_tenant(db_tx)
+    with acting_as(db_tx, other):
         db_tx.execute(
             text(
                 """
                 INSERT INTO idempotency_keys (tenant_id, key, endpoint, response)
                 VALUES (:t, :k, :e, CAST(:r AS jsonb))
-                ON CONFLICT (tenant_id, endpoint, key) DO NOTHING
                 """
             ),
-            {"t": tenant, "k": SHARED_KEY, "e": ENDPOINT, "r": json.dumps(body)},
+            {
+                "t": other,
+                "k": SHARED_KEY,
+                "e": ENDPOINT,
+                "r": json.dumps({"id": "PTP-OTHER-TENANT", "customerName": "Someone Else"}),
+            },
         )
-
-    n = db_tx.execute(
-        text(
-            "SELECT count(*) FROM idempotency_keys WHERE key = :k AND endpoint = :e"
-        ),
-        {"k": SHARED_KEY, "e": ENDPOINT},
-    ).scalar()
-    assert n == 2, "both tenants must keep their own cached response"
-
-
-def test_replay_never_returns_another_tenants_response(db_tx) -> None:
-    """The leak itself: our lookup must not see the other tenant's body."""
-    other = _foreign_tenant(db_tx)
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO idempotency_keys (tenant_id, key, endpoint, response)
-            VALUES (:t, :k, :e, CAST(:r AS jsonb))
-            """
-        ),
-        {
-            "t": other,
-            "k": SHARED_KEY,
-            "e": ENDPOINT,
-            "r": json.dumps({"id": "PTP-OTHER-TENANT", "customerName": "Someone Else"}),
-        },
-    )
 
     found = db._idempotent_response(db_tx, SHARED_KEY, ENDPOINT)
     assert found is None, f"served another tenant's cached response: {found}"

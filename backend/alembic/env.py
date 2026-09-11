@@ -22,7 +22,11 @@ target_metadata = None
 
 
 def _database_url() -> str:
-    env_url = os.getenv("DATABASE_URL")
+    # Migrations alter tables and so run as the schema owner. The application
+    # connects as a role that row-level security applies to and that owns
+    # nothing (`scripts/rls.py provision-role`), so the two DSNs differ once
+    # RLS is on; MIGRATION_DATABASE_URL names the owner's.
+    env_url = os.getenv("MIGRATION_DATABASE_URL") or os.getenv("DATABASE_URL")
     if env_url:
         return env_url
     env_file = Path(__file__).resolve().parents[1] / ".env"

@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
+from tests.conftest import acting_as
+
 import db
 from agent_core.live_qa.enact import barge_audio, provider_call_id, whisper_correction
 from agent_core.live_qa.scorecard import LIVE_NOTE_PREFIX, is_live_locked
@@ -243,27 +245,28 @@ def test_barge_audio_reuses_warm_transfer(monkeypatch) -> None:
 def test_pack_is_tenant_scoped(db_tx) -> None:
     from agent_core.live_qa.pack import build_pack
 
-    db_tx.execute(text("INSERT INTO tenants (id, name) VALUES ('rival.bank', 'Rival Bank')"))
-    db_tx.execute(
-        text("INSERT INTO users (id, tenant_id, name) VALUES ('rv-qa-user', 'rival.bank', 'Rival Agent')")
-    )
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO customers (id, tenant_id, name, risk)
-            VALUES ('rv-qa-cust', 'rival.bank', 'Rival', 'low')
-            """
+    with acting_as(db_tx, 'rival.bank'):
+        db_tx.execute(text("INSERT INTO tenants (id, name) VALUES ('rival.bank', 'Rival Bank')"))
+        db_tx.execute(
+            text("INSERT INTO users (id, tenant_id, name) VALUES ('rv-qa-user', 'rival.bank', 'Rival Agent')")
         )
-    )
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO interactions
-              (id, tenant_id, customer_id, handler_kind, handler_user_id, channel, status)
-            VALUES ('rv-qa-ix', 'rival.bank', 'rv-qa-cust', 'human', 'rv-qa-user', 'voice', 'completed')
-            """
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO customers (id, tenant_id, name, risk)
+                VALUES ('rv-qa-cust', 'rival.bank', 'Rival', 'low')
+                """
+            )
         )
-    )
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO interactions
+                  (id, tenant_id, customer_id, handler_kind, handler_user_id, channel, status)
+                VALUES ('rv-qa-ix', 'rival.bank', 'rv-qa-cust', 'human', 'rv-qa-user', 'voice', 'completed')
+                """
+            )
+        )
     assert build_pack("rv-qa-ix") is None
     own = db_tx.execute(
         text("SELECT id FROM interactions WHERE tenant_id = :t LIMIT 1"),

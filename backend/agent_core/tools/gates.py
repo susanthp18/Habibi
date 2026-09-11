@@ -17,10 +17,9 @@ from typing import Any
 from sqlalchemy import text
 
 import db
+from db_core import is_unknown_caller
 
 logger = logging.getLogger(__name__)
-
-UNKNOWN_CALLER_ID = "UNKNOWN-CALLER"
 
 #: Stable codes the model and the Inspector can branch on.
 GATE_IDENTITY = "human_gate_identity"
@@ -74,7 +73,7 @@ def interaction_identity_verified(
     a CRM row is not a ceremony. Fail closed on missing ids, UNKNOWN-CALLER,
     or a registry/DB error.
     """
-    if not interaction_id or not customer_id or customer_id == UNKNOWN_CALLER_ID:
+    if not interaction_id or not customer_id or is_unknown_caller(customer_id):
         return False
     try:
         with db.engine.connect() as conn:

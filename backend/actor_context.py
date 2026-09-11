@@ -26,6 +26,37 @@ logger = logging.getLogger(__name__)
 
 _actor_var: ContextVar[str | None] = ContextVar("actor_user_id", default=None)
 
+#: Who is acting when no person is: a worker draining a queue, the voice
+#: process serving a call. Unset means a request context -- a human. The
+#: audit trail used to write every machine action as ``actor_kind='human'``
+#: by the process default user, which is a forgery with a name on it.
+_actor_kind_var: ContextVar[str | None] = ContextVar("actor_kind", default=None)
+_actor_bot_var: ContextVar[str | None] = ContextVar("actor_bot_id", default=None)
+
+ACTOR_KINDS = frozenset({"human", "bot", "system"})
+
+
+def bind_service_actor(kind: str = "system", *, bot_id: str | None = None) -> None:
+    """Declare this process (or task) a machine actor. Call once at startup.
+
+    ContextVars flow into every task and thread the caller spawns from here,
+    so a worker binds at the top of ``main`` and every audit row it writes
+    carries ``actor_kind='system'`` (or ``'bot'`` with the bot id) and no
+    user id -- there is no user.
+    """
+    if kind not in ACTOR_KINDS:
+        raise ValueError(f"actor kind {kind!r} is not one of {sorted(ACTOR_KINDS)}")
+    _actor_kind_var.set(kind)
+    _actor_bot_var.set((bot_id or "").strip() or None)
+
+
+def get_actor_kind() -> str:
+    return _actor_kind_var.get() or "human"
+
+
+def get_actor_bot_id() -> str | None:
+    return _actor_bot_var.get()
+
 # Cached API_KEY_MAP — env does not change mid-process. Call reload_api_key_map()
 # from tests after monkeypatching.
 _api_key_map_cache: dict[str, str] | None = None

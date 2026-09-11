@@ -28,6 +28,7 @@ from sqlalchemy import text
 
 import db
 import tenant_context
+from tests.conftest import acting_as
 
 PAYLINK_TOOL = "ext.paylink.get_status"
 
@@ -269,7 +270,11 @@ def test_two_tenants_can_register_the_same_slug(db_tx) -> None:
     assert db.current_tenant() in ours["id"]
     assert other in theirs["id"]
     assert _row_count(db_tx, slug, db.current_tenant()) == 1
-    assert _row_count(db_tx, slug, other) == 1
+    # Their row is theirs: the policy hides it from a read as us, so the
+    # count that proves it exists is taken as them.
+    with acting_as(db_tx, other):
+        assert _row_count(db_tx, slug, other) == 1
+    assert _row_count(db_tx, slug, other) == 0
 
 
 def test_repeat_upsert_updates_the_same_row(db_tx) -> None:

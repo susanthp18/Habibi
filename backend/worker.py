@@ -396,6 +396,9 @@ def _maybe_policy_jobs() -> None:
 
 
 def main() -> None:
+    import actor_context
+
+    actor_context.bind_service_actor("system")
     parser = argparse.ArgumentParser(description="KB index worker (SKIP LOCKED)")
     parser.add_argument("--once", action="store_true", help="Process one job and exit")
     parser.add_argument("--drain", action="store_true", help="Drain queue then exit")

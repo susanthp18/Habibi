@@ -136,10 +136,14 @@ def test_policy_export_opa_and_cedar(monkeypatch) -> None:
 
 def test_a2a_bearer_without_cert_is_rejected(monkeypatch) -> None:
     monkeypatch.setenv("A2A_ENABLED", "true")
+    monkeypatch.setenv("A2A_TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
     from agent_core.a2a import require_partner
 
     with pytest.raises(PermissionError, match="a2a_mtls_required"):
-        require_partner({"authorization": "Bearer secret", "x-ssl-client-verify": "NONE"})
+        require_partner(
+            {"authorization": "Bearer secret", "x-ssl-client-verify": "NONE"},
+            client_host="127.0.0.1",
+        )
 
 
 def test_canary_hash_split_and_rollback(db_tx) -> None:
@@ -251,6 +255,7 @@ def test_a2a_task_input_required_with_cert(db_tx, monkeypatch) -> None:
     ).first():
         pytest.skip("executable-contract migration not applied")
     monkeypatch.setenv("A2A_ENABLED", "true")
+    monkeypatch.setenv("A2A_TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
     from agent_core.a2a import create_task, require_partner
 
     dn = "CN=bank-fraud.example"
@@ -283,6 +288,7 @@ def test_a2a_task_input_required_with_cert(db_tx, monkeypatch) -> None:
             "x-ssl-client-fingerprint": fp,
         },
         bot_id=COLLECTIONS_BOT_ID,
+        client_host="127.0.0.1",
     )
     task = create_task(
         partner=partner,

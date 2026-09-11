@@ -71,7 +71,10 @@ __all__ = [
     "_vis_params",
     "clamp_list_limit",
     "clamp_offset",
+    "UNKNOWN_CALLER_ID",
     "current_tenant",
+    "is_unknown_caller",
+    "unknown_caller_id",
     "engine",
 ]
 
@@ -122,6 +125,27 @@ DATABASE_URL = os.getenv("DATABASE_URL") or _read_env_file("DATABASE_URL") or DE
 # (`actor_context`); this is the same seam for tenancy.
 TENANT_ID = os.getenv("TENANT_ID") or _read_env_file("TENANT_ID") or "hdfc.retail"
 ACTOR_USER_ID = os.getenv("ACTOR_USER_ID", "priya-nair")
+
+
+#: The unbound-caller sentinel. One customer row per tenant, so an unbound
+#: call at one bank never references a customer row that belongs to another.
+#:
+#: The bare id is the process tenant's row: it existed before tenants were
+#: distinguished here and is referenced by every interaction that ever opened
+#: unbound, so it keeps its name. Every other tenant's sentinel carries the
+#: tenant as a suffix. Ask :func:`is_unknown_caller`, never compare to the
+#: constant -- the constant is one tenant's spelling.
+UNKNOWN_CALLER_ID = "UNKNOWN-CALLER"
+
+
+def unknown_caller_id(tenant: str | None = None) -> str:
+    t = tenant or current_tenant()
+    return UNKNOWN_CALLER_ID if t == TENANT_ID else f"{UNKNOWN_CALLER_ID}:{t}"
+
+
+def is_unknown_caller(customer_id: str | None) -> bool:
+    cid = (customer_id or "").strip()
+    return cid == UNKNOWN_CALLER_ID or cid.startswith(UNKNOWN_CALLER_ID + ":")
 
 
 def current_tenant() -> str:
@@ -367,15 +391,36 @@ def _actor_user_id() -> str:
         return ACTOR_USER_ID
 
 
+def _actor() -> tuple[str, str | None, str | None]:
+    """``(actor_kind, actor_user_id, actor_bot_id)`` for the current context.
+
+    A person acts through a request and has a user id. A worker or the voice
+    process binds itself as ``system``/``bot`` at startup and has none -- an
+    audit row for a machine action that names the process default user is a
+    forgery, not a fallback.
+    """
+    try:
+        import actor_context
+
+        kind = actor_context.get_actor_kind()
+        if kind == "human":
+            return "human", _actor_user_id(), None
+        return kind, None, actor_context.get_actor_bot_id()
+    except Exception:
+        return "human", ACTOR_USER_ID, None
+
+
 def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str, note: str | None = None, customer_id: str | None = None) -> None:
+    actor_kind, actor_user_id, actor_bot_id = _actor()
     conn.execute(
         text(
             """
             INSERT INTO activity_events
-              (id, tenant_id, entity_type, entity_id, actor_kind, actor_user_id, kind, label, note, payload)
+              (id, tenant_id, entity_type, entity_id, actor_kind, actor_user_id, actor_bot_id,
+               kind, label, note, payload)
             VALUES
-              (:id, :tenant_id, :entity_type, :entity_id, 'human', :actor_user_id, :kind, :label, :note,
-               CAST(:payload AS jsonb))
+              (:id, :tenant_id, :entity_type, :entity_id, :actor_kind, :actor_user_id, :actor_bot_id,
+               :kind, :label, :note, CAST(:payload AS jsonb))
             """
         ),
         {
@@ -383,7 +428,9 @@ def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str
             "tenant_id": _tenant(),
             "entity_type": entity_type,
             "entity_id": entity_id,
-            "actor_user_id": _actor_user_id(),
+            "actor_kind": actor_kind,
+            "actor_user_id": actor_user_id,
+            "actor_bot_id": actor_bot_id,
             "kind": kind,
             "label": label,
             # `note or customer_id` wrote `CUST-…` into the notes column of

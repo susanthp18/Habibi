@@ -306,6 +306,9 @@ def _finish(
 
 
 def main() -> int:
+    import actor_context
+
+    actor_context.bind_service_actor("system")
     while True:
         if not process_one(db.engine):
             time.sleep(2.0)

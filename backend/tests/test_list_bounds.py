@@ -12,6 +12,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
+from tests.conftest import acting_as
+
 import db
 
 
@@ -118,32 +120,33 @@ def _seed_foreign_tenant_interaction(conn, suffix: str) -> tuple[str, str]:
     bot_id = f"bot-other-{suffix}"
     interaction_id = f"INT-OTHER-{suffix.upper()}"
 
-    conn.execute(
-        text("INSERT INTO tenants (id, name) VALUES (:t, 'Other Bank')"), {"t": tenant}
-    )
-    conn.execute(
-        text(
-            "INSERT INTO bots (id, tenant_id, name, version) "
-            "VALUES (:b, :t, 'Other Bot', '1.0')"
-        ),
-        {"b": bot_id, "t": tenant},
-    )
-    conn.execute(
-        text(
-            "INSERT INTO customers (id, tenant_id, name, phone_primary, risk) "
-            "VALUES (:c, :t, 'Someone Else', '+91 90000 00001', 'low')"
-        ),
-        {"c": customer_id, "t": tenant},
-    )
-    conn.execute(
-        text(
-            "INSERT INTO interactions "
-            "  (id, tenant_id, customer_id, channel, direction, handler_kind, "
-            "   handler_bot_id, status, started_at) "
-            "VALUES (:i, :t, :c, 'voice', 'outbound', 'bot', :b, 'completed', now())"
-        ),
-        {"i": interaction_id, "t": tenant, "c": customer_id, "b": bot_id},
-    )
+    with acting_as(conn, tenant):
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:t, 'Other Bank')"), {"t": tenant}
+        )
+        conn.execute(
+            text(
+                "INSERT INTO bots (id, tenant_id, name, version) "
+                "VALUES (:b, :t, 'Other Bot', '1.0')"
+            ),
+            {"b": bot_id, "t": tenant},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO customers (id, tenant_id, name, phone_primary, risk) "
+                "VALUES (:c, :t, 'Someone Else', '+91 90000 00001', 'low')"
+            ),
+            {"c": customer_id, "t": tenant},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO interactions "
+                "  (id, tenant_id, customer_id, channel, direction, handler_kind, "
+                "   handler_bot_id, status, started_at) "
+                "VALUES (:i, :t, :c, 'voice', 'outbound', 'bot', :b, 'completed', now())"
+            ),
+            {"i": interaction_id, "t": tenant, "c": customer_id, "b": bot_id},
+        )
     return customer_id, interaction_id
 
 

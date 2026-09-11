@@ -2851,7 +2851,8 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                       d.id, d.bot_id, d.prompt_version_id, d.kb_snapshot_id,
                       d.tts_voice_id, d.environment, d.status, d.voice_config, d.tuning
                     FROM bot_deployments d
-                    WHERE d.id = :id AND d.tenant_id = :t
+                    JOIN prompt_versions pv ON pv.id = d.prompt_version_id
+                    WHERE d.id = :id AND pv.tenant_id = :t
                     """
                 ),
                 {"id": deployment_id, "t": _tenant()},

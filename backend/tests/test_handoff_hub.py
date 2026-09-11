@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
+from tests.conftest import acting_as
+
 import actor_context
 import authz
 import db
@@ -218,53 +220,54 @@ def test_suggestion_accept(db_tx, as_actor) -> None:
 
 def test_cross_tenant_handoff_is_not_found(db_tx, as_actor) -> None:
     as_actor(ADMIN)
-    db_tx.execute(text("INSERT INTO tenants (id, name) VALUES ('rival.bank', 'Rival')"))
-    db_tx.execute(
-        text("INSERT INTO users (id, tenant_id, name) VALUES ('rv-user', 'rival.bank', 'Rival')")
-    )
-    db_tx.execute(
-        text(
-            "INSERT INTO products (id, tenant_id, name, type, is_active)"
-            " VALUES ('rv-prod', 'rival.bank', 'Rival Card', 'card', true)"
+    with acting_as(db_tx, 'rival.bank'):
+        db_tx.execute(text("INSERT INTO tenants (id, name) VALUES ('rival.bank', 'Rival')"))
+        db_tx.execute(
+            text("INSERT INTO users (id, tenant_id, name) VALUES ('rv-user', 'rival.bank', 'Rival')")
         )
-    )
-    db_tx.execute(
-        text(
-            "INSERT INTO customers (id, tenant_id, name, risk)"
-            " VALUES ('rv-cust', 'rival.bank', 'Rival Customer', 'low')"
-        )
-    )
-    db_tx.execute(
-        text(
-            "INSERT INTO accounts (id, customer_id, product_id, status)"
-            " VALUES ('rv-acct', 'rv-cust', 'rv-prod', 'active')"
-        )
-    )
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO interactions (
-              id, tenant_id, customer_id, account_id, handler_kind, handler_user_id,
-              channel, status
-            ) VALUES (
-              'rv-ix', 'rival.bank', 'rv-cust', 'rv-acct', 'human', 'rv-user',
-              'voice', 'active'
+        db_tx.execute(
+            text(
+                "INSERT INTO products (id, tenant_id, name, type, is_active)"
+                " VALUES ('rv-prod', 'rival.bank', 'Rival Card', 'card', true)"
             )
-            """
         )
-    )
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO interaction_handoffs (
-              id, interaction_id, from_kind, from_bot_id, to_kind, reason, requested_at
-            ) VALUES (
-              'rv-ho', 'rv-ix', 'bot', :bot, 'human', 'dispute', now()
+        db_tx.execute(
+            text(
+                "INSERT INTO customers (id, tenant_id, name, risk)"
+                " VALUES ('rv-cust', 'rival.bank', 'Rival Customer', 'low')"
             )
-            """
-        ),
-        {"bot": db.DEFAULT_BOT_ID},
-    )
+        )
+        db_tx.execute(
+            text(
+                "INSERT INTO accounts (id, customer_id, product_id, status)"
+                " VALUES ('rv-acct', 'rv-cust', 'rv-prod', 'active')"
+            )
+        )
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO interactions (
+                  id, tenant_id, customer_id, account_id, handler_kind, handler_user_id,
+                  channel, status
+                ) VALUES (
+                  'rv-ix', 'rival.bank', 'rv-cust', 'rv-acct', 'human', 'rv-user',
+                  'voice', 'active'
+                )
+                """
+            )
+        )
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO interaction_handoffs (
+                  id, interaction_id, from_kind, from_bot_id, to_kind, reason, requested_at
+                ) VALUES (
+                  'rv-ho', 'rv-ix', 'bot', :bot, 'human', 'dispute', now()
+                )
+                """
+            ),
+            {"bot": db.DEFAULT_BOT_ID},
+        )
     with pytest.raises(KeyError):
         db.get_handoff_session("rv-ix")
     with pytest.raises(KeyError):

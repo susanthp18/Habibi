@@ -34,6 +34,31 @@ import db  # noqa: E402
 import rls  # noqa: E402
 
 
+def _owner_engine():
+    """The schema owner's engine when the application no longer is the owner.
+
+    Installing and enabling policies is DDL. Once DATABASE_URL points at the
+    provisioned application role, that role cannot ALTER TABLE, so this tool
+    runs on MIGRATION_DATABASE_URL when it is set -- the same DSN alembic
+    uses -- with the same tenant GUC the application engine carries.
+    """
+    import os
+
+    url = (os.getenv("MIGRATION_DATABASE_URL") or "").strip()
+    if not url:
+        return db.engine
+    from sqlalchemy import create_engine
+
+    import tenant_context
+
+    return create_engine(
+        url,
+        connect_args={
+            "options": f"-c {tenant_context.GUC}={tenant_context.validate(db.current_tenant())}"
+        },
+    )
+
+
 def _print_status(conn) -> int:
     status = rls.status(conn)
     print(f"database        {db.DATABASE_URL.rsplit('@', 1)[-1]}")
@@ -119,12 +144,14 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    engine = _owner_engine()
+
     if args.command == "status":
-        with db.engine.connect() as conn:
+        with engine.connect() as conn:
             return _print_status(conn)
 
     if args.command == "plan":
-        with db.engine.connect() as conn:
+        with engine.connect() as conn:
             for policy in rls.plan(conn):
                 if args.table and policy.table != args.table:
                     continue
@@ -136,14 +163,14 @@ def main() -> int:
         return 0
 
     if args.command == "apply":
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             statements = rls.apply(conn)
         print(f"installed {len(statements) // 2} policies (not enabled)")
         print("review them:  SELECT * FROM pg_policies WHERE schemaname='public'")
         return 0
 
     if args.command == "provision-role":
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             for stmt in rls.provision_role(conn, args.role, args.password):
                 print(stmt)
         print(
@@ -154,7 +181,7 @@ def main() -> int:
 
     if args.command == "enable":
         try:
-            with db.engine.begin() as conn:
+            with engine.begin() as conn:
                 result = rls.enable(
                     conn,
                     verify_as=args.verify_as,
@@ -171,7 +198,7 @@ def main() -> int:
         return 0
 
     if args.command == "disable":
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             statements = rls.disable(conn)
         print(f"row security disabled on {len(statements)} tables (policies kept)")
         return 0

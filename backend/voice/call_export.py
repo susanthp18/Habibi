@@ -121,7 +121,7 @@ def build_bundle(interaction_id: str) -> dict[str, Any] | None:
             pass
 
     turns = [_clean(t) for t in turns]
-    return {
+    bundle = {
         "schemaVersion": 1,
         "interaction": head,
         "configuration": config,
@@ -132,6 +132,29 @@ def build_bundle(interaction_id: str) -> dict[str, Any] | None:
         "sentimentSeries": [_clean(s) for s in sentiment],
         "latencySummary": summarise_latency(turns),
     }
+    # The transcript and the tool-call audit are masked at write; the KB
+    # query text, error strings and the interaction header are not. An export
+    # is the one artefact that leaves the system, so it is masked as a whole
+    # unless the actor holds the role that may see raw PII on the findings
+    # screen -- the same rule, applied to the same data one step later.
+    with db.engine.connect() as conn:
+        import db_redaction
+
+        raw_ok = db_redaction._actor_can_view_raw_pii(conn)
+    return bundle if raw_ok else _redact(bundle)
+
+
+def _redact(value: Any) -> Any:
+    """``pii_redact.redact_text`` over every string in a nested structure."""
+    import pii_redact
+
+    if isinstance(value, str):
+        return pii_redact.redact_text(value)
+    if isinstance(value, dict):
+        return {k: _redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact(v) for v in value]
+    return value
 
 
 def _turn_json(t: dict[str, Any]) -> dict[str, Any]:

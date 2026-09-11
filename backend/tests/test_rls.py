@@ -53,6 +53,21 @@ GLOBAL_BY_DESIGN = {
     "tts_price_tiers",
     "tts_voice_catalog",
     "tts_voice_sync_runs",
+    # The bank-boundary vocabularies: which contract codes exist and which
+    # schema versions of them are active, the LMS's account status codes and
+    # the payment rails' return codes with their normalised meanings, and the
+    # kinds of policy rule a rule set may carry. Every one is a fact about a
+    # standard, not about a tenant -- a tenant *binds* to a contract in
+    # `bank_contract_bindings`, which is rooted.
+    "bank_contract_versions",
+    "bank_contracts",
+    "lms_account_status",
+    "policy_rule_kinds",
+    "rail_return_codes",
+    # A log of the policy sweeps this *process* ran, keyed by job name and
+    # idempotency key. What each sweep touched is on the tenant-scoped rows it
+    # wrote; the run itself belongs to the deployment.
+    "policy_job_runs",
 }
 
 #: Tables that reach their tenant only through nullable columns. Every one is a
@@ -63,7 +78,8 @@ GLOBAL_BY_DESIGN = {
 KNOWN_WEAK = {
     "ai_response_suggestions",
     "bot_tool_calls",
-    "faq_pairs",
+    # faq_pairs left this set on 2026-09-11: it carries its own tenant_id
+    # now (sql/36_tenant_columns.sql), filled from the linked document.
     "routing_rule_executions",
     "sandbox_runs",
 }
@@ -95,6 +111,9 @@ def test_policy_sql_is_valid(db_tx) -> None:
     under a fresh alias — so "it parses" is not something to take on faith.
     Postgres is the only authority worth asking.
     """
+    from tests.conftest import require_owner
+
+    require_owner(db_tx, "CREATE POLICY is DDL")
     executed = rls.apply(db_tx)
     assert executed, "no policies were created"
 
@@ -114,10 +133,12 @@ def test_rooted_tables_compare_the_column_directly(db_tx) -> None:
     rooted = [p for p in rls.plan(db_tx) if p.depth == 0]
     assert len(rooted) >= 39
     for policy in rooted:
-        assert policy.predicate == (
-            f'"{policy.table}".tenant_id '
-            f"= current_setting('app.tenant_id', true)"
-        )
+        own = f'"{policy.table}".tenant_id ' f"= current_setting('app.tenant_id', true)"
+        if policy.table in rls.GLOBAL_WHEN_NULL:
+            assert policy.predicate == f'("{policy.table}".tenant_id IS NULL OR {own})'
+            assert policy.check_predicate == own
+        else:
+            assert policy.predicate == own
         assert policy.parents == ()
 
 
@@ -204,6 +225,9 @@ def test_provision_role_creates_a_login_that_cannot_bypass_rls(db_tx) -> None:
     ``DATABASE_URL`` at it, and ``enable``, are the maintenance-window half
     and are not exercised here. The transaction rolls the role back.
     """
+    from tests.conftest import require_owner
+
+    require_owner(db_tx, "CREATE ROLE needs CREATEROLE")
     name = "rls_app_rw_probe"
     rls.provision_role(db_tx, name, "not-echoed")
     assert rls.role_bypasses_rls(db_tx, name) is False
@@ -514,3 +538,76 @@ def test_enable_rolls_back_when_a_policy_hides_rows(enforcing_db) -> None:
         with engine.begin() as conn:
             conn.execute(text("SET LOCAL app.tenant_id = 'acme.bank'"))
             rls.enable(conn, verify_as=_PROBE_ROLE)
+
+
+def test_global_when_null_tables_declare_what_null_means(db_tx) -> None:
+    """A rooted table may keep NULL-tenant rows readable only when its schema
+    says NULL is a meaning, not an omission -- a CHECK or a partial index that
+    names it. Found on the dev stack: the two statutory rule sets and the
+    platform budget vanished the moment policies were enforced, and the
+    enable-time count could not see it because it compares the policy with
+    itself."""
+    for table in sorted(rls.GLOBAL_WHEN_NULL):
+        nullable = db_tx.execute(
+            text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = :t AND column_name = 'tenant_id'"
+            ),
+            {"t": table},
+        ).scalar()
+        assert nullable == "YES", f"{table}.tenant_id is NOT NULL; nothing is global there"
+        declared = db_tx.execute(
+            text(
+                """
+                SELECT count(*) FROM (
+                  SELECT pg_get_constraintdef(c.oid) AS d
+                    FROM pg_constraint c JOIN pg_class r ON r.oid = c.conrelid
+                   WHERE r.relname = :t AND c.contype = 'c'
+                  UNION ALL
+                  SELECT pg_get_indexdef(i.indexrelid)
+                    FROM pg_index i JOIN pg_class r ON r.oid = i.indrelid
+                   WHERE r.relname = :t
+                ) defs
+                WHERE d ILIKE '%tenant_id IS NULL%' OR d ILIKE '%COALESCE(tenant_id%'
+                """
+            ),
+            {"t": table},
+        ).scalar()
+        assert declared, f"{table} tolerates a NULL tenant but nothing in its schema says what it means"
+
+    for policy in rls.plan(db_tx):
+        if policy.table in rls.GLOBAL_WHEN_NULL:
+            assert "tenant_id IS NULL OR" in policy.predicate
+            assert policy.check_predicate and "IS NULL" not in policy.check_predicate
+        else:
+            assert policy.check_predicate is None
+
+
+def test_a_global_row_is_readable_and_not_writable_by_a_tenant(db_tx) -> None:
+    """The two halves of GLOBAL_WHEN_NULL, on the live policy."""
+    live = db_tx.execute(
+        text(
+            "SELECT qual, with_check FROM pg_policies "
+            "WHERE schemaname = 'public' AND tablename = 'policy_rule_sets' AND policyname = :p"
+        ),
+        {"p": rls.POLICY_NAME},
+    ).mappings().first()
+    if live is None:
+        pytest.skip("policies are not installed on this database")
+    # Readable: the installed USING clause admits the NULL-tenant row.
+    assert "IS NULL" in (live["qual"] or "")
+    # Not writable: the installed WITH CHECK clause does not.
+    assert "IS NULL" not in (live["with_check"] or "")
+    if db_tx.execute(text("SELECT current_user")).scalar() == "collections":
+        pytest.skip("the write-side refusal applies to the application role, not the owner")
+    with pytest.raises(Exception) as excinfo:
+        with db_tx.begin_nested():
+            db_tx.execute(
+                text(
+                    """
+                    INSERT INTO policy_rule_sets (id, tenant_id, scope, version, label, effective_from)
+                    VALUES ('PRS-global-probe', NULL, 'statutory', 999, 'probe', now())
+                    """
+                )
+            )
+    assert "row-level security" in str(excinfo.value)

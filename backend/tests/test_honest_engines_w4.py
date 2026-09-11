@@ -185,7 +185,11 @@ def test_open_lead_does_not_overwrite_suppression() -> None:
 
 def test_replay_refuses_unknown_digest(db_tx) -> None:
     import policy_replay
+    from tests.conftest import require_owner
 
+    # `tenant_id=None` is a replay across every tenant, whose result row
+    # carries no tenant. The application role may not write such a row.
+    require_owner(db_tx, "a cross-tenant replay result belongs to no tenant")
     if not schema_ready.w4_ready(db_tx):
         if os.getenv("HONEST_ENGINES_REQUIRE_SCHEMA") == "1":
             pytest.fail("W4 schema not applied")

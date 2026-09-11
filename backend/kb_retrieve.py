@@ -726,8 +726,15 @@ def retrieve(
                 WHERE c.embedding IS NOT NULL
                   AND d.enabled = true
                   AND d.status = 'indexed'
+                  AND d.tenant_id = :tenant_id
                 """
-        chunk_params: dict[str, Any] = {"q": q_lit, "overfetch": overfetch}
+        # The cache key already carries the tenant; the SQL under it did not,
+        # so a cold cache answered from every bank's documents at once.
+        chunk_params: dict[str, Any] = {
+            "q": q_lit,
+            "overfetch": overfetch,
+            "tenant_id": db.current_tenant(),
+        }
         if product_key_filter:
             chunk_sql += " AND lower(coalesce(d.product_key, '')) = ANY(CAST(:product_keys AS text[]))"
             chunk_params["product_keys"] = product_key_filter
@@ -760,8 +767,13 @@ def retrieve(
                 FROM faq_pairs f
                 WHERE f.embedding IS NOT NULL
                   AND f.enabled = true
+                  AND f.tenant_id = :tenant_id
                 """
-        faq_params: dict[str, Any] = {"q": q_lit, "overfetch": overfetch}
+        faq_params: dict[str, Any] = {
+            "q": q_lit,
+            "overfetch": overfetch,
+            "tenant_id": db.current_tenant(),
+        }
         if product_key_filter:
             # FAQ ids are faq-{product_key}-N from ingest_source_db. Match the
             # key segment exactly — a LIKE prefix would let `%`/`_` in a
@@ -1117,10 +1129,11 @@ def catalog(
           FROM kb_documents d
          WHERE d.status = 'indexed'
            AND d.enabled
+           AND d.tenant_id = :tenant_id
            AND d.product_key IS NOT NULL
            AND btrim(d.product_key) <> ''
     """
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = {"tenant_id": db.current_tenant()}
     if product_keys:
         sql += " AND lower(d.product_key) = ANY(CAST(:product_keys AS text[]))"
         params["product_keys"] = [str(k).strip().lower() for k in product_keys if str(k).strip()]

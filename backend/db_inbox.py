@@ -24,8 +24,10 @@ from typing import Any
 from sqlalchemy import text
 
 import contact_window
+import visibility
 from db_core import (
     _IST,
+    MAX_LIST_LIMIT,
     _activity,
     _actor_user_id,
     _assert_tenant_owns,
@@ -35,6 +37,7 @@ from db_core import (
     _one,
     _rows,
     _tenant,
+    _vis_params,
     clamp_list_limit,
     clamp_offset,
 )
@@ -607,15 +610,20 @@ def _conversation_base_rows(
     *,
     updated_after: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
+    # Tenant-scoped and visibility-scoped like every other customer-facing
+    # read. `conversations` carries no tenant column of its own; the customer
+    # it belongs to does, and every row here is joined to that customer. This
+    # was the one list on the Inbox that answered for every tenant at once.
+    clauses: list[str] = ["c.tenant_id = :tenant_id", visibility.predicate("c")]
+    params: dict[str, Any] = {"tenant_id": _tenant(), **_vis_params()}
     if conversation_id:
         clauses.append("cv.id = :conversation_id")
         params["conversation_id"] = conversation_id
     if updated_after is not None:
         clauses.append("COALESCE(cv.updated_at, cv.created_at) > :updated_after")
         params["updated_after"] = updated_after
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    where = f"WHERE {' AND '.join(clauses)}"
+    params["limit"] = clamp_list_limit(None, MAX_LIST_LIMIT)
     return _rows(
         conn.execute(
             text(
@@ -659,6 +667,7 @@ def _conversation_base_rows(
                 ) a ON true
                 {where}
                 ORDER BY COALESCE(cv.updated_at, cv.created_at) DESC, cv.id
+                LIMIT :limit
                 """
             ),
             params,

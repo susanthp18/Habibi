@@ -1179,7 +1179,7 @@ class CrmSink:
             customer_id = self.session.customer_id
             if not customer_id or not self.session.identity_verified:
                 return
-            if customer_id == persist.UNKNOWN_CALLER_ID:
+            if persist.is_unknown_caller(customer_id):
                 return
 
             commitments = memory.open_commitments(customer_id)

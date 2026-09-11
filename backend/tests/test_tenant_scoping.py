@@ -71,6 +71,16 @@ GLOBAL_BY_DESIGN = [
     # tenant with negotiated rates would need this rooted; none has one today,
     # and pretending otherwise would add a column nothing sets correctly.
     "tts_price_tiers",
+    # The bank-boundary vocabularies (contract codes and their active schema
+    # versions, LMS status codes, rail return codes, policy rule kinds) and
+    # the per-process policy sweep log. Facts about standards and about the
+    # deployment; the tenant's binding to a contract is rooted separately.
+    "bank_contract_versions",
+    "bank_contracts",
+    "lms_account_status",
+    "policy_rule_kinds",
+    "rail_return_codes",
+    "policy_job_runs",
     # One row, one counter, bumped on every engine_config write so every
     # process can tell whether its cached snapshot is stale. It carries no
     # tenant because it is not about a tenant: engine_config itself is
@@ -163,15 +173,19 @@ def test_no_config_table_was_missed(db_tx) -> None:
             )
         ).scalars()
     )
+    # pg_constraint, not information_schema.constraint_column_usage: the
+    # latter lists only constraints on tables the *current role owns*, and the
+    # suite runs as the application role, which owns nothing -- every foreign
+    # key vanished and every table read as an orphan.
     fks = db_tx.execute(
         text(
             """
-            SELECT tc.table_name AS src, ccu.table_name AS dst
-              FROM information_schema.table_constraints tc
-              JOIN information_schema.constraint_column_usage ccu
-                ON ccu.constraint_name = tc.constraint_name
-               AND ccu.table_schema = tc.table_schema
-             WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+            SELECT src.relname AS src, dst.relname AS dst
+              FROM pg_constraint con
+              JOIN pg_class src ON src.oid = con.conrelid
+              JOIN pg_class dst ON dst.oid = con.confrelid
+              JOIN pg_namespace n ON n.oid = src.relnamespace
+             WHERE con.contype = 'f' AND n.nspname = 'public'
             """
         )
     ).all()
@@ -215,15 +229,19 @@ def _other_tenant(conn) -> str:
     return "rival.bank"
 
 
+from tests.conftest import acting_as  # noqa: E402
+
+
 def test_product_catalog_is_tenant_scoped(db_tx) -> None:
     other = _other_tenant(db_tx)
-    db_tx.execute(
-        text(
-            "INSERT INTO products (id, tenant_id, name, type, is_active) "
-            "VALUES ('prod-rival', :t, 'Rival Gold Card', 'card', true)"
-        ),
-        {"t": other},
-    )
+    with acting_as(db_tx, other):
+        db_tx.execute(
+            text(
+                "INSERT INTO products (id, tenant_id, name, type, is_active) "
+                "VALUES ('prod-rival', :t, 'Rival Gold Card', 'card', true)"
+            ),
+            {"t": other},
+        )
     ids = {p["id"] for p in db.list_products()}
     assert "prod-rival" not in ids
 
@@ -231,40 +249,43 @@ def test_product_catalog_is_tenant_scoped(db_tx) -> None:
 def test_inactive_filter_does_not_widen_across_tenants(db_tx) -> None:
     """include_inactive used to make is_active the only predicate."""
     other = _other_tenant(db_tx)
-    db_tx.execute(
-        text(
-            "INSERT INTO products (id, tenant_id, name, type, is_active) "
-            "VALUES ('prod-rival-off', :t, 'Rival Retired', 'card', false)"
-        ),
-        {"t": other},
-    )
+    with acting_as(db_tx, other):
+        db_tx.execute(
+            text(
+                "INSERT INTO products (id, tenant_id, name, type, is_active) "
+                "VALUES ('prod-rival-off', :t, 'Rival Retired', 'card', false)"
+            ),
+            {"t": other},
+        )
     ids = {p["id"] for p in db.list_products(include_inactive=True)}
     assert "prod-rival-off" not in ids
 
 
 def test_sandbox_scenarios_are_tenant_scoped(db_tx) -> None:
     other = _other_tenant(db_tx)
-    db_tx.execute(
-        text(
-            "INSERT INTO sandbox_scenarios (id, tenant_id, name, sim_persona, turns) "
-            "VALUES ('sc-rival', :t, 'Rival Scenario', "
-            "        CAST(:p AS jsonb), CAST(:x AS jsonb))"
-        ),
-        {"t": other, "p": json.dumps({}), "x": json.dumps([])},
-    )
+    with acting_as(db_tx, other):
+        db_tx.execute(
+            text(
+                "INSERT INTO sandbox_scenarios (id, tenant_id, name, sim_persona, turns) "
+                "VALUES ('sc-rival', :t, 'Rival Scenario', "
+                "        CAST(:p AS jsonb), CAST(:x AS jsonb))"
+            ),
+            {"t": other, "p": json.dumps({}), "x": json.dumps([])},
+        )
     ids = {s["id"] for s in db.list_sandbox_scenarios()}
     assert "sc-rival" not in ids
 
 
 def test_persona_presets_are_tenant_scoped(db_tx) -> None:
     other = _other_tenant(db_tx)
-    db_tx.execute(
-        text(
-            "INSERT INTO persona_presets (id, tenant_id, name, config) "
-            "VALUES ('persona-rival', :t, 'Rival Persona', CAST(:c AS jsonb))"
-        ),
-        {"t": other, "c": json.dumps({})},
-    )
+    with acting_as(db_tx, other):
+        db_tx.execute(
+            text(
+                "INSERT INTO persona_presets (id, tenant_id, name, config) "
+                "VALUES ('persona-rival', :t, 'Rival Persona', CAST(:c AS jsonb))"
+            ),
+            {"t": other, "c": json.dumps({})},
+        )
     ids = {p["id"] for p in db.list_persona_presets()}
     assert "persona-rival" not in ids
 
@@ -284,12 +305,13 @@ def test_seed_injects_tenant_id_for_every_rooted_config_table() -> None:
 
 def test_tts_voices_are_tenant_scoped(db_tx) -> None:
     other = _other_tenant(db_tx)
-    db_tx.execute(
-        text(
-            "INSERT INTO tts_voices (id, tenant_id, provider, name, config, enabled) "
-            "VALUES ('voice-rival', :t, 'azure', 'Rival Voice', CAST(:c AS jsonb), true)"
-        ),
-        {"t": other, "c": json.dumps({"gender": "Female"})},
-    )
+    with acting_as(db_tx, other):
+        db_tx.execute(
+            text(
+                "INSERT INTO tts_voices (id, tenant_id, provider, name, config, enabled) "
+                "VALUES ('voice-rival', :t, 'azure', 'Rival Voice', CAST(:c AS jsonb), true)"
+            ),
+            {"t": other, "c": json.dumps({"gender": "Female"})},
+        )
     ids = {v["id"] for v in db.list_tts_voices()}
     assert "voice-rival" not in ids

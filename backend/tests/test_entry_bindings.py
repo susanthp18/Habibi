@@ -27,7 +27,24 @@ def door_on(monkeypatch):
 
 
 def _create_table(conn) -> None:
+    """The table, for a database that predates migration 0118.
+
+    DDL needs the schema owner and the suite runs as the application role, so
+    on a migrated database this is a no-op and on an unmigrated one the test
+    is skipped rather than failed -- the row-level policies are the reason the
+    role cannot create tables, and that is a feature.
+    """
+    if conn.execute(text("SELECT to_regclass('public.entry_bindings')")).scalar():
+        return
+    if conn.execute(text("SELECT current_user")).scalar() != "collections":
+        pytest.skip("entry_bindings is absent and the test role cannot create it")
     conn.execute(text(_SQL.read_text(encoding="utf-8")))
+
+
+def _owner_only(conn) -> None:
+    from tests.conftest import require_owner
+
+    require_owner(conn, "DDL -- only the owner can drop the table")
 
 
 def test_the_flag_off_is_todays_behaviour_exactly(monkeypatch) -> None:
@@ -45,6 +62,7 @@ def test_an_absent_table_falls_back_rather_than_raising(db_tx, door_on) -> None:
     anything else touching the table. That is the cost of testing an absent
     table against a real one, and it is why this is the only test here that does
     DDL."""
+    _owner_only(db_tx)
     db_tx.execute(text("DROP TABLE IF EXISTS entry_bindings"))
     assert resolve_entry("voice", "+914412345678") == db.DEFAULT_BOT_ID
 

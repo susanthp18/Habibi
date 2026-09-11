@@ -22,10 +22,9 @@ import pii_redact
 import db
 from agent_core import estimate_sentiment, evaluate_guardrails, sentiment_label
 from agent_core import lexicon
+from db_core import UNKNOWN_CALLER_ID, is_unknown_caller, unknown_caller_id
 
 logger = logging.getLogger(__name__)
-
-UNKNOWN_CALLER_ID = "UNKNOWN-CALLER"
 
 
 def _now() -> datetime:
@@ -37,7 +36,12 @@ def _sid(prefix: str) -> str:
 
 
 def ensure_unknown_caller() -> None:
-    """Idempotent sentinel customer for unbound voice calls (runtime, not Alembic)."""
+    """Idempotent sentinel customer for unbound voice calls (runtime, not Alembic).
+
+    One per tenant. The id carries the tenant (`db_core.unknown_caller_id`), so
+    ON CONFLICT is a replay of this tenant's own insert -- it can no longer
+    hand a second tenant's unbound calls the first tenant's customer row.
+    """
     with db.engine.begin() as conn:
         conn.execute(
             text(
@@ -50,7 +54,7 @@ def ensure_unknown_caller() -> None:
                 ON CONFLICT (id) DO NOTHING
                 """
             ),
-            {"id": UNKNOWN_CALLER_ID, "tenant": db.current_tenant()},
+            {"id": unknown_caller_id(), "tenant": db.current_tenant()},
         )
 
 
@@ -64,7 +68,7 @@ def resolve_known_customer(customer_id: str | None) -> str | None:
     optimisation. Checking first degrades to the unknown-caller path instead.
     """
     cid = (customer_id or "").strip()
-    if not cid or cid == UNKNOWN_CALLER_ID:
+    if not cid or is_unknown_caller(cid):
         return None
     try:
         with db.engine.connect() as conn:
@@ -126,7 +130,7 @@ def start_voice_call(
     returning ``no_interaction``.
     """
     ensure_unknown_caller()
-    cid = customer_id or UNKNOWN_CALLER_ID
+    cid = customer_id or unknown_caller_id()
     bid = (bot_id or db.DEFAULT_BOT_ID).strip() or db.DEFAULT_BOT_ID
     interaction_id = _sid("CL")
     host = socket.gethostname()
@@ -137,7 +141,7 @@ def start_voice_call(
     with db.engine.begin() as conn:
         # Resolve account only for known customers.
         acct = account_id
-        if not acct and cid != UNKNOWN_CALLER_ID:
+        if not acct and not is_unknown_caller(cid):
             acct = db._first_account_id(conn, cid)
 
         conn.execute(
@@ -1035,7 +1039,7 @@ def lookup_customer_for_verify(
                 ),
                 {
                     "tail4": digits[-4:],
-                    "unknown": UNKNOWN_CALLER_ID,
+                    "unknown": unknown_caller_id(),
                     "tenant": db.current_tenant(),
                 },
             ).mappings().all()
@@ -1062,7 +1066,7 @@ def lookup_customer_for_verify(
                     LIMIT 2
                     """
                 ),
-                {"tail": tail, "unknown": UNKNOWN_CALLER_ID, "tenant": db.current_tenant()},
+                {"tail": tail, "unknown": unknown_caller_id(), "tenant": db.current_tenant()},
             ).mappings().all()
             if len(matches) != 1:
                 return None
@@ -1086,7 +1090,7 @@ def lookup_customer_for_verify(
                     LIMIT 1
                     """
                 ),
-                {"cid": raw, "unknown": UNKNOWN_CALLER_ID, "tenant": db.current_tenant()},
+                {"cid": raw, "unknown": unknown_caller_id(), "tenant": db.current_tenant()},
             ).mappings().first()
             return _pack(row) if row else None
 

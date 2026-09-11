@@ -51,6 +51,28 @@ logger = logging.getLogger(__name__)
 #: without touching a policy some DBA added by hand.
 POLICY_NAME = "tenant_isolation"
 
+#: Rooted tables whose ``tenant_id IS NULL`` rows are *global by design* --
+#: readable by every tenant, writable by none of them through the application
+#: role. Found the hard way: ``enable`` verified clean on the dev stack while
+#: the two statutory rule sets and the platform budget had just become
+#: invisible to every query, because a strict ``tenant_id = GUC`` hides NULL
+#: and the verification compares the policy against itself.
+#:
+#: Membership is a claim about the schema, checked in ``tests/test_rls.py``:
+#: each table here must declare the NULL meaning (a CHECK, a partial unique
+#: index) rather than merely tolerate it. The read side (USING) admits NULL;
+#: the write side (WITH CHECK) does not, so a tenant cannot publish a global
+#: row -- that is the owner's job, by migration or seed.
+GLOBAL_WHEN_NULL: frozenset[str] = frozenset(
+    {
+        # scope = 'statutory' <=> tenant_id IS NULL (sql/03_consent.sql).
+        "policy_rule_sets",
+        # One platform-wide budget row per environment and month; the
+        # tenant-scoped rows sit beside it (sql/10_admin.sql).
+        "budgets",
+    }
+)
+
 #: ``current_setting(..., true)`` — the ``true`` means "return NULL if unset"
 #: rather than raising. Raising would be a louder failure, but it would also
 #: make every query error during the window between connect and set; the startup
@@ -77,6 +99,10 @@ class TablePolicy:
     #: True when the tenant is reached only through nullable columns. Rows with
     #: all of them NULL belong to no tenant and are visible to none.
     weak: bool
+    #: The write-side predicate when it is stricter than the read side. None
+    #: means WITH CHECK is the same as USING, which is every table but the
+    #: :data:`GLOBAL_WHEN_NULL` ones.
+    check_predicate: str | None = None
 
     @property
     def kind(self) -> str:
@@ -176,10 +202,22 @@ def plan(conn: Any) -> list[TablePolicy]:
 
     policies: dict[str, TablePolicy] = {}
     for table in sorted(rooted):
+        own = f"{_quote(table)}.tenant_id = {_GUC_EXPR}"
+        if table in GLOBAL_WHEN_NULL:
+            policies[table] = TablePolicy(
+                table=table,
+                depth=0,
+                predicate=f"({_quote(table)}.tenant_id IS NULL OR {own})",
+                orphan_predicate="TRUE",
+                parents=(),
+                weak=False,
+                check_predicate=own,
+            )
+            continue
         policies[table] = TablePolicy(
             table=table,
             depth=0,
-            predicate=f"{_quote(table)}.tenant_id = {_GUC_EXPR}",
+            predicate=own,
             orphan_predicate="TRUE",
             parents=(),
             weak=False,
@@ -379,7 +417,8 @@ def apply(conn: Any, policies: list[TablePolicy] | None = None) -> list[str]:
         drop = f"DROP POLICY IF EXISTS {POLICY_NAME} ON {table}"
         create = (
             f"CREATE POLICY {POLICY_NAME} ON {table} "
-            f"FOR ALL USING ({policy.predicate}) WITH CHECK ({policy.predicate})"
+            f"FOR ALL USING ({policy.predicate}) "
+            f"WITH CHECK ({policy.check_predicate or policy.predicate})"
         )
         conn.execute(text(drop))
         conn.execute(text(create))

@@ -393,7 +393,7 @@ def build_tools(
             from agent_core.tools.gates import enforce_human_gate, floor_approved
 
             identity_ok = bool(session.identity_verified) and bool(session.customer_id) and (
-                session.customer_id != persist.UNKNOWN_CALLER_ID
+                not persist.is_unknown_caller(session.customer_id)
             )
             blocked = enforce_human_gate(
                 name,
@@ -595,7 +595,7 @@ def build_tools(
         if not session.identity_verified:
             return None, {"error": "identity_not_verified"}
         cid = session.customer_id
-        if not cid or cid == persist.UNKNOWN_CALLER_ID:
+        if not cid or persist.is_unknown_caller(cid):
             return None, {"error": "customer_unbound"}
         return cid, None
 
@@ -862,7 +862,7 @@ def build_tools(
             await asyncio.to_thread(
                 persist.record_identity_verification,
                 interaction_id=ix,
-                customer_id=session.customer_id or persist.UNKNOWN_CALLER_ID,
+                customer_id=session.customer_id or persist.unknown_caller_id(),
                 method=method_n,
                 status="failed",
                 attempt_count=state.verify_attempts,

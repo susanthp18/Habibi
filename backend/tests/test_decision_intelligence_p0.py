@@ -577,6 +577,9 @@ def test_a_layer_may_withdraw_permission_but_never_grant_it() -> None:
 def test_the_rules_in_force_depend_on_when_you_ask(db_tx) -> None:
     """The property the whole table exists for: same code, two instants, two
     answers, no deploy in between."""
+    from tests.conftest import require_owner
+
+    require_owner(db_tx, "statutory rule sets carry no tenant and only the owner may write them")
     policy_rules.reset_cache()
     db_tx.execute(text("DELETE FROM policy_rules"))
     db_tx.execute(text("DELETE FROM policy_rule_sets"))

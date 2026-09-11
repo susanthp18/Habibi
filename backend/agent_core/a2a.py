@@ -7,7 +7,9 @@ a client certificate is not enough.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
+import os
 import ssl
 import uuid
 from typing import Any
@@ -72,9 +74,45 @@ def _partners_have_bot_id(conn: Any) -> bool:
     return bool(row)
 
 
-def require_partner(headers: dict[str, str], *, bot_id: str | None = None) -> dict[str, Any]:
+def peer_is_trusted_terminator(client_host: str | None) -> bool:
+    """Only the TLS terminator may assert ``X-SSL-Client-*``.
+
+    The headers are the terminator's *report* of a verified client certificate.
+    Read from any peer they are a claim anyone can type, and a partner's
+    fingerprint is not a secret -- it is published in the partner's own
+    certificate. ``A2A_TRUSTED_PROXY_CIDRS`` names the peers whose report is
+    believed; unset means nobody's is, which is the only safe default for a
+    header that grants access.
+    """
+    raw = (os.getenv("A2A_TRUSTED_PROXY_CIDRS") or "").strip()
+    if not raw or not client_host:
+        return False
+    host = client_host.strip()
+    entries = [c.strip() for c in raw.split(",") if c.strip()]
+    try:
+        peer = ipaddress.ip_address(host)
+    except ValueError:
+        # Not an address -- a unix socket peer, or a test client's name. Only
+        # an exact, deliberately configured spelling is believed.
+        return host in entries
+    for entry in entries:
+        try:
+            if peer in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            if entry == host:
+                return True
+            logger.warning("A2A_TRUSTED_PROXY_CIDRS: %r is not a CIDR", entry)
+    return False
+
+
+def require_partner(
+    headers: dict[str, str], *, bot_id: str | None = None, client_host: str | None = None
+) -> dict[str, Any]:
     if not a2a_enabled():
         raise PermissionError("a2a_disabled")
+    if not peer_is_trusted_terminator(client_host):
+        raise PermissionError("a2a_untrusted_peer")
     auth = (headers.get("authorization") or "").strip()
     lowered = {k.lower(): v for k, v in headers.items()}
     dn = client_cert_dn(lowered)

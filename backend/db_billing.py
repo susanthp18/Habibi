@@ -290,10 +290,11 @@ def billing_overview(
                         FROM interactions
                         WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
                           AND (started_at AT TIME ZONE 'UTC')::date <= :end
+                          AND (:tenant_id = 'all' OR tenant_id = :tenant_id)
                         GROUP BY tenant_id
                         """
                     ),
-                    {"start": start, "end": end},
+                    {"start": start, "end": end, "tenant_id": tenant_id},
                 )
             )
         }
@@ -306,15 +307,18 @@ def billing_overview(
                     SELECT t.id, t.name,
                            coalesce(t.budget_inr, 0) AS budget
                     FROM tenants t
-                    WHERE t.id IN (
-                      SELECT DISTINCT tenant_id FROM billing_usage_daily
-                      WHERE service_id = ANY(:services)
-                      UNION
-                      SELECT DISTINCT tenant_id FROM interactions
-                      WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
-                        AND (started_at AT TIME ZONE 'UTC')::date <= :end
+                    WHERE (
+                      t.id IN (
+                        SELECT DISTINCT tenant_id FROM billing_usage_daily
+                        WHERE service_id = ANY(:services)
+                        UNION
+                        SELECT DISTINCT tenant_id FROM interactions
+                        WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
+                          AND (started_at AT TIME ZONE 'UTC')::date <= :end
+                      )
+                      OR t.id = :primary
                     )
-                    OR t.id = :primary
+                    AND (:tenant_id = 'all' OR t.id = :tenant_id)
                     ORDER BY t.name
                     """
                 ),
@@ -322,6 +326,7 @@ def billing_overview(
                     "start": start,
                     "end": end,
                     "primary": _tenant(),
+                    "tenant_id": tenant_id,
                     "services": list(_METERED_SERVICE_IDS),
                 },
             )

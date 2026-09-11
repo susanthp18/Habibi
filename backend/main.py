@@ -284,6 +284,12 @@ _AUTH_EXEMPT_PREFIXES = (
 )
 
 
+def _a2a_enabled() -> bool:
+    from agent_core.platform_flags import a2a_enabled
+
+    return a2a_enabled()
+
+
 class ApiKeyMiddleware(BaseHTTPMiddleware):
     """API-key gate + request-scoped actor binding.
 
@@ -302,7 +308,10 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
-        if request.method == "POST" and path == "/a2a":
+        # A2A authenticates by client certificate, reported by the TLS
+        # terminator -- but only while the feature is on. Off, the route is
+        # an ordinary authenticated endpoint that answers 403 `a2a_disabled`.
+        if request.method == "POST" and path == "/a2a" and _a2a_enabled():
             return await call_next(request)
         if any(path == p or path.startswith(p + "/") for p in _AUTH_EXEMPT_PREFIXES):
             return await call_next(request)
@@ -1139,12 +1148,17 @@ def post_offer_response(decisionId: str, payload: OfferResponseRequest):
 @app.get("/billing", response_model=BillingOverviewResponse)
 def get_billing(
     period: str = Query("mtd"),
-    tenantId: str = Query("all"),
     env: str = Query("production"),
 ):
-    """Billing & Usage Analytics — filtered spend, budgets, invoices."""
+    """Billing & Usage Analytics — filtered spend, budgets, invoices.
+
+    Always the caller's tenant. The screen used to send ``tenantId`` and the
+    server used to honour it, so any holder of ``billing:read`` could read
+    another bank's spend by editing a query string. A deployment serves one
+    bank; the query-string selector never had a legitimate second value.
+    """
     try:
-        return db.billing_overview(period, tenantId, env)
+        return db.billing_overview(period, db.current_tenant(), env)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1189,11 +1203,10 @@ def export_interaction(
 @app.get("/billing/export.csv")
 def export_billing_csv(
     period: str = Query("mtd"),
-    tenantId: str = Query("all"),
     env: str = Query("production"),
 ):
     try:
-        csv_body = db.billing_export_csv(period, tenantId, env)
+        csv_body = db.billing_export_csv(period, db.current_tenant(), env)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Response(
@@ -2753,6 +2766,7 @@ def a2a_well_known_card(request: Request, botId: str | None = Query(default=None
         a2a_mod.require_partner(
             {k.lower(): v for k, v in request.headers.items()},
             bot_id=bot_id,
+            client_host=request.client.host if request.client else None,
         )
         return a2a_mod.agent_card_document(bot_id)
     except PermissionError as exc:
@@ -2768,7 +2782,9 @@ def a2a_protocol_task(request: Request, payload: dict[str, Any]):
     headers = {k.lower(): v for k, v in request.headers.items()}
     bot_id = str(payload.get("botId") or payload.get("bot_id") or db.DEFAULT_BOT_ID)
     try:
-        partner = a2a_mod.require_partner(headers, bot_id=bot_id)
+        partner = a2a_mod.require_partner(
+            headers, bot_id=bot_id, client_host=request.client.host if request.client else None
+        )
         dn = a2a_mod.client_cert_dn(headers)
         inner = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         if payload.get("inputRequired") and "inputRequired" not in inner:

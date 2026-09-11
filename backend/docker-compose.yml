@@ -15,6 +15,15 @@
 #   docker compose exec api alembic upgrade head
 #   docker compose exec api python scripts/seed_demo.py   # optional demo rows
 #
+# Row-level security. The application connects as `collections_app`, a role
+# that owns nothing and that Postgres policies apply to; the owner
+# (`POSTGRES_USER`) is used only by migrations and the rls tool
+# (MIGRATION_DATABASE_URL). On a fresh database, before the app can connect:
+#   docker compose exec api python scripts/rls.py provision-role collections_app --password collections_app
+# Migration 0126 installs and enables the policies (`scripts/rls.py apply` /
+# `enable --verify-as collections_app` are the same steps by hand). Change the
+# role's password with APP_DB_PASSWORD on every service that carries it.
+#
 # Release identity (WP-001). Defaults keep today's local names
 # (`collections-api:local`, `collections-voice:local`). A published deploy
 # sets both:
@@ -87,7 +96,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      # Application role: row-level security applies to it and it owns nothing.
+      # Provisioned once by `python scripts/rls.py provision-role` (see the
+      # header). Migrations and the rls tool run as the owner, below.
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
+      MIGRATION_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: api
@@ -150,7 +163,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: worker
@@ -195,7 +208,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
       DB_PROCESS_ROLE: worker
       HABIBI_DEPLOYED: "1"
       DB_POOL_SIZE: ${BATCH_DB_POOL_SIZE:-2}
@@ -223,7 +236,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: bot_worker
@@ -255,7 +268,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
       DB_PROCESS_ROLE: voice

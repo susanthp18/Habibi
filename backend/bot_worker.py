@@ -53,6 +53,11 @@ from agent_core.worker_roles import ROLES
 observability.setup_logging()
 logger = logging.getLogger("bot_worker")
 
+import actor_context  # noqa: E402
+
+# Every audit row this process writes is a machine's, not the default user's.
+actor_context.bind_service_actor("system")
+
 _ROLE = "all"
 
 

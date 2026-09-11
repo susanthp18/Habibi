@@ -90,7 +90,11 @@ def test_the_waiver_needs_the_switch_and_the_switch_is_off_by_default() -> None:
 
     src = inspect.getsource(main.demo_outbound_call)
     assert "platform_switches.demo_ignores_window()" in src
-    assert "waivable_for_demo" in src
+    # The waiver is handed to `outbound.gate` as its `waivable` set, and only
+    # when the switch is on; off, the set is empty and nothing is waivable.
+    assert "waivable=(" in src
+    assert "_DEMO_WAIVABLE_REASONS" in src
+    assert "else frozenset()" in src
 
     import platform_switches
 

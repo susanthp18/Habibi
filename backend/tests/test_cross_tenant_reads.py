@@ -64,9 +64,17 @@ _SEED = (
 
 @pytest.fixture
 def rival(db_tx):
-    """A second tenant's customer graph, rolled back with the fixture."""
-    for statement in _SEED:
-        db_tx.execute(text(statement), {"t": RIVAL})
+    """A second tenant's customer graph, rolled back with the fixture.
+
+    Written *as* the rival: row-level security is on and the policy's WITH
+    CHECK refuses another tenant's INSERT from this tenant's connection. The
+    assertions below then run as this tenant, and the rows must not show.
+    """
+    from tests.conftest import acting_as
+
+    with acting_as(db_tx, RIVAL):
+        for statement in _SEED:
+            db_tx.execute(text(statement), {"t": RIVAL})
     return db_tx
 
 

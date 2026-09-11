@@ -2704,6 +2704,12 @@ if __name__ == "__main__":
     # Before anything imports and starts logging: without this the product's
     # standard-library loggers never reach loguru's sink. See voice/log_bridge.py.
     log_bridge.install()
+    # The voice process is a bot. Which bot is a per-call fact the session
+    # knows; the kind is a per-process fact, and it is what stops a call's
+    # audit rows being signed by the default operator.
+    import actor_context
+
+    actor_context.bind_service_actor("bot")
     _warm_before_serving()
     from pipecat.runner.run import main
 

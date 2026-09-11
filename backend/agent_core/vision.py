@@ -11,10 +11,10 @@ import logging
 from agent_core.platform_flags import vision_ingest_enabled
 from agent_core.tools.catalog import DOCUMENT_TYPES
 from agent_core.tools.domain import ToolResult
+from db_core import is_unknown_caller
 
 logger = logging.getLogger(__name__)
 
-_UNKNOWN = "UNKNOWN-CALLER"
 _IMAGE_TYPES = frozenset(
     {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"}
 )
@@ -33,7 +33,7 @@ def ingest_customer_document(
 ) -> ToolResult:
     if not vision_ingest_enabled():
         return ToolResult(ok=False, error="vision_ingest_disabled")
-    if not identity_verified or not customer_id or customer_id == _UNKNOWN:
+    if not identity_verified or not customer_id or is_unknown_caller(customer_id):
         return ToolResult(ok=False, error="identity_not_verified")
     mime = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
     if mime not in _IMAGE_TYPES and not mime.startswith("image/"):
