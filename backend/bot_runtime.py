@@ -614,7 +614,14 @@ def _build_messages(
             "overdue_amount": str(conv.get("outstanding") or 0),
             "due_date": "",
             "last_payment": "",
-            "language": conv.get("language") or "English",
+            # The card's language, as voice does. The customer row's went
+            # into the {language} token while the Persona block below said
+            # the card's -- two languages in one system message. The
+            # borrower's preference is a hint on the CRM card instead.
+            "language": str((bundle.get("persona") or {}).get("language") or "").strip()
+            or conv.get("language")
+            or "English",
+            "preferred_language": conv.get("language") or None,
         }
     )
     # Same rule as voice and the sandbox: system policy interpolates operator

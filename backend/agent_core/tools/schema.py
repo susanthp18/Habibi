@@ -192,15 +192,29 @@ class ToolSpec:
         for arg in self.args:
             if arg.name in src and src[arg.name] is not None:
                 out[arg.name] = src[arg.name]
-                continue
-            found = False
-            for alias in arg.aliases:
-                if alias in src and src[alias] is not None:
-                    out[arg.name] = src[alias]
-                    found = True
-                    break
-            if not found and arg.default is not None:
-                out[arg.name] = arg.default
+            else:
+                found = False
+                for alias in arg.aliases:
+                    if alias in src and src[alias] is not None:
+                        out[arg.name] = src[alias]
+                        found = True
+                        break
+                if not found and arg.default is not None:
+                    out[arg.name] = arg.default
+            # The declared range, enforced here for every dispatcher. The
+            # strict renderer drops `minimum`/`maximum` from the wire schema,
+            # so the model never sees them; voice clamped by hand and text and
+            # MCP did not.
+            if arg.name in out and (arg.minimum is not None or arg.maximum is not None):
+                try:
+                    value = float(out[arg.name])
+                except (TypeError, ValueError):
+                    continue
+                if arg.minimum is not None:
+                    value = max(float(arg.minimum), value)
+                if arg.maximum is not None:
+                    value = min(float(arg.maximum), value)
+                out[arg.name] = int(value) if arg.type == "integer" else value
         return out
 
     def missing_required(self, normalized: Mapping[str, Any]) -> list[str]:

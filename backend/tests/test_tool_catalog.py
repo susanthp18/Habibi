@@ -280,3 +280,25 @@ def test_flows_schema_properties_match_openai() -> None:
 def test_arg_defaults_applied_on_normalize() -> None:
     out = CATALOG.normalize("get_emi_schedule", {})
     assert out.get("limit") == 6
+
+
+def test_declared_ranges_are_enforced_on_every_dispatcher() -> None:
+    """CATALOG-6: `limit`'s maximum was clamped on voice by hand and dropped
+    from the wire schema on text, so a model could ask for 500 rows."""
+    from agent_core.tools.catalog import CATALOG
+
+    spec = next(s for s in CATALOG.specs.values() if any(a.maximum is not None for a in s.args))
+    arg = next(a for a in spec.args if a.maximum is not None)
+    out = spec.normalize_args({arg.name: arg.maximum * 10})
+    assert out[arg.name] == arg.maximum
+    if arg.minimum is not None:
+        assert spec.normalize_args({arg.name: arg.minimum - 10})[arg.name] == arg.minimum
+
+
+def test_the_voicemail_names_the_same_agent_as_the_prompt(monkeypatch) -> None:
+    """PERSONA-7: the script read persona keys PersonaState never carries."""
+    from voice.amd import voicemail_script
+
+    monkeypatch.setenv("AGENT_NAME", "Asha")
+    script = voicemail_script({"name": "ignored", "agentName": "ignored"}, contacts={"issuer": "Test Bank", "contactNumber": "1800 000"})
+    assert script is None or script.startswith("Hello, this is Asha calling from Test Bank.")

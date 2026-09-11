@@ -42,6 +42,7 @@ export const CRM_VARIABLES = [
   "overdue_amount",
   "due_date",
   "last_payment",
+  "preferred_language",
 ] as const;
 
 export const KNOWN_VARIABLES: string[] = [...CRM_VARIABLES, ...SYSTEM_SAFE_VARIABLES];

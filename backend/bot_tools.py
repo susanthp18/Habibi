@@ -292,7 +292,6 @@ def _tool_flag_dispute(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
         amount=args.get("amount"),
         summary=args.get("summary") or ctx.customer_text[:240],
         interaction_id=ctx.interaction_id,
-        priority="high",
         idempotency_key=idem,
     )
     soft = _domain_soft_fail(result)
@@ -361,7 +360,10 @@ def _tool_request_callback(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
 
 
 def _tool_add_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    db.add_customer_note(ctx.customer_id, {"text": args["text"], "pinned": bool(args.get("pinned"))})
+    body = str(args.get("text") or "").strip()
+    if not body:
+        return {"ok": False, "error": "empty_note"}
+    db.add_customer_note(ctx.customer_id, {"text": body, "pinned": bool(args.get("pinned"))})
     return {"ok": True}
 
 

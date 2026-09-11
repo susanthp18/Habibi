@@ -954,6 +954,32 @@ def ensure_first_party_skills() -> dict[str, int]:
                 )
                 cards_filled += 1
                 skills = card["skills"]
+            # A first-party card follows the platform pack: its exact pins
+            # move to the version on disk. Pinned to "1" forever, every card
+            # kept running the pack from the first deploy while the boot sync
+            # stored each newer one beside it, honoured the pin, and changed
+            # nothing (SKILLS-08's cousin).
+            shipped = {pk.slug: _stored_version(pk.version) for pk in packs}
+            moved = []
+            for ref in skills:
+                if not isinstance(ref, dict):
+                    continue
+                slug = str(ref.get("skill_id") or "")
+                if slug in shipped and str(ref.get("version") or "1") != shipped[slug]:
+                    ref["version"] = shipped[slug]
+                    moved.append(slug)
+            if moved:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE prompt_versions
+                           SET agent_card = CAST(:card AS jsonb), updated_at = now()
+                         WHERE id = :id
+                        """
+                    ),
+                    {"card": db._jsonb({**card, "skills": skills}), "id": row["id"]},
+                )
+                logger.info("first-party card %s follows the platform pack for %s", bot_id, ", ".join(moved))
             want = {
                 str(s.get("skill_id"))
                 for s in skills

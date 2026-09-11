@@ -43,15 +43,25 @@ CARD_SKILLS: dict[str, tuple[str, ...]] = {
 
 
 def skill_refs(*slugs: str) -> list[CardSkillRef]:
-    return [CardSkillRef(skill_id=slug, version="1", pin="exact") for slug in slugs]
+    """Exact pins on the version the platform ships.
+
+    `version="1"` for every slug pinned the original seed row forever: the
+    boot sync stored ptp-negotiate 1.5.0 beside it, honoured the pin, and the
+    cards kept running the pack from the first deploy -- no new talk track,
+    no `intents`, ever. A first-party card follows the platform pack."""
+    out: list[CardSkillRef] = []
+    for slug in slugs:
+        try:
+            version = pack_for_slug(slug).version
+        except KeyError:
+            version = "1"
+        version = "1" if version in {"1", "1.0.0"} else version
+        out.append(CardSkillRef(skill_id=slug, version=version, pin="exact"))
+    return out
 
 
 def packs_for_slugs(slugs: tuple[str, ...] | list[str]) -> list[SkillPack]:
     return [pack_for_slug(slug) for slug in slugs]
-
-
-def packs_for_card(bot_id: str) -> list[SkillPack]:
-    return packs_for_slugs(CARD_SKILLS.get(bot_id, ()))
 
 
 def all_first_party_packs() -> list[SkillPack]:

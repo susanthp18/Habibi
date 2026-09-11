@@ -25,6 +25,9 @@ KNOWN_VARIABLES: frozenset[str] = frozenset(
         "agent_name",
         "bank_name",
         "language",
+        # The borrower's own preference, from the customer row. Rides the
+        # untrusted CRM card as a hint; `language` is the card's persona.
+        "preferred_language",
         "time_of_day",
     }
 )

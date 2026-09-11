@@ -101,3 +101,22 @@ def test_sign_draft_does_not_overwrite_v1(skills_ready) -> None:
     latest = next(v for v in signed["versions"] if v["id"] == signed["latestVersionId"])
     assert latest["status"] == "signed"
     assert latest["id"] != v1["id"]
+
+
+def test_first_party_cards_pin_the_pack_the_platform_ships(skills_ready) -> None:
+    """Pinned to "1" forever, the cards ran the first deploy's packs while the
+    boot sync stored each newer version beside them and changed nothing."""
+    from agent_core.skills.defaults import skill_refs
+    from agent_core.skills.pack import pack_for_slug
+
+    ref = next(r for r in skill_refs("ptp-negotiate"))
+    assert ref.version == pack_for_slug("ptp-negotiate").version
+
+    ensure_first_party_skills()
+    import db
+
+    published = db.get_published_prompt_version("kaia-v2-4")
+    if published is None:
+        pytest.skip("no published collections prompt")
+    pins = {s["skill_id"]: s["version"] for s in published["agentCard"]["skills"]}
+    assert pins["ptp-negotiate"] == pack_for_slug("ptp-negotiate").version

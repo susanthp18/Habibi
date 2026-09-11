@@ -2363,8 +2363,12 @@ def build_tools(
                 # Stable key so a retried or duplicated tool call cannot put two
                 # identical leads in the pipeline — the contract the sibling CRM
                 # writes have had all along.
+                # Carrier-call scope, like the four sibling writes: an
+                # interaction-scoped key made a lead from a second call on
+                # the same interaction a replay of the first.
                 idempotency_key=(
-                    f"voice-lead:{session.interaction_id or 'no-ix'}:{cid}:{product_id}"
+                    f"voice-lead:{session.provider_call_id or session.interaction_id or 'no-ix'}"
+                    f":{cid}:{product_id}"
                 ),
                 decision_id=decision_id,
                 # Otherwise the lead is scored by the English lexicon and every

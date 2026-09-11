@@ -88,21 +88,20 @@ def voicemail_script(
     """
     import compliance_copy
 
-    p = persona or {}
-    t = tuning or {}
-    persona_block = t.get("persona") if isinstance(t.get("persona"), dict) else {}
-    agent = str(
-        p.get("agentName") or p.get("name") or persona_block.get("agentName") or ""
-    ).strip() or _DEFAULT_AGENT_NAME
+    # The same source as the system prompt's {agent_name} / {bank_name}.
+    # This read persona keys (agentName, issuer, brand) that PersonaState can
+    # never carry, so every voicemail identified as the hardcoded fallback
+    # while the live prompt used the tenant's names.
+    from agent_core import prompt as _prompt
 
+    del persona, tuning  # accepted for the callers' sake; not a source of names
+    agent = (_prompt.agent_name() or "").strip() or _DEFAULT_AGENT_NAME
     resolved = contacts if contacts is not None else tenant_contacts()
-    issuer = str(
-        p.get("issuer")
-        or p.get("brand")
-        or persona_block.get("issuer")
-        or resolved.get("issuer")
-        or ""
-    ).strip() or _DEFAULT_ISSUER
+    issuer = (
+        str(resolved.get("issuer") or "").strip()
+        or (_prompt.bank_name() or "").strip()
+        or _DEFAULT_ISSUER
+    )
 
     parts = [f"Hello, this is {agent} calling from {issuer}."]
 
