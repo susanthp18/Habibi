@@ -22,7 +22,7 @@ from schemas import (
     OptOutCreateRequest,
     PiiFindingPatchRequest,
     PiiFindingPatchResponse,
-    PolicyExportResponse,
+    PolicyExportBundleResponse,
     PolicyReplayRequest,
     PolicyReplayResponse,
     PolicyRuleDraftRequest,
@@ -153,12 +153,12 @@ def patch_redaction_rule(pii_type: str, payload: RedactionRulePatchRequest):
         db.patch_redaction_rule, pii_type, payload.model_dump(exclude_unset=True)
     )
 
-@router.get("/compliance/policy-export", response_model=PolicyExportResponse)
-def export_policy_bundle(fmt: str = Query(default="opa")):
+@router.get("/compliance/policy-export", response_model=PolicyExportBundleResponse)
+def export_policy_bundle(fmt: str = Query(default="opa"), bot_id: str | None = Query(default=None)):
     from agent_core.policy_export import bundle
 
     try:
-        return bundle(fmt=fmt)
+        return bundle(fmt=fmt, bot_id=bot_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
