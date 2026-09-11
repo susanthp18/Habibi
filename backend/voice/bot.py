@@ -762,6 +762,18 @@ async def run_bot(transport, runner_args) -> None:
         ),
     )
     provider_bind.record(session, stt_prov)
+    from voice.tuning_apply import language_supported
+
+    if bind_locale and not language_supported(bind_locale):
+        # The recogniser is en-IN whatever the card said. On the record, so
+        # the interaction says which language actually ran; the language-
+        # switch tool and the fallback list handle the rest of the call.
+        stt_prov["language_substituted"] = {"requested": bind_locale, "bound": "en-IN"}
+        logger.warning(
+            "STT language {} unsupported · session={} · bound en-IN",
+            bind_locale,
+            session.session_id,
+        )
 
     tts, tts_prov = provider_bind.bind(
         "tts",

@@ -28,3 +28,13 @@ def test_a_missions_per_day_lowers_the_daily_cap() -> None:
 
     assert daily_cap(card_cap=1) == 1
     assert daily_cap(card_cap=99) == daily_cap()
+
+
+def test_an_unmapped_language_is_said_not_swallowed() -> None:
+    """WS8: `normalize_language` fell back to en-IN silently, so a Tamil card
+    ran an English recogniser and nothing recorded it."""
+    from voice.tuning_apply import language_supported
+
+    assert language_supported("en-IN")
+    assert language_supported("hi-IN")
+    assert not language_supported("xx-ZZ")

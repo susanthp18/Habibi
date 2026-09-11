@@ -1601,6 +1601,9 @@ class CrmSink:
                 avg_sentiment=p.get("avg_sentiment"),
                 summary=p.get("summary"),
                 disposition=p.get("disposition"),
+                # What actually ran, per slot, including a substituted STT
+                # language -- on the interaction, not only in a log line.
+                providers=self.session.extra.get("providers") or None,
             )
             # Off audio path — serialize turns after CRM close.
             try:

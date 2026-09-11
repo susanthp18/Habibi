@@ -724,6 +724,7 @@ def complete_voice_call(
     summary: str | None = None,
     disposition: str | None = None,
     avg_sentiment: float | None = None,
+    providers: dict[str, Any] | None = None,
 ) -> None:
     ended = _now()
     st = status if status in ("completed", "abandoned", "failed") else "completed"
@@ -754,12 +755,14 @@ def complete_voice_call(
                     disposition = COALESCE(:disposition, disposition),
                     avg_sentiment = COALESCE(:avg_sentiment, avg_sentiment),
                     sentiment_label = COALESCE(:sentiment_label, sentiment_label),
+                    source_payload = source_payload || CAST(:providers AS jsonb),
                     updated_at = now()
                 WHERE id = :id
                 """
             ),
             {
                 "id": interaction_id,
+                "providers": json.dumps({"providers": providers} if providers else {}),
                 "status": st,
                 "ended": ended,
                 "duration": duration,

@@ -75,7 +75,30 @@ def normalize_language(code: str):
     # typing into the Voice tab, or a provider callback. An exact-match lookup
     # silently dropped every variant to en-IN.
     key = (code or "en-IN").strip().replace("_", "-").lower()
+    if key not in mapping:
+        # Said, not silent. The substitution itself stays -- a call must not
+        # die inside the audio path -- but the bind records it
+        # (`voice.bot`: `language_substituted`), so a Tamil card served by an
+        # English recogniser is on the interaction, not only in a log line.
+        logger.warning("STT language {} is not mapped — recogniser bound to en-IN", code)
     return mapping.get(key, Language.EN_IN)
+
+
+def language_supported(code: str | None) -> bool:
+    """Whether ``code`` maps to a recogniser language without substitution."""
+    from pipecat.transcriptions.language import Language
+
+    key = (code or "").strip().replace("_", "-").lower()
+    if not key:
+        return True
+    if key in {"en-us", "en-gb", "en-in"}:
+        return True
+    from agent_core import languages
+
+    for entry in languages.LANGUAGES:
+        if entry.tag.lower() == key:
+            return getattr(Language, entry.tag.replace("-", "_").upper(), None) is not None
+    return False
 
 
 # Backwards-compatible alias for in-module call sites.
