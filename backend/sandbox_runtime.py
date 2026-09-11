@@ -179,7 +179,28 @@ def _collect_enrichment(future: Future, customer_text: str) -> tuple[Any, float,
     wait_ms = round((time.perf_counter() - wait_start) * 1000.0, 2)
     return result, float(wall_ms), wait_ms
 
-_SANDBOX_MAX_TOOL_ITERS = 4
+
+
+def _max_tool_iters() -> int:
+    """The live text loop's knob (BOT_MAX_TOOL_ITERATIONS, 6). The sandbox
+    allowed 4, so a rehearsal ran out of iterations where the live turn would
+    not have -- a parity gap dressed as the card's behaviour."""
+    from bot_runtime import _max_tool_iterations
+
+    return _max_tool_iterations()
+
+
+def sandbox_channel(card: dict[str, Any] | None) -> str:
+    """The channel a text rehearsal frames and judges the card as.
+
+    The sandbox is text, so a card with a text mouth is rehearsed as WhatsApp;
+    a voice-only card is framed as a call -- otherwise the prompt told it not
+    to disclose recording and the guardrail flagged it for not disclosing.
+    """
+    channels = {str(c).strip().lower() for c in ((card or {}).get("identity") or {}).get("channels") or []}
+    if channels & {"whatsapp", "text", "sms", "chat"}:
+        return "whatsapp"
+    return "voice" if "voice" in channels else "whatsapp"
 # Ceiling on a single tool result as handed back to the model. Generous enough
 # for a full KB passage, bounded so one wide result cannot dominate the context
 # for the rest of the loop.
@@ -295,6 +316,7 @@ def _run_sandbox_tool_loop(
     walker: Any | None = None,
     specialist_grants: dict[str, set[str]] | None = None,
     specialist_entries: dict[str, str] | None = None,
+    skill_slug: str | None = None,
 ) -> tuple[str, int, int, list[dict[str, Any]], list[str]]:
     """Shared catalog tools under a max-iteration budget (unification Phase D).
 
@@ -307,10 +329,12 @@ def _run_sandbox_tool_loop(
     from agent_core.tools.catalog import CATALOG
     from agent_core.tools.schema import CHANNEL_TEXT
 
-    mouth = resolve_mouth(agent_card or {}, intent=intent)
-    tool_state = mouth.tools(
-        channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
-    )
+    # The same resolution that chose the skill body above: the offer used to
+    # come from a second `resolve_mouth` with no slug, so the loaded skill and
+    # the offered tools were two different skills.
+    text_channel_tools = {spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
+    mouth = resolve_mouth(agent_card or {}, intent=intent, active_slug=skill_slug)
+    tool_state = mouth.tools(channel_tools=text_channel_tools)
     granted = set(tool_state.offered or ())
     if walker is not None:
         # A step the text mouth cannot stand on -- the greeting, whose only
@@ -362,7 +386,7 @@ def _run_sandbox_tool_loop(
     offered_names: list[str] = []
 
     tools_pending = False
-    for _ in range(_SANDBOX_MAX_TOOL_ITERS):
+    for _ in range(_max_tool_iters()):
         tools_pending = False
         tools, offered_names = _offer()
         chat = azure_openai.chat_with_tools(
@@ -450,6 +474,25 @@ def _run_sandbox_tool_loop(
                         "simulated": True,
                         "tool": name,
                     }
+                elif name == "load_skill":
+                    # Progressive disclosure, rehearsable: the real loader, the
+                    # pack's body as the next developer message, and the offer
+                    # widened to that pack -- exactly what the live loop does.
+                    from dataclasses import replace as _replace
+
+                    from agent_core.skills.runtime import body_developer_message, load_skill
+
+                    slug = str(args.get("slug") or "").strip()
+                    result = load_skill(slug, list(mouth.packs), allowed=allowed or frozenset())
+                    ok = bool(result.get("ok"))
+                    result = {k: v for k, v in result.items() if k != "message"} | {"simulated": True}
+                    if ok:
+                        pack = next((p for p in mouth.packs if p.slug == slug), None)
+                        if pack is not None:
+                            working.append(body_developer_message(pack))
+                        mouth = _replace(mouth, active_slug=slug)
+                        tool_state = mouth.tools(channel_tools=text_channel_tools)
+                        granted = set(tool_state.offered or ())
                 else:
                     ok, result = simulate_sandbox_tool(name, args)
                     if ok and name == "identify_customer":
@@ -516,7 +559,10 @@ def _run_sandbox_tool_loop(
     return bot_text, total_latency, max(1, total_tokens), tool_trace, offered_names
 
 # Absolute ceiling on customer→bot exchanges per run (cost control).
+#: The rehearsal's cost cap in customer turns. Not the card's `maxTurns`,
+#: which is judged on the same terms as live (`_LIVE_HARD_MAX_TURNS`).
 _HARD_MAX_TURNS = max(1, int(os.getenv("SANDBOX_HARD_MAX_TURNS", "3")))
+_LIVE_HARD_MAX_TURNS = max(1, int(os.getenv("BOT_HARD_MAX_TURNS", "12")))
 
 # Re-exports so existing `from sandbox_runtime import classify_intent` keeps working.
 __all__ = [
@@ -793,6 +839,7 @@ def create_sandbox_run(payload: dict[str, Any]) -> dict[str, Any]:
         "openingMessage": opening_message,
         "promptVersion": version,
         "context": context,
+        "turnBudget": _HARD_MAX_TURNS,
     }
 
 
@@ -923,7 +970,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     # Cheap fail-fast so we don't pay for an LLM call on an already-capped run.
     # The authoritative check runs under the row lock in the persist transaction.
     if prior_customers >= effective_max:
-        raise ValueError(f"sandbox_max_turns:{effective_max}")
+        raise ValueError(f"sandbox_budget_reached:{effective_max}")
 
     persona = (
         compiled.get("persona")
@@ -933,6 +980,17 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     from agent_core.skills.runtime import resolve_mouth
 
     skill_slug = str(payload.get("skillSlug") or payload.get("skill_slug") or "").strip() or None
+    # A slug the card does not carry is refused, not silently ignored: the
+    # picker offered the whole library and a no-op looked like a rehearsal.
+    if skill_slug:
+        attached_slugs = {
+            str(s.get("skill_id") or s.get("skillId") or "")
+            for s in (contract_card or {}).get("skills") or []
+            if isinstance(s, dict)
+        }
+        if skill_slug not in attached_slugs:
+            raise ValueError(f"skill_not_attached:{skill_slug}")
+    rehearsal_channel = sandbox_channel(contract_card)
     # Prompt only. Intent is not known until the messages below are assembled,
     # so the active skill body is resolved separately once it is.
     skill_prefix = resolve_mouth(contract_card, active_slug=skill_slug).prompt().prefix
@@ -942,7 +1000,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         hist_rows = hist_conn.execute(
             text(
                 """
-                SELECT speaker, text
+                SELECT speaker, text, turn_index
                 FROM sandbox_run_turns
                 WHERE run_id = :id
                 ORDER BY turn_index ASC
@@ -953,7 +1011,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         for hr in hist_rows:
             role = "bot" if hr["speaker"] == "bot" else "customer" if hr["speaker"] == "customer" else None
             if role and hr.get("text"):
-                history.append({"role": role, "text": hr["text"]})
+                history.append({"role": role, "text": hr["text"], "turn_index": hr["turn_index"]})
     if not history:
         history = payload.get("history") if isinstance(payload.get("history"), list) else []
     _t_after_preflight = time.perf_counter()
@@ -965,8 +1023,13 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     # this the sandbox raised a false "missing-recording-disclosure" from the
     # first customer reply onwards, on every run using a disclosing greeting.
     # The live voice path already threads the same fact (voice/crm_sink.py).
+    # Bot turns the *card* produced. Turn 0 is the scenario's opening fixture
+    # -- operator-authored text -- and it was what satisfied the disclosure
+    # check, so a card that never disclosed rehearsed green.
     recording_disclosed = any(
-        h.get("role") == "bot" and mentions_recording_disclosure(str(h.get("text") or ""))
+        h.get("role") == "bot"
+        and int(h.get("turn_index") or 0) > 0
+        and mentions_recording_disclosure(str(h.get("text") or ""))
         for h in history
         if isinstance(h, dict)
     )
@@ -1034,6 +1097,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         skill_catalog=skill_prefix,
         active_skill_message=None,
         understanding=prefetched_understanding,
+        channel=rehearsal_channel,
     )
     _t_understanding_end = time.perf_counter()
     messages = assembled["messages"]
@@ -1075,6 +1139,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                     walker=flow_walker,
                     specialist_grants=flow_walk.specialist_grants(compiled),
                     specialist_entries=flow_walk.specialist_entries(compiled),
+                    skill_slug=skill_slug,
                 )
             else:
                 with _span("gen_ai.chat", gen_ai_operation_name="chat"):
@@ -1118,9 +1183,12 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         turn_index=bot_turn_index,
         elapsed_seconds=elapsed_seconds,
         customer_bot_exchanges=exchange_n,
-        hard_max_turns=_HARD_MAX_TURNS,
+        # The card's own ceiling is what is under test. The sandbox budget is
+        # a cost cap and reports itself as one (`sandbox_budget_reached`), not
+        # as a guardrail flag against the card.
+        hard_max_turns=max_turns or _LIVE_HARD_MAX_TURNS,
         recording_disclosed=recording_disclosed,
-        channel="sandbox_text",
+        channel=rehearsal_channel,
     )
     halted = should_halt(flags)
     _t_guardrails_end = time.perf_counter()
@@ -1163,7 +1231,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         prior_customers = int((counts or {}).get("customers") or 0)
         # Authoritative cap check — the pre-check above raced.
         if prior_customers >= effective_max:
-            raise ValueError(f"sandbox_max_turns:{effective_max}")
+            raise ValueError(f"sandbox_budget_reached:{effective_max}")
         customer_turn_index = turn_count
         bot_turn_index = customer_turn_index + 1
         customer_turn_id = f"{run_id}-T{customer_turn_index}"

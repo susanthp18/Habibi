@@ -2671,6 +2671,9 @@ class SandboxRunResponse(BaseModel):
     openingMessage: str | None = None
     promptVersion: PromptVersionResponse
     context: dict[str, str]
+    #: Customer turns the rehearsal will run before stopping for cost. Not
+    #: the card's `maxTurns`, which is judged as a guardrail like live.
+    turnBudget: int | None = None
 
 
 class SandboxTurnCreateRequest(BaseModel):

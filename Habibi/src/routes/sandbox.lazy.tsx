@@ -132,6 +132,15 @@ function SandboxPage() {
   const scenario = scenarios.find((s) => s.id === scenarioId) ?? scenarios[0];
   const activePrompt =
     versions.find((v) => v.id === promptVersionId) ?? publishedPrompt ?? versions[0];
+  const attachedSkills = useMemo(() => {
+    const card = activePrompt?.agentCard as { skills?: { skill_id?: string }[] } | undefined;
+    const attached = new Set(
+      (card?.skills ?? []).map((s) => String(s.skill_id ?? "")).filter(Boolean),
+    );
+    return (skillsQuery.data ?? [])
+      .filter((s) => attached.has(s.slug))
+      .map((s) => ({ slug: s.slug, label: s.slug }));
+  }, [activePrompt, skillsQuery.data]);
   const activeKb = kbOptions.find((k) => k.id === kbSnapshotId) ?? kbOptions[0]!;
 
   const bootstrapLocal = useCallback(
@@ -497,10 +506,11 @@ function SandboxPage() {
   const turnsUsed = useMemo(() => turns.filter((t) => t.role === "customer").length, [turns]);
   const turnsMax = useMemo(() => {
     const g = activePrompt?.guardrails?.maxTurns;
-    const hard = 3;
+    // The server's budget, not a second copy of it.
+    const hard = run?.turnBudget ?? 3;
     if (typeof g === "number" && g > 0) return Math.min(hard, g);
     return hard;
-  }, [activePrompt]);
+  }, [activePrompt, run]);
 
   const lastExpectedIntent = useMemo((): IntentKey | null => {
     if (!scenario || scriptIndex <= 0) return null;
@@ -641,7 +651,10 @@ function SandboxPage() {
             setTextToolCalls([]);
           }}
           skillSlug={skillSlug}
-          skills={(skillsQuery.data ?? []).map((s) => ({ slug: s.slug, label: s.slug }))}
+          // The card's attached packs, not the whole library: a slug the card
+          // does not carry is refused by the server (`skill_not_attached`), so
+          // offering it here was a rehearsal that quietly ran without it.
+          skills={attachedSkills}
           onSkill={setSkillSlug}
           promptVersionId={promptVersionId || activePrompt.id}
           promptVersions={versions}

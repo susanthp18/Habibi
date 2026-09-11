@@ -51,6 +51,8 @@ export type SandboxRun = {
   openingMessage: string | null;
   promptVersion: PromptVersion;
   context: Record<string, string>;
+  /** Customer turns before the rehearsal stops for cost; not the card's maxTurns. */
+  turnBudget?: number | null;
 };
 
 export type SandboxTurnResult = {

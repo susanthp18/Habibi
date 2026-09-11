@@ -39,8 +39,13 @@ def assemble_turn_messages(
     skill_catalog: str = "",
     active_skill_message: dict[str, str] | None = None,
     understanding: TurnUnderstanding | None = None,
+    channel: str = "text",
 ) -> dict[str, Any]:
     """Build chat messages + intent/sentiment for one customer turn.
+
+    ``channel`` frames the system prompt: a voice card rehearsed in the
+    sandbox is told it is on a call, not in a chat thread, so the guardrail
+    that then judges the reply is judging the same register.
 
     Returns keys: messages, rendered_prompt, intent, intent_scores, sentiment,
     sentiment_label, context.
@@ -78,6 +83,7 @@ def assemble_turn_messages(
                 guardrails=guardrails,
                 context_blocks=list(context_blocks or []),
                 skill_catalog=skill_catalog,
+                channel=channel,
             ),
         },
         {

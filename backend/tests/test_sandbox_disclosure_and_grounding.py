@@ -180,27 +180,65 @@ def _run_one_turn(*, prompt_version_id: str, opening: str) -> dict[str, Any]:
     )
 
 
-def test_a_disclosing_greeting_clears_the_flag_for_the_rest_of_the_run(
-    db_tx, prompt_version_id, stub_llm
-) -> None:
-    """The reported false positive, end to end."""
-    result = _run_one_turn(
-        prompt_version_id=prompt_version_id, opening=GREETING_THAT_DISCLOSES
+def _voice_only(db_tx, prompt_version_id: str) -> None:
+    """Rehearse the card as a call. A card with a text mouth is rehearsed as
+    WhatsApp, where there is no recording to disclose (GUARDRAILS-6)."""
+    from sqlalchemy import text as sa_text
+
+    db_tx.execute(
+        sa_text(
+            """
+            UPDATE prompt_versions
+               SET agent_card = jsonb_set(agent_card, '{identity,channels}', '["voice"]'::jsonb)
+             WHERE id = :id
+            """
+        ),
+        {"id": prompt_version_id},
     )
 
-    assert "missing-recording-disclosure" not in result["botTurn"]["guardrailFlags"]
 
-
-def test_the_flag_still_fires_when_nothing_ever_disclosed(
+def test_a_text_rehearsal_of_a_text_card_is_not_asked_to_disclose_recording(
     db_tx, prompt_version_id, stub_llm
 ) -> None:
-    """The check must not have been softened into never firing."""
+    """GUARDRAILS-6 / SANDBOX-04: the prompt framed the model as a chat that
+    must not disclose recording, and the guardrail then flagged it for not
+    disclosing. The card's channel now frames and judges the same register."""
     stub_llm["bot_text"] = "Your outstanding is 62,400 rupees and it is past due."
-
     result = _run_one_turn(
         prompt_version_id=prompt_version_id, opening=GREETING_THAT_DOES_NOT
     )
+    assert "missing-recording-disclosure" not in result["botTurn"]["guardrailFlags"]
 
+
+def test_a_disclosing_bot_turn_clears_the_flag_for_the_rest_of_the_run(
+    db_tx, prompt_version_id, stub_llm
+) -> None:
+    """The reported false positive, end to end -- on a voice card, judged as
+    a call. The card's own disclosing turn satisfies the run."""
+    _voice_only(db_tx, prompt_version_id)
+    stub_llm["bot_text"] = GREETING_THAT_DISCLOSES
+    run = sandbox_runtime.create_sandbox_run(
+        {"promptVersionId": prompt_version_id, "openingTemplate": GREETING_THAT_DOES_NOT}
+    )
+    sandbox_runtime.append_sandbox_turn(run["id"], {"text": "Hello?"})
+    stub_llm["bot_text"] = "Your outstanding is 62,400 rupees and it is past due."
+    result = sandbox_runtime.append_sandbox_turn(
+        run["id"], {"text": "I cannot pay the full amount this month."}
+    )
+    assert "missing-recording-disclosure" not in result["botTurn"]["guardrailFlags"]
+
+
+def test_the_scenario_opening_is_not_the_cards_disclosure(
+    db_tx, prompt_version_id, stub_llm
+) -> None:
+    """SANDBOX-12: turn 0 is the scenario's fixture text, operator-authored.
+    It used to be what satisfied the check, so a card that never disclosed
+    rehearsed green."""
+    _voice_only(db_tx, prompt_version_id)
+    stub_llm["bot_text"] = "Your outstanding is 62,400 rupees and it is past due."
+    result = _run_one_turn(
+        prompt_version_id=prompt_version_id, opening=GREETING_THAT_DISCLOSES
+    )
     assert "missing-recording-disclosure" in result["botTurn"]["guardrailFlags"]
 
 
