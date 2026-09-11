@@ -123,7 +123,7 @@ def test_bot_builds_the_detector_through_the_guarded_helper() -> None:
     """A future edit that reaches for the raw constructor reopens the bug."""
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[1] / "voice" / "bot.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "voice" / "bot_pipeline.py").read_text(encoding="utf-8")
     assert "amd.build_voicemail_detector(" in src
     assert "VoicemailDetector(llm=" not in src, (
         "constructing the library detector directly skips the guard"
@@ -280,14 +280,14 @@ def test_closed_guard_stops_further_classification() -> None:
 def test_bot_does_not_force_prewarm_on_connect() -> None:
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[1] / "voice" / "bot.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "voice" / "bot_pipeline.py").read_text(encoding="utf-8")
     assert "prewarm_shared_client(force=True)" not in src
 
 
 def test_bot_binds_inbound_ani() -> None:
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[1] / "voice" / "bot.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "voice" / "bot_handlers.py").read_text(encoding="utf-8")
     assert "customer_id_for_bind" in src
     assert "pstn_customer" in src
 

@@ -63,7 +63,8 @@ def test_main_loads_env_before_is_prod_and_before_db() -> None:
 def test_voice_entrypoints_load_env_before_application_imports() -> None:
     bot = BACKEND / "voice" / "bot.py"
     insurance = BACKEND / "voice" / "workers" / "insurance.py"
-    assert _module_level_load_env_lineno(bot) < _first_import_lineno(bot, "agent_core")
+    # agent_core is reached through voice.bot_flow now, so the voice import is
+    # the first application import there is.
     assert _module_level_load_env_lineno(bot) < _first_import_lineno(bot, "voice")
     assert _module_level_load_env_lineno(insurance) < _first_import_lineno(
         insurance, "voice"

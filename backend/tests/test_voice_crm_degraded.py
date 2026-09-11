@@ -96,7 +96,7 @@ def test_the_connect_path_actually_calls_it() -> None:
     the handler around ``bind_session_start`` going back to a lone
     ``logger.exception`` that leaves the session looking healthy.
     """
-    tree = ast.parse(Path(cs.__file__).with_name("bot.py").read_text(encoding="utf-8"))
+    tree = ast.parse(Path(cs.__file__).with_name("bot_handlers.py").read_text(encoding="utf-8"))
 
     def _names(node: ast.AST) -> set[str]:
         # Plain identifiers, not just call targets: bind_session_start reaches
@@ -109,7 +109,7 @@ def test_the_connect_path_actually_calls_it() -> None:
         if isinstance(node, ast.Try)
         and any("bind_session_start" in _names(stmt) for stmt in node.body)
     ]
-    assert binds, "no try/except around bind_session_start in voice/bot.py"
+    assert binds, "no try/except around bind_session_start in voice/bot_handlers.py"
     for node in binds:
         degraded = any(
             "mark_crm_degraded" in _names(handler) for handler in node.handlers

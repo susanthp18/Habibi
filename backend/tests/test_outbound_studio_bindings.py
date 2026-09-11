@@ -396,8 +396,16 @@ def test_call_trace_preview_strips_digit_runs() -> None:
     assert len(preview(long, limit=20)) == 20
 
 
+def _voice_bot_src() -> str:
+    """run_bot and the three modules it was split into, as one text."""
+    return "\n".join(
+        (_BACKEND / "voice" / name).read_text(encoding="utf-8")
+        for name in ("bot.py", "bot_flow.py", "bot_pipeline.py", "bot_handlers.py")
+    )
+
+
 def test_bot_traces_the_hops_the_demo_log_was_missing() -> None:
-    src = (_BACKEND / "voice" / "bot.py").read_text(encoding="utf-8")
+    src = _voice_bot_src()
     assert "first.speech" in src
     assert "first.tts" in src
     assert "deadair.nudge" in src
@@ -431,7 +439,7 @@ def test_demo_call_product_fixes_are_wired() -> None:
     tools = (_BACKEND / "voice" / "tools.py").read_text(encoding="utf-8")
     kb = (_BACKEND / "agent_core" / "tools" / "kb.py").read_text(encoding="utf-8")
     natural = (_BACKEND / "voice" / "natural.py").read_text(encoding="utf-8")
-    bot = (_BACKEND / "voice" / "bot.py").read_text(encoding="utf-8")
+    bot = _voice_bot_src()
     # The conversation is data now (voice/flows.py was materialised and deleted).
     flows = (_BACKEND / "agent_core" / "cards" / "graphs" / "collections.json").read_text(encoding="utf-8")
 

@@ -316,7 +316,7 @@ def test_a_voice_grant_drops_text_only_tools() -> None:
 def test_the_three_runtimes_pass_channel_tools() -> None:
     """Closing the divergence requires the callers, not only the parameter."""
     missing: list[str] = []
-    for rel in ("bot_runtime.py", "sandbox_runtime.py", "voice/bot.py"):
+    for rel in ("bot_runtime.py", "sandbox_runtime.py", "voice/bot_flow.py"):
         path = BACKEND / rel
         tree = ast.parse(path.read_text(encoding="utf-8"))
         calls = [

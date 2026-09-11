@@ -68,26 +68,26 @@ def test_the_terminals_are_data_the_interpreter_reads() -> None:
 
 def test_an_authored_duration_can_only_shorten_the_call() -> None:
     """The slider is not a way to buy a longer call than the platform allows."""
-    import voice.bot as bot
+    from voice import bot_handlers
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_handlers.register_handlers)
     assert "cap = min(cap, authored)" in src
     assert "await asyncio.sleep(cap)" in src
     assert "await asyncio.sleep(_MAX_CALL_DURATION_SECS)" not in src
 
 
 def test_the_watchdog_reads_the_published_guardrail() -> None:
-    import voice.bot as bot
+    from voice import bot_flow
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_flow.resolve_call)
     assert '(bundle.get("guardrails") or {}).get("maxSeconds")' in src
     assert 'session.extra["guardrail_max_seconds"]' in src
 
 
 def test_a_non_numeric_duration_does_not_break_the_call() -> None:
-    import voice.bot as bot
+    from voice import bot_flow
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_flow.resolve_call)
     assert "except (TypeError, ValueError):" in src
 
 

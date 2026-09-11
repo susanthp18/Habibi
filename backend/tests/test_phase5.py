@@ -97,16 +97,19 @@ def test_g14_fail_is_403() -> None:
     assert report.http_status() == 403
 
 
-def test_voice_bot_does_not_import_a2a() -> None:
-    src = Path(__file__).resolve().parents[1] / "voice" / "bot.py"
+@pytest.mark.parametrize(
+    "name", ["bot.py", "bot_flow.py", "bot_pipeline.py", "bot_handlers.py"]
+)
+def test_voice_bot_does_not_import_a2a(name: str) -> None:
+    src = Path(__file__).resolve().parents[1] / "voice" / name
     tree = ast.parse(src.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("agent_core.a2a"):
-            raise AssertionError("voice/bot.py must not import agent_core.a2a")
+            raise AssertionError(f"voice/{name} must not import agent_core.a2a")
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.startswith("agent_core.a2a"):
-                    raise AssertionError("voice/bot.py must not import agent_core.a2a")
+                    raise AssertionError(f"voice/{name} must not import agent_core.a2a")
 
 
 def test_mcp_apps_ui_list(monkeypatch) -> None:

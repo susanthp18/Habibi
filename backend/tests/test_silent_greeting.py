@@ -88,9 +88,9 @@ class _Processed:
 def test_the_bot_marks_the_call_start_when_the_client_connects() -> None:
     import inspect
 
-    from voice import bot
+    from voice import bot_handlers
 
-    assert "bot_turn_state.mark_call_started()" in inspect.getsource(bot)
+    assert "bot_turn_state.mark_call_started()" in inspect.getsource(bot_handlers)
 
 
 def test_disclose_recording_speaks_when_the_model_did_not() -> None:

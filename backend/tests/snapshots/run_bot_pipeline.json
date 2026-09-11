@@ -1,0 +1,89 @@
+{
+  "context_message_roles": [],
+  "flow": {
+    "allowed_tools": [
+      "add_customer_note",
+      "apply_goodwill",
+      "capture_lead",
+      "capture_nonpayment_reason",
+      "check_product_eligibility",
+      "create_promise_to_pay",
+      "decline_offer",
+      "escalate_to_human",
+      "evaluate_authority",
+      "flag_dispute",
+      "get_account_position",
+      "get_customer_context",
+      "get_emi_schedule",
+      "get_payment_history",
+      "handoff_to_agent",
+      "load_skill",
+      "recommend_next_offer",
+      "request_callback",
+      "request_documents",
+      "run_skill_script",
+      "search_knowledge_base",
+      "set_contact_preference",
+      "verify_identity"
+    ],
+    "attached_skills": 7,
+    "bot_id": "kaia-v2-4",
+    "channel": "voice",
+    "current_node": "greet_disclose",
+    "entry_node": null,
+    "global_functions": [],
+    "node_functions": [
+      "add_customer_note",
+      "disclose_recording",
+      "end_call",
+      "escalate_to_human",
+      "pause_for_caller",
+      "search_knowledge_base"
+    ],
+    "node_name": "kaia-v2-4/greet_disclose",
+    "objective": null,
+    "role_message_roles": [],
+    "specialists": [
+      "insurance-v1",
+      "kaia-v2-4",
+      "supervisor-brief"
+    ],
+    "task_message_roles": [
+      "developer"
+    ]
+  },
+  "handlers": {
+    "llm": [
+      "on_function_calls_started"
+    ],
+    "transport": {
+      "on_app_message": "on_app_message",
+      "on_client_connected": "on_client_connected",
+      "on_client_disconnected": "on_client_disconnected"
+    },
+    "user_aggregator": [
+      "on_user_turn_idle",
+      "on_user_turn_started",
+      "on_user_turn_stopped"
+    ],
+    "worker": [
+      "on_frame_reached_downstream",
+      "on_idle_timeout",
+      "on_pipeline_finished",
+      "on_pipeline_started"
+    ]
+  },
+  "stages": [
+    "TransportInput",
+    "AzureSTTService",
+    "KbSpeculationProcessor",
+    "LLMUserAggregator",
+    "KbEnrichProcessor",
+    "KeepAliveAzureLLMService",
+    "SpokeThisResponseProbe",
+    "KeepAliveAzureTTSService",
+    "TransportOutput",
+    "AudioBufferProcessor",
+    "LLMAssistantAggregator"
+  ]
+}

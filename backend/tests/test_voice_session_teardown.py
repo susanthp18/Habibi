@@ -142,9 +142,9 @@ def test_finalize_bounds_its_bookkeeping_and_always_tears_down() -> None:
     """Read the source: the guarantee is structural, not incidental."""
     import inspect
 
-    import voice.bot as bot
+    from voice import bot_handlers
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_handlers.register_handlers)
     assert "async def _bookkeeping()" in src
     assert "asyncio.wait_for(_bookkeeping()" in src
     finally_at = src.index("        finally:\n", src.index("async def _bookkeeping()"))
@@ -224,9 +224,9 @@ def test_the_idle_watchdog_is_disarmed_once_the_call_is_finalized() -> None:
     import ast
     import inspect
 
-    import voice.bot as bot
+    from voice import bot_handlers
 
-    tree = ast.parse(inspect.getsource(bot.run_bot))
+    tree = ast.parse(inspect.getsource(bot_handlers.register_handlers))
     handler = next(
         (
             n
@@ -235,7 +235,7 @@ def test_the_idle_watchdog_is_disarmed_once_the_call_is_finalized() -> None:
         ),
         None,
     )
-    assert handler is not None, "on_user_turn_idle not found in run_bot"
+    assert handler is not None, "on_user_turn_idle not found in register_handlers"
 
     # The guard has to sit before any awaited work: a nudge that is generated
     # and then discarded still costs the tokens and still delays teardown.
@@ -262,24 +262,39 @@ def test_the_idle_watchdog_is_disarmed_once_the_call_is_finalized() -> None:
 
 
 def _run_bot_imports() -> set[str]:
-    """Every module `run_bot` imports on entry, read from its own source."""
+    """Every module the call path imports on entry, read from its own source.
+
+    `run_bot` orchestrates `voice.bot_flow`, `voice.bot_pipeline` and
+    `voice.bot_handlers`; their function-local imports are the first call's
+    bill exactly as `run_bot`'s own were before the split.
+    """
     import ast
     import inspect
 
     import voice.bot as bot
+    from voice import bot_flow, bot_handlers, bot_pipeline
 
     tree = ast.parse(inspect.getsource(bot))
-    fn = next(
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_bot"
-    )
+    fns = [
+        next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_bot"
+        )
+    ]
+    for module in (bot_flow, bot_pipeline, bot_handlers):
+        fns.extend(
+            n
+            for n in ast.parse(inspect.getsource(module)).body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        )
     mods: set[str] = set()
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Import):
-            mods.update(a.name for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            mods.add(node.module)
+    for fn in fns:
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Import):
+                mods.update(a.name for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                mods.add(node.module)
     return mods
 
 
@@ -343,9 +358,9 @@ def test_the_crm_bind_runs_beside_the_greeting_not_in_front_of_it() -> None:
     """
     import inspect
 
-    import voice.bot as bot
+    from voice import bot_handlers
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_handlers.register_handlers)
     assert "async def _bind_crm_session()" in src
     assert "asyncio.create_task(_bind_crm_session())" in src
     # The handler must not await the bind — that is the whole point.
@@ -357,9 +372,9 @@ def test_session_bound_is_emitted_only_once_the_ids_are_real() -> None:
     """Firing it on the connect path would deep-link the studio to nothing."""
     import inspect
 
-    import voice.bot as bot
+    from voice import bot_handlers
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_handlers.register_handlers)
     body = src[src.index("async def _bind_crm_session()") : src.index("crm_bind_task =")]
     assert "emitter.session_bound(" in body, (
         "session_bound belongs inside the bind, after interaction_id is set"
@@ -375,9 +390,9 @@ def test_teardown_waits_for_the_bind_it_might_have_overtaken() -> None:
     """
     import inspect
 
-    import voice.bot as bot
+    from voice import bot_handlers
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_handlers.register_handlers)
     book = src[src.index("async def _bookkeeping()") :]
     assert "_crm_bind_task" in book
     assert "wait_for" in book, "bounded, like every other step in teardown"

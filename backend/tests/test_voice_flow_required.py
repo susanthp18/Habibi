@@ -104,9 +104,9 @@ def test_run_bot_refuses_rather_than_falling_back() -> None:
     """Read the source: there is no fallback left to reach."""
     import inspect
 
-    import voice.bot as bot
+    from voice import bot_flow
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_flow.build_flow)
     assert "has no published Agent Studio" in src, "the refusal must name the problem"
     assert "falling back to the built-in flow" not in src
     assert "build_collections_flow" not in src
@@ -116,9 +116,9 @@ def test_the_error_names_the_bot() -> None:
     """"No flow" with no bot id is unactionable on a deployment with 13 cards."""
     import inspect
 
-    import voice.bot as bot
+    from voice import bot_flow
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_flow.build_flow)
     assert "bot {bot_id!r}" in src or "bot={}" in src
 
 

@@ -101,7 +101,7 @@ def test_a_prompt_without_crm_tokens_survives_intact() -> None:
 @pytest.mark.parametrize(
     "module_path, attr",
     [
-        ("voice.bot", "_system_instruction_from_bundle"),
+        ("voice.bot_flow", "_system_instruction_from_bundle"),
         ("bot_runtime", "_build_messages"),
     ],
 )

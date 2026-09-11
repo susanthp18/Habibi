@@ -73,7 +73,7 @@ def test_the_environment_has_one_owner(monkeypatch: pytest.MonkeyPatch) -> None:
     # The voice mouth no longer writes "production" into its bundle load.
     import inspect
 
-    from voice import bot
+    from voice import bot_flow
 
-    src = inspect.getsource(bot.run_bot)
+    src = inspect.getsource(bot_flow.resolve_call)
     assert 'load_active_bundle(\n                "production"' not in src

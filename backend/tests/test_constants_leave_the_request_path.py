@@ -25,6 +25,9 @@ BACKEND = Path(__file__).resolve().parents[1]
 #: constants; a bot with no published card gets no card.
 _REQUEST_PATH = (
     "voice/bot.py",
+    "voice/bot_flow.py",
+    "voice/bot_pipeline.py",
+    "voice/bot_handlers.py",
     "voice/tools.py",
     "voice/flows_dynamic.py",
     "bot_runtime.py",
