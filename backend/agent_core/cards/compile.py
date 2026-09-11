@@ -17,6 +17,7 @@ G14 fail → 403.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import Any, Literal
 
@@ -958,6 +959,30 @@ def effective_tools(
 _ROLLBACK_TRIGGERS = ROLLBACK_TRIGGERS
 
 
+@dataclasses.dataclass
+class _Compile:
+    """What the gate phases share: the compile inputs every phase reads and
+    the locals the earlier phases produce for the later ones."""
+
+    bot_id: str
+    flow: Any
+    catalog_names: set[str]
+    known_bot_ids: set[str]
+    skip_eval_gates: bool
+    dump: dict[str, Any]
+    gates: list[GateResult] = dataclasses.field(default_factory=list)
+    card: AgentCard | None = None
+    tools: list[str] = dataclasses.field(default_factory=list)
+    idle: list[str] = dataclasses.field(default_factory=list)
+    skill_tokens: int = 0
+    idle_count: int = 0
+    tool_cap: int = 0
+    packs: list[SkillPack] = dataclasses.field(default_factory=list)
+    unresolved: list[str] = dataclasses.field(default_factory=list)
+    #: Filled by the tool intersection at G4, reported by G10.
+    connector_bind_issues: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+
+
 def compile_card(
     *,
     bot_id: str,
@@ -986,27 +1011,69 @@ def compile_card(
     prompt_guardrails: dict[str, Any] | None = None,
     skip_eval_gates: bool = False,
 ) -> CompileReport:
-    """Static gates always run. Eval gates honour their flags."""
-    gates: list[GateResult] = []
-    card: AgentCard | None = None
-    tools: list[str] = []
-    idle: list[str] = []
-    skill_tokens = 0
-    idle_count = 0
-    tool_cap = 0
-    dump: dict[str, Any] = card_raw if isinstance(card_raw, dict) else {}
-    packs: list[SkillPack] = []
-    unresolved: list[str] = []
-    #: Filled by the tool intersection at G4, reported by G10.
-    connector_bind_issues: list[dict[str, Any]] = []
+    """Static gates always run. Eval gates honour their flags. Phases run in
+    the order the report lists their gates -- the Ship tab renders it."""
+    st = _Compile(
+        bot_id=bot_id,
+        flow=flow,
+        catalog_names=catalog_names,
+        known_bot_ids=known_bot_ids,
+        skip_eval_gates=skip_eval_gates,
+        dump=card_raw if isinstance(card_raw, dict) else {},
+    )
+    _identity_gates(st, card_raw=card_raw)
+    _tool_gates(st, channel_tools=channel_tools, attached_skills=attached_skills)
+    _eval_gates(
+        st,
+        eval_report=eval_report,
+        redteam_report=redteam_report,
+        twin_report=twin_report,
+        outbound_report=outbound_report,
+        content_key=content_key,
+    )
+    _ship_gates(
+        st,
+        traffic_pct=traffic_pct,
+        auto_rollback=auto_rollback,
+        shadow=shadow,
+        a2a_cert_ok=a2a_cert_ok,
+    )
+    _flow_gates(
+        st,
+        outbound_report=outbound_report,
+        prompt=prompt,
+        prompt_guardrails=prompt_guardrails,
+        has_publish=has_publish,
+        voice_short_name=voice_short_name,
+        voice_locale=voice_locale,
+        card_locales=card_locales,
+        voice_provider=voice_provider,
+        bound_tts_providers=bound_tts_providers,
+    )
+    return CompileReport(
+        bot_id=bot_id,
+        gates=st.gates,
+        effective_tools=st.tools,
+        idle_tools=st.idle,
+        idle_voice_tools=st.idle_count,
+        voice_tool_cap=st.tool_cap,
+        skill_description_tokens=st.skill_tokens,
+        mission_entries=_mission_entries(flow),
+        card=st.dump,
+    )
+
+
+def _identity_gates(st: _Compile, *, card_raw: Any) -> None:
+    """G0 schema, G1 flowValid, G2 flow included, G3 policy engines."""
+    gates, card, flow = st.gates, st.card, st.flow
 
     # G0 schema
     if not is_authored(card_raw):
         gates.append(_gate("G0", "schema", "skipped", "empty agent_card — legacy mouth"))
     else:
         try:
-            card = AgentCard.model_validate(card_raw)
-            dump = card.model_dump(mode="json")
+            card = st.card = AgentCard.model_validate(card_raw)
+            st.dump = card.model_dump(mode="json")
             gates.append(_gate("G0", "schema", "pass"))
         except ValidationError as exc:
             issues = [
@@ -1061,23 +1128,35 @@ def compile_card(
         else:
             gates.append(_gate("G3", "policy_bindings", "pass"))
 
+
+def _tool_gates(
+    st: _Compile,
+    *,
+    channel_tools: set[str] | None,
+    attached_skills: list[SkillPack] | None,
+) -> None:
+    """G4 effective tools, G5 handoffs, G6 latency."""
+    gates, card, bot_id = st.gates, st.card, st.bot_id
+    catalog_names, known_bot_ids = st.catalog_names, st.known_bot_ids
+
     # G4 effective tools ⊆ catalog; locked mouth tools included
     if card is None:
         gates.append(_gate("G4", "tools", "skipped", "no card"))
     else:
-        packs, unresolved = _resolve_attached(card, attached_skills)
+        st.packs, st.unresolved = _resolve_attached(card, attached_skills)
+        packs = st.packs
         unknown = [n for n in card.tools.include if n not in catalog_names]
         # Connector binding happens inside the tool intersection. When it fails
         # the compile continues without the ext.* names, and G10 below reports
         # why instead of leaving the author a card that looks connector-less.
-        tools = effective_tools(
+        tools = st.tools = effective_tools(
             card,
             catalog_names=catalog_names,
             channel_tools=channel_tools,
             attached_skills=packs if (card.skills or attached_skills is not None) else None,
-            issues=connector_bind_issues,
+            issues=st.connector_bind_issues,
         )
-        idle = idle_offered_tools(
+        idle = st.idle = idle_offered_tools(
             card,
             catalog_names=catalog_names,
             attached_skills=packs if (card.skills or attached_skills is not None) else None,
@@ -1129,7 +1208,7 @@ def compile_card(
         gates.append(_gate("G6", "latency", "skipped", "no card"))
     else:
         voice = "voice" in card.identity.channels
-        skill_tokens = description_prefix_tokens(packs)
+        skill_tokens = st.skill_tokens = description_prefix_tokens(packs)
         # `max_voice_tools` caps what a *call* carries, so the count is of what
         # a call renders. No caller passes `channel_tools`, deliberately — a
         # publish gate reasons about every channel at once — so the text-only
@@ -1145,7 +1224,7 @@ def compile_card(
 
         voice_renderable = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
         catalog_specs = set(CATALOG.specs)
-        idle_count = len(
+        idle_count = st.idle_count = len(
             [
                 n
                 for n in idle
@@ -1154,7 +1233,7 @@ def compile_card(
             ]
         )
         cap = card.tools.max_voice_tools
-        tool_cap = cap
+        st.tool_cap = cap
         issues: list[dict[str, Any]] = []
         if voice and idle_count > cap:
             issues.append({"idle_tools": idle_count, "cap": cap})
@@ -1179,6 +1258,19 @@ def compile_card(
                     f"idle {idle_count} tools (cap {cap}); skill prefix {skill_tokens} tokens",
                 )
             )
+
+
+def _eval_gates(
+    st: _Compile,
+    *,
+    eval_report: dict[str, Any] | None,
+    redteam_report: dict[str, Any] | None,
+    twin_report: dict[str, Any] | None,
+    outbound_report: dict[str, Any] | None,
+    content_key: str | None,
+) -> None:
+    """G7 regression, G8 red-team, G-F14 provenance, G11 twin."""
+    gates, card, skip_eval_gates = st.gates, st.card, st.skip_eval_gates
 
     # G7 regression
     gates.append(
@@ -1224,6 +1316,20 @@ def compile_card(
             where=" — run it from the Sandbox inspector's Twin tab",
         )
     )
+
+
+def _ship_gates(
+    st: _Compile,
+    *,
+    traffic_pct: int | None,
+    auto_rollback: list[str] | None,
+    shadow: bool | None,
+    a2a_cert_ok: bool | None,
+) -> None:
+    """G9 signed skills, G10 connectors, G12 canary, G13 A2A."""
+    gates, card, bot_id, catalog_names = st.gates, st.card, st.bot_id, st.catalog_names
+    packs, unresolved, skip_eval_gates = st.packs, st.unresolved, st.skip_eval_gates
+    connector_bind_issues = st.connector_bind_issues
 
     # G9 signed skills + allowed-tools ⊆ catalog ∩ (include ∪ locked)
     if card is None or not card.skills:
@@ -1442,6 +1548,26 @@ def compile_card(
         else:
             gates.append(_gate("G13", "a2a_mtls", "pass", "partner mTLS cert on file"))
 
+
+def _flow_gates(
+    st: _Compile,
+    *,
+    outbound_report: dict[str, Any] | None,
+    prompt: str | None,
+    prompt_guardrails: dict[str, Any] | None,
+    has_publish: bool | None,
+    voice_short_name: str | None,
+    voice_locale: str | None,
+    card_locales: list[str] | None,
+    voice_provider: str | None,
+    bound_tts_providers: set[str] | frozenset[str] | None,
+) -> None:
+    """G-OB1..9 outbound, G-LINT, G14 publish, G15/G17 voice, G18 connector
+    offer, G16/G-F11/G-F4/G-F7 the graph against the grant."""
+    gates, card, flow, tools, packs = st.gates, st.card, st.flow, st.tools, st.packs
+    catalog_names, known_bot_ids = st.catalog_names, st.known_bot_ids
+    skip_eval_gates = st.skip_eval_gates
+
     # G-OB1..9 outbound. Skipped entirely on an inbound-only card, so every
     # card that exists today compiles exactly as it did.
     gates.extend(
@@ -1514,18 +1640,6 @@ def compile_card(
         gates.append(_text_walkability_gate(flow, tools, card))
         gates.append(_handoff_edge_gate(flow, card, tools))
         gates.append(_carry_gate(card))
-
-    return CompileReport(
-        bot_id=bot_id,
-        gates=gates,
-        effective_tools=tools,
-        idle_tools=idle,
-        idle_voice_tools=idle_count,
-        voice_tool_cap=tool_cap,
-        skill_description_tokens=skill_tokens,
-        mission_entries=_mission_entries(flow),
-        card=dump,
-    )
 
 
 def _eval_gate(
