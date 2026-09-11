@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS eval_tasks (
   name TEXT NOT NULL,
   grader TEXT NOT NULL,
   fixture jsonb NOT NULL DEFAULT '{}'::jsonb,
-  pass_bar TEXT NOT NULL DEFAULT 'all',
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_eval_tasks_suite_id ON eval_tasks(suite_id);

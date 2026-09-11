@@ -6,6 +6,18 @@ from typing import Any
 
 from sqlalchemy import text
 
+#: Which first-party pack a grader's lesson belongs to. Every critique used
+#: to be filed against ptp-negotiate whatever failed.
+_PACK_FOR_GRADER = {
+    "verify_before_ptp": "verify-and-disclose",
+    "dnd": "verify-and-disclose",
+    "no_prose_handoff": "ptp-negotiate",
+    "crm_card_injection": "verify-and-disclose",
+    "product_in_reco": "upsell-pitch",
+    "hardship_hold": "hardship-intake",
+    "skill_jailbreak": "ptp-negotiate",
+}
+
 _LINES = {
     "verify_before_ptp": "I need to verify your identity before we can set a promise to pay.",
     "dnd": "This number is on DND — I will not take a payment action on this call.",
@@ -41,7 +53,10 @@ def critique_from_report(report_id: str) -> list[dict[str, Any]]:
             verdict = trial.get("grader_verdicts") or {}
             grader = str(verdict.get("grader") or "")
             line = _LINES.get(grader)
-            if not line:
+            slug = _PACK_FOR_GRADER.get(grader)
+            # No pack to file against is no critique, not a critique against
+            # whichever pack came first.
+            if not line or not slug:
                 continue
             cid = db._id("SCR")
             diff = {
@@ -64,12 +79,12 @@ def critique_from_report(report_id: str) -> list[dict[str, Any]]:
                 {
                     "id": cid,
                     "t": db._tenant(),
-                    "slug": "ptp-negotiate",
+                    "slug": slug,
                     "report": report_id,
                     "diff": db._jsonb(diff),
                 },
             )
-            out.append(_public({"id": cid, "skill_slug": "ptp-negotiate", "report_id": report_id, "suggested_diff": diff, "status": "draft", "created_at": None}))
+            out.append(_public({"id": cid, "skill_slug": slug, "report_id": report_id, "suggested_diff": diff, "status": "draft", "created_at": None}))
     return out
 
 

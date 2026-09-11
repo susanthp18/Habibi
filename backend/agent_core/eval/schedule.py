@@ -9,31 +9,13 @@ from sqlalchemy import text
 from agent_core.eval.run import run_named_suite
 
 
-def scheduled_suite_ids() -> list[str]:
-    import db
-
-    with db.engine.connect() as conn:
-        rows = db._rows(
-            conn.execute(
-                text(
-                    """
-                    SELECT id FROM eval_suites
-                     WHERE tenant_id = :t
-                       AND kind IN ('regression','redteam','twin','capability')
-                     ORDER BY kind, id
-                    """
-                ),
-                {"t": db._tenant()},
-            )
-        )
-    return [str(r["id"]) for r in rows]
-
-
 def run_continuous(*, kinds: tuple[str, ...] | None = None) -> dict[str, Any]:
     """Run every first-party suite of the requested kinds. Red-team is never skipped."""
     import db
 
-    wanted = set(kinds or ("regression", "redteam", "twin", "capability"))
+    # `outbound` too: the suite G-OB9 gates on was never run by the
+    # scheduler, so its report was always the one filed by hand or never.
+    wanted = set(kinds or ("regression", "redteam", "twin", "capability", "outbound"))
     if "redteam" not in wanted:
         raise ValueError("redteam_required")
     reports: list[dict[str, Any]] = []

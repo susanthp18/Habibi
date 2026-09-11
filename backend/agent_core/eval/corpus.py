@@ -78,9 +78,9 @@ def grow_from_kept_promises(*, limit: int = 20) -> dict[str, Any]:
             conn.execute(
                 text(
                     """
-                    INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar)
+                    INSERT INTO eval_tasks (id, suite_id, name, grader, fixture)
                     VALUES (
-                      :id, :suite, :name, 'ptp_row', CAST(:fixture AS jsonb), 'all'
+                      :id, :suite, :name, 'ptp_row', CAST(:fixture AS jsonb)
                     )
                     ON CONFLICT (id) DO NOTHING
                     """

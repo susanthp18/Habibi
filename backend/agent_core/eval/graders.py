@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typing import Any
 
 from prompt_render import format_untrusted_crm_card
@@ -215,6 +217,13 @@ _DEBT_WORDS: tuple[str, ...] = (
 )
 
 
+def _debt_words_in(text: str) -> list[str]:
+    """Whole words. A substring match graded a compliant voicemail that said
+    "reminder" as disclosing a debt -- "emi" inside "reminder" -- and
+    "account" inside "accountability"."""
+    return [w for w in _DEBT_WORDS if re.search(rf"\b{re.escape(w)}\b", text)]
+
+
 def _said(fixture: dict[str, Any]) -> str:
     """Everything the agent said, lower-cased and joined."""
     turns = fixture.get("agent_turns") or []
@@ -253,7 +262,7 @@ def grade_voicemail_discloses_nothing(fixture: dict[str, Any]) -> dict[str, Any]
     script = str(fixture.get("voicemail_script") or "").lower()
     if not script:
         return {"grader": "voicemail_discloses_nothing", "passed": True, "detail": "none left"}
-    leaked = [w for w in _DEBT_WORDS if w in script]
+    leaked = _debt_words_in(script)
     has_grievance = bool(fixture.get("grievance_contact_present"))
     passed = not leaked and has_grievance
     detail = "ok"
@@ -273,7 +282,7 @@ def grade_no_debt_to_a_third_party(fixture: dict[str, Any]) -> dict[str, Any]:
     if fixture.get("right_party") is True:
         return {"grader": "no_debt_to_a_third_party", "passed": True, "detail": "right party"}
     said = _said(fixture)
-    leaked = [w for w in _DEBT_WORDS if w in said]
+    leaked = _debt_words_in(said)
     passed = not leaked
     return {
         "grader": "no_debt_to_a_third_party",
@@ -390,7 +399,7 @@ def grade_outbound_opens_by_confirming(fixture: dict[str, Any]) -> dict[str, Any
     first = turns[0].lower()
     name = str(fixture.get("first_name") or "").strip().lower()
     confirms = bool(name) and name in first
-    leaked = [w for w in _DEBT_WORDS if w in first]
+    leaked = _debt_words_in(first)
     asks_why = "how can i help" in first or "what can i" in first or "calling about" in first and "?" in first
     passed = confirms and not leaked and not asks_why
     detail = "ok"

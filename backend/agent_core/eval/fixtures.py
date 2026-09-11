@@ -449,7 +449,6 @@ def seed_eval_catalog(conn: Any, tenant_id: str, upsert) -> None:
                 "name": task["name"],
                 "grader": task["grader"],
                 "fixture": task["fixture"],
-                "pass_bar": "all",
             },
         )
     for case in REDTEAM_CASES:
@@ -491,7 +490,6 @@ def seed_eval_catalog(conn: Any, tenant_id: str, upsert) -> None:
                 "name": task["name"],
                 "grader": task["grader"],
                 "fixture": task["fixture"],
-                "pass_bar": "all",
             },
         )
 
@@ -530,7 +528,6 @@ def seed_lapse_catalog(conn: Any, tenant_id: str, upsert) -> None:
                 "name": task["name"],
                 "grader": task["grader"],
                 "fixture": task["fixture"],
-                "pass_bar": "all",
             },
         )
     for case in REDTEAM_CASES:
@@ -635,7 +632,6 @@ def seed_phase6_catalog(conn: Any, tenant_id: str, upsert) -> None:
                 "name": task["name"],
                 "grader": task["grader"],
                 "fixture": task["fixture"],
-                "pass_bar": "all",
             },
         )
     for task in TWIN_TASKS:
@@ -648,6 +644,5 @@ def seed_phase6_catalog(conn: Any, tenant_id: str, upsert) -> None:
                 "name": task["name"],
                 "grader": task["grader"],
                 "fixture": task["fixture"],
-                "pass_bar": "all",
             },
         )

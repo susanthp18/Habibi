@@ -37,8 +37,8 @@ def graduate_task(task_id: str) -> dict[str, Any]:
         conn.execute(
             text(
                 """
-                INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar)
-                VALUES (:id, :suite, :name, :grader, CAST(:fixture AS jsonb), 'all')
+                INSERT INTO eval_tasks (id, suite_id, name, grader, fixture)
+                VALUES (:id, :suite, :name, :grader, CAST(:fixture AS jsonb))
                 ON CONFLICT (id) DO NOTHING
                 """
             ),

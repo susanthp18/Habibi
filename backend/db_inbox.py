@@ -1784,10 +1784,21 @@ def save_eval_report(
                     if str(trial.get("taskId") or "").startswith("rt-")
                     else None,
                     "passed": bool(trial.get("passed")),
-                    "transcript": _jsonb([]),
-                    "tools": _jsonb([]),
-                    "crm": _jsonb({}),
-                    "verdicts": _jsonb(trial.get("verdict") or {}),
+                    # The fixture the grader saw, in the columns that were
+                    # always written as empty literals -- so a red report can
+                    # be opened, not only counted.
+                    "transcript": _jsonb(
+                        (trial.get("fixture") or {}).get("agent_turns")
+                        or (trial.get("fixture") or {}).get("transcript")
+                        or []
+                    ),
+                    "tools": _jsonb((trial.get("fixture") or {}).get("tool_calls") or []),
+                    "crm": _jsonb(
+                        {k: v for k, v in (trial.get("fixture") or {}).items() if k not in {"agent_turns", "transcript", "tool_calls"}}
+                    ),
+                    "verdicts": _jsonb(
+                        {**(trial.get("verdict") or {}), **({"error": trial["error"]} if trial.get("error") else {})}
+                    ),
                 },
             )
     return {"id": rid, "status": status, "summary": summary, "botId": bot_id, "suiteId": suite_id, "origin": origin}
