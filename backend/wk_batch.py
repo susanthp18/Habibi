@@ -307,7 +307,12 @@ def _finish(
 
 def main() -> int:
     import actor_context
+    import observability
 
+    # Like its four siblings. Without a handler on the root logger every
+    # `logger.info` in this process was discarded and WARNING+ fell to
+    # `logging.lastResort` unformatted -- the batch worker ran blind.
+    observability.setup_logging()
     actor_context.bind_service_actor("system")
     while True:
         if not process_one(db.engine):

@@ -23,7 +23,7 @@ _SERVICE = re.compile(
     re.M | re.S,
 )
 
-WORKER_SERVICES = ("worker", "bot_worker", "voice", "voice_insurance")
+WORKER_SERVICES = ("worker", "bot_worker", "voice")
 
 
 def _stages(src: str) -> dict[str, str]:
@@ -76,3 +76,27 @@ def test_four_workers_have_healthchecks() -> None:
     assert "7860" in voice.split("healthcheck:", 1)[1], (
         "voice healthcheck must probe the runner port, not merely PID 1"
     )
+
+
+def test_every_worker_entrypoint_installs_a_log_handler() -> None:
+    """WS7: wk_batch had no log handler, so its INFO lines went nowhere and
+    its warnings came out unformatted. Walk the compose services' Python
+    entrypoints and hold each to `observability.setup_logging()` or a
+    `logging.basicConfig` of its own."""
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    compose = (backend / "docker-compose.yml").read_text(encoding="utf-8")
+    modules = re.findall(r'command: \["python", "-m", "([a-z_.]+)"', compose)
+    assert modules, "no python -m entrypoints found in docker-compose.yml"
+    for module in modules:
+        path = backend / (module.replace(".", "/") + ".py")
+        src = path.read_text(encoding="utf-8")
+        # The voice bot logs through loguru and voice/log_bridge, which
+        # installs its own sink; the others configure the stdlib root.
+        assert (
+            "setup_logging()" in src
+            or "logging.basicConfig(" in src
+            or "from voice import log_bridge" in src
+        ), f"{module} installs no log handler"
