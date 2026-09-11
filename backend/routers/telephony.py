@@ -32,7 +32,6 @@ from schemas import (
     VoiceSandboxTuneResponse,
     VoiceStatusResponse,
 )
-from sqlalchemy import text
 from typing import Any
 
 from api_support import EMBEDDED_VOICE_HOST as _EMBEDDED_VOICE_HOST, _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
@@ -335,21 +334,17 @@ async def twilio_voice_call_status(request: Request):
     if not call_sid or not status:
         return Response(status_code=204)
 
-    import outbound
-
-    def _apply() -> dict[str, Any] | None:
-        with db.engine.begin() as conn:
-            return outbound.apply_provider_status(
-                conn,
-                provider_call_id=call_sid,
-                status=status,
-                duration_sec=duration,
-                error_code=error_code,
-                answered_by=answered_by,
-            )
+    import db_outbound
 
     try:
-        row = await asyncio.to_thread(_apply)
+        row = await asyncio.to_thread(
+            db_outbound.apply_provider_status,
+            provider_call_id=call_sid,
+            status=status,
+            duration_sec=duration,
+            error_code=error_code,
+            answered_by=answered_by,
+        )
     except Exception:
         # A 500 here makes Twilio retry, which is the right behaviour for a
         # transient database blip and the reason this is not swallowed silently.
@@ -393,36 +388,14 @@ async def twilio_sms_status(request: Request):
         # how a receipt log becomes an incident.
         return Response(status_code=204)
 
-    def _record() -> None:
-        with db.engine.begin() as conn:
-            origin = conn.execute(
-                text(
-                    """
-                    SELECT tenant_id, customer_id, related_id
-                    FROM contact_delivery_events
-                    WHERE provider = 'twilio' AND provider_ref = :sid
-                    ORDER BY occurred_at ASC
-                    LIMIT 1
-                    """
-                ),
-                {"sid": sid},
-            ).mappings().first()
-            if origin is None:
-                logger.info("twilio sms status for unknown sid=%s state=%s", sid, state)
-                return
-            delivery_receipts.record(
-                conn,
-                tenant_id=str(origin["tenant_id"]),
-                customer_id=str(origin["customer_id"]),
-                channel="sms",
-                provider="twilio",
-                provider_ref=sid,
-                related_id=origin["related_id"],
-                state=state,
-                reason=str(form.get("ErrorCode") or "") or None,
-            )
-
-    await asyncio.to_thread(_record)
+    known = await asyncio.to_thread(
+        delivery_receipts.record_twilio_sms_status,
+        sid=sid,
+        state=state,
+        reason=str(form.get("ErrorCode") or "") or None,
+    )
+    if not known:
+        logger.info("twilio sms status for unknown sid=%s state=%s", sid, state)
     return Response(status_code=204)
 
 @router.post(
@@ -450,40 +423,26 @@ async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Req
     objective = payload.objective.strip() or "manual_outbound"
     account_id = (payload.accountId or "").strip() or None
 
-    import mission as mission_mod
+    import db_outbound
     import outbound
 
     # An operator's double-click, or a client that retried a 502, must not ring
     # the borrower twice. The header is the key when the client sends one; a
     # client that does not gets one dial per request, as before.
     idem = (request.headers.get("Idempotency-Key") or "").strip() or None
+    bot_id = str(payload.botId or db.DEFAULT_BOT_ID)
 
-    def _gate() -> outbound.Gated:
-        with db.engine.begin() as conn:
-            built = None
-            bot_id = str(payload.botId or db.DEFAULT_BOT_ID)
-            if customer_id:
-                built = mission_mod.build(
-                    conn,
-                    customer_id=customer_id,
-                    objective=objective,
-                    account_id=account_id,
-                    card=mission_mod.card_for_bot(bot_id),
-                    bot_id=bot_id,
-                )
-            return outbound.gate(
-                conn,
-                idempotency_key=f"operator:{idem}" if idem else None,
-                admit={"source": "voice_outbound", "actor_kind": "human"},
-                customer_id=customer_id or None,
-                to_phone=to,
-                objective=objective,
-                account_id=account_id,
-                bot_id=bot_id,
-                context={"source": "manual_endpoint", "mission": built},
-            )
-
-    gated = await asyncio.to_thread(_gate)
+    # Reservation and gate run in persistence's own transaction; the handler
+    # only dials what the gate allowed.
+    gated = await asyncio.to_thread(
+        db_outbound.reserve_operator_attempt,
+        idempotency_key=f"operator:{idem}" if idem else None,
+        customer_id=customer_id,
+        to_phone=to,
+        objective=objective,
+        account_id=account_id,
+        bot_id=bot_id,
+    )
     attempt = gated.attempt
     if gated.existing:
         # Same key, same answer: the attempt this key already made.

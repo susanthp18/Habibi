@@ -57,6 +57,42 @@ def normalise_twilio(status: str | None) -> str | None:
     return _TWILIO_STATES.get((status or "").strip().lower())
 
 
+def record_twilio_sms_status(*, sid: str, state: str, reason: str | None) -> bool:
+    """Twilio's SMS status callback, attributed to the send that made it.
+
+    Returns False (and records nothing) when the sid is not one we sent.
+    """
+    import db
+
+    with db.engine.begin() as conn:
+        origin = conn.execute(
+            text(
+                """
+                SELECT tenant_id, customer_id, related_id
+                FROM contact_delivery_events
+                WHERE provider = 'twilio' AND provider_ref = :sid
+                ORDER BY occurred_at ASC
+                LIMIT 1
+                """
+            ),
+            {"sid": sid},
+        ).mappings().first()
+        if origin is None:
+            return False
+        record(
+            conn,
+            tenant_id=str(origin["tenant_id"]),
+            customer_id=str(origin["customer_id"]),
+            channel="sms",
+            provider="twilio",
+            provider_ref=sid,
+            related_id=origin["related_id"],
+            state=state,
+            reason=reason,
+        )
+    return True
+
+
 def record(
     conn: Any,
     *,

@@ -136,6 +136,69 @@ def hourly_reach(customer_id: str, *, days: int) -> list[dict[str, Any]]:
         return outbound.hourly_reach(conn, customer_id=customer_id, days=days)
 
 
+def reserve_operator_attempt(
+    *,
+    idempotency_key: str | None,
+    customer_id: str | None,
+    to_phone: str,
+    objective: str,
+    account_id: str | None,
+    bot_id: str,
+) -> Any:
+    """The operator dial's reservation and gate, in one transaction.
+
+    The attempt row is written and committed before the dial so a refusal has
+    something to attach to; ``outbound.gate`` owns that order.
+    """
+    import mission as mission_mod
+    import outbound
+
+    with _db().engine.begin() as conn:
+        built = None
+        if customer_id:
+            built = mission_mod.build(
+                conn,
+                customer_id=customer_id,
+                objective=objective,
+                account_id=account_id,
+                card=mission_mod.card_for_bot(bot_id),
+                bot_id=bot_id,
+            )
+        return outbound.gate(
+            conn,
+            idempotency_key=idempotency_key,
+            admit={"source": "voice_outbound", "actor_kind": "human"},
+            customer_id=customer_id or None,
+            to_phone=to_phone,
+            objective=objective,
+            account_id=account_id,
+            bot_id=bot_id,
+            context={"source": "manual_endpoint", "mission": built},
+        )
+
+
+def apply_provider_status(
+    *,
+    provider_call_id: str,
+    status: str,
+    duration_sec: int | None,
+    error_code: str | None,
+    answered_by: str | None,
+) -> dict[str, Any] | None:
+    """Twilio's call-status callback applied to the attempt (``outbound.apply_provider_status``)."""
+    import outbound
+
+    with _db().engine.begin() as conn:
+        return outbound.apply_provider_status(
+            conn,
+            provider_call_id=provider_call_id,
+            status=status,
+            duration_sec=duration_sec,
+            error_code=error_code,
+            answered_by=answered_by,
+        )
+
+
 def record_decision_feedback(
     decision_id: str, body: Any, *, tenant_id: str, actor_user_id: str
 ) -> dict[str, Any]:
