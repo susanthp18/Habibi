@@ -172,6 +172,12 @@ export function useSandboxLiveCall(args: Args) {
   }, [status]);
 
   const end = useCallback(async () => {
+    // Invalidate any start() still in flight. Every await in start() re-checks
+    // the generation, but only start() itself used to bump it, so End pressed
+    // during the handshake let the connect complete afterwards -- with the
+    // mic hot and the status "ended".
+    startGenRef.current += 1;
+    startingRef.current = false;
     stopBotAudio();
     try {
       if (clientRef.current) {
@@ -622,6 +628,7 @@ export function useSandboxLiveCall(args: Args) {
   // leave the voice session live until server-side idle/duration safeguards.
   useEffect(
     () => () => {
+      startGenRef.current += 1;
       stopBotAudio();
       void clientRef.current?.disconnect();
       clientRef.current = null;
