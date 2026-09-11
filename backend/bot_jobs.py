@@ -38,7 +38,9 @@ def bot_runtime_enabled() -> bool:
 
 
 def bot_environment() -> str:
-    return (os.getenv("BOT_ENVIRONMENT") or "production").strip() or "production"
+    from agent_core.deployment import active_environment
+
+    return active_environment()
 
 
 def max_attempts() -> int:

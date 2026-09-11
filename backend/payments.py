@@ -22,7 +22,6 @@ from env_loader import load_env
 
 logger = logging.getLogger(__name__)
 
-IST = "Asia/Kolkata"
 OPEN_PROMISE_STATUSES = ("upcoming", "due_today", "partial")
 
 

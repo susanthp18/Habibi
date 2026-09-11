@@ -497,7 +497,6 @@ async def run_bot(transport, runner_args) -> None:
                 bundle["kbSnapshotId"] = sandbox_session["kbSnapshotId"]
         else:
             bundle = load_active_bundle(
-                "production",
                 fallback_environments=("sandbox",),
                 bot_id=cohort_bot_id,
                 customer_id=cohort_key,

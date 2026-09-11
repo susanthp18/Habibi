@@ -45,6 +45,7 @@ from sqlalchemy.engine import Engine
 
 import flow_graph as fg
 import outbound
+from agent_core import clock
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ STATUS_PAUSED = "paused"
 STATUS_FINISHED = "finished"
 STATUS_CANCELLED = "cancelled"
 
-DEFAULT_TZ = "Asia/Kolkata"
+DEFAULT_TZ = clock.DEFAULT_TIMEZONE
 
 
 def enabled() -> bool:

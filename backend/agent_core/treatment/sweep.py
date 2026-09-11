@@ -57,6 +57,7 @@ from sqlalchemy.engine import Engine
 from agent_core.treatment import config
 from agent_core.treatment.features import zone
 from env_utils import env_bool
+from agent_core import clock
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,7 @@ def _process_sharded(conn: Any) -> bool:
     from bank_boundary.facts import SHARD_VERSION
 
     owner = (os.getenv("HOSTNAME") or f"wk-batch-{uuid.uuid4().hex[:8]}")[:100]
-    local_date = datetime.now(timezone.utc).astimezone(zone("Asia/Kolkata")).date()
+    local_date = clock.today_local()
     conn.execute(
         text(
             """

@@ -24,11 +24,12 @@ from sqlalchemy.engine import Engine
 
 import webhooks_dispatch
 from contact_policy import BLOCKING_CONSENT
+from agent_core import clock
 from env_loader import load_env
 
 logger = logging.getLogger(__name__)
 
-IST = ZoneInfo("Asia/Kolkata")
+IST = clock.tenant_tz()
 OPEN_INTENT = ("created", "sent", "opened")
 
 
@@ -894,10 +895,11 @@ def settle_promises(engine: Engine | Any) -> dict[str, int]:
                 UPDATE promises
                 SET status = 'due_today'
                 WHERE status = 'upcoming'
-                  AND (promised_at AT TIME ZONE 'Asia/Kolkata')::date
-                    = (now() AT TIME ZONE 'Asia/Kolkata')::date
+                  AND (promised_at AT TIME ZONE :tz)::date
+                    = (now() AT TIME ZONE :tz)::date
                 """
-            )
+            ),
+            {"tz": clock.timezone_name()},
         ).rowcount or 0
         expired = conn.execute(
             text(
@@ -933,14 +935,14 @@ def _overdue_batch(conn: Any) -> list[dict[str, Any]]:
                 FROM promises
                 WHERE status IN ('upcoming','due_today')
                   AND paid_amount < amount
-                  AND (promised_at AT TIME ZONE 'Asia/Kolkata')::date
-                    < (now() AT TIME ZONE 'Asia/Kolkata')::date
+                  AND (promised_at AT TIME ZONE :tz)::date
+                    < (now() AT TIME ZONE :tz)::date
                 ORDER BY promised_at
                 FOR UPDATE SKIP LOCKED
                 LIMIT :n
                 """
             ),
-            {"n": _SETTLE_BATCH},
+            {"n": _SETTLE_BATCH, "tz": clock.timezone_name()},
         ).mappings()
     ]
 

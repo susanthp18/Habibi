@@ -40,6 +40,7 @@ from agent_core.treatment import schema_ready
 #: transaction. One definition, shared with contact_policy._zone's policy.
 import contact_policy
 import policy_rules
+from agent_core import clock
 
 _SAFE_TZ = contact_policy.safe_tz_sql("c.timezone")
 
@@ -56,7 +57,7 @@ logger = logging.getLogger(__name__)
 #: this account" and learn that mandates are rare.
 SCHEMA_VERSION = "v4"
 
-DEFAULT_TZ = "Asia/Kolkata"
+DEFAULT_TZ = clock.DEFAULT_TIMEZONE
 
 #: ``treatment_holds.source`` values that mean "the bot raised this from what
 #: the borrower said". Such a hold still vetoes exactly as any other does; it

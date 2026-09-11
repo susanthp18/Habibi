@@ -7,6 +7,7 @@ resolve runtime config through this module so they cannot drift.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import db
@@ -15,8 +16,20 @@ from agent_core.tuning import default_tuning, normalize_tuning
 logger = logging.getLogger(__name__)
 
 
+def active_environment() -> str:
+    """Which deployment environment this process serves.
+
+    Five spellings of "am I live" used to disagree: the text mouth read
+    ``BOT_ENVIRONMENT``, the voice mouth wrote ``"production"`` in two
+    places, and the bundle loader defaulted to a third literal. One process
+    could serve production text and sandbox voice. This is the one answer;
+    every default below reads it at call time.
+    """
+    return (os.getenv("BOT_ENVIRONMENT") or "production").strip() or "production"
+
+
 def load_active_bundle(
-    environment: str = "production",
+    environment: str | None = None,
     *,
     bot_id: str | None = None,
     fallback_environments: tuple[str, ...] = (),
@@ -29,7 +42,7 @@ def load_active_bundle(
     hash-splits a running canary experiment; retired baselines load by id.
     """
     envs: list[str] = []
-    for env in (environment, *fallback_environments):
+    for env in (environment or active_environment(), *fallback_environments):
         if env and env not in envs:
             envs.append(env)
     deployment: dict[str, Any] | None = None
@@ -178,11 +191,12 @@ def _dual_compute_parity(bundle: dict[str, Any]) -> None:
 def resolve_prompt_bundle(
     *,
     prompt_version_id: str | None = None,
-    environment: str = "production",
+    environment: str | None = None,
     bot_id: str | None = None,
     fallback_environments: tuple[str, ...] = ("production",),
 ) -> dict[str, Any]:
     """Resolve an explicit prompt version, else the active deployment bundle."""
+    environment = environment or active_environment()
     if prompt_version_id:
         version = db.get_prompt_version(prompt_version_id)
         if not version:

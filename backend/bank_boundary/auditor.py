@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 
 from bank_boundary import schema_ready
+from agent_core import clock
 
 CONTRACTED_FLOOR = 0.95
 EXPECTED_SOURCES = ("internal", "c7")
@@ -155,7 +156,7 @@ def _breaches(
         counts[key] += 1
         if counts[key] > daily_cap:
             breaches.append({"kind": "daily_cap", "customer_id": cid, "at": at})
-        local = at.astimezone(ZoneInfo("Asia/Kolkata"))
+        local = at.astimezone(clock.tenant_tz())
         if local.hour < 8 or local.hour >= 19:
             breaches.append({"kind": "calling_window", "customer_id": cid, "at": at})
         if _hold_active_at(conn, tenant_id=tenant_id, customer_id=cid, at=at):

@@ -21,6 +21,7 @@ from agent_core.treatment.features import (
 )
 from agent_core.treatment.policy import STALE_SNAPSHOT as _STALE_SNAPSHOT
 from env_utils import NON_PROD_ENVS, env_int, env_name
+from agent_core import clock
 
 #: Re-exported, not restated. ``policy.py`` is the one place that decides what a
 #: stale input *does*, so the string it vetoes on and the string this module
@@ -108,7 +109,7 @@ class SnapshotFeatureProvider:
                    WHERE s.customer_id = :cid
                      AND (CAST(:aid AS TEXT) IS NULL OR s.account_id = :aid)
                      AND s.feature_schema_version = :version
-                     AND s.as_of_date <= (:now AT TIME ZONE 'Asia/Kolkata')::date
+                     AND s.as_of_date <= (:now AT TIME ZONE :tz)::date
                    ORDER BY s.as_of_date DESC, s.known_from DESC
                    LIMIT 1
                 )
@@ -153,6 +154,7 @@ class SnapshotFeatureProvider:
                 "aid": account_id,
                 "version": SCHEMA_VERSION,
                 "now": now,
+                "tz": clock.timezone_name(),
             },
         ).mappings().first()
         if row is None:

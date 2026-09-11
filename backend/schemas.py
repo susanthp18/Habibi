@@ -11,6 +11,7 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, UrlConstraints, m
 import contact_window
 from agent_core.fleet.schema import CompiledBundle
 from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
+from agent_core import clock
 
 
 class FlowToolResponse(BaseModel):
@@ -56,7 +57,7 @@ class ContactResponse(BaseModel):
     phoneAlt: str | None = None
     email: str = ""
     address: str = ""
-    timezone: str = "Asia/Kolkata"
+    timezone: str = clock.DEFAULT_TIMEZONE
     language: str = "English"
     #: The window a customer with nothing on file is assumed to allow. One
     #: constant, shared with the contact Gate: this used to read

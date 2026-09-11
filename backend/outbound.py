@@ -62,6 +62,7 @@ from sqlalchemy import text
 
 import circuit_breaker
 from env_utils import env_bool, env_int
+from agent_core import clock
 
 logger = logging.getLogger(__name__)
 
@@ -1436,7 +1437,7 @@ def hourly_reach(conn: Any, *, customer_id: str, days: int = 90) -> list[dict[st
                 (SELECT n.name FROM pg_timezone_names n
                   WHERE n.name = btrim(split_part(COALESCE(c.timezone, ''), '(', 1))
                   LIMIT 1),
-                'Asia/Kolkata')))::int AS hour,
+                :tz)))::int AS hour,
               count(*)                                        AS attempts,
               count(*) FILTER (WHERE a.answered_at IS NOT NULL) AS answered
             FROM call_attempts a
@@ -1448,7 +1449,7 @@ def hourly_reach(conn: Any, *, customer_id: str, days: int = 90) -> list[dict[st
             ORDER BY 1
             """
         ),
-        {"cid": customer_id, "days": max(1, int(days))},
+        {"cid": customer_id, "days": max(1, int(days)), "tz": clock.timezone_name()},
     ).mappings().all()
     return [
         {

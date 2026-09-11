@@ -240,8 +240,8 @@ def _max_attempts() -> int:
 
 # `finish` and `park_input_required` used to UPDATE unconditionally, so a late
 # worker could move a cancelled or completed job back to `failed`, and a stale
-# one could re-park a job an operator had already approved. Both now require
-# `working` -- the only status a worker holds.
+# one could re-park a job an operator had already approved. `finish` now
+# requires `working`; `park` accepts a live job (submitted or working).
 
 
 def finish(job_id: str, *, ok: bool, result: dict[str, Any] | None = None, error: str | None = None) -> bool:
@@ -275,7 +275,7 @@ def park_input_required(job_id: str, reason: str) -> None:
                 UPDATE work_runtime_jobs
                    SET status = 'input_required', input_required_reason = :r,
                        locked_at = NULL, updated_at = now()
-                 WHERE id = :id AND tenant_id = :t AND status = 'working'
+                 WHERE id = :id AND tenant_id = :t AND status IN ('submitted', 'working')
                 """
             ),
             {"id": job_id, "t": db._tenant(), "r": reason},

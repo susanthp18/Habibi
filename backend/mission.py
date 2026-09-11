@@ -503,7 +503,7 @@ def resolve_outbound_bot_id(
 def card_for_bot(
     bot_id: str | None,
     *,
-    environment: str = "production",
+    environment: str | None = None,
     customer_id: str | None = None,
 ) -> Any | None:
     """The published card for this agent, or None.
@@ -526,7 +526,9 @@ def card_for_bot(
         import db as dbmod
 
         from agent_core.canary import pick_deployment_id
+        from agent_core.deployment import active_environment
 
+        environment = environment or active_environment()
         dep_id = pick_deployment_id(bot, environment=environment, customer_id=customer_id)
         deployment = dbmod.get_deployment(dep_id) if dep_id else None
         if not deployment:
