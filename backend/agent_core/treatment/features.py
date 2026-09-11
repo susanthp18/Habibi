@@ -39,6 +39,7 @@ from agent_core.treatment import schema_ready
 #: seeded data. An unrecognised zone does not fail one row -- it aborts the
 #: transaction. One definition, shared with contact_policy._zone's policy.
 import contact_policy
+import policy_rules
 
 _SAFE_TZ = contact_policy.safe_tz_sql("c.timezone")
 
@@ -254,6 +255,11 @@ class AccountFeatures:
     #: exactly what ``contact_policy`` vetoes against — see
     #: ``contact_policy.parse_allowed_hours``.
     allowed_hours: tuple[int, int] | None = None
+    #: The tenant's published voice calling window (else the statutory bound),
+    #: resolved here where the connection is. The planner intersects it with
+    #: ``allowed_hours``; reading a constant there planned 08:30 slots for a
+    #: tenant whose published rule set the gate then refused at 08:30.
+    calling_window: tuple[int, int] = (8, 19)
     allowed_days: tuple[int, ...] | None = None
     preferred_window: str | None = None
     timezone_name: str | None = None
@@ -401,6 +407,7 @@ class AccountFeatures:
             "dnd": self.dnd,
             "consentByChannel": dict(self.consent_by_channel),
             "allowedHours": list(self.allowed_hours) if self.allowed_hours else None,
+            "callingWindow": list(self.calling_window),
             "allowedDays": list(self.allowed_days) if self.allowed_days else None,
             "preferredWindow": self.preferred_window,
             "timezone": self.timezone_name,
@@ -552,6 +559,7 @@ class SqlFeatureProvider:
             dnd=bool(base["dnd"] or base["dnd_registry"]),
             consent_by_channel=consent,
             allowed_hours=_hours,
+            calling_window=policy_rules.calling_window(conn, "voice", tenant_id=base["tenant_id"]),
             allowed_days=_days,
             preferred_window=base["preferred_window"],
             timezone_name=base["timezone"],

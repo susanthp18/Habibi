@@ -13,6 +13,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+import policy_rules
+
 # Speakers that represent *us*. A rule about what the lender said must never
 # fire on the borrower's own words — the borrower is allowed to swear at us.
 OUR_SPEAKERS = frozenset({"agent", "bot"})
@@ -58,6 +60,10 @@ class ScanContext:
     disclosures_read: frozenset[str] = frozenset()
     #: Customer's timezone name, for the calling-window rule.
     timezone: str | None = None
+    #: The tenant's published calling window (else the statutory bound),
+    #: resolved once where the connection is so the detector judges the call
+    #: against the rule the gate admitted it under.
+    calling_window: tuple[int, int] = (8, 19)
     #: True when the customer had an active DND / opt-out at contact time.
     on_dnd: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
@@ -171,4 +177,5 @@ def load_context(conn: Any, interaction_id: str) -> ScanContext | None:
         disclosures_read=disclosures,
         timezone=row["timezone"],
         on_dnd=bool(row["on_dnd"]),
+        calling_window=policy_rules.calling_window(conn, "voice", tenant_id=row["tenant_id"]),
     )

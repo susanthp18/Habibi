@@ -890,9 +890,14 @@ def evaluate_and_flag_bot_turn(
 
         hour = now_hour if now_hour is not None else now_local().hour
         with db.engine.begin() as conn:
+            import policy_rules
+
             live_result = evaluate_live_qa(
                 TurnFacts(
                     channel=channel or "voice",
+                    calling_window=policy_rules.calling_window(
+                        conn, "voice", tenant_id=db.current_tenant()
+                    ),
                     bot_text=bot_text,
                     customer_text=customer_text,
                     turn_index=turn_index,

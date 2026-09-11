@@ -50,6 +50,8 @@ from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 
+from agent_core.clock import as_utc
+
 logger = logging.getLogger(__name__)
 
 SCOPE_STATUTORY = "statutory"
@@ -354,6 +356,35 @@ class RuleSet:
 
 EMPTY = RuleSet()
 
+#: The calling window when no rule set is published: 08:00-19:00 local, the
+#: conservative platform bound. It stays because "unregulated by the rules
+#: table" must not mean "unrestricted" -- a fresh install obeys it. Every
+#: reader of the statutory window goes through :func:`calling_window`; this
+#: pair is what that function answers when the tenant has published nothing,
+#: and nothing else in the tree restates the numbers.
+STATUTORY_VOICE_WINDOW: tuple[int, int] = (8, 19)
+
+
+def calling_window(
+    conn: Any,
+    channel: str = "voice",
+    *,
+    tenant_id: str | None,
+    at: datetime | None = None,
+    product_id: str | None = None,
+) -> tuple[int, int]:
+    """The published ``[start, end)`` local hours for ``channel``, else the bound.
+
+    Nine sites decided "is this hour inside the window" and two consulted the
+    published rule set; the other seven read the constant, so a tenant that
+    published 09-18 narrowed the gate and nothing else -- the scheduler still
+    planned 08:30 slots the gate then refused, and the detector flagged
+    18:30 calls the gate had admitted. Never raises (``resolve`` degrades to
+    ``EMPTY``), so a caller may hold it in a hot path.
+    """
+    rules = resolve(conn, tenant_id=tenant_id, at=at, product_id=product_id)
+    return rules.calling_window(channel) or STATUTORY_VOICE_WINDOW
+
 
 def _opt_int(value: Any) -> int | None:
     if value is None or isinstance(value, bool):
@@ -558,7 +589,7 @@ def resolve(
     before this module existed, which is a known-good state rather than an
     outage.
     """
-    instant = _aware(at)
+    instant = as_utc(at) or datetime.now(timezone.utc)
     key = (
         str(tenant_id or ""),
         str(product_id or ""),
@@ -682,14 +713,6 @@ def _resolve_uncached(
         rules=merged,
         consulted=tuple(consulted),
     )
-
-
-def _aware(value: datetime | None) -> datetime:
-    if value is None:
-        return datetime.now(timezone.utc)
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

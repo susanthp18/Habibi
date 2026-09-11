@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from contact_policy import RBI_VOICE_END, RBI_VOICE_START
+import policy_rules
 from agent_core.clock import to_local
 
 logger = logging.getLogger(__name__)
@@ -237,7 +237,7 @@ def _score(interaction_id: str) -> dict[str, Any] | None:
         if not criteria:
             return None
 
-    hours_fail = _hours_fail(row)
+    hours_fail = _hours_fail(row, policy_rules.calling_window(conn, "voice", tenant_id=db.current_tenant()))
     if hours_fail and "hours-breach" not in flags:
         flags.append("hours-breach")
 
@@ -279,7 +279,7 @@ def _score(interaction_id: str) -> dict[str, Any] | None:
         raise
 
 
-def _hours_fail(row: Any) -> bool:
+def _hours_fail(row: Any, window: tuple[int, int]) -> bool:
     channel = (row.get("channel") or "voice").lower()
     if channel != "voice":
         return False
@@ -289,7 +289,8 @@ def _hours_fail(row: Any) -> bool:
     if getattr(started, "tzinfo", None) is None:
         started = started.replace(tzinfo=timezone.utc)
     local = to_local(started)
-    return local.hour < RBI_VOICE_START or local.hour >= RBI_VOICE_END
+    start_hour, end_hour = window
+    return local.hour < start_hour or local.hour >= end_hour
 
 
 def _entry_for(

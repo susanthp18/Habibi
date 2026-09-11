@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import text
 
 import contact_window
+import policy_rules
 from env_utils import env_int
 
 logger = logging.getLogger(__name__)
@@ -78,11 +79,9 @@ REASON_WINDOW_DEFERRED_STATUTORY = "window_deferred_statutory"
 #: named ``data_purpose`` everywhere it appears.
 DATA_PURPOSES = frozenset({"servicing", "promotional"})
 
-#: The fallback calling window, used when no statutory rule set is published.
-#: These stay because "unregulated by the rules table" must not mean
-#: "unrestricted" — a fresh install with no seed data still obeys the window.
-RBI_VOICE_START = 8
-RBI_VOICE_END = 19
+#: The fallback calling window, owned by policy_rules.STATUTORY_VOICE_WINDOW
+#: and read here under the names this module has always exported.
+RBI_VOICE_START, RBI_VOICE_END = policy_rules.STATUTORY_VOICE_WINDOW
 DEFAULT_TZ = "Asia/Kolkata"
 _DAY_NAME_TO_NUM = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
 

@@ -430,8 +430,11 @@ def _breaches(conn: Any, *, days: int) -> dict[str, Any]:
     borrower without asking, and no amount of correct gate logic would have
     caught it.
     """
-    from contact_policy import RBI_VOICE_END, RBI_VOICE_START, daily_cap
+    import db
+    import policy_rules
+    from contact_policy import daily_cap
 
+    start_hour, end_hour = policy_rules.calling_window(conn, "voice", tenant_id=db.current_tenant())
     window = conn.execute(
         text(
             """
@@ -451,7 +454,7 @@ def _breaches(conn: Any, *, days: int) -> dict[str, Any]:
               )
             """
         ),
-        {"days": days, "start": RBI_VOICE_START, "end_h": RBI_VOICE_END},
+        {"days": days, "start": start_hour, "end_h": end_hour},
     ).mappings().first()
 
     cap = daily_cap()

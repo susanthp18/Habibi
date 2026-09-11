@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import db
+import policy_rules
 from agent_core.authority import config as authority_config
+from agent_core.clock import timezone_name
 from agent_core.platform_flags import policy_export_enabled
-from contact_policy import RBI_VOICE_END, RBI_VOICE_START
 
 
 def bundle(*, fmt: str = "opa") -> dict[str, Any]:
@@ -18,8 +20,12 @@ def bundle(*, fmt: str = "opa") -> dict[str, Any]:
     kind = (fmt or "opa").strip().lower()
     if kind not in {"opa", "rego", "cedar"}:
         raise ValueError("policy_export_format")
+    # The window the tenant actually runs under, not the platform constant:
+    # GRC diffs this bundle against what was published.
+    with db.engine.connect() as conn:
+        start_hour, end_hour = policy_rules.calling_window(conn, "voice", tenant_id=db.current_tenant())
     facts = {
-        "callingHours": {"startHour": RBI_VOICE_START, "endHour": RBI_VOICE_END, "tz": "Asia/Kolkata"},
+        "callingHours": {"startHour": start_hour, "endHour": end_hour, "tz": timezone_name()},
         "authority": {
             "lateFeeCapInr": authority_config.late_fee_cap(),
             "lateFeeMidCapInr": authority_config.late_fee_mid_cap(),

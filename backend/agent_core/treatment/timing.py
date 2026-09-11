@@ -28,10 +28,6 @@ from zoneinfo import ZoneInfo
 from agent_core.treatment import actions as A
 from agent_core.treatment.features import AccountFeatures, zone
 
-#: RBI DOR.ORG.REC.65/21.04.158/2022-23: no recovery call before 08:00 or after
-#: 19:00. Mirrored from contact_policy rather than re-decided.
-from contact_policy import RBI_VOICE_END, RBI_VOICE_START  # noqa: E402
-
 #: Hours after a salary credit at which the account balance is still intact.
 #: Finezza: salary-credited accounts peak within ~48h of credit; two hours is
 #: long enough for the credit to clear and short enough to beat the borrower's
@@ -85,7 +81,9 @@ def _window_for(action: str, features: AccountFeatures) -> tuple[int, int]:
     """
     consented = features.allowed_hours
     if A.spec(action).channel == "voice":
-        start, end = RBI_VOICE_START, RBI_VOICE_END
+        # RBI DOR.ORG.REC.65/21.04.158/2022-23 as the tenant published it,
+        # resolved with the features (policy_rules.calling_window).
+        start, end = features.calling_window
         if consented:
             start = max(start, consented[0])
             end = min(end, consented[1])

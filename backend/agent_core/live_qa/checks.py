@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence
 
-from contact_policy import RBI_VOICE_END, RBI_VOICE_START
+from policy_rules import STATUTORY_VOICE_WINDOW
 
 SCHEMA_VERSION = "live_qa.v1"
 
@@ -69,6 +69,11 @@ class TurnFacts:
     identity_verified: bool = False
     third_party: bool = False
     now_hour: int | None = None
+    #: The tenant's published calling window (else the statutory bound),
+    #: resolved by the caller that holds a connection. A pure check cannot ask
+    #: the rules table, and a constant here flagged 18:30 calls the gate had
+    #: admitted under a tenant's 09-19 rule.
+    calling_window: tuple[int, int] = STATUTORY_VOICE_WINDOW
     #: Who placed the call. The RBI calling-window rule governs *contact
     #: attempts* — a bank must not ring a borrower after 19:00. It says nothing
     #: about answering one who rang you, and refusing to serve an inbound caller
@@ -168,7 +173,8 @@ def check_hours(facts: TurnFacts) -> Finding | None:
     if facts.now_hour is None:
         return None
     hour = int(facts.now_hour)
-    if RBI_VOICE_START <= hour < RBI_VOICE_END:
+    start_hour, end_hour = facts.calling_window
+    if start_hour <= hour < end_hour:
         return None
     return _fail(
         check_id="hours-breach",

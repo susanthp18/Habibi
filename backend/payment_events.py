@@ -21,6 +21,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
 import pg_errors
+import policy_rules
 from agent_core.clock import as_utc
 from contact_policy import BLOCKING_CONSENT
 from env_loader import env_str, load_env
@@ -121,18 +122,23 @@ def _intent_expiry(*, now: datetime, tz: ZoneInfo) -> datetime:
     return end.astimezone(timezone.utc)
 
 
-def next_voice_window(*, tz_name: str | None, now: datetime) -> datetime:
-    """Next RBI 08:00 in the customer's zone, or ``now`` if already inside 08–19."""
-    import contact_policy
+def next_voice_window(
+    *, tz_name: str | None, now: datetime, window: tuple[int, int] | None = None
+) -> datetime:
+    """Next window start in the customer's zone, or ``now`` if already inside it.
 
+    ``window`` is the tenant's published calling window from
+    ``policy_rules.calling_window``; the statutory bound when absent.
+    """
+    from policy_rules import STATUTORY_VOICE_WINDOW
+
+    start_hour, end_hour = window or STATUTORY_VOICE_WINDOW
     tz = _zone(tz_name)
     local = now.astimezone(tz)
-    start = local.replace(
-        hour=contact_policy.RBI_VOICE_START, minute=0, second=0, microsecond=0
-    )
-    if local.hour < contact_policy.RBI_VOICE_START:
+    start = local.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+    if local.hour < start_hour:
         return start.astimezone(timezone.utc)
-    if local.hour >= contact_policy.RBI_VOICE_END:
+    if local.hour >= end_hour:
         return (start + timedelta(days=1)).astimezone(timezone.utc)
     return now
 
@@ -931,7 +937,11 @@ def _digital_blocked(
     )
     next_voice = None
     if bounce_voice_enabled():
-        nxt = next_voice_window(tz_name=account.get("timezone"), now=now)
+        nxt = next_voice_window(
+            tz_name=account.get("timezone"),
+            now=now,
+            window=policy_rules.calling_window(conn, "voice", tenant_id=event["tenant_id"]),
+        )
         if nxt <= now:
             if _try_voice_now(conn, event, account=account, now=now, deferred=deferred):
                 return
@@ -1052,7 +1062,11 @@ def _try_voice_now(
             return False
         if not gated.allowed:
             if gated.reason == contact_policy.REASON_HOURS:
-                nxt = next_voice_window(tz_name=account.get("timezone"), now=now)
+                nxt = next_voice_window(
+                    tz_name=account.get("timezone"),
+                    now=now,
+                    window=policy_rules.calling_window(conn, "voice", tenant_id=event["tenant_id"]),
+                )
                 conn.execute(
                     text(
                         """
