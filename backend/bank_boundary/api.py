@@ -234,3 +234,21 @@ def list_complaints(conn: Any, *, tenant_id: str) -> list[dict[str, Any]]:
             {"tid": tenant_id},
         ).mappings().all()
     ]
+
+
+# The routes call these, not ``db.engine``: the boundary owns its own
+# connection and the tenant it reads for.
+def read(fn: Any, **kwargs: Any) -> Any:
+    """Run one of this module's reads in its own connection, for the tenant."""
+    import db
+
+    with db.engine.connect() as conn:
+        return fn(conn, tenant_id=db.current_tenant(), **kwargs)
+
+
+def write(fn: Any, **kwargs: Any) -> Any:
+    """Run one of this module's writes in its own transaction, for the tenant."""
+    import db
+
+    with db.engine.begin() as conn:
+        return fn(conn, tenant_id=db.current_tenant(), **kwargs)

@@ -24,6 +24,7 @@ _PEELED_ROUTERS = (
     "routers/payments.py",
     "routers/webhooks.py",
     "routers/telephony.py",
+    "routers/integrations.py",
 )
 
 

@@ -249,87 +249,74 @@ def gateway_status_api():
 def bank_contract_status():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.contract_status(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.contract_status)
 
 @router.get("/integrations/bank/manifests", response_model=list[BankManifestResponse])
 def bank_manifests():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.manifests(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.manifests)
 
 @router.post("/integrations/bank/manifests", response_model=BankIngestResponse)
 def bank_ingest_manifest(body: BankManifestIngestRequest):
     from bank_boundary import api as bank_api
     from bank_boundary.ingest import IngestRejected
 
-    with db.engine.begin() as conn:
-        try:
-            return bank_api.ingest_manifest(
-                conn, tenant_id=db.current_tenant(), body=body
-            )
-        except IngestRejected as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        return bank_api.write(bank_api.ingest_manifest, body=body)
+    except IngestRejected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 @router.get("/integrations/bank/reconciliation", response_model=list[BankReconciliationBreakResponse])
 def bank_reconciliation():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.reconciliation(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.reconciliation)
 
 @router.get("/integrations/bank/readiness", response_model=BankReadinessResponse)
 def bank_readiness():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.readiness(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.readiness)
 
 @router.get("/integrations/bank/outbox", response_model=list[BankOutboxItemResponse])
 def bank_outbox():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.outbox_state(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.outbox_state)
 
 @router.get("/integrations/bank/breach-coverage", response_model=BankBreachCoverageResponse)
 def bank_breach_coverage():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.breach_coverage(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.breach_coverage)
 
 @router.get("/integrations/bank/fairness", response_model=BankFairnessResponse)
 def bank_fairness():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.fairness(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.fairness)
 
 @router.post("/integrations/bank/complaints", response_model=BankComplaintFiledResponse)
 def bank_file_complaint(body: BankComplaintFileRequest):
     from bank_boundary import api as bank_api
     from bank_boundary.ingest import IngestRejected
 
-    with db.engine.begin() as conn:
-        try:
-            return bank_api.file_complaint(
-                conn,
-                tenant_id=db.current_tenant(),
-                customer_id=body.customerId,
-                kind=body.kind,
-                actor_user_id=db._actor_user_id(),
-            )
-        except IngestRejected as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        return bank_api.write(
+            bank_api.file_complaint,
+            customer_id=body.customerId,
+            kind=body.kind,
+            actor_user_id=db._actor_user_id(),
+        )
+    except IngestRejected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 @router.get("/integrations/bank/complaints", response_model=list[BankComplaintEventResponse])
 def bank_list_complaints():
     from bank_boundary import api as bank_api
 
-    with db.engine.connect() as conn:
-        return bank_api.list_complaints(conn, tenant_id=db.current_tenant())
+    return bank_api.read(bank_api.list_complaints)
 
 @router.get("/gateway/canary", response_model=GatewayCanaryStateResponse)
 def get_gateway_canary():
