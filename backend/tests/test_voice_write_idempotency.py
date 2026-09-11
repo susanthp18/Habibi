@@ -147,7 +147,8 @@ def _promise_count(db_tx, customer_id: str, amount: float) -> int:
             "SELECT count(*) FROM promises "
             " WHERE customer_id = :c AND amount = :a AND promised_at = :d"
         ),
-        {"c": customer_id, "a": amount, "d": PROMISE_DATE},
+        # Stored at local midnight of the named day (clock.local_midnight).
+        {"c": customer_id, "a": amount, "d": clock.local_midnight(PROMISE_DATE)},
     ).scalar()
 
 
@@ -338,7 +339,7 @@ WRITE_TOOLS = (
                 "SELECT count(*) FROM promises WHERE customer_id = :c"
                 "   AND amount = cast(:a AS numeric) AND promised_at = :d"
             ),
-            {"c": cid, "a": f"{amt:.2f}", "d": PROMISE_DATE},
+            {"c": cid, "a": f"{amt:.2f}", "d": clock.local_midnight(PROMISE_DATE)},
         ).scalar(),
     ),
     WriteTool(
