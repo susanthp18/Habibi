@@ -106,10 +106,17 @@ def test_every_waiver_is_written_to_the_audit_trail() -> None:
     """Overriding a compliance veto is exactly the event an auditor asks about."""
     import inspect
 
-    src = inspect.getsource(outbound_routes.demo_outbound_call)
+    import db_outbound
+
+    # The handler hands the gate to persistence; the audit row is written
+    # inside the same transaction as the reservation it explains.
+    src = inspect.getsource(db_outbound.reserve_demo_attempt)
     assert "record_activity" in src
     assert "demo_window_waived" in src
     assert 'f"waived:{reason}"' in src
+    assert "db_outbound.reserve_demo_attempt(" in inspect.getsource(
+        outbound_routes.demo_outbound_call
+    )
 
 
 def test_the_endpoint_still_takes_no_phone_number() -> None:

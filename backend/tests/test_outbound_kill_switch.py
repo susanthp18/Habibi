@@ -388,10 +388,11 @@ def test_waiving_the_window_is_recorded(db_tx) -> None:
     """An override nobody can audit is indistinguishable from a bug."""
     import inspect
 
+    import db_outbound
     import main
-    from routers import outbound as outbound_routes
 
-    src = inspect.getsource(outbound_routes.demo_outbound_call)
+    # The handler's gate runs inside ``db_outbound.reserve_demo_attempt``.
+    src = inspect.getsource(db_outbound.reserve_demo_attempt)
     assert "demo_window_waived" in src, "a waiver must write an activity event"
 
 

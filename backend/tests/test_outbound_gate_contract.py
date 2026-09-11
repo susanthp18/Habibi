@@ -39,7 +39,9 @@ _PLACE_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("campaigns.py", "process_one", ("gate", "place")),
     ("cadence.py", "process_one", ("gate", "place")),
     ("routers/telephony.py", "twilio_voice_outbound", ("gate", "place")),
-    ("routers/outbound.py", "demo_outbound_call", ("gate", "place")),
+    # Gates on its own transaction in ``db_outbound.reserve_demo_attempt``; the
+    # handler owns no transaction and only dials.
+    ("routers/outbound.py", "demo_outbound_call", ("place",)),
     # The dry run reserves and *evaluates* (never admits) so a rehearsal does
     # not spend the borrower's budget; the real path is the gate.
     ("scripts/dial_test.py", "main", ("reserve", "gate", "place")),

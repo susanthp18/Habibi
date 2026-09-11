@@ -10,6 +10,7 @@ import logging
 
 import asyncio
 import db
+import db_outbound
 import os
 
 from fastapi import APIRouter
@@ -22,7 +23,6 @@ from schemas import (
     TreatmentHoldCreateRequest,
     TreatmentHoldReleaseRequest,
 )
-from sqlalchemy import text
 from typing import Any
 
 from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
@@ -154,27 +154,7 @@ def demo_outbound_target():
 
     phone = _demo_outbound_phone()
     digits = "".join(ch for ch in phone if ch.isdigit())
-    customer: dict[str, Any] | None = None
-    with db.engine.connect() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT id, name, phone_primary, dnd
-                FROM customers
-                WHERE tenant_id = :t
-                  AND regexp_replace(COALESCE(phone_primary, ''), '\\D', '', 'g') = :d
-                LIMIT 1
-                """
-            ),
-            {"t": db._tenant(), "d": digits},
-        ).mappings().first()
-        if row:
-            customer = {
-                "id": row["id"],
-                "name": row["name"],
-                "phone": row["phone_primary"],
-                "dnd": bool(row["dnd"]),
-            }
+    customer = db_outbound.demo_customer(digits, tenant_id=db.current_tenant())
     # What the call will actually be authorised to do. `allowed_offers` is empty
     # on every objective this card declares, and `mission.build` turns that into
     # an explicit "do NOT mention any product, offer, top-up or upgrade" line in
@@ -204,12 +184,7 @@ def demo_outbound_target():
     policy_waived: str | None = None
     if customer:
         try:
-            import contact_policy
-
-            with db.engine.connect() as conn:
-                verdict = contact_policy.evaluate(
-                    conn, customer_id=customer["id"], channel="voice", purpose="outreach"
-                )
+            verdict = db_outbound.demo_policy_verdict(customer["id"])
             policy_reason = None if verdict.allowed else (verdict.reason or "contact_policy")
             # Report what the *button* will do, not what the raw engine said.
             # The POST applies the demo waiver, so a screen that showed the
@@ -262,89 +237,42 @@ async def demo_outbound_call():
     digits = "".join(ch for ch in phone if ch.isdigit())
 
     def _prepare() -> tuple[Any, str, str | None, str]:
-        """Reserve, gate and (maybe) waive, off the event loop."""
-        with db.engine.begin() as conn:
-            row = conn.execute(
-                text(
-                    """
-                    SELECT id FROM customers
-                    WHERE tenant_id = :t
-                      AND regexp_replace(COALESCE(phone_primary, ''), '\\D', '', 'g') = :d
-                    LIMIT 1
-                    """
-                ),
-                {"t": db._tenant(), "d": digits},
-            ).mappings().first()
-            if row is None:
-                raise HTTPException(status_code=404, detail="demo_customer_not_found")
-            customer_id = str(row["id"])
-            account_id = conn.execute(
-                text(
-                    "SELECT id FROM accounts WHERE customer_id = :c"
-                    " ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id LIMIT 1"
-                ),
-                {"c": customer_id},
-            ).scalar()
-
-            bot_id = _demo_outbound_bot_id()
-            card = mission_mod.card_for_bot(bot_id)
-            objective = _demo_outbound_objective(card)
-            built = mission_mod.build(
-                conn,
-                customer_id=customer_id,
-                objective=objective,
-                account_id=account_id,
-                card=card,
+        """Resolve the card, then reserve, gate and (maybe) waive, off the event loop."""
+        bot_id = _demo_outbound_bot_id()
+        card = mission_mod.card_for_bot(bot_id)
+        objective = _demo_outbound_objective(card)
+        # The one override, and its limits.
+        #
+        # Waivable: *when* and *how often*. The calling hours, the borrower's
+        # preferred window, the cooling-off gap and the daily and weekly caps
+        # all exist to stop a borrower being rung repeatedly. The demo endpoint
+        # takes no phone number — it dials one configured handset, the one the
+        # operator running the demo is holding — so rehearsing on it is not the
+        # harm any of those rules were written to prevent. Hitting `cooling_off`
+        # after three rehearsal calls to your own phone is the rule working
+        # correctly on the wrong subject.
+        #
+        # Not waivable, at any switch setting: consent, opt-out, DND, the
+        # registry and the DPDP promotional-purpose basis. Those answer "may we
+        # contact this person at all", which a demo does not get to re-answer —
+        # and they are not what is blocking anyone here, so waiving them would
+        # buy nothing and cost the one guarantee worth keeping.
+        try:
+            return db_outbound.reserve_demo_attempt(
+                digits=digits,
+                phone=phone,
+                tenant_id=db.current_tenant(),
                 bot_id=bot_id,
-            )
-            # The one override, and its limits.
-            #
-            # Waivable: *when* and *how often*. The calling hours, the borrower's
-            # preferred window, the cooling-off gap and the daily and weekly caps
-            # all exist to stop a borrower being rung repeatedly. The demo endpoint
-            # takes no phone number — it dials one configured handset, the one the
-            # operator running the demo is holding — so rehearsing on it is not the
-            # harm any of those rules were written to prevent. Hitting `cooling_off`
-            # after three rehearsal calls to your own phone is the rule working
-            # correctly on the wrong subject.
-            #
-            # Not waivable, at any switch setting: consent, opt-out, DND, the
-            # registry and the DPDP promotional-purpose basis. Those answer "may we
-            # contact this person at all", which a demo does not get to re-answer —
-            # and they are not what is blocking anyone here, so waiving them would
-            # buy nothing and cost the one guarantee worth keeping.
-            gated = outbound.gate(
-                conn,
-                admit={"source": "voice_outbound", "actor_kind": "human"},
+                card=card,
+                objective=objective,
                 waivable=(
                     _DEMO_WAIVABLE_REASONS
                     if platform_switches.demo_ignores_window()
                     else frozenset()
                 ),
-                customer_id=customer_id,
-                to_phone=phone,
-                objective=objective,
-                account_id=account_id,
-                bot_id=bot_id,
-                context={"source": "demo_button", "mission": built},
             )
-            attempt = gated.attempt
-            reason = gated.reason or "contact_policy"
-            if gated.waived:
-                logger.warning(
-                    "demo call: waiving %s for the demo number by operator switch", reason
-                )
-                db.record_activity(
-                    conn,
-                    "customer",
-                    customer_id,
-                    "demo_window_waived",
-                    f"Demo call placed despite {reason}",
-                    f"waived:{reason}",
-                    customer_id,
-                )
-
-        return gated, customer_id, account_id, reason
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
 
     gated, customer_id, account_id, reason = await asyncio.to_thread(_prepare)
     attempt = gated.attempt
@@ -462,27 +390,20 @@ def release_treatment_hold(hold_id: str, payload: TreatmentHoldReleaseRequest | 
 
 @router.post("/treatment/decisions/{decision_id}/feedback")
 def treatment_decision_feedback(decision_id: str, payload: dict[str, Any]):
-    import decision_feedback
     from schemas import DecisionFeedbackRequest
 
     body = DecisionFeedbackRequest.model_validate(payload)
-    with db.engine.begin() as conn:
-        try:
-            return decision_feedback.record_feedback(
-                conn,
-                tenant_id=db.current_tenant(),
-                decision_id=decision_id,
-                verdict=body.verdict,
-                actor_user_id=db._actor_user_id(),
-                reason_code=body.reasonCode,
-                note_redacted=body.noteRedacted,
-                endpoint=body.endpoint,
-                channel=body.channel or "voice",
-            )
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        return db_outbound.record_decision_feedback(
+            decision_id,
+            body,
+            tenant_id=db.current_tenant(),
+            actor_user_id=db._actor_user_id(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.get("/treatment/cases")
 def list_treatment_cases(
@@ -515,10 +436,7 @@ def outbound_stats(days: int = Query(default=14, ge=1, le=90)):
     ignored, and folding the two together would make a compliant week look like
     an unreachable book.
     """
-    import outbound
-
-    with db.engine.connect() as conn:
-        return outbound.reach_stats(conn, tenant_id=db.current_tenant(), days=days)
+    return db_outbound.reach_stats(days, tenant_id=db.current_tenant())
 
 @router.get("/outbound/attempts")
 def outbound_attempts(
@@ -528,37 +446,13 @@ def outbound_attempts(
     offset: int = Query(default=0, ge=0),
 ):
     """The dial log, newest first — including the ones that never connected."""
-    clauses = ["a.tenant_id = :tenant"]
-    params: dict[str, Any] = {"tenant": db.current_tenant(), "limit": limit, "offset": offset}
-    if customerId:
-        clauses.append("a.customer_id = :cid")
-        params["cid"] = customerId
-    if state:
-        clauses.append("a.state = :state")
-        params["state"] = state
-    with db.engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                f"""
-                SELECT a.id, a.customer_id, c.name AS customer_name, a.objective,
-                       a.attempt_no, a.state, a.suppressed_reason, a.to_phone_last4,
-                       a.answered_by, a.right_party, a.ring_sec, a.talk_sec,
-                       a.provider_call_id, a.provider_status, a.provider_error,
-                       a.interaction_id, a.decision_id, a.reserved_at, a.placed_at,
-                       a.answered_at, a.ended_at,
-                       o.connection, o.business, o.objective_met, o.nonpayment_reason,
-                       o.summary, o.summary_source
-                FROM call_attempts a
-                JOIN customers c ON c.id = a.customer_id
-                LEFT JOIN call_outcomes o ON o.attempt_id = a.id
-                WHERE {' AND '.join(clauses)}
-                ORDER BY a.reserved_at DESC
-                LIMIT :limit OFFSET :offset
-                """
-            ),
-            params,
-        ).mappings().all()
-    return [dict(r) for r in rows]
+    return db_outbound.list_call_attempts(
+        customer_id=customerId,
+        state=state,
+        limit=limit,
+        offset=offset,
+        tenant_id=db.current_tenant(),
+    )
 
 @router.get("/outbound/reasons")
 def outbound_reasons(days: int = Query(default=30, ge=1, le=180)):
@@ -569,22 +463,7 @@ def outbound_reasons(days: int = Query(default=30, ge=1, le=180)):
     June. ``forgot`` is the row to watch — it counts the calls that were worth
     less than a reminder.
     """
-    with db.engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
-                SELECT nonpayment_reason AS reason, count(*) AS calls,
-                       count(*) FILTER (WHERE objective_met) AS resolved
-                FROM call_outcomes
-                WHERE tenant_id = :tenant
-                  AND nonpayment_reason IS NOT NULL
-                  AND created_at >= now() - make_interval(days => :days)
-                GROUP BY 1 ORDER BY 2 DESC
-                """
-            ),
-            {"tenant": db.current_tenant(), "days": days},
-        ).mappings().all()
-    return [dict(r) for r in rows]
+    return db_outbound.nonpayment_reasons(days, tenant_id=db.current_tenant())
 
 @router.get("/outbound/campaigns")
 def list_campaign_runs(
@@ -592,31 +471,9 @@ def list_campaign_runs(
     limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
 ):
     """Runs and how far through each one is."""
-    clauses = ["r.tenant_id = :tenant"]
-    params: dict[str, Any] = {"tenant": db.current_tenant(), "limit": limit}
-    if status:
-        clauses.append("r.status = :status")
-        params["status"] = status
-    with db.engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                f"""
-                SELECT r.*,
-                  (SELECT count(*) FROM campaign_targets t
-                    WHERE t.run_id = r.id AND t.state = 'pending')  AS pending,
-                  (SELECT count(*) FROM campaign_targets t
-                    WHERE t.run_id = r.id AND t.state = 'done')     AS done,
-                  (SELECT count(*) FROM campaign_targets t
-                    WHERE t.run_id = r.id AND t.state = 'skipped')  AS skipped
-                FROM campaign_runs r
-                WHERE {' AND '.join(clauses)}
-                ORDER BY r.created_at DESC
-                LIMIT :limit
-                """
-            ),
-            params,
-        ).mappings().all()
-    return [dict(r) for r in rows]
+    return db_outbound.list_campaign_runs(
+        status=status, limit=limit, tenant_id=db.current_tenant()
+    )
 
 @router.post("/outbound/campaigns")
 def create_campaign_run(payload: dict[str, Any]):
@@ -637,38 +494,16 @@ def create_campaign_run(payload: dict[str, Any]):
     if objective not in fg.OBJECTIVES:
         raise HTTPException(status_code=400, detail="unknown_objective")
 
-    with db.engine.begin() as conn:
-        run = campaigns.create(
-            conn,
-            tenant_id=db.current_tenant(),
+    try:
+        return db_outbound.create_campaign_run(
+            payload,
             name=name,
             objective=objective,
-            bot_id=payload.get("botId"),
-            cadence=str(payload.get("cadence") or "default"),
-            source=str(payload.get("source") or "list"),
-            selector=payload.get("selector") or {},
-            window_start_hour=int(payload.get("windowStartHour") or 10),
-            window_end_hour=int(payload.get("windowEndHour") or 18),
-            max_concurrent=int(payload.get("maxConcurrent") or 5),
-            created_by_user_id=db._actor_user_id(),
+            tenant_id=db.current_tenant(),
+            actor_user_id=db._actor_user_id(),
         )
-        ids = [str(c) for c in (payload.get("customerIds") or []) if str(c).strip()]
-        if ids:
-            campaigns.add_targets(conn, run["id"], ids, tenant_id=db.current_tenant())
-        # A selector on the payload is resolved now, against the book as it
-        # stands, and the resulting targets are frozen onto the run. Re-resolving
-        # at dial time would mean the cohort an operator reviewed and the cohort
-        # that got called were different populations — which is precisely the
-        # audit answer a campaign exists to be able to give.
-        selector = payload.get("selector") or {}
-        if selector:
-            try:
-                campaigns.add_targets_from_selector(
-                    conn, run["id"], tenant_id=db.current_tenant(), selector=selector
-                )
-            except campaigns.SelectorError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return dict(run)
+    except campaigns.SelectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @router.post("/outbound/campaigns/preview")
 def preview_campaign_cohort(payload: dict[str, Any]):
@@ -682,13 +517,11 @@ def preview_campaign_cohort(payload: dict[str, Any]):
     import campaigns
 
     try:
-        with db.engine.connect() as conn:
-            return campaigns.preview_selector(
-                conn,
-                tenant_id=db.current_tenant(),
-                selector=payload.get("selector") or {},
-                sample=int(payload.get("sample") or 10),
-            )
+        return db_outbound.preview_campaign_cohort(
+            selector=payload.get("selector") or {},
+            sample=int(payload.get("sample") or 10),
+            tenant_id=db.current_tenant(),
+        )
     except campaigns.SelectorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -701,12 +534,9 @@ def add_campaign_targets(run_id: str, payload: dict[str, Any]):
     if not ids and not selector:
         raise HTTPException(status_code=400, detail="customer_ids_or_selector_required")
     try:
-        with db.engine.begin() as conn:
-            added = campaigns.add_targets(conn, run_id, ids, tenant_id=db.current_tenant()) if ids else 0
-            if selector:
-                added += campaigns.add_targets_from_selector(
-                    conn, run_id, tenant_id=db.current_tenant(), selector=selector
-                )
+        added = db_outbound.add_campaign_targets(
+            run_id, ids=ids, selector=selector, tenant_id=db.current_tenant()
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="campaign_run_not_found") from exc
     except campaigns.SelectorError as exc:
@@ -740,26 +570,19 @@ def set_campaign_status(run_id: str, payload: dict[str, Any]):
         if not platform_switches.outbound_enabled():
             raise HTTPException(status_code=409, detail="outbound_disabled")
     try:
-        with db.engine.begin() as conn:
-            run = campaigns.set_status(conn, run_id, status, tenant_id=db.current_tenant())
+        run = db_outbound.set_campaign_status(run_id, status, tenant_id=db.current_tenant())
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
-    return dict(run)
+    return run
 
 @router.get("/outbound/campaigns/{run_id}")
 def get_campaign_run(run_id: str):
-    import campaigns
-
-    with db.engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT * FROM campaign_runs WHERE id = :id AND tenant_id = :t"),
-            {"id": run_id, "t": db.current_tenant()},
-        ).mappings().first()
-        if row is None:
-            raise HTTPException(status_code=404, detail="run_not_found")
-        return {**dict(row), "progress": campaigns.progress(conn, run_id)}
+    run = db_outbound.get_campaign_run(run_id, tenant_id=db.current_tenant())
+    if run is None:
+        raise HTTPException(status_code=404, detail="run_not_found")
+    return run
 
 @router.get("/outbound/cadence")
 def list_cadence_cases(
@@ -768,55 +591,14 @@ def list_cadence_cases(
     limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
 ):
     """Open retry ladders — what is waiting, and what ran out of attempts."""
-    clauses = ["s.tenant_id = :tenant"]
-    params: dict[str, Any] = {"tenant": db.current_tenant(), "limit": limit}
-    if customerId:
-        clauses.append("s.customer_id = :cid")
-        params["cid"] = customerId
-    if state:
-        clauses.append("s.state = :state")
-        params["state"] = state
-    with db.engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                f"""
-                SELECT s.*, c.name AS customer_name
-                FROM call_cadence_state s
-                JOIN customers c ON c.id = s.customer_id
-                WHERE {' AND '.join(clauses)}
-                ORDER BY s.next_attempt_at ASC NULLS LAST, s.updated_at DESC
-                LIMIT :limit
-                """
-            ),
-            params,
-        ).mappings().all()
-    return [dict(r) for r in rows]
+    return db_outbound.list_cadence_cases(
+        customer_id=customerId, state=state, limit=limit, tenant_id=db.current_tenant()
+    )
 
 @router.get("/outbound/number-pools")
 def list_number_pools():
     """Caller-ID pools and the numbers in them, with how each is performing."""
-    with db.engine.connect() as conn:
-        pools = conn.execute(
-            text(
-                "SELECT * FROM number_pools WHERE tenant_id = :t ORDER BY name"
-            ),
-            {"t": db.current_tenant()},
-        ).mappings().all()
-        numbers = conn.execute(
-            text(
-                """
-                SELECT n.* FROM pool_numbers n
-                JOIN number_pools p ON p.id = n.pool_id
-                WHERE p.tenant_id = :t
-                ORDER BY n.e164
-                """
-            ),
-            {"t": db.current_tenant()},
-        ).mappings().all()
-    by_pool: dict[str, list[dict[str, Any]]] = {}
-    for row in numbers:
-        by_pool.setdefault(str(row["pool_id"]), []).append(dict(row))
-    return [{**dict(p), "numbers": by_pool.get(str(p["id"]), [])} for p in pools]
+    return db_outbound.list_number_pools(tenant_id=db.current_tenant())
 
 @router.get("/outbound/obligations")
 def list_agent_obligations(
@@ -829,21 +611,9 @@ def list_agent_obligations(
     automated collections line, and a missed obligation is a QA finding with a
     named owner rather than a thing nobody knew happened.
     """
-    with db.engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
-                SELECT o.*, c.name AS customer_name
-                FROM agent_obligations o
-                JOIN customers c ON c.id = o.customer_id
-                WHERE o.tenant_id = :t AND (:state = 'all' OR o.state = :state)
-                ORDER BY o.due_at ASC
-                LIMIT :limit
-                """
-            ),
-            {"t": db.current_tenant(), "state": state, "limit": limit},
-        ).mappings().all()
-    return [dict(r) for r in rows]
+    return db_outbound.list_agent_obligations(
+        state=state, limit=limit, tenant_id=db.current_tenant()
+    )
 
 @router.get("/outbound/card-vocabulary")
 def outbound_card_vocabulary():
@@ -874,17 +644,7 @@ def outbound_card_vocabulary():
 
     pools: list[dict[str, Any]] = []
     try:
-        with db.engine.connect() as conn:
-            pools = [
-                {"name": str(r["name"]), "kind": str(r["kind"])}
-                for r in conn.execute(
-                    text(
-                        "SELECT name, kind FROM number_pools "
-                        "WHERE tenant_id = :t AND enabled IS TRUE ORDER BY name"
-                    ),
-                    {"t": db.current_tenant()},
-                ).mappings()
-            ]
+        pools = db_outbound.enabled_number_pools(tenant_id=db.current_tenant())
     except Exception:
         # A tenant with no pools table yet still gets a usable editor; the pool
         # name is free text on the card and G-OB4 keys off `pool_kind`.

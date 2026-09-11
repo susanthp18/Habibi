@@ -535,13 +535,21 @@ def test_dial_endpoints_key_the_attempt_not_the_customer() -> None:
 
     from routers import outbound as outbound_routes
 
-    for fn in (telephony_routes.twilio_voice_outbound, outbound_routes.demo_outbound_call):
+    import db_outbound
+
+    # The demo handler owns no transaction: its gate lives in persistence.
+    for fn in (
+        telephony_routes.twilio_voice_outbound,
+        outbound_routes.demo_outbound_call,
+        db_outbound.reserve_demo_attempt,
+    ):
         src = inspect.getsource(fn)
         assert "session_key=customer_id" not in src
-        # The session key is the attempt's own, set inside `outbound.gate` —
-        # the endpoints no longer compose the gate by hand at all.
-        assert "outbound.gate(" in src
         assert "contact_policy.admit(" not in src
+    # The session key is the attempt's own, set inside `outbound.gate` —
+    # the endpoints no longer compose the gate by hand at all.
+    for fn in (telephony_routes.twilio_voice_outbound, db_outbound.reserve_demo_attempt):
+        assert "outbound.gate(" in inspect.getsource(fn)
 
 
 def _consent_columns(db_tx, cid: str) -> dict:
