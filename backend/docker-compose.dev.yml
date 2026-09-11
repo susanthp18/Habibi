@@ -17,6 +17,9 @@ services:
       # Laptop bind-mount is not a deployed image. HABIBI_DEPLOYED stays 1 on
       # docker-compose.yml so shipping containers remain hardened.
       HABIBI_DEPLOYED: "0"
+      # The console sends X-Actor-User-Id behind the shared API_KEY. Off by
+      # default everywhere (WP-070); the laptop stack opts in here.
+      ALLOW_ACTOR_HEADER: "true"
     volumes:
       - .:/app
       - /app/__pycache__

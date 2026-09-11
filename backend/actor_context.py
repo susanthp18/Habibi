@@ -89,19 +89,10 @@ def _app_is_prod() -> bool:
 
 
 def _allow_actor_header() -> bool:
-    raw = (os.getenv("ALLOW_ACTOR_HEADER") or "").strip()
-    if not raw:
-        # Default: allow in non-prod only (shared API_KEY must not spoof in prod).
-        # ``_app_is_prod`` is now an allow-list, so staging and typos already
-        # default to off. Making unset mean off everywhere is a separate decision
-        # with a cost — it silently drops the console's X-Actor-User-Id and
-        # re-attributes every action to ACTOR_USER_ID. Tracked as WP-070.
-        return not _app_is_prod()
-    # An unrecognised value falls back to the same default, rather than to
-    # False: a typo must not silently drop the console's X-Actor-User-Id and
-    # re-attribute every action to ACTOR_USER_ID. Same rule as
-    # authz.enforcement_enabled.
-    return env_bool("ALLOW_ACTOR_HEADER", default=not _app_is_prod())
+    # Off unless set, in every environment (WP-070, decided 2026-09-12): a
+    # shared API_KEY never impersonates by default. The laptop stack turns it
+    # on explicitly in docker-compose.dev.yml; a typo'd value is also off.
+    return env_bool("ALLOW_ACTOR_HEADER", default=False)
 
 
 def reload_api_key_map() -> dict[str, str]:

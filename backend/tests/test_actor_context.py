@@ -100,12 +100,11 @@ def test_staging_without_credentials_is_unauthorized(monkeypatch: pytest.MonkeyP
 
 
 def test_actor_header_off_for_an_unrecognised_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unset ALLOW_ACTOR_HEADER must not inherit 'on' from an unrecognised APP_ENV.
+    """Unset ALLOW_ACTOR_HEADER is off — in staging as in every other name.
 
-    ``dev``/``test``/``local`` still default to on — that is the laptop
-    affordance the console's ``X-Actor-User-Id`` depends on. ``staging`` is not
-    one of them, and before WP-013 it was treated as non-production and could
-    therefore spoof the actor behind a shared API key.
+    Before WP-013 ``staging`` was treated as non-production and could spoof
+    the actor behind a shared API key; since WP-070 no environment defaults
+    to on (the laptop compose overlay sets it explicitly).
     """
     import actor_context
     import db
@@ -150,3 +149,26 @@ def test_parse_api_key_map_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     assert first == second == {"k1": "priya-nair"}
     actor_context.reload_api_key_map()
     assert actor_context.parse_api_key_map() == {"k2": "priya-nair"}
+
+
+def test_actor_header_is_off_unless_set_even_in_dev(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WP-070: a shared API_KEY never impersonates by default; dev opts in
+    through docker-compose.dev.yml, not through the environment name."""
+    import actor_context
+    import db
+
+    if not db.user_exists("priya-nair"):
+        pytest.skip("priya-nair not seeded")
+
+    monkeypatch.setenv("API_KEY", "shared-dev-key")
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("ACTOR_USER_ID", "priya-nair")
+    monkeypatch.delenv("ALLOW_ACTOR_HEADER", raising=False)
+    actor_context.reload_api_key_map()
+
+    assert actor_context._allow_actor_header() is False
+    ok, actor, err = actor_context.resolve_authenticated_actor(
+        provided_key="shared-dev-key", actor_header="definitely-not-a-real-user-id"
+    )
+    assert ok and err is None
+    assert actor == "priya-nair"
