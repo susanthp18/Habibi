@@ -45,13 +45,16 @@ def _card(bot_id: str, *, tools: list[str], handoffs: list[dict] | None = None) 
     }
 
 
-def _run(*, card: dict, flow: dict, members: list[dict]):
+def _run(*, card: dict, flow: dict, members: list[dict], is_door: bool = True):
     gates = fleet_gates(
         primary_bot_id="intake-v1",
         card_raw=card,
         flow=flow,
         members=members,
         door_keys=DOOR,
+        # The door's rules (G-F3, G-F6) apply to the card bound as the entry;
+        # the tests build the fleet from the door's side unless they say so.
+        is_door=is_door,
     )
     return {g.gate: g for g in gates}
 
@@ -240,7 +243,7 @@ def test_every_emitted_id_is_registered() -> None:
         flow=_DOOR_FLOW,
         members=[_member()],
     )
-    assert set(gates) == {"G-F2", "G-F6", "G-F12", "G-F15"}
+    assert set(gates) == {"G-F1", "G-F2", "G-F3", "G-F6", "G-F12", "G-F15"}
     for gate_id, result in gates.items():
         assert _GATE_NAMES[gate_id] == result.name
 
@@ -301,3 +304,82 @@ def test_an_inbound_card_still_reports_the_outbound_eval_gate() -> None:
     }
     assert gates["G-OB9"].status == "skipped"
     assert "inbound-only" in gates["G-OB9"].detail
+
+
+# ---------------------------------------------------------------------------
+# G-F1 -- closure: every hop lands in a graph, every member is reachable
+# ---------------------------------------------------------------------------
+
+
+def test_a_hop_into_a_member_with_no_graph_fails_closure() -> None:
+    gates = _run(
+        card=_card(
+            "intake-v1",
+            tools=["handoff_to_agent"],
+            handoffs=[{"to_bot_id": "kaia-v2-4"}, {"to_bot_id": "insurance-v1"}],
+        ),
+        flow=_DOOR_FLOW,
+        members=[_member(), {"bot_id": "insurance-v1", "flow": {"nodes": []}, "card": {}}],
+    )
+    assert gates["G-F1"].status == "fail"
+    assert gates["G-F1"].issues == [
+        {"member": "insurance-v1", "why": "handoff target has no published graph to land in"}
+    ]
+
+
+def test_every_member_reachable_passes_closure() -> None:
+    gates = _run(
+        card=_card("intake-v1", tools=["handoff_to_agent"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
+        flow=_DOOR_FLOW,
+        members=[_member()],
+    )
+    assert gates["G-F1"].status == "pass"
+
+
+# ---------------------------------------------------------------------------
+# G-F3 -- no write before verification on any path from the door
+# ---------------------------------------------------------------------------
+
+
+def test_a_write_reachable_before_verification_fails() -> None:
+    """A door that offers a lead capture on its greeting: the caller has not
+    been verified and a record is already being written about them."""
+    flow = _graph(
+        ["greet_disclose", "discover_intent", "verify_identity", "state_position", "call_ended"],
+        start="greet_disclose",
+    )
+    for node in flow["nodes"]:
+        if node["key"] == "greet_disclose":
+            node["data"]["tools"] = ["capture_lead", "disclose_recording"]
+        if node["key"] == "verify_identity":
+            node["data"]["tools"] = ["verify_identity"]
+    gates = _run(
+        card=_card("intake-v1", tools=["handoff_to_agent"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
+        flow=flow,
+        members=[_member()],
+    )
+    assert gates["G-F3"].status == "fail"
+    assert gates["G-F3"].issues[0]["node"] == "intake-v1/greet_disclose"
+    assert gates["G-F3"].issues[0]["writes"] == ["capture_lead"]
+
+
+def test_writes_behind_verification_pass() -> None:
+    gates = _run(
+        card=_card("intake-v1", tools=["handoff_to_agent"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
+        flow=_DOOR_FLOW,
+        members=[_member()],
+    )
+    assert gates["G-F3"].status == "pass"
+
+
+def test_the_door_rules_are_skipped_for_a_specialist() -> None:
+    """A specialist with handoffs also merges a fleet; its own start is not
+    where a caller enters, and its business tools are the point."""
+    gates = _run(
+        card=_card("kaia-v2-4", tools=["create_promise_to_pay", "handoff_to_agent"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
+        flow=_DOOR_FLOW,
+        members=[_member()],
+        is_door=False,
+    )
+    assert gates["G-F3"].status == "skipped"
+    assert gates["G-F6"].status == "skipped"

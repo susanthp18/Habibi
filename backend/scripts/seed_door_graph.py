@@ -69,13 +69,25 @@ _ROUTE_NODE = {
 
 
 def door_graph() -> dict:
-    """The derived door half plus the one authored route node."""
+    """The derived door half plus the one authored route node.
+
+    The derived nodes carry the collections card's tools (`pre_close` offers
+    `capture_lead`); a door cannot grant those and G16 said so on every
+    compile. Each node keeps only what a door may hold -- the routing set,
+    the runtime floor and the flow-control verbs -- so the graph describes
+    the door's conversation, not a filtered view of somebody else's.
+    """
+    from agent_core.fleet.compile import _DOOR_TOOLS
+    from agent_core.tools.grant import VOICE_ALWAYS, VOICE_FLOW_TOOLS
     from voice.flow_export import built_in_collections_graph
 
+    allowed = _DOOR_TOOLS | VOICE_ALWAYS | VOICE_FLOW_TOOLS
     graph = built_in_collections_graph(part="door")
     for node in graph["nodes"]:
         if node["key"] == "confirm_identity":
             node["data"]["entryFor"] = []
+        node["data"]["tools"] = [t for t in node["data"]["tools"] if t in allowed]
+    graph["globalTools"] = [t for t in graph["globalTools"] if t in allowed]
     graph["nodes"].append(_ROUTE_NODE)
     return graph
 

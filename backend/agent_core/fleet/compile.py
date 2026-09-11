@@ -342,6 +342,139 @@ _TERMINAL_KEYS: frozenset[str] = frozenset(
     {"call_ended", "pre_close", "terminate_politely", "escalate_close"}
 )
 
+#: Tools that change a record about the borrower. A path that reaches one
+#: of these before ``verify_identity`` is the thing G-F3 refuses. The catalog's
+#: ``entity`` marks the six that create a CRM row; the rest are writes the
+#: skill layer already gates for the same reason (``SKILL_GATED_TOOLS``).
+_WRITE_TOOLS: frozenset[str] = frozenset(
+    {
+        "apply_goodwill",
+        "set_contact_preference",
+        "capture_nonpayment_reason",
+        "decline_offer",
+        "opt_out",
+    }
+)
+_VERIFY_TOOLS: frozenset[str] = frozenset({"verify_identity", "identify_customer"})
+
+
+def _write_tool_names() -> frozenset[str]:
+    from agent_core.tools import CATALOG
+
+    return _WRITE_TOOLS | {name for name, spec in CATALOG.specs.items() if getattr(spec, "entity", None)}
+
+
+def _closure_gate(
+    *,
+    primary_bot_id: str,
+    card: AgentCard | None,
+    members: Sequence[dict[str, Any]],
+    entries: dict[str, str],
+) -> GateResult:
+    """G-F1: every declared hop lands in a member that has a graph, and every
+    member the merge produced is reachable from the primary over handoffs."""
+    graphs_by_bot = {str(m.get("bot_id") or ""): m for m in members}
+    handoffs_of: dict[str, list[str]] = {
+        primary_bot_id: [h.to_bot_id for h in (card.handoffs if card else [])],
+    }
+    for bot_id, member in graphs_by_bot.items():
+        raw = member.get("card") if isinstance(member.get("card"), dict) else {}
+        handoffs_of[bot_id] = [
+            str(h.get("to_bot_id") or "") for h in (raw.get("handoffs") or []) if isinstance(h, dict)
+        ]
+    problems: list[dict[str, Any]] = []
+    for target in handoffs_of[primary_bot_id]:
+        if target and target not in entries:
+            problems.append({"member": target, "why": "handoff target has no published graph to land in"})
+    seen = {primary_bot_id}
+    frontier = [primary_bot_id]
+    while frontier:
+        bot = frontier.pop()
+        for target in handoffs_of.get(bot, []):
+            if target in entries and target not in seen:
+                seen.add(target)
+                frontier.append(target)
+    for namespace in sorted(entries):
+        if namespace not in seen:
+            problems.append({"member": namespace, "why": "in the bundle but no handoff reaches it"})
+    return _gate(
+        "G-F1",
+        "closure",
+        "fail" if problems else "pass",
+        (
+            f"{len(problems)} member(s) unreachable or graphless"
+            if problems
+            else f"{len(entries)} member(s) reachable, each with a graph"
+        ),
+        problems,
+    )
+
+
+def _identity_gate(*, fleet_flow: dict[str, Any], entries: dict[str, str]) -> GateResult:
+    """G-F3: no path from the door's start reaches a write before verification.
+
+    Walks the merged graph over authored edges, the built-in tool transitions
+    (``flow_graph.TRANSITIONS``, resolved in the speaking namespace) and the
+    hops (``handoff_to_agent`` lands on each member's entry). A node that
+    offers ``verify_identity`` marks the paths through it verified; a node
+    offering a write on an unverified path is the finding.
+    """
+    nodes = {str(n.get("key")): n for n in fleet_flow.get("nodes") or [] if isinstance(n, dict)}
+    by_id = {str(n.get("id")): str(n.get("key")) for n in nodes.values()}
+    writes = _write_tool_names()
+    edges: dict[str, set[str]] = {k: set() for k in nodes}
+    for edge in fleet_flow.get("edges") or []:
+        src, dst = by_id.get(str(edge.get("source"))), by_id.get(str(edge.get("target")))
+        if src in edges and dst:
+            edges[src].add(dst)
+    for key, node in nodes.items():
+        namespace = fg.split_key(key)[0]
+        tools = list((node.get("data") or {}).get("tools") or [])
+        for tool in tools:
+            for target in fg.TRANSITIONS.get(tool, ()):
+                resolved = fg.resolve_key(nodes, target, namespace=namespace)
+                if resolved:
+                    edges[key].add(resolved)
+                    break
+            if tool == "handoff_to_agent":
+                for member, entry in entries.items():
+                    if member != namespace and entry in nodes:
+                        edges[key].add(entry)
+
+    start = next(
+        (k for k, n in nodes.items() if (n.get("data") or {}).get("isStart")),
+        None,
+    )
+    if start is None:
+        return _gate("G-F3", "identity_before_writes", "skipped", "the merged graph has no start node")
+
+    findings: list[dict[str, Any]] = []
+    seen: set[tuple[str, bool]] = set()
+    frontier: list[tuple[str, bool]] = [(start, False)]
+    while frontier:
+        key, verified = frontier.pop()
+        if (key, verified) in seen:
+            continue
+        seen.add((key, verified))
+        tools = set((nodes[key].get("data") or {}).get("tools") or [])
+        if not verified and tools & writes:
+            findings.append({"node": key, "writes": sorted(tools & writes)})
+        now_verified = verified or bool(tools & _VERIFY_TOOLS)
+        for nxt in edges.get(key, ()):
+            frontier.append((nxt, now_verified))
+    return _gate(
+        "G-F3",
+        "identity_before_writes",
+        "fail" if findings else "pass",
+        (
+            f"{len(findings)} step(s) offer a write on a path with no verification"
+            if findings
+            else "every write sits behind verify_identity on every path from the door"
+        ),
+        findings,
+    )
+
+
 #: What a door may hold.
 #:
 #: An allowlist, not a deny-list, because a deny-list fails open on the next
@@ -384,6 +517,24 @@ def _namespace_locals(fleet_flow: dict[str, Any]) -> dict[str, set[str]]:
     return out
 
 
+def _bound_as_entry(bot_id: str) -> bool:
+    """Is an enabled entry binding authored for this card?
+
+    The binding is the authorship; ``DOOR_ENABLED`` is the rollout. A card
+    bound as the door is held to the door's rule before the flag flips, which
+    is when the compile has to say so.
+    """
+    try:
+        from agent_core.cards.routing import list_entry_bindings
+
+        return any(
+            str(b.get("bot_id")) == bot_id and b.get("enabled") for b in list_entry_bindings()
+        )
+    except Exception:
+        logger.exception("entry binding scan failed · bot=%s", bot_id)
+        return False
+
+
 def fleet_gates(
     *,
     primary_bot_id: str,
@@ -391,8 +542,15 @@ def fleet_gates(
     flow: dict[str, Any],
     members: Sequence[dict[str, Any]],
     door_keys: frozenset[str] | None = None,
+    is_door: bool | None = None,
 ) -> list[GateResult]:
     """G-F2, G-F6, G-F12 and G-F15 over the merged fleet graph.
+
+    ``is_door`` says whether the primary answers the phone -- an enabled
+    entry binding names it. G-F6 (a door may not do business) applies only
+    then: every specialist with handoffs also merges a fleet, and holding the
+    door's read-only rule against the collections card would refuse the one
+    card whose business tools are the point. ``None`` asks the bindings.
 
     G-F15, G-F2 and G-F6 block. The first two describe a call that breaks --
     a hop replaying the greeting and recording disclosure at an already-verified
@@ -441,6 +599,26 @@ def fleet_gates(
 
     gates: list[GateResult] = []
     owned = _namespace_locals(fleet_flow)
+
+    if is_door is None:
+        is_door = _bound_as_entry(primary_bot_id)
+    gates.append(
+        _closure_gate(primary_bot_id=primary_bot_id, card=card, members=members, entries=entries)
+    )
+    if is_door:
+        gates.append(_identity_gate(fleet_flow=fleet_flow, entries=entries))
+    else:
+        # A specialist's own start is not where a caller enters; the hop into
+        # it arrives verified, and the walk from the door covers every member
+        # the door can reach. Judged when the door compiles.
+        gates.append(
+            _gate(
+                "G-F3",
+                "identity_before_writes",
+                "skipped",
+                f"{primary_bot_id} is not the door; the walk starts at the door's compile",
+            )
+        )
 
     # G-F15 -- where a hop lands.
     #
@@ -504,21 +682,31 @@ def fleet_gates(
         )
     )
 
-    # G-F6 -- a door that can do business is not a door.
-    extra = sorted(set((card.tools.include if card else []) or []) - _DOOR_TOOLS)
-    gates.append(
-        _gate(
-            "G-F6",
-            "door_readonly",
-            "fail" if extra else "pass",
-            (
-                f"the door holds {len(extra)} tool(s) beyond routing: {', '.join(extra)}"
-                if extra
-                else "the door can identify, read, route and leave, and nothing else"
-            ),
-            [{"beyond_routing": extra}] if extra else [],
+    # G-F6 -- a door that can do business is not a door. Only the door.
+    if not is_door:
+        gates.append(
+            _gate(
+                "G-F6",
+                "door_readonly",
+                "skipped",
+                f"{primary_bot_id} is not bound as an entry; the read-only rule is the door's",
+            )
         )
-    )
+    else:
+        extra = sorted(set((card.tools.include if card else []) or []) - _DOOR_TOOLS)
+        gates.append(
+            _gate(
+                "G-F6",
+                "door_readonly",
+                "fail" if extra else "pass",
+                (
+                    f"the door holds {len(extra)} tool(s) beyond routing: {', '.join(extra)}"
+                    if extra
+                    else "the door can identify, read, route and leave, and nothing else"
+                ),
+                [{"beyond_routing": extra}] if extra else [],
+            )
+        )
 
     # G-F12 -- informational until publish is split into member and fleet scope.
     gates.append(

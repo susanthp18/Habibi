@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "globalTools": [
+    "search_knowledge_base",
+    "add_customer_note",
+    "escalate_to_human",
+    "end_call"
+  ],
+  "nodes": [
+    {
+      "id": "n_insurance_hub",
+      "key": "insurance_hub",
+      "type": "conversation",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "name": "Insurance Specialist",
+        "instructionType": "prompt",
+        "instructions": "You are the insurance specialist. The caller is verified and was handed to you because they asked about a product or an in-policy offer. Answer their question from the knowledge base; check eligibility before naming any product; when they show interest, capture a lead and offer to send the documents. Quote no premium, waiver or arrears figure you have not retrieved with a tool. If they return to their dues, hand the call back to collections with handoff_to_agent. When there is nothing more, wrap up.",
+        "isStart": true,
+        "entryFor": [],
+        "respondImmediately": false,
+        "entryLine": "I can help with that.",
+        "tools": [
+          "get_customer_context",
+          "check_product_eligibility",
+          "recommend_next_offer",
+          "capture_lead",
+          "request_documents",
+          "set_contact_preference",
+          "handoff_to_agent",
+          "begin_wrap_up"
+        ],
+        "extractVariables": [],
+        "endConversation": false
+      }
+    },
+    {
+      "id": "n_wrap_up",
+      "key": "wrap_up",
+      "type": "conversation",
+      "position": {
+        "x": 0,
+        "y": 460
+      },
+      "data": {
+        "name": "Wrap Up",
+        "instructionType": "prompt",
+        "instructions": "The caller has nothing else. Summarise what was agreed in one short sentence and thank them. Do not ask new questions.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [],
+        "extractVariables": [],
+        "endConversation": true
+      }
+    },
+    {
+      "id": "n_escalate_close",
+      "key": "escalate_close",
+      "type": "conversation",
+      "position": {
+        "x": 320,
+        "y": 460
+      },
+      "data": {
+        "name": "Escalate Close",
+        "instructionType": "prompt",
+        "instructions": "A colleague will continue. Say so in one short sentence, confirm they will be called back on this number, and say goodbye. Do not ask further questions.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [],
+        "extractVariables": [],
+        "endConversation": true
+      }
+    },
+    {
+      "id": "n_call_ended",
+      "key": "call_ended",
+      "type": "end",
+      "position": {
+        "x": 0,
+        "y": 620
+      },
+      "data": {
+        "name": "Call Ended",
+        "instructionType": "prompt",
+        "instructions": "Briefly thank the caller and say goodbye in one short sentence. Do not ask further questions.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [],
+        "extractVariables": [],
+        "endConversation": true
+      }
+    },
+    {
+      "id": "n_pre_close",
+      "key": "pre_close",
+      "type": "conversation",
+      "position": {
+        "x": -320,
+        "y": 460
+      },
+      "data": {
+        "name": "Pre Close",
+        "instructionType": "prompt",
+        "instructions": "Ask ONE short question: whether there is anything else you can help them with today. Do not list options and do not summarise. If they say no, or say goodbye, call end_call.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [
+          "end_call"
+        ],
+        "extractVariables": [],
+        "endConversation": false
+      }
+    },
+    {
+      "id": "n_terminate_politely",
+      "key": "terminate_politely",
+      "type": "conversation",
+      "position": {
+        "x": -320,
+        "y": 620
+      },
+      "data": {
+        "name": "Terminate Politely",
+        "instructionType": "prompt",
+        "instructions": "Apologise briefly, explain you cannot share account details without verification, and suggest calling from the registered number. Do not ask further questions.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [],
+        "extractVariables": [],
+        "endConversation": true
+      }
+    }
+  ],
+  "edges": []
+}

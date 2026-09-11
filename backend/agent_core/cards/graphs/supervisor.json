@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "globalTools": [
+    "add_customer_note",
+    "end_call"
+  ],
+  "nodes": [
+    {
+      "id": "n_brief",
+      "key": "brief",
+      "type": "conversation",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "name": "Supervisor Brief",
+        "instructionType": "prompt",
+        "instructions": "You are briefing the supervisor who is about to take this call. Give the handoff packet in three short lines -- who the caller is, what has been agreed or disputed so far, and what they need now -- then add one customer note recording the transfer. Do not speak to the caller as the specialist; do not quote balances, offers or terms. When the brief is delivered, close.",
+        "isStart": true,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "One moment, I am bringing a colleague in.",
+        "tools": [
+          "add_customer_note",
+          "begin_wrap_up"
+        ],
+        "extractVariables": [],
+        "endConversation": false
+      }
+    },
+    {
+      "id": "n_escalate_close",
+      "key": "escalate_close",
+      "type": "conversation",
+      "position": {
+        "x": 320,
+        "y": 460
+      },
+      "data": {
+        "name": "Escalate Close",
+        "instructionType": "prompt",
+        "instructions": "A colleague will continue. Say so in one short sentence, confirm they will be called back on this number, and say goodbye. Do not ask further questions.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [],
+        "extractVariables": [],
+        "endConversation": true
+      }
+    },
+    {
+      "id": "n_call_ended",
+      "key": "call_ended",
+      "type": "end",
+      "position": {
+        "x": 0,
+        "y": 620
+      },
+      "data": {
+        "name": "Call Ended",
+        "instructionType": "prompt",
+        "instructions": "Briefly thank the caller and say goodbye in one short sentence. Do not ask further questions.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [],
+        "extractVariables": [],
+        "endConversation": true
+      }
+    },
+    {
+      "id": "n_pre_close",
+      "key": "pre_close",
+      "type": "conversation",
+      "position": {
+        "x": -320,
+        "y": 460
+      },
+      "data": {
+        "name": "Pre Close",
+        "instructionType": "prompt",
+        "instructions": "Ask ONE short question: whether there is anything else you can help them with today. Do not list options and do not summarise. If they say no, or say goodbye, call end_call.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [
+          "end_call"
+        ],
+        "extractVariables": [],
+        "endConversation": false
+      }
+    },
+    {
+      "id": "n_terminate_politely",
+      "key": "terminate_politely",
+      "type": "conversation",
+      "position": {
+        "x": -320,
+        "y": 620
+      },
+      "data": {
+        "name": "Terminate Politely",
+        "instructionType": "prompt",
+        "instructions": "Apologise briefly, explain you cannot share account details without verification, and suggest calling from the registered number. Do not ask further questions.",
+        "isStart": false,
+        "entryFor": [],
+        "respondImmediately": true,
+        "entryLine": "",
+        "tools": [],
+        "extractVariables": [],
+        "endConversation": true
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_brief_escalate_close",
+      "source": "n_brief",
+      "target": "n_escalate_close",
+      "data": {
+        "condition": {
+          "type": "prompt",
+          "prompt": "The brief has been delivered and the note is recorded.",
+          "match": "all",
+          "clauses": []
+        }
+      }
+    }
+  ]
+}
