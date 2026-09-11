@@ -69,9 +69,14 @@ def test_voice_stage_does_not_keep_a_c_toolchain() -> None:
 
 
 def test_four_workers_have_healthchecks() -> None:
-    services = _services((BACKEND / "docker-compose.yml").read_text(encoding="utf-8"))
-    missing = [name for name in WORKER_SERVICES if "healthcheck:" not in services.get(name, "")]
+    # Parsed, not regexed: `bot_worker: &bot-worker` is a YAML anchor the
+    # role-split services merge from, and a line regex read it as no service.
+    import yaml
+
+    compose = yaml.safe_load((BACKEND / "docker-compose.yml").read_text(encoding="utf-8"))
+    missing = [name for name in WORKER_SERVICES if "healthcheck" not in compose["services"].get(name, {})]
     assert not missing, f"worker services missing a healthcheck: {missing}"
+    services = _services((BACKEND / "docker-compose.yml").read_text(encoding="utf-8"))
     voice = services["voice"]
     assert "7860" in voice.split("healthcheck:", 1)[1], (
         "voice healthcheck must probe the runner port, not merely PID 1"
