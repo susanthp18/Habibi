@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createLazyFileRoute, useBlocker, useNavigate } from "@tanstack/react-router";
+import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { AppShell } from "@/components/shell/AppShell";
-import { StudioHeader } from "@/components/prompt-studio/StudioHeader";
 import { PromptEditor } from "@/components/prompt-studio/PromptEditor";
 import { PersonaSliders } from "@/components/prompt-studio/PersonaSliders";
 import { VoicePanel } from "@/components/prompt-studio/VoicePanel";
 import { GuardrailsPanel } from "@/components/prompt-studio/GuardrailsPanel";
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,33 +15,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { FlowCanvas, VALIDATOR_UNREACHABLE } from "@/components/flow/FlowCanvas";
-import {
-  emptyGraph,
-  fetchBuiltInFlow,
-  isEmptyGraph,
-  validateFlow,
-  type FlowGraph,
-  type FlowIssue,
-} from "@/api/flow";
+import { VALIDATOR_UNREACHABLE } from "@/components/flow/FlowCanvas";
+import { isEmptyGraph, validateFlow, type FlowGraph, type FlowIssue } from "@/api/flow";
 import { VersionHistory } from "@/components/prompt-studio/VersionHistory";
 import { DiffModal } from "@/components/prompt-studio/DiffModal";
 import { PublishDialog } from "@/components/prompt-studio/PublishDialog";
-import {
-  useActiveProdDeployment,
-  useDiscardPromptVersion,
-  usePublishedPromptVersion,
-  useEnsureStudioDraft,
-  useAutoLint,
-  useLintPrompt,
-  usePersonaPresets,
-  useProdDeployments,
-  usePromptVersions,
-  usePublishStudioDraft,
-  useRestorePromptVersionAsDraft,
-  useRollbackBotDeployment,
-  type PromptLintFinding,
-} from "@/api/prompt-studio";
+import { useAutoLint, type PromptLintFinding } from "@/api/prompt-studio";
 import type {
   Guardrails,
   PersonaPreset,
@@ -59,34 +35,10 @@ import {
   languageTag,
   nextVersionLabel,
 } from "@/data/prompt-studio-seed";
-import {
-  FileText,
-  Sparkles,
-  Volume2,
-  ShieldAlert,
-  Workflow,
-  Wrench,
-  Lock,
-  PhoneOutgoing,
-  FlaskConical,
-  GitBranch,
-  Layers,
-  Plug,
-  Rocket,
-  Cable,
-  ScrollText,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import {
-  useAgentStudioCard,
-  useCompileCard,
-  useCompilePreview,
-  useDeploymentExperiments,
-  type CompileReport,
-} from "@/api/agent-studio";
-import { stableStringify } from "@/lib/stable-stringify";
+import { useCompilePreview, type CompileReport } from "@/api/agent-studio";
 import { isNotFound } from "@/api/config";
 import { asRollbackTriggers, isAuthoredCard, type AgentCard } from "@/api/agent-card";
 import { ShipTab, type ShipState } from "@/components/prompt-studio/ShipTab";
@@ -101,6 +53,19 @@ import {
   ToolsTab,
 } from "@/components/prompt-studio/AgentCardPanels";
 import { OutboundTab } from "@/components/prompt-studio/OutboundTab";
+import {
+  FILL_TABS,
+  PromptStudioShell,
+  type Tab,
+} from "@/components/prompt-studio/studio/PromptStudioShell";
+import { useStudioQueries } from "@/components/prompt-studio/studio/useStudioQueries";
+import {
+  asCard,
+  fingerprint,
+  useStudioDraft,
+  type SaveStatus,
+} from "@/components/prompt-studio/studio/useStudioDraft";
+import { FlowTabBody } from "@/components/prompt-studio/studio/FlowTabBody";
 
 export const Route = createLazyFileRoute("/prompt-studio")({
   component: function PromptStudioRedirected() {
@@ -108,70 +73,6 @@ export const Route = createLazyFileRoute("/prompt-studio")({
     return <PromptStudioPage botId="kaia-v2-4" unansweredId={unansweredId} note={note} />;
   },
 });
-
-type Tab =
-  | "prompt"
-  | "flow"
-  | "graph"
-  | "persona"
-  | "voice"
-  | "guardrails"
-  | "tools"
-  | "skills"
-  | "connectors"
-  | "policy"
-  | "outbound"
-  | "bindings"
-  | "evals"
-  | "ship"
-  | "changelog";
-/**
- * Tabs that own their own height and scroll internally, rather than growing a
- * page that scrolls.
- *
- * The distinction is real, not cosmetic. Flow is a canvas and Voice is a
- * browser-plus-inspector: both have a natural size of "the pane", and both
- * contain their own scrollable regions. Letting the page scroll underneath
- * them means two scrollbars competing for the same wheel gesture. The rest are
- * forms — they have a natural height, and the page should scroll them.
- */
-const FILL_TABS = new Set<Tab>(["flow", "voice"]);
-
-type SaveStatus = "idle" | "saving" | "saved" | "error";
-
-/** Non-empty object, or null. `{}` is "no card", not "a card with no fields". */
-function asCard(value: unknown): AgentCard | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return Object.keys(value as AgentCard).length ? (value as AgentCard) : null;
-}
-
-/**
- * Identity of the editor's state, used for both "is this dirty?" and "has this
- * already been autosaved?".
- *
- * `stableStringify`, not `JSON.stringify`, and the difference is the whole
- * bug. Key order matters to JSON.stringify and the two sides of this comparison
- * are built differently: local state starts from `DEFAULT_VOICE`, which omits
- * `style` and `params`, while the server emits every field in Pydantic field
- * order. So the first save stored a server-shaped baseline against seed-shaped
- * local state, `dirty` recomputed true the instant "Draft saved" appeared, and
- * the save invalidated the query that refetched the object that re-ran the
- * effect. A permanent unsaved chip on top of a PATCH loop that feeds itself.
- *
- * PublishDialog had already hit this and grown its own key-order-independent
- * serialiser; it now lives in @/lib/stable-stringify and both use it.
- */
-function fingerprint(
-  p: string,
-  persona: PersonaState,
-  voice: VoiceConfig,
-  g: Guardrails,
-  flow: FlowGraph | null,
-  card: AgentCard | null,
-) {
-  return stableStringify({ p, persona, voice, g, flow, card });
-}
-
 export function PromptStudioPage({
   botId,
   unansweredId,
@@ -183,34 +84,24 @@ export function PromptStudioPage({
 }) {
   const navigate = useNavigate();
   const [gapBannerDismissed, setGapBannerDismissed] = useState(false);
-  const versionsQuery = usePromptVersions(botId);
-  const presetsQuery = usePersonaPresets();
-  const activeDepQuery = useActiveProdDeployment(botId);
-  // The live row from its own endpoint, not a scan of a 200-row page. An old
-  // published row that dropped off the page flipped the header to "never
-  // published" and reset the next label.
-  const publishedQuery = usePublishedPromptVersion(botId);
-  const prodDepsQuery = useProdDeployments(botId);
-  const experimentsQuery = useDeploymentExperiments(botId);
-  const cardQuery = useAgentStudioCard(botId);
-  /**
-   * The card cannot be edited: it is not there (404), or it was never read.
-   *
-   * A transient refetch failure after hydration used to be the same thing --
-   * the whole editor was replaced by "Could not load" and autosave stopped,
-   * for a card the page had already loaded and was holding. That is an inline
-   * banner (`cardStale`) now, and autosave keeps writing against the botId it
-   * already confirmed.
-   */
-  const cardRefused = cardQuery.isError && (isNotFound(cardQuery.error) || !cardQuery.data);
-  const cardStale = cardQuery.isError && !cardRefused;
-  const compileMutation = useCompileCard(botId);
-  const publishMutation = usePublishStudioDraft();
-  const restoreMutation = useRestorePromptVersionAsDraft();
-  const ensureDraftMutation = useEnsureStudioDraft();
-  const discardMutation = useDiscardPromptVersion();
-  const rollbackMutation = useRollbackBotDeployment();
-  const lintMutation = useLintPrompt();
+  const {
+    versionsQuery,
+    presetsQuery,
+    activeDepQuery,
+    publishedQuery,
+    prodDepsQuery,
+    experimentsQuery,
+    cardQuery,
+    cardRefused,
+    cardStale,
+    compileMutation,
+    publishMutation,
+    restoreMutation,
+    ensureDraftMutation,
+    discardMutation,
+    rollbackMutation,
+    lintMutation,
+  } = useStudioQueries(botId);
   const ensureDraft = ensureDraftMutation.mutateAsync;
 
   const [history, setHistory] = useState<PromptVersion[]>([]);
@@ -259,7 +150,6 @@ export function PromptStudioPage({
   const [replaceUnreadable, setReplaceUnreadable] = useState(false);
 
   const [tab, setTab] = useState<Tab>("prompt");
-  const tabStripRef = useRef<HTMLDivElement>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [diffBase, setDiffBase] = useState<PromptVersion | undefined>();
@@ -287,43 +177,6 @@ export function PromptStudioPage({
     setCompileReport(null);
     setReplaceUnreadable(false);
   }, [botId]);
-
-  // A scrollable strip can leave the selected tab off-screen — after a publish
-  // lands on Ship, or when the tab is restored on a narrow window. Bring it
-  // back into view rather than leaving the user looking at a strip with no
-  // visible selection.
-  // Which edges of the tab strip still have tabs hidden behind them. The strip
-  // scrolls, but a bare scrollbar under a tab row reads as breakage rather than
-  // as an affordance — and at 1024px it was the only clue that Evals and Ship
-  // existed at all. A fade on the side that has more is the honest signal.
-  const [tabEdges, setTabEdges] = useState({ atStart: true, atEnd: true });
-  const syncTabEdges = useCallback(() => {
-    const el = tabStripRef.current;
-    if (!el) return;
-    const max = el.scrollWidth - el.clientWidth;
-    setTabEdges({
-      atStart: el.scrollLeft <= 1,
-      // 1px of slack: sub-pixel layout widths leave scrollLeft a hair short of
-      // max even when it is visually at the end, which would pin the fade on.
-      atEnd: el.scrollLeft >= max - 1,
-    });
-  }, []);
-
-  useEffect(() => {
-    tabStripRef.current
-      ?.querySelector<HTMLElement>(`[data-tab="${tab}"]`)
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    syncTabEdges();
-  }, [tab, syncTabEdges]);
-
-  useEffect(() => {
-    const el = tabStripRef.current;
-    if (!el) return;
-    syncTabEdges();
-    const ro = new ResizeObserver(syncTabEdges);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [syncTabEdges]);
 
   const lastSavedFp = useRef<string>("");
   const autosaveTimer = useRef<number | null>(null);
@@ -675,180 +528,37 @@ export function PromptStudioPage({
     discardMutation.isPending ||
     rollbackMutation.isPending;
 
-  /**
-   * What a save would send, read at call time rather than captured.
-   *
-   * `runSave` and `flushDraft` are stable callbacks; the editor state they
-   * write is whatever is on screen when they run, which is the property that
-   * lets Publish, Test-in-Sandbox and route changes flush the same draft the
-   * debounce would have.
-   */
-  const editorRef = useRef({
-    prompt,
-    persona,
-    voice,
-    guardrails,
-    flow,
-    card: asCard(effectiveCard),
-    draftId,
-    draftLabel,
-    replaceUnreadable,
-  });
-  editorRef.current = {
-    prompt,
-    persona,
-    voice,
-    guardrails,
-    flow,
-    card: asCard(effectiveCard),
-    draftId,
-    draftLabel,
-    replaceUnreadable,
-  };
-
-  /**
-   * The one way a draft is written. Autosave, Publish, Test in Sandbox and
-   * Load/Restore all come through here; three of them used to call
-   * `ensureDraft` on their own, outside the in-flight guard, and a click inside
-   * the debounce window forked a second draft.
-   */
-  const runSave = useCallback(async (): Promise<PromptVersion | null> => {
-    if (savingRef.current) {
-      // Queue behind the save already running rather than racing it.
-      resaveRef.current = true;
-      return saveInFlight.current;
-    }
-    const e = editorRef.current;
-    const fpSent = fingerprint(e.prompt, e.persona, e.voice, e.guardrails, e.flow, e.card);
-    savingRef.current = true;
-    setSaveStatus("saving");
-    const work = (async () => {
-      try {
-        const draft = await ensureDraft({
-          draftId: e.draftId,
-          label: e.draftLabel,
-          prompt: e.prompt,
-          persona: e.persona,
-          voice: e.voice,
-          guardrails: e.guardrails,
-          flow: e.flow ?? undefined,
-          replaceUnreadable: e.replaceUnreadable,
-          agentCard: e.card ?? undefined,
-          summary: draftSummary.current,
-          botId,
-        });
-        setDraftId(draft.id);
-        // The replacement is stored, so the next autosave is an ordinary one
-        // again. Left set, a later accidental sentinel would sail through the
-        // guard this flag exists to open.
-        if (e.replaceUnreadable) setReplaceUnreadable(false);
-        // The baseline is what was *sent*, not the echoed row. The server
-        // normalises structured fields (`entryFor: []`, `style: null`), so
-        // fingerprinting the echo left the chip on "unsaved" forever after
-        // "Start from blank" or adding a flow node.
-        markSaved(fpSent);
-        saveFailures.current = 0;
-        setSaveStatus("saved");
-        return draft;
-      } catch {
-        setSaveStatus("error");
-        // Retry with backoff, three times; an edit lost to one failed PATCH
-        // was gone the moment the author navigated.
-        saveFailures.current += 1;
-        if (saveFailures.current <= 3) {
-          window.setTimeout(
-            () => setAutosaveNonce((n) => n + 1),
-            2000 * 2 ** (saveFailures.current - 1),
-          );
-        }
-        return null;
-      } finally {
-        savingRef.current = false;
-        saveInFlight.current = null;
-        if (resaveRef.current) {
-          resaveRef.current = false;
-          // Re-enter the effect so the edits made mid-save are written too.
-          setAutosaveNonce((n) => n + 1);
-        }
-      }
-    })();
-    saveInFlight.current = work;
-    return work;
-  }, [ensureDraft, markSaved, botId]);
-
-  /**
-   * Write whatever is unsaved, now, and return the draft it landed in.
-   *
-   * Cancels the debounce, waits for a save already in flight, then saves once
-   * more if the editor moved on since. `null` when there was nothing to write
-   * and no draft exists.
-   */
-  const flushDraft = useCallback(async (): Promise<PromptVersion | null> => {
-    if (autosaveTimer.current) {
-      window.clearTimeout(autosaveTimer.current);
-      autosaveTimer.current = null;
-    }
-    let last: PromptVersion | null = null;
-    if (saveInFlight.current) last = await saveInFlight.current;
-    const e = editorRef.current;
-    const fp = fingerprint(e.prompt, e.persona, e.voice, e.guardrails, e.flow, e.card);
-    if (fp !== lastSavedFp.current && (e.draftId || e.prompt.trim())) {
-      last = await runSave();
-    }
-    return last;
-  }, [runSave]);
-
-  // SHELL-9: a route change flushes the draft first, and a tab close asks.
-  useBlocker({
-    shouldBlockFn: async () => {
-      if (!unsavedRef.current) return false;
-      await flushDraft();
-      return false;
-    },
-    enableBeforeUnload: () => unsavedRef.current,
-  });
-
-  // Debounced autosave while dirty.
-  useEffect(() => {
-    if (!hydrated || skipAutosave.current) return;
-    // Never autosave against a card the API could not confirm exists. On a dead
-    // URL `/prompt-versions` still answers `200 []`, so hydration succeeds and
-    // every keystroke used to PATCH a bot id nothing is registered under.
-    if (cardRefused) return;
-    if (!dirty) {
-      // "saved" survives here. The refetch that follows an autosave makes the
-      // draft the newest version, so `dirty` goes false on the very next render
-      // and this line reset the status to "idle" — wiping the "Draft saved"
-      // confirmation before it could paint. The only feedback a successful save
-      // gave was the *disappearance* of the unsaved chip. It clears on the next
-      // edit, when the unsaved chip takes over.
-      setSaveStatus((s) => (s === "saving" || s === "saved" ? s : "idle"));
-      return;
-    }
-    const fp = fingerprint(prompt, persona, voice, guardrails, flow, asCard(effectiveCard));
-    if (fp === lastSavedFp.current) return;
-
-    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = window.setTimeout(() => {
-      void runSave();
-    }, 1200);
-
-    return () => {
-      if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
-    };
-  }, [
+  const { flushDraft } = useStudioDraft({
+    botId,
+    ensureDraft,
     prompt,
     persona,
     voice,
     guardrails,
     flow,
     effectiveCard,
-    dirty,
+    draftId,
+    draftLabel,
+    replaceUnreadable,
     hydrated,
-    autosaveNonce,
-    runSave,
     cardRefused,
-  ]);
+    dirty,
+    autosaveNonce,
+    lastSavedFp,
+    autosaveTimer,
+    skipAutosave,
+    savingRef,
+    resaveRef,
+    unsavedRef,
+    saveInFlight,
+    saveFailures,
+    draftSummary,
+    markSaved,
+    setSaveStatus,
+    setAutosaveNonce,
+    setDraftId,
+    setReplaceUnreadable,
+  });
 
   // Compiler preview: same validator that publish uses. Runs even if the Flow
   // tab has never been opened, so a stored invalid graph cannot ship by
@@ -1258,32 +968,6 @@ export function PromptStudioPage({
     }
   };
 
-  const TABS: Array<{ key: Tab; label: string; icon: typeof FileText }> = [
-    { key: "prompt", label: "System Prompt", icon: FileText },
-    { key: "flow", label: "Flow", icon: Workflow },
-    { key: "graph", label: "Agent graph", icon: GitBranch },
-    { key: "persona", label: "Persona", icon: Sparkles },
-    { key: "voice", label: "Voice (TTS)", icon: Volume2 },
-    { key: "guardrails", label: "Guardrails", icon: ShieldAlert },
-    { key: "tools", label: "Tools", icon: Wrench },
-    { key: "skills", label: "Skills", icon: Layers },
-    { key: "connectors", label: "Connectors", icon: Plug },
-    { key: "policy", label: "Policy", icon: Lock },
-    // Between Policy and Evals: after the constraints that bound outbound,
-    // before the gate that proves it.
-    { key: "outbound", label: "Outbound", icon: PhoneOutgoing },
-    // After Voice, conceptually — but placed here so the tab strip keeps the
-    // authoring tabs together and the operational ones after them. This is what
-    // decides which engine the Voice tab's choice actually runs on.
-    { key: "bindings", label: "Bindings", icon: Cable },
-    { key: "evals", label: "Evals", icon: FlaskConical },
-    { key: "ship", label: "Ship", icon: Rocket },
-    // Last, because it is the record of everything the tabs before it did.
-    // Named "Change log", not "History" — the header's History sheet lists
-    // prompt versions, which is a different artefact with a different audience.
-    { key: "changelog", label: "Change log", icon: ScrollText },
-  ];
-
   // What a publish is measured against: the live row, and nothing else.
   //
   // This used to read `published`, which falls back to the newest version of
@@ -1396,481 +1080,323 @@ export function PromptStudioPage({
   };
 
   return (
-    <AppShell>
-      <div className="flex h-full min-h-0 flex-col">
-        <StudioHeader
-          cardName={cardQuery.data?.name}
-          currentVersion={publishedRow?.label ?? "—"}
-          canPublish={Boolean(draftId) || dirty}
-          nextVersion={draftLabel}
-          dirty={unsaved}
-          personaLabel={personaLabel}
-          saveStatus={saveStatus}
-          onTestSandbox={() => void onTestSandbox()}
-          onPublish={() => {
-            setPublishOpen(true);
-            void runCompile();
-          }}
-          onAiReview={() => void onLint(true)}
-          lintBusy={lintMutation.isPending}
-          onOpenHistory={() => setHistoryOpen(true)}
-          versionCount={history.length}
-          draftCount={history.filter((v) => v.status === "draft").length}
-          publishBlocked={!flowValid}
-          flowErrorCount={flowIssues.filter((i) => i.severity === "error").length}
-          flowUnchecked={flowUnchecked}
-          onFixFlow={() => setTab("flow")}
-          deploymentUnknown={livenessUnknown}
-        />
-
-        {cardStale && (
-          <div className="mx-250 mt-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
-            The card could not be re-read (
-            {cardQuery.error instanceof Error ? cardQuery.error.message : "the API did not answer"}
-            ). You are editing the copy loaded earlier; saves still go to {botId}.
-          </div>
-        )}
-
-        {showGapBanner && (
-          <div className="mx-250 mt-150 flex items-start justify-between gap-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
-            <div>
-              <div className="font-semibold text-text-warning-bolder">
-                Fixing unanswered question
-              </div>
-              <div className="mt-025 text-text-warning-bolder/90">
-                {gapNote || "Review the system prompt for this coverage gap."}
-                {unansweredId ? (
-                  <span className="ml-050 font-mono text-body-small text-text-warning-bolder/70">
-                    ({unansweredId})
-                  </span>
-                ) : null}
-              </div>
-              <div className="mt-050 text-body-small text-text-warning-bolder/80">
-                Banner only — edit the prompt yourself; nothing is auto-injected.
-              </div>
+    <PromptStudioShell
+      header={{
+        cardName: cardQuery.data?.name,
+        currentVersion: publishedRow?.label ?? "—",
+        canPublish: Boolean(draftId) || dirty,
+        nextVersion: draftLabel,
+        dirty: unsaved,
+        personaLabel,
+        saveStatus,
+        onTestSandbox: () => void onTestSandbox(),
+        onPublish: () => {
+          setPublishOpen(true);
+          void runCompile();
+        },
+        onAiReview: () => void onLint(true),
+        lintBusy: lintMutation.isPending,
+        onOpenHistory: () => setHistoryOpen(true),
+        versionCount: history.length,
+        draftCount: history.filter((v) => v.status === "draft").length,
+        publishBlocked: !flowValid,
+        flowErrorCount: flowIssues.filter((i) => i.severity === "error").length,
+        flowUnchecked,
+        onFixFlow: () => setTab("flow"),
+        deploymentUnknown: livenessUnknown,
+      }}
+      banners={
+        <>
+          {cardStale && (
+            <div className="mx-250 mt-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
+              The card could not be re-read (
+              {cardQuery.error instanceof Error
+                ? cardQuery.error.message
+                : "the API did not answer"}
+              ). You are editing the copy loaded earlier; saves still go to {botId}.
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setGapBannerDismissed(true);
-                void navigate({ to: "/agent-studio/$botId", params: { botId }, search: {} });
-              }}
-              className="shrink-0 rounded border border-border-warning px-100 py-025 text-body-small hover:bg-background-warning-subtler"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* The twelve tabs need 1006px and the strip had `overflow-x: visible`
-            and no scrolling, so below roughly 1030px the last of them simply
-            hung outside the container with nothing to reach them by: on a
-            1024px laptop, or this app in a split window, Evals and Ship were
-            unclickable — including the only route to canary and publish
-            settings. Scrolling the strip is the fix; `shrink-0` stops the
-            labels compressing into ellipses instead. */}
-        <div className="relative shrink-0 border-b border-border bg-surface">
-          <div
-            ref={tabStripRef}
-            onScroll={syncTabEdges}
-            className="scrollbar-none overflow-x-auto px-250"
-          >
-            <div className="flex w-max gap-050">
-              {TABS.map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.key}
-                    data-tab={t.key}
-                    onClick={() => setTab(t.key)}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-075 border-b-2 px-150 py-100 text-body-small",
-                      tab === t.key
-                        ? "border-border-brand font-semibold text-text-brand"
-                        : "border-transparent text-text-subtle hover:text-text",
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {/* Each fade appears only while that side actually has tabs behind
-              it, so it reads as "there is more this way" rather than as a
-              permanent decoration that means nothing. */}
-          {!tabEdges.atStart && (
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-surface to-transparent" />
           )}
-          {!tabEdges.atEnd && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-surface to-transparent" />
-          )}
-        </div>
 
-        {loading ? (
-          <div className="grid flex-1 place-items-center p-250">
-            <LoadingState label="Loading prompt studio" />
-          </div>
-        ) : blocked ? (
-          <div className="grid flex-1 place-items-center p-250">
-            <div className="max-w-md space-y-100 text-center">
-              <p className="text-body font-semibold text-text">{blocked.title}</p>
-              <p className="text-body-small text-text-subtle">{blocked.detail}</p>
+          {showGapBanner && (
+            <div className="mx-250 mt-150 flex items-start justify-between gap-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
+              <div>
+                <div className="font-semibold text-text-warning-bolder">
+                  Fixing unanswered question
+                </div>
+                <div className="mt-025 text-text-warning-bolder/90">
+                  {gapNote || "Review the system prompt for this coverage gap."}
+                  {unansweredId ? (
+                    <span className="ml-050 font-mono text-body-small text-text-warning-bolder/70">
+                      ({unansweredId})
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-050 text-body-small text-text-warning-bolder/80">
+                  Banner only — edit the prompt yourself; nothing is auto-injected.
+                </div>
+              </div>
               <button
-                onClick={() => void navigate({ to: "/agent-studio" })}
-                className="mt-100 inline-flex items-center rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
+                type="button"
+                onClick={() => {
+                  setGapBannerDismissed(true);
+                  void navigate({ to: "/agent-studio/$botId", params: { botId }, search: {} });
+                }}
+                className="shrink-0 rounded border border-border-warning px-100 py-025 text-body-small hover:bg-background-warning-subtler"
               >
-                Back to the fleet
+                Dismiss
               </button>
             </div>
+          )}
+        </>
+      }
+      tab={tab}
+      setTab={setTab}
+    >
+      {loading ? (
+        <div className="grid flex-1 place-items-center p-250">
+          <LoadingState label="Loading prompt studio" />
+        </div>
+      ) : blocked ? (
+        <div className="grid flex-1 place-items-center p-250">
+          <div className="max-w-md space-y-100 text-center">
+            <p className="text-body font-semibold text-text">{blocked.title}</p>
+            <p className="text-body-small text-text-subtle">{blocked.detail}</p>
+            <button
+              onClick={() => void navigate({ to: "/agent-studio" })}
+              className="mt-100 inline-flex items-center rounded-medium border border-border px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
+            >
+              Back to the fleet
+            </button>
           </div>
-        ) : (
-          <div
-            className={cn(
-              "min-h-0 flex-1 p-250",
-              // Two scroll models, one per kind of tab, and never both at once.
-              //
-              // A "fill" tab is a workbench: it owns the viewport, sizes itself
-              // to the pane, and scrolls inside its own regions. A document tab
-              // is a form: it grows as long as it needs and this container
-              // scrolls it. Mixing the two is what produced the nested
-              // scrollbars — a page that scrolled *and* panes that scrolled,
-              // so reaching a control meant scrolling twice in two directions.
-              FILL_TABS.has(tab) ? "overflow-hidden" : "overflow-y-auto",
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "min-h-0 flex-1 p-250",
+            // Two scroll models, one per kind of tab, and never both at once.
+            //
+            // A "fill" tab is a workbench: it owns the viewport, sizes itself
+            // to the pane, and scrolls inside its own regions. A document tab
+            // is a form: it grows as long as it needs and this container
+            // scrolls it. Mixing the two is what produced the nested
+            // scrollbars — a page that scrolled *and* panes that scrolled,
+            // so reaching a control meant scrolling twice in two directions.
+            FILL_TABS.has(tab) ? "overflow-hidden" : "overflow-y-auto",
+          )}
+        >
+          <div className={cn(FILL_TABS.has(tab) && "h-full min-h-0")}>
+            {tab === "graph" && (
+              <AgentGraphTab
+                botId={botId}
+                card={effectiveCard}
+                onChange={(next) => setCard(next)}
+              />
             )}
-          >
-            <div className={cn(FILL_TABS.has(tab) && "h-full min-h-0")}>
-              {tab === "graph" && (
-                <AgentGraphTab
-                  botId={botId}
-                  card={effectiveCard}
-                  onChange={(next) => setCard(next)}
-                />
-              )}
-              {tab === "tools" && (
-                <ToolsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
-              )}
-              {tab === "skills" && (
-                <SkillsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
-              )}
-              {tab === "connectors" && (
-                <ConnectorsTab card={effectiveCard} onChange={(next) => setCard(next)} />
-              )}
-              {tab === "policy" && <PolicyTab />}
-              {tab === "outbound" && (
-                <OutboundTab
-                  botId={botId}
-                  card={effectiveCard}
-                  flow={flow}
-                  onChange={(next) => setCard(next)}
-                />
-              )}
-              {tab === "bindings" && <BindingsTab botId={botId} />}
-              {tab === "changelog" && <ChangeLogTab botId={botId} />}
-              {tab === "evals" && (
-                <EvalsTab
-                  botId={botId}
-                  card={effectiveCard}
-                  onChange={(next) => setCard(next)}
-                  promptVersionId={draftId ?? undefined}
-                />
-              )}
-              {tab === "ship" && (
-                <ShipTab
-                  botId={botId}
-                  value={ship}
-                  onChange={setShip}
-                  activeDeploymentId={activeDeployment?.id}
-                  priorDeploymentId={priorDeployment?.id}
-                  rollbackDeploymentId={activeDeployment?.rollbackDeploymentId}
-                  compileReport={compileReport}
-                  onCompile={() => void runCompile()}
-                  compileBusy={compileMutation.isPending}
-                />
-              )}
-              {tab === "prompt" && (
-                <PromptEditor
-                  botId={botId}
-                  value={prompt}
-                  onChange={setPrompt}
-                  onApplyPreset={applyPreset}
-                  presets={presets}
-                  presetsFailed={presetsQuery.isError}
-                  lintFindings={freshLint}
-                  lintFailed={autoLint.isError}
-                  lintPending={autoLint.isPending && !autoLint.data}
-                  // The footer's cost figure is only honest if it can assemble
-                  // the message the runtime actually sends. Guardrails are most
-                  // of the difference; persona decides the language line.
-                  guardrails={guardrails}
-                  persona={persona}
-                />
-              )}
-              {tab === "persona" && (
-                <PersonaSliders
-                  value={persona}
-                  onChange={setPersona}
-                  presets={presets}
-                  presetsFailed={presetsQuery.isError}
-                  // Same pipeline PromptEditor gets. Omitted, these chips wrote
-                  // traits straight to state — no confirmation, no toast, no
-                  // undo — while the identical chip one tab over did all three.
-                  onApplyPreset={applyPreset}
-                  voice={voice}
-                />
-              )}
-              {tab === "voice" && (
-                <VoicePanel value={voice} onChange={setVoice} cardLocales={cardLocales} />
-              )}
-              {tab === "guardrails" && (
-                <GuardrailsPanel value={guardrails} onChange={setGuardrails} />
-              )}
-              {tab === "flow" && (
-                <div className="h-full min-h-0">
-                  {flowUnreadable ? (
-                    // Not "no authored flow". The backend could not parse this
-                    // version's stored graph and served the empty sentinel in
-                    // its place so the rest of the bot stays reachable; saying
-                    // "no authored flow" here would present a corrupt row as a
-                    // deliberate choice, and the fix — load the built-in script
-                    // or restore an earlier version — is a different fix.
-                    <div className="flex h-full flex-col items-center justify-center gap-200 rounded-medium border border-dashed border-border-danger bg-background-danger-subtler/40 text-center">
-                      <div className="max-w-lg space-y-100 px-200">
-                        <h3 className="heading-small text-text-danger-bolder">
-                          This version&apos;s stored graph could not be read
-                        </h3>
-                        <p className="text-body-small leading-relaxed text-text-subtle">
-                          The saved JSON does not match the flow schema, so the editor is showing
-                          nothing rather than showing you something that is not what is stored.
-                          {/* It used to say "Nothing has been changed" and mean it
-                              only until the next keystroke: the first autosave
-                              wrote the empty sentinel over the column. The editor
-                              now holds this version's flow at null so no save
-                              touches it, and the server refuses the same write,
-                              so replacing it takes one of these two buttons. */}{" "}
-                          Editing another tab will not touch it — saves leave this column alone
-                          until you replace it here, or restore an earlier version from History.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap justify-center gap-100">
-                        <Button
-                          variant="primary"
-                          disabled={loadingBuiltIn}
-                          onClick={() => {
-                            setLoadingBuiltIn(true);
-                            void fetchBuiltInFlow()
-                              .then((g) => {
-                                setReplaceUnreadable(true);
-                                setFlow(g);
-                                toast.success(
-                                  `Loaded the built-in script — ${g.nodes.length} nodes. Publish to make it live.`,
-                                );
-                              })
-                              .catch((err: unknown) =>
-                                toast.error(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Could not load the built-in flow",
-                                ),
-                              )
-                              .finally(() => setLoadingBuiltIn(false));
-                          }}
-                        >
-                          <Workflow className="mr-050 h-4 w-4" />
-                          {loadingBuiltIn ? "Loading…" : "Replace with the built-in script"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setReplaceUnreadable(true);
-                            setFlow(emptyGraph());
-                          }}
-                        >
-                          Replace with a blank graph
-                        </Button>
-                      </div>
-                    </div>
-                  ) : isEmptyGraph(flow) ? (
-                    // An empty flow is meaningful, not missing: the runtime reads
-                    // it as "use the built-in collections script". Seeding a graph
-                    // on load would silently change what this version does, so it
-                    // takes an explicit action.
-                    <div className="flex h-full flex-col items-center justify-center gap-200 rounded-medium border border-dashed border-border bg-surface-sunken/40 text-center">
-                      <span className="flex size-10 items-center justify-center rounded-medium border border-border bg-surface text-text-subtle">
-                        <Workflow className="h-5 w-5" />
-                      </span>
-                      <div className="max-w-lg space-y-100 px-200">
-                        <h3 className="heading-small text-text">No authored flow</h3>
-                        <p className="text-body-small leading-relaxed text-text-subtle">
-                          Voice calls only: WhatsApp answers from the prompt and walks the graph on
-                          text. This version runs the built-in collections script — Python that
-                          publish and rollback cannot touch. Load it here to turn it into a graph
-                          you own: it then publishes and rolls back with this prompt version.
-                          Nothing changes for live callers until you publish. Set{" "}
-                          <code className="font-mono text-text-subtlest">
-                            VOICE_FLOW_GRAPH=legacy
-                          </code>{" "}
-                          to force the built-in script even when a graph exists.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap justify-center gap-100">
-                        <Button
-                          variant="primary"
-                          disabled={loadingBuiltIn}
-                          onClick={() => {
-                            setLoadingBuiltIn(true);
-                            void fetchBuiltInFlow()
-                              .then((g) => {
-                                setFlow(g);
-                                toast.success(
-                                  `Loaded the built-in script — ${g.nodes.length} nodes. Publish to make it live.`,
-                                );
-                              })
-                              .catch((err: unknown) =>
-                                toast.error(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Could not load the built-in flow",
-                                ),
-                              )
-                              .finally(() => setLoadingBuiltIn(false));
-                          }}
-                        >
-                          <Workflow className="mr-050 h-4 w-4" />
-                          {loadingBuiltIn ? "Loading…" : "Load the built-in script"}
-                        </Button>
-                        <Button variant="outline" onClick={() => setFlow(emptyGraph())}>
-                          Start from blank
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <FlowCanvas
-                      graph={flow as FlowGraph}
-                      onChange={setFlow}
-                      onValidation={onFlowValidation}
-                      grantTools={grantTools}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
+            {tab === "tools" && (
+              <ToolsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
+            )}
+            {tab === "skills" && (
+              <SkillsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
+            )}
+            {tab === "connectors" && (
+              <ConnectorsTab card={effectiveCard} onChange={(next) => setCard(next)} />
+            )}
+            {tab === "policy" && <PolicyTab />}
+            {tab === "outbound" && (
+              <OutboundTab
+                botId={botId}
+                card={effectiveCard}
+                flow={flow}
+                onChange={(next) => setCard(next)}
+              />
+            )}
+            {tab === "bindings" && <BindingsTab botId={botId} />}
+            {tab === "changelog" && <ChangeLogTab botId={botId} />}
+            {tab === "evals" && (
+              <EvalsTab
+                botId={botId}
+                card={effectiveCard}
+                onChange={(next) => setCard(next)}
+                promptVersionId={draftId ?? undefined}
+              />
+            )}
+            {tab === "ship" && (
+              <ShipTab
+                botId={botId}
+                value={ship}
+                onChange={setShip}
+                activeDeploymentId={activeDeployment?.id}
+                priorDeploymentId={priorDeployment?.id}
+                rollbackDeploymentId={activeDeployment?.rollbackDeploymentId}
+                compileReport={compileReport}
+                onCompile={() => void runCompile()}
+                compileBusy={compileMutation.isPending}
+              />
+            )}
+            {tab === "prompt" && (
+              <PromptEditor
+                botId={botId}
+                value={prompt}
+                onChange={setPrompt}
+                onApplyPreset={applyPreset}
+                presets={presets}
+                presetsFailed={presetsQuery.isError}
+                lintFindings={freshLint}
+                lintFailed={autoLint.isError}
+                lintPending={autoLint.isPending && !autoLint.data}
+                // The footer's cost figure is only honest if it can assemble
+                // the message the runtime actually sends. Guardrails are most
+                // of the difference; persona decides the language line.
+                guardrails={guardrails}
+                persona={persona}
+              />
+            )}
+            {tab === "persona" && (
+              <PersonaSliders
+                value={persona}
+                onChange={setPersona}
+                presets={presets}
+                presetsFailed={presetsQuery.isError}
+                // Same pipeline PromptEditor gets. Omitted, these chips wrote
+                // traits straight to state — no confirmation, no toast, no
+                // undo — while the identical chip one tab over did all three.
+                onApplyPreset={applyPreset}
+                voice={voice}
+              />
+            )}
+            {tab === "voice" && (
+              <VoicePanel value={voice} onChange={setVoice} cardLocales={cardLocales} />
+            )}
+            {tab === "guardrails" && (
+              <GuardrailsPanel value={guardrails} onChange={setGuardrails} />
+            )}
+            {tab === "flow" && (
+              <FlowTabBody
+                flow={flow}
+                setFlow={setFlow}
+                flowUnreadable={flowUnreadable}
+                loadingBuiltIn={loadingBuiltIn}
+                setLoadingBuiltIn={setLoadingBuiltIn}
+                setReplaceUnreadable={setReplaceUnreadable}
+                onFlowValidation={onFlowValidation}
+                grantTools={grantTools}
+              />
+            )}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Version history was a permanent 320px rail on every tab but Flow.
+      {/* Version history was a permanent 320px rail on every tab but Flow.
             It is a *review* surface — read once or twice a session — and it was
             charging the authoring surfaces a quarter of their width all day for
             that. As a drawer it costs nothing until asked for, and it can be
             wider than 320px when it is. */}
-        <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-          <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
-            <SheetTitle className="sr-only">Version history</SheetTitle>
-            <VersionHistory
-              versions={history}
-              activeDraftId={draftId}
-              activeDeployment={activeDeployment}
-              priorDeployment={priorDeployment}
-              onCompare={(v) => {
-                setDiffBase(v);
-                setDiffOpen(true);
-                setHistoryOpen(false);
-              }}
-              onRestore={(v) => void restore(v)}
-              onLoadDraft={(v) => {
-                void loadDraft(v);
-                setHistoryOpen(false);
-              }}
-              onDiscardDraft={(v) => discardDraft(v)}
-              onRollback={() => void onRollback()}
-              rollbackBusy={rollbackMutation.isPending}
-            />
-          </SheetContent>
-        </Sheet>
+      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+        <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
+          <SheetTitle className="sr-only">Version history</SheetTitle>
+          <VersionHistory
+            versions={history}
+            activeDraftId={draftId}
+            activeDeployment={activeDeployment}
+            priorDeployment={priorDeployment}
+            onCompare={(v) => {
+              setDiffBase(v);
+              setDiffOpen(true);
+              setHistoryOpen(false);
+            }}
+            onRestore={(v) => void restore(v)}
+            onLoadDraft={(v) => {
+              void loadDraft(v);
+              setHistoryOpen(false);
+            }}
+            onDiscardDraft={(v) => discardDraft(v)}
+            onRollback={() => void onRollback()}
+            rollbackBusy={rollbackMutation.isPending}
+          />
+        </SheetContent>
+      </Sheet>
 
-        <DiffModal
-          open={diffOpen}
-          onOpenChange={setDiffOpen}
-          base={diffBase}
-          current={currentSnapshot}
-        />
+      <DiffModal
+        open={diffOpen}
+        onOpenChange={setDiffOpen}
+        base={diffBase}
+        current={currentSnapshot}
+      />
 
-        <PublishDialog
-          open={publishOpen}
-          onOpenChange={setPublishOpen}
-          fromLabel={publishedRow?.label ?? "nothing live"}
-          toLabel={draftLabel}
-          from={publishBaseline}
-          to={{
-            prompt,
-            persona,
-            voice,
-            guardrails,
-            flow,
-            agentCard: asCard(effectiveCard),
-            // Only meaningful for a card-less bot; an authored card carries the
-            // same three values inside `agentCard.experiment`, where the card
-            // diff already sees them.
-            rollout: cardIsAuthored ? null : ship,
-          }}
-          flowIssues={flowIssues}
-          compileReport={compileReport}
-          compileError={compileError}
-          compileBusy={compileMutation.isPending}
-          onConfirm={(note) => void publish(note)}
-        />
+      <PublishDialog
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+        fromLabel={publishedRow?.label ?? "nothing live"}
+        toLabel={draftLabel}
+        from={publishBaseline}
+        to={{
+          prompt,
+          persona,
+          voice,
+          guardrails,
+          flow,
+          agentCard: asCard(effectiveCard),
+          // Only meaningful for a card-less bot; an authored card carries the
+          // same three values inside `agentCard.experiment`, where the card
+          // diff already sees them.
+          rollout: cardIsAuthored ? null : ship,
+        }}
+        flowIssues={flowIssues}
+        compileReport={compileReport}
+        compileError={compileError}
+        compileBusy={compileMutation.isPending}
+        onConfirm={(note) => void publish(note)}
+      />
 
-        {/* Replaces a window.confirm. Same question, asked in the product's own
+      {/* Replaces a window.confirm. Same question, asked in the product's own
             surface: themed, keyboard-navigable, escapable, and it names what is
             about to be lost rather than restating the click. */}
-        <AlertDialog
-          open={presetPending !== null}
-          onOpenChange={(open) => {
-            if (!open) setPresetPending(null);
-          }}
-        >
-          <AlertDialogContent className="max-w-[28rem]">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Replace the system prompt?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Applying <span className="font-medium text-text">{presetShown.current?.label}</span>{" "}
-                overwrites the prompt you have written and moves the persona sliders to that
-                preset&rsquo;s values.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="rounded-medium border border-border bg-surface-sunken p-100">
-              <div className="mb-050 text-body-small font-semibold text-text-subtlest">
-                Your current prompt
-              </div>
-              <p className="line-clamp-3 whitespace-pre-wrap font-mono text-body-small text-text-subtle">
-                {prompt.trim()}
-              </p>
-              <div className="mt-075 text-body-small text-text-subtlest">
-                {prompt.length.toLocaleString()} characters. This is a draft edit — nothing
-                published changes, and the toast that follows can undo it.
-              </div>
+      <AlertDialog
+        open={presetPending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPresetPending(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-[28rem]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace the system prompt?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Applying <span className="font-medium text-text">{presetShown.current?.label}</span>{" "}
+              overwrites the prompt you have written and moves the persona sliders to that
+              preset&rsquo;s values.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-medium border border-border bg-surface-sunken p-100">
+            <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+              Your current prompt
             </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Keep my prompt</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  if (presetPending) commitPreset(presetPending);
-                  setPresetPending(null);
-                }}
-              >
-                Replace with preset
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {busy && (
-          <div className="pointer-events-none fixed bottom-4 right-4 rounded-medium bg-background-brand-boldest/90 px-150 py-075 text-body-small text-white shadow-overlay">
-            Saving…
+            <p className="line-clamp-3 whitespace-pre-wrap font-mono text-body-small text-text-subtle">
+              {prompt.trim()}
+            </p>
+            <div className="mt-075 text-body-small text-text-subtlest">
+              {prompt.length.toLocaleString()} characters. This is a draft edit — nothing published
+              changes, and the toast that follows can undo it.
+            </div>
           </div>
-        )}
-      </div>
-    </AppShell>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep my prompt</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (presetPending) commitPreset(presetPending);
+                setPresetPending(null);
+              }}
+            >
+              Replace with preset
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {busy && (
+        <div className="pointer-events-none fixed bottom-4 right-4 rounded-medium bg-background-brand-boldest/90 px-150 py-075 text-body-small text-white shadow-overlay">
+          Saving…
+        </div>
+      )}
+    </PromptStudioShell>
   );
 }
