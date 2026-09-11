@@ -168,7 +168,20 @@ export function PromptEditor({
         >
           <div>
             {value.length.toLocaleString()} chars ·{" "}
-            {tokens == null ? (
+            {estimateQuery.isError ? (
+              // An outage is not work in progress. "counting…" forever was the
+              // failure dressed as patience.
+              <span
+                className="text-text-danger"
+                title={
+                  estimateQuery.error instanceof Error
+                    ? estimateQuery.error.message
+                    : "The estimate did not answer."
+                }
+              >
+                token count unavailable
+              </span>
+            ) : tokens == null ? (
               <span>counting tokens…</span>
             ) : (
               <span title="The text in this editor, before the runtime adds anything.">
@@ -390,8 +403,8 @@ export function PromptEditor({
           <div className="flex flex-col gap-075">
             {presetsFailed ? (
               <p className="text-body-small text-text-danger">
-                Presets could not be read. They may well be configured — this is the
-                fetch failing, not the tenant being empty.
+                Presets could not be read. They may well be configured — this is the fetch failing,
+                not the tenant being empty.
               </p>
             ) : presets.length === 0 ? (
               <p className="text-body-small text-text-subtle">

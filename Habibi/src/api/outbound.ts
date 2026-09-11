@@ -464,6 +464,7 @@ export function useObligations() {
 /** Count the cohort before a run exists. Nothing is created and nothing dials. */
 export function usePreviewCohort() {
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (selector: CampaignSelector) =>
       apiPost<CohortPreview>("/outbound/campaigns/preview", { selector, sample: 8 }),
   });
@@ -474,6 +475,7 @@ export function usePreviewCohort() {
 export function useCreateCampaign() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (payload: {
       name: string;
       objective: string;
@@ -491,6 +493,7 @@ export function useCreateCampaign() {
 export function useSetCampaignStatus() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "toast" },
     mutationFn: async ({ runId, status }: { runId: string; status: string }) =>
       apiPost(`/outbound/campaigns/${runId}/status`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["outbound", "campaigns"] }),

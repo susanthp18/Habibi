@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Copy, Play, RefreshCw, Square, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { isNotFound } from "@/api/config";
+
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import {
@@ -204,7 +206,11 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
   const livePreviewRef = useRef(false);
 
   const shortName = selectedShortName(value);
-  const { voice: selectedVoice, resolution } = useSelectedCatalogVoice(shortName, loadedItems);
+  const {
+    voice: selectedVoice,
+    resolution,
+    retry: retryVoiceLookup,
+  } = useSelectedCatalogVoice(shortName, loadedItems);
 
   /**
    * The voice speaks a language the card does not claim.
@@ -331,8 +337,10 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
       try {
         const w = await fetchTtsVoiceWarning(shortName);
         if (!cancelled) setWarning(w?.message ?? null);
-      } catch {
+      } catch (err) {
+        // No warning is a statement about the voice; a failed lookup is not.
         if (!cancelled) setWarning(null);
+        if (!cancelled && !isNotFound(err)) toast.error("Could not check this voice for warnings.");
       }
     })();
     return () => {
@@ -647,6 +655,15 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
                   ? `Unknown voice ${shortName}`
                   : selectedVoice?.displayName || shortName}
               </div>
+              {resolution === "error" ? (
+                <p className="mt-050 text-body-small text-text-danger">
+                  The voice lookup did not answer, so nothing is known about this id — it is not an
+                  unknown voice.{" "}
+                  <button type="button" className="underline" onClick={retryVoiceLookup}>
+                    Retry
+                  </button>
+                </p>
+              ) : null}
               <div className="mt-025 flex flex-wrap items-center gap-100 text-body-small text-text-subtle">
                 <code
                   title={shortName}

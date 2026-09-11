@@ -166,14 +166,35 @@ export function useWebhookMutations() {
   };
   return {
     invalidate,
-    create: useMutation({ mutationFn: createWebhookEndpoint, onSuccess: invalidate }),
-    update: useMutation({ mutationFn: updateWebhookEndpoint, onSuccess: invalidate }),
-    remove: useMutation({ mutationFn: deleteWebhookEndpoint, onSuccess: invalidate }),
-    rotate: useMutation({ mutationFn: rotateWebhookSecret, onSuccess: invalidate }),
+    create: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: createWebhookEndpoint,
+      onSuccess: invalidate,
+    }),
+    update: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: updateWebhookEndpoint,
+      onSuccess: invalidate,
+    }),
+    remove: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: deleteWebhookEndpoint,
+      onSuccess: invalidate,
+    }),
+    rotate: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: rotateWebhookSecret,
+      onSuccess: invalidate,
+    }),
     testFire: useMutation({
+      meta: { errors: "toast" },
       mutationFn: ({ ep, event }: { ep: Endpoint; event?: EventKey }) => testFireWebhook(ep, event),
       onSuccess: invalidate,
     }),
-    retry: useMutation({ mutationFn: retryWebhookDelivery, onSuccess: invalidate }),
+    retry: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: retryWebhookDelivery,
+      onSuccess: invalidate,
+    }),
   };
 }

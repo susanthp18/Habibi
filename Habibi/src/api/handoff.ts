@@ -224,6 +224,7 @@ export async function claimHandoff(interactionId: string): Promise<HandoffSessio
 export function useClaimHandoff() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: claimHandoff,
     onSuccess: (session) => {
       qc.setQueryData(["handoff", "session", session.interactionId], session);
@@ -290,6 +291,7 @@ export async function wrapUpHandoff(
 export function useWrapUpHandoff() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: (input: { interactionId: string; customerId: string } & WrapUpPayload) =>
       wrapUpHandoff(input.interactionId, input.customerId, input),
     onSuccess: (_data, vars) => {

@@ -13,6 +13,8 @@ import {
   Star,
 } from "lucide-react";
 import { toast } from "sonner";
+
+import { isNotFound } from "@/api/config";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
@@ -981,21 +983,30 @@ export function VoiceCatalogBrowser({
  * that matters: a stored id nothing resolves means the runtime will speak the
  * fallback voice, not the one named on screen.
  */
-export type SelectedVoiceResolution = "none" | "loading" | "resolved" | "unknown";
+/**
+ * `unknown` is a real 404 -- the catalog has no such id. `error` is any other
+ * failure: the lookup did not answer, and nothing is known about the id. The
+ * two used to be one value, so an outage read as the business verdict
+ * "Unknown voice -- runtime will speak the fallback".
+ */
+export type SelectedVoiceResolution = "none" | "loading" | "resolved" | "unknown" | "error";
 
 /** Resolve selected catalog voice for sticky strip when off-page. */
 export function useSelectedCatalogVoice(
   shortName: string,
   items: TtsCatalogVoice[],
-): { voice: TtsCatalogVoice | null; resolution: SelectedVoiceResolution } {
+): { voice: TtsCatalogVoice | null; resolution: SelectedVoiceResolution; retry: () => void } {
   // Keyed on the id it describes. Held loosely, the previously resolved row
   // outlived a change of selection, and for the length of one request the
   // inspector rendered one voice's name, gender and locale under another
   // voice's id — the same substitution the locale guard beside it exists to
   // catch, performed by the panel itself.
-  const [detail, setDetail] = useState<{ shortName: string; voice: TtsCatalogVoice | null } | null>(
-    null,
-  );
+  const [detail, setDetail] = useState<{
+    shortName: string;
+    voice: TtsCatalogVoice | null;
+    failed?: boolean;
+  } | null>(null);
+  const [retry, setRetry] = useState(0);
   const inList = useMemo(
     () => items.find((v) => v.shortName === shortName) ?? null,
     [items, shortName],
@@ -1007,20 +1018,31 @@ export function useSelectedCatalogVoice(
       .then((v) => {
         if (!cancelled) setDetail({ shortName, voice: v });
       })
-      .catch(() => {
-        // A rejected lookup is an answer, not an absence: this id is not one
-        // the catalog knows. Storing it as such is what lets the caller say so.
-        if (!cancelled) setDetail({ shortName, voice: null });
+      .catch((err: unknown) => {
+        // A 404 is an answer, not an absence: this id is not one the catalog
+        // knows. Anything else is a lookup that did not happen, and is stored
+        // as that -- the caller must not turn it into a verdict about the id.
+        if (!cancelled) setDetail({ shortName, voice: null, failed: !isNotFound(err) });
       });
     return () => {
       cancelled = true;
     };
-  }, [shortName, inList]);
+  }, [shortName, inList, retry]);
 
-  if (!shortName) return { voice: null, resolution: "none" };
-  if (inList) return { voice: inList, resolution: "resolved" };
-  if (detail?.shortName !== shortName) return { voice: null, resolution: "loading" };
-  return detail.voice
-    ? { voice: detail.voice, resolution: "resolved" }
-    : { voice: null, resolution: "unknown" };
+  const resolution: SelectedVoiceResolution = !shortName
+    ? "none"
+    : inList
+      ? "resolved"
+      : detail?.shortName !== shortName
+        ? "loading"
+        : detail.voice
+          ? "resolved"
+          : detail.failed
+            ? "error"
+            : "unknown";
+  return {
+    voice: inList ?? (detail?.shortName === shortName ? detail.voice : null),
+    resolution,
+    retry: () => setRetry((n) => n + 1),
+  };
 }

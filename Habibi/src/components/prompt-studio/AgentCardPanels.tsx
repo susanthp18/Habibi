@@ -15,6 +15,7 @@ import {
   useCritiqueReport,
   useEvalSuites,
   useRunEvalSuite,
+  TENANT_WIDE_REPORTS,
   type CompileReport,
   type EvalReport,
 } from "@/api/agent-studio";
@@ -33,7 +34,7 @@ import { EvalCockpit } from "@/components/sandbox/EvalCockpit";
 import { CritiquesPanel } from "./CritiquesPanel";
 import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
-import { QueryState } from "@/components/ui/query-state";
+import { QueryErrorBanner, QueryState } from "@/components/ui/query-state";
 import type { LozengeTone } from "@/components/ui/lozenge";
 
 /**
@@ -135,7 +136,14 @@ export function ToolsTab({
           <span className="ml-075 text-text-subtlest">(skill-gated ones load on demand)</span>
         </div>
         {!isAuthoredCard(card) ? null : preview.isError ? (
-          <Lozenge tone="neutral">compiler unreachable</Lozenge>
+          <Lozenge
+            tone="warning"
+            title={
+              preview.error instanceof Error ? preview.error.message : "The compile did not answer."
+            }
+          >
+            compile failed — {preview.error instanceof Error ? preview.error.message : "no answer"}
+          </Lozenge>
         ) : g6 || g4 ? (
           <>
             {[g4, g6].map((g) =>
@@ -157,6 +165,7 @@ export function ToolsTab({
         )}
       </div>
       {!editable && onChange ? <NotAuthoredNotice what="the tool list" /> : null}
+      {toolsQuery.isPending ? <LoadingState label="Loading the tool catalog" /> : null}
       <div className="overflow-hidden rounded-medium border border-border">
         <table className="w-full text-body-small">
           <thead className="bg-surface-sunken text-text-subtle">
@@ -343,7 +352,7 @@ export function EvalsTab({
    * They are shown, and shown as what they are — tenant-wide — rather than
    * being folded in as if the card had run them itself.
    */
-  const tenantReportsQuery = useEvalReports();
+  const tenantReportsQuery = useEvalReports(undefined, TENANT_WIDE_REPORTS);
   const latestByKind = new Map<string, EvalReport>();
   for (const r of reportsQuery.data ?? []) {
     const kind = r.kind ?? "unknown";
@@ -351,7 +360,6 @@ export function EvalsTab({
   }
   const tenantWideByKind = new Map<string, EvalReport>();
   for (const r of tenantReportsQuery.data ?? []) {
-    if (r.botId) continue;
     const kind = r.kind ?? "unknown";
     if (!latestByKind.has(kind) && !tenantWideByKind.has(kind)) tenantWideByKind.set(kind, r);
   }
@@ -461,6 +469,15 @@ export function EvalsTab({
                     {tenantWideByKind.get(kind)!.status}
                   </Lozenge>
                 </span>
+              ) : reportsQuery.isError || tenantReportsQuery.isError ? (
+                <Lozenge
+                  tone="warning"
+                  title="The reports could not be loaded. This is a failed read, not a card with no runs."
+                >
+                  reports unavailable
+                </Lozenge>
+              ) : reportsQuery.isPending ? (
+                <Lozenge tone="neutral">loading…</Lozenge>
               ) : (
                 <Lozenge tone="neutral">never run on {botId}</Lozenge>
               )}
@@ -468,30 +485,46 @@ export function EvalsTab({
           );
         })}
       </ul>
-      <ul className="space-y-100">
-        {(suitesQuery.data ?? []).map((suite) => (
-          <li
-            key={suite.id}
-            className="flex items-center justify-between rounded-medium border border-border px-150 py-100"
-          >
-            <div>
-              <div className="text-body font-medium">{suite.name}</div>
-              <div className="text-body-tiny text-text-subtle">
-                {suite.kind} · {suite.id}
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={run.isPending}
-              onClick={() => void run.mutateAsync(suite.id)}
-            >
-              {run.isPending ? "Running…" : "Run"}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {run.data ? (
+      <QueryState
+        query={suitesQuery}
+        label="the suite catalog"
+        empty={
+          suitesQuery.data?.length === 0 ? (
+            <p className="text-body-small text-text-subtle">No eval suites are configured.</p>
+          ) : null
+        }
+      >
+        <ul className="space-y-100">
+          {(suitesQuery.data ?? []).map((suite) => {
+            // Pending per suite: one `isPending` disabled every Run button.
+            const running = run.isPending && run.variables === suite.id;
+            return (
+              <li
+                key={suite.id}
+                className="flex items-center justify-between rounded-medium border border-border px-150 py-100"
+              >
+                <div>
+                  <div className="text-body font-medium">{suite.name}</div>
+                  <div className="text-body-tiny text-text-subtle">
+                    {suite.kind} · {suite.id}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={run.isPending}
+                  onClick={() => run.mutate(suite.id)}
+                >
+                  {running ? "Running…" : "Run"}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      </QueryState>
+      {run.isError ? (
+        <QueryErrorBanner label={`the run of ${run.variables ?? "the suite"}`} error={run.error} />
+      ) : run.data ? (
         <div className="rounded-medium border border-border bg-surface-sunken px-150 py-100 text-body-small">
           Last run: {run.data.status} · {run.data.total - run.data.failed}/{run.data.total} passed
           {run.data.reportId ? <span className="ml-100 font-mono">{run.data.reportId}</span> : null}
@@ -735,8 +768,8 @@ export function AgentGraphTab({
             // "Handoff allowlist" reads as "this card may hand off to nobody" —
             // a statement about the fleet, produced by a failed fetch.
             <p className="text-body-small text-text-danger">
-              The fleet could not be read, so the targets below are missing. The card&apos;s
-              own allowlist is unchanged.
+              The fleet could not be read, so the targets below are missing. The card&apos;s own
+              allowlist is unchanged.
             </p>
           ) : null}
           <ul className="divide-y divide-border">
@@ -998,9 +1031,7 @@ export function ConnectorsTab({
   // all. There is no display name to show, only the id the card carries.
   const orphanedBindings = (card.connectors ?? [])
     .map((c) => String(c.connector_id ?? ""))
-    .filter(
-      (id) => id && !(connectorsQuery.data ?? []).some((c) => c.id === id || c.slug === id),
-    );
+    .filter((id) => id && !(connectorsQuery.data ?? []).some((c) => c.id === id || c.slug === id));
   const prefixes = (card.connectors ?? []).flatMap((c) => c.allow_prefixes ?? []);
   const editable = Boolean(onChange) && isAuthoredCard(card);
   // Same alias trap as skills: the POST /connectors endpoint stamps the row id

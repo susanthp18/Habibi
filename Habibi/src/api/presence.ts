@@ -59,6 +59,7 @@ export function usePresence() {
 export function usePatchPresence() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: patchPresence,
     onSuccess: (data) => {
       qc.setQueryData(["me-presence"], data);

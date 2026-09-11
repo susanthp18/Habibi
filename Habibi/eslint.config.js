@@ -5,8 +5,52 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
+/**
+ * `no-silent-mutation`: every `useMutation({...})` in `src/api` declares
+ * `meta: { errors: "toast" | "caller" }`. See src/lib/mutation-errors.ts —
+ * a rejected write that renders as nothing happening is the studio's
+ * most-shipped defect, and the choice of who surfaces it must be explicit.
+ */
+const noSilentMutation = {
+  rules: {
+    "no-silent-mutation": {
+      meta: { type: "problem", schema: [] },
+      create(context) {
+        return {
+          CallExpression(node) {
+            if (node.callee.type !== "Identifier" || node.callee.name !== "useMutation") return;
+            const arg = node.arguments[0];
+            if (!arg || arg.type !== "ObjectExpression") return;
+            const meta = arg.properties.find(
+              (p) => p.type === "Property" && p.key.type === "Identifier" && p.key.name === "meta",
+            );
+            const errors =
+              meta &&
+              meta.value.type === "ObjectExpression" &&
+              meta.value.properties.find(
+                (p) => p.type === "Property" && p.key.type === "Identifier" && p.key.name === "errors",
+              );
+            if (!errors) {
+              context.report({
+                node,
+                message:
+                  'useMutation needs meta: { errors: "toast" | "caller" } — say who surfaces a failed write.',
+              });
+            }
+          },
+        };
+      },
+    },
+  },
+};
+
 export default tseslint.config(
   { ignores: ["dist", ".output", ".vinxi"] },
+  {
+    files: ["src/api/**/*.{ts,tsx}"],
+    plugins: { "silent-mutation": noSilentMutation },
+    rules: { "silent-mutation/no-silent-mutation": "error" },
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

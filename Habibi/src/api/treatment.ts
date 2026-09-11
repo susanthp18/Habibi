@@ -1117,6 +1117,7 @@ export function useTreatmentCases(query: CaseQuery = {}) {
 export function useCreateTreatmentHold() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: (input: TreatmentHoldInput) => createTreatmentHold(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["treatment-holds"] });
@@ -1129,6 +1130,7 @@ export function useCreateTreatmentHold() {
 export function useReleaseTreatmentHold() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: ({ holdId, reason }: { holdId: string; reason?: string | null }) =>
       releaseTreatmentHold(holdId, reason),
     onSuccess: () => {

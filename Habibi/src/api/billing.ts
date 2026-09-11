@@ -125,11 +125,13 @@ export function useBudgetRuleMutations() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["billing"] });
 
   const save = useMutation({
+    meta: { errors: "caller" },
     mutationFn: ({ budgetId, rule }: { budgetId: string; rule: BudgetRuleInput }) =>
       saveBudgetRule(budgetId, rule),
     onSuccess: invalidate,
   });
   const remove = useMutation({
+    meta: { errors: "caller" },
     mutationFn: ({ budgetId, ruleId }: { budgetId: string; ruleId: string }) =>
       deleteBudgetRule(budgetId, ruleId),
     onSuccess: invalidate,

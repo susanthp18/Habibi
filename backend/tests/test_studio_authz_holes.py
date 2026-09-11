@@ -109,3 +109,18 @@ def test_a_shared_api_key_with_no_map_does_not_boot_in_prod(monkeypatch) -> None
         actor_context.validate_configured_actors()
     monkeypatch.setenv("APP_ENV", "dev")
     actor_context.validate_configured_actors()
+
+
+def test_tenant_wide_reports_are_a_server_side_filter(db_tx) -> None:
+    """EVALS-19: the Evals tab found the scheduler's bot-less runs by filtering
+    a shared page of fifty client-side, so fifty newer card-scoped reports
+    hid them. `botId=__none__` asks for exactly those rows."""
+    import db_inbox
+
+    suite = db_tx.execute(text("SELECT id FROM eval_suites LIMIT 1")).scalar()
+    if suite is None:
+        pytest.skip("no eval suites seeded")
+    db.save_eval_report(suite_id=suite, bot_id=None, status="pass", summary={"failed": 0, "total": 1})
+    db.save_eval_report(suite_id=suite, bot_id="kaia-v2-4", status="pass", summary={"failed": 0, "total": 1})
+    rows = db.list_eval_reports(bot_id=db_inbox.TENANT_WIDE_REPORTS, limit=5)
+    assert rows and all(r.get("botId") is None for r in rows)

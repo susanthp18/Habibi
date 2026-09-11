@@ -3235,7 +3235,8 @@ def list_eval_reports(
     limit: int = Query(default=50, ge=1, le=200),
 ):
     """Eval history. botId scopes it to one card — the Studio's Evals tab needs
-    this card's runs, not the whole tenant's."""
+    this card's runs, not the whole tenant's. `botId=__none__` is the runs the
+    scheduler filed against no card."""
     return db.list_eval_reports(kind=kind, bot_id=botId, limit=limit)
 
 

@@ -1793,6 +1793,10 @@ def save_eval_report(
     return {"id": rid, "status": status, "summary": summary, "botId": bot_id, "suiteId": suite_id, "origin": origin}
 
 
+#: `botId` value that asks for the reports filed against no card at all.
+TENANT_WIDE_REPORTS = "__none__"
+
+
 def list_eval_reports(
     *, kind: str | None = None, bot_id: str | None = None, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -1801,7 +1805,12 @@ def list_eval_reports(
     if kind:
         clauses.append("s.kind = :kind")
         params["kind"] = kind
-    if bot_id:
+    if bot_id == TENANT_WIDE_REPORTS:
+        # The scheduler files tenant-wide runs with no card. Filtering a
+        # shared page of fifty client-side lost them the moment fifty newer
+        # card-scoped reports existed.
+        clauses.append("r.bot_id IS NULL")
+    elif bot_id:
         clauses.append("r.bot_id = :bot_id")
         params["bot_id"] = bot_id
     where = " AND ".join(clauses)

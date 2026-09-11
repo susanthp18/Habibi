@@ -382,6 +382,20 @@ function FitToGraph({ signature }: { signature: string }) {
   return null;
 }
 
+/**
+ * The issue a validator outage becomes. Blocking, as `ok: false` says: a graph
+ * that has not been checked is not one the editor may call publishable, and
+ * the header names the reason rather than counting zero errors.
+ */
+export const VALIDATOR_UNREACHABLE: FlowIssue = {
+  severity: "warning",
+  code: "validator_unreachable",
+  message:
+    "The flow validator could not be reached, so this graph has not been checked. Publish will re-run it server-side.",
+  nodeId: null,
+  edgeId: null,
+};
+
 export function FlowCanvas({
   graph,
   onChange,
@@ -510,19 +524,10 @@ function FlowCanvasInner({
           // a check that ran against different content. The server re-validates
           // on publish, so the cost is a late 422 rather than a bad deploy —
           // but the editor should not be the thing that promises otherwise.
-          onValidationRef.current?.({
-            ok: false,
-            issues: [
-              {
-                severity: "warning",
-                code: "validator_unreachable",
-                message:
-                  "The flow validator could not be reached, so this graph has not been checked. Publish will re-run it server-side.",
-                nodeId: null,
-                edgeId: null,
-              },
-            ],
-          });
+          // On the canvas too, not only in the header: the last verdict's
+          // issues stayed painted beside a graph nobody had checked.
+          setIssues([VALIDATOR_UNREACHABLE]);
+          onValidationRef.current?.({ ok: false, issues: [VALIDATOR_UNREACHABLE] });
         });
     }, 400);
     return () => window.clearTimeout(timer);
@@ -1101,9 +1106,9 @@ function FlowCanvasInner({
                 role="status"
                 className="shrink-0 border-b border-border-warning bg-background-warning-subtler px-100 py-075 text-body-small text-text-warning-bolder"
               >
-                Tool-driven hops could not be read, so the dashed edges are missing and no
-                step is marked a dead end. The graph is unchanged — this is the canvas
-                missing information, not the script missing exits.
+                Tool-driven hops could not be read, so the dashed edges are missing and no step is
+                marked a dead end. The graph is unchanged — this is the canvas missing information,
+                not the script missing exits.
               </div>
             ) : null}
             <div className="flex shrink-0 items-center gap-100 overflow-x-auto border-b border-border px-100 py-075">

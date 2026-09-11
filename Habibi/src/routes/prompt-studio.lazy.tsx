@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { FlowCanvas } from "@/components/flow/FlowCanvas";
+import { FlowCanvas, VALIDATOR_UNREACHABLE } from "@/components/flow/FlowCanvas";
 import {
   emptyGraph,
   fetchBuiltInFlow,
@@ -188,6 +188,17 @@ export function PromptStudioPage({
   const prodDepsQuery = useProdDeployments(botId);
   const experimentsQuery = useDeploymentExperiments(botId);
   const cardQuery = useAgentStudioCard(botId);
+  /**
+   * The card cannot be edited: it is not there (404), or it was never read.
+   *
+   * A transient refetch failure after hydration used to be the same thing --
+   * the whole editor was replaced by "Could not load" and autosave stopped,
+   * for a card the page had already loaded and was holding. That is an inline
+   * banner (`cardStale`) now, and autosave keeps writing against the botId it
+   * already confirmed.
+   */
+  const cardRefused = cardQuery.isError && (isNotFound(cardQuery.error) || !cardQuery.data);
+  const cardStale = cardQuery.isError && !cardRefused;
   const compileMutation = useCompileCard(botId);
   const publishMutation = usePublishStudioDraft();
   const restoreMutation = useRestorePromptVersionAsDraft();
@@ -227,6 +238,9 @@ export function PromptStudioPage({
   const [flow, setFlow] = useState<FlowGraph | null>(null);
   const [flowValid, setFlowValid] = useState(true);
   const [flowIssues, setFlowIssues] = useState<FlowIssue[]>([]);
+  // The validator did not answer: blocked, and said as such rather than as
+  // "0 flow errors -- publish blocked".
+  const flowUnchecked = flowIssues.some((i) => i.code === "validator_unreachable");
   // The Agent Card is an editor field like the prompt, not a side-channel: the
   // Skills/Tools/Connectors tabs used to PATCH it straight to the server while
   // the editor kept reading the published row, so every toggle snapped back —
@@ -637,7 +651,7 @@ export function PromptStudioPage({
     // Never autosave against a card the API could not confirm exists. On a dead
     // URL `/prompt-versions` still answers `200 []`, so hydration succeeds and
     // every keystroke used to PATCH a bot id nothing is registered under.
-    if (cardQuery.isError) return;
+    if (cardRefused) return;
     if (!dirty) {
       // "saved" survives here. The refetch that follows an autosave makes the
       // draft the newest version, so `dirty` goes false on the very next render
@@ -728,7 +742,7 @@ export function PromptStudioPage({
     ensureDraft,
     markSaved,
     replaceUnreadable,
-    cardQuery.isError,
+    cardRefused,
   ]);
 
   // Compiler preview: same validator that publish uses. Runs even if the Flow
@@ -752,7 +766,10 @@ export function PromptStudioPage({
           setFlowIssues(result.issues);
         })
         .catch(() => {
-          /* transient: keep the last known result */
+          // Same rule as the canvas: an unchecked graph is not a publishable
+          // one, and the last verdict does not describe this graph.
+          setFlowValid(false);
+          setFlowIssues([VALIDATOR_UNREACHABLE]);
         });
     }, 400);
     return () => window.clearTimeout(timer);
@@ -964,7 +981,11 @@ export function PromptStudioPage({
 
   const publish = async (note: string) => {
     if (!flowValid) {
-      toast.error("Fix conversation-flow errors before publishing.");
+      toast.error(
+        flowUnchecked
+          ? "The flow validator could not be reached, so this graph is unchecked. Retry before publishing."
+          : "Fix conversation-flow errors before publishing.",
+      );
       setTab("flow");
       return;
     }
@@ -1216,7 +1237,7 @@ export function PromptStudioPage({
    */
   const blocked: { title: string; detail: string } | null = (() => {
     if (loading) return null;
-    if (cardQuery.isError) {
+    if (cardRefused) {
       return isNotFound(cardQuery.error)
         ? {
             title: "No agent card with this id",
@@ -1290,9 +1311,18 @@ export function PromptStudioPage({
           draftCount={history.filter((v) => v.status === "draft").length}
           publishBlocked={!flowValid}
           flowErrorCount={flowIssues.filter((i) => i.severity === "error").length}
+          flowUnchecked={flowUnchecked}
           onFixFlow={() => setTab("flow")}
           deploymentUnknown={livenessUnknown}
         />
+
+        {cardStale && (
+          <div className="mx-250 mt-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
+            The card could not be re-read (
+            {cardQuery.error instanceof Error ? cardQuery.error.message : "the API did not answer"}
+            ). You are editing the copy loaded earlier; saves still go to {botId}.
+          </div>
+        )}
 
         {showGapBanner && (
           <div className="mx-250 mt-150 flex items-start justify-between gap-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
@@ -1475,6 +1505,7 @@ export function PromptStudioPage({
                   value={persona}
                   onChange={setPersona}
                   presets={presets}
+                  presetsFailed={presetsQuery.isError}
                   // Same pipeline PromptEditor gets. Omitted, these chips wrote
                   // traits straight to state — no confirmation, no toast, no
                   // undo — while the identical chip one tab over did all three.

@@ -145,6 +145,9 @@ function invalidatePromptStudio(qc: ReturnType<typeof useQueryClient>) {
   // ["prompt-versions"], so both were stale on the screen that caused them.
   void qc.invalidateQueries({ queryKey: ["agent-studio"] });
   void qc.invalidateQueries({ queryKey: ["agent-change-log"] });
+  // The Outbound tab offers the *published* card's missions, so a publish is
+  // exactly when that list changes -- and it never refreshed.
+  void qc.invalidateQueries({ queryKey: ["outbound", "missions"] });
 }
 
 let _mockVersions: PromptVersion[] = VERSION_HISTORY.map((v) => ({
@@ -826,6 +829,7 @@ export async function lintPromptVersion(input: {
 export function useDiscardPromptVersion() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: discardPromptVersion,
     onSuccess: () => invalidatePromptStudio(qc),
   });
@@ -834,6 +838,7 @@ export function useDiscardPromptVersion() {
 export function useRollbackBotDeployment() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: rollbackBotDeployment,
     onSuccess: () => invalidatePromptStudio(qc),
   });
@@ -841,6 +846,7 @@ export function useRollbackBotDeployment() {
 
 export function useLintPrompt() {
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: lintPromptVersion,
   });
 }
@@ -1041,6 +1047,7 @@ export async function ensureStudioDraft(opts: {
 export function usePublishStudioDraft() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: publishStudioDraft,
     onSuccess: () => invalidatePromptStudio(qc),
   });
@@ -1049,6 +1056,7 @@ export function usePublishStudioDraft() {
 export function useRestorePromptVersionAsDraft() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: (versionId: string) => restorePromptVersionAsDraft(versionId),
     onSuccess: () => invalidatePromptStudio(qc),
   });
@@ -1057,6 +1065,7 @@ export function useRestorePromptVersionAsDraft() {
 export function useEnsureStudioDraft() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: ensureStudioDraft,
     onSuccess: () => invalidatePromptStudio(qc),
   });

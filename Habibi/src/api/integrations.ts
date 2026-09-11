@@ -101,11 +101,13 @@ export function useProviderMutations(env: Env) {
   const invalidate = () => void qc.invalidateQueries({ queryKey: ["providers", env] });
   return {
     setEnabled: useMutation({
+      meta: { errors: "caller" },
       mutationFn: (input: { id: ProviderId; enabled: boolean }) =>
         setProviderEnabled(input.id, env, input.enabled),
       onSuccess: invalidate,
     }),
     testOne: useMutation({
+      meta: { errors: "caller" },
       mutationFn: (p: Provider) => testProviderConnection(p, env),
       onSuccess: invalidate,
     }),
@@ -301,16 +303,19 @@ export function useConnectorMutations() {
   const invalidate = () => void qc.invalidateQueries({ queryKey: ["connectors"] });
   return {
     upsert: useMutation({
+      meta: { errors: "toast" },
       mutationFn: (payload: Record<string, unknown>) =>
         USE_MOCK ? mockDelay(payload as Connector) : apiPost<Connector>("/connectors", payload),
       onSuccess: invalidate,
     }),
     approve: useMutation({
+      meta: { errors: "toast" },
       mutationFn: (id: string) =>
         USE_MOCK ? mockDelay({ ok: true }) : apiPost(`/connectors/${id}/approve`, {}),
       onSuccess: invalidate,
     }),
     test: useMutation({
+      meta: { errors: "caller" },
       mutationFn: (id: string) =>
         USE_MOCK
           ? mockDelay({ ok: true, kind: "first_party" })
@@ -318,6 +323,7 @@ export function useConnectorMutations() {
       onSuccess: invalidate,
     }),
     cimd: useMutation({
+      meta: { errors: "caller" },
       mutationFn: (input: { id: string; issuer: string }) =>
         USE_MOCK
           ? mockDelay({ ok: true, clientId: "cimd-mock", issuer: input.issuer })
@@ -341,6 +347,7 @@ export function useVaultMutations() {
   const invalidate = () => void qc.invalidateQueries({ queryKey: ["vault-refs"] });
   return {
     put: useMutation({
+      meta: { errors: "toast" },
       mutationFn: (payload: { name: string; purpose: string; secret: string }) =>
         USE_MOCK
           ? // `satisfies` checks the literal against VaultRef but does not widen
@@ -358,6 +365,7 @@ export function useVaultMutations() {
       onSuccess: invalidate,
     }),
     rotate: useMutation({
+      meta: { errors: "toast" },
       mutationFn: (input: { id: string; secret: string }) =>
         USE_MOCK
           ? mockDelay({ ok: true })
@@ -380,6 +388,7 @@ export function useMcpKeyMutations() {
   const invalidate = () => void qc.invalidateQueries({ queryKey: ["mcp-keys"] });
   return {
     mint: useMutation({
+      meta: { errors: "toast" },
       mutationFn: (payload: { name: string; scopes: string[] }) =>
         USE_MOCK
           ? mockDelay<McpKey>({
@@ -394,6 +403,7 @@ export function useMcpKeyMutations() {
       onSuccess: invalidate,
     }),
     rotate: useMutation({
+      meta: { errors: "toast" },
       // The mock returned a bare `{key}` while the real call returns the whole
       // row, so the caller had to `as McpKey` its way past the union to read
       // the one field it wanted. Returning the same shape from both arms is
@@ -412,6 +422,7 @@ export function useMcpKeyMutations() {
       onSuccess: invalidate,
     }),
     revoke: useMutation({
+      meta: { errors: "toast" },
       mutationFn: (id: string) =>
         USE_MOCK ? mockDelay({ ok: true }) : apiPost(`/mcp/keys/${id}/revoke`, {}),
       onSuccess: invalidate,
@@ -458,6 +469,7 @@ export function useGatewayCanary() {
 export function useProposeGatewayCanary() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "toast" },
     mutationFn: (candidateModel: string) =>
       apiPost<GatewayCanary>("/gateway/canary", { candidateModel }),
     onSuccess: () => {
@@ -470,6 +482,7 @@ export function useProposeGatewayCanary() {
 export function usePromoteGatewayCanary() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "toast" },
     mutationFn: (id: string) => apiPost<GatewayCanary>(`/gateway/canary/${id}/promote`, {}),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["gateway-canary"] });
@@ -498,6 +511,7 @@ export function useA2aTasks() {
 export function useUpsertA2aPartner() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: {
       name: string;
       botId: string;

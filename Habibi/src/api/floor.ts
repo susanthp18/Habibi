@@ -174,6 +174,7 @@ export async function ackFloorAlert(alertId: string): Promise<void> {
 export function useSupervisorAction() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: (input: { interactionId: string; action: SupervisorAction; note?: string }) =>
       postSupervisorAction(input.interactionId, input.action, input.note),
     onSuccess: () => {
@@ -185,6 +186,7 @@ export function useSupervisorAction() {
 export function useAckFloorAlert() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: (alertId: string) => ackFloorAlert(alertId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["floor"] });

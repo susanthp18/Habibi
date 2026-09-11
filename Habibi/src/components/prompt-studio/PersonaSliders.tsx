@@ -44,11 +44,24 @@ type Props = {
    * moved five sliders silently and offered none.
    */
   onApplyPreset?: (preset: PersonaPreset) => void;
+  /**
+   * The presets read failed. Distinct from an empty list: "no presets
+   * configured" is a statement about the tenant, and this tab made it from a
+   * network error while the Prompt tab one click over said the honest thing.
+   */
+  presetsFailed?: boolean;
   /** Current TTS voice settings — used to speak the persona preview. */
   voice?: VoiceConfig;
 };
 
-export function PersonaSliders({ value, onChange, presets, onApplyPreset, voice }: Props) {
+export function PersonaSliders({
+  value,
+  onChange,
+  presets,
+  onApplyPreset,
+  presetsFailed = false,
+  voice,
+}: Props) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -158,6 +171,17 @@ export function PersonaSliders({ value, onChange, presets, onApplyPreset, voice 
         <div>
           <div className="mb-075 text-body-small font-semibold text-text-subtlest">Presets</div>
           <div className="flex flex-wrap gap-075">
+            {presetsFailed ? (
+              <p className="text-body-small text-text-danger">
+                Presets could not be read. They may well be configured — this is the fetch failing,
+                not the tenant being empty.
+              </p>
+            ) : presets.length === 0 ? (
+              <p className="text-body-small text-text-subtle">
+                No presets configured. They are seeded per tenant in{" "}
+                <span className="font-mono">persona_presets</span>.
+              </p>
+            ) : null}
             {presets.map((p) => (
               <button
                 key={p.id}

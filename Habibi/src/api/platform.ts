@@ -93,6 +93,7 @@ export function usePlatformSwitches() {
 export function usePatchPlatformSwitch() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: { key: string; enabled: boolean; note?: string }) =>
       apiPatch<{ key: string; enabled: boolean }>(`/platform/switches/${body.key}`, {
         enabled: body.enabled,
@@ -133,6 +134,7 @@ export function useDemoOutboundTarget() {
 export function useDemoOutboundCall() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async () => apiPost<DemoOutboundResult>("/demo/outbound-call", {}),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["demo-outbound"] });

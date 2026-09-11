@@ -13,6 +13,7 @@ import {
   type EvalReport,
 } from "@/api/agent-studio";
 import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,7 +100,18 @@ function routing(card: AgentCardSummary) {
  * whole fleet and grouped here rather than queried per card — seven cards would
  * otherwise mean seven requests for data one call already returns.
  */
-function EvalTrend({ reports }: { reports: EvalReport[] }) {
+function EvalTrend({ reports, failed }: { reports: EvalReport[]; failed?: boolean }) {
+  // A failed read is not "no runs". Say so where the dots would have been.
+  if (failed) {
+    return (
+      <Lozenge
+        tone="warning"
+        title="The eval history could not be loaded. This is a failed read, not a card with no runs."
+      >
+        evals unavailable
+      </Lozenge>
+    );
+  }
   if (reports.length === 0) return null;
   // Newest last, so the row reads left-to-right like a timeline.
   const recent = reports.slice(0, 3).reverse();
@@ -477,48 +489,63 @@ function FleetIndex() {
               Lapse / Hardship / Clerk are recipes, not a fifth first-party mouth. Clone the skill
               first if the card pins one.
             </p>
-            <div className="flex flex-wrap items-end gap-100">
-              <label className="text-body-small">
-                Template
-                <select
-                  className="ml-075 rounded-medium border border-border bg-surface px-100 py-050"
-                  value={templateId}
-                  onChange={(e) => {
-                    setTemplateId(e.target.value);
-                    const t = (templates.data ?? []).find((x) => x.id === e.target.value);
-                    if (t) setName(t.label);
+            {templates.isPending ? (
+              <LoadingState label="Loading templates" />
+            ) : templates.isError ? (
+              <div className="flex flex-wrap items-center gap-100">
+                <QueryErrorBanner label="the template catalog" error={templates.error} />
+                <Button variant="outline" onClick={() => void templates.refetch()}>
+                  Retry
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-end gap-100">
+                <label className="text-body-small">
+                  Template
+                  <select
+                    className="ml-075 rounded-medium border border-border bg-surface px-100 py-050"
+                    value={templateId}
+                    onChange={(e) => {
+                      setTemplateId(e.target.value);
+                      const t = (templates.data ?? []).find((x) => x.id === e.target.value);
+                      if (t) setName(t.label);
+                    }}
+                  >
+                    {(templates.data ?? []).map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-body-small">
+                  Name
+                  <Input
+                    className="ml-075"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </label>
+                <Button
+                  disabled={clone.isPending || !templateId}
+                  onClick={() => {
+                    void clone
+                      .mutateAsync({ templateId, name })
+                      .then((row) => {
+                        toast.success(`Draft ${row.name} created — compile before publish`);
+                        setOpen(false);
+                        void navigate({ to: "/agent-studio/$botId", params: { botId: row.botId } });
+                      })
+                      .catch((err: Error) => toast.error(err.message));
                   }}
                 >
-                  {(templates.data ?? []).map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-body-small">
-                Name
-                <Input className="ml-075" value={name} onChange={(e) => setName(e.target.value)} />
-              </label>
-              <Button
-                disabled={clone.isPending || !templateId}
-                onClick={() => {
-                  void clone
-                    .mutateAsync({ templateId, name })
-                    .then((row) => {
-                      toast.success(`Draft ${row.name} created — compile before publish`);
-                      setOpen(false);
-                      void navigate({ to: "/agent-studio/$botId", params: { botId: row.botId } });
-                    })
-                    .catch((err: Error) => toast.error(err.message));
-                }}
-              >
-                Create draft
-              </Button>
-              <Button variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-            </div>
+                  Create draft
+                </Button>
+                <Button variant="outline" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
+            )}
           </div>
         ) : null}
         {isLoading && !data ? (
@@ -635,7 +662,10 @@ function FleetIndex() {
                       ))}
                       <Lozenge tone="neutral">{card.toolCount} tools</Lozenge>
                       <Lozenge tone="neutral">{card.skills.length} skills</Lozenge>
-                      <EvalTrend reports={reportsByBot.get(card.botId) ?? []} />
+                      <EvalTrend
+                        reports={reportsByBot.get(card.botId) ?? []}
+                        failed={evalReports.isError}
+                      />
                       {card.deploymentStatus === "live" && card.evalStatus === "skipped" ? (
                         <Lozenge
                           tone="warning"

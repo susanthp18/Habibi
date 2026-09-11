@@ -257,6 +257,7 @@ export function useAgentStudioCards(includeArchived = false) {
 export function useArchiveAgentCard() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: { botId: string; archived: boolean }) =>
       apiPost<{ ok: boolean; botId: string; archived: boolean }>(
         `/agent-studio/cards/${body.botId}/${body.archived ? "archive" : "restore"}`,
@@ -269,6 +270,7 @@ export function useArchiveAgentCard() {
 export function useCompileCard(botId: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body?: Record<string, unknown>) =>
       apiPost<CompileReport>(`/agent-studio/cards/${botId}/compile`, body ?? {}, {
         schema: compileReportSchema,
@@ -336,6 +338,7 @@ export function useEffectiveContract(botId: string, enabled = true) {
 export function usePatchAgentCard(botId: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "toast" },
     mutationFn: async (agentCard: Record<string, unknown>) =>
       apiPatch(`/agent-studio/cards/${botId}`, { agentCard }),
     onSuccess: () => invalidateAgentStudio(qc),
@@ -419,6 +422,7 @@ export function useEvalSuites() {
 export function useRunEvalSuite(botId?: string, promptVersionId?: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "toast" },
     mutationFn: async (suiteId: string) => {
       const q = new URLSearchParams();
       if (botId) q.set("botId", botId);
@@ -452,6 +456,9 @@ export type EvalReport = {
   createdAt?: string | null;
 };
 
+/** `botId` that asks for the reports the scheduler filed against no card. */
+export const TENANT_WIDE_REPORTS = "__none__";
+
 export function useEvalReports(kind?: string, botId?: string) {
   return useQuery({
     queryKey: ["eval-reports", kind ?? "all", botId ?? "all"],
@@ -483,6 +490,7 @@ export function useEvalReports(kind?: string, botId?: string) {
 export function useRunEvalSchedule() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "toast" },
     mutationFn: async () =>
       apiPost<{ status: string; ran: number; failed: number }>("/eval/schedule/run", {}),
     onSuccess: () => {
@@ -729,6 +737,7 @@ export const EVAL_SCHEDULE_AVAILABLE = !USE_MOCK;
 export function useCreateSkill() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: {
       slug: string;
       description?: string;
@@ -742,6 +751,7 @@ export function useCreateSkill() {
 export function useDeleteSkill() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (skillId: string) =>
       apiDelete<{ ok: boolean; id: string; slug: string }>(`/agent-studio/skills/${skillId}`),
     onSuccess: () => invalidateAgentStudio(qc),
@@ -762,6 +772,7 @@ export function useSkillScripts() {
 export function useSignSkill() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (skillId: string) => apiPost(`/agent-studio/skills/${skillId}/sign`, {}),
     onSuccess: () => invalidateAgentStudio(qc),
   });
@@ -770,6 +781,7 @@ export function useSignSkill() {
 export function useRevertSkill() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: { skillId: string; versionId?: string }) =>
       apiPost(`/agent-studio/skills/${body.skillId}/revert`, { versionId: body.versionId }),
     onSuccess: () => invalidateAgentStudio(qc),
@@ -779,6 +791,7 @@ export function useRevertSkill() {
 export function usePatchSkill(skillId: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: Record<string, unknown>) =>
       apiPatch(`/agent-studio/skills/${skillId}`, body),
     onSuccess: () => invalidateAgentStudio(qc),
@@ -787,6 +800,7 @@ export function usePatchSkill(skillId: string) {
 
 export function useRunSkillScript() {
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: { name: string; payload: Record<string, unknown> }) =>
       apiPost<{ ok: boolean; error?: string } & Record<string, unknown>>(
         "/agent-studio/skills/run-script",
@@ -840,6 +854,7 @@ export function useRolesCatalog() {
 export function usePatchRolePermissions() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: { roleId: string; permissionIds: string[] }) =>
       apiPatch(`/roles/${body.roleId}/permissions`, { permissionIds: body.permissionIds }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["roles"] }),
@@ -884,6 +899,7 @@ export function useAgentStudioTemplates() {
 export function useCloneAgentCard() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: { templateId: string; name?: string }) =>
       apiPost<AgentCardSummary>("/agent-studio/cards/clone", body),
     onSuccess: () => invalidateAgentStudio(qc),
@@ -893,6 +909,7 @@ export function useCloneAgentCard() {
 export function useCloneSkill() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (body: { skillId: string; slug: string }) =>
       apiPost(`/agent-studio/skills/${body.skillId}/clone`, { slug: body.slug }),
     onSuccess: () => invalidateAgentStudio(qc),
@@ -902,6 +919,7 @@ export function useCloneSkill() {
 export function useAttachConnector(botId: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "toast" },
     mutationFn: async (body: { connectorId: string; allowPrefixes?: string[] }) =>
       apiPost(`/agent-studio/cards/${botId}/connectors`, body),
     onSuccess: () => invalidateAgentStudio(qc),
@@ -932,6 +950,7 @@ export type ExperimentRollbackResult = DeploymentExperiment & { baselineRestored
 export function useRollbackExperiment() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (experimentId: string) =>
       apiPost<ExperimentRollbackResult>(`/bot-deployments/experiments/${experimentId}/rollback`, {
         reason: "manual",
@@ -1107,6 +1126,7 @@ export function useSkillCritiques(limit = 50) {
 export function useCritiqueReport() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: async (reportId: string) => {
       if (USE_MOCK) return mockDelay(MOCK_CRITIQUES);
       return apiPost<SkillCritique[]>(`/eval/reports/${encodeURIComponent(reportId)}/critique`, {});

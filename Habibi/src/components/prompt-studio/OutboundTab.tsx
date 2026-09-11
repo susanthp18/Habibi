@@ -39,6 +39,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
+import { ApiError } from "@/api/config";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
 
@@ -375,6 +377,24 @@ function CohortBuilder({ botId, objectives }: { botId: string; objectives: strin
  * nine members, three nested models and eight compile gates reachable only by
  * writing JSON into the database by hand.
  */
+/**
+ * The 409s from Start/Pause mean something specific -- outbound is switched
+ * off at the platform, or the campaign runtime is -- and used to render as
+ * nothing happening. The button silently not working is the worst of the
+ * three answers.
+ */
+function campaignStatusError(error: unknown): string {
+  const detail =
+    error instanceof ApiError ? error.detail : error instanceof Error ? error.message : "";
+  if (detail.includes("outbound_disabled")) {
+    return "Outbound dialling is switched off at the platform — the run cannot start until it is on.";
+  }
+  if (detail.includes("campaign_runtime_disabled")) {
+    return "The campaign runtime is switched off — runs can be authored but not started.";
+  }
+  return `Could not change the run: ${detail || "the API did not answer"}.`;
+}
+
 export function OutboundTab({
   botId,
   card,
@@ -540,9 +560,18 @@ export function OutboundTab({
             </ul>
           )}
 
-          {objectiveKeys.length > 0 ? (
+          {missions.isError ? (
+            <QueryErrorBanner label="the published missions" error={missions.error} />
+          ) : missions.isPending ? (
+            <LoadingState label="Loading the published missions" />
+          ) : objectiveKeys.length > 0 ? (
             <CohortBuilder botId={botId} objectives={objectiveKeys} />
-          ) : null}
+          ) : (
+            <p className="rounded-medium border border-border px-150 py-100 text-body-small text-text-subtle">
+              No published mission on this card — a run is created against what is live, so publish
+              one before creating a run.
+            </p>
+          )}
 
           <div className="rounded-medium border border-border bg-surface">
             <div className="flex items-center justify-between border-b border-border px-150 py-100">
@@ -608,6 +637,11 @@ export function OutboundTab({
                 ))}
               </ul>
             )}
+            {setStatus.isError ? (
+              <p className="border-t border-border px-150 py-100 text-body-small text-text-danger">
+                {campaignStatusError(setStatus.error)}
+              </p>
+            ) : null}
           </div>
         </div>
       )}

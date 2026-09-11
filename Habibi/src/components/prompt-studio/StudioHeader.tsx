@@ -21,6 +21,8 @@ type Props = {
   /** Compiler gate: invalid conversation graph cannot ship. */
   publishBlocked?: boolean;
   flowErrorCount?: number;
+  /** The validator did not answer; the graph is unchecked, not clean. */
+  flowUnchecked?: boolean;
   onFixFlow?: () => void;
   cardName?: string;
   /** Opens the version-history drawer. Was a permanent 320px rail. */
@@ -52,6 +54,7 @@ export function StudioHeader({
   lintBusy,
   publishBlocked = false,
   flowErrorCount = 0,
+  flowUnchecked = false,
   onFixFlow,
   cardName,
   onOpenHistory,
@@ -97,7 +100,9 @@ export function StudioHeader({
         )}
         {publishBlocked && (
           <Lozenge tone="danger">
-            {flowErrorCount} flow error{flowErrorCount === 1 ? "" : "s"} — publish blocked
+            {flowUnchecked
+              ? "flow not checked — publish blocked"
+              : `${flowErrorCount} flow error${flowErrorCount === 1 ? "" : "s"} — publish blocked`}
           </Lozenge>
         )}
         {saveStatus === "saving" && <Lozenge tone="neutral">Autosaving…</Lozenge>}

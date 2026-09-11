@@ -265,6 +265,7 @@ export async function upsertBinding(input: ProviderBindingInput): Promise<Provid
 export function useUpsertBinding(botId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: upsertBinding,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["provider-bindings", botId ?? "tenant"] });
@@ -283,6 +284,7 @@ export async function deleteBinding(bindingId: string): Promise<void> {
 export function useDeleteBinding(botId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { errors: "caller" },
     mutationFn: deleteBinding,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["provider-bindings", botId ?? "tenant"] });
