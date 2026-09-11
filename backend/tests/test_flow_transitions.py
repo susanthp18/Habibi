@@ -2,9 +2,10 @@
 
 An authored graph that uses reserved node keys inherits real transitions with
 no authored edges: the materialised collections script has twelve nodes and
-zero edges, and rendered as a pile of disconnected rectangles. These are
-derived from ``voice/tools.py`` so the canvas can draw them without inventing
-edges the runtime would then apply twice.
+zero edges, and rendered as a pile of disconnected rectangles. The hops are
+*declared* in ``flow_graph.TRANSITIONS`` — one map the canvas, the walker and
+the validator read — and ``test_transitions_are_declared.py`` proves the
+handlers in ``voice/tools.py`` agree with it.
 """
 
 from __future__ import annotations
@@ -68,38 +69,22 @@ def test_the_built_in_graph_gains_edges_from_this() -> None:
     assert len(drawn) >= 6, sorted(drawn)
 
 
-def test_result_is_cached_and_stable() -> None:
-    assert flow_graph.implicit_transitions() is flow_graph.implicit_transitions()
+def test_the_result_is_a_copy_the_caller_may_mutate() -> None:
+    """Lists, as the canvas endpoint was built against; and a fresh copy each
+    time, so nothing a consumer does to it can reach the declaration."""
+    first = flow_graph.implicit_transitions()
+    first["begin_dispute"].append("nowhere")
+    assert flow_graph.implicit_transitions()["begin_dispute"] == ["handle_dispute"]
 
 
-def test_delegating_tools_are_followed_to_their_handler() -> None:
-    """Most tools are thin wrappers. The registry binds "escalate_to_human" to a
-    function that calls _escalate_to_human_handler, and the helper owns the
-    _node() call — so reading only the registered function found 8 of the real
-    transitions and drew escalate_close as an orphan on the canvas."""
-    transitions = flow_graph.implicit_transitions()
-
-    assert transitions["escalate_to_human"] == ["escalate_close"]
-    assert transitions["flag_dispute"] == ["escalate_close"]
-    assert transitions["capture_call_goal"] == ["verify_identity"]
-    assert "terminate_politely" in transitions["verify_identity"]
-
-
-def test_a_tool_bound_by_a_factory_is_still_read() -> None:
-    """`capture_call_goal = _spec("capture_call_goal", _capture_call_goal_handler)`
-    binds a name the AST never sees as a function. Any function handed to the
-    factory counts as its delegate, so renaming the factory cannot break this."""
-    assert flow_graph.implicit_transitions().get("capture_call_goal")
-
-
-def test_a_node_key_held_in_a_parameter_default_is_resolved() -> None:
-    """return_to_position calls _node(hub_node), and hub_node is a parameter
-    defaulting to "state_position". A literals-only reader drew the busiest node
-    in the graph with nothing pointing at it."""
-    transitions = flow_graph.implicit_transitions()
-
-    assert transitions["return_to_position"] == ["state_position"]
-    assert "state_position" in transitions["verify_identity"]
+def test_the_transitioning_flag_is_derived_from_the_map() -> None:
+    """The hand-kept `_TRANSITIONING_TOOLS` had drifted to 12 of 16 — the
+    canvas showed `flag_dispute` and `request_callback` as tools that stay put.
+    Derived, it cannot."""
+    rows = {t["key"]: t for t in flow_graph.tool_catalog()}
+    for tool in flow_graph.TRANSITIONS:
+        assert rows[tool]["transitions"] is True, tool
+    assert rows["get_account_position"]["transitions"] is False
 
 
 def test_every_reserved_key_except_the_hub_variant_has_an_inbound_tool() -> None:
@@ -110,3 +95,82 @@ def test_every_reserved_key_except_the_hub_variant_has_an_inbound_tool() -> None
     reached = {t for targets in flow_graph.implicit_transitions().values() for t in targets}
 
     assert set(flow_graph.RESERVED_NODE_KEYS) - reached == {"collections_hub"}
+
+
+# ---------------------------------------------------------------------------
+# The text channel: what a step's exits are, and which steps are passed through
+# ---------------------------------------------------------------------------
+
+
+def _node(key: str, *, tools: list[str] | None = None, start: bool = False, end: bool = False) -> dict:
+    return {
+        "id": f"n-{key}",
+        "key": key,
+        "type": "conversation",
+        "data": {"isStart": start, "tools": tools or [], "endConversation": end, "entryFor": []},
+    }
+
+
+def _walker(nodes: list[dict]):
+    from flow_vars import FlowVariables
+    from flow_walk import FlowWalker
+
+    return FlowWalker(
+        flow_graph.parse_graph({"version": 1, "globalTools": [], "nodes": nodes, "edges": []}),
+        FlowVariables({}),
+    )
+
+
+def test_the_greeting_is_passed_through_on_text() -> None:
+    """Its only exit is `disclose_recording`, a voice verb with one declared
+    destination. A WhatsApp thread has no recording to disclose, so it starts
+    where the disclosure would have led."""
+    walker = _walker(
+        [
+            _node("greet_disclose", tools=["disclose_recording"], start=True),
+            _node("discover_intent", tools=["capture_call_goal"]),
+            _node("verify_identity", tools=["verify_identity"]),
+        ]
+    )
+    granted = {"capture_call_goal", "verify_identity"}  # no flow verbs on text
+    assert walker.text_exits(granted=granted)["pass_through"] == ["discover_intent"]
+    assert walker.pass_through(granted=granted) == ["greet_disclose"]
+    assert walker.current.key == "discover_intent"
+    # And it stops there: capture_call_goal is a granted mover, a real choice.
+    assert walker.pass_through(granted=granted) == []
+
+
+def test_a_step_whose_voice_exits_disagree_is_not_guessed() -> None:
+    """`pre_close` leaves through `return_to_position` (the hub) or `end_call`
+    (the end). Two destinations is a choice the graph did not make for text."""
+    walker = _walker(
+        [
+            _node("pre_close", tools=["return_to_position", "end_call"], start=True),
+            _node("state_position"),
+            _node("call_ended", end=True),
+        ]
+    )
+    assert walker.text_exits(granted=set())["pass_through"] == []
+    assert walker.pass_through(granted=set()) == []
+    assert walker.current.key == "pre_close"
+
+
+def test_a_handoff_is_an_exit_and_an_ending_step_is_not_stuck() -> None:
+    walker = _walker(
+        [
+            _node("greet_disclose", tools=["disclose_recording"], start=True),
+            _node("discover_intent", tools=["capture_call_goal"]),
+            _node("verify_identity", tools=["verify_identity"]),
+            _node("state_position", tools=["handoff_to_agent"]),
+            _node("terminate_politely", end=True),
+            # Reached only by `not_account_holder`, a voice verb: not a text problem.
+            _node("third_party"),
+        ]
+    )
+    granted = {"capture_call_goal", "verify_identity", "handoff_to_agent"}
+    reachable, stuck = walker.text_reachable(granted=granted, handoffs=True)
+    assert reachable == {"greet_disclose", "discover_intent", "verify_identity", "state_position", "terminate_politely"}
+    assert stuck == []
+    # Without a handoff to make, the route node is where the thread stops.
+    _reachable, stuck = walker.text_reachable(granted=granted, handoffs=False)
+    assert stuck == ["state_position"]

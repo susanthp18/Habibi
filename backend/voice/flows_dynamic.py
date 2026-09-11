@@ -61,6 +61,7 @@ import flow_walk
 from flow_vars import FlowVariables
 from flow_graph import split_key
 from flow_walk import EXTRACT_TOOL, TRANSITION_PREFIX, FlowWalker
+from voice.node_contracts import NODE_DIRECTIVES
 from voice.rtvi_events import RtviEmitter
 from voice.session import VoiceSession
 from voice.tools import (
@@ -451,33 +452,12 @@ def build_authored_flow(
 
             config["functions"] = functions
 
-            if node.key == "confirm_identity":
+            # A directive the runtime attaches by node key, declared in one
+            # place so the editor can show it (`voice/node_contracts.py`).
+            directive = NODE_DIRECTIVES.get(split_key(node.key)[1] or node.key)
+            if directive:
                 config.setdefault("task_messages", []).append(
-                    {
-                        "role": "developer",
-                        "content": (
-                            "Do not call any tool until the caller has spoken and "
-                            "confirmed they are the account holder. Your first "
-                            "utterance is ONLY the greeting, your name, the bank, "
-                            "and the confirmation question. Never open with a tool "
-                            "acknowledgement such as 'Sure, I can set that up.'"
-                        ),
-                    }
-                )
-            if node.key in {"escalate_close", "pre_close"}:
-                config.setdefault("task_messages", []).append(
-                    {
-                        "role": "developer",
-                        "content": (
-                            "If they ask a product or policy question, call "
-                            "search_knowledge_base. When the result is confident "
-                            "with passages, answer in at most two sentences from "
-                            "those passages, then call end_call. When it is not "
-                            "confident, say a specialist will follow up and call "
-                            "end_call. Never ask which insurer or policy type they "
-                            "have. Do not ask further questions."
-                        ),
-                    }
+                    {"role": "developer", "content": directive}
                 )
 
             # "Listen first" is a claim about whose turn it is, and the graph

@@ -1239,29 +1239,32 @@ async def run_bot(transport, runner_args) -> None:
             if isinstance(key, str) and key:
                 _specialist_entries[str(slug)] = key
 
-    _tool_state, _tools, initial_node, global_fns = build_collections_flow(
-        session,
-        role_message=system_instruction,
-        bot_id=bot_id,
-        start_recording=_start_recording,
-        emitter=emitter,
-        kb_snapshot_id=kb_snapshot_id,
-        inject_developer=_inject_developer,
-        replace_developer=_replace_developer,
-        persona=sandbox_persona,
-        channel="sandbox_live" if sandbox_session else "voice",
-        on_kb_tool_used=kb_enrich.suppress,
-        spoke_this_response=lambda: spoke_probe.spoke_this_response,
-        sink=sink,
-        allowed_tool_names=_allowed_tools,
-        attached_skills=_attached_skills,
-        agent_card=bundle.get("agentCard") if isinstance(bundle.get("agentCard"), dict) else None,
-    )
+    def _built_in_flow():
+        """The Python script. The fallback, and the only flow for a version
+        that authored none (allowed under `auto`, refused under `required`)."""
+        return build_collections_flow(
+            session,
+            role_message=system_instruction,
+            bot_id=bot_id,
+            start_recording=_start_recording,
+            emitter=emitter,
+            kb_snapshot_id=kb_snapshot_id,
+            inject_developer=_inject_developer,
+            replace_developer=_replace_developer,
+            persona=sandbox_persona,
+            channel="sandbox_live" if sandbox_session else "voice",
+            on_kb_tool_used=kb_enrich.suppress,
+            spoke_this_response=lambda: spoke_probe.spoke_this_response,
+            sink=sink,
+            allowed_tool_names=_allowed_tools,
+            attached_skills=_attached_skills,
+            agent_card=bundle.get("agentCard") if isinstance(bundle.get("agentCard"), dict) else None,
+        )
 
-    # Authored Prompt Studio graph when the published version has nodes, unless
-    # VOICE_FLOW_GRAPH=legacy|hub is an explicit kill-switch. Built after the
-    # hardcoded flow rather than instead of it, so any failure — empty graph,
-    # compile error — keeps the call on the flow that was already working.
+    # Authored Prompt Studio graph when the published version has nodes. The
+    # built-in script is built only when the authored graph is not used --
+    # it used to be built on every call and thrown away, and under `required`
+    # (this deployment) it is never the flow that serves.
     _authored = bundle.get("flow")
     _flow_override = session.extra.get("flowGraph")
     if voice_config.voice_uses_authored_flow(_authored, override=_flow_override):
@@ -1311,6 +1314,7 @@ async def run_bot(transport, runner_args) -> None:
             logger.exception(
                 "authored flow failed to compile — falling back to the built-in flow"
             )
+            _tool_state, _tools, initial_node, global_fns = _built_in_flow()
     elif voice_config.voice_flow_required():
         # No published graph at all. Same reasoning: under `required` this is a
         # configuration error with a name attached, not something to paper over.
@@ -1319,6 +1323,8 @@ async def run_bot(transport, runner_args) -> None:
             "flow (publish one, or set VOICE_FLOW_GRAPH=auto to allow the "
             "built-in script)"
         )
+    else:
+        _tool_state, _tools, initial_node, global_fns = _built_in_flow()
 
     _flow_holder["state"] = _tool_state
     # The tool map too: the budget watchdog's hard stop needs `end_call`, and

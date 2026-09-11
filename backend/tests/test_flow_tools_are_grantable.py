@@ -375,3 +375,68 @@ def test_a_bundle_for_a_cardless_version_carries_no_offers() -> None:
 @pytest.mark.parametrize("flow", [None, {}, {"nodes": "not a list"}, 7])
 def test_node_offers_never_raises_on_a_graph_it_cannot_read(flow) -> None:
     assert node_offers(flow, {"verify_identity"}) == []
+
+
+# ---------------------------------------------------------------------------
+# G-F11 — the script is walkable on the channel the card claims
+# ---------------------------------------------------------------------------
+
+
+def test_gf11_is_skipped_for_a_card_with_no_text_mouth() -> None:
+    """A voice-only card is not lying by shipping a voice-only script."""
+    card = card_dump(COLLECTIONS_BOT_ID)
+    card["identity"]["channels"] = ["voice"]
+    report = compile_card(
+        bot_id=COLLECTIONS_BOT_ID,
+        card_raw=card,
+        flow=_built_in(),
+        catalog_names=CATALOG_NAMES,
+        known_bot_ids=KNOWN_BOTS,
+        attached_skills=_packs(),
+        skip_eval_gates=True,
+    )
+    assert _gate(report, "G-F11").status == "skipped"
+
+
+def test_gf11_no_longer_blames_the_greeting() -> None:
+    """The finding the gate was written for, resolved where it lives.
+
+    ``greet_disclose`` leaves only via ``disclose_recording`` — a voice verb,
+    on a channel with no recording to disclose. The text mouth now passes
+    straight through such a step to the one place its contract leads
+    (``flow_walk.FlowWalker.pass_through``), and the gate applies the same
+    rule, so the greeting is never the stuck step. What the gate still
+    reports on the built-in export is a step with genuinely no text exit --
+    none here, because every terminal in the export ends the conversation.
+    """
+    report = _compile(COLLECTIONS_BOT_ID)
+    gf11 = _gate(report, "G-F11")
+    assert "greet_disclose" not in {i["node"] for i in (gf11.issues or [])}
+    assert gf11.status in {"pass", "warn"}
+
+
+def test_gf11_passes_a_graph_whose_steps_have_authored_exits() -> None:
+    """An authored edge is a text exit: the model calls ``go_to_*`` and moves."""
+    graph = {
+        "version": 1,
+        "globalTools": [],
+        "nodes": [
+            {"id": "a", "key": "a", "data": {"name": "A", "isStart": True}},
+            {"id": "b", "key": "b", "type": "end", "data": {"name": "B"}},
+        ],
+        "edges": [
+            {
+                "id": "e",
+                "source": "a",
+                "target": "b",
+                "data": {"condition": {"type": "prompt", "prompt": "they are done"}},
+            }
+        ],
+    }
+    assert _gate(_compile(COLLECTIONS_BOT_ID, flow=graph), "G-F11").status == "pass"
+
+
+def test_gf11_is_skipped_rather_than_guessing_at_an_unreadable_flow() -> None:
+    assert _gate(_compile(COLLECTIONS_BOT_ID, flow={"nodes": "not a list"}), "G-F11").status == (
+        "skipped"
+    )

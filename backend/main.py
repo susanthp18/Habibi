@@ -2136,8 +2136,20 @@ def list_flow_reserved_keys():
 
     A graph is free to ignore them; using one wires up that built-in hop. The
     editor surfaces these so the choice is visible rather than a trap.
+
+    Also the keys that carry a built-in *directive* (`voice/node_contracts.
+    NODE_DIRECTIVES`): the runtime appends a developer instruction to those
+    nodes whatever the author wrote, and `confirm_identity` -- reached by being
+    dialled, not by a tool -- was the one key with runtime behaviour and no
+    hint. Read pipecat-free: node_contracts imports nothing.
     """
-    return flow_graph.RESERVED_NODE_KEYS
+    from voice.node_contracts import NODE_DIRECTIVES
+
+    out = dict(flow_graph.RESERVED_NODE_KEYS)
+    for key, directive in NODE_DIRECTIVES.items():
+        note = f"carries a built-in directive on this step: {directive[:80].rstrip()}…"
+        out[key] = f"{out[key]}; {note}" if key in out else note
+    return out
 
 
 @app.get("/agent-studio/cards", response_model=list[AgentStudioCardResponse])

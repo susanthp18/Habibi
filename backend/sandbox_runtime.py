@@ -312,6 +312,14 @@ def _run_sandbox_tool_loop(
         channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
     )
     granted = set(tool_state.offered or ())
+    if walker is not None:
+        # A step the text mouth cannot stand on -- the greeting, whose only
+        # exit is the recording disclosure -- is stepped through to where it
+        # leads. Same rule G-F11 gates on; the rehearsal starts where the
+        # thread would.
+        passed = walker.pass_through(granted=granted)
+        if passed:
+            logger.info("sandbox: passed through %s on text", ", ".join(passed))
 
     def _offer() -> tuple[list[dict[str, Any]], list[str]]:
         """This turn's tools, and the names for the response.

@@ -477,28 +477,23 @@ def _text_walkability_gate(flow: Any, grant: Any, card: Any) -> dict[str, Any]:
     except Exception:
         return _gate("G-F11", "text_walkability", "skipped", "flow could not be parsed")
 
+    # The walker owns the text-channel rules -- what counts as an exit, which
+    # steps a text mouth passes straight through, and which it can reach at
+    # all -- so the gate and the runtime cannot disagree. A step nobody can
+    # reach on text (`third_party`, entered only by a voice verb on the
+    # outbound leg) is not a text problem; a step that ends the conversation
+    # is not stuck; a granted handoff is an exit that leaves the graph.
     granted = set(grant or ())
-    stuck: list[dict[str, Any]] = []
-    for node in graph.nodes:
-        if node.type == "end":
-            continue
-        if walker.prompt_edges(node) or walker.deterministic_target(node) is not None:
-            continue
-        # No authored way out. The only remaining exit is a built-in tool hop,
-        # and it only counts if the card actually grants that tool.
-        movers = [
-            name
-            for name in walker.offers(node, granted=granted)
-            if walker.implicit_target(name) is not None
-        ]
-        if not movers:
-            stuck.append({"node": node.key})
+    reachable, stuck_keys = walker.text_reachable(
+        granted=granted, handoffs=bool(getattr(card, "handoffs", None))
+    )
+    stuck = [{"node": key} for key in stuck_keys]
     if not stuck:
         return _gate(
             "G-F11",
             "text_walkability",
             "pass",
-            f"{len(graph.nodes)} steps are walkable on text",
+            f"{len(reachable)} of {len(graph.nodes)} steps reachable on text, all walkable",
         )
     return _gate(
         "G-F11",

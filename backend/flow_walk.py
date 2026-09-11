@@ -368,6 +368,123 @@ class FlowWalker:
             return None
         return self.move_to(target)
 
+    # --- text channel ------------------------------------------------------
+
+    def is_terminal(self, node: FlowNode | None = None) -> bool:
+        node = node or self.current
+        return node is None or node.type == "end" or bool(node.data.endConversation)
+
+    def text_exits(
+        self,
+        node: FlowNode | None = None,
+        *,
+        granted: Iterable[str] | None = None,
+        handoffs: bool = False,
+    ) -> dict[str, list[str]]:
+        """Every way a text mouth can leave ``node``, by kind.
+
+        ``edges`` are authored; ``movers`` are granted tools whose declared hop
+        (``flow_graph.TRANSITIONS``) lands on a node present in the graph;
+        ``handoff`` is a granted ``handoff_to_agent`` on a card that has
+        somewhere to send the call -- a hop is an exit, it just leaves the
+        graph. ``pass_through`` is the one place a step's *voice-only* exits
+        all lead, for a step the text mouth cannot stand on (see
+        :meth:`pass_through`).
+        """
+        node = node or self.current
+        if node is None or self.is_terminal(node):
+            return {"edges": [], "movers": [], "handoff": [], "pass_through": []}
+        allow = set(granted) if granted is not None else None
+        edges = [self._by_id[e.target].key for e in self.edges_from(node) if e.target in self._by_id]
+        movers = [
+            name
+            for name in node.data.tools
+            if (allow is None or name in allow) and self.implicit_target(name) is not None
+        ]
+        handoff = ["handoff_to_agent"] if handoffs and "handoff_to_agent" in node.data.tools and (allow is None or "handoff_to_agent" in allow) else []
+        passing: list[str] = []
+        if not edges and not movers and not handoff:
+            from voice.node_contracts import NODE_REQUIRED
+
+            verbs = set(node.data.tools) | set(NODE_REQUIRED.get(split_key(node.key)[1] or node.key, ()))
+            targets = {
+                t.key
+                for t in (self.implicit_target(v) for v in verbs if allow is None or v not in allow)
+                if t is not None
+            }
+            if len(targets) == 1:
+                passing = sorted(targets)
+        return {"edges": edges, "movers": movers, "handoff": handoff, "pass_through": passing}
+
+    def pass_through(self, *, granted: Iterable[str] | None = None) -> list[str]:
+        """Step off any node a text mouth cannot stand on. Returns the keys passed.
+
+        ``greet_disclose`` exits only through ``disclose_recording``, a voice
+        verb: it says the recording line and moves on. A WhatsApp thread has
+        no recording to disclose and no such tool, so the walker used to sit
+        on the greeting forever and the runtime papered over it with a floor
+        that handed the model every tool. The step's own contract says where
+        it goes -- one place -- so the text mouth goes there. A step whose
+        voice-only exits lead to *two* places is left alone; that is a choice
+        the graph did not make for text, and guessing is worse than stopping.
+        """
+        passed: list[str] = []
+        seen: set[str] = set()
+        while self.current is not None and self.current.key not in seen:
+            seen.add(self.current.key)
+            exits = self.text_exits(granted=granted)
+            if not exits["pass_through"]:
+                break
+            target = self.node(exits["pass_through"][0]) or self._by_key.get(exits["pass_through"][0])
+            if target is None:
+                break
+            passed.append(self.current.key)
+            self.move_to(target)
+        return passed
+
+    def text_reachable(
+        self, *, granted: Iterable[str] | None = None, handoffs: bool = False
+    ) -> tuple[set[str], list[str]]:
+        """``(reachable keys, stuck keys)`` for a text mouth walking from the start.
+
+        Reachability follows every text exit -- authored edges regardless of
+        condition, declared hops of granted tools, pass-throughs. A hop off the
+        graph and a terminal end the walk. A step is *stuck* when it is
+        reachable, not terminal, and has no exit of any kind; a step nobody
+        can reach on text is not a text problem, however dead it looks.
+        """
+        start = self.graph.start_node
+        if start is None:
+            return set(), []
+        reachable: set[str] = set()
+        stuck: list[str] = []
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            if node.key in reachable:
+                continue
+            reachable.add(node.key)
+            if self.is_terminal(node):
+                continue
+            exits = self.text_exits(node, granted=granted, handoffs=handoffs)
+            nxt: list[str] = list(exits["edges"]) + list(exits["pass_through"])
+            # Every destination a mover declares, not only the walker's first
+            # pick: `verify_identity` lands on the hub or on a polite ending
+            # depending on the answer, and both are reachable.
+            from flow_graph import TRANSITIONS
+
+            for name in exits["movers"]:
+                for key in TRANSITIONS.get(name, ()):
+                    if self.node(key) is not None:
+                        nxt.append(key)
+            if not nxt and not exits["handoff"]:
+                stuck.append(node.key)
+            for key in nxt:
+                target = self._by_key.get(key) or self.node(key)
+                if target is not None:
+                    stack.append(target)
+        return reachable, stuck
+
     def move_to(self, target: FlowNode) -> FlowNode:
         """Set the cursor, and follow the namespace across a hop.
 

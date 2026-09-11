@@ -49,3 +49,27 @@ NODE_REQUIRED: dict[str, frozenset[str]] = {
     "pre_close": frozenset({"return_to_position", "end_call"}),
     "escalate_close": frozenset({"end_call"}),
 }
+
+
+#: Developer directives the runtime attaches to a node *by key*, whatever the
+#: author wrote in its instructions. These are the last runtime special-cases
+#: of a node name, and they are declared here so the editor can say "this key
+#: carries a built-in directive" instead of the author discovering it on a
+#: call. ``flows_dynamic`` appends them; ``GET /flow/reserved-keys`` surfaces
+#: them beside the transition targets.
+NODE_DIRECTIVES: dict[str, str] = {
+    "confirm_identity": (
+        "Do not call any tool until the caller has spoken and confirmed they are "
+        "the account holder. Your first utterance is ONLY the greeting, your "
+        "name, the bank, and the confirmation question. Never open with a tool "
+        "acknowledgement such as 'Sure, I can set that up.'"
+    ),
+    "escalate_close": (
+        "If they ask a product or policy question, call search_knowledge_base. "
+        "When the result is confident with passages, answer in at most two "
+        "sentences from those passages, then call end_call. When it is not "
+        "confident, say a specialist will follow up and call end_call. Never ask "
+        "which insurer or policy type they have. Do not ask further questions."
+    ),
+}
+NODE_DIRECTIVES["pre_close"] = NODE_DIRECTIVES["escalate_close"]

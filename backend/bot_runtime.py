@@ -1051,6 +1051,16 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
 
         _specialist_grants = _flow_walk_mod.specialist_grants(bundle.get("compiled"))
         _specialist_entries = _flow_walk_mod.specialist_entries(bundle.get("compiled"))
+        if flow_walker is not None:
+            # A step this channel cannot stand on is stepped through to where
+            # its own contract says it leads -- the greeting's only exit is the
+            # recording disclosure, and a WhatsApp thread has none to make.
+            # The same rule G-F11 gates on at publish, applied where it runs.
+            passed = flow_walker.pass_through(
+                granted=flow_walker.union(tool_state.offered or (), _specialist_grants)
+            )
+            if passed:
+                logger.info("bot_turn: passed through %s on text", ", ".join(passed))
         messages = _build_messages(
             bundle=bundle,
             conv=conv,

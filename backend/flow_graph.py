@@ -34,7 +34,6 @@ from __future__ import annotations
 import copy
 import logging
 import re
-from functools import lru_cache
 from typing import Any, Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -909,24 +908,45 @@ _FLOW_CONTROL_TOOLS: dict[str, str] = {
     "end_call": "End the call when the caller says goodbye mid-conversation.",
 }
 
-#: Tools whose handlers return a next node of their own (see voice/tools.py).
-#: Pairing one with graph edges on the same node gives the model two ways out.
-_TRANSITIONING_TOOLS = frozenset(
-    {
-        "disclose_recording",
-        "verify_identity",
-        "refuse_verification",
-        "not_account_holder",
-        "begin_negotiate",
-        "begin_dispute",
-        "begin_wrap_up",
-        "return_to_position",
-        "create_promise_to_pay",
-        "escalate_to_human",
-        "recommend_next_offer",
-        "end_call",
-    }
-)
+#: Where each built-in tool moves the conversation. **This is the source of
+#: truth for transitions**, read by the canvas (``implicit_transitions``), the
+#: text walker (``flow_walk.implicit_target``), the validator and G-F11.
+#:
+#: It used to be recovered at runtime by parsing ``voice/tools.py`` with
+#: ``ast`` -- three passes over the module, following delegation and parameter
+#: defaults -- so that the handlers' ``_node("...")`` literals stayed the only
+#: statement of where a call goes. Now the handlers agree with this map, and
+#: ``tests/test_transitions_are_declared.py`` reads the handlers the old way
+#: and fails if one moves somewhere this map does not say.
+#:
+#: Order is the walker's preference: **the first key present in the graph
+#: wins**. Where a handler's real choice is call state the walker cannot see
+#: (``end_call`` probes ``pre_close`` once before ``call_ended``;
+#: ``not_account_holder`` lands on ``third_party`` only on the outbound leg),
+#: the entry lists the plain terminal first so a text rehearsal reaches an end
+#: rather than a loop. Named here rather than hidden in the walker.
+TRANSITIONS: dict[str, tuple[str, ...]] = {
+    "disclose_recording": ("discover_intent", "verify_identity"),
+    "capture_call_goal": ("verify_identity",),
+    "verify_identity": ("state_position", "terminate_politely"),
+    "refuse_verification": ("terminate_politely",),
+    "not_account_holder": ("terminate_politely", "third_party"),
+    "begin_negotiate": ("negotiate_ptp",),
+    "begin_dispute": ("handle_dispute",),
+    "begin_wrap_up": ("pre_close", "wrap_up"),
+    "return_to_position": ("state_position",),
+    "create_promise_to_pay": ("gated_upsell",),
+    "flag_dispute": ("escalate_close",),
+    "request_callback": ("wrap_up",),
+    "recommend_next_offer": ("wrap_up",),
+    "capture_lead": ("wrap_up",),
+    "escalate_to_human": ("escalate_close",),
+    "end_call": ("call_ended", "pre_close"),
+}
+
+#: Tools whose handlers return a next node of their own. Derived from the map
+#: above -- the hand-kept copy this used to be had drifted to 12 of 16.
+_TRANSITIONING_TOOLS = frozenset(TRANSITIONS)
 
 
 def tool_catalog() -> list[dict[str, Any]]:
@@ -988,159 +1008,13 @@ def tool_catalog() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Implicit transitions
 # ---------------------------------------------------------------------------
-# The built-in tools move the conversation by node key — ``_node("wrap_up")``
-# — so an authored graph that uses a reserved key inherits that hop without any
-# authored edge. Correct at runtime, invisible in the editor: the materialised
-# collections script has twelve nodes and zero edges, and rendered as a pile of
-# disconnected rectangles with no way to see what leads where.
-#
-# Derived by parsing ``voice/tools.py`` rather than importing it: this is called
-# from the API process, and importing the voice tools drags in Pipecat.
 
 
-def _tools_source() -> str:
-    from pathlib import Path
-
-    return (Path(__file__).resolve().parent / "voice" / "tools.py").read_text(
-        encoding="utf-8"
-    )
-
-
-@lru_cache(maxsize=1)
 def implicit_transitions() -> dict[str, list[str]]:
-    """tool key → node keys that tool transitions to.
+    """tool key -> node keys that tool transitions to, in walker order.
 
-    Three passes over one AST: the ``_node("x")`` calls each function makes
-    directly, the intra-module calls each function makes, and the
-    ``tools = {...}`` registry literal binding a tool key to its handler.
-
-    The call graph matters. Most tools are thin wrappers that delegate — the
-    registry binds ``"escalate_to_human"`` to a function whose body calls
-    ``_escalate_to_human_handler``, and that helper owns the ``_node`` call.
-    Reading only the registered function found 8 of the 14 real transitions, so
-    the canvas drew ``escalate_close`` as an orphan and hid the route from
-    verification to a polite termination. Following delegation is the fix that
-    keeps working when someone extracts another helper; matching helper names
-    would not.
-
-    A tool missing from the result simply does not move the conversation.
+    A copy of :data:`TRANSITIONS` as lists, which is the shape the canvas
+    endpoint and the walker were built against. A tool absent from the result
+    simply does not move the conversation.
     """
-    import ast
-
-    try:
-        tree = ast.parse(_tools_source())
-    except (OSError, SyntaxError):  # pragma: no cover - source always present
-        logger.warning("could not parse voice/tools.py for transitions", exc_info=True)
-        return {}
-
-    # Node keys reachable through a name rather than a literal. The hub is
-    # transitioned to as ``_node(hub_node)``, where hub_node is a parameter
-    # defaulting to "state_position" — so a literals-only reader drew the busiest
-    # node in the graph with nothing pointing at it. Resolved from parameter
-    # defaults and simple string assignments, which is where a node key can
-    # come from without becoming unknowable to static reading.
-    literals: dict[str, set[str]] = {}
-
-    def _remember(name: str, value: Any) -> None:
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            literals.setdefault(name, set()).add(value.value)
-
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            args = node.args
-            positional = [*args.posonlyargs, *args.args]
-            for arg, default in zip(positional[len(positional) - len(args.defaults) :], args.defaults):
-                _remember(arg.arg, default)
-            for arg, default in zip(args.kwonlyargs, args.kw_defaults):
-                if default is not None:
-                    _remember(arg.arg, default)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    _remember(target.id, node.value)
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.value is not None:
-                _remember(node.target.id, node.value)
-
-    direct: dict[str, set[str]] = {}
-    calls: dict[str, set[str]] = {}
-    for fn in ast.walk(tree):
-        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        hits: set[str] = set()
-        callees: set[str] = set()
-        for node in ast.walk(fn):
-            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                continue
-            if node.func.id == "_node":
-                if not node.args:
-                    continue
-                first = node.args[0]
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    hits.add(first.value)
-                elif isinstance(first, ast.Name):
-                    hits |= literals.get(first.id, set())
-            else:
-                callees.add(node.func.id)
-        direct[fn.name] = hits
-        calls[fn.name] = callees
-
-    # Tools are registered two ways. Some entries name a plain function; others
-    # name a binding built by a factory —
-    # ``capture_call_goal = _spec("capture_call_goal", _capture_call_goal_handler)``
-    # — and the registry then refers to that binding, which is not a function
-    # this walk ever saw. Any function passed to any call in such an assignment
-    # is treated as the binding's delegate, so this keeps working if the factory
-    # is renamed or another one appears.
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
-            continue
-        targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        if not targets:
-            continue
-        delegates = {
-            arg.id
-            for arg in (*node.value.args, *(kw.value for kw in node.value.keywords))
-            if isinstance(arg, ast.Name) and arg.id in direct
-        }
-        if not delegates:
-            continue
-        for target in targets:
-            direct.setdefault(target, set())
-            calls.setdefault(target, set()).update(delegates)
-
-    def _closure(name: str) -> set[str]:
-        """Nodes reachable from ``name``, following intra-module delegation.
-
-        Iterative with a seen-set: the tool module has mutually recursive
-        helpers, and recursion here would not terminate on them.
-        """
-        seen: set[str] = set()
-        stack = [name]
-        found: set[str] = set()
-        while stack:
-            current = stack.pop()
-            if current in seen or current not in direct:
-                continue
-            seen.add(current)
-            found |= direct[current]
-            stack.extend(calls.get(current, ()))
-        return found
-
-    by_handler = {name: sorted(_closure(name)) for name in direct}
-
-    out: dict[str, list[str]] = {}
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == "tools" for t in node.targets):
-            continue
-        for key, value in zip(node.value.keys, node.value.values):
-            if (
-                isinstance(key, ast.Constant)
-                and isinstance(key.value, str)
-                and isinstance(value, ast.Name)
-                and by_handler.get(value.id)
-            ):
-                out[key.value] = by_handler[value.id]
-    return out
+    return {tool: list(targets) for tool, targets in TRANSITIONS.items()}
