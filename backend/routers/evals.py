@@ -13,6 +13,9 @@ import db
 from fastapi import APIRouter
 from fastapi import HTTPException, Query
 from schemas import (
+    EvalReportSummaryResponse,
+    EvalSuiteResponse,
+    SkillCritiqueResponse,
     CalibrationSessionPatchRequest,
     CalibrationSessionResponse,
     CoachingActionCreateRequest,
@@ -120,11 +123,11 @@ def run_eval_suite(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.get("/eval/suites")
+@router.get("/eval/suites", response_model=list[EvalSuiteResponse])
 def list_eval_suites(kind: str | None = Query(default=None)):
     return db.list_eval_suites(kind=kind)
 
-@router.get("/eval/reports")
+@router.get("/eval/reports", response_model=list[EvalReportSummaryResponse])
 def list_eval_reports(
     kind: str | None = Query(default=None),
     botId: str | None = Query(default=None),
@@ -176,13 +179,13 @@ def graduate_eval_task(task_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-@router.get("/eval/critiques")
+@router.get("/eval/critiques", response_model=list[SkillCritiqueResponse])
 def list_skill_critiques(limit: int = Query(default=50, ge=1, le=200)):
     from agent_core.eval.critique import list_critiques
 
     return list_critiques(limit=limit)
 
-@router.post("/eval/reports/{report_id}/critique")
+@router.post("/eval/reports/{report_id}/critique", response_model=list[SkillCritiqueResponse])
 def critique_eval_report(report_id: str):
     from agent_core.eval.critique import critique_from_report
 

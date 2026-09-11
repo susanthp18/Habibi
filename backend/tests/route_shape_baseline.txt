@@ -23,11 +23,8 @@ GET /connectors
 GET /connectors/{connector_id}
 GET /customers/{customer_id}/outbound/hours
 GET /demo/outbound-call
-GET /eval/critiques
 GET /eval/disagreements
-GET /eval/reports
 GET /eval/reports/{report_id}
-GET /eval/suites
 GET /eval/twin-corpus
 GET /event-types
 GET /floor/approvals
@@ -119,7 +116,6 @@ POST /disputes/{dispute_id}/evidence
 POST /disputes/{dispute_id}/notes
 POST /document-requests/ingest
 POST /document-requests/{document_id}/delivery-attempts
-POST /eval/reports/{report_id}/critique
 POST /eval/schedule/run
 POST /eval/suites/{suite_id}/run
 POST /eval/tasks/{task_id}/graduate

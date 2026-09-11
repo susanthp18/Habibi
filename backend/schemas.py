@@ -3638,6 +3638,50 @@ class EntryBindingResponse(BaseModel):
     updated_at: str | None = None
 
 
+class EvalSuiteResponse(BaseModel):
+    """One row of `eval_suites`. Mirrors Habibi EvalSuite."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: str
+    name: str
+    description: str = ""
+    tenant_id: str | None = None
+    created_at: Any | None = None
+    updated_at: Any | None = None
+
+
+class EvalReportSummaryResponse(BaseModel):
+    """Eval history row. Mirrors Habibi EvalReport."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    suiteId: str
+    suiteName: str | None = None
+    kind: str | None = None
+    botId: str | None = None
+    status: str
+    summary: dict[str, Any] = {}
+    origin: str = "manual"
+    createdAt: str | None = None
+
+
+class SkillCritiqueResponse(BaseModel):
+    """An LLM-judge suggestion for a SKILL.md line. Never writes the skill."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    skillSlug: str | None = None
+    reportId: str | None = None
+    suggestedDiff: dict[str, Any] = {}
+    status: str = "draft"
+    writesProduction: bool = False
+    createdAt: str | None = None
+
+
 class PolicyEngineResponse(BaseModel):
     """One policy engine and the mode it runs in on this stack."""
 
