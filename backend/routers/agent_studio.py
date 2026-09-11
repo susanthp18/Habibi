@@ -562,28 +562,11 @@ def run_agent_studio_script(payload: dict[str, Any]):
 @router.get("/roles")
 def list_roles_catalog():
     """Roles page. Grants are the resolved set the enforcer will honour."""
-    from sqlalchemy import text as _text
-
     catalog = [
         {"id": pid, "module": module, "action": action, "description": description}
         for pid, module, action, description in authz.PERMISSION_CATALOG
     ]
-    with db.engine.connect() as conn:
-        rows = db._rows(
-            conn.execute(
-                _text(
-                    """
-                    SELECT r.id AS role_id, r.name AS role_name, r.configured_at,
-                           rp.permission_id
-                      FROM roles r
-                 LEFT JOIN role_permissions rp ON rp.role_id = r.id
-                     WHERE r.tenant_id = :t
-                     ORDER BY r.name, rp.permission_id
-                    """
-                ),
-                {"t": db.current_tenant()},
-            )
-        )
+    rows = db.list_role_grant_rows()
     explicit_by_role: dict[str, list[str]] = {}
     role_meta: dict[str, tuple[str, bool]] = {}
     role_order: list[str] = []

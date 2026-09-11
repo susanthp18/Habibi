@@ -220,6 +220,30 @@ def get_current_user() -> dict[str, Any]:
         }
 
 
+def list_role_grant_rows() -> list[dict[str, Any]]:
+    """Every role with each explicit grant, one row per (role, permission).
+
+    ``permission_id`` is NULL for a role with no explicit grants;
+    ``configured_at`` says whether the empty set is an opinion or a default.
+    """
+    with engine.connect() as conn:
+        return _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT r.id AS role_id, r.name AS role_name, r.configured_at,
+                           rp.permission_id
+                      FROM roles r
+                 LEFT JOIN role_permissions rp ON rp.role_id = r.id
+                     WHERE r.tenant_id = :t
+                     ORDER BY r.name, rp.permission_id
+                    """
+                ),
+                {"t": _tenant()},
+            )
+        )
+
+
 def replace_role_permissions(role_id: str, permission_ids: list[str]) -> dict[str, Any]:
     """Replace the grant set for one role. Admin keeps admin.write.
 
@@ -6575,6 +6599,7 @@ from db_inbox import (  # noqa: E402
     list_bot_ids as list_bot_ids,
     list_canned_responses as list_canned_responses,
     list_conversations as list_conversations,
+    get_eval_report as get_eval_report,
     list_eval_reports as list_eval_reports,
     list_eval_suites as list_eval_suites,
     list_kb_snapshots as list_kb_snapshots,

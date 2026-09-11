@@ -140,24 +140,10 @@ def list_eval_reports(
 
 @router.get("/eval/reports/{report_id}")
 def get_eval_report(report_id: str):
-    from sqlalchemy import text as _text
-
-    with db.engine.connect() as conn:
-        # Scoped like every sibling read -- db_inbox.list_eval_reports,
-        # list_eval_suites, critique.list_critiques and corpus.list_corpus all
-        # filter on the tenant. This one returned the raw row, tenant_id
-        # included, to anyone holding the id.
-        row = db._one(
-            conn.execute(
-                _text(
-                    "SELECT * FROM eval_reports WHERE id = :id AND tenant_id = :t"
-                ),
-                {"id": report_id, "t": db.current_tenant()},
-            )
-        )
+    row = db.get_eval_report(report_id)
     if row is None:
         raise HTTPException(status_code=404, detail="eval_report_not_found")
-    return dict(row)
+    return row
 
 @router.post("/eval/schedule/run")
 def run_eval_schedule():

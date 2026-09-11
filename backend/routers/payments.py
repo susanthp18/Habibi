@@ -38,13 +38,10 @@ def hosted_pay_page(token: str):
     """Public hosted checkout for a payment intent. No app shell."""
     import payments
 
-    with db.engine.begin() as conn:
-        intent = payments.load_intent_by_token(conn, token)
-        if intent is None:
-            raise HTTPException(status_code=404, detail="pay_link_not_found")
-        payments.mark_opened(conn, intent["id"])
-        intent["status"] = "opened" if intent["status"] in {"created", "sent"} else intent["status"]
-        return HTMLResponse(payments.render_pay_page(intent))
+    intent = payments.open_hosted_intent(token)
+    if intent is None:
+        raise HTTPException(status_code=404, detail="pay_link_not_found")
+    return HTMLResponse(payments.render_pay_page(intent))
 
 @router.post("/pay/{token}/complete")
 def hosted_pay_complete(token: str, request: Request):
@@ -53,25 +50,14 @@ def hosted_pay_complete(token: str, request: Request):
 
     if payments.is_production() or payments.provider() != "hosted":
         raise HTTPException(status_code=403, detail="hosted_complete_disabled")
-    with db.engine.begin() as conn:
-        intent = payments.load_intent_by_token(conn, token)
-        if intent is None:
-            raise HTTPException(status_code=404, detail="pay_link_not_found")
-        try:
-            result = payments.record_payment(
-                conn,
-                public_token=token,
-                amount=intent["amount"],
-                provider_ref=f"hosted:{token[:8]}",
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        result, refreshed = payments.complete_hosted_intent(token)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     accept = (request.headers.get("accept") or "").lower()
     if "text/html" in accept or request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
-        with db.engine.connect() as conn:
-            refreshed = payments.load_intent_by_token(conn, token) or intent
         return HTMLResponse(payments.render_pay_page(refreshed))
     return result
 

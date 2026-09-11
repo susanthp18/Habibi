@@ -451,6 +451,44 @@ def allocate_to_promises(
     return applied
 
 
+def open_hosted_intent(token: str) -> dict[str, Any] | None:
+    """The hosted page's read: load the intent and mark it opened, one transaction."""
+    import db as dbmod
+
+    with dbmod.engine.begin() as conn:
+        intent = load_intent_by_token(conn, token)
+        if intent is None:
+            return None
+        mark_opened(conn, intent["id"])
+    if intent["status"] in {"created", "sent"}:
+        intent["status"] = "opened"
+    return intent
+
+
+def complete_hosted_intent(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Sandbox hosted checkout: record the payment, then re-read the intent.
+
+    Returns ``(result, refreshed_intent)``. ``KeyError`` when the token names no
+    intent (or ``record_payment`` cannot find it); ``ValueError`` from
+    ``record_payment`` propagates unchanged.
+    """
+    import db as dbmod
+
+    with dbmod.engine.begin() as conn:
+        intent = load_intent_by_token(conn, token)
+        if intent is None:
+            raise KeyError("pay_link_not_found")
+        result = record_payment(
+            conn,
+            public_token=token,
+            amount=intent["amount"],
+            provider_ref=f"hosted:{token[:8]}",
+        )
+    with dbmod.engine.connect() as conn:
+        refreshed = load_intent_by_token(conn, token) or intent
+    return result, refreshed
+
+
 def load_intent_by_token(conn: Any, token: str) -> dict[str, Any] | None:
     """The intent behind a hosted pay link, expired on read if its time is up.
 

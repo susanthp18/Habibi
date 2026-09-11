@@ -128,6 +128,14 @@ def reserve_demo_attempt(
     return gated, customer_id, account_id, reason
 
 
+def hourly_reach(customer_id: str, *, days: int) -> list[dict[str, Any]]:
+    """Per-hour answer rate for one borrower (``outbound.hourly_reach``)."""
+    import outbound
+
+    with _db().engine.connect() as conn:
+        return outbound.hourly_reach(conn, customer_id=customer_id, days=days)
+
+
 def record_decision_feedback(
     decision_id: str, body: Any, *, tenant_id: str, actor_user_id: str
 ) -> dict[str, Any]:

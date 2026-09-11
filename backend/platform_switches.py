@@ -157,6 +157,22 @@ def invalidate(key: str | None = None) -> None:
             _cache.pop(key, None)
 
 
+def read_all() -> list[dict[str, Any]]:
+    """Every known switch and its state, in a connection of its own."""
+    import db
+
+    with db.engine.connect() as conn:
+        return get_all(conn)
+
+
+def flip(key: str, enabled: bool, *, note: str | None = None) -> dict[str, Any]:
+    """Set one switch in its own transaction. ``KeyError`` for an unknown key."""
+    import db
+
+    with db.engine.begin() as conn:
+        return set_enabled(conn, key, enabled, note=note)
+
+
 def get_all(conn: Any) -> list[dict[str, Any]]:
     """Every known switch with its current state, for the operator screen.
 

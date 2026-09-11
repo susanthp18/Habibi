@@ -110,8 +110,7 @@ def list_platform_switches():
     """
     import platform_switches
 
-    with db.engine.connect() as conn:
-        return {"switches": platform_switches.get_all(conn)}
+    return {"switches": platform_switches.read_all()}
 
 @router.patch("/platform/switches/{key}")
 def patch_platform_switch(key: str, payload: dict[str, Any]):
@@ -123,8 +122,7 @@ def patch_platform_switch(key: str, payload: dict[str, Any]):
     note = payload.get("note")
     note = str(note).strip()[:200] if note else None
     try:
-        with db.engine.begin() as conn:
-            result = platform_switches.set_enabled(conn, key, enabled, note=note)
+        result = platform_switches.flip(key, enabled, note=note)
     except KeyError:
         raise HTTPException(status_code=404, detail="unknown_switch") from None
     logger.warning(

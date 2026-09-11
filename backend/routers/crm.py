@@ -363,8 +363,7 @@ def outbound_hourly(customer_id: str, days: int = Query(default=90, ge=1, le=365
     This is what ``treatment/features.responsive_hours`` should eventually read:
     unlike the connect-only version, it has a denominator.
     """
-    import outbound
+    import db_outbound
 
-    with db.engine.connect() as conn:
-        return outbound.hourly_reach(conn, customer_id=customer_id, days=days)
+    return db_outbound.hourly_reach(customer_id, days=days)
 

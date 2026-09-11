@@ -14,7 +14,15 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-_PEELED_ROUTERS = ("routers/outbound.py", "routers/compliance.py")
+_PEELED_ROUTERS = (
+    "routers/outbound.py",
+    "routers/compliance.py",
+    "routers/crm.py",
+    "routers/evals.py",
+    "routers/agent_studio.py",
+    "routers/platform.py",
+    "routers/payments.py",
+)
 
 
 def _offences(tree: ast.Module) -> list[str]:

@@ -1824,6 +1824,18 @@ def save_eval_report(
 TENANT_WIDE_REPORTS = "__none__"
 
 
+def get_eval_report(report_id: str) -> dict[str, Any] | None:
+    """One report row, scoped to the tenant like every sibling read."""
+    with _engine().connect() as conn:
+        row = _one(
+            conn.execute(
+                text("SELECT * FROM eval_reports WHERE id = :id AND tenant_id = :t"),
+                {"id": report_id, "t": _tenant()},
+            )
+        )
+    return dict(row) if row is not None else None
+
+
 def list_eval_reports(
     *, kind: str | None = None, bot_id: str | None = None, limit: int = 50
 ) -> list[dict[str, Any]]:
