@@ -87,6 +87,12 @@ def resolve_key(keys: Iterable[str], name: str, *, namespace: str | None = None)
     mid-call.
     """
     keyset = set(keys)
+    # A name that carries its own namespace means exactly that node. Trying
+    # the speaking namespace first turned a hop into `kaia-v2-4/state_position`
+    # from the door into the door's own `state_position` -- the route node --
+    # so the handoff landed where it started.
+    if split_key(name)[0]:
+        return name if name in keyset else None
     if namespace:
         scoped = f"{namespace}{NAMESPACE_SEP}{local_key(name)}"
         if scoped in keyset:

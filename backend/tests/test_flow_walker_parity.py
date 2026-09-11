@@ -26,7 +26,11 @@ BASE = Path(__file__).resolve().parent.parent
 
 
 def _builtin():
-    return parse_graph(json.loads((BASE / "builtin_graph.json").read_text(encoding="utf-8")))
+    # The one conversation definition (a stale copy of it used to sit at the
+    # backend root, predating FLOW-2's terminals).
+    from voice.flow_export import built_in_collections_graph
+
+    return parse_graph(built_in_collections_graph())
 
 
 def _walker(graph=None, **kw):

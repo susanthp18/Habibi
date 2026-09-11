@@ -317,6 +317,7 @@ def _run_sandbox_tool_loop(
     specialist_grants: dict[str, set[str]] | None = None,
     specialist_entries: dict[str, str] | None = None,
     skill_slug: str | None = None,
+    frozen_connector_tools: list[str] | None = None,
 ) -> tuple[str, int, int, list[dict[str, Any]], list[str]]:
     """Shared catalog tools under a max-iteration budget (unification Phase D).
 
@@ -333,7 +334,12 @@ def _run_sandbox_tool_loop(
     # come from a second `resolve_mouth` with no slug, so the loaded skill and
     # the offered tools were two different skills.
     text_channel_tools = {spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
-    mouth = resolve_mouth(agent_card or {}, intent=intent, active_slug=skill_slug)
+    mouth = resolve_mouth(
+        agent_card or {},
+        intent=intent,
+        active_slug=skill_slug,
+        frozen_connector_tools=frozen_connector_tools,
+    )
     tool_state = mouth.tools(channel_tools=text_channel_tools, channel="text")
     granted = set(tool_state.offered or ())
     if walker is not None:
@@ -933,7 +939,23 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(compiled.get("agent_card"), dict)
         else version.get("agentCard") or {}
     )
-    contract_flow = compiled.get("flow") if isinstance(compiled.get("flow"), dict) else {}
+    # The merged fleet graph when there is a fleet, the card's own when there
+    # is not -- the same line the live mouth reads (deployment.py). Walking the
+    # card's own graph rehearsed a hop that landed nowhere.
+    contract_flow = (
+        compiled.get("fleet_flow")
+        if isinstance(compiled.get("fleet_flow"), dict) and compiled["fleet_flow"].get("nodes")
+        else compiled.get("flow") if isinstance(compiled.get("flow"), dict) else {}
+    )
+    # The connector tools the publish froze, exactly as bot_runtime passes the
+    # deployment's frozenTools. An unfrozen resolve read the live registry, so
+    # the rehearsal could offer an ext.* tool production would refuse.
+    contract_frozen_tools = [
+        str(name)
+        for connector in (compiled.get("connectors") or [])
+        if isinstance(connector, dict)
+        for name in connector.get("tool_names") or []
+    ]
     # The authored graph, walked rather than described. Before this the sandbox
     # read `flow` only to render a lozenge saying it had not run it, so "Test in
     # Sandbox" exercised the grant but never the script that narrows it.
@@ -993,7 +1015,9 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     rehearsal_channel = sandbox_channel(contract_card)
     # Prompt only. Intent is not known until the messages below are assembled,
     # so the active skill body is resolved separately once it is.
-    skill_prefix = resolve_mouth(contract_card, active_slug=skill_slug).prompt().prefix
+    skill_prefix = resolve_mouth(
+        contract_card, active_slug=skill_slug, frozen_connector_tools=contract_frozen_tools
+    ).prompt().prefix
     # Server-authoritative history — prefer DB turns over client payload.
     history: list[dict[str, Any]] = []
     with db.engine.connect() as hist_conn:
@@ -1106,6 +1130,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         contract_card,
         intent=str(intent or ""),
         active_slug=skill_slug,
+        frozen_connector_tools=contract_frozen_tools,
     ).prompt().body_message
     if skill_body:
         messages.insert(min(2, len(messages)), skill_body)
@@ -1140,6 +1165,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                     specialist_grants=flow_walk.specialist_grants(compiled),
                     specialist_entries=flow_walk.specialist_entries(compiled),
                     skill_slug=skill_slug,
+                    frozen_connector_tools=contract_frozen_tools,
                 )
             else:
                 with _span("gen_ai.chat", gen_ai_operation_name="chat"):

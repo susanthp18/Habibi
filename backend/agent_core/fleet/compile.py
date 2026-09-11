@@ -238,6 +238,18 @@ def compile_bundle(
         primary_grant=voice_grant,
         members=members or (),
     )
+    # The authored landing wins. `_merge_members` names each member's first
+    # node; both mouths read the card's `entry_node` first and fall back to
+    # this map, so the map used to carry the fallback (`greet_disclose`) even
+    # when the hop was authored to land elsewhere -- a truthful map and the
+    # fallback agree.
+    if card is not None and entry_by_specialist:
+        keys = {str(n.get("key")) for n in (fleet_flow.get("nodes") or []) if isinstance(n, dict)}
+        for hop in card.handoffs:
+            if hop.to_bot_id in entry_by_specialist and hop.entry_node:
+                scoped = fg.resolve_key(keys, hop.entry_node, namespace=hop.to_bot_id)
+                if scoped:
+                    entry_by_specialist[hop.to_bot_id] = scoped
     # Offers are reported for whatever graph the runtime will actually walk.
     offers = [NodeOffer(**row) for row in node_offers(fleet_flow or flow_obj, voice_grant)]
 

@@ -122,16 +122,13 @@ def builtin_flow() -> dict[str, Any]:
     had: its published kaia-v2-4 flow carries 14 nodes because a migration was
     once *run* here rather than stamped.
 
-    backend/builtin_graph.json is that graph. It was written as a snapshot of
-    `GET /flow/built-in`, referenced by nothing since, and its 14 node keys and
-    the `entryFor` claims on confirm_identity match the hand-authored rows here
-    exactly -- so it is not a stale artifact, it is the seed data that was never
-    wired up.
-
-    Read from disk rather than through `voice.flow_export`, which would import
-    Pipecat into the seeder for a value that does not change between runs.
+    agent_core/cards/graphs/collections.json is that graph -- the one
+    conversation definition, which `voice.flow_export` also reads and the Flow
+    tab loads. Read from disk here rather than through the export module so
+    the seeder never imports the voice tree.
     """
-    return json.loads((BASE / "builtin_graph.json").read_text(encoding="utf-8"))
+    path = BASE / "agent_core" / "cards" / "graphs" / "collections.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def read_env(key: str) -> str | None:
