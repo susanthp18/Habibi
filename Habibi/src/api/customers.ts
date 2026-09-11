@@ -41,21 +41,11 @@ export async function fetchCustomerInsights(
     if (!c) throw new Error("Customer not found");
     return mockDelay(deriveCustomerInsights(c));
   }
-  try {
-    return await apiGet<CustomerInsights>(`/customers/${id}/insights`);
-  } catch (err) {
-    // Fallback to client derivation if API unavailable.
-    //
-    // This catch was bare. That is why a 500 from this endpoint shipped: a
-    // ResponseValidationError and an unplugged API are indistinguishable here,
-    // so a broken server looked exactly like an offline one and the UI quietly
-    // rendered "Recommendation unavailable" instead. The fallback is a real
-    // offline path and stays; only its silence goes.
-    console.error(`[insights] /customers/${id}/insights failed, deriving offline`, err);
-    const c = customer ?? (await fetchCustomer(id));
-    if (!c) throw new Error("Customer not found");
-    return deriveCustomerInsights(c);
-  }
+  // No offline derivation on the API path. The fallback rendered a client-side
+  // guess as the engine's next best action, with an Offer chip a human could
+  // capture, whenever the server failed -- a 500 looked like a recommendation.
+  // The screen renders the failure (QueryErrorBanner) and no action instead.
+  return apiGet<CustomerInsights>(`/customers/${id}/insights`);
 }
 
 export async function addCustomerNote(

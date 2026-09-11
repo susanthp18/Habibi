@@ -27,6 +27,7 @@ import {
   fetchCustomerInsights,
   logInteraction,
 } from "@/api/customers";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import { deriveCustomerInsights, type NbaActionKind } from "@/lib/customerInsights";
 import { cn } from "@/lib/utils";
 
@@ -111,7 +112,10 @@ function CustomerDetail() {
     staleTime: 30_000,
   });
 
+  // Pending renders the client derivation as a placeholder; a failed read
+  // renders as a failure. It used to render as a recommendation.
   const insights = insightsQuery.data ?? deriveCustomerInsights(customer);
+  const insightsFailed = insightsQuery.isError;
 
   const refreshCustomer = async () => {
     await queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -269,7 +273,12 @@ function CustomerDetail() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="p-200 sm:p-300">
-          {tab === "overview" && <OverviewTab insights={insights} onNbaAction={onNbaAction} />}
+          {tab === "overview" &&
+            (insightsFailed ? (
+              <QueryErrorBanner label="insights" error={insightsQuery.error} />
+            ) : (
+              <OverviewTab insights={insights} onNbaAction={onNbaAction} />
+            ))}
           {tab === "ledger" && <LedgerTab customer={customer} />}
           {tab === "emi" && <EmiTab customer={customer} />}
           {tab === "interactions" && <InteractionsTab customer={customer} />}
@@ -292,7 +301,7 @@ function CustomerDetail() {
     <QuickActionsRail
       customer={customer}
       handlers={handlers}
-      nba={insights.nba}
+      nba={insightsFailed ? [] : insights.nba}
       className="h-full w-full border-l-0"
     />
   );
