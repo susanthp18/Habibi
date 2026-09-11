@@ -317,8 +317,11 @@ class RuleSet:
         params = self._params(KIND_RATIO_CEILING)
         if not params:
             return None
+        raw = params.get("max")
+        if raw is None:
+            return None
         try:
-            return float(params.get("max"))
+            return float(raw)
         except (TypeError, ValueError):
             return None
 
@@ -384,6 +387,16 @@ def calling_window(
     """
     rules = resolve(conn, tenant_id=tenant_id, at=at, product_id=product_id)
     return rules.calling_window(channel) or STATUTORY_VOICE_WINDOW
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    """The value when it is a mapping, else an empty one (typed, for the merge)."""
+    return value if isinstance(value, Mapping) else {}
+
+
+def _sequence(value: Any) -> tuple[Any, ...]:
+    """The value when it is a list/tuple, else empty (typed, for the merge)."""
+    return tuple(value) if isinstance(value, (list, tuple)) else ()
 
 
 def _opt_int(value: Any) -> int | None:
@@ -467,8 +480,8 @@ def _tighten(
         return merged
 
     if kind == KIND_BUCKET_ACTIONS:
-        a = current.get("byBucket") if isinstance(current.get("byBucket"), Mapping) else {}
-        b = incoming.get("byBucket") if isinstance(incoming.get("byBucket"), Mapping) else {}
+        a = _mapping(current.get("byBucket"))
+        b = _mapping(incoming.get("byBucket"))
         by_bucket: dict[str, list[str]] = {}
         for bucket in {*a, *b}:
             left, right = a.get(bucket), b.get(bucket)
@@ -485,8 +498,8 @@ def _tighten(
         return merged
 
     if kind == KIND_MANDATE_RETURN:
-        a = current.get("byReason") if isinstance(current.get("byReason"), Mapping) else {}
-        b = incoming.get("byReason") if isinstance(incoming.get("byReason"), Mapping) else {}
+        a = _mapping(current.get("byReason"))
+        b = _mapping(incoming.get("byReason"))
         by_reason: dict[str, str] = {}
         for reason in {*a, *b}:
             verdicts = [
@@ -500,8 +513,8 @@ def _tighten(
         return merged
 
     if kind == KIND_FIELD_PREREQS:
-        left = current.get("required") if isinstance(current.get("required"), (list, tuple)) else ()
-        right = incoming.get("required") if isinstance(incoming.get("required"), (list, tuple)) else ()
+        left = _sequence(current.get("required"))
+        right = _sequence(incoming.get("required"))
         seen: list[str] = []
         for item in [*left, *right]:
             name = str(item)
@@ -511,8 +524,8 @@ def _tighten(
         return merged
 
     if kind == KIND_SUPPRESSION_STATE:
-        left = current.get("kinds") if isinstance(current.get("kinds"), (list, tuple)) else ()
-        right = incoming.get("kinds") if isinstance(incoming.get("kinds"), (list, tuple)) else ()
+        left = _sequence(current.get("kinds"))
+        right = _sequence(incoming.get("kinds"))
         merged["kinds"] = sorted({str(x) for x in (*left, *right)})
         return merged
 
@@ -528,12 +541,8 @@ def _tighten(
         return merged
 
     if kind == KIND_ASSIGNMENT_CHECK:
-        left = current.get("requiredCertifications") if isinstance(
-            current.get("requiredCertifications"), (list, tuple)
-        ) else ()
-        right = incoming.get("requiredCertifications") if isinstance(
-            incoming.get("requiredCertifications"), (list, tuple)
-        ) else ()
+        left = _sequence(current.get("requiredCertifications"))
+        right = _sequence(incoming.get("requiredCertifications"))
         if left and right:
             allowed = set(str(x) for x in right)
             merged["requiredCertifications"] = [x for x in left if str(x) in allowed]
@@ -542,8 +551,8 @@ def _tighten(
         return merged
 
     if kind == KIND_CHANNEL_SCRUB:
-        left = current.get("lists") if isinstance(current.get("lists"), (list, tuple)) else ()
-        right = incoming.get("lists") if isinstance(incoming.get("lists"), (list, tuple)) else ()
+        left = _sequence(current.get("lists"))
+        right = _sequence(incoming.get("lists"))
         seen: list[str] = []
         for item in [*left, *right]:
             name = str(item)
@@ -847,7 +856,7 @@ def create_draft(
     validated: list[dict[str, Any]] = []
     for raw in rules:
         kind = validate_kind(str(raw.get("kind") or ""))
-        params = validate_params(kind, raw.get("params") if isinstance(raw.get("params"), Mapping) else {})
+        params = validate_params(kind, _mapping(raw.get("params")))
         citation = str(raw.get("citation") or label or "").strip()
         if not citation:
             raise ValueError("citation_required")

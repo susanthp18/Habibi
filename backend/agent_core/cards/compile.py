@@ -450,7 +450,7 @@ def _flow_grant_gate(flow: Any, grant: set[str] | frozenset[str]) -> GateResult:
     )
 
 
-def _text_walkability_gate(flow: Any, grant: Any, card: Any) -> dict[str, Any]:
+def _text_walkability_gate(flow: Any, grant: Any, card: Any) -> GateResult:
     """G-F11 — a card with a text mouth can actually be walked on text.
 
     Until ``flow_walk`` existed this could not be asserted at all: the graph ran
@@ -1089,12 +1089,12 @@ def _identity_gates(st: _Compile, *, card_raw: Any) -> None:
         fg.assert_publishable(flow)
         gates.append(_gate("G1", "flowValid", "pass"))
     except Exception as exc:
-        issues = []
+        issues: list[Any] = []
         detail = str(exc)
-        if hasattr(exc, "http_detail"):
+        if isinstance(exc, fg.FlowInvalidError):
             payload = exc.http_detail()
-            issues = payload.get("issues") or []
-            detail = payload.get("code") or detail
+            issues = list(payload.get("issues") or [])
+            detail = str(payload.get("code") or detail)
         gates.append(_gate("G1", "flowValid", "fail", detail, issues))
 
     # G2 flow included (authored graphs must not have been dropped)
@@ -1636,7 +1636,7 @@ def _flow_gates(
         gates.append(_gate("G-F4", "handoff_is_an_edge", "skipped", "no card"))
         gates.append(_gate("G-F7", "carry_is_fact_only", "skipped", "no card"))
     else:
-        gates.append(_flow_grant_gate(flow, tools))
+        gates.append(_flow_grant_gate(flow, set(tools)))
         gates.append(_text_walkability_gate(flow, tools, card))
         gates.append(_handoff_edge_gate(flow, card, tools))
         gates.append(_carry_gate(card))
@@ -1687,21 +1687,20 @@ def _provenance_gate(
     names whether the verdict is about this content at all."""
     if card is None or not candidate_key:
         return _gate("G-F14", "eval_provenance", "skipped", "no card or no content key")
-    required = [k for k in (card.eval.require or []) if k in reports]
-    if not required:
+    # Only the reports that exist: a required kind with no report is G7/G8's
+    # finding, not a provenance one.
+    present = {k: r for k, r in reports.items() if k in (card.eval.require or []) and r is not None}
+    if not any(k in reports for k in (card.eval.require or [])):
         return _gate("G-F14", "eval_provenance", "skipped", "no suite required")
-    unkeyed = [k for k in required if reports[k] is not None and not reports[k].get("content_key")]
-    other = [
-        k for k in required
-        if reports[k] is not None and reports[k].get("content_key") and reports[k]["content_key"] != candidate_key
-    ]
+    unkeyed = [k for k, r in present.items() if not r.get("content_key")]
+    other = [k for k, r in present.items() if r.get("content_key") and r["content_key"] != candidate_key]
     if other:
         return _gate(
             "G-F14",
             "eval_provenance",
             "fail",
             f"{', '.join(other)} report(s) were run against different content",
-            [{"kind": k, "report": reports[k].get("id")} for k in other],
+            [{"kind": k, "report": present[k].get("id")} for k in other],
         )
     if unkeyed:
         return _gate(
@@ -1709,7 +1708,7 @@ def _provenance_gate(
             "eval_provenance",
             "warn",
             f"{', '.join(unkeyed)} report(s) predate content keys -- re-run to record what they judged",
-            [{"kind": k, "report": reports[k].get("id")} for k in unkeyed],
+            [{"kind": k, "report": present[k].get("id")} for k in unkeyed],
         )
     return _gate("G-F14", "eval_provenance", "pass", f"content {candidate_key[:12]}")
 

@@ -34,7 +34,7 @@ from typing import Any, Callable, TypeVar
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 try:  # pragma: no cover - one branch per image; both are exercised in CI
-    from pipecat.flows import NO_RESPONSE, flows_tool_options
+    from pipecat.flows import NO_RESPONSE, flows_tool_options  # pyright: ignore[reportAssignmentType]
 
     PIPECAT = True
 except ModuleNotFoundError:  # pragma: no cover - see above

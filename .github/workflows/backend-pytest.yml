@@ -135,6 +135,13 @@ jobs:
       - name: Ruff
         run: ruff check .
 
+      # Type checker, basic mode, on the subset [tool.pyright] names in
+      # pyproject.toml. Introduced green; widen a module at a time. No .venv
+      # exists here, so pyright resolves against the interpreter's installed
+      # packages -- the 3.12 tree that ships.
+      - name: Pyright
+        run: npx --yes pyright@1.1.414 --pythonpath "$(which python)"
+
       - name: Apply base SQL schema
         run: |
           python - <<'PY'

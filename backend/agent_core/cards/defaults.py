@@ -13,6 +13,7 @@ from agent_core.cards.schema import (
     CardHandoff,
     CardIdentity,
     CardObjective,
+    Objective,
     CardOutbound,
     CardPostCall,
     CardSkillRef,
@@ -186,7 +187,7 @@ def intake_card() -> AgentCard:
 #: can give each mission its own door — that is the whole point of ``entryFor``
 #: — and the compiler checks the two agree (G-OB2).
 def _collections_outbound() -> CardOutbound:
-    def objective(key: str, *, success: list[str], minutes: int = 4) -> CardObjective:
+    def objective(key: Objective, *, success: list[str], minutes: int = 4) -> CardObjective:
         return CardObjective(
             key=key,
             entry_node="confirm_identity",

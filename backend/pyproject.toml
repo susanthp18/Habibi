@@ -14,3 +14,26 @@
 name = "habibi-backend"
 version = "0.0.0"
 requires-python = ">=3.12,<3.13"
+
+# pyright, basic mode, on a named subset -- introduced green, widened a
+# module at a time (each addition must be green on the commit that adds it).
+# contact_policy.py is on the list but excluded for now: its 18 findings are
+# real (`datetime | None` flowing into `at:` parameters) and the file is held
+# by another stream's uncommitted work; it joins when that lands.
+#   npx pyright            (from backend/; CI runs the same)
+[tool.pyright]
+include = [
+  "agent_core/tools",
+  "agent_core/cards",
+  "agent_core/fleet",
+  "outbound.py",
+  "flow_graph.py",
+  "policy_rules.py",
+]
+exclude = ["**/__pycache__", ".venv"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
+reportMissingModuleSource = "none"

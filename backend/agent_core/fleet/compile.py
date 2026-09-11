@@ -395,7 +395,8 @@ def _closure_gate(
         primary_bot_id: [h.to_bot_id for h in (card.handoffs if card else [])],
     }
     for bot_id, member in graphs_by_bot.items():
-        raw = member.get("card") if isinstance(member.get("card"), dict) else {}
+        raw_card = member.get("card")
+        raw = raw_card if isinstance(raw_card, dict) else {}
         handoffs_of[bot_id] = [
             str(h.get("to_bot_id") or "") for h in (raw.get("handoffs") or []) if isinstance(h, dict)
         ]

@@ -540,6 +540,7 @@ def capture_lead(
     )
     if failure is not None:
         return failure
+    assert lead_id is not None  # _row_id_or_failure returns one or the other
 
     # Report only the events that actually landed: Bot Analytics reads this
     # list, and claiming an upsell_presented whose row was never written makes

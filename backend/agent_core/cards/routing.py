@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import deque
+from datetime import date, datetime
 from typing import Any, Iterable
 
 
@@ -220,7 +221,7 @@ def delete_entry_binding(binding_id: str, *, conn: Any = None) -> dict[str, Any]
 def _binding_row(row: Any) -> dict[str, Any]:
     out = dict(row)
     ts = out.get("updated_at")
-    out["updated_at"] = ts.isoformat() if hasattr(ts, "isoformat") else ts
+    out["updated_at"] = ts.isoformat() if isinstance(ts, (datetime, date)) else ts
     return out
 
 
