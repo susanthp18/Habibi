@@ -1487,8 +1487,18 @@ def handoff_to_agent(
     if not target:
         raise ValueError("target_bot_required")
     with _engine().begin() as conn:
-        if not _one(conn.execute(text("SELECT 1 FROM bots WHERE id = :id"), {"id": target})):
+        bot = _one(
+            conn.execute(
+                text("SELECT archived_at FROM bots WHERE id = :id AND tenant_id = :t"),
+                {"id": target, "t": _tenant()},
+            )
+        )
+        if bot is None:
             raise KeyError(f"bot_not_found:{target}")
+        # "Stops taking traffic immediately" was enforced nowhere: a retired
+        # card stayed a legal target for every card whose allowlist named it.
+        if bot.get("archived_at") is not None:
+            raise ValueError(f"target_bot_archived:{target}")
         ix = _one(
             conn.execute(
                 text(
@@ -1594,14 +1604,15 @@ def list_bot_ids() -> set[str]:
     unscoped read let a card declare a handoff to another tenant's bot and pass
     the gate that exists to refuse exactly that. `mission.py` also walks it
     looking for mission owners, and neither caller has any business seeing
-    another tenant's fleet.
+    another tenant's fleet. Archived cards are not on it either: a handoff to
+    a retired card passed G5 and then went nowhere on the call.
     """
     with _engine().connect() as conn:
         return {
             r["id"]
             for r in _rows(
                 conn.execute(
-                    text("SELECT id FROM bots WHERE tenant_id = :t"),
+                    text("SELECT id FROM bots WHERE tenant_id = :t AND archived_at IS NULL"),
                     {"t": _tenant()},
                 )
             )

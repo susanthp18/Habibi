@@ -333,3 +333,33 @@ def test_write_helper_maps_value_error_codes_by_table() -> None:
             main._handle_write(_raise)
         assert caught.value.status_code == status, message
         assert caught.value.detail == message
+
+
+def test_an_archived_card_is_not_a_handoff_target(cloned_bot: str, db_tx) -> None:
+    """FLEET-5 / GRAPH-5: "stops taking traffic immediately" was enforced
+    nowhere -- a retired card passed G5 and `handoff_to_agent` still moved a
+    live interaction onto it."""
+    assert cloned_bot in db.list_bot_ids()
+    db.archive_agent_studio_card(cloned_bot)
+    assert cloned_bot not in db.list_bot_ids()
+
+    cid = db_tx.execute(
+        text("SELECT id FROM customers WHERE tenant_id = :t LIMIT 1"), {"t": db.current_tenant()}
+    ).scalar()
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO interactions
+              (id, tenant_id, customer_id, handler_kind, handler_bot_id, channel, status)
+            VALUES ('int-archived-target', :t, :c, 'bot', 'kaia-v2-4', 'whatsapp', 'active')
+            """
+        ),
+        {"t": db.current_tenant(), "c": cid},
+    )
+    with pytest.raises(ValueError, match="target_bot_archived"):
+        db.handoff_to_agent(
+            interaction_id="int-archived-target",
+            from_bot_id="kaia-v2-4",
+            target_bot_id=cloned_bot,
+            reason="specialist",
+        )
