@@ -19,6 +19,21 @@ def _db():
     return d
 
 
+# ---------------------------------------------------------------------------
+# Per-turn trace
+#
+# Tool calls, retrievals and latency lived at three non-joinable grains, so
+# "what did the bot do on turn 4, and how long did each part take" could not be
+# answered — which is why the Sandbox's Trace tab reconstructs a timeline from
+# client-side state instead of reading one. Migration 0055 gave the two event
+# tables a transcript_turn_id; this assembles them.
+# ---------------------------------------------------------------------------
+
+# One call's worth. A trace is a debugging view of a single conversation, not a
+# reporting surface; an unbounded read here would be a foot-gun on a long call.
+_TRACE_MAX_TURNS = 200
+
+
 def _trace_redact(value: Any) -> Any:
     """Redact anything that reaches a trace response.
 
@@ -44,7 +59,6 @@ def _trace_redact(value: Any) -> Any:
 def get_turn_trace(interaction_id: str) -> list[dict[str, Any]]:
     """Every turn of one interaction, with its tool calls, retrievals and latency."""
     _mod = _db()
-    _TRACE_MAX_TURNS = _mod._TRACE_MAX_TURNS
     _one = _mod._one
     _rows = _mod._rows
     engine = _mod.engine

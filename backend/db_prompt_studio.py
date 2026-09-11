@@ -1357,6 +1357,69 @@ def list_persona_presets() -> list[dict[str, Any]]:
         return out
 
 
+def list_tts_voice_provider_counts() -> list[dict[str, Any]]:
+    """Voice count per provider, for the catalog's provider filter chips.
+
+    Counts respect the same visibility rules as the default catalog query
+    (picker-enabled, not removed, GA) so a chip reading "24" and the list that
+    opens when you click it cannot disagree. Premium is *included* here on
+    purpose: the chip tells you the provider exists, the premium toggle governs
+    what the list then shows.
+    """
+    with _db().engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT COALESCE(provider_id, 'azure') AS provider_id, count(*) AS n
+                FROM tts_voice_catalog
+                WHERE enabled_for_picker = true
+                  AND removed_at IS NULL
+                  AND status = 'GA'
+                GROUP BY 1
+                ORDER BY 2 DESC
+                """
+            )
+        ).mappings().all()
+    return [{"providerId": r["provider_id"], "count": int(r["n"])} for r in rows]
+
+
+def list_tts_voice_locale_counts(*, limit: int = 60) -> list[dict[str, Any]]:
+    """Voice count per locale, for the catalog's locale picker.
+
+    The picker used to carry a hardcoded India-only preset list (en-IN, hi-IN,
+    ta, te, kn, mr, bn). Once the catalog holds ~140 locales that list is not a
+    shortcut, it is a filter that hides most of the catalog from the operator.
+    Deriving from the data means a locale appears the moment a voice for it does.
+    """
+    with _db().engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT c.locale,
+                       max(c.locale_name) AS locale_name,
+                       count(*) AS n
+                FROM tts_voice_catalog c
+                WHERE c.enabled_for_picker = true
+                  AND c.removed_at IS NULL
+                  AND c.status = 'GA'
+                  AND c.locale <> ''
+                GROUP BY c.locale
+                ORDER BY count(*) DESC, c.locale
+                LIMIT :limit
+                """
+            ),
+            {"limit": max(1, min(int(limit or 60), 400))},
+        ).mappings().all()
+    return [
+        {
+            "locale": r["locale"],
+            "localeName": r["locale_name"] or r["locale"],
+            "count": int(r["n"]),
+        }
+        for r in rows
+    ]
+
+
 def list_tts_voices() -> list[dict[str, Any]]:
     """Legacy studio alias rows (priya/…); picker uses tts_voice_catalog instead.
 

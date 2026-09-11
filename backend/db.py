@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
@@ -13,11 +13,7 @@ import contact_window
 from agent_core import clock
 import visibility
 from env_utils import env_int as _env_int
-from schemas import (
-    CallResponse,
-    CustomerResponse,
-    ProductResponse,
-)
+
 from db_core import (
     ACTOR_USER_ID as ACTOR_USER_ID,
     BASE as BASE,
@@ -59,6 +55,9 @@ from db_core import (
     current_tenant as current_tenant,
     engine as engine,
 )
+
+if TYPE_CHECKING:
+    from schemas import CustomerResponse
 
 logger = logging.getLogger(__name__)
 
@@ -856,6 +855,8 @@ def _customer_shell(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _customer_contract(conn: Any, row: dict[str, Any], include_detail: bool) -> CustomerResponse:
+    from schemas import CustomerResponse
+
     customer = _customer_shell(row)
     customer_id = row["id"]
     account_id = row["account_id"]
@@ -1490,8 +1491,6 @@ def _dispute_evidence(conn: Any, dispute_ids: list[str]) -> dict[str, list[dict[
     return grouped
 
 
-
-
 def list_staff() -> list[dict[str, Any]]:
     """Assignable actors: humans first, then bots.
 
@@ -1554,66 +1553,6 @@ def list_teams() -> list[dict[str, Any]]:
     """Queue roster for pickers — real teams, no hardcoded name→id map."""
     with engine.connect() as conn:
         return _rows(conn.execute(text("SELECT id, name FROM teams ORDER BY name")))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def list_disputes(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
@@ -1685,8 +1624,6 @@ def list_disputes(*, limit: int | None = None, offset: int | None = None) -> lis
                 }
             )
         return result
-
-
 
 
 def list_payment_plans(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
@@ -1793,6 +1730,8 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
     to assemble the response. That is fine against a demo seed and is a
     guaranteed outage against a real portfolio.
     """
+
+    from schemas import CallResponse
     page = clamp_list_limit(limit, DEFAULT_CALLS_LIMIT)
     skip = clamp_offset(offset)
     with engine.connect() as conn:
@@ -1928,6 +1867,8 @@ def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
     """Offer catalog. Inactive products stay retrievable for historical leads —
     a lead captured last month must still render its product name after the
     product is switched off."""
+
+    from schemas import ProductResponse
     # Tenant first, so the optional is_active filter cannot be the only
     # predicate — include_inactive=True used to widen this to every tenant's
     # catalog rather than only to this tenant's retired products.
@@ -1975,75 +1916,6 @@ def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
     ]
 
 
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Per-turn trace
-#
-# Tool calls, retrievals and latency lived at three non-joinable grains, so
-# "what did the bot do on turn 4, and how long did each part take" could not be
-# answered — which is why the Sandbox's Trace tab reconstructs a timeline from
-# client-side state instead of reading one. Migration 0055 gave the two event
-# tables a transcript_turn_id; this assembles them.
-# ---------------------------------------------------------------------------
-
-# One call's worth. A trace is a debugging view of a single conversation, not a
-# reporting surface; an unbounded read here would be a foot-gun on a long call.
-_TRACE_MAX_TURNS = 200
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _promise_by_id(conn: Any, promise_id: str) -> dict[str, Any]:
     row = _one(conn.execute(text("SELECT customer_id FROM promises WHERE id = :id"), {"id": promise_id}))
     if row is None:
@@ -2072,22 +1944,6 @@ def _document_by_id(conn: Any, document_id: str) -> dict[str, Any]:
         if item["id"] == document_id:
             return item
     raise KeyError("document_not_found")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def create_promise(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
@@ -2442,53 +2298,6 @@ def add_dispute_evidence(dispute_id: str, payload: dict[str, Any]) -> dict[str, 
         return {"id": evidence_id, **payload}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def add_customer_note(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
         _ensure_customer(conn, customer_id)
@@ -2509,106 +2318,9 @@ def add_customer_note(customer_id: str, payload: dict[str, Any]) -> dict[str, An
     return customer
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# QA Scorecards — rubric-driven scoring queue (scorecard core MVP).
-# Coaching / calibration stay seed-backed until their endpoints land.
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def create_interaction(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
+    from schemas import CallResponse
+
     endpoint = "POST /interactions"
     with engine.begin() as conn:
         cached = _idempotent_response(conn, idempotency_key, endpoint)
@@ -2921,6 +2633,8 @@ from db_prompt_studio import (  # noqa: E402
     list_tts_price_tiers as list_tts_price_tiers,
     list_tts_sync_runs as list_tts_sync_runs,
     list_tts_voice_catalog as list_tts_voice_catalog,
+    list_tts_voice_locale_counts as list_tts_voice_locale_counts,
+    list_tts_voice_provider_counts as list_tts_voice_provider_counts,
     list_tts_voices as list_tts_voices,
     patch_prompt_version as patch_prompt_version,
     publish_prompt_version as publish_prompt_version,
@@ -2953,68 +2667,6 @@ from followups_db import (  # noqa: E402
     workspace_summary as workspace_summary,
 )
 
-
-def list_tts_voice_provider_counts() -> list[dict[str, Any]]:
-    """Voice count per provider, for the catalog's provider filter chips.
-
-    Counts respect the same visibility rules as the default catalog query
-    (picker-enabled, not removed, GA) so a chip reading "24" and the list that
-    opens when you click it cannot disagree. Premium is *included* here on
-    purpose: the chip tells you the provider exists, the premium toggle governs
-    what the list then shows.
-    """
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
-                SELECT COALESCE(provider_id, 'azure') AS provider_id, count(*) AS n
-                FROM tts_voice_catalog
-                WHERE enabled_for_picker = true
-                  AND removed_at IS NULL
-                  AND status = 'GA'
-                GROUP BY 1
-                ORDER BY 2 DESC
-                """
-            )
-        ).mappings().all()
-    return [{"providerId": r["provider_id"], "count": int(r["n"])} for r in rows]
-
-
-def list_tts_voice_locale_counts(*, limit: int = 60) -> list[dict[str, Any]]:
-    """Voice count per locale, for the catalog's locale picker.
-
-    The picker used to carry a hardcoded India-only preset list (en-IN, hi-IN,
-    ta, te, kn, mr, bn). Once the catalog holds ~140 locales that list is not a
-    shortcut, it is a filter that hides most of the catalog from the operator.
-    Deriving from the data means a locale appears the moment a voice for it does.
-    """
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
-                SELECT c.locale,
-                       max(c.locale_name) AS locale_name,
-                       count(*) AS n
-                FROM tts_voice_catalog c
-                WHERE c.enabled_for_picker = true
-                  AND c.removed_at IS NULL
-                  AND c.status = 'GA'
-                  AND c.locale <> ''
-                GROUP BY c.locale
-                ORDER BY count(*) DESC, c.locale
-                LIMIT :limit
-                """
-            ),
-            {"limit": max(1, min(int(limit or 60), 400))},
-        ).mappings().all()
-    return [
-        {
-            "locale": r["locale"],
-            "localeName": r["locale_name"] or r["locale"],
-            "count": int(r["n"]),
-        }
-        for r in rows
-    ]
 
 from db_trace import (  # noqa: E402
     _trace_redact as _trace_redact,
