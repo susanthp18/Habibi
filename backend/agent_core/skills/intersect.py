@@ -103,7 +103,10 @@ def effective_tools(
     ``ext.*`` names in silence.
     """
     locked_mouth = _locked_mouth(card, catalog_names)
-    platform = PLATFORM_SKILL_TOOLS & catalog_names
+    # Platform skill tools ride along only when there are skills to load: a
+    # card with none was granted `load_skill` anyway, contrary to the rule
+    # `PLATFORM_SKILL_TOOLS` states.
+    platform = (PLATFORM_SKILL_TOOLS & catalog_names) if (card.skills or attached_skills) else set()
     names = (set(card.tools.include) | locked_mouth | platform) & catalog_names
     apply_skills = bool(card.skills) or attached_skills is not None
     if apply_skills and (card.skills or attached_skills is not None):
@@ -178,9 +181,7 @@ def idle_offered_tools(
     )
     if not (card.skills or attached_skills):
         return [n for n in full if not n.startswith("ext.")]
-    allowed = (set(full) - SKILL_GATED_TOOLS) | (PLATFORM_SKILL_TOOLS & catalog_names) | _locked_mouth(
-        card, catalog_names
-    )
+    allowed = (set(full) - SKILL_GATED_TOOLS) | _locked_mouth(card, catalog_names)
     return [n for n in full if n in allowed and not n.startswith("ext.")]
 
 

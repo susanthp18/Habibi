@@ -244,6 +244,11 @@ class MouthTurn:
         # Appended, so the card's own tools keep the positions they had —
         # ordering is part of what the model sees.
         offered += sorted(base - set(offered))
+        # A connector tool is offered only through a pack that names it, so
+        # the grant holds only those: an `ext.*` name in the grant and in no
+        # offer could still execute on a name the model was never shown.
+        pack_ext = {n for p in (attached or []) for n in p.allowed_tools if n.startswith("ext.")}
+        allowed = {n for n in allowed if not n.startswith("ext.") or n in pack_ext}
         return ToolState(allowed=frozenset(allowed | base), offered=tuple(offered))
 
 

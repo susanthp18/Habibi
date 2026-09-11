@@ -182,6 +182,8 @@ def test_nothing_is_warned_about_when_the_registry_is_healthy(
         "agent_core.connectors.persist.get_connector",
         lambda _cid: {
             "status": "approved",
+            "allowedEnv": "both",
+            "allowPrefixes": ["ext.paylink."],
             "kind": "remote_mcp",
             "url": "https://paylink.example/mcp",
             "dataClass": ["money"],

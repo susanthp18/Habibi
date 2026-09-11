@@ -86,11 +86,11 @@ def _paylink_connector(db_tx, *, status: str, circuit_opened: bool = False) -> s
             """
             INSERT INTO mcp_connectors (
               id, tenant_id, slug, display_name, kind, allow_prefixes,
-              data_class, status, circuit_opened_at
+              data_class, status, allowed_env, circuit_opened_at
             ) VALUES (
               :id, :t, 'paylink', 'Pay Link', 'first_party',
               CAST('{ext.paylink.}' AS text[]), CAST('{pii}' AS text[]),
-              :status, CASE WHEN :open THEN now() ELSE NULL END
+              :status, 'both', CASE WHEN :open THEN now() ELSE NULL END
             )
             """
         ),

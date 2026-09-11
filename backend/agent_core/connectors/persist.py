@@ -229,7 +229,9 @@ def bound_tool_names(card_connectors: list[dict[str, Any]]) -> list[str]:
         conn = by_id.get(cid) or by_slug.get(cid)
         if not conn or conn["status"] != "approved":
             continue
-        prefixes = ref.get("allow_prefixes") or ref.get("allowPrefixes") or conn["allowPrefixes"]
+        prefixes = bound_prefixes(
+            ref.get("allow_prefixes") or ref.get("allowPrefixes"), conn["allowPrefixes"]
+        )
         if conn["kind"] == "first_party":
             for tool, slug in FIRST_PARTY_TOOLS.items():
                 if slug == conn["slug"] and any(tool.startswith(p) for p in prefixes):
@@ -243,12 +245,32 @@ def bound_tool_names(card_connectors: list[dict[str, Any]]) -> list[str]:
     return names
 
 
+def bound_prefixes(card_prefixes: Any, registry_prefixes: Any) -> list[str]:
+    """The prefixes a card may call on a connector: its own, inside the registry's.
+
+    The card's snapshot used to *override* the registry, so narrowing a
+    connector's prefixes after a card bound it revoked nothing. A card prefix
+    counts only when some registry prefix covers it; no card prefixes means
+    the registry's."""
+    registry = [str(p) for p in (registry_prefixes or []) if p]
+    mine = [str(p) for p in (card_prefixes or []) if p]
+    if not mine:
+        return registry
+    return [p for p in mine if any(p.startswith(r) for r in registry)]
+
+
+def env_allows(conn: dict[str, Any], env: str) -> bool:
+    allowed = str(conn.get("allowedEnv") or "sandbox")
+    return allowed == "both" or allowed == env
+
+
 def dispatch(
     name: str,
     *,
     customer_id: str,
     connector_id: str | None = None,
     args: dict[str, Any] | None = None,
+    env: str = "production",
 ) -> dict[str, Any]:
     """Call a bound connector tool.
 
@@ -258,6 +280,13 @@ def dispatch(
     ``customer_id`` was invoked with that parameter missing every single time.
     First-party tools keep their fixed one-argument signature; only the remote
     JSON-RPC leg carries the extra keys.
+
+    ``env`` is where the calling turn runs. ``allowed_env`` was written,
+    displayed and never read, so a sandbox-only connector dispatched in
+    production; and ``allow_prefixes`` was a bind-time filter only, so a name
+    outside the registry's prefixes ran if anything asked for it. Both are
+    checked here, at the point of execution, the way ``grant.may_execute``
+    does for catalog tools.
     """
     if not mcp_client_enabled():
         return {"ok": False, "error": "mcp_client_disabled"}
@@ -269,6 +298,10 @@ def dispatch(
         conn = get_connector(slug) if slug else None
     if not conn or conn["status"] != "approved":
         return {"ok": False, "error": "connector_not_bound"}
+    if not env_allows(conn, env):
+        return {"ok": False, "error": "connector_env_not_allowed"}
+    if not any(name.startswith(p) for p in conn.get("allowPrefixes") or []):
+        return {"ok": False, "error": "connector_prefix_not_bound"}
     if not circuit.allow({"circuit_opened_at": conn.get("circuitOpenedAt")}):
         return {"ok": False, "error": "connector_circuit_open"}
     # First-party tools read the same CRM the bot already reads, but they read

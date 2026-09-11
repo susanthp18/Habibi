@@ -38,6 +38,8 @@ def _card_with_connector() -> dict:
 def _healthy_connector(_cid: str) -> dict:
     return {
         "status": "approved",
+        "allowedEnv": "both",
+        "allowPrefixes": ["ext.paylink."],
         "kind": "remote_mcp",
         "url": "https://paylink.example/mcp",
         "dataClass": ["money"],

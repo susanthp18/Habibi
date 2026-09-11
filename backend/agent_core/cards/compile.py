@@ -1288,6 +1288,13 @@ def compile_card(
                 continue
             if conn["status"] != "approved":
                 g10_issues.append({"not_approved": ref.connector_id})
+            # Publish is production: a sandbox-only connector fails here, not
+            # on the first live call.
+            if str(conn.get("allowedEnv") or "sandbox") not in ("both", "production"):
+                g10_issues.append({"env_not_allowed": ref.connector_id})
+            outside = [p for p in prefixes if not any(p.startswith(r) for r in conn.get("allowPrefixes") or [])]
+            if outside:
+                g10_issues.append({"prefix_outside_registry": ref.connector_id, "prefixes": outside})
             if conn["kind"] == "remote_mcp":
                 url = str(conn.get("url") or "")
                 if not url.startswith("https://"):

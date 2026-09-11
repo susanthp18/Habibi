@@ -140,6 +140,9 @@ class ToolContext:
         # from the environment's BOT_ID, which is a different question and, on
         # a clone-card deployment, a different answer.
         self.agent_card: dict[str, Any] | None = None
+        # Where this turn runs. Connectors are bound to an environment and
+        # `dispatch` refuses one that is not allowed here.
+        self.environment: str = "production"
 
 
 def _identity_ok(ctx: "ToolContext") -> bool:
@@ -171,7 +174,7 @@ def _tool_get_customer_context(ctx: ToolContext, args: dict[str, Any]) -> dict[s
         # with no payLink, the same shape as MCP being switched off.
         from agent_core.connectors.persist import dispatch
 
-        pay = dispatch("ext.paylink.get_status", customer_id=ctx.customer_id)
+        pay = dispatch("ext.paylink.get_status", customer_id=ctx.customer_id, env=ctx.environment)
         if pay.get("ok") is not False and pay.get("status") and pay.get("status") != "none":
             out["payLink"] = pay
     except Exception:
@@ -864,7 +867,7 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
             # meant every remote MCP tool with a second parameter ran on its
             # defaults — the caller asked for one invoice and got whatever the
             # remote picked.
-            result = dispatch(name, customer_id=ctx.customer_id, args=args)
+            result = dispatch(name, customer_id=ctx.customer_id, args=args, env=ctx.environment)
             latency = int((time.perf_counter() - t0) * 1000)
             ok = not (isinstance(result, dict) and result.get("ok") is False)
             return ok, result, latency

@@ -1088,6 +1088,9 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             sentiment=sentiment,
         )
         tool_ctx.allowed_tools = tool_state.allowed
+        tool_ctx.environment = str(
+            (bundle.get("deployment") or {}).get("environment") or bot_jobs.bot_environment()
+        )
         tool_ctx.attached_skills = list(mouth.packs)
         tool_ctx.active_skill = mouth.active_slug
         # The handoff allowlist belongs to the card this turn is running, not

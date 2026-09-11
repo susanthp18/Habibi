@@ -107,6 +107,10 @@ def attach_connector_to_card(
     conn_row = get_connector(connector_id)
     if conn_row is None:
         raise KeyError("connector_not_found")
+    # Refused here, where the operator made the choice, rather than at the
+    # publish that G10 would have failed weeks later.
+    if conn_row.get("status") != "approved":
+        raise ValueError("connector_not_approved")
     prefixes = list(allow_prefixes or conn_row.get("allowPrefixes") or [])
     if any(not str(p).startswith("ext.") for p in prefixes):
         raise ValueError("connector_prefix_must_be_ext")

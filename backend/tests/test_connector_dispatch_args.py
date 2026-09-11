@@ -30,6 +30,8 @@ def _connector(url: str = "https://mcp.example.com") -> dict[str, Any]:
         "kind": "remote_mcp",
         "url": url,
         "status": "approved",
+        "allowedEnv": "both",
+        "allowPrefixes": ["ext.vendor."],
         "timeoutMs": 2500,
         "authRef": None,
         "circuitOpenedAt": None,
