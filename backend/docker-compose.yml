@@ -228,7 +228,7 @@ services:
       retries: 3
       start_period: 20s
 
-  bot_worker:
+  bot_worker: &bot-worker
     build:
       context: .
       dockerfile: Dockerfile
@@ -239,7 +239,7 @@ services:
     cap_drop: [ALL]
     env_file:
       - .env
-    environment:
+    environment: &bot-worker-env
       DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
       MINIO_ENDPOINT: minio:9000
       MINIO_SECURE: "false"
@@ -260,6 +260,42 @@ services:
       timeout: 3s
       retries: 3
       start_period: 20s
+
+  # --- Role-split workers (WP-039) --------------------------------------
+  # Same image and code as bot_worker, one role each, so the messaging SLO
+  # (a customer waiting on WhatsApp) never queues behind a treatment sweep.
+  # Off by default -- the single bot_worker above serves a laptop. Turn on:
+  #   docker compose --profile split-workers up -d --scale bot_worker=0
+  # Each role owns the queues agent_core/worker_roles.py names for it; the
+  # budget grows by 3+2 connections per role you start.
+  messaging_worker:
+    <<: *bot-worker
+    container_name: collections_messaging_worker
+    profiles: [split-workers]
+    environment:
+      <<: *bot-worker-env
+      BOT_WORKER_ROLE: messaging
+  dialer_worker:
+    <<: *bot-worker
+    container_name: collections_dialer_worker
+    profiles: [split-workers]
+    environment:
+      <<: *bot-worker-env
+      BOT_WORKER_ROLE: dialer
+  treatment_worker:
+    <<: *bot-worker
+    container_name: collections_treatment_worker
+    profiles: [split-workers]
+    environment:
+      <<: *bot-worker-env
+      BOT_WORKER_ROLE: treatment
+  integration_worker:
+    <<: *bot-worker
+    container_name: collections_integration_worker
+    profiles: [split-workers]
+    environment:
+      <<: *bot-worker-env
+      BOT_WORKER_ROLE: integration
 
   voice:
     build:

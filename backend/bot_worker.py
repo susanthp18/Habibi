@@ -169,6 +169,20 @@ def process_one_any() -> bool:
     return False
 
 
+#: Empty polls before the loop slows down. Twenty at the default 1.5 s is
+#: half a minute of nothing; a quiet queue then costs one query every
+#: ``IDLE_SLEEP_SECONDS`` instead of one every poll.
+IDLE_TICKS_BEFORE_BACKOFF = 20
+IDLE_SLEEP_SECONDS = 5.0
+
+
+def idle_sleep(idle_ticks: int, poll: float) -> float:
+    """How long to sleep after this many consecutive empty polls."""
+    if idle_ticks >= IDLE_TICKS_BEFORE_BACKOFF:
+        return max(poll, IDLE_SLEEP_SECONDS)
+    return poll
+
+
 def main() -> None:
     # Every audit row this process writes is a machine's, not the default
     # user's. Bound here, not at import: a test that imports the module must
@@ -232,6 +246,7 @@ def main() -> None:
     except (ValueError, OSError):
         pass
 
+    idle_ticks = 0
     while not stop:
         try:
             did = process_one_any()
@@ -239,6 +254,7 @@ def main() -> None:
             logger.exception("process_one crashed — backing off")
             time.sleep(args.poll)
             continue
+        idle_ticks = 0 if did else idle_ticks + 1
         if not did:
             # Idle tick. prewarm() is a no-op until PREWARM_IDLE_SECONDS have
             # passed, so this costs one tiny completion every few minutes and
@@ -248,7 +264,7 @@ def main() -> None:
                 azure_openai.prewarm()
             except Exception:
                 logger.debug("idle prewarm failed", exc_info=True)
-            time.sleep(args.poll)
+            time.sleep(idle_sleep(idle_ticks, args.poll))
 
 
 if __name__ == "__main__":
