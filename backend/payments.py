@@ -451,6 +451,24 @@ def allocate_to_promises(
     return applied
 
 
+def record_provider_payment(parsed: dict[str, Any]) -> dict[str, Any]:
+    """The PSP webhook's write, in its own transaction.
+
+    ``parsed`` is ``parse_webhook_payload``'s output. ``ValueError`` and
+    ``KeyError`` from ``record_payment`` propagate for the router to map.
+    """
+    import db as dbmod
+
+    with dbmod.engine.begin() as conn:
+        return record_payment(
+            conn,
+            intent_id=parsed.get("intent_id"),
+            public_token=parsed.get("public_token"),
+            amount=parsed["amount"],
+            provider_ref=parsed.get("provider_ref"),
+        )
+
+
 def open_hosted_intent(token: str) -> dict[str, Any] | None:
     """The hosted page's read: load the intent and mark it opened, one transaction."""
     import db as dbmod

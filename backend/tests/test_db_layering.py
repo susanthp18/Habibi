@@ -22,6 +22,7 @@ _PEELED_ROUTERS = (
     "routers/agent_studio.py",
     "routers/platform.py",
     "routers/payments.py",
+    "routers/webhooks.py",
 )
 
 

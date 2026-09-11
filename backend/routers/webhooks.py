@@ -36,7 +36,6 @@ from schemas import (
     WebhookEndpointUpsertRequest,
     WhatsAppWebhookResponse,
 )
-from typing import Any
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
@@ -64,18 +63,8 @@ async def payment_provider_webhook(provider: str, request: Request):
     if amount is None:
         raise HTTPException(status_code=400, detail="amount_required")
 
-    def _record() -> dict[str, Any]:
-        with db.engine.begin() as conn:
-            return payments.record_payment(
-                conn,
-                intent_id=parsed.get("intent_id"),
-                public_token=parsed.get("public_token"),
-                amount=amount,
-                provider_ref=parsed.get("provider_ref"),
-            )
-
     try:
-        return await asyncio.to_thread(_record)
+        return await asyncio.to_thread(payments.record_provider_payment, parsed)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
