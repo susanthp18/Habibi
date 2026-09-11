@@ -10,9 +10,7 @@
         "upsell": 20
       },
       "language": "English",
-      "fallbackLanguages": [
-        "Hindi"
-      ]
+      "fallbackLanguages": ["Hindi"]
     },
     "voice": {
       "voiceId": "priya",
@@ -24,14 +22,7 @@
       "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?"
     },
     "guardrails": {
-      "prohibited": [
-        "guarantee",
-        "police",
-        "arrest",
-        "threaten",
-        "family will pay",
-        "harassment"
-      ],
+      "prohibited": ["guarantee", "police", "arrest", "threaten", "family will pay", "harassment"],
       "escalateAbuse": true,
       "escalateLegal": true,
       "neverQuoteRate": true,

@@ -19,7 +19,8 @@ import { describe, expect, it } from "vitest";
 const apiDir = dirname(fileURLToPath(import.meta.url));
 
 /** Every import / re-export statement whose source is under src/data/, multi-line included. */
-const FROM_DATA = /^[ \t]*(?:import|export)\b[^;]*?\bfrom\s+["'](?:@\/data\/|\.\.\/data\/|\.\/data\/)[^;]*;/gm;
+const FROM_DATA =
+  /^[ \t]*(?:import|export)\b[^;]*?\bfrom\s+["'](?:@\/data\/|\.\.\/data\/|\.\/data\/)[^;]*;/gm;
 /** `import type { … }` or a `type X` specifier inside the braces. */
 const TYPE_IMPORT = /^[ \t]*import\s+type\b|^[ \t]*import\s*\{[^}]*\btype\s+\w/;
 

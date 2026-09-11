@@ -42,8 +42,7 @@ const TOGGLES: Array<{ key: keyof Guardrails; label: string; hint: string }> = [
   {
     key: "alwaysDiscloseRecording",
     label: "Always disclose recording",
-    hint:
-      "Voice only: instructs the bot to disclose once at the start, and flags the call if it has not by the bot's second turn. Not applied on WhatsApp, SMS or email",
+    hint: "Voice only: instructs the bot to disclose once at the start, and flags the call if it has not by the bot's second turn. Not applied on WhatsApp, SMS or email",
   },
   {
     key: "refusePoliticsReligion",

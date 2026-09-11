@@ -136,7 +136,9 @@ export function AgentGraphTab({
                         {n.reachability ? (
                           <Lozenge
                             tone={ROUTING[n.reachability]?.tone ?? "neutral"}
-                            title={ROUTING[n.reachability]?.help("the entry card") ?? n.reachability}
+                            title={
+                              ROUTING[n.reachability]?.help("the entry card") ?? n.reachability
+                            }
                           >
                             {n.reachability}
                           </Lozenge>

@@ -302,7 +302,12 @@ export async function apiUpload<T>(
         a.startsWith(".") ? name.endsWith(a.toLowerCase()) : value.type === a,
       );
       if (!ok) {
-        throw new ApiError("POST", path, 415, `${value.name} is not one of ${opts.accept.join(", ")}`);
+        throw new ApiError(
+          "POST",
+          path,
+          415,
+          `${value.name} is not one of ${opts.accept.join(", ")}`,
+        );
       }
     }
   }
